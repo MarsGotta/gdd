@@ -6,6 +6,7 @@
 node_modules/
 .opencode/node_modules/
 target/
+mutants.out*/
 dist/
 build/
 .env
