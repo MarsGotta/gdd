@@ -13,6 +13,8 @@
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
+# grep -c, not grep -q, after a pipe: -q stops reading at the first match, the writer gets
+# SIGPIPE and pipefail turns a passing check into a failure when the output is long.
 SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/var/tmp}/gdd-e2e.XXXXXX")"
 trap '[ -n "${KEEP:-}" ] || rm -rf "$TMP"' EXIT
@@ -40,29 +42,29 @@ bin/gdd selftest >/dev/null || fail "selftest"
 bin/gdd gate G0 ok --by machines >/dev/null
 # t0 · a Feature cannot be built before the red zones are approved (end of Discover)
 bin/gdd new-change t0 --title "Too early" --paths src/hello.txt >/dev/null
-git switch -q change/t0; (GDD_CHANGE=t0 bin/gdd prepare || true) | grep -q "Red zones not approved" || fail "t0 built before red zones"
+git switch -q change/t0; (GDD_CHANGE=t0 bin/gdd prepare || true) | grep -c "Red zones not approved" >/dev/null || fail "t0 built before red zones"
 git switch -q main
 bin/gdd gate zones ok --by human >/dev/null
 echo "OK t0 no Feature before the red zones are approved"
 # t1
 bin/gdd new-change t1 --title "Greeting" --paths src/hello.txt >/dev/null
-bin/gdd launch t1 | grep -q "completed" || fail "t1 did not finish"
+bin/gdd launch t1 | grep -c "completed" >/dev/null || fail "t1 did not finish"
 echo "OK t1 finishes on its own"
 # t2
 bin/gdd new-change t2 --title "Greeting with name" --paths features/greeting.feature >/dev/null
 git switch -q change/t2; printf 'Feature: greeting\n  Scenario: greets\n    Given a name\n' > features/greeting.feature
 git add -A; git commit -qm G1; bin/gdd gate G1 ok t2 --by human >/dev/null; git switch -q main
-bin/gdd launch t2 | grep -q "paused" || fail "t2 did not pause at G4"
-bin/gdd resume t2 --g4 ok | grep -q "completed" || fail "t2 did not finish after G4"
+bin/gdd launch t2 | grep -c "paused" >/dev/null || fail "t2 did not pause at G4"
+bin/gdd resume t2 --g4 ok | grep -c "completed" >/dev/null || fail "t2 did not finish after G4"
 echo "OK t2 pauses at G4 and continues with the OK"
 # t3
 bin/gdd new-change t3 --title "KO" --paths src/n.txt >/dev/null
-FAKE_VERDICT=KO bin/gdd launch t3 | grep -q "parkreviewend" || fail "t3 was not parked"
+FAKE_VERDICT=KO bin/gdd launch t3 > "$TMP/t3.out" 2>&1 || true; grep -q "parkreviewend" "$TMP/t3.out" || { tail -15 "$TMP/t3.out"; fail "t3 was not parked"; }
 echo "OK t3 is parked after two Reviewer KOs"
 git stash -u -q; git switch -q main
 # t4
 bin/gdd new-change t4 --title "Cheat" --paths src/n.txt >/dev/null
-FAKE_PROTECTED=1 bin/gdd launch t4 | grep -q "parkg2end" || fail "t4 was not parked"
+FAKE_PROTECTED=1 bin/gdd launch t4 | grep -c "parkg2end" >/dev/null || fail "t4 was not parked"
 grep -q "protected path" .gdd/changes/t4/g2.json || fail "t4 without Path Guard"
 echo "OK t4: Path Guard stops the Builder that touches the harness"
 # t5 · planned red paths keep the change red even if the branch only touched scenarios so far
@@ -74,7 +76,7 @@ echo "OK t5 planned red paths keep the color"
 # t6 · a relaunch clears earlier requests from the inbox
 bin/gdd new-change t6 --title "Stale request" --paths src/t6.txt >/dev/null
 bin/gdd note t6 needs "STALE-REQUEST" >/dev/null
-bin/gdd launch t6 | grep -q "completed" || fail "t6 did not finish"
+bin/gdd launch t6 | grep -c "completed" >/dev/null || fail "t6 did not finish"
 grep -q "STALE-REQUEST" .gdd/changes/t6/inbox.md && fail "t6 inbox still shows a resolved request"
 grep -q "resolved before the last launch" .gdd/changes/t6/inbox.md || fail "t6 inbox does not count resolved requests"
 echo "OK t6 a relaunch clears earlier requests from the inbox"
@@ -86,13 +88,13 @@ git stash -u -q; git switch -q main
 echo "OK t7 a higher-color path outside the package fails G2 (scope)"
 # t8 · the fault is in the test-mode steps: the replan sends the change back to test mode
 bin/gdd new-change t8 --title "Step bug" --paths src/hello.txt src/n.txt >/dev/null
-FAKE_STEP_BUG=1 FAKE_REPLAN_NEXT=test bin/gdd launch t8 | grep -q "completed" || fail "t8 did not finish after going back to test mode"
+FAKE_STEP_BUG=1 FAKE_REPLAN_NEXT=test bin/gdd launch t8 | grep -c "completed" >/dev/null || fail "t8 did not finish after going back to test mode"
 grep -q "gdd-build-test.*after=replan" "$FAKELOG" || fail "t8 never went back to test mode"
 grep -q "accepted by rule" .gdd/changes/t8/inbox.md || fail "t8 inbox does not list accepted out-of-package paths"
 echo "OK t8 the replan sends a step bug back to test mode"
 # t9 · a relaunch whose code is already green skips the Builder
 bin/gdd new-change t9 --title "Relaunch" --paths src/hello.txt src/n.txt >/dev/null
-FAKE_VERDICT=KO bin/gdd launch t9 | grep -q "parkreviewend" || fail "t9 was not parked"
+FAKE_VERDICT=KO bin/gdd launch t9 | grep -c "parkreviewend" >/dev/null || fail "t9 was not parked"
 N=$(grep -c "gdd-build" "$FAKELOG")
 bin/gdd launch t9 > "$TMP/t9.out" 2>&1 || true; grep -q "completed" "$TMP/t9.out" || { tail -20 "$TMP/t9.out"; fail "t9 relaunch did not finish"; }
 [ "$(grep -c "gdd-build" "$FAKELOG")" = "$N" ] || fail "t9 relaunch called the Builder again"
