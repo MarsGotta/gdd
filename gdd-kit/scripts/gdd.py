@@ -236,7 +236,9 @@ def count_scenarios(root: Path | None = None) -> int:
 
 def decide(c: str) -> dict:
     d = load_change(c)
-    paths = changed(c)
+    # Planned paths always count: a branch that only touched scenarios so far must not
+    # look greener than the change it will become.
+    paths = sorted(set(changed(c)) | set(d.get("paths", [])))
     color, reasons = color_of(paths)
     if d.get("min_color") and COLORS.index(d["min_color"]) > COLORS.index(color):
         color = d["min_color"]; reasons.append(f"declared minimum color: {color}")
