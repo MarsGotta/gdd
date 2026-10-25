@@ -393,7 +393,9 @@ dependencies = [
 name = "gdd"
 version = "0.0.1"
 dependencies = [
+ "clap",
  "gdd-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -402,7 +404,9 @@ version = "0.0.1"
 dependencies = [
  "cucumber",
  "futures",
+ "gdd",
  "gdd-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -410,6 +414,7 @@ name = "gdd-core"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
  "toml",
 ]
 
