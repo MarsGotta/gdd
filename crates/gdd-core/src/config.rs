@@ -55,29 +55,13 @@ impl fmt::Display for Lane {
     }
 }
 
-impl FromStr for Lane {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Error> {
-        match s {
-            "fast" => Ok(Lane::Fast),
-            "full" => Ok(Lane::Full),
-            other => Err(Error::UnknownLane(other.to_string())),
-        }
-    }
-}
-
-/// Everything that can go wrong when reading the zone map or the rules table, or classifying.
+/// Everything that can go wrong when reading the zone map or the rules table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The text is not valid TOML or does not have the expected shape.
     Toml(String),
     /// A color other than green, yellow or red.
     UnknownColor(String),
-    /// A lane other than fast or full.
-    UnknownLane(String),
-    /// The rules table has no entry for this color and lane.
-    MissingRule(Color, Lane),
 }
 
 impl fmt::Display for Error {
@@ -86,13 +70,6 @@ impl fmt::Display for Error {
             Error::Toml(message) => write!(f, "invalid TOML: {message}"),
             Error::UnknownColor(name) => {
                 write!(f, "unknown color \"{name}\" (use green, yellow or red)")
-            }
-            Error::UnknownLane(name) => write!(f, "unknown lane \"{name}\" (use fast or full)"),
-            Error::MissingRule(color, lane) => {
-                write!(
-                    f,
-                    "the rules table has no rule for {color} in the {lane} lane"
-                )
             }
         }
     }
@@ -111,13 +88,16 @@ mod tests {
     }
 
     #[test]
-    fn colors_and_lanes_round_trip_through_text() {
+    fn colors_round_trip_through_text() {
         for c in [Color::Green, Color::Yellow, Color::Red] {
             assert_eq!(c.to_string().parse::<Color>(), Ok(c));
         }
-        for l in [Lane::Fast, Lane::Full] {
-            assert_eq!(l.to_string().parse::<Lane>(), Ok(l));
-        }
+    }
+
+    #[test]
+    fn lanes_print_their_name() {
+        assert_eq!(Lane::Fast.to_string(), "fast");
+        assert_eq!(Lane::Full.to_string(), "full");
     }
 
     #[test]

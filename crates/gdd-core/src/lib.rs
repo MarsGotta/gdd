@@ -11,12 +11,6 @@ pub use config::{Color, Error, Lane};
 pub use rules::RulesTable;
 pub use zones::ZoneMap;
 
-/// Folder of the acceptance scenarios (`.feature` files).
-const SCENARIOS_DIR: &str = "features";
-
-/// Folder inside it whose scenarios do not need approval (G1).
-const REGRESSION_DIR: &str = "features/regression";
-
 /// Version of the `gdd` tool.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -61,44 +55,45 @@ pub struct Classification {
     pub human_plan: bool,
 }
 
-/// Whether `path` is a scenario file that needs approval (not a regression one).
-fn is_scenario(path: &str) -> bool {
-    path.ends_with(".feature")
-        && path.starts_with(&format!("{SCENARIOS_DIR}/"))
-        && !path.starts_with(&format!("{REGRESSION_DIR}/"))
-}
-
 /// Classifies a change: the highest color among its paths (or the default color when it has
 /// none), raised to its declared minimum, then the lane and gates the rules table gives it.
+/// Paths are taken sorted and without repeats; the scenario folders come from the table.
+/// Classifying itself does not fail: the errors come from reading the zone map and the table.
 pub fn classify(
     zones: &ZoneMap,
     table: &RulesTable,
     change: &Change,
 ) -> Result<Classification, Error> {
-    let mut color = zones.default;
+    let mut paths = change.paths.clone();
+    paths.sort();
+    paths.dedup();
+
     let mut reasons = Vec::new();
-    if change.paths.is_empty() {
-        reasons.push("no paths: default color".to_string());
-    } else {
-        let colors: Vec<Color> = change.paths.iter().map(|p| zones.color_of(p)).collect();
-        for (path, c) in change.paths.iter().zip(&colors) {
-            reasons.push(format!("{path} -> {c}"));
-        }
-        color = colors.into_iter().max().unwrap_or(color);
+    let mut highest = None;
+    for path in &paths {
+        let (c, why) = match zones.zone_of(path) {
+            Some(zone) => (zone.color, zone.reason.as_str()),
+            None => (zones.default, "no zone: default color"),
+        };
+        reasons.push(format!("{path} -> {c} ({why})"));
+        highest = highest.max(Some(c));
     }
+    let mut color = match highest {
+        Some(c) => c,
+        None => {
+            reasons.push("no paths: default color".to_string());
+            zones.default
+        }
+    };
     if let Some(min) = change.min_color.filter(|&min| min > color) {
         color = min;
         reasons.push(format!("declared minimum color: {color}"));
     }
 
-    let mut features: Vec<String> = change
-        .paths
-        .iter()
-        .filter(|p| is_scenario(p))
-        .cloned()
+    let features: Vec<String> = paths
+        .into_iter()
+        .filter(|p| table.acceptance.needs_approval(p))
         .collect();
-    features.sort();
-    features.dedup();
     let g1 = !features.is_empty();
 
     let lane = if color != Color::Red && !g1 && change.resumable {
@@ -106,14 +101,14 @@ pub fn classify(
     } else {
         Lane::Full
     };
-    let rule = table.rule(color, lane)?;
+    let rule = table.rule(color, lane);
     Ok(Classification {
         color,
         lane,
         reasons,
         g1,
         features,
-        tests_first: rule.tests_first && (g1 || color != Color::Green),
+        tests_first: rule.tests_first.unwrap_or(g1) && (g1 || color != Color::Green),
         mutation: rule.mutation,
         reviewer: rule.reviewer,
         g4: color == Color::Red || (g1 && rule.g4_if_g1),
@@ -147,15 +142,6 @@ mod tests {
     }
 
     #[test]
-    fn regression_scenarios_are_not_scenarios_to_approve() {
-        assert!(is_scenario("features/a.feature"));
-        assert!(is_scenario("features/sub/a.feature"));
-        assert!(!is_scenario("features/regression/a.feature"));
-        assert!(!is_scenario("features/a.txt"));
-        assert!(!is_scenario("other/a.feature"));
-    }
-
-    #[test]
     fn green_fast_skips_everything() {
         let c = classify(
             &zones(),
@@ -169,15 +155,58 @@ mod tests {
 
     #[test]
     fn green_with_scenarios_writes_tests_first() {
+        let zones = ZoneMap::from_toml(
+            "[[zone]]\ncolor = \"green\"\npaths = [\"docs/**\", \"features/**\"]\n",
+        )
+        .unwrap();
         let c = classify(
-            &zones(),
+            &zones,
             &rules::default_table(),
             &change(&["docs/a.md", "features/a.feature"], true),
         )
         .unwrap();
-        assert_eq!(c.lane, Lane::Full);
+        assert_eq!((c.color, c.lane), (Color::Green, Lane::Full));
         assert!(c.tests_first && c.g1 && c.g4 && c.reviewer);
         assert_eq!(c.features, vec!["features/a.feature".to_string()]);
+    }
+
+    #[test]
+    fn yellow_without_scenarios_writes_tests_first_without_g4() {
+        let ch = change(&["x.rs"], false);
+        let c = classify(&zones(), &rules::default_table(), &ch).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Yellow, Lane::Full));
+        assert!(c.tests_first && c.mutation && c.reviewer);
+        assert!(!c.g1 && !c.g4 && !c.human_plan);
+    }
+
+    #[test]
+    fn red_travels_full_with_the_human() {
+        let mut ch = change(&["x.rs"], true);
+        ch.min_color = Some(Color::Red);
+        let c = classify(&zones(), &rules::default_table(), &ch).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Red, Lane::Full));
+        assert!(c.tests_first && c.g4 && c.human_plan);
+        assert!(!c.g1);
+    }
+
+    #[test]
+    fn the_rule_decides_whether_tests_go_first() {
+        let table = RulesTable::from_toml("[color.yellow.full]\ntests_first = false\n").unwrap();
+        let c = classify(&zones(), &table, &change(&["x.rs"], false)).unwrap();
+        assert_eq!(c.color, Color::Yellow);
+        assert!(!c.tests_first);
+    }
+
+    #[test]
+    fn a_minimum_equal_to_the_color_adds_no_reason() {
+        let mut ch = change(&["x.rs"], true);
+        ch.min_color = Some(Color::Yellow);
+        let c = classify(&zones(), &rules::default_table(), &ch).unwrap();
+        assert_eq!(c.color, Color::Yellow);
+        assert_eq!(
+            c.reasons,
+            vec!["x.rs -> yellow (no zone: default color)".to_string()]
+        );
     }
 
     #[test]
@@ -193,11 +222,75 @@ mod tests {
     }
 
     #[test]
-    fn a_table_without_the_rule_is_an_error() {
-        let empty = RulesTable::from_toml("").unwrap();
+    fn reasons_follow_sorted_paths_without_repeats() {
+        let zones = ZoneMap::from_toml(
+            "[[zone]]\ncolor = \"green\"\npaths = [\"docs/**\"]\nreason = \"Documentation\"\n",
+        )
+        .unwrap();
+        let ch = change(&["x.rs", "docs/a.md", "x.rs"], true);
+        let c = classify(&zones, &rules::default_table(), &ch).unwrap();
         assert_eq!(
-            classify(&zones(), &empty, &change(&["x.rs"], false)),
-            Err(Error::MissingRule(Color::Yellow, Lane::Full))
+            c.reasons,
+            vec![
+                "docs/a.md -> green (Documentation)".to_string(),
+                "x.rs -> yellow (no zone: default color)".to_string(),
+            ]
         );
+    }
+
+    #[test]
+    fn no_paths_and_a_raised_minimum_are_explained() {
+        let mut ch = change(&[], true);
+        ch.min_color = Some(Color::Red);
+        let c = classify(&zones(), &rules::default_table(), &ch).unwrap();
+        assert_eq!(
+            c.reasons,
+            vec![
+                "no paths: default color".to_string(),
+                "declared minimum color: red".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_path_in_a_lower_zone_lowers_the_default() {
+        let c = classify(
+            &zones(),
+            &rules::default_table(),
+            &change(&["docs/a.md"], false),
+        )
+        .unwrap();
+        assert_eq!((c.color, c.lane), (Color::Green, Lane::Full));
+        // Green writes tests first only with new scenarios, whatever its rule says.
+        assert!(!c.tests_first);
+    }
+
+    #[test]
+    fn a_table_without_the_color_takes_the_defaults() {
+        let empty = RulesTable::from_toml("").unwrap();
+        let c = classify(&zones(), &empty, &change(&["x.rs"], false)).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Yellow, Lane::Full));
+        assert!(c.reviewer);
+        assert!(!c.tests_first && !c.mutation && !c.g1 && !c.g4);
+        let c = classify(
+            &zones(),
+            &empty,
+            &change(&["x.rs", "features/a.feature"], false),
+        )
+        .unwrap();
+        assert!(c.g1 && c.tests_first && c.g4 && c.reviewer);
+        assert!(!c.mutation);
+    }
+
+    #[test]
+    fn the_scenario_folders_come_from_the_rules_table() {
+        let table = RulesTable::from_toml("[acceptance]\ndir = \"specs\"\n").unwrap();
+        let c = classify(&zones(), &table, &change(&["specs/a.feature"], true)).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Yellow, Lane::Full));
+        assert!(c.g1 && c.g4);
+        assert_eq!(c.features, vec!["specs/a.feature".to_string()]);
+        let c = classify(&zones(), &table, &change(&["features/a.feature"], true)).unwrap();
+        assert_eq!(c.lane, Lane::Fast);
+        assert!(!c.g1 && c.features.is_empty());
     }
 }

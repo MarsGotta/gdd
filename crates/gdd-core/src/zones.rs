@@ -77,6 +77,8 @@ pub struct Zone {
     pub color: Color,
     /// Glob patterns, see [`glob_matches`].
     pub paths: Vec<String>,
+    /// Why these paths have this color (empty when the map does not say).
+    pub reason: String,
 }
 
 /// The zone map: a default color and the zones that override it.
@@ -100,6 +102,8 @@ struct RawZone {
     color: Option<String>,
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    reason: String,
 }
 
 impl ZoneMap {
@@ -123,20 +127,26 @@ impl ZoneMap {
                 Ok(Zone {
                     color,
                     paths: z.paths,
+                    reason: z.reason,
                 })
             })
             .collect::<Result<_, Error>>()?;
         Ok(ZoneMap { default, zones })
     }
 
-    /// Color of one path: the highest color among the zones that match it, or the default.
-    pub fn color_of(&self, path: &str) -> Color {
+    /// The zone that decides the color of one path: among the zones that match it, the first
+    /// one with the highest color. `None` when no zone matches.
+    pub fn zone_of(&self, path: &str) -> Option<&Zone> {
         self.zones
             .iter()
             .filter(|z| z.paths.iter().any(|p| glob_matches(p, path)))
-            .map(|z| z.color)
-            .max()
-            .unwrap_or(self.default)
+            .rev()
+            .max_by_key(|z| z.color)
+    }
+
+    /// Color of one path: the highest color among the zones that match it, or the default.
+    pub fn color_of(&self, path: &str) -> Color {
+        self.zone_of(path).map_or(self.default, |z| z.color)
     }
 }
 
@@ -157,6 +167,13 @@ mod tests {
         assert!(glob_matches("docs/**", "docs/a/b/c.txt"));
         assert!(glob_matches("docs/**", "docs/a.txt"));
         assert!(!glob_matches("docs/**", "other/docs/a.txt"));
+    }
+
+    #[test]
+    fn two_stars_inside_a_name_cross_folders_and_keep_what_follows() {
+        assert!(glob_matches("docs/**.md", "docs/a/b.md"));
+        assert!(glob_matches("docs/**.md", "docs/.md"));
+        assert!(!glob_matches("docs/**.md", "docs/a/b.txt"));
     }
 
     #[test]
@@ -207,6 +224,30 @@ mod tests {
         assert_eq!(map.color_of("src/secret/key.rs"), Color::Red);
         assert_eq!(map.color_of("src/a.rs"), Color::Green);
         assert_eq!(map.color_of("other.rs"), Color::Yellow);
+    }
+
+    #[test]
+    fn the_first_zone_with_the_highest_color_decides() {
+        let map = ZoneMap::from_toml(
+            r#"
+            [[zone]]
+            color = "green"
+            paths = ["src/**"]
+            reason = "code"
+            [[zone]]
+            color = "red"
+            paths = ["src/a/**"]
+            reason = "first red"
+            [[zone]]
+            color = "red"
+            paths = ["src/a/b.rs"]
+            reason = "second red"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(map.zone_of("src/a/b.rs").unwrap().reason, "first red");
+        assert_eq!(map.zone_of("src/c.rs").unwrap().reason, "code");
+        assert_eq!(map.zone_of("other.rs"), None);
     }
 
     #[test]
