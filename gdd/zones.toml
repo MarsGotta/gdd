@@ -25,7 +25,7 @@ reason = "Dependencies and toolchain: supply chain"
 
 [[zone]]
 color = "red"
-paths = ["crates/gdd-core/src/zones.rs", "crates/gdd-core/src/rules.rs", "crates/gdd-core/src/gates/**", "crates/gdd-core/src/guard.rs"]
+paths = ["crates/gdd-core/src/classify.rs", "crates/gdd-core/src/zones.rs", "crates/gdd-core/src/rules.rs", "crates/gdd-core/src/gates/**", "crates/gdd-core/src/guard.rs"]
 reason = "Gate integrity: the color and the rules decide which gates run; gates and Path Guard decide what passes"
 
 [[zone]]
