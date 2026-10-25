@@ -8,6 +8,8 @@ publish = false
 
 [dev-dependencies]
 gdd-core = { path = "../gdd-core" }
+gdd = { path = "../gdd" }
+serde_json = "1"
 cucumber = "0.23"
 futures = "0.3"
 

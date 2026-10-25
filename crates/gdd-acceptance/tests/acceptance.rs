@@ -6,7 +6,10 @@
 //! Steps talk to `gdd-core`, never to the terminal UI.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cucumber::{World, given, then, when};
 
@@ -15,6 +18,8 @@ pub struct GddWorld {
     output: String,
     zone_map: String,
     outcome: Option<Outcome>,
+    project: Option<TempDir>,
+    ran: Option<Ran>,
 }
 
 #[given("the gdd tool")]
@@ -129,6 +134,238 @@ fn it_needs(w: &mut GddWorld, verb: String, what: String) {
         other => panic!("unknown requirement {other:?}"),
     };
     assert_eq!(actual, verb == "needs", "it {verb} {what}");
+}
+
+// ---- features/report.feature and features/cli-classify.feature -----------------------------
+//
+// API of the `gdd` crate these steps expect (the Builder in build mode implements it):
+// - `gdd::run(args: &[String], cwd: &Path) -> gdd::Outcome`, where `args` are the words after
+//   the program name (`["report", "--by", "role"]`) and `Outcome { code, stdout, stderr }`
+//   has `code` comparable to an integer and `stdout`/`stderr` as `String`.
+// Every project is a temporary folder: `gdd/project.toml` marks its root.
+
+/// A temporary folder, removed when dropped.
+#[derive(Debug)]
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> Self {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let path = std::env::temp_dir().join(format!(
+            "gdd-acceptance-{}-{nanos}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&path).expect("a temporary folder");
+        Self(path)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// What the last `gdd` run did.
+#[derive(Debug)]
+struct Ran {
+    succeeded: bool,
+    stdout: String,
+    stderr: String,
+}
+
+fn write_file(path: &Path, content: &str) {
+    fs::create_dir_all(path.parent().expect("a file inside a folder")).expect("a folder");
+    fs::write(path, content).expect("a written file");
+}
+
+/// The project root of the scenario, created on first use with its `gdd/project.toml`.
+fn project_root(w: &mut GddWorld) -> PathBuf {
+    let dir = w.project.get_or_insert_with(|| {
+        let dir = TempDir::new();
+        write_file(
+            &dir.0.join("gdd/project.toml"),
+            "name = \"demo\"\nlanguage = \"en\"\n",
+        );
+        dir
+    });
+    dir.0.clone()
+}
+
+fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
+    let args: Vec<String> = command
+        .split_whitespace()
+        .skip_while(|word| *word == "gdd")
+        .map(str::to_string)
+        .collect();
+    let out = gdd::run(&args, cwd);
+    w.ran = Some(Ran {
+        succeeded: out.code == 0,
+        stdout: out.stdout,
+        stderr: out.stderr,
+    });
+}
+
+fn last_run(w: &GddWorld) -> &Ran {
+    w.ran.as_ref().expect("gdd was run")
+}
+
+fn stdout_json(w: &GddWorld) -> serde_json::Value {
+    let ran = last_run(w);
+    serde_json::from_str(&ran.stdout)
+        .unwrap_or_else(|e| panic!("the output is not JSON ({e}): {:?}", ran.stdout))
+}
+
+#[given(expr = "a GDD project with the log:")]
+fn project_with_log(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let log = step.docstring.clone().expect("a log docstring");
+    write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
+}
+
+#[given(regex = r#"^the log line (\d+) is replaced by "(.*)"$"#)]
+fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
+    let path = project_root(w).join(".gdd/log.jsonl");
+    let log = fs::read_to_string(&path).expect("a log to edit");
+    let mut lines: Vec<&str> = log.lines().collect();
+    assert!(number >= 1 && number <= lines.len(), "no log line {number}");
+    lines[number - 1] = &text;
+    write_file(&path, &format!("{}\n", lines.join("\n")));
+}
+
+#[given(expr = "a GDD project with the zone map:")]
+fn project_with_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let zones = step.docstring.clone().expect("a zone map docstring");
+    write_file(&root.join("gdd/zones.toml"), &format!("{zones}\n"));
+}
+
+#[given("the project's rules table is the default one")]
+fn project_default_rules(w: &mut GddWorld) {
+    let root = project_root(w);
+    write_file(
+        &root.join("gdd/rules.toml"),
+        &fs::read_to_string(repo_root().join("gdd/rules.toml")).expect("the repository's rules"),
+    );
+}
+
+#[given(regex = r#"^the planned change "([^"]+)" touches (.*)$"#)]
+fn planned_change(w: &mut GddWorld, id: String, text: String) {
+    let change = parse_change(&text);
+    let record = serde_json::json!({
+        "id": id,
+        "title": id,
+        "paths": change.paths,
+        "resumable": change.resumable,
+        "min_color": change.min_color.map(|c| c.to_string()),
+        "state": "open",
+        "gates": {},
+        "inbox": [],
+    });
+    let path = project_root(w).join(format!(".gdd/changes/{id}/change.json"));
+    write_file(&path, &record.to_string());
+}
+
+#[when(expr = "I run {string}")]
+fn i_run(w: &mut GddWorld, command: String) {
+    let root = project_root(w);
+    run_gdd(w, &command, &root);
+}
+
+#[when(expr = "I run {string} from the folder {string}")]
+fn i_run_from(w: &mut GddWorld, command: String, folder: String) {
+    let cwd = project_root(w).join(folder);
+    fs::create_dir_all(&cwd).expect("the folder");
+    run_gdd(w, &command, &cwd);
+}
+
+#[when(expr = "I run {string} outside any GDD project")]
+fn i_run_outside(w: &mut GddWorld, command: String) {
+    let outside = TempDir::new();
+    run_gdd(w, &command, &outside.0);
+}
+
+#[then("it succeeds")]
+fn it_succeeds(w: &mut GddWorld) {
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+}
+
+#[then(expr = "it fails with a message that contains {string}")]
+fn it_fails(w: &mut GddWorld, text: String) {
+    let ran = last_run(w);
+    assert!(
+        !ran.succeeded,
+        "gdd should fail, it printed {:?}",
+        ran.stdout
+    );
+    assert!(
+        ran.stderr.contains(&text),
+        "the message {:?} does not contain {text:?}",
+        ran.stderr
+    );
+}
+
+#[then("the output is:")]
+fn output_is(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    let expected = step.docstring.as_deref().expect("an output docstring");
+    assert_eq!(ran.stdout.trim_end(), expected.trim_end());
+}
+
+#[then(expr = "the output contains {string}")]
+fn output_contains(w: &mut GddWorld, text: String) {
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    assert!(
+        ran.stdout.contains(&text),
+        "the output {:?} does not contain {text:?}",
+        ran.stdout
+    );
+}
+
+#[then(expr = "the output is a JSON list of {int} entries")]
+fn output_json_list(w: &mut GddWorld, count: usize) {
+    let value = stdout_json(w);
+    let list = value.as_array().expect("a JSON list");
+    assert_eq!(list.len(), count, "entries in {value}");
+}
+
+#[then(expr = "the entry with {string} {string} has {string} {int} and {string} {int}")]
+fn entry_has(
+    w: &mut GddWorld,
+    key: String,
+    value: String,
+    first: String,
+    first_value: i64,
+    second: String,
+    second_value: i64,
+) {
+    let json = stdout_json(w);
+    let entry = json
+        .as_array()
+        .expect("a JSON list")
+        .iter()
+        .find(|e| e[&key].as_str() == Some(value.as_str()))
+        .unwrap_or_else(|| panic!("no entry with {key} {value:?} in {json}"));
+    for (field, expected) in [(first, first_value), (second, second_value)] {
+        assert_eq!(entry[&field].as_i64(), Some(expected), "{field} in {entry}");
+    }
+}
+
+#[then(regex = r#"^the JSON field "([^"]+)" is (.+)$"#)]
+fn json_field_is(w: &mut GddWorld, field: String, literal: String) {
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    let expected: serde_json::Value =
+        serde_json::from_str(&literal).expect("a JSON literal in the step");
+    let json = stdout_json(w);
+    assert_eq!(json.get(&field), Some(&expected), "field {field} in {json}");
 }
 
 fn repo_root() -> PathBuf {
