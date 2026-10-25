@@ -37,7 +37,7 @@ These become red zones at the end of Discover, once there are real folders:
 
 ## MVP and kill rule
 
-To be decided in Discover.
+MVP: CLI with parity with the bootstrap kit plus a minimal TUI, enough to run the Vivarium pilot with `gdd`. Kill rule: if `gdd` spends more tokens or asks for more human stops than the bootstrap kit on the same kind of change, stop and review. Details: `docs/discover/2026-10-24-mvp.md`.
 
 ## Open questions
 
