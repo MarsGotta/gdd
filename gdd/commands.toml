@@ -19,7 +19,7 @@ acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 cargo test -p gdd-acceptance --loc
 security = "cargo deny --locked check advisories bans sources"   # known vulnerabilities, banned crates, unknown sources
 dependencies = "cargo deny --locked check licenses"
 quality = ""          # clippy in G2 covers it for now; Learn may add more
-mutation = "git add -A --intent-to-add && git diff main > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --no-shuffle -j 2"   # only in yellow and red
+mutation = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --no-shuffle -j 2"   # only in yellow and red
 
 [release]
 simulated = true      # no real pre/production yet: empty steps pass and are logged as simulated
