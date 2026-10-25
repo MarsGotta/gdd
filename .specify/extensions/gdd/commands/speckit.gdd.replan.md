@@ -20,6 +20,9 @@ It contains `change=<id>`.
 2. Decide the cause: task too big, package with too little context, wrong approach or a harness problem.
 3. Write `.gdd/changes/<id>/replan.md`: the cause in one sentence and the new approach in concrete steps. If the package fell short, extend it with just what is needed.
 4. If the cause is the harness or something only the human can decide, do not fix it: `bin/gdd note <id> needs "..."`.
+5. End `replan.md` with exactly one of these lines:
+   - `NEXT: test` when the cause is in the steps or tests written in test mode (never the approved `.feature` files): a test-mode round fixes them first, then the build round runs.
+   - `NEXT: build` otherwise.
 
 ## What you never do
 

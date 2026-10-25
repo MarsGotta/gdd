@@ -330,13 +330,19 @@ def c_prepare(a) -> None:
         exit_json({"ok": False, "reason": "Reviewer and Builder are the same model family: edit gdd/models.toml."}, 1)
     if git("rev-parse", "--abbrev-ref", "HEAD") != branch(c):
         exit_json({"ok": False, "reason": f"Not on branch {branch(c)}. Launch the change with bin/gdd launch {c}."}, 1)
+    # A relaunch whose code already passes G2 skips the Builder: it would only spend tokens.
+    built_before = LOG.exists() and any(
+        json.loads(line).get("change") == c and json.loads(line).get("role") == "builder-build"
+        for line in LOG.open() if line.strip())
+    d["resume_green"] = bool(built_before and check(c, "G2", None)["ok"])
     dd = load_change(c); dd["decision"] = d; dd["state"] = "building"
     # A (re)launch means the Orchestrator dealt with earlier requests: they leave the inbox.
     for n in dd.get("inbox", []):
         if n.get("kind") == "needs" and not n.get("resolved"):
             n["resolved"] = now()
     dd["build_start"] = git("rev-parse", "HEAD"); save_change(c, dd)
-    log(change=c, phase="2-build", role="machine", result="prepared", note=f"{d['color']} · {d['lane']}")
+    log(change=c, phase="2-build", role="machine", result="prepared",
+        note=f"{d['color']} · {d['lane']}" + (" · G2 already green: Builder skipped" if d["resume_green"] else ""))
     exit_json({"ok": True, **d})
 
 
@@ -351,13 +357,19 @@ def run_cmd(name: str, cmd: str, c: str, extra_env: dict | None = None, timeout:
     return {"name": name, "ok": code == 0, "code": code, "duration_s": round(time.time() - t0, 1), "tail": out[-3000:]}
 
 
-def guard_failures(c: str, role: str) -> list[str]:
+def guard_failures(c: str, role: str, since_snapshot: bool = False) -> list[str]:
     prot = cfg("rules").get("protected", {})
     patterns = list(prot.get("all", [])) + list(prot.get(role.replace("-", "_"), []))
     since = load_change(c).get("build_start")
     if not since:
         return [f"Change {c} has not been prepared: Path Guard has no starting point."]
-    fails = [f"{p}: protected path for {role}" for p in changed(c, since) if matches(p, patterns)]
+    touched = changed(c, since)
+    snap = CHANGES / c / "snapshot.json"
+    if since_snapshot and snap.exists():
+        before = json.loads(snap.read_text())
+        now_ = snapshot_hashes(c)
+        touched = [p for p in touched if now_.get(p) != before.get(p)]
+    fails = [f"{p}: protected path for {role}" for p in touched if matches(p, patterns)]
     g1 = load_change(c).get("gates", {}).get("G1", {})
     for f, h in g1.get("hashes", {}).items():
         p = ROOT / f
@@ -367,9 +379,69 @@ def guard_failures(c: str, role: str) -> list[str]:
     return fails
 
 
+def scope_check(c: str) -> tuple[list[str], list[str]]:
+    """Paths changed since the build started that the package does not plan.
+
+    Same or lower color than the change: accepted by rule and listed (the Reviewer judges the
+    content, not the location). Higher color: a failure, because the change would need gates it
+    was not given; only the Orchestrator can widen the scope.
+    """
+    d = load_change(c)
+    since = d.get("build_start")
+    if not since:
+        return [], []
+    planned = d.get("paths", [])
+    color = d.get("decision", {}).get("color") or decide(c)["color"]
+    out = [p for p in changed(c, since) if not matches(p, planned)]
+    fails, accepted = [], []
+    for p in out:
+        pc = color_of([p])[0]
+        if COLORS.index(pc) > COLORS.index(color):
+            fails.append(f"{p}: outside the package and {pc} (the change is {color}); remove it, or the Orchestrator widens the scope")
+        else:
+            accepted.append(p)
+    if accepted and sorted(accepted) != d.get("out_of_scope"):
+        d["out_of_scope"] = sorted(accepted); save_change(c, d)
+    return fails, accepted
+
+
+def snapshot_hashes(c: str) -> dict:
+    out = {}
+    for f in changed(c, load_change(c).get("build_start")):
+        q = ROOT / f
+        out[f] = hashlib.sha256(q.read_bytes()).hexdigest() if q.is_file() else "deleted"
+    return out
+
+
+def c_snapshot(a) -> None:
+    """Records what the change looks like now, so the next round's Path Guard only judges that round."""
+    c = change_id(a.change)
+    write_json(CHANGES / c / "snapshot.json", snapshot_hashes(c))
+    exit_json({"ok": True})
+
+
+def c_next(a) -> None:
+    """Where the replan sends the change: back to test mode (NEXT: test) or to build mode."""
+    c = change_id(a.change)
+    p = CHANGES / c / "replan.md"
+    m = re.findall(r"^\s*NEXT:\s*\**\s*(test|build)", p.read_text() if p.exists() else "", re.I | re.M)
+    exit_json({"test": bool(m) and m[-1].lower() == "test"})
+
+
 def c_guard(a) -> None:
     c = change_id(a.change)
-    fails = guard_failures(c, a.role)
+    fails = guard_failures(c, a.role, getattr(a, "since_snapshot", False))
+    if a.role == "builder-test":
+        # What test mode writes must be out of build mode's reach, or build mode could bend it.
+        prot = cfg("rules").get("protected", {})
+        shield = list(prot.get("all", [])) + list(prot.get("builder_build", []))
+        loose = [p for p in changed(c, load_change(c).get("build_start")) if not matches(p, shield)]
+        if loose:
+            d = load_change(c)
+            text = ("Path Guard: test mode wrote files that build mode could still edit: " + ", ".join(sorted(loose)[:10])
+                    + ". Add their folder to protected.builder_build in gdd/rules.toml.")
+            if not any(n.get("text") == text for n in d.get("inbox", [])):
+                d.setdefault("inbox", []).append({"kind": "needs", "text": text, "ts": now()}); save_change(c, d)
     log(change=c, phase="2-build", gate="G2", role="machine", agent="path-guard",
         result="ok" if not fails else "ko", note="; ".join(fails)[:500])
     exit_json({"ok": not fails, "failures": fails}, 1 if (fails and a.strict) else 0)
@@ -391,6 +463,10 @@ def check(c: str, gate: str, guard_role: str | None) -> dict:
     if guard_role:
         gf = guard_failures(c, guard_role)
         (failed.append({"name": "path-guard", "tail": "\n".join(gf)}) if gf else passed.append({"name": "path-guard"}))
+    out_of_scope: list[str] = []
+    if guard_role == "builder-build":
+        sf, out_of_scope = scope_check(c)
+        (failed.append({"name": "scope", "tail": "\n".join(sf)}) if sf else passed.append({"name": "scope"}))
     if gate == "G3":
         n = count_scenarios()
         if n == 0 and (d["g1"] or cfg("rules").get("acceptance", {}).get("required", True)):
@@ -398,7 +474,7 @@ def check(c: str, gate: str, guard_role: str | None) -> dict:
         else:
             passed.append({"name": f"scenarios ({n})"})
     res = {"ok": not failed, "gate": gate, "color": d["color"], "passed": [p["name"] for p in passed],
-           "skipped": skipped, "failures": failed}
+           "skipped": skipped, "failures": failed, "out_of_scope": out_of_scope}
     write_json(CHANGES / c / f"{gate.lower()}.json", res)
     log(change=c, phase=PHASE_OF_GATE[gate], gate=gate, role="machine", agent="checks",
         result="ok" if res["ok"] else "ko", duration_s=sum(p.get("duration_s", 0) for p in passed + failed),
@@ -486,6 +562,8 @@ def render_inbox(c: str) -> str:
             resolved += 1
             continue
         groups.setdefault(n["kind"], []).append(n["text"])
+    if d.get("out_of_scope"):
+        groups["decided"].append("Paths outside the package, same or lower color, accepted by rule: " + ", ".join(d["out_of_scope"]))
     lines = [f"# Decision Inbox · {c} · {d.get('title', '')}", "",
              f"Color {dec.get('color', '?')} · lane {dec.get('lane', '?')} · state {d.get('state', '?')}", ""]
     for key, title in (("needs", "Needs your decision"), ("decided", "Decided without you"), ("parked", "Parked")):
@@ -620,7 +698,10 @@ def c_launch(a) -> None:
     c = change_id(a.change)
     load_change(c)
     if git("status", "--porcelain", "--untracked-files=no"):
-        raise SystemExit("The working tree has uncommitted changes. Commit before launching a change.")
+        if git("rev-parse", "--abbrev-ref", "HEAD") != branch(c):
+            raise SystemExit("The working tree has uncommitted changes. Commit before launching a change.")
+        # Relaunching a parked change: keep the work of the earlier run as a commit on its branch.
+        git("add", "-A"); git("commit", "-q", "-m", f"gdd({c}): work of the earlier run, before relaunch", check=True)
     git("checkout", branch(c), check=True)
     cmd = ["specify", "workflow", "run", "gdd-change", "-i", f"change={c}", "--json"]
     report_run(c, subprocess.run(cmd, cwd=ROOT, env=agent_env(c), capture_output=True, text=True))
@@ -781,6 +862,8 @@ HELP = """gdd commands (run from the repository root):
   classify <id>                    Color, lane and gates for a change.
   launch <id>                      Run the gdd-change workflow (Build -> Release).
   resume <id> --g4 ok|ko           Human G4: resume the paused workflow.
+  snapshot [<id>]                 Records the change as it is now (the next round's Path Guard judges only that round).
+  next [<id>]                      Where the replan sends the change: {"test": true} = back to test mode.
   note <id> <kind> <text>          Note for the Decision Inbox (needs|decided|parked).
   inbox <id>                       The change message for the human.
   report [--by change,model,role] [--change id]   Tokens by change, phase, model, role, agent.
@@ -802,10 +885,13 @@ def main(argv=None) -> None:
         x = s.add_parser(name); x.add_argument("change", nargs="?"); x.set_defaults(f=fn)
     for name, fn in (("g2", c_g2), ("g3", c_g3), ("guard", c_guard)):
         x = s.add_parser(name); x.add_argument("change", nargs="?"); x.add_argument("--role", default="builder")
-        x.add_argument("--strict", action="store_true"); x.set_defaults(f=fn)
+        x.add_argument("--strict", action="store_true"); x.add_argument("--since-snapshot", action="store_true")
+        x.set_defaults(f=fn)
     x = s.add_parser("gate"); x.add_argument("gate", choices=["G0", "zones", "plan", "G1", "G2", "G3", "G4"])
     x.add_argument("decision"); x.add_argument("change", nargs="?"); x.add_argument("--by", default="human")
     x.add_argument("--note", default=""); x.set_defaults(f=c_gate)
+    x = s.add_parser("snapshot"); x.add_argument("change", nargs="?"); x.set_defaults(f=c_snapshot)
+    x = s.add_parser("next"); x.add_argument("change", nargs="?"); x.set_defaults(f=c_next)
     x = s.add_parser("note"); x.add_argument("change"); x.add_argument("kind", choices=["needs", "decided", "parked"])
     x.add_argument("text"); x.set_defaults(f=c_note)
     x = s.add_parser("park"); x.add_argument("reason"); x.add_argument("--change"); x.set_defaults(f=c_park)

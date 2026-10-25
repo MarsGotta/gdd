@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys,json,os,pathlib
 a=" ".join(sys.argv[1:]); open(os.environ.get("FAKELOG","/dev/null"),"a").write("opencode "+a[:300]+"\n")
+a=a.replace("gdd.","gdd-")   # opencode names commands with dots (speckit.gdd.build)
 txt="done"
 if "gdd-build-test" in a: pathlib.Path("tests").mkdir(exist_ok=True); pathlib.Path("tests/steps.txt").write_text("steps\n")
 elif "gdd-build" in a:

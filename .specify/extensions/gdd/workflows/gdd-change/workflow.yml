@@ -32,7 +32,7 @@ steps:
 
   - id: testsfirst
     type: if
-    condition: "{{ steps.prep.output.data.tests_first }}"
+    condition: "{{ steps.prep.output.data.tests_first and not steps.prep.output.data.resume_green }}"
     then:
       - id: buildtest
         command: speckit.gdd.build-test
@@ -48,28 +48,32 @@ steps:
         run: "bin/gdd guard --role builder-test --strict"
         output_format: json
 
-  - id: buildloop
-    type: do-while
-    max_iterations: 3
-    condition: "{{ not steps.g2.output.data.ok }}"
-    steps:
-      - id: build
-        command: speckit.gdd.build
-        integration: "{{ steps.prep.output.data.builder.integration }}"
-        model: "{{ steps.prep.output.data.builder.model }}"
-        capture: true
-        capture_max_bytes: -1
-        timeout: 3600
-        input:
-          args: "change={{ steps.prep.output.data.change }} mode=build"
-      - id: g2
-        type: shell
-        run: "bin/gdd g2 --role builder-build"
-        output_format: json
+  - id: buildstage
+    type: if
+    condition: "{{ not steps.prep.output.data.resume_green }}"
+    then:
+      - id: buildloop
+        type: do-while
+        max_iterations: 3
+        condition: "{{ not steps.g2.output.data.ok }}"
+        steps:
+          - id: build
+            command: speckit.gdd.build
+            integration: "{{ steps.prep.output.data.builder.integration }}"
+            model: "{{ steps.prep.output.data.builder.model }}"
+            capture: true
+            capture_max_bytes: -1
+            timeout: 3600
+            input:
+              args: "change={{ steps.prep.output.data.change }} mode=build"
+          - id: g2
+            type: shell
+            run: "bin/gdd g2 --role builder-build"
+            output_format: json
 
   - id: rescueg2
     type: if
-    condition: "{{ not steps.g2.output.data.ok }}"
+    condition: "{{ not steps.prep.output.data.resume_green and not steps.g2.output.data.ok }}"
     then:
       - id: replan
         command: speckit.gdd.replan
@@ -80,6 +84,31 @@ steps:
         timeout: 3600
         input:
           args: "change={{ steps.prep.output.data.change }} reason=g2"
+      - id: replannext
+        type: shell
+        run: "bin/gdd next"
+        output_format: json
+      - id: retest
+        type: if
+        condition: "{{ steps.replannext.output.data.test }}"
+        then:
+          - id: snapretest
+            type: shell
+            run: "bin/gdd snapshot"
+            output_format: json
+          - id: buildtestreplan
+            command: speckit.gdd.build-test
+            integration: "{{ steps.prep.output.data.builder_test.integration }}"
+            model: "{{ steps.prep.output.data.builder_test.model }}"
+            capture: true
+            capture_max_bytes: -1
+            timeout: 3600
+            input:
+              args: "change={{ steps.prep.output.data.change }} mode=test after=replan"
+          - id: guardretest
+            type: shell
+            run: "bin/gdd guard --role builder-test --strict --since-snapshot"
+            output_format: json
       - id: buildreplan
         command: speckit.gdd.build
         integration: "{{ steps.prep.output.data.builder.integration }}"

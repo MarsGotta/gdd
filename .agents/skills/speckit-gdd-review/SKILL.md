@@ -30,7 +30,7 @@ It contains `change=<id>` and `round=1` or `round=2`.
 
 1. Every scenario step does what its text says, with real assertions.
 2. No special cases for the examples and no shortcuts to make tests pass.
-3. The change stays within the package paths and scope.
+3. The change stays within the package scope. Paths outside the package that Path Guard accepted by rule (same or lower color; listed in `g2.json` under `out_of_scope` and in the inbox) do not block for their location: judge their content.
 4. If the color is red: security (data, permissions, secrets, unvalidated input).
 
 In **round 2** you only check that the round 1 KO reasons were fixed. You open no new topics unless they are blocking.

@@ -26,6 +26,10 @@ It contains `change=<id>`.
 2. If the color is yellow or red and you will touch existing code, first write **characterization tests** that pin down what it does today.
 3. Check with `bin/gdd g2 --role builder-test`: the new tests must fail **because the behavior is missing**, not because of syntax or setup errors.
 
+## After a replan (`after=replan` in the input)
+
+The code already exists and the Orchestrator found the fault in the steps or tests from test mode. Read `.gdd/changes/<id>/replan.md` and fix only what it names, in the steps and tests. Tests may pass now: that is expected. Path Guard judges only what you touch in this round.
+
 ## What you never do
 
 - Change `.feature` files (they were approved in G1).

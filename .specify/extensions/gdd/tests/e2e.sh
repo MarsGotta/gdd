@@ -7,12 +7,15 @@
 #   t3 · the Reviewer says KO twice: the change is parked.
 #   t5 · planned red paths keep the change red.
 #   t6 · a relaunch clears earlier requests from the inbox.
+#   t7 · a higher-color path outside the package fails G2 (scope).
+#   t8 · the replan sends a step bug back to test mode.
+#   t9 · a green relaunch skips the Builder.
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/var/tmp}/gdd-e2e.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT
+trap '[ -n "${KEEP:-}" ] || rm -rf "$TMP"' EXIT
 export PATH="$SRC/gdd-kit/tests/fake:$PATH" FAKELOG="$TMP/fake.log"
 export GIT_AUTHOR_NAME=gdd GIT_AUTHOR_EMAIL=gdd@local GIT_COMMITTER_NAME=gdd GIT_COMMITTER_EMAIL=gdd@local
 chmod +x "$SRC"/gdd-kit/tests/fake/*
@@ -75,5 +78,25 @@ bin/gdd launch t6 | grep -q "completed" || fail "t6 did not finish"
 grep -q "STALE-REQUEST" .gdd/changes/t6/inbox.md && fail "t6 inbox still shows a resolved request"
 grep -q "resolved before the last launch" .gdd/changes/t6/inbox.md || fail "t6 inbox does not count resolved requests"
 echo "OK t6 a relaunch clears earlier requests from the inbox"
+# t7 · the Builder of a green change writes a yellow file outside the package: G2 fails on scope
+bin/gdd new-change t7 --title "Docs only" --paths docs/t7.md --resumable >/dev/null
+bin/gdd launch t7 > "$TMP/t7.out" 2>&1 || true; grep -q "parkg2end" "$TMP/t7.out" || { cat "$TMP/t7.out"; cat .gdd/changes/t7/g2.json 2>/dev/null | head -c 800; fail "t7 was not parked"; }
+grep -q "outside the package" .gdd/changes/t7/g2.json || fail "t7 without a scope failure"
+git stash -u -q; git switch -q main
+echo "OK t7 a higher-color path outside the package fails G2 (scope)"
+# t8 · the fault is in the test-mode steps: the replan sends the change back to test mode
+bin/gdd new-change t8 --title "Step bug" --paths src/hello.txt src/n.txt >/dev/null
+FAKE_STEP_BUG=1 FAKE_REPLAN_NEXT=test bin/gdd launch t8 | grep -q "completed" || fail "t8 did not finish after going back to test mode"
+grep -q "gdd-build-test.*after=replan" "$FAKELOG" || fail "t8 never went back to test mode"
+grep -q "accepted by rule" .gdd/changes/t8/inbox.md || fail "t8 inbox does not list accepted out-of-package paths"
+echo "OK t8 the replan sends a step bug back to test mode"
+# t9 · a relaunch whose code is already green skips the Builder
+bin/gdd new-change t9 --title "Relaunch" --paths src/hello.txt src/n.txt >/dev/null
+FAKE_VERDICT=KO bin/gdd launch t9 | grep -q "parkreviewend" || fail "t9 was not parked"
+N=$(grep -c "gdd-build" "$FAKELOG")
+bin/gdd launch t9 > "$TMP/t9.out" 2>&1 || true; grep -q "completed" "$TMP/t9.out" || { tail -20 "$TMP/t9.out"; fail "t9 relaunch did not finish"; }
+[ "$(grep -c "gdd-build" "$FAKELOG")" = "$N" ] || fail "t9 relaunch called the Builder again"
+grep -q "Builder skipped" .gdd/log.jsonl || fail "t9 prepare did not log the skip"
+echo "OK t9 a green relaunch skips the Builder"
 bin/gdd report --by role >/dev/null
 echo "All green."

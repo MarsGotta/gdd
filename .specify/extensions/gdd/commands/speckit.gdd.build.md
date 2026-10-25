@@ -33,6 +33,7 @@ It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`.
 
 - Edit acceptance tests or `.feature` files (they are approved).
 - Touch protected paths (`gdd/rules.toml`, section `protected`).
+- Leave the package paths without saying so. If you need a file outside them (a new test, a helper), keep it at the change's color or lower and explain it with `bin/gdd note <id> decided "..."`. A path of a higher color fails G2 (`scope`): only the Orchestrator can widen the scope.
 - Silence warnings or skip checks (disabling lint rules, ignoring types, skipping tests).
 - Write special cases for the scenario examples.
 
