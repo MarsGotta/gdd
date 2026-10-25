@@ -16,6 +16,7 @@ Feature: Classify a change
       color = "red"
       paths = ["src/storage/**"]
       """
+    And the default rules table
 
   Scenario: The highest color wins
     When a change touches "docs/intro.md" and "src/storage/save.rs"

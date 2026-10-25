@@ -18,6 +18,7 @@ Feature: Hidden examples for classifying a change
       color = "green"
       paths = ["src/storage/cache/**"]
       """
+    And the default rules table
 
   Scenario: Overlapping zones take the higher color
     When a change touches "src/storage/cache/tmp.rs"
