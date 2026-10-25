@@ -6,6 +6,7 @@
 #   t2 · with scenarios: human G1, pauses at G4 and resumes.
 #   t3 · the Reviewer says KO twice: the change is parked.
 #   t5 · planned red paths keep the change red.
+#   t6 · a relaunch clears earlier requests from the inbox.
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
@@ -67,5 +68,12 @@ git switch -q change/t5; printf 'Feature: t5\n  Scenario: s\n    Given x\n' > fe
 bin/gdd classify t5 | grep -q '"color": "red"' || fail "t5 lost its planned red color"
 git switch -q main
 echo "OK t5 planned red paths keep the color"
+# t6 · a relaunch clears earlier requests from the inbox
+bin/gdd new-change t6 --title "Stale request" --paths src/t6.txt >/dev/null
+bin/gdd note t6 needs "STALE-REQUEST" >/dev/null
+bin/gdd launch t6 | grep -q "completed" || fail "t6 did not finish"
+grep -q "STALE-REQUEST" .gdd/changes/t6/inbox.md && fail "t6 inbox still shows a resolved request"
+grep -q "resolved before the last launch" .gdd/changes/t6/inbox.md || fail "t6 inbox does not count resolved requests"
+echo "OK t6 a relaunch clears earlier requests from the inbox"
 bin/gdd report --by role >/dev/null
 echo "All green."

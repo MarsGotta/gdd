@@ -331,6 +331,10 @@ def c_prepare(a) -> None:
     if git("rev-parse", "--abbrev-ref", "HEAD") != branch(c):
         exit_json({"ok": False, "reason": f"Not on branch {branch(c)}. Launch the change with bin/gdd launch {c}."}, 1)
     dd = load_change(c); dd["decision"] = d; dd["state"] = "building"
+    # A (re)launch means the Orchestrator dealt with earlier requests: they leave the inbox.
+    for n in dd.get("inbox", []):
+        if n.get("kind") == "needs" and not n.get("resolved"):
+            n["resolved"] = now()
     dd["build_start"] = git("rev-parse", "HEAD"); save_change(c, dd)
     log(change=c, phase="2-build", role="machine", result="prepared", note=f"{d['color']} · {d['lane']}")
     exit_json({"ok": True, **d})
@@ -476,7 +480,11 @@ def render_inbox(c: str) -> str:
     d = load_change(c)
     dec = d.get("decision", {})
     groups = {"needs": [], "decided": [], "parked": []}
+    resolved = 0
     for n in d.get("inbox", []):
+        if n.get("resolved"):
+            resolved += 1
+            continue
         groups.setdefault(n["kind"], []).append(n["text"])
     lines = [f"# Decision Inbox · {c} · {d.get('title', '')}", "",
              f"Color {dec.get('color', '?')} · lane {dec.get('lane', '?')} · state {d.get('state', '?')}", ""]
@@ -484,6 +492,8 @@ def render_inbox(c: str) -> str:
         lines.append(f"## {title}")
         lines += [f"- {x}" for x in groups.get(key, [])] or ["- Nothing."]
         lines.append("")
+    if resolved:
+        lines += [f"_{resolved} earlier request(s) were resolved before the last launch (kept in change.json)._", ""]
     return "\n".join(lines)
 
 

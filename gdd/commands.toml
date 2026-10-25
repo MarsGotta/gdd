@@ -21,14 +21,14 @@ lockfile = "cargo metadata --locked --format-version 1 > /dev/null"   # Cargo.lo
 security = "cargo deny --locked check advisories bans sources"   # known vulnerabilities, banned crates, unknown sources
 dependencies = "cargo deny --locked check licenses"
 quality = ""          # clippy in G2 covers it for now; Learn may add more
-mutation = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2"   # only in yellow and red
+mutation = "if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2"   # only in yellow and red; each test process capped at 2 GB where prlimit exists (a mutant can turn a loop into endless allocation)
 
 [release]
 simulated = true      # no real pre/production yet: empty steps pass and are logged as simulated
 build = "cargo build --release --locked"
 deploy_pre = "install -D target/release/gdd .gdd/pre/gdd"   # pre = a local install of the release binary
 tests_pre = ".gdd/pre/gdd --version | grep -q '^gdd '"
-demo = ""             # leaves video or screenshots in .gdd/changes/$GDD_CHANGE/demo/
+demo = "set -o pipefail; mkdir -p .gdd/changes/$GDD_CHANGE/demo && GDD_FEATURES= cargo test -q -p gdd-acceptance --locked 2>&1 | sed 's/\\x1b\\[[0-9;]*m//g' > .gdd/changes/$GDD_CHANGE/demo/scenarios.txt"   # a library has no screen: the demo is the readable run of its scenarios
 promote = ""          # the same version, from pre to production
 observe = ""          # fails if errors rise
 rollback = ""         # back to the previous production version
