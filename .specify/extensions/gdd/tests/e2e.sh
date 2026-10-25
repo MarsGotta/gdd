@@ -5,6 +5,7 @@
 #   t1 · yellow without scenarios: finishes on its own (Build -> Reviewer -> Merge -> Release).
 #   t2 · with scenarios: human G1, pauses at G4 and resumes.
 #   t3 · the Reviewer says KO twice: the change is parked.
+#   t5 · planned red paths keep the change red.
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
@@ -60,5 +61,11 @@ bin/gdd new-change t4 --title "Cheat" --paths src/n.txt >/dev/null
 FAKE_PROTECTED=1 bin/gdd launch t4 | grep -q "parkg2end" || fail "t4 was not parked"
 grep -q "protected path" .gdd/changes/t4/g2.json || fail "t4 without Path Guard"
 echo "OK t4: Path Guard stops the Builder that touches the harness"
+# t5 · planned red paths keep the change red even if the branch only touched scenarios so far
+bin/gdd new-change t5 --title "Planned red" --paths bin/new-tool >/dev/null
+git switch -q change/t5; printf 'Feature: t5\n  Scenario: s\n    Given x\n' > features/t5.feature; git add -A; git commit -qm t5
+bin/gdd classify t5 | grep -q '"color": "red"' || fail "t5 lost its planned red color"
+git switch -q main
+echo "OK t5 planned red paths keep the color"
 bin/gdd report --by role >/dev/null
 echo "All green."

@@ -1,6 +1,7 @@
 # Gate commands. Filled in during the Setup, once the technology is known.
 # Every command runs from the repo root. Empty = not configured.
 # Rust: the commands expect cargo on PATH (rustup in ~/.cargo/bin).
+# G2 runs without --locked so a change can add a dependency its plan allows; G3 and CI check the lock file.
 # Available variables: GDD_CHANGE, GDD_COLOR, GDD_DIFF_FILES (changed paths, one per line),
 # GDD_FEATURES (the change's .feature files, one per line; empty = none).
 # Scenarios: GDD imposes Gherkin, not a runner. The Setup picks one that fails on undefined or pending steps.
@@ -8,14 +9,15 @@
 install = "cargo fetch --locked"   # dependencies
 
 [g2]   # Loop Gates: every Builder round
-lint = "cargo fmt --all --check && cargo clippy --all-targets --locked -- -D warnings"
+lint = "cargo fmt --all --check && cargo clippy --all-targets -- -D warnings"
 types = ""          # covered by clippy (it type-checks every target)
-unit = "cargo test --workspace --exclude gdd-acceptance --locked"
-acceptance = "cargo test -p gdd-acceptance --locked"     # cucumber-rs, strict, only GDD_FEATURES (all if empty)
-architecture = "mkdir -p target && cargo tree -p gdd-core -e normal --locked > target/gdd-core.tree && ! grep -qE '(ratatui|crossterm|clap) ' target/gdd-core.tree"   # the core never depends on the terminal or the CLI   # dependency rules between layers
+unit = "cargo test --workspace --exclude gdd-acceptance"
+acceptance = "cargo test -p gdd-acceptance"     # cucumber-rs, strict, only GDD_FEATURES (all if empty)
+architecture = "mkdir -p target && cargo tree -p gdd-core -e normal > target/gdd-core.tree && ! grep -qE '(ratatui|crossterm|clap) ' target/gdd-core.tree"   # the core never depends on the terminal or the CLI   # dependency rules between layers
 
 [g3]   # Merge Gate: the full automatic chain
 acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 cargo test -p gdd-acceptance --locked"  # every scenario, hidden examples included
+lockfile = "cargo metadata --locked --format-version 1 > /dev/null"   # Cargo.lock matches Cargo.toml (G2 may update it; CI checks it is committed)
 security = "cargo deny --locked check advisories bans sources"   # known vulnerabilities, banned crates, unknown sources
 dependencies = "cargo deny --locked check licenses"
 quality = ""          # clippy in G2 covers it for now; Learn may add more
