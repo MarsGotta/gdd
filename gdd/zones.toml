@@ -15,11 +15,40 @@ color = "red"
 paths = ["gdd/**", "gdd-kit/**", "bin/**", ".github/**", ".claude/**", ".specify/**", ".gdd/bin/**"]
 reason = "The harness itself: touching the gates is touching the safety of the method"
 
-# The rest of the red zones are mapped at the end of Discover from the sensitive areas in
-# docs/brief.md (gate integrity, the user's repository, secrets and agent permissions, shell
-# execution, the log). Until then, unmapped code is yellow.
+# Red zones mapped at the end of Discover from the sensitive areas in docs/brief.md.
+# The human approves them in the same sitting as the first scenarios (gate "zones").
 
 [[zone]]
 color = "red"
 paths = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]
 reason = "Dependencies and toolchain: supply chain"
+
+[[zone]]
+color = "red"
+paths = ["crates/gdd-core/src/zones.rs", "crates/gdd-core/src/rules.rs", "crates/gdd-core/src/gates/**", "crates/gdd-core/src/guard.rs"]
+reason = "Gate integrity: the color and the rules decide which gates run; gates and Path Guard decide what passes"
+
+[[zone]]
+color = "red"
+paths = ["crates/gdd-core/src/git.rs", "crates/gdd-core/src/repo/**"]
+reason = "The user's repository: branches, merges and commits"
+
+[[zone]]
+color = "red"
+paths = ["crates/gdd-core/src/agents/**"]
+reason = "Secrets and permissions when launching agents"
+
+[[zone]]
+color = "red"
+paths = ["crates/gdd-core/src/exec.rs"]
+reason = "Shell execution: agent text must never reach a command"
+
+[[zone]]
+color = "yellow"
+paths = ["crates/gdd-core/src/log.rs", "crates/gdd-core/src/report.rs"]
+reason = "The log: wrong numbers mislead, but nothing breaks and it can be rebuilt"
+
+[[zone]]
+color = "green"
+paths = ["crates/gdd/src/tui/theme.rs", "crates/gdd/src/tui/text/**"]
+reason = "Look and copy of the TUI"
