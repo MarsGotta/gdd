@@ -1,0 +1,25 @@
+# Zone map · GDD
+# Filled in during the Setup, once the technology is known. A human approves only the red zones (G0).
+# The highest color wins. Paths that match no zone take the default color.
+# Patterns: "**" crosses folders, "*" does not.
+
+default = "yellow"   # code without a zone = code without known tests
+
+[[zone]]
+color = "green"
+paths = ["docs/**", "*.md"]
+reason = "Documentation"
+
+[[zone]]
+color = "red"
+paths = ["gdd/**", "gdd-kit/**", "bin/**", ".github/**", ".claude/**", ".specify/**", ".gdd/bin/**"]
+reason = "The harness itself: touching the gates is touching the safety of the method"
+
+# The rest of the red zones are mapped at the end of Discover from the sensitive areas in
+# docs/brief.md (gate integrity, the user's repository, secrets and agent permissions, shell
+# execution, the log). Until then, unmapped code is yellow.
+
+[[zone]]
+color = "red"
+paths = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]
+reason = "Dependencies and toolchain: supply chain"

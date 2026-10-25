@@ -1,0 +1,1 @@
+../../../.specify/extensions/gdd/.specify-dev/agent-commands/claude/speckit-gdd-hotfix/SKILL.md

@@ -1,0 +1,59 @@
+schema_version: "1.0"
+
+extension:
+  id: gdd
+  name: "GDD · Gate-Driven Development"
+  version: "0.4.0"
+  description: "Phases, gates, roles and token logging for GDD on top of Spec Kit"
+  author: Marcela Gotta
+  repository: https://github.com/MarsGotta/gdd
+  license: MIT
+
+requires:
+  speckit_version: ">=1.2.0"
+  tools:
+    - name: git
+      required: true
+    - name: python3
+      required: true
+
+provides:
+  commands:
+    - name: speckit.gdd.status
+      file: commands/speckit.gdd.status.md
+      description: "Orchestrator: where the project stands in GDD and the next step"
+    - name: speckit.gdd.setup
+      file: commands/speckit.gdd.setup.md
+      description: "Phase 0 · Setup → G0: basic questions, Project Brief, technology, harness and red zones"
+    - name: speckit.gdd.discover
+      file: commands/speckit.gdd.discover.md
+      description: "Phase 1 · Discover with the human: go deeper from the Project Brief, options, spikes and next changes"
+    - name: speckit.gdd.change
+      file: commands/speckit.gdd.change.md
+      description: "Prepare and launch a change: classification, scenarios (G1), red plan, context package"
+    - name: speckit.gdd.build-test
+      file: commands/speckit.gdd.build-test.md
+      description: "Builder, test mode: acceptance steps and tests that fail for the right reason"
+    - name: speckit.gdd.build
+      file: commands/speckit.gdd.build.md
+      description: "Builder, build mode: implements the change until G2 is green"
+    - name: speckit.gdd.replan
+      file: commands/speckit.gdd.replan.md
+      description: "Orchestrator, headless: replans a task stuck in G2"
+    - name: speckit.gdd.review
+      file: commands/speckit.gdd.review.md
+      description: "Reviewer from another model family: OK or KO on the change"
+    - name: speckit.gdd.learn
+      file: commands/speckit.gdd.learn.md
+      description: "Phase 5 · Learn: harden the gates from the log and the failures"
+    - name: speckit.gdd.hotfix
+      file: commands/speckit.gdd.hotfix.md
+      description: "Hotfix: roll back first, fix later through its lane"
+    - name: speckit.gdd.report
+      file: commands/speckit.gdd.report.md
+      description: "Token report by change, phase, model and role"
+
+tags:
+  - "gdd"
+  - "gates"
+  - "workflow"

@@ -1,0 +1,14 @@
+[workspace]
+resolver = "3"
+members = ["crates/gdd-core", "crates/gdd", "crates/gdd-acceptance"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MarsGotta/gdd"
+authors = ["Marcela Gotta"]
+rust-version = "1.98"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

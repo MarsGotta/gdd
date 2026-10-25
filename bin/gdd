@@ -1,0 +1,6 @@
+#!/bin/sh
+# GDD entry point. See bin/gdd help.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Rust toolchain installed with rustup lives in ~/.cargo/bin.
+[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH" && export PATH
+PYTHONDONTWRITEBYTECODE=1 exec python3 "$ROOT/gdd-kit/scripts/gdd.py" "$@"

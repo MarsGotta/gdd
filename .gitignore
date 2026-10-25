@@ -1,0 +1,19 @@
+# GDD local state (log, changes, sessions): lives on the machine where you work.
+.gdd/*
+!.gdd/bin/
+
+# Dependencies and artifacts
+node_modules/
+.opencode/node_modules/
+target/
+dist/
+build/
+.env
+.env.*
+
+# Spec Kit workflow runs (local state)
+.specify/workflows/runs/
+
+# Python
+__pycache__/
+*.pyc

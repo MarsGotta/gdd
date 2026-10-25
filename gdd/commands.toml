@@ -1,0 +1,37 @@
+# Gate commands. Filled in during the Setup, once the technology is known.
+# Every command runs from the repo root. Empty = not configured.
+# Rust: the commands expect cargo on PATH (rustup in ~/.cargo/bin).
+# Available variables: GDD_CHANGE, GDD_COLOR, GDD_DIFF_FILES (changed paths, one per line),
+# GDD_FEATURES (the change's .feature files, one per line; empty = none).
+# Scenarios: GDD imposes Gherkin, not a runner. The Setup picks one that fails on undefined or pending steps.
+
+install = "cargo fetch --locked"   # dependencies
+
+[g2]   # Loop Gates: every Builder round
+lint = "cargo fmt --all --check && cargo clippy --all-targets --locked -- -D warnings"
+types = ""          # covered by clippy (it type-checks every target)
+unit = "cargo test --workspace --exclude gdd-acceptance --locked"
+acceptance = "cargo test -p gdd-acceptance --locked"     # cucumber-rs, strict, only GDD_FEATURES (all if empty)
+architecture = "mkdir -p target && cargo tree -p gdd-core -e normal --locked > target/gdd-core.tree && ! grep -qE '(ratatui|crossterm|clap) ' target/gdd-core.tree"   # the core never depends on the terminal or the CLI   # dependency rules between layers
+
+[g3]   # Merge Gate: the full automatic chain
+acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 cargo test -p gdd-acceptance --locked"  # every scenario, hidden examples included
+security = "cargo deny --locked check advisories bans sources"   # known vulnerabilities, banned crates, unknown sources
+dependencies = "cargo deny --locked check licenses"
+quality = ""          # clippy in G2 covers it for now; Learn may add more
+mutation = "git add -A --intent-to-add && git diff main > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --no-shuffle -j 2"   # only in yellow and red
+
+[release]
+simulated = true      # no real pre/production yet: empty steps pass and are logged as simulated
+build = "cargo build --release --locked"
+deploy_pre = "install -D target/release/gdd .gdd/pre/gdd"   # pre = a local install of the release binary
+tests_pre = ".gdd/pre/gdd --version | grep -q '^gdd '"
+demo = ""             # leaves video or screenshots in .gdd/changes/$GDD_CHANGE/demo/
+promote = ""          # the same version, from pre to production
+observe = ""          # fails if errors rise
+rollback = ""         # back to the previous production version
+rollback_pre = ""     # no real pre yet: the self-test logs the rollback as simulated
+
+[selftest]
+file = "crates/gdd-core/tests/gdd_selftest_failing.rs"      # path of a deliberately failing test (created and removed)
+content = "#[test]\nfn gdd_selftest_must_fail() {\n    panic!(\"gdd selftest\");\n}\n"   # its content

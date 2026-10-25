@@ -1,0 +1,19 @@
+[package]
+name = "gdd-acceptance"
+description = "Gherkin acceptance scenarios for gdd, run with cucumber-rs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+gdd-core = { path = "../gdd-core" }
+cucumber = "0.23"
+futures = "0.3"
+
+[[test]]
+name = "acceptance"
+harness = false
+
+[lints]
+workspace = true

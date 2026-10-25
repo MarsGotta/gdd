@@ -1,0 +1,7 @@
+# Project basics. Filled in during the Setup.
+
+name = "gdd"
+language = "es"     # language the agents use with the human (notes, questions, messages)
+platform = "cli"    # mobile | desktop | web | cli | other
+stack = "rust"      # see docs/adr/0001-technology.md
+scenario_runner = "cucumber-rs" # tool that runs the Gherkin scenarios (GDD imposes Gherkin, not the tool)

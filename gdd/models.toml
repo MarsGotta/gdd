@@ -1,0 +1,43 @@
+# Which agent and model plays each role. integration = claude | codex | opencode.
+# Rule: the Reviewer belongs to a different model family than the Builder (bin/gdd prepare checks it).
+
+[orchestrator]
+integration = "claude"
+model = "opus"
+
+[builder.green]
+integration = "opencode"
+model = "minimax/MiniMax-M3"
+
+[builder.yellow]
+integration = "claude"
+model = "sonnet"
+
+[builder.red]
+integration = "claude"
+model = "opus"
+
+[builder_test]
+integration = "claude"
+model = "sonnet"
+
+[reviewer]
+integration = "codex"
+model = "gpt-6-astra"
+effort = "high"   # Codex reasoning: low, medium, high, xhigh
+
+# Model family, by model prefix or by agent.
+[families]
+"minimax" = "minimax"
+"qwen" = "qwen"
+"opus" = "anthropic"
+"sonnet" = "anthropic"
+"haiku" = "anthropic"
+"claude" = "anthropic"
+"gpt" = "openai"
+"codex" = "openai"
+
+# USD per million tokens, only for agents that do not report cost (Codex).
+# Empty = the log keeps tokens and cost 0. Never guess prices: copy them from the provider.
+[prices]
+# "gpt-6-astra" = { input = 0.0, cache = 0.0, output = 0.0 }
