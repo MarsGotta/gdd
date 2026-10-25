@@ -82,7 +82,7 @@ fn parse_change(text: &str) -> gdd_core::Change {
 
 #[given(expr = "the zone map:")]
 fn the_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
-    w.zone_map = step.docstring.clone().expect("a zone map docstring");
+    w.zone_map = docstring(step, "a zone map docstring");
 }
 
 #[given("the default rules table")]
@@ -223,7 +223,7 @@ fn stdout_json(w: &GddWorld) -> serde_json::Value {
 #[given(expr = "a GDD project with the log:")]
 fn project_with_log(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
-    let log = step.docstring.clone().expect("a log docstring");
+    let log = docstring(step, "a log docstring");
     write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
 }
 
@@ -240,7 +240,7 @@ fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
 #[given(expr = "a GDD project with the zone map:")]
 fn project_with_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
-    let zones = step.docstring.clone().expect("a zone map docstring");
+    let zones = docstring(step, "a zone map docstring");
     write_file(&root.join("gdd/zones.toml"), &format!("{zones}\n"));
 }
 
@@ -314,8 +314,8 @@ fn it_fails(w: &mut GddWorld, text: String) {
 fn output_is(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let ran = last_run(w);
     assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
-    let expected = step.docstring.as_deref().expect("an output docstring");
-    assert_eq!(ran.stdout.trim_end(), expected.trim_end());
+    let expected = docstring(step, "an output docstring");
+    assert_eq!(ran.stdout.trim_end(), expected.as_str().trim_end());
 }
 
 #[then(expr = "the output contains {string}")]
@@ -373,6 +373,13 @@ fn repo_root() -> PathBuf {
         .join("../..")
         .canonicalize()
         .expect("repository root")
+}
+
+/// The doc string of a step without the line break that follows the opening quotes:
+/// the gherkin parser keeps it, so every doc string would otherwise start with an empty line.
+fn docstring(step: &cucumber::gherkin::Step, what: &str) -> String {
+    let text = step.docstring.as_deref().expect(what);
+    text.strip_prefix('\n').unwrap_or(text).to_string()
 }
 
 fn main() {
