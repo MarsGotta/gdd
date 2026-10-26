@@ -11,7 +11,7 @@
 
 ## Built with itself
 
-`gdd` is being built with GDD. The Rust binary already runs the recipe and installs the GDD commands for each agent; the Python bootstrap kit in `gdd-kit/` still provides the agent wrapper and some gate commands until they are ported. Spec Kit is no longer used.
+`gdd` is being built with GDD. The Rust binary already runs the recipe and installs the GDD commands for each agent; the Rust binary also starts the agents itself; the Python bootstrap kit in `gdd-kit/` still provides some gate commands until they are ported (change kit-retire). Spec Kit is no longer used.
 
 - Method: [`GDD.md`](GDD.md)
 - Project Brief: [`docs/brief.md`](docs/brief.md)
