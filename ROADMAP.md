@@ -95,3 +95,4 @@ change, stop and review before adding more.
 - Token charts.
 - Semgrep (multi-language static analysis).
 - More stacks in the catalog.
+- Parallel changes: run two or more changes at once when their paths do not overlap, each in its own git worktree, with a cap set by the agents' subscription limits. Same time per change, more changes per day. Merges stay one at a time, each on top of the latest main.
