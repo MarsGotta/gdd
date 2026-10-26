@@ -1433,6 +1433,18 @@ reason = "Look and copy of the TUI"
     }
 
     #[test]
+    fn only_scenario_files_inside_the_hidden_folder_are_hidden_examples() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        let new = "Given a brand new sentence\n";
+        project.commit_on_branch("features/hidden/notes.md", new);
+        project.commit_on_branch("docs/drafts.feature", new);
+        project.ok(Gate::G1, Some("c1"));
+        let features = serde_json::json!(["features/drafts.feature"]);
+        assert_eq!(project.record_of("c1")["features"], features);
+    }
+
+    #[test]
     fn on_its_branch_the_hidden_examples_are_checked_in_the_working_tree() {
         let project = fixture();
         project.git(&["checkout", "-q", "change/c1"]);
@@ -1463,6 +1475,8 @@ reason = "Look and copy of the TUI"
             walk(&folder.0, nothing, &mut found).unwrap();
             assert_eq!(found, Vec::<String>::new(), "{nothing}");
         }
+        let unreadable = walk(&folder.0, &"x".repeat(300), &mut found);
+        assert!(unreadable.is_err(), "{unreadable:?}");
     }
 
     #[test]

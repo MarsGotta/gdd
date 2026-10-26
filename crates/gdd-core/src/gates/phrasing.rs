@@ -3,6 +3,7 @@
 //! sentences of the visible scenarios, with other data.
 
 use std::collections::BTreeSet;
+use std::str::Chars;
 
 /// Words that start a step.
 const KEYWORDS: [&str; 6] = ["Given", "When", "Then", "And", "But", "*"];
@@ -56,35 +57,35 @@ fn sentence(line: &str) -> Option<&str> {
 /// `text` with each quoted text, from a quote to the next one that no backslash escapes,
 /// replaced by `"…"`.
 fn blank_quotes(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
     let mut blanked = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        match closing_quote(&chars, i) {
-            Some(end) => {
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        let closed = if c == '"' {
+            after_quote(chars.clone())
+        } else {
+            None
+        };
+        match closed {
+            Some(rest) => {
                 blanked.push_str("\"…\"");
-                i = end + 1;
+                chars = rest;
             }
-            None => {
-                blanked.push(chars[i]);
-                i += 1;
-            }
+            None => blanked.push(c),
         }
     }
     blanked
 }
 
-/// Where the quoted text that opens at `start` closes, when a quote opens there and closes.
-fn closing_quote(chars: &[char], start: usize) -> Option<usize> {
-    if chars.get(start) != Some(&'"') {
-        return None;
-    }
-    let mut i = start + 1;
-    while let Some(&c) = chars.get(i) {
+/// What follows the quoted text `chars` starts inside, right after its opening quote: what
+/// comes after the first quote no backslash escapes, when one closes it.
+fn after_quote(mut chars: Chars<'_>) -> Option<Chars<'_>> {
+    while let Some(c) = chars.next() {
         match c {
-            '"' => return Some(i),
-            '\\' => i += 2,
-            _ => i += 1,
+            '"' => return Some(chars),
+            '\\' => {
+                chars.next();
+            }
+            _ => {}
         }
     }
     None
@@ -115,48 +116,40 @@ fn blank_placeholders(text: &str) -> String {
 /// `text` with each number that stands as a word of its own, with or without decimals,
 /// replaced by `#`.
 fn blank_numbers(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
+    let words: Vec<(&str, &str)> = text.split_inclusive(|c| !is_word(&c)).map(ending).collect();
     let mut blanked = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        match number_end(&chars, i) {
-            Some(end) => {
+    let mut rest = words.as_slice();
+    loop {
+        match rest {
+            [(whole, "."), (decimals, end), after @ ..]
+                if is_number(whole) && is_number(decimals) =>
+            {
                 blanked.push('#');
-                i = end;
+                blanked.push_str(end);
+                rest = after;
             }
-            None => {
-                blanked.push(chars[i]);
-                i += 1;
+            [(word, end), after @ ..] => {
+                blanked.push_str(if is_number(word) { "#" } else { word });
+                blanked.push_str(end);
+                rest = after;
             }
+            [] => return blanked,
         }
     }
-    blanked
 }
 
-/// Where the number that starts at `start` ends, when one does: digits after no letter, digit
-/// or `_`, maybe with decimals, and followed by none of them either.
-fn number_end(chars: &[char], start: usize) -> Option<usize> {
-    let is = |i: usize, test: fn(&char) -> bool| chars.get(i).is_some_and(test);
-    if !is(start, char::is_ascii_digit) || (start > 0 && is(start - 1, is_word)) {
-        return None;
+/// A piece of text that ends a word, as `split_inclusive` cuts it: the word (maybe empty) and
+/// the character that ends it, when one does.
+fn ending(piece: &str) -> (&str, &str) {
+    match piece.char_indices().next_back() {
+        Some((i, c)) if !is_word(&c) => piece.split_at(i),
+        _ => (piece, ""),
     }
-    let whole = digits_end(chars, start);
-    if chars.get(whole) == Some(&'.') && is(whole + 1, char::is_ascii_digit) {
-        let end = digits_end(chars, whole + 1);
-        if !is(end, is_word) {
-            return Some(end);
-        }
-    }
-    (!is(whole, is_word)).then_some(whole)
 }
 
-/// Where the digits that start at `start` end.
-fn digits_end(chars: &[char], start: usize) -> usize {
-    let mut end = start;
-    while chars.get(end).is_some_and(char::is_ascii_digit) {
-        end += 1;
-    }
-    end
+/// Whether `word` is a number: digits and nothing else.
+fn is_number(word: &str) -> bool {
+    !word.is_empty() && word.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Whether `c` belongs to a word: a letter, a digit or `_`.
