@@ -202,12 +202,17 @@ fn project_root(w: &mut GddWorld) -> PathBuf {
 }
 
 fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
+    run_gdd_as(w, command, cwd, None);
+}
+
+/// Runs `command` as `role`; steps never set environment variables, scenarios run concurrently.
+fn run_gdd_as(w: &mut GddWorld, command: &str, cwd: &Path, role: Option<&str>) {
     let args: Vec<String> = command
         .split_whitespace()
         .skip_while(|word| *word == "gdd")
         .map(str::to_string)
         .collect();
-    let out = gdd::run(&args, cwd);
+    let out = gdd::run_as(&args, cwd, role);
     w.ran = Some(Ran {
         code: out.code,
         succeeded: out.code == 0,
@@ -801,6 +806,180 @@ fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) 
         found,
         "no {gate} line for {change} with result {result} in:\n{text}"
     );
+}
+
+// ---- features/changes.feature and features/approvals.feature -------------------------------
+//
+// API of the `gdd` crate these steps expect (the Builder in build mode implements it):
+// - `gdd::run_as(args: &[String], cwd: &Path, role: Option<&str>) -> gdd::Outcome`: `run` with
+//   the role given instead of read from `GDD_ROLE`.
+
+#[given("everything is committed on main")]
+fn everything_committed(w: &mut GddWorld) {
+    let root = project_root(w);
+    commit_all(&root, "project");
+}
+
+fn branch_exists(root: &Path, branch: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["rev-parse", "-q", "--verify"])
+        .arg(format!("refs/heads/{branch}"))
+        .current_dir(root)
+        .output()
+        .expect("git can run")
+        .status
+        .success()
+}
+
+#[then(expr = "the branch {string} exists")]
+fn branch_is_there(w: &mut GddWorld, branch: String) {
+    assert!(
+        branch_exists(&project_root(w), &branch),
+        "no branch {branch}"
+    );
+}
+
+#[then(expr = "the branch {string} does not exist")]
+fn branch_is_not_there(w: &mut GddWorld, branch: String) {
+    assert!(
+        !branch_exists(&project_root(w), &branch),
+        "the branch {branch} exists"
+    );
+}
+
+#[then(expr = "the output does not contain {string}")]
+fn output_lacks(w: &mut GddWorld, text: String) {
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    assert!(
+        !ran.stdout.contains(&text),
+        "the output {:?} contains {text:?}",
+        ran.stdout
+    );
+}
+
+#[given(expr = "the change {string} has a resolved request {string}")]
+fn resolved_request(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let mut record = read_record(&root, &id);
+    let inbox = record["inbox"].as_array_mut().expect("an inbox list");
+    inbox.push(serde_json::json!({
+        "kind": "needs",
+        "text": text,
+        "ts": "2026-01-01T00:00:00+00:00",
+        "resolved": "2026-01-02T00:00:00+00:00",
+    }));
+    write_record(&root, &id, &record);
+}
+
+#[then(expr = "the file {string} holds the same text as the output")]
+fn file_holds_output(w: &mut GddWorld, path: String) {
+    let text = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let ran = last_run(w);
+    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    assert!(!text.trim().is_empty(), "{path} is empty");
+    assert_eq!(text.trim_end(), ran.stdout.trim_end());
+}
+
+#[given(expr = "the red zone paths become {string} and {string}")]
+fn red_zone_paths_become(w: &mut GddWorld, first: String, second: String) {
+    let root = project_root(w);
+    let old = r#"paths = ["src/storage/**"]"#;
+    assert!(w.zone_map.contains(old), "no red zone to change");
+    let zones = w
+        .zone_map
+        .replace(old, &format!("paths = [\"{first}\", \"{second}\"]"));
+    write_file(&root.join("gdd/zones.toml"), &format!("{zones}\n"));
+}
+
+#[given("the self-test passed")]
+fn self_test_passed(w: &mut GddWorld) {
+    let root = project_root(w);
+    write_file(&root.join(".gdd/selftest.json"), r#"{"ok": true}"#);
+}
+
+/// Commits `content` as `path` on the branch of change `id`, and goes back to the branch we
+/// were on: the file is on the branch, not in the working tree.
+fn commit_on_branch(root: &Path, id: &str, path: &str, content: &str) {
+    let back = git(root, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    git(root, &["checkout", "-q", &format!("change/{id}")]);
+    write_file(&root.join(path), content);
+    git(root, &["add", "--", path]);
+    git(root, &["commit", "-q", "-m", &format!("add {path}")]);
+    git(root, &["checkout", "-q", &back]);
+}
+
+#[given(expr = "the change {string} has the scenario {string} on its branch")]
+fn scenario_on_branch(w: &mut GddWorld, id: String, file: String) {
+    let root = project_root(w);
+    let text = "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    And a name\n    Then it is saved\n";
+    commit_on_branch(&root, &id, &file, text);
+}
+
+#[given(expr = "the change {string} has the hidden example {string} with the step {string}")]
+fn hidden_example_on_branch(w: &mut GddWorld, id: String, file: String, sentence: String) {
+    let root = project_root(w);
+    let text = format!("Feature: Hidden drafts\n\n  Scenario: Other\n    {sentence}\n");
+    commit_on_branch(&root, &id, &file, &text);
+}
+
+#[when(expr = "the role {string} runs {string}")]
+fn role_runs(w: &mut GddWorld, role: String, command: String) {
+    let root = project_root(w);
+    run_gdd_as(w, &command, &root, Some(&role));
+}
+
+/// SHA-256 of `bytes`, as `sha256sum` prints it.
+fn sha256(bytes: &[u8]) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("sha256sum")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("sha256sum can run");
+    child
+        .stdin
+        .take()
+        .expect("a pipe to sha256sum")
+        .write_all(bytes)
+        .expect("bytes for sha256sum");
+    let out = child.wait_with_output().expect("sha256sum finishes");
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .expect("a hash")
+        .to_string()
+}
+
+#[then(expr = "the record of {string} seals {string} with its current SHA-256")]
+fn record_seals(w: &mut GddWorld, id: String, file: String) {
+    let root = project_root(w);
+    let shown = std::process::Command::new("git")
+        .args(["show", &format!("change/{id}:{file}")])
+        .current_dir(&root)
+        .output()
+        .expect("git can run");
+    assert!(shown.status.success(), "{file} is not on the branch");
+    let record = read_record(&root, &id);
+    assert_eq!(
+        record["gates"]["G1"]["hashes"][&file].as_str(),
+        Some(sha256(&shown.stdout).as_str()),
+        "hashes in {record}"
+    );
+}
+
+#[then(expr = "the record of {string} has the gate {string} with decision {string} by {string}")]
+fn record_has_gate(w: &mut GddWorld, id: String, gate: String, decision: String, by: String) {
+    let record = read_record(&project_root(w), &id);
+    let entry = &record["gates"][&gate];
+    assert_eq!(
+        entry["decision"],
+        decision.as_str(),
+        "gate {gate} in {record}"
+    );
+    assert_eq!(entry["by"], by.as_str(), "gate {gate} in {record}");
 }
 
 fn repo_root() -> PathBuf {

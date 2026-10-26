@@ -1,12 +1,21 @@
 //! A change and its record, `.gdd/changes/<id>/change.json`: what it plans to touch, where its
-//! build started and what its gates approved.
+//! build started, what its gates decided and the notes left on it.
 
 use std::collections::BTreeMap;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::Path;
 
+use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::{Map, Value};
 
 use crate::classify::{Change, Classification};
 use crate::config::Color;
+
+/// The kinds of note a change keeps for its Decision Inbox: a decision the human must take, a
+/// decision taken without them, and work parked.
+pub const NOTE_KINDS: [&str; 3] = ["needs", "decided", "parked"];
 
 /// Whether `id` can name a change: a lowercase letter or digit, then up to 40 lowercase
 /// letters, digits or hyphens. Nothing else, so an id never leaves `.gdd/changes/`.
@@ -15,9 +24,167 @@ pub fn valid_id(id: &str) -> bool {
     id.len() <= 41 && id.starts_with(allowed) && id.chars().all(|c| allowed(c) || c == '-')
 }
 
+/// `Ok` when `id` can name a change (see [`valid_id`]); else why not.
+pub fn check_id(id: &str) -> Result<(), String> {
+    if valid_id(id) {
+        Ok(())
+    } else {
+        Err(format!(
+            "invalid change id {id:?}: use lowercase letters, digits and hyphens"
+        ))
+    }
+}
+
 /// Where the record of change `id` lives, from the project root.
 pub fn record_path(id: &str) -> String {
     format!(".gdd/changes/{id}/change.json")
+}
+
+/// Where the Decision Inbox of change `id` lives, from the project root.
+pub fn inbox_path(id: &str) -> String {
+    format!(".gdd/changes/{id}/inbox.md")
+}
+
+/// The text of the record of change `id` of the project at `root`. An id that cannot name a
+/// change, a change without a record and a record that cannot be read are errors that say so.
+pub fn read_record(root: &Path, id: &str) -> Result<String, String> {
+    check_id(id)?;
+    let path = record_path(id);
+    match fs::read_to_string(root.join(&path)) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            Err(format!("change {id} does not exist: there is no {path}"))
+        }
+        Err(e) => Err(format!("cannot read {path}: {e}")),
+    }
+}
+
+/// What a new change starts with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct New<'a> {
+    /// Its id.
+    pub id: &'a str,
+    /// What it is about, in a few words.
+    pub title: &'a str,
+    /// The kind of work: `Feature`, `Hotfix`...
+    pub kind: &'a str,
+    /// The paths it plans to touch.
+    pub paths: &'a [String],
+    /// Whether it can be resumed after an interruption.
+    pub resumable: bool,
+    /// Its declared minimum color.
+    pub min_color: Option<Color>,
+    /// When it was created (see [`crate::log::now`]).
+    pub created: &'a str,
+}
+
+#[derive(Serialize)]
+struct Fresh<'a> {
+    id: &'a str,
+    title: &'a str,
+    #[serde(rename = "type")]
+    kind: &'a str,
+    paths: &'a [String],
+    resumable: bool,
+    min_color: Option<String>,
+    created: &'a str,
+    state: &'a str,
+    gates: Map<String, Value>,
+    inbox: Vec<Value>,
+}
+
+/// The record of a new change: open, without gates or notes.
+pub fn new_record(new: &New) -> Result<String, serde_json::Error> {
+    written(&Fresh {
+        id: new.id,
+        title: new.title,
+        kind: new.kind,
+        paths: new.paths,
+        resumable: new.resumable,
+        min_color: new.min_color.map(|color| color.to_string()),
+        created: new.created,
+        state: "open",
+        gates: Map::new(),
+        inbox: Vec::new(),
+    })
+}
+
+/// A gate decision as a record keeps it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Approval<'a> {
+    /// `ok` or `ko`.
+    pub decision: &'a str,
+    /// Who decided: `human`, `machines`...
+    pub by: &'a str,
+    /// When (see [`crate::log::now`]).
+    pub ts: &'a str,
+    /// What to read about it.
+    pub note: &'a str,
+    /// The scenario files G1 sealed, with their SHA-256.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hashes: Option<&'a BTreeMap<String, String>>,
+}
+
+/// The record `text` with `approval` as the decision on `gate` and, when given, `features` as
+/// the scenario files of the change; every other field keeps its value.
+pub fn with_gate(
+    text: &str,
+    gate: &str,
+    approval: &Approval,
+    features: Option<&[String]>,
+) -> Result<String, serde_json::Error> {
+    let mut record: Map<String, Value> = serde_json::from_str(text)?;
+    let approval = serde_json::to_value(approval)?;
+    let gates = field(&mut record, "gates", Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| wrong("gates", "an object"))?;
+    gates.insert(gate.to_string(), approval);
+    if let Some(features) = features {
+        record.insert("features".to_string(), Value::from(features));
+    }
+    written(&record)
+}
+
+/// A note for the Decision Inbox of a change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Note<'a> {
+    /// One of [`NOTE_KINDS`].
+    pub kind: &'a str,
+    /// What it says.
+    pub text: &'a str,
+    /// When it was left (see [`crate::log::now`]).
+    pub ts: &'a str,
+}
+
+/// The record `text` with `note` at the end of its notes, `inbox`; every other field keeps its
+/// value.
+pub fn with_note(text: &str, note: &Note) -> Result<String, serde_json::Error> {
+    let mut record: Map<String, Value> = serde_json::from_str(text)?;
+    let note = serde_json::to_value(note)?;
+    field(&mut record, "inbox", Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| wrong("inbox", "a list"))?
+        .push(note);
+    written(&record)
+}
+
+/// The field `key` of `record`; `empty` when the record has none, or `null`.
+fn field<'a>(record: &'a mut Map<String, Value>, key: &str, empty: Value) -> &'a mut Value {
+    let value = record.entry(key).or_insert(Value::Null);
+    if value.is_null() {
+        *value = empty;
+    }
+    value
+}
+
+/// The error of a field of a record that holds something else than `what`.
+fn wrong(key: &str, what: &str) -> serde_json::Error {
+    serde_json::Error::custom(format!("the field {key:?} of the record is not {what}"))
+}
+
+/// `record` as the tool writes records: indented JSON, with a line break at the end.
+fn written(record: &impl Serialize) -> Result<String, serde_json::Error> {
+    serde_json::to_string_pretty(record).map(|text| format!("{text}\n"))
 }
 
 /// Where the last snapshot of change `id` lives, from the project root.
@@ -145,6 +312,7 @@ pub struct Decision<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::tests::Folder;
     use crate::{Lane, classify, rules, zones::ZoneMap};
 
     fn plan(text: &str) -> Change {
@@ -170,6 +338,154 @@ mod tests {
         let build = ".gdd/changes/save/snapshot-build.json";
         assert_eq!(build_snapshot_path("save"), build);
         assert_eq!(branch("save"), "change/save");
+    }
+
+    #[test]
+    fn an_id_that_cannot_name_a_change_says_why() {
+        assert_eq!(check_id("c1"), Ok(()));
+        let why = "invalid change id \"../c1\": use lowercase letters, digits and hyphens";
+        assert_eq!(check_id("../c1"), Err(why.to_string()));
+        assert_eq!(inbox_path("c1"), ".gdd/changes/c1/inbox.md");
+    }
+
+    #[test]
+    fn a_record_is_read_only_for_a_change_that_exists() {
+        let folder = Folder::new();
+        let text = "{\"id\": \"c1\"}";
+        folder.write(".gdd/changes/c1/change.json", text);
+        assert_eq!(read_record(&folder.0, "c1"), Ok(text.to_string()));
+        let invalid = check_id("C1").unwrap_err();
+        assert_eq!(read_record(&folder.0, "C1"), Err(invalid));
+        let missing = "change c2 does not exist: there is no .gdd/changes/c2/change.json";
+        assert_eq!(read_record(&folder.0, "c2"), Err(missing.into()));
+        fs::create_dir_all(folder.0.join(".gdd/changes/c3/change.json")).unwrap();
+        let unreadable = read_record(&folder.0, "c3").unwrap_err();
+        let start = "cannot read .gdd/changes/c3/change.json: ";
+        assert!(unreadable.starts_with(start), "{unreadable}");
+    }
+
+    #[test]
+    fn a_new_change_is_open_without_gates_or_notes() {
+        let paths = ["src/a.rs".to_string(), "docs/é.md".to_string()];
+        let new = New {
+            id: "c1",
+            title: "Drafts",
+            kind: "Feature",
+            paths: &paths,
+            resumable: true,
+            min_color: Some(Color::Red),
+            created: "2026-10-26T07:12:29+00:00",
+        };
+        let expected = "{\n  \"id\": \"c1\",\n  \"title\": \"Drafts\",\n  \
+                        \"type\": \"Feature\",\n  \
+                        \"paths\": [\n    \"src/a.rs\",\n    \"docs/é.md\"\n  ],\n  \
+                        \"resumable\": true,\n  \"min_color\": \"red\",\n  \
+                        \"created\": \"2026-10-26T07:12:29+00:00\",\n  \
+                        \"state\": \"open\",\n  \"gates\": {},\n  \"inbox\": []\n}\n";
+        assert_eq!(new_record(&new).unwrap(), expected);
+        let plain = New {
+            paths: &[],
+            resumable: false,
+            min_color: None,
+            ..new
+        };
+        let record = Record::from_json(&new_record(&plain).unwrap()).unwrap();
+        assert_eq!(record.plan.paths, Vec::<String>::new());
+        assert_eq!(record.plan.min_color, None);
+        assert!(!record.plan.resumable);
+    }
+
+    fn approval<'a>(hashes: Option<&'a BTreeMap<String, String>>) -> Approval<'a> {
+        Approval {
+            decision: "ok",
+            by: "human",
+            ts: "2026-10-26T07:21:55+00:00",
+            note: "Looks fine",
+            hashes,
+        }
+    }
+
+    #[test]
+    fn a_gate_decision_is_written_in_the_record_and_keeps_the_rest() {
+        let text = r#"{"id": "c1", "gates": {"plan": {"decision": "ok"}}, "x": [1]}"#;
+        let written = with_gate(text, "G4", &approval(None), None).unwrap();
+        assert!(written.ends_with("}\n"));
+        assert!(written.contains("\n  \"id\": \"c1\""));
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let expected = serde_json::json!({
+            "id": "c1",
+            "gates": {
+                "plan": {"decision": "ok"},
+                "G4": {
+                    "decision": "ok",
+                    "by": "human",
+                    "ts": "2026-10-26T07:21:55+00:00",
+                    "note": "Looks fine",
+                },
+            },
+            "x": [1],
+        });
+        assert_eq!(value, expected);
+        let file = "features/a.feature".to_string();
+        let hashes = BTreeMap::from([(file.clone(), "ab12".to_string())]);
+        let features = [file];
+        let sealed = with_gate(text, "G1", &approval(Some(&hashes)), Some(&features)).unwrap();
+        let record = Record::from_json(&sealed).unwrap();
+        assert_eq!(record.approved, hashes);
+        assert_eq!(record.features, features);
+        let value: Value = serde_json::from_str(&sealed).unwrap();
+        let plan = serde_json::json!({"decision": "ok"});
+        assert_eq!(value["gates"]["plan"], plan);
+    }
+
+    #[test]
+    fn a_record_without_gates_gets_them_and_one_that_is_not_an_object_is_an_error() {
+        let plan = |text| with_gate(text, "plan", &approval(None), None);
+        for text in ["{}", r#"{"gates": null}"#] {
+            let value: Value = serde_json::from_str(&plan(text).unwrap()).unwrap();
+            assert_eq!(value["gates"]["plan"]["by"], "human", "{text}");
+            assert_eq!(value.get("features"), None);
+        }
+        let err = plan(r#"{"gates": []}"#).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "the field \"gates\" of the record is not an object"
+        );
+        assert!(plan("[]").is_err());
+        assert!(plan("{not json").is_err());
+    }
+
+    #[test]
+    fn notes_are_added_at_the_end_of_the_inbox() {
+        let note = Note {
+            kind: "needs",
+            text: "Pick a name",
+            ts: "2026-10-26T08:00:00+00:00",
+        };
+        let text = r#"{"id": "c1", "inbox": [{"kind": "decided", "text": "Old"}]}"#;
+        let written = with_note(text, &note).unwrap();
+        assert!(written.ends_with("}\n"));
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let expected = serde_json::json!({
+            "id": "c1",
+            "inbox": [
+                {"kind": "decided", "text": "Old"},
+                {"kind": "needs", "text": "Pick a name", "ts": "2026-10-26T08:00:00+00:00"},
+            ],
+        });
+        assert_eq!(value, expected);
+        for text in ["{}", r#"{"inbox": null}"#] {
+            let written = with_note(text, &note).unwrap();
+            let value: Value = serde_json::from_str(&written).unwrap();
+            assert_eq!(value["inbox"][0]["text"], "Pick a name", "{text}");
+        }
+        let err = with_note(r#"{"inbox": {}}"#, &note).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "the field \"inbox\" of the record is not a list"
+        );
+        assert!(with_note("\"x\"", &note).is_err());
+        assert_eq!(NOTE_KINDS, ["needs", "decided", "parked"]);
     }
 
     #[test]

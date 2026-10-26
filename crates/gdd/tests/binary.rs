@@ -43,3 +43,29 @@ fn the_program_prints_what_run_says_and_exits_with_its_code() {
     assert_like_run(&["report"], &folder);
     fs::remove_dir_all(&folder).unwrap();
 }
+
+#[test]
+fn a_builder_or_reviewer_named_in_gdd_role_records_no_gate() {
+    let folder = std::env::temp_dir().join(format!("gdd-binary-role-{}", std::process::id()));
+    fs::create_dir_all(folder.join("gdd")).unwrap();
+    fs::write(folder.join("gdd/project.toml"), "name = \"demo\"\n").unwrap();
+    // What the program says to `gdd gate G0 ok --by machines` with GDD_ROLE set, or unset.
+    let gate = |role: Option<&str>| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_gdd"));
+        command.args(["gate", "G0", "ok", "--by", "machines"]);
+        match role {
+            Some(role) => command.env("GDD_ROLE", role),
+            None => command.env_remove("GDD_ROLE"),
+        };
+        let out = command.current_dir(&folder).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{role:?}");
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
+    assert_eq!(gate(Some("reviewer")), refused);
+    assert_eq!(gate(Some("builder-test")), refused);
+    let untested = "error: G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest).\n";
+    assert_eq!(gate(None), untested);
+    assert_eq!(gate(Some("orchestrator")), untested);
+    fs::remove_dir_all(&folder).unwrap();
+}

@@ -7,9 +7,11 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use gdd_core::change::{self, Decision, Record};
-use gdd_core::gates::{self, Gate};
+use gdd_core::gates::{self, Gate, approve};
+use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
-use gdd_core::{Report, RulesTable, ZoneMap, log};
+use gdd_core::status::{self, Status};
+use gdd_core::{Color, Report, RulesTable, ZoneMap, inbox, log};
 
 /// File that marks the root of a GDD project.
 const PROJECT: &str = "gdd/project.toml";
@@ -19,6 +21,17 @@ const ZONES: &str = "gdd/zones.toml";
 const RULES: &str = guard::RULES;
 /// Gate commands of the project.
 const COMMANDS: &str = "gdd/commands.toml";
+/// Where the changes keep their records, from the project root.
+const CHANGES: &str = ".gdd/changes";
+/// The kinds of work a change can be.
+const TYPES: [&str; 6] = [
+    "Feature",
+    "Hotfix",
+    "Refactor",
+    "Migration",
+    "Spike",
+    "No-code",
+];
 
 /// What a run of `gdd` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +122,23 @@ enum Command {
     /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
     /// Saves the result next to the change, logs it and prints it as JSON.
     G3(GateArgs),
+    /// Creates a change: its record and, when it has none, its branch change/<id> from the main
+    /// branch. Logs it and prints its classification as JSON.
+    NewChange(NewChangeArgs),
+    /// Records a gate decision: G0 (by the machines), the red zones (by a human), or the plan,
+    /// G1, G2, G3 or G4 of a change. Approving G1 seals the scenario files of the change.
+    /// Builders and Reviewers cannot record anything.
+    Gate(DecisionArgs),
+    /// Leaves a note on a change for its Decision Inbox.
+    Note(NoteArgs),
+    /// The Decision Inbox of a change: what is open for the human. Also saved in
+    /// .gdd/changes/<id>/inbox.md.
+    Inbox {
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+    },
+    /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
+    Status,
 }
 
 /// What `gdd g2` and `gdd g3` take.
@@ -124,9 +154,68 @@ struct GateArgs {
     strict: bool,
 }
 
+/// What `gdd new-change` takes.
+#[derive(Debug, Args)]
+struct NewChangeArgs {
+    /// Id of the change: lowercase letters, digits and hyphens.
+    change: String,
+    /// What the change is about, in a few words.
+    #[arg(long)]
+    title: String,
+    /// The kind of work.
+    #[arg(long = "type", default_value = "Feature", value_parser = TYPES)]
+    kind: String,
+    /// Paths the change plans to touch; patterns are allowed.
+    #[arg(long, num_args = 0..)]
+    paths: Vec<String>,
+    /// The change can be resumed after an interruption (a condition of the fast lane).
+    #[arg(long)]
+    resumable: bool,
+    /// Declared minimum color: it raises the color, never lowers it.
+    #[arg(long, value_parser = parse_color)]
+    min_color: Option<Color>,
+}
+
+/// What `gdd gate` takes.
+#[derive(Debug, Args)]
+struct DecisionArgs {
+    /// The gate.
+    #[arg(value_parser = approve::GATES)]
+    gate: String,
+    /// ok or ko; approve and reject say the same.
+    decision: String,
+    /// Id of the change, for the plan, G1, G2, G3 and G4.
+    change: Option<String>,
+    /// Who decides: human or machines.
+    #[arg(long, default_value = "human")]
+    by: String,
+    /// What to read about the decision.
+    #[arg(long, default_value = "")]
+    note: String,
+}
+
+/// What `gdd note` takes.
+#[derive(Debug, Args)]
+struct NoteArgs {
+    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    change: String,
+    /// needs (a decision for the human), decided (taken without them) or parked.
+    #[arg(value_parser = change::NOTE_KINDS)]
+    kind: String,
+    /// What the note says; its words are joined with single spaces.
+    #[arg(required = true, trailing_var_arg = true)]
+    text: Vec<String>,
+}
+
+/// A color named on the command line.
+fn parse_color(name: &str) -> Result<Color, String> {
+    name.parse().map_err(|e: gdd_core::Error| e.to_string())
+}
+
 impl Command {
-    /// Runs the command on the project at `root`: what it prints and its exit code.
-    fn run(self, root: &Path) -> Result<(String, u8), String> {
+    /// Runs the command on the project at `root`, for the role `role`: what it prints and its
+    /// exit code.
+    fn run(self, root: &Path, role: Option<&str>) -> Result<(String, u8), String> {
         let mut code = 0;
         let text = match self {
             Command::G2(args) => return run_gate(root, Gate::G2, &args),
@@ -145,16 +234,29 @@ impl Command {
             }
             Command::Snapshot { change } => snapshot(root, &change)?,
             Command::Scope { change } => scope(root, &change)?,
+            Command::NewChange(args) => new_change(root, &args)?,
+            Command::Gate(args) => gate(root, &args, role)?,
+            Command::Note(args) => note(root, &args)?,
+            Command::Inbox { change } => decision_inbox(root, &change)?,
+            Command::Status => project_status(root)?,
         };
         Ok((text, code))
     }
 }
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`.
+/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
+/// role in the environment variable `GDD_ROLE` (see [`run_as`]).
+pub fn run(args: &[String], cwd: &Path) -> Outcome {
+    let role = std::env::var("GDD_ROLE").ok();
+    run_as(args, cwd, role.as_deref())
+}
+
+/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
+/// role `role` (`None` for a person): a Builder or a Reviewer cannot record gate decisions.
 /// Help and version go to the standard output; every error goes to the standard error, with
 /// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails, and
 /// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
-pub fn run(args: &[String], cwd: &Path) -> Outcome {
+pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
     let cli = match Cli::try_parse_from(words) {
         Ok(cli) => cli,
@@ -164,7 +266,7 @@ pub fn run(args: &[String], cwd: &Path) -> Outcome {
     let Some(command) = cli.command else {
         return Outcome::success(Cli::command().render_help().to_string());
     };
-    match project_root(cwd).and_then(|root| command.run(&root)) {
+    match project_root(cwd).and_then(|root| command.run(&root, role)) {
         Ok((text, code)) => Outcome {
             code,
             stdout: format!("{text}\n"),
@@ -311,17 +413,153 @@ fn scope(root: &Path, id: &str) -> Result<String, String> {
     serde_json::to_string(&checked).map_err(|e| e.to_string())
 }
 
-/// The record of change `id`. An id that cannot name a change, or a change without a record,
-/// is an error.
-fn load_record(root: &Path, id: &str) -> Result<Record, String> {
-    if !change::valid_id(id) {
-        return Err(format!(
-            "invalid change id {id:?}: use lowercase letters, digits and hyphens"
-        ));
-    }
+/// `gdd new-change`: the record of a new change `id` and, when it has none, its branch from the
+/// main branch; logged. Its classification as JSON. A change that exists already is an error.
+fn new_change(root: &Path, args: &NewChangeArgs) -> Result<String, String> {
+    let id = args.change.as_str();
+    change::check_id(id)?;
     let path = change::record_path(id);
-    let text = read(root, &path)?
-        .ok_or_else(|| format!("change {id} does not exist: there is no {path}"))?;
+    if root.join(&path).exists() {
+        return Err(format!("Change {id} already exists."));
+    }
+    let main = load_settings(root)?.main_branch;
+    let git = Git::new(root);
+    let branch = change::branch(id);
+    let created = match git.exists(&branch) {
+        Ok(true) => Ok(()),
+        Ok(false) => git.create_branch(&branch, &main),
+        Err(e) => Err(e),
+    };
+    created.map_err(|e| e.to_string())?;
+    let ts = log::now();
+    let new = change::New {
+        id,
+        title: &args.title,
+        kind: &args.kind,
+        paths: &args.paths,
+        resumable: args.resumable,
+        min_color: args.min_color,
+        created: &ts,
+    };
+    let record = change::new_record(&new).map_err(|e| e.to_string())?;
+    write(root, &path, &record)?;
+    let entry = log::Entry {
+        change: id.to_string(),
+        phase: "1-discover".to_string(),
+        gate: "-".to_string(),
+        role: "orchestrator".to_string(),
+        agent: "-".to_string(),
+        result: "change-created".to_string(),
+        duration_s: 0.0,
+        note: args.title.clone(),
+    };
+    let line = entry.line(&ts).map_err(|e| e.to_string())?;
+    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
+    classify(root, id)
+}
+
+/// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]).
+fn gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<String, String> {
+    let gate = match args.gate.parse::<approve::Gate>() {
+        Ok(gate) => gate,
+        Err(e) => return Err(e.to_string()),
+    };
+    let zones = read(root, ZONES)?.unwrap_or_default();
+    let settings = load_settings(root)?;
+    let table = load_table(root)?;
+    let project = approve::Project {
+        root,
+        zones: &zones,
+        settings: &settings,
+        acceptance: &table.acceptance,
+    };
+    let request = approve::Request {
+        gate,
+        decision: &args.decision,
+        change: args.change.as_deref(),
+        by: &args.by,
+        note: &args.note,
+    };
+    approve::record(&project, &request, role).map_err(|e| e.to_string())
+}
+
+/// `gdd note`: adds a note to the record of a change, for its Decision Inbox.
+fn note(root: &Path, args: &NoteArgs) -> Result<String, String> {
+    let id = args.change.as_str();
+    let text = change::read_record(root, id)?;
+    let ts = log::now();
+    let words = args.text.join(" ");
+    let note = change::Note {
+        kind: &args.kind,
+        text: &words,
+        ts: &ts,
+    };
+    let path = change::record_path(id);
+    let record = change::with_note(&text, &note).map_err(|e| format!("{path}: {e}"))?;
+    write(root, &path, &record)?;
+    Ok("noted".to_string())
+}
+
+/// `gdd inbox`: the Decision Inbox of change `id`, also saved next to its record exactly as it
+/// is printed.
+fn decision_inbox(root: &Path, id: &str) -> Result<String, String> {
+    let text = change::read_record(root, id)?;
+    let path = change::record_path(id);
+    let rendered = inbox::render(id, &text).map_err(|e| format!("{path}: {e}"))?;
+    write(root, &change::inbox_path(id), &format!("{rendered}\n"))?;
+    Ok(rendered)
+}
+
+/// `gdd status`: where the project stands, and its changes.
+fn project_status(root: &Path) -> Result<String, String> {
+    let project = read(root, PROJECT)?.unwrap_or_default();
+    let basics = status::Basics::from_toml(&project).map_err(|e| format!("{PROJECT}: {e}"))?;
+    let zones = read(root, ZONES)?.unwrap_or_default();
+    let dir = load_table(root)?.acceptance.dir;
+    let scenarios = gates::count_scenarios(&root.join(&dir)).map_err(|e| e.to_string());
+    let selftest = read(root, approve::SELFTEST_PATH)?;
+    let log_lines = read(root, log::PATH)?.map(|text| text.lines().count());
+    let status = Status {
+        basics,
+        brief: root.join(approve::BRIEF).is_file(),
+        g0: approve::g0_open(root).map_err(|e| e.to_string())?,
+        zones: approve::zones_state(root, &zones).map_err(|e| e.to_string())?,
+        selftest: selftest.and_then(|text| status::selftest_summary(&text)),
+        scenarios_dir: dir,
+        scenarios,
+        changes: change_lines(root)?,
+        log_lines,
+    };
+    Ok(status.to_string())
+}
+
+/// The line of each change in the status, in the order of their folders; a folder without a
+/// record is not a change.
+fn change_lines(root: &Path) -> Result<Vec<String>, String> {
+    let entries = match fs::read_dir(root.join(CHANGES)) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot read {CHANGES}: {e}")),
+    };
+    let mut ids: Vec<String> = entries
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    ids.sort();
+    let mut lines = Vec::new();
+    for id in ids {
+        if let Some(text) = read(root, &change::record_path(&id))? {
+            lines.push(status::change_line(&id, &text));
+        }
+    }
+    Ok(lines)
+}
+
+/// The record of change `id` (see [`change::read_record`]).
+fn load_record(root: &Path, id: &str) -> Result<Record, String> {
+    let text = change::read_record(root, id)?;
+    let path = change::record_path(id);
     Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
 }
 
@@ -341,10 +579,11 @@ fn load_zones(root: &Path) -> Result<ZoneMap, String> {
     ZoneMap::from_toml(&text).map_err(|e| format!("{ZONES}: {e}"))
 }
 
-/// The rules table of the project.
+/// The rules table the project classifies its changes with, the one the gates use (see
+/// [`RulesTable::of_project`]).
 fn load_table(root: &Path) -> Result<RulesTable, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    RulesTable::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
+    RulesTable::of_project(&text).map_err(|e| format!("{RULES}: {e}"))
 }
 
 /// What the rules file says to Path Guard: the main branch and the protected paths.
@@ -362,9 +601,13 @@ fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// Writes `text` to a file of the project.
+/// Writes `text` to a file of the project, creating its folder.
 fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
-    fs::write(root.join(path), text).map_err(|e| format!("cannot write {path}: {e}"))
+    let file = root.join(path);
+    file.parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| fs::write(&file, text))
+        .map_err(|e| format!("cannot write {path}: {e}"))
 }
 
 #[cfg(test)]
@@ -406,9 +649,13 @@ mod tests {
         }
     }
 
+    fn words(command: &str) -> Vec<String> {
+        command.split_whitespace().map(str::to_string).collect()
+    }
+
+    /// Runs `command` from `cwd` as a person, whatever `GDD_ROLE` says.
     fn run_in(cwd: &Path, command: &str) -> Outcome {
-        let args: Vec<String> = command.split_whitespace().map(str::to_string).collect();
-        run(&args, cwd)
+        run_as(&words(command), cwd, None)
     }
 
     fn json(out: &Outcome) -> serde_json::Value {
@@ -445,6 +692,9 @@ mod tests {
         for command in ["report", "classify", "guard", "snapshot", "scope"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
+        for command in ["new-change", "gate", "note", "inbox", "status"] {
+            assert!(out.stdout.contains(command), "{command}: {out:?}");
+        }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
             assert!(out.stdout.contains(gate), "{gate}: {out:?}");
         }
@@ -464,6 +714,17 @@ mod tests {
             "g2",
             "g3 --strict",
             "g2 save --role",
+            "new-change c1",
+            "new-change c1 --title",
+            "new-change c1 --title x --type Other",
+            "new-change c1 --title x --min-color purple",
+            "gate",
+            "gate G9 ok",
+            "gate G1",
+            "note c1 needs",
+            "note c1 maybe x",
+            "inbox",
+            "status extra",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -646,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn classify_without_zone_map_or_rules_takes_the_defaults() {
+    fn classify_without_zone_map_or_rules_takes_the_tables_of_the_tool() {
         let project = Project::new();
         project.write(
             ".gdd/changes/save/change.json",
@@ -655,9 +916,13 @@ mod tests {
         let decision = json(&project.run("classify save"));
         assert_eq!(decision["color"], "yellow");
         assert_eq!(decision["lane"], "fast");
-        assert_eq!(decision["tests_first"], false);
-        assert_eq!(decision["mutation"], false);
+        assert_eq!(decision["tests_first"], true);
+        assert_eq!(decision["mutation"], true);
         assert_eq!(decision["reviewer"], true);
+        assert_eq!(decision["g4"], false);
+        // Rules without colors say nothing about them either.
+        project.write(RULES, PROTECTED);
+        assert_eq!(json(&project.run("classify save")), decision);
     }
 
     #[test]
@@ -1107,5 +1372,262 @@ mod tests {
             let out = project.run(&format!("{gate} Save"));
             assert!(out.stderr.starts_with("error: invalid change id"), "{gate}");
         }
+    }
+
+    /// A project in a git repository, its files committed on `main`, without changes.
+    fn committed_project() -> Project {
+        let project = Project::new();
+        project.write(RULES, PROTECTED);
+        project.write(ZONES, ZONE_MAP);
+        git(&project, &["init", "-q", "-b", "main"]);
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "project"]);
+        project
+    }
+
+    fn record_of(project: &Project, id: &str) -> serde_json::Value {
+        let path = project.0.join(change::record_path(id));
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn new_change_creates_its_record_and_its_branch_and_logs_it() {
+        let project = committed_project();
+        let main = git(&project, &["rev-parse", "main"]);
+        let out = project.run("new-change c1 --title Drafts --paths src/storage/db.rs");
+        let decision = json(&out);
+        assert_eq!(decision["change"], "c1");
+        assert_eq!(decision["color"], "red");
+        let start = "{\n  \"change\": \"c1\",\n";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        assert_eq!(git(&project, &["rev-parse", "change/c1"]), main);
+        assert_eq!(git(&project, &["branch", "--show-current"]), "main");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["id"], "c1");
+        assert_eq!(record["title"], "Drafts");
+        assert_eq!(record["type"], "Feature");
+        let paths = serde_json::json!(["src/storage/db.rs"]);
+        assert_eq!(record["paths"], paths);
+        assert_eq!(record["resumable"], false);
+        assert_eq!(record["min_color"], serde_json::Value::Null);
+        assert_eq!(record["state"], "open");
+        assert_eq!(record["gates"], serde_json::json!({}));
+        assert_eq!(record["inbox"], serde_json::json!([]));
+        let records = log_records(&project);
+        let [line] = records.as_slice() else {
+            panic!("one log line: {records:?}");
+        };
+        for (field, value) in [
+            ("change", "c1"),
+            ("phase", "1-discover"),
+            ("gate", "-"),
+            ("role", "orchestrator"),
+            ("agent", "-"),
+            ("result", "change-created"),
+            ("note", "Drafts"),
+        ] {
+            assert_eq!(line.text(field), value, "{field}");
+        }
+        assert_eq!(line.text("ts"), record["created"].as_str().unwrap());
+    }
+
+    #[test]
+    fn new_change_takes_a_type_paths_a_minimum_color_and_resumable() {
+        let project = committed_project();
+        let flags = "--type Spike --paths docs/a.md b.md --resumable --min-color red";
+        let out = project.run(&format!("new-change c1 --title Docs {flags}"));
+        let decision = json(&out);
+        assert_eq!(decision["color"], "red");
+        let reasons = decision["reasons"].as_array().unwrap();
+        assert_eq!(reasons.last().unwrap(), "declared minimum color: red");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["type"], "Spike");
+        let paths = serde_json::json!(["docs/a.md", "b.md"]);
+        assert_eq!(record["paths"], paths);
+        assert_eq!(record["resumable"], true);
+        assert_eq!(record["min_color"], "red");
+    }
+
+    #[test]
+    fn new_change_never_overwrites_a_change_and_keeps_its_branch() {
+        let project = committed_project();
+        assert_eq!(project.run("new-change c1 --title First").code, 0);
+        let again = project.run("new-change c1 --title Second");
+        let exists = Outcome::failure("error: Change c1 already exists.\n".into());
+        assert_eq!(again, exists);
+        assert_eq!(record_of(&project, "c1")["title"], "First");
+        // The branch of a change whose record went away is kept as it is.
+        fs::remove_dir_all(project.0.join(".gdd/changes/c1")).unwrap();
+        git(&project, &["checkout", "-q", "change/c1"]);
+        project.write("x.rs", "x\n");
+        git(&project, &["add", "--", "x.rs"]);
+        git(&project, &["commit", "-q", "-m", "x"]);
+        let tip = git(&project, &["rev-parse", "HEAD"]);
+        assert_eq!(project.run("new-change c1 --title Again").code, 0);
+        assert_eq!(git(&project, &["rev-parse", "change/c1"]), tip);
+        assert_eq!(record_of(&project, "c1")["title"], "Again");
+    }
+
+    #[test]
+    fn new_change_needs_an_id_that_names_a_change_and_a_repository() {
+        let project = committed_project();
+        let out = project.run("new-change ../c1 --title Drafts");
+        let invalid = change::check_id("../c1").unwrap_err();
+        assert_eq!(out, Outcome::failure(format!("error: {invalid}\n")));
+        assert_eq!(git(&project, &["branch", "--list"]), "* main");
+        assert!(!project.0.join(CHANGES).exists());
+        let plain = Project::new();
+        let out = plain.run("new-change c1 --title Drafts");
+        let start = "error: git rev-parse --verify --quiet change/c1 failed";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert!(!plain.0.join(CHANGES).exists());
+    }
+
+    #[test]
+    fn gate_records_the_decisions_on_a_change_but_not_for_builders() {
+        let project = committed_project();
+        project.run("new-change c1 --title Drafts");
+        let out = project.run("gate plan ok c1 --note Looks-fine");
+        assert_eq!(out, Outcome::success("plan ok on c1 (human).\n".into()));
+        let record = record_of(&project, "c1");
+        let plan = &record["gates"]["plan"];
+        assert_eq!(plan["decision"], "ok");
+        assert_eq!(plan["by"], "human");
+        assert_eq!(plan["note"], "Looks-fine");
+        let g4 = project.run("gate G4 reject c1 --by machines");
+        assert_eq!(g4.stdout, "G4 ko on c1 (machines).\n");
+        let maybe = project.run("gate G4 maybe c1");
+        let expected = Outcome::failure("error: The decision is ok or ko.\n".into());
+        assert_eq!(maybe, expected);
+        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
+        let args = words("gate G4 ok c1");
+        let builder = run_as(&args, &project.0, Some("builder-build"));
+        assert_eq!(builder, Outcome::failure(refused.into()));
+        let orchestrator = run_as(&args, &project.0, Some("orchestrator"));
+        assert_eq!(orchestrator.stdout, "G4 ok on c1 (human).\n");
+        assert_eq!(log_records(&project).len(), 4);
+    }
+
+    #[test]
+    fn gate_and_status_show_g0_and_the_red_zones() {
+        let project = committed_project();
+        let selftest = r#"{"ok": true, "summary": "harness 4/4"}"#;
+        project.write(".gdd/selftest.json", selftest);
+        project.write("docs/brief.md", "# Brief\n");
+        let g0 = project.run("gate G0 ok --by machines");
+        assert_eq!(g0.stdout, "G0 ok (machines).\n");
+        let zones = project.run("gate zones ok");
+        assert_eq!(zones.stdout, "Red zones ok (1 red zone(s)).\n");
+        project.run("new-change c1 --title Drafts --paths src/a.rs");
+        project.run("gate plan ok c1");
+        let expected = concat!(
+            "Project: demo · language en · platform ?\n",
+            "Brief: docs/brief.md\n",
+            "G0: ok · G0 ok\n",
+            "Red zones: approved · red zones approved\n",
+            "Harness self-test: harness 4/4\n",
+            "Scenarios in features/: 0\n",
+            "Changes:\n",
+            "  - c1 · Drafts · open · plan:ok\n",
+            "Log: 4 lines in .gdd/log.jsonl (gdd report)\n"
+        );
+        assert_eq!(project.run("status"), Outcome::success(expected.into()));
+        let wider = "[[zone]]\ncolor = \"red\"\npaths = [\"src/**\"]\n";
+        project.write(ZONES, wider);
+        let changed = project.run("status").stdout;
+        let line = "\nRed zones: pending · Red zones changed after their approval";
+        assert!(changed.contains(line), "{changed}");
+    }
+
+    #[test]
+    fn a_new_project_is_pending_everywhere() {
+        let project = Project::new();
+        let expected = concat!(
+            "Project: demo · language en · platform ?\n",
+            "Brief: missing (Setup writes it)\n",
+            "G0: pending · G0 pending: run the Setup (/speckit-gdd-setup).\n",
+            "Red zones: pending · Red zones not approved yet: the Orchestrator proposes them at ",
+            "the end of Discover.\n",
+            "Harness self-test: not run\n",
+            "Scenarios in features/: 0\n",
+            "Changes:\n"
+        );
+        assert_eq!(project.run("status"), Outcome::success(expected.into()));
+    }
+
+    #[test]
+    fn status_lists_the_change_folders_with_a_record_in_order() {
+        let project = Project::new();
+        let second = r#"{"id": "b2", "title": "Two"}"#;
+        project.write(".gdd/changes/b2/change.json", second);
+        let first = r#"{"id": "a1", "state": "parked"}"#;
+        project.write(".gdd/changes/a1/change.json", first);
+        project.write(".gdd/changes/c3/notes.md", "no record\n");
+        project.write(".gdd/changes/README", "not a change\n");
+        let out = project.run("status");
+        let a1 = "  - a1 ·  · parked · no gates yet";
+        let b2 = "  - b2 · Two · open · no gates yet";
+        let changes = format!("Changes:\n{a1}\n{b2}\n");
+        assert!(out.stdout.ends_with(&changes), "{out:?}");
+        project.write("features", "not a folder\n");
+        let out = project.run("status");
+        let scenarios = "\nScenarios in features/: cannot count them: ";
+        assert!(out.stdout.contains(scenarios), "{out:?}");
+    }
+
+    #[test]
+    fn status_names_what_it_cannot_read() {
+        let project = Project::new();
+        project.write(CHANGES, "not a folder\n");
+        let out = project.run("status");
+        let start = "error: cannot read .gdd/changes: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        project.write(PROJECT, "name = ");
+        let out = project.run("status");
+        let start = "error: gdd/project.toml: invalid TOML: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn notes_reach_the_decision_inbox_which_is_saved_as_printed() {
+        let project = committed_project();
+        project.run("new-change c1 --title Drafts");
+        let noted = project.run("note c1 needs Pick  a --name");
+        assert_eq!(noted, Outcome::success("noted\n".into()));
+        project.run("note c1 decided Kept it");
+        let out = project.run("inbox c1");
+        let expected = concat!(
+            "# Decision Inbox · c1 · Drafts\n\n",
+            "Color ? · lane ? · state open\n\n",
+            "## Needs your decision\n- Pick a --name\n\n",
+            "## Decided without you\n- Kept it\n\n",
+            "## Parked\n- Nothing.\n"
+        );
+        assert_eq!(out, Outcome::success(expected.into()));
+        let saved = fs::read_to_string(project.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        assert_eq!(saved, expected);
+        let record = record_of(&project, "c1");
+        assert_eq!(record["inbox"][1]["kind"], "decided");
+        let ts = record["inbox"][1]["ts"].as_str().unwrap();
+        assert!(ts.ends_with("+00:00"), "{ts}");
+    }
+
+    #[test]
+    fn notes_and_the_inbox_need_a_record_they_can_read() {
+        let project = Project::new();
+        let path = ".gdd/changes/c9/change.json";
+        let missing = format!("error: change c9 does not exist: there is no {path}\n");
+        for command in ["note c9 needs Something", "inbox c9"] {
+            let out = project.run(command);
+            assert_eq!(out, Outcome::failure(missing.clone()), "{command}");
+        }
+        project.write(".gdd/changes/c1/change.json", r#"{"inbox": {}}"#);
+        let out = project.run("note c1 needs Something");
+        let start = "error: .gdd/changes/c1/change.json: the field \"inbox\"";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        project.write(".gdd/changes/c1/change.json", "{not json");
+        let out = project.run("inbox c1");
+        let start = "error: .gdd/changes/c1/change.json: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
     }
 }

@@ -2,6 +2,12 @@
 //! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
 //! Path Guard again, the scope check in build mode and, in G3, the scenario count. It passes
 //! only if all of them pass.
+//!
+//! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
+//! whether hidden examples only reuse visible sentences.
+
+pub mod approve;
+pub mod phrasing;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -9,7 +15,6 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::Path;
 
-use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::change::Record;
@@ -19,7 +24,7 @@ use crate::exec;
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
 use crate::log;
-use crate::rules::{self, RulesTable};
+use crate::rules::RulesTable;
 use crate::zones::ZoneMap;
 
 /// The role of build mode: in a gate, the scope check judges it too.
@@ -155,9 +160,8 @@ fn configured(section: BTreeMap<String, toml::Value>) -> BTreeMap<String, String
 /// What the rules file says to a gate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rules {
-    /// The rules table the gate classifies the change with. A rules file without a `[color]`
-    /// section takes the colors of the table that ships with the tool
-    /// ([`rules::default_table`]): saying nothing about colors switches no gate off.
+    /// The rules table the gate classifies the change with, the one `gdd classify` uses (see
+    /// [`RulesTable::of_project`]).
     pub table: RulesTable,
     /// Whether zero scenarios fail G3 even when the change has no scenarios of its own:
     /// `[acceptance] required`. Unset: yes.
@@ -166,7 +170,6 @@ pub struct Rules {
 
 #[derive(Deserialize)]
 struct RawRules {
-    color: Option<IgnoredAny>,
     #[serde(default)]
     acceptance: RawAcceptance,
 }
@@ -187,14 +190,8 @@ impl Rules {
     /// Reads what a gate needs from a rules file; see [`RulesTable::from_toml`].
     pub fn from_toml(text: &str) -> Result<Rules, config::Error> {
         let raw: RawRules = toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
-        let mut table = RulesTable::from_toml(text)?;
-        if raw.color.is_none() {
-            let acceptance = table.acceptance;
-            table = rules::default_table();
-            table.acceptance = acceptance;
-        }
         Ok(Rules {
-            table,
+            table: RulesTable::of_project(text)?,
             scenarios_required: raw.acceptance.required,
         })
     }
@@ -533,6 +530,7 @@ mod tests {
     use crate::classify::Change;
     use crate::config::Lane;
     use crate::git::tests::{Folder, Repo};
+    use crate::rules;
 
     const PROTECTED: &str = "[protected]\nall = [\"gdd/**\"]\nbuilder_build = [\"features/**\"]\n";
 
