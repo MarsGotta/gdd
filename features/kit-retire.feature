@@ -62,7 +62,8 @@ Feature: The last commands of the bootstrap kit, in gdd
   Scenario: The self-test gives back a file that was already there
     Given the file "tests/failing.txt" says "mine"
     When I run "gdd selftest"
-    Then the file "tests/failing.txt" contains "mine"
+    Then it succeeds
+    And the file "tests/failing.txt" contains "mine"
 
   Scenario: A CI that does not run the gates fails the self-test
     Given the file ".github/workflows/gdd.yml" says "run: cargo test"
