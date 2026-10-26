@@ -5,8 +5,9 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use gdd_core::change::{self, Decision, Record};
+use gdd_core::gates::{self, Gate};
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::{Report, RulesTable, ZoneMap, log};
 
@@ -16,6 +17,8 @@ const PROJECT: &str = "gdd/project.toml";
 const ZONES: &str = "gdd/zones.toml";
 /// Rules table of the project, with the protected paths of Path Guard.
 const RULES: &str = guard::RULES;
+/// Gate commands of the project.
+const COMMANDS: &str = "gdd/commands.toml";
 
 /// What a run of `gdd` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +103,25 @@ enum Command {
         /// Id of the change: its record is .gdd/changes/<id>/change.json.
         change: String,
     },
+    /// Loop Gate: the G2 commands of gdd/commands.toml, Path Guard and, in build mode, the
+    /// scope. Saves the result next to the change, logs it and prints it as JSON.
+    G2(GateArgs),
+    /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
+    /// Saves the result next to the change, logs it and prints it as JSON.
+    G3(GateArgs),
+}
+
+/// What `gdd g2` and `gdd g3` take.
+#[derive(Debug, Args)]
+struct GateArgs {
+    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    change: String,
+    /// Role Path Guard judges (builder-build also gets the scope check).
+    #[arg(long, default_value = "builder")]
+    role: String,
+    /// Exit with code 1 when the gate fails.
+    #[arg(long)]
+    strict: bool,
 }
 
 impl Command {
@@ -107,6 +129,8 @@ impl Command {
     fn run(self, root: &Path) -> Result<(String, u8), String> {
         let mut code = 0;
         let text = match self {
+            Command::G2(args) => return run_gate(root, Gate::G2, &args),
+            Command::G3(args) => return run_gate(root, Gate::G3, &args),
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change)?,
             Command::Guard {
@@ -128,7 +152,8 @@ impl Command {
 
 /// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`.
 /// Help and version go to the standard output; every error goes to the standard error, with
-/// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails.
+/// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails, and
+/// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
 pub fn run(args: &[String], cwd: &Path) -> Outcome {
     let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
     let cli = match Cli::try_parse_from(words) {
@@ -194,18 +219,78 @@ fn classify(root: &Path, id: &str) -> Result<String, String> {
 }
 
 /// `gdd guard`: Path Guard for `role` on change `id`, with the protected paths of the rules
-/// table, now and where the build started. With `since_snapshot`, only what changed since the
-/// last snapshot counts, if there is one.
+/// table, now and where the build started, judged from the snapshot of [`guard_snapshot`].
 fn path_guard(root: &Path, id: &str, role: &str, since_snapshot: bool) -> Result<Verdict, String> {
     let record = load_record(root, id)?;
     let settings = load_settings(root)?;
-    let before = if since_snapshot {
-        last_snapshot(root, id)?
-    } else {
-        None
-    };
+    let before = guard_snapshot(root, id, role, since_snapshot)?;
     guard::path_guard(root, id, &record, &settings, role, before.as_ref())
         .map_err(|e| e.to_string())
+}
+
+/// The snapshot Path Guard judges `role` from on change `id`, if there is one: build mode is
+/// judged from the one taken after test mode (what test mode wrote is not build mode's doing);
+/// with `since_snapshot`, other roles from the last `gdd snapshot`. Otherwise, none: everything
+/// the change touched since its build started counts.
+fn guard_snapshot(
+    root: &Path,
+    id: &str,
+    role: &str,
+    since_snapshot: bool,
+) -> Result<Option<Hashes>, String> {
+    if role == gates::BUILD_ROLE {
+        read_snapshot(root, &change::build_snapshot_path(id))
+    } else if since_snapshot {
+        read_snapshot(root, &change::snapshot_path(id))
+    } else {
+        Ok(None)
+    }
+}
+
+/// `gdd g2` and `gdd g3`: runs `gate` on the change, writes in its record the paths the scope
+/// check accepted, saves the report next to it and logs the run. The report as JSON, and exit
+/// code 1 when the gate fails and the run is strict.
+fn run_gate(root: &Path, gate: Gate, args: &GateArgs) -> Result<(String, u8), String> {
+    let id = args.change.as_str();
+    let record = load_record(root, id)?;
+    let zones = load_zones(root)?;
+    let settings = load_settings(root)?;
+    let rules = read(root, RULES)?.unwrap_or_default();
+    let rules = gates::Rules::from_toml(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let commands = read(root, COMMANDS)?.unwrap_or_default();
+    let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let snapshot = guard_snapshot(root, id, &args.role, false)?;
+    let project = gates::Project {
+        root,
+        zones: &zones,
+        rules: &rules,
+        settings: &settings,
+        commands: &commands,
+    };
+    let report = gates::run(&project, gate, id, &record, &args.role, snapshot.as_ref())
+        .map_err(|e| e.to_string())?;
+    save_out_of_scope(root, id, &report.out_of_scope)?;
+    let saved = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
+    write(root, &gate.report_path(id), &format!("{saved}\n"))?;
+    let line = report
+        .log_entry(id)
+        .line(&log::now())
+        .map_err(|e| e.to_string())?;
+    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
+    let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
+    Ok((printed, u8::from(args.strict && !report.ok)))
+}
+
+/// Writes `accepted`, the paths outside the plan the scope check accepted, in the record of
+/// change `id`, when it does not say them already.
+fn save_out_of_scope(root: &Path, id: &str, accepted: &[String]) -> Result<(), String> {
+    let path = change::record_path(id);
+    let text = read(root, &path)?.unwrap_or_default();
+    match change::with_out_of_scope(&text, accepted) {
+        Ok(Some(record)) => write(root, &path, &record),
+        Ok(None) => Ok(()),
+        Err(e) => Err(format!("{path}: {e}")),
+    }
 }
 
 /// `gdd snapshot`: records the hashes of what change `id` touched since its build started.
@@ -213,9 +298,7 @@ fn snapshot(root: &Path, id: &str) -> Result<String, String> {
     let record = load_record(root, id)?;
     let hashes = guard::snapshot(root, id, &record).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&hashes).map_err(|e| e.to_string())?;
-    let path = change::snapshot_path(id);
-    fs::write(root.join(&path), format!("{text}\n"))
-        .map_err(|e| format!("cannot write {path}: {e}"))?;
+    write(root, &change::snapshot_path(id), &format!("{text}\n"))?;
     Ok(r#"{"ok":true}"#.to_string())
 }
 
@@ -242,10 +325,9 @@ fn load_record(root: &Path, id: &str) -> Result<Record, String> {
     Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
 }
 
-/// The hashes of the last snapshot of change `id`; `None` when there is none.
-fn last_snapshot(root: &Path, id: &str) -> Result<Option<Hashes>, String> {
-    let path = change::snapshot_path(id);
-    match read(root, &path)? {
+/// The hashes of the snapshot at `path`; `None` when there is none.
+fn read_snapshot(root: &Path, path: &str) -> Result<Option<Hashes>, String> {
+    match read(root, path)? {
         Some(text) => serde_json::from_str(&text)
             .map(Some)
             .map_err(|e| format!("{path}: {e}")),
@@ -278,6 +360,11 @@ fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("cannot read {path}: {e}")),
     }
+}
+
+/// Writes `text` to a file of the project.
+fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
+    fs::write(root.join(path), text).map_err(|e| format!("cannot write {path}: {e}"))
 }
 
 #[cfg(test)]
@@ -358,6 +445,9 @@ mod tests {
         for command in ["report", "classify", "guard", "snapshot", "scope"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
+        for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
+            assert!(out.stdout.contains(gate), "{gate}: {out:?}");
+        }
     }
 
     #[test]
@@ -371,6 +461,9 @@ mod tests {
             "guard save --role",
             "snapshot",
             "scope",
+            "g2",
+            "g3 --strict",
+            "g2 save --role",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -664,9 +757,15 @@ mod tests {
     /// A project in a git repository: its files on `main`, then change `save`, which plans
     /// `src/a.rs`, started on its branch.
     fn started_project() -> Project {
+        started_with_commands("")
+    }
+
+    /// The started project, with the gate commands `commands` on `main`.
+    fn started_with_commands(commands: &str) -> Project {
         let project = Project::new();
         project.write(RULES, PROTECTED);
         project.write(ZONES, ZONE_MAP);
+        project.write(COMMANDS, commands);
         git(&project, &["init", "-q", "-b", "main"]);
         git(&project, &["add", "-A"]);
         git(&project, &["commit", "-q", "-m", "project"]);
@@ -839,10 +938,174 @@ mod tests {
     fn guard_names_a_rules_file_that_is_wrong() {
         let project = started_project();
         project.write(RULES, "[protected]\nall = \"gdd/**\"\n");
-        for command in ["guard save", "classify save"] {
+        for command in ["guard save", "classify save", "g2 save"] {
             let out = project.run(command);
             assert_eq!(out.code, 1, "{command}");
             assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
+        }
+    }
+
+    /// The records of the log of `project`.
+    fn log_records(project: &Project) -> Vec<log::Record> {
+        let text = fs::read_to_string(project.0.join(log::PATH)).unwrap();
+        log::parse(&text).unwrap()
+    }
+
+    #[test]
+    fn a_gate_prints_saves_and_logs_its_report() {
+        let commands = "[g2]\nlint = \"true\"\nunit = \"echo boom; exit 2\"\n";
+        let project = started_with_commands(commands);
+        let out = project.run("g2 save");
+        assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
+        let start = "{\"ok\":false,\"gate\":\"G2\",\"color\":\"yellow\",\"passed\":[\"lint\",";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        let printed = json(&out);
+        let passed = serde_json::json!(["lint", "path-guard"]);
+        assert_eq!(printed["passed"], passed);
+        let failure = &printed["failures"][0];
+        assert_eq!(failure["name"], "unit");
+        assert_eq!(failure["code"], 2);
+        assert_eq!(failure["tail"], "boom\n");
+        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g2.json")).unwrap();
+        let head = "{\n  \"ok\": false,\n  \"gate\": \"G2\",\n";
+        assert!(saved.starts_with(head), "{saved}");
+        assert!(saved.ends_with("}\n"));
+        let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved, printed);
+        let records = log_records(&project);
+        let [line] = records.as_slice() else {
+            panic!("one log line: {records:?}");
+        };
+        for (field, value) in [
+            ("change", "save"),
+            ("phase", "2-build"),
+            ("gate", "G2"),
+            ("role", "machine"),
+            ("agent", "checks"),
+            ("model", "-"),
+            ("result", "ko"),
+            ("note", "unit"),
+        ] {
+            assert_eq!(line.text(field), value, "{field}");
+        }
+        assert!(line.text("ts").ends_with("+00:00"), "{line:?}");
+        let strict = project.run("g2 save --strict");
+        assert_eq!((strict.code, strict.stderr.as_str()), (1, ""));
+        let printed: serde_json::Value = serde_json::from_str(&strict.stdout).unwrap();
+        assert_eq!(printed["ok"], false);
+        assert_eq!(log_records(&project).len(), 2);
+    }
+
+    #[test]
+    fn a_gate_that_passes_exits_with_0_even_when_strict() {
+        let project = started_with_commands("[g3]\nacceptance = \"true\"\n");
+        project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
+        let out = project.run("g3 save --strict");
+        assert_eq!(out.code, 0, "{out:?}");
+        let printed = json(&out);
+        let passed = serde_json::json!(["acceptance", "path-guard", "scenarios (1)"]);
+        assert_eq!(printed["passed"], passed);
+        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g3.json")).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved, printed);
+        let records = log_records(&project);
+        assert_eq!(records[0].text("gate"), "G3");
+        assert_eq!(records[0].text("phase"), "3-integrate");
+        assert_eq!(records[0].text("result"), "ok");
+        assert_eq!(records[0].text("note"), "");
+    }
+
+    #[test]
+    fn a_gate_without_a_commands_file_is_not_configured() {
+        let project = started_project();
+        fs::remove_file(project.0.join(COMMANDS)).unwrap();
+        let printed = json(&project.run("g2 save"));
+        assert_eq!(printed["failures"][0]["name"], "G2 not configured");
+    }
+
+    #[test]
+    fn build_mode_writes_what_the_scope_accepted_in_the_record() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        project.write("docs/x.md", "x\n");
+        let printed = json(&project.run("g2 save --role builder-build"));
+        assert_eq!(printed["ok"], true, "{printed}");
+        assert_eq!(printed["out_of_scope"], serde_json::json!(["docs/x.md"]));
+        let path = project.0.join(".gdd/changes/save/change.json");
+        let text = fs::read_to_string(&path).unwrap();
+        let record: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(record["out_of_scope"], serde_json::json!(["docs/x.md"]));
+        assert_eq!(Record::from_json(&text).unwrap().plan.paths, ["src/a.rs"]);
+        assert!(Record::from_json(&text).unwrap().build_start.is_some());
+        let printed = json(&project.run("g2 save"));
+        assert_eq!(printed["out_of_scope"], serde_json::json!([]));
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn build_mode_is_judged_from_the_snapshot_taken_after_test_mode() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        project.write("gdd/notes.toml", "x\n");
+        let guarded = "gdd/notes.toml: protected path for builder-build";
+        let printed = json(&project.run("g2 save --role builder-build"));
+        let tail = format!("{guarded}\nThe gate commands did not run: Path Guard must pass first.");
+        assert_eq!(printed["failures"][0]["tail"], tail);
+        let verdict = json(&project.run("guard save --role builder-build"));
+        assert_eq!(verdict["failures"], serde_json::json!([guarded]));
+        let record = load_record(&project.0, "save").unwrap();
+        let hashes = guard::snapshot(&project.0, "save", &record).unwrap();
+        let build = serde_json::to_string(&hashes).unwrap();
+        project.write(".gdd/changes/save/snapshot-build.json", &build);
+        let printed = json(&project.run("g2 save --role builder-build"));
+        assert_eq!(printed["ok"], true, "{printed}");
+        let verdict = json(&project.run("guard save --role builder-build"));
+        assert_eq!(verdict["ok"], true, "{verdict}");
+        let other = json(&project.run("guard save --role builder-test --since-snapshot"));
+        assert_eq!(other["ok"], false, "{other}");
+        project.write(".gdd/changes/save/snapshot-build.json", "{not json");
+        let out = project.run("g2 save --role builder-build");
+        let expected = "error: .gdd/changes/save/snapshot-build.json: ";
+        assert!(out.stderr.starts_with(expected), "{out:?}");
+    }
+
+    #[test]
+    fn a_gate_names_what_it_cannot_read_or_write() {
+        let project = started_with_commands("[g2\n");
+        let out = project.run("g2 save");
+        assert_eq!(out.code, 1);
+        let expected = "error: gdd/commands.toml: invalid TOML: ";
+        assert!(out.stderr.starts_with(expected), "{out:?}");
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        project.write(RULES, "[color.purple]\n");
+        let out = project.run("g2 save");
+        let expected = "error: gdd/rules.toml: unknown color";
+        assert!(out.stderr.starts_with(expected), "{out:?}");
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        fs::create_dir_all(project.0.join(".gdd/changes/save/g2.json")).unwrap();
+        let out = project.run("g2 save");
+        let expected = "error: cannot write .gdd/changes/save/g2.json: ";
+        assert!(out.stderr.starts_with(expected), "{out:?}");
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        fs::create_dir_all(project.0.join(log::PATH)).unwrap();
+        let out = project.run("g2 save");
+        let expected = "error: cannot write .gdd/log.jsonl: ";
+        assert!(out.stderr.starts_with(expected), "{out:?}");
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        let main = "main_branch = \"trunk\"\n[protected]\nall = [\"gdd/**\"]\n";
+        project.write(RULES, main);
+        let out = project.run("g3 save");
+        assert!(out.stderr.starts_with("error: git diff "), "{out:?}");
+    }
+
+    #[test]
+    fn a_gate_needs_a_change_that_exists() {
+        let project = Project::new();
+        for gate in ["g2", "g3"] {
+            let out = project.run(&format!("{gate} nope"));
+            let missing =
+                "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n";
+            assert_eq!(out, Outcome::failure(missing.into()), "{gate}");
+            let out = project.run(&format!("{gate} Save"));
+            assert!(out.stderr.starts_with("error: invalid change id"), "{gate}");
         }
     }
 }

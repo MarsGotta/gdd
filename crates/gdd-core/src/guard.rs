@@ -354,6 +354,7 @@ paths = ["src/storage/**"]
             build_start: start.map(str::to_string),
             decided_color: None,
             approved: Hashes::new(),
+            features: vec![],
         }
     }
 

@@ -25,6 +25,28 @@ pub fn snapshot_path(id: &str) -> String {
     format!(".gdd/changes/{id}/snapshot.json")
 }
 
+/// Where the snapshot taken after the test mode of change `id` lives, from the project root:
+/// build mode is judged from it.
+pub fn build_snapshot_path(id: &str) -> String {
+    format!(".gdd/changes/{id}/snapshot-build.json")
+}
+
+/// The record `text` with `accepted`, the paths outside the plan the scope check accepted, as
+/// its `out_of_scope`; `None` when there is nothing to write: nothing accepted, or the record
+/// says it already. The other fields keep their values.
+pub fn with_out_of_scope(
+    text: &str,
+    accepted: &[String],
+) -> Result<Option<String>, serde_json::Error> {
+    let mut record: serde_json::Map<String, serde_json::Value> = serde_json::from_str(text)?;
+    let paths = serde_json::Value::from(accepted);
+    if accepted.is_empty() || record.get("out_of_scope") == Some(&paths) {
+        return Ok(None);
+    }
+    record.insert("out_of_scope".to_string(), paths);
+    serde_json::to_string_pretty(&record).map(|text| Some(format!("{text}\n")))
+}
+
 /// The git branch of change `id`.
 pub fn branch(id: &str) -> String {
     format!("change/{id}")
@@ -41,12 +63,17 @@ pub struct Record {
     pub decided_color: Option<Color>,
     /// Scenario files approved in G1, with the SHA-256 they had then.
     pub approved: BTreeMap<String, String>,
+    /// Scenario files of the change, as G1 recorded them: hidden ones too, which never show in
+    /// what it plans or touches.
+    pub features: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct RawRecord {
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    features: Vec<String>,
     #[serde(default)]
     resumable: bool,
     #[serde(default, deserialize_with = "color")]
@@ -86,8 +113,9 @@ fn color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Color>, D:
 
 impl Record {
     /// Reads a change record (JSON). A field it leaves out, or `null`, takes its default: no
-    /// paths, not resumable, no minimum color, not prepared, nothing decided or approved. An
-    /// empty `build_start` is no build start. An unknown color is an error that names it.
+    /// paths, not resumable, no minimum color, not prepared, nothing decided or approved, no
+    /// scenarios. An empty `build_start` is no build start. An unknown color is an error that
+    /// names it.
     pub fn from_json(text: &str) -> Result<Record, serde_json::Error> {
         let raw: RawRecord = serde_json::from_str(text)?;
         Ok(Record {
@@ -99,6 +127,7 @@ impl Record {
             build_start: raw.build_start.filter(|start| !start.is_empty()),
             decided_color: raw.decision.and_then(|d| d.color),
             approved: raw.gates.g1.map(|g1| g1.hashes).unwrap_or_default(),
+            features: raw.features,
         })
     }
 }
@@ -138,7 +167,39 @@ mod tests {
     fn the_files_of_a_change_live_in_its_folder_and_its_work_on_its_branch() {
         assert_eq!(record_path("save"), ".gdd/changes/save/change.json");
         assert_eq!(snapshot_path("save"), ".gdd/changes/save/snapshot.json");
+        let build = ".gdd/changes/save/snapshot-build.json";
+        assert_eq!(build_snapshot_path("save"), build);
         assert_eq!(branch("save"), "change/save");
+    }
+
+    #[test]
+    fn the_paths_the_scope_accepted_are_written_in_the_record() {
+        let accepted = ["docs/a.md".to_string(), "src/é.rs".to_string()];
+        let text = r#"{"id": "x", "paths": ["a.rs"], "gates": {"G1": {"decision": "ok"}}}"#;
+        let written = with_out_of_scope(text, &accepted).unwrap().unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        assert!(written.contains("\n  \"id\": \"x\",\n"), "{written}");
+        assert!(written.contains("\"src/é.rs\""), "{written}");
+        let value: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "id": "x",
+                "paths": ["a.rs"],
+                "gates": {"G1": {"decision": "ok"}},
+                "out_of_scope": ["docs/a.md", "src/é.rs"],
+            })
+        );
+        assert_eq!(Record::from_json(&written).unwrap().plan.paths, ["a.rs"]);
+        assert_eq!(with_out_of_scope(&written, &accepted).unwrap(), None);
+        let first = &accepted[..1];
+        let changed = with_out_of_scope(&written, first).unwrap().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&changed).unwrap();
+        assert_eq!(value["out_of_scope"], serde_json::json!(["docs/a.md"]));
+        assert_eq!(with_out_of_scope(&written, &[]).unwrap(), None);
+        assert_eq!(with_out_of_scope("{}", &[]).unwrap(), None);
+        assert!(with_out_of_scope("[]", &accepted).is_err());
+        assert!(with_out_of_scope("{not json", &accepted).is_err());
     }
 
     #[test]
@@ -161,7 +222,8 @@ mod tests {
     fn a_prepared_record_gives_its_start_its_color_and_its_approved_scenarios() {
         let record = Record::from_json(
             r#"{"paths": ["a.rs"], "build_start": "37cc864",
-                "decision": {"color": "red", "lane": "full"},
+                "decision": {"color": "red", "lane": "full", "features": ["x.feature"]},
+                "features": ["features/a.feature", "features/hidden/a.feature"],
                 "gates": {"G1": {"decision": "ok", "hashes": {"features/a.feature": "ab12"}},
                           "plan": {"decision": "ok"}}}"#,
         )
@@ -172,6 +234,8 @@ mod tests {
             record.approved,
             BTreeMap::from([("features/a.feature".to_string(), "ab12".to_string())])
         );
+        let features = ["features/a.feature", "features/hidden/a.feature"];
+        assert_eq!(record.features, features);
     }
 
     #[test]
@@ -185,6 +249,7 @@ mod tests {
             build_start: None,
             decided_color: None,
             approved: BTreeMap::new(),
+            features: vec![],
         };
         assert_eq!(Record::from_json("{}").unwrap(), empty);
         for text in [
@@ -212,6 +277,7 @@ mod tests {
             r#"{"paths": "a.rs"}"#,
             r#"{"build_start": 7}"#,
             r#"{"gates": {"G1": {"hashes": ["a"]}}}"#,
+            r#"{"features": "features/a.feature"}"#,
         ] {
             assert!(Record::from_json(text).is_err(), "{text}");
         }
