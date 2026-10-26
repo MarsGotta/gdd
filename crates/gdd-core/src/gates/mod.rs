@@ -6,12 +6,15 @@
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
 //! enter Build, and [`release`] takes a merged change to pre and production. [`verdict`] reads
-//! what the Reviewer and the replan answered.
+//! what the Reviewer and the replan answered. [`selftest`] checks that the harness can fail when
+//! it must, and [`ci`] is what CI runs on a change branch.
 
 pub mod approve;
+pub mod ci;
 pub mod phrasing;
 pub mod prepare;
 pub mod release;
+pub mod selftest;
 pub mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -23,7 +26,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::change::{self, Record};
-use crate::classify::classify;
+use crate::classify::{Classification, classify};
 use crate::config::{self, Color};
 use crate::exec;
 use crate::git;
@@ -177,12 +180,22 @@ pub struct Rules {
     /// Whether zero scenarios fail G3 even when the change has no scenarios of its own:
     /// `[acceptance] required`. Unset: yes.
     pub scenarios_required: bool,
+    /// The harness: the paths no role may change, `[protected] all`.
+    pub harness: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct RawRules {
     #[serde(default)]
     acceptance: RawAcceptance,
+    #[serde(default)]
+    protected: RawProtected,
+}
+
+#[derive(Default, Deserialize)]
+struct RawProtected {
+    #[serde(default)]
+    all: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -204,6 +217,7 @@ impl Rules {
         Ok(Rules {
             table: RulesTable::of_project(text)?,
             scenarios_required: raw.acceptance.required,
+            harness: raw.protected.all,
         })
     }
 }
@@ -404,57 +418,28 @@ pub fn run(
     // Scenarios of its own put the change in G1, and a change in G1 takes the full lane.
     plan.resumable &= record.features.is_empty();
     let decision = classify(project.zones, &project.rules.table, &plan)?;
-    let features: BTreeSet<&str> = decision
-        .features
-        .iter()
-        .chain(&record.features)
-        .map(String::as_str)
-        .collect();
-    let g1 = !features.is_empty();
+    let features: BTreeSet<&String> = decision.features.iter().chain(&record.features).collect();
+    let features = features.into_iter().cloned().collect();
     let diff = if touched.is_empty() {
         &record.plan.paths
     } else {
         &touched
     };
-    let (color, diff, features) = (
-        decision.color.to_string(),
-        diff.join("\n"),
-        Vec::from_iter(features).join("\n"),
-    );
-    let env = [
-        ("GDD_CHANGE", id),
-        ("GDD_COLOR", color.as_str()),
-        ("GDD_DIFF_FILES", diff.as_str()),
-        ("GDD_FEATURES", features.as_str()),
-    ];
-    let mut report = Report {
-        ok: false,
-        gate,
-        color: decision.color,
-        passed: Vec::new(),
-        skipped: Vec::new(),
-        failures: Vec::new(),
-        out_of_scope: Vec::new(),
-        duration_s: 0.0,
+    let judged = Judged {
+        id,
+        decision,
+        diff,
+        features,
     };
     let commands = project.commands.of(gate);
-    if commands.is_empty() {
-        let name = format!("{gate} not configured");
-        report.fail(&name, NOT_CONFIGURED.to_string());
-    }
+    let mut report = judged.report(gate, commands);
     let guard = || {
         let verdict = guard::path_guard(root, id, record, project.settings, role, snapshot);
         verdict.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures)
     };
     let mut guarded = guard();
     if guarded.is_empty() {
-        for (name, command) in commands {
-            if name.starts_with("mutation") && !decision.mutation {
-                report.skipped.push(name.clone());
-            } else {
-                report.command(name, exec::run(command, root, &env, exec::TIMEOUT));
-            }
-        }
+        judged.run_commands(&mut report, root, commands);
         guarded = guard();
     } else {
         guarded.push(NOT_RUN.to_string());
@@ -471,9 +456,77 @@ pub fn run(
         report.judge("scope", failures);
     }
     if gate == Gate::G3 {
+        judged.scenarios(&mut report, project);
+    }
+    report.ok = report.failures.is_empty();
+    Ok(report)
+}
+
+/// What a gate judges: a change, how it is classified, what it touched and its scenario files.
+pub(crate) struct Judged<'a> {
+    /// The id of the change.
+    pub(crate) id: &'a str,
+    /// How it is classified.
+    pub(crate) decision: Classification,
+    /// What it touched.
+    pub(crate) diff: &'a [String],
+    /// Its scenario files, sorted.
+    pub(crate) features: Vec<String>,
+}
+
+impl Judged<'_> {
+    /// The report of `gate`, whose commands are `commands`, before anything runs: a gate
+    /// without commands fails already.
+    pub(crate) fn report(&self, gate: Gate, commands: &BTreeMap<String, String>) -> Report {
+        let mut report = Report {
+            ok: false,
+            gate,
+            color: self.decision.color,
+            passed: Vec::new(),
+            skipped: Vec::new(),
+            failures: Vec::new(),
+            out_of_scope: Vec::new(),
+            duration_s: 0.0,
+        };
+        if commands.is_empty() {
+            let name = format!("{gate} not configured");
+            report.fail(&name, NOT_CONFIGURED.to_string());
+        }
+        report
+    }
+
+    /// Runs each of `commands` from `root` (see [`exec::run`]) into `report`, except the
+    /// `mutation*` ones when the change does not need mutation testing. Each gets `GDD_CHANGE`,
+    /// `GDD_COLOR`, `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
+    pub(crate) fn run_commands(
+        &self,
+        report: &mut Report,
+        root: &Path,
+        commands: &BTreeMap<String, String>,
+    ) {
+        let color = self.decision.color.to_string();
+        let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
+        let env = [
+            ("GDD_CHANGE", self.id),
+            ("GDD_COLOR", color.as_str()),
+            ("GDD_DIFF_FILES", diff.as_str()),
+            ("GDD_FEATURES", features.as_str()),
+        ];
+        for (name, command) in commands {
+            if name.starts_with("mutation") && !self.decision.mutation {
+                report.skipped.push(name.clone());
+            } else {
+                report.command(name, exec::run(command, root, &env, exec::TIMEOUT));
+            }
+        }
+    }
+
+    /// G3's scenario count into `report`: none fails it when they are required or the change
+    /// has its own.
+    pub(crate) fn scenarios(&self, report: &mut Report, project: &Project) {
         let folder = &project.rules.table.acceptance.dir;
-        match count_scenarios(&root.join(folder)) {
-            Ok(0) if g1 || project.rules.scenarios_required => {
+        match count_scenarios(&project.root.join(folder)) {
+            Ok(0) if !self.features.is_empty() || project.rules.scenarios_required => {
                 report.fail("scenarios", NO_SCENARIOS.to_string());
             }
             Ok(count) => report.passed.push(format!("scenarios ({count})")),
@@ -483,8 +536,6 @@ pub fn run(
             }
         }
     }
-    report.ok = report.failures.is_empty();
-    Ok(report)
 }
 
 /// What a failed command keeps of its output. Runners print failures early and their summary
@@ -675,11 +726,13 @@ paths = ["src/storage/**"]
         let expected = Rules {
             table: rules::default_table(),
             scenarios_required: true,
+            harness: vec!["gdd/**".into()],
         };
         assert_eq!(rules, expected);
         let rules = Rules::from_toml("[acceptance]\ndir = \"specs\"\nrequired = false\n").unwrap();
         assert_eq!(rules.table.acceptance.dir, "specs");
         assert!(!rules.scenarios_required);
+        assert_eq!(rules.harness, Vec::<String>::new());
         let shipped = rules::default_table().rule(Color::Yellow, Lane::Full);
         assert_eq!(rules.table.rule(Color::Yellow, Lane::Full), shipped);
         let text = "[color.red.full]\nmutation = false\n[acceptance]\nrequired = true\n";
@@ -689,7 +742,12 @@ paths = ["src/storage/**"]
         assert!(!rules.table.rule(Color::Yellow, Lane::Full).mutation);
         let unknown = Rules::from_toml("[color.purple]\n");
         assert_eq!(unknown, Err(config::Error::UnknownColor("purple".into())));
-        for wrong in ["[acceptance]\nrequired = 1\n", "x = ", "color = 1\n"] {
+        for wrong in [
+            "[acceptance]\nrequired = 1\n",
+            "x = ",
+            "color = 1\n",
+            "[protected]\nall = \"gdd/**\"\n",
+        ] {
             let result = Rules::from_toml(wrong);
             assert!(matches!(result, Err(config::Error::Toml(_))), "{wrong:?}");
         }

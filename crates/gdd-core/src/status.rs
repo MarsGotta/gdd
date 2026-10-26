@@ -136,15 +136,19 @@ fn gate_text((gate, entry): (&String, &Value)) -> String {
 }
 
 /// What the harness self-test said, from the text of its result: its summary, else whether it
-/// passed; `None` when the text is not a result.
+/// passed; one that did not pass says `failed` before its summary. `None` when the text is not a
+/// result.
 pub fn selftest_summary(text: &str) -> Option<String> {
     let result: Map<String, Value> = serde_json::from_str(text).ok()?;
-    if let Some(summary) = result.get("summary").and_then(Value::as_str) {
-        return Some(summary.to_string());
-    }
     let passed = result.get("ok") == Some(&Value::Bool(true));
-    let summary = if passed { "passed" } else { "failed" };
-    Some(summary.to_string())
+    let summary = result.get("summary").and_then(Value::as_str);
+    let said = match (passed, summary) {
+        (true, Some(summary)) => summary.to_string(),
+        (true, None) => "passed".to_string(),
+        (false, Some(summary)) => format!("failed · {summary}"),
+        (false, None) => "failed".to_string(),
+    };
+    Some(said)
 }
 
 #[cfg(test)]
@@ -256,6 +260,16 @@ mod tests {
         for failed in [r#"{"ok": false}"#, r#"{"ok": "yes"}"#, "{}"] {
             assert_eq!(selftest_summary(failed).as_deref(), Some("failed"));
         }
+        let with_summary = [
+            r#"{"ok": false, "summary": "harness 3/4"}"#,
+            r#"{"summary": "harness 3/4"}"#,
+        ];
+        for failed in with_summary {
+            let said = selftest_summary(failed);
+            assert_eq!(said.as_deref(), Some("failed · harness 3/4"), "{failed}");
+        }
+        let odd = selftest_summary(r#"{"ok": true, "summary": 4}"#);
+        assert_eq!(odd.as_deref(), Some("passed"));
         for nothing in ["{not json", "[]", "true"] {
             assert_eq!(selftest_summary(nothing), None, "{nothing}");
         }

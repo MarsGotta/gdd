@@ -13,13 +13,13 @@ use gdd_core::agents::{
 };
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::classify_with;
-use gdd_core::gates::{self, Gate, approve, prepare, release};
+use gdd_core::gates::{self, Gate, approve, ci, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
-use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log};
+use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log, session};
 
 /// File that marks the root of a GDD project.
 const PROJECT: &str = "gdd/project.toml";
@@ -33,6 +33,10 @@ const COMMANDS: &str = gates::COMMANDS;
 const CHANGES: &str = ".gdd/changes";
 /// The role of test mode, which Path Guard judges after it.
 const TEST_ROLE: &str = "builder-test";
+/// Why a command that works on a change cannot run.
+const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
+/// Why `gdd session` cannot find the transcripts.
+const NO_HOME: &str = "HOME is not set: the Claude Code transcripts are under it";
 /// The kinds of work a change can be.
 const TYPES: [&str; 6] = [
     "Feature",
@@ -114,29 +118,17 @@ enum Command {
     },
     /// Color, lane and gates of a change, from its plan and what it touched, as JSON.
     Classify {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// Path Guard: what a change touched since its build started that a role must not touch,
     /// as JSON.
-    Guard {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
-        /// Role whose protected paths count (builder-build, builder-test, reviewer...).
-        #[arg(long, default_value = "builder")]
-        role: String,
-        /// Exit with code 1 when Path Guard fails.
-        #[arg(long)]
-        strict: bool,
-        /// Count only what changed since the last `gdd snapshot`.
-        #[arg(long)]
-        since_snapshot: bool,
-    },
+    Guard(GuardArgs),
     /// Records what a change touched as it is now, so `gdd guard --since-snapshot` judges only
     /// what changes after.
     Snapshot {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// Paths a change touched outside its plan: accepted when their color is not higher than
     /// the change's, as JSON.
@@ -162,16 +154,35 @@ enum Command {
     /// The Decision Inbox of a change: what is open for the human. Also saved in
     /// .gdd/changes/<id>/inbox.md.
     Inbox {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
     Status,
+    /// Harness self-test: a failing test turns G2 red, the harness is protected and CI runs the
+    /// gates, rollback works in pre, and zero scenarios fail G3. Saved in .gdd/selftest.json and
+    /// logged; exits with 1 unless all four pass.
+    Selftest,
+    /// What CI runs: on the branch change/<id> (GITHUB_HEAD_REF, else the current one), no
+    /// harness path changed against the main branch, and G2 and G3 green. Reads and writes
+    /// nothing under .gdd/; exits with 1 when CI fails.
+    Ci,
+    /// Adds the requests of the interactive Claude Code sessions of the project to the log, one
+    /// line per model and each request once; the sessions gdd started for its agents are left
+    /// out.
+    Session {
+        /// The phase of the method the conversation belongs to.
+        #[arg(long, value_parser = session::PHASES)]
+        phase: String,
+        /// Count it for this change.
+        #[arg(long)]
+        change: Option<String>,
+    },
     /// Checks that a change may enter Build (G0, red zones, G1, plan, model families, its
     /// branch) and starts it. Prints its decision, with the model of each role, as JSON.
     Prepare {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// Parks a change: stops it with a message for the human in its Decision Inbox. Always
     /// exits with 1.
@@ -185,8 +196,8 @@ enum Command {
     /// Merges a change whose G3 is open into the main branch, with its record in the merge
     /// commit, then builds the artifact and deploys it to pre. Prints the deploy as JSON.
     Merge {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// A release step of gdd/commands.toml: pre (tests and demo), promote (to production, after
     /// G4) or observe (rolls the change back when production gets worse). Prints it as JSON.
@@ -194,8 +205,8 @@ enum Command {
         /// The step.
         #[arg(value_parser = release::STEPS)]
         step: String,
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
-        change: String,
+        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        change: Option<String>,
     },
     /// Runs the recipe of a change on its branch change/<id>: Build, G2, G3, the Reviewer, merge
     /// and pre; then it waits for the human G4 when the change needs it, or goes to production.
@@ -234,11 +245,27 @@ struct AgentArgs {
     agents: Vec<String>,
 }
 
+/// What `gdd guard` takes.
+#[derive(Debug, Args)]
+struct GuardArgs {
+    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    change: Option<String>,
+    /// Role whose protected paths count (builder-build, builder-test, reviewer...).
+    #[arg(long, default_value = "builder")]
+    role: String,
+    /// Exit with code 1 when Path Guard fails.
+    #[arg(long)]
+    strict: bool,
+    /// Count only what changed since the last `gdd snapshot`.
+    #[arg(long)]
+    since_snapshot: bool,
+}
+
 /// What `gdd g2` and `gdd g3` take.
 #[derive(Debug, Args)]
 struct GateArgs {
-    /// Id of the change: its record is .gdd/changes/<id>/change.json.
-    change: String,
+    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    change: Option<String>,
     /// Role Path Guard judges (builder-build also gets the scope check).
     #[arg(long, default_value = "builder")]
     role: String,
@@ -322,16 +349,12 @@ impl Command {
     /// Runs the command on the project at `root`, for the role `role`, in the environment `env`:
     /// what it prints and its exit code.
     fn run(self, root: &Path, role: Option<&str>, env: &Env) -> Result<Outcome, String> {
-        let mut code = 0;
         let text = match self {
-            Command::G2(args) => {
-                let (text, code) = run_gate(root, Gate::G2, &args)?;
-                return Ok(Outcome::printed(text, code));
-            }
-            Command::G3(args) => {
-                let (text, code) = run_gate(root, Gate::G3, &args)?;
-                return Ok(Outcome::printed(text, code));
-            }
+            Command::G2(args) => return run_gate(root, Gate::G2, args, env),
+            Command::G3(args) => return run_gate(root, Gate::G3, args, env),
+            Command::Guard(args) => return run_guard(root, args, env),
+            Command::Selftest => return run_selftest(root),
+            Command::Ci => return run_ci(root, env),
             Command::Park { change, reason } => {
                 let message = change::park(root, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
@@ -340,30 +363,38 @@ impl Command {
             Command::Resume(args) => return resume(root, &args, role, env).map(Outcome::said),
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
-            Command::Classify { change } => classify(root, &change)?,
-            Command::Guard {
-                change,
-                role,
-                strict,
-                since_snapshot,
-            } => {
-                let verdict = path_guard(root, &change, &role, since_snapshot)?;
-                code = u8::from(strict && !verdict.ok);
-                serde_json::to_string(&verdict).map_err(|e| e.to_string())?
-            }
-            Command::Snapshot { change } => snapshot(root, &change)?,
+            Command::Classify { change } => classify(root, &change_id(change, env)?)?,
+            Command::Snapshot { change } => snapshot(root, &change_id(change, env)?)?,
             Command::Scope { change } => scope(root, &change)?,
             Command::NewChange(args) => new_change(root, &args)?,
             Command::Gate(args) => record_gate(root, &args, role)?,
             Command::Note(args) => note(root, &args)?,
-            Command::Inbox { change } => decision_inbox(root, &change)?,
+            Command::Inbox { change } => decision_inbox(root, &change_id(change, env)?)?,
             Command::Status => project_status(root)?,
-            Command::Prepare { change } => prepare_change(root, &change)?,
-            Command::Merge { change } => merge_change(root, &change)?,
-            Command::Release { step, change } => release_change(root, &step, &change)?,
+            Command::Session { phase, change } => {
+                import_session(root, &phase, change.as_deref(), env)?
+            }
+            Command::Prepare { change } => prepare_change(root, &change_id(change, env)?)?,
+            Command::Merge { change } => merge_change(root, &change_id(change, env)?)?,
+            Command::Release { step, change } => {
+                release_change(root, &step, &change_id(change, env)?)?
+            }
         };
-        Ok(Outcome::printed(text, code))
+        Ok(Outcome::printed(text, 0))
     }
+}
+
+/// The id of the change a command works on: `given`, else `GDD_CHANGE` of the environment `env`.
+fn change_id(given: Option<String>, env: &Env) -> Result<String, String> {
+    let set = given.or_else(|| variable(env, "GDD_CHANGE").map(str::to_string));
+    set.ok_or_else(|| MISSING_CHANGE.to_string())
+}
+
+/// The value of the variable `name` in the environment `env`, the last one set, when it is not
+/// empty.
+fn variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
+    let (_, value) = env.iter().rev().find(|(known, _)| known == name)?;
+    Some(value.as_str()).filter(|value| !value.is_empty())
 }
 
 /// An environment: its variables, with their values.
@@ -389,7 +420,8 @@ pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Ou
 /// error goes to the standard error, with exit code 1. `gdd guard --strict` also exits with 1
 /// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
 /// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
-/// when it finds a problem.
+/// when it finds a problem. `gdd selftest` and `gdd ci` exit with 1 when they fail, what they
+/// found on the standard output.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     run_in(args, cwd, role, &process_env())
 }
@@ -532,12 +564,60 @@ fn guard_snapshot(
     }
 }
 
-/// `gdd g2` and `gdd g3`: runs `gate` on the change (see [`gate_report`]). The report as JSON,
-/// and exit code 1 when the gate fails and the run is strict.
-fn run_gate(root: &Path, gate: Gate, args: &GateArgs) -> Result<(String, u8), String> {
-    let report = gate_report(root, gate, &args.change, &args.role)?;
+/// `gdd guard`: Path Guard on the change of `args`, else on the one `GDD_CHANGE` of the
+/// environment `env` names (see [`path_guard`]). Its verdict as JSON, and exit code 1 when it
+/// fails and the run is strict.
+fn run_guard(root: &Path, args: GuardArgs, env: &Env) -> Result<Outcome, String> {
+    let id = change_id(args.change, env)?;
+    let verdict = path_guard(root, &id, &args.role, args.since_snapshot)?;
+    let printed = serde_json::to_string(&verdict).map_err(|e| e.to_string())?;
+    let code = u8::from(args.strict && !verdict.ok);
+    Ok(Outcome::printed(printed, code))
+}
+
+/// `gdd g2` and `gdd g3`: runs `gate` on the change of `args`, else on the one `GDD_CHANGE` of
+/// the environment `env` names (see [`gate_report`]). The report as JSON, and exit code 1 when
+/// the gate fails and the run is strict.
+fn run_gate(root: &Path, gate: Gate, args: GateArgs, env: &Env) -> Result<Outcome, String> {
+    let id = change_id(args.change, env)?;
+    let report = gate_report(root, gate, &id, &args.role)?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
-    Ok((printed, u8::from(args.strict && !report.ok)))
+    let code = u8::from(args.strict && !report.ok);
+    Ok(Outcome::printed(printed, code))
+}
+
+/// `gdd selftest`: the harness self-test of the project (see [`selftest::run`]), saved and
+/// logged. It fails the run unless every check passed.
+fn run_selftest(root: &Path) -> Result<Outcome, String> {
+    let gates = GateConfig::load(root)?;
+    let text = read(root, COMMANDS)?.unwrap_or_default();
+    let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let checked = selftest::run(&gates.project(root), &config)?;
+    selftest::save(root, &checked)?;
+    let code = u8::from(!checked.ok());
+    Ok(Outcome::printed(checked.to_string(), code))
+}
+
+/// `gdd ci`: what CI runs on the branch `GITHUB_HEAD_REF` of the environment `env` names, else
+/// on the current one (see [`ci::check`]). It fails the run when CI fails.
+fn run_ci(root: &Path, env: &Env) -> Result<Outcome, String> {
+    let gates = GateConfig::load(root)?;
+    let head_ref = variable(env, "GITHUB_HEAD_REF");
+    let checked = ci::check(&gates.project(root), head_ref)?;
+    let code = u8::from(!checked.ok());
+    Ok(Outcome::printed(checked.to_string(), code))
+}
+
+/// `gdd session`: the requests of the interactive Claude Code sessions of the project into the
+/// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`.
+fn import_session(
+    root: &Path,
+    phase: &str,
+    change: Option<&str>,
+    env: &Env,
+) -> Result<String, String> {
+    let home = variable(env, "HOME").ok_or(NO_HOME)?;
+    session::import(root, Path::new(home), phase, change)
 }
 
 /// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
@@ -1130,7 +1210,7 @@ mod tests {
         for command in ["prepare", "park", "merge", "release"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
-        for command in ["launch", "resume", "agents"] {
+        for command in ["launch", "resume", "agents", "selftest", "ci", "session"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
@@ -1142,15 +1222,12 @@ mod tests {
     fn a_wrong_command_is_an_error() {
         for command in [
             "frobnicate",
-            "classify",
+            "classify a b",
             "report --by",
             "report --nope",
-            "guard",
             "guard save --role",
-            "snapshot",
             "scope",
-            "g2",
-            "g3 --strict",
+            "g3 --nope",
             "g2 save --role",
             "new-change c1",
             "new-change c1 --title",
@@ -1161,14 +1238,15 @@ mod tests {
             "gate G1",
             "note c1 needs",
             "note c1 maybe x",
-            "inbox",
             "status extra",
-            "prepare",
+            "selftest extra",
+            "ci extra",
+            "session",
+            "session --phase 9-later",
+            "session --phase 2-build --change",
             "park",
             "park c1",
-            "merge",
             "release",
-            "release pre",
             "release deploy c1",
             "launch",
             "resume c1",
@@ -1871,6 +1949,125 @@ mod tests {
             let out = project.run(&format!("{gate} Save"));
             assert!(out.stderr.starts_with("error: invalid change id"), "{gate}");
         }
+    }
+
+    #[test]
+    fn without_an_id_the_commands_of_the_agents_take_gdd_change() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n[g3]\nlint = \"true\"\n");
+        let missing = Outcome::failure(format!("error: {MISSING_CHANGE}\n"));
+        let unknown =
+            "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n";
+        let invalid =
+            "error: invalid change id \"Save\": use lowercase letters, digits and hyphens\n";
+        for command in [
+            "classify",
+            "guard",
+            "snapshot",
+            "inbox",
+            "g2",
+            "g3",
+            "prepare",
+            "merge",
+            "release pre",
+        ] {
+            let run = |id: &str| {
+                let env = [("GDD_CHANGE".to_string(), id.to_string())];
+                run_with_env(&words(command), &project.0, &env)
+            };
+            let unset = run_with_env(&words(command), &project.0, &[]);
+            assert_eq!(unset, missing, "{command}");
+            assert_eq!(run(""), missing, "{command}");
+            assert_eq!(run("nope"), Outcome::failure(unknown.into()), "{command}");
+            assert_eq!(run("Save"), Outcome::failure(invalid.into()), "{command}");
+        }
+        let env = [("GDD_CHANGE".to_string(), "save".to_string())];
+        let decision = json(&run_with_env(&words("classify"), &project.0, &env));
+        assert_eq!(decision["change"], "save");
+        let out = run_with_env(&words("g2 --strict"), &project.0, &env);
+        let passed = serde_json::json!(["lint", "path-guard"]);
+        assert_eq!(json(&out)["passed"], passed);
+        // An id given wins over GDD_CHANGE.
+        let out = run_with_env(&words("classify nope"), &project.0, &env);
+        assert_eq!(out, Outcome::failure(unknown.into()));
+    }
+
+    /// Gate commands with a failing test for the self-test, and a simulated release.
+    const SELFTEST_COMMANDS: &str = "[g2]\nunit = \"test ! -f t.txt\"\n\
+                                     [selftest]\nfile = \"t.txt\"\ncontent = \"x\"\n\
+                                     [release]\nsimulated = true\n";
+
+    #[test]
+    fn selftest_prints_its_checks_saves_them_and_fails_unless_all_pass() {
+        let project = Project::new();
+        project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
+        project.write(".github/workflows/gdd.yml", "run: bin/gdd ci\n");
+        project.write(COMMANDS, SELFTEST_COMMANDS);
+        let out = project.run("selftest");
+        assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
+        let first = "OK a failing test turns G2 red\n";
+        assert!(out.stdout.starts_with(first), "{out:?}");
+        assert!(out.stdout.ends_with("\nharness 4/4\n"), "{out:?}");
+        assert!(!project.0.join("t.txt").exists());
+        let status = project.run("status").stdout;
+        let line = "\nHarness self-test: harness 4/4\n";
+        assert!(status.contains(line), "{status}");
+        assert_eq!(log_records(&project)[0].text("agent"), "selftest");
+        let passing = SELFTEST_COMMANDS.replace("test ! -f", "test -f");
+        project.write(COMMANDS, &passing);
+        let out = project.run("selftest");
+        assert_eq!(out.code, 1, "{out:?}");
+        assert!(out.stdout.ends_with("\nharness 3/4\n"), "{out:?}");
+        project.write(COMMANDS, "[selftest\n");
+        let out = project.run("selftest");
+        let start = "error: gdd/commands.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn ci_checks_the_branch_github_names_else_the_current_one() {
+        let project = committed_project();
+        project.write(COMMANDS, "[g2]\nunit = \"true\"\n[g3]\nunit = \"true\"\n");
+        project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "gates"]);
+        let ci = |head: &str| {
+            let env = [("GITHUB_HEAD_REF".to_string(), head.to_string())];
+            run_with_env(&words("ci"), &project.0, &env)
+        };
+        let main = "Branch main: nothing to check per change.\n";
+        assert_eq!(ci(""), Outcome::success(main.into()));
+        let passed = "G2 green\nG3 green\nCI passed\n";
+        assert_eq!(ci("change/c1"), Outcome::success(passed.into()));
+        git(&project, &["checkout", "-q", "-b", "change/c1"]);
+        project.write("gdd/x.toml", "x\n");
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "harness"]);
+        let failed = "gdd/x.toml: harness path changed inside a change\n\
+                      G2 green\nG3 green\nCI failed\n";
+        let out = ci("");
+        assert_eq!((out.code, out.stdout.as_str()), (1, failed));
+        assert!(!project.0.join(".gdd").exists());
+    }
+
+    #[test]
+    fn session_imports_the_transcripts_under_the_home_of_its_environment() {
+        let project = Project::new();
+        let session = words("session --phase 2-build --change c1");
+        let out = run_with_env(&session, &project.0, &[]);
+        assert_eq!(out, Outcome::failure(format!("error: {NO_HOME}\n")));
+        let home = Project::new();
+        let root = fs::canonicalize(&project.0).unwrap();
+        let named = |c: char| if c.is_ascii_alphanumeric() { c } else { '-' };
+        let folder: String = root.display().to_string().chars().map(named).collect();
+        let line = r#"{"uuid": "u1", "message": {"model": "m", "usage": {"output_tokens": 4}}}"#;
+        home.write(&format!(".claude/projects/{folder}/s1.jsonl"), line);
+        let env = [("HOME".to_string(), home.0.display().to_string())];
+        let out = run_with_env(&session, &project.0, &env);
+        let said = "Session imported: 1 new requests across 1 model(s), phase 2-build.\n";
+        assert_eq!(out, Outcome::success(said.into()));
+        let records = log_records(&project);
+        assert_eq!(records[0].text("change"), "c1");
+        assert_eq!(records[0].tokens_out, 4);
     }
 
     /// A project in a git repository, its files committed on `main`, without changes.

@@ -23,6 +23,10 @@ pub struct GddWorld {
     ran: Option<Ran>,
     /// The environment gdd runs in for this scenario, built on first use.
     env: Option<Vec<(String, String)>>,
+    /// The scenario's own HOME, where its Claude Code transcripts live.
+    home: Option<TempDir>,
+    /// The scenario looked at the exit code itself, so a failed run may still be read.
+    exit_checked: bool,
 }
 
 #[given("the gdd tool")]
@@ -362,7 +366,11 @@ fn output_is(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
 #[then(expr = "the output contains {string}")]
 fn output_contains(w: &mut GddWorld, text: String) {
     let ran = last_run(w);
-    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    assert!(
+        ran.succeeded || w.exit_checked,
+        "gdd failed: {:?}",
+        ran.stderr
+    );
     assert!(
         ran.stdout.contains(&text),
         "the output {:?} does not contain {text:?}",
@@ -637,6 +645,7 @@ fn guard_fails(w: &mut GddWorld, names: String) {
 
 #[then(regex = r"^the exit code (is|is not) 0$")]
 fn exit_code(w: &mut GddWorld, verb: String) {
+    w.exit_checked = true;
     let ran = last_run(w);
     assert_eq!(ran.code == 0, verb == "is", "exit code {}", ran.code);
 }
@@ -881,7 +890,11 @@ fn branch_is_not_there(w: &mut GddWorld, branch: String) {
 #[then(expr = "the output does not contain {string}")]
 fn output_lacks(w: &mut GddWorld, text: String) {
     let ran = last_run(w);
-    assert!(ran.succeeded, "gdd failed: {:?}", ran.stderr);
+    assert!(
+        ran.succeeded || w.exit_checked,
+        "gdd failed: {:?}",
+        ran.stderr
+    );
     assert!(
         !ran.stdout.contains(&text),
         "the output {:?} contains {text:?}",
@@ -1091,6 +1104,46 @@ fn models_pass(w: &mut GddWorld, name: String) {
 #[given(expr = "the environment has {string} set to {string}")]
 fn environment_has(w: &mut GddWorld, name: String, value: String) {
     set_env(w, &name, &value);
+}
+
+#[given("the local state is gone")]
+fn local_state_gone(w: &mut GddWorld) {
+    let state = project_root(w).join(".gdd");
+    fs::remove_dir_all(&state).expect("the project had local state");
+    assert!(!state.exists(), "the local state is still there");
+}
+
+#[given(expr = "the Claude Code session {string} used {string} with {int} output tokens")]
+fn claude_session_used(w: &mut GddWorld, session: String, model: String, output: u64) {
+    static REQUESTS: AtomicUsize = AtomicUsize::new(0);
+    let root = project_root(w)
+        .canonicalize()
+        .expect("the canonical project root");
+    let home = w.home.get_or_insert_with(TempDir::new).0.clone();
+    set_env(w, "HOME", &home.to_string_lossy());
+    let folder: String = root
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let path = home
+        .join(".claude/projects")
+        .join(folder)
+        .join(format!("{session}.jsonl"));
+    let line = serde_json::json!({
+        "requestId": format!("req-{}", REQUESTS.fetch_add(1, Ordering::Relaxed)),
+        "message": {
+            "model": model,
+            "usage": {
+                "input_tokens": 10,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 5,
+                "output_tokens": output,
+            },
+        },
+    });
+    let old = fs::read_to_string(&path).unwrap_or_default();
+    write_file(&path, &format!("{old}{line}\n"));
 }
 
 #[given("the Setup is done")]
