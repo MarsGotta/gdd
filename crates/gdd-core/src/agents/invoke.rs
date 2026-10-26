@@ -375,7 +375,9 @@ mod tests {
         folder
     }
 
-    /// Calls `who` through the wrapper of `folder`, with `timeout`.
+    /// Calls `who` through the wrapper of `folder`, with `timeout`. A process another test is
+    /// starting can still hold the wrapper just written open for writing, and until it lets it
+    /// go the wrapper cannot start ("text file busy"): then the call is tried again, a few times.
     fn call_in(folder: &Folder, who: Who, timeout: Duration) -> Result<(), Error> {
         let table = model("claude", "opus");
         let call = Call {
@@ -383,7 +385,18 @@ mod tests {
             model: &table,
             args: "round=1",
         };
-        run(&folder.0, "c1", &call, timeout)
+        let mut tries = 1;
+        loop {
+            match run(&folder.0, "c1", &call, timeout) {
+                Err(Error::Start(_, e))
+                    if e.kind() == ErrorKind::ExecutableFileBusy && tries < 20 =>
+                {
+                    tries += 1;
+                    thread::sleep(POLL);
+                }
+                result => return result,
+            }
+        }
     }
 
     const LONG: Duration = Duration::from_secs(60);
@@ -393,7 +406,7 @@ mod tests {
         let script = "{ pwd -P; echo \"$GDD_CHANGE|$GDD_ROOT|${GDD_ROLE-unset}\"; \
                       printf '%s;' \"$@\"; } > seen; read x && exit 7; echo out; echo err >&2";
         let folder = wrapped(script);
-        assert!(call_in(&folder, Who::BuilderBuild, LONG).is_ok());
+        call_in(&folder, Who::BuilderBuild, LONG).unwrap();
         let seen = fs::read_to_string(folder.0.join("seen")).unwrap();
         let cwd = fs::canonicalize(&folder.0).unwrap();
         let (cwd, root) = (cwd.display(), folder.0.display());

@@ -2,15 +2,14 @@
 //! into the tool, then installed in a project or checked against it. Rendering is deterministic:
 //! the same tool writes the same bytes. Only the files the sheets name are written.
 
-use std::fs;
-use std::io::{self, ErrorKind};
+use std::fs::{self, OpenOptions};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use crate::agents::models::{self, Models};
 use crate::agents::sheets::{self, Format, Sheet};
-use crate::change;
 use crate::config::Color;
 
 /// The GDD commands built into the tool, by name: frontmatter with `description: "..."`, then
@@ -151,9 +150,29 @@ pub fn install(root: &Path, agents: &[Sheet]) -> Result<Vec<String>, String> {
         }
     }
     for (path, text) in &files {
-        change::write(root, path, text)?;
+        replace(root, path, text).map_err(|e| format!("cannot write {path}: {e}"))?;
     }
     Ok(files.into_iter().map(|(path, _)| path).collect())
+}
+
+/// Writes `text` as the file `path` of the project at `root`, creating its folders. The file is
+/// always a new one in place of the old: when the old one shares its data with another file (a
+/// hard link), the other keeps what it had.
+fn replace(root: &Path, path: &str, text: &str) -> io::Result<()> {
+    let file = root.join(path);
+    if let Some(folder) = file.parent() {
+        fs::create_dir_all(folder)?;
+    }
+    match fs::remove_file(&file) {
+        Ok(()) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut new = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)?;
+    new.write_all(text.as_bytes())
 }
 
 /// The first symbolic link on the way from `root` to `path`, `path` itself included. Only the
@@ -366,9 +385,11 @@ mod tests {
     fn install_says_what_it_cannot_write() {
         let folder = Folder::new();
         folder.write(".opencode/commands", "a file where a folder goes\n");
-        let said = install(&folder.0, &[sheet("opencode")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("claude"), sheet("opencode")]).unwrap_err();
         let start = "cannot write .opencode/commands/gdd-build.md: ";
         assert!(said.starts_with(start), "{said}");
+        // Nothing is written, not even the commands of the agent before.
+        assert!(!folder.0.join(".claude").exists());
     }
 
     fn link(folder: &Folder, path: &str, to: &Path) {
@@ -396,6 +417,20 @@ mod tests {
         assert_eq!(mine, "mine\n");
         // Nothing is written, not even the commands before the link.
         assert!(!folder.0.join(".claude/skills/gdd-build").exists());
+    }
+
+    #[test]
+    fn install_replaces_a_hard_link_and_the_file_it_shared_keeps_what_it_had() {
+        let folder = Folder::new();
+        let mine = ".claude/skills/my-skill/SKILL.md";
+        folder.write(mine, "mine\n");
+        let build = ".claude/skills/gdd-build/SKILL.md";
+        fs::create_dir_all(folder.0.join(".claude/skills/gdd-build")).unwrap();
+        fs::hard_link(folder.0.join(mine), folder.0.join(build)).unwrap();
+        let agents = [sheet("claude")];
+        install(&folder.0, &agents).unwrap();
+        assert_eq!(fs::read_to_string(folder.0.join(mine)).unwrap(), "mine\n");
+        assert_eq!(check(&folder.0, &agents), Ok(Vec::new()));
     }
 
     #[test]
