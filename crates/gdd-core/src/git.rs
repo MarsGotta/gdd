@@ -1,0 +1,518 @@
+//! The project's git repository, read only: which paths a change touched.
+//!
+//! Git always runs as `git` with a fixed list of arguments, in the project root, never through
+//! a shell. A name read from a file never reaches git as an option, and a failure of git is an
+//! [`Error`], never an empty answer.
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+/// Local state of the tool: it never counts as part of a change.
+const LOCAL_STATE: &str = ".gdd/";
+
+/// What can go wrong when reading the repository.
+#[derive(Debug)]
+pub enum Error {
+    /// Git could not be started.
+    Start(std::io::Error),
+    /// Git ran and failed: the command, how it ended and what it said.
+    Failed(String),
+    /// A name git would read as an option, not as a revision.
+    Revision(String),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Start(e) => write!(f, "cannot run git: {e}"),
+            Error::Failed(message) => f.write_str(message),
+            Error::Revision(name) => write!(f, "{name:?} is not a revision git can take"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
+/// Whether the project at `root` is inside a git repository: `root` or a folder above it has
+/// `.git`.
+pub fn is_repository(root: &Path) -> bool {
+    root.ancestors().any(|folder| folder.join(".git").exists())
+}
+
+/// The git repository of a project, read from the project root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Git {
+    root: PathBuf,
+}
+
+impl Git {
+    /// Git for the project at `root`. The paths it gives are relative to `root`, and paths
+    /// outside it are left out.
+    pub fn new(root: &Path) -> Git {
+        Git {
+            root: root.to_path_buf(),
+        }
+    }
+
+    /// The current branch; `HEAD` when no branch is checked out.
+    pub fn current_branch(&self) -> Result<String, Error> {
+        let out = self.read(&["rev-parse", "--abbrev-ref", "HEAD"])?;
+        Ok(String::from_utf8_lossy(&out).trim().to_string())
+    }
+
+    /// Whether `name` names a commit: a branch, a tag or a commit id.
+    pub fn exists(&self, name: &str) -> Result<bool, Error> {
+        let args = ["rev-parse", "--verify", "--quiet", revision(name)?];
+        let out = self.run(&args)?;
+        match out.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(failed(&args, &out)),
+        }
+    }
+
+    /// Paths the change on `branch` touched since the commit `since`: what the branch changed
+    /// since then and, when it is the current branch, what the working tree changed or added.
+    /// Sorted, without repeats and without the tool's local state (`.gdd/`).
+    pub fn changed_since(&self, branch: &str, since: &str) -> Result<Vec<String>, Error> {
+        let paths = if self.current_branch()? == branch {
+            [self.diff(&[since])?, self.untracked()?].concat()
+        } else {
+            self.diff(&[since, branch])?
+        };
+        Ok(counted(paths))
+    }
+
+    /// Paths the change on `branch` touched against the main branch `main`: what the branch
+    /// changed since it left `main` and, when it is the current branch, what the working tree
+    /// changed or added. Nothing while the branch does not exist. Sorted, without repeats and
+    /// without the tool's local state (`.gdd/`).
+    pub fn changed_from(&self, main: &str, branch: &str) -> Result<Vec<String>, Error> {
+        if !self.exists(branch)? {
+            return Ok(Vec::new());
+        }
+        let mut paths = self.diff(&[&format!("{}...{branch}", revision(main)?)])?;
+        if self.current_branch()? == branch {
+            paths.extend(self.diff(&["HEAD"])?);
+            paths.extend(self.untracked()?);
+        }
+        Ok(counted(paths))
+    }
+
+    /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
+    /// there was no file there.
+    pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
+        let listing = self.read(&["ls-tree", "-z", revision(commit)?, "--", path])?;
+        let listing = String::from_utf8_lossy(&listing);
+        // One entry per NUL byte: "<mode> <type> <object>\t<path>".
+        let object = listing.split('\0').find_map(|entry| {
+            let (meta, name) = entry.split_once('\t')?;
+            let mut fields = meta.split(' ');
+            let (_, kind, object) = (fields.next()?, fields.next()?, fields.next()?);
+            (name == path && kind == "blob").then_some(object)
+        });
+        match object {
+            Some(object) => self.read(&["cat-file", "blob", object]).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Paths that differ between two revisions, or between one and the working tree. Both
+    /// sides of a rename count.
+    fn diff(&self, revisions: &[&str]) -> Result<Vec<String>, Error> {
+        let mut args = vec!["diff", "--name-only", "-z", "--no-renames", "--relative"];
+        for &name in revisions {
+            args.push(revision(name)?);
+        }
+        args.push("--");
+        self.paths(&args)
+    }
+
+    /// Files of the working tree that git does not track yet; ignored files are left out.
+    fn untracked(&self) -> Result<Vec<String>, Error> {
+        self.paths(&["ls-files", "--others", "--exclude-standard", "-z"])
+    }
+
+    /// The paths `git args` printed, one per NUL byte (`-z`): verbatim, never quoted.
+    fn paths(&self, args: &[&str]) -> Result<Vec<String>, Error> {
+        let out = self.read(args)?;
+        Ok(out
+            .split(|&byte| byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| String::from_utf8_lossy(path).into_owned())
+            .collect())
+    }
+
+    /// What `git args` printed; a failure is an error.
+    fn read(&self, args: &[&str]) -> Result<Vec<u8>, Error> {
+        let out = self.run(args)?;
+        if out.status.success() {
+            Ok(out.stdout)
+        } else {
+            Err(failed(args, &out))
+        }
+    }
+
+    fn run(&self, args: &[&str]) -> Result<Output, Error> {
+        Command::new("git")
+            .args(args)
+            .current_dir(&self.root)
+            .output()
+            .map_err(Error::Start)
+    }
+}
+
+/// The error of a git command that ran and failed.
+fn failed(args: &[&str], out: &Output) -> Error {
+    Error::Failed(format!(
+        "git {} failed ({}): {}",
+        args.join(" "),
+        out.status,
+        String::from_utf8_lossy(&out.stderr).trim()
+    ))
+}
+
+/// Sorted, without repeats and without the tool's local state.
+fn counted(paths: Vec<String>) -> Vec<String> {
+    let paths: BTreeSet<String> = paths
+        .into_iter()
+        .filter(|path| !path.starts_with(LOCAL_STATE))
+        .collect();
+    paths.into_iter().collect()
+}
+
+/// `name` as an argument for git: an empty name, or one git would read as an option, is an
+/// error.
+fn revision(name: &str) -> Result<&str, Error> {
+    if name.is_empty() || name.starts_with('-') {
+        Err(Error::Revision(name.to_string()))
+    } else {
+        Ok(name)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A folder in the temporary folder, removed when dropped.
+    pub(crate) struct Folder(pub(crate) PathBuf);
+
+    impl Folder {
+        pub(crate) fn new() -> Folder {
+            static COUNTER: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "gdd-core-test-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
+            Folder(path)
+        }
+
+        /// Writes `text` to the file `path`, creating its folders.
+        pub(crate) fn write(&self, path: &str, text: &str) {
+            let path = self.0.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Git settings of the tests: a fixed author, and no hooks or signing from the user's config.
+    const CONFIG: [&str; 8] = [
+        "-c",
+        "user.name=GDD Test",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+    ];
+
+    /// A git repository in a temporary folder: `main` with one commit.
+    pub(crate) struct Repo(pub(crate) Folder);
+
+    impl Repo {
+        pub(crate) fn new() -> Repo {
+            let repo = Repo(Folder::new());
+            repo.git(&["init", "-q", "-b", "main"]);
+            repo.write("README.md", "demo\n");
+            repo.commit();
+            repo
+        }
+
+        pub(crate) fn root(&self) -> &Path {
+            &self.0.0
+        }
+
+        /// Runs git with a fixed author, and without hooks or signing from the user's config.
+        pub(crate) fn git(&self, args: &[&str]) -> String {
+            let out = Command::new("git")
+                .args(CONFIG)
+                .args(args)
+                .current_dir(self.root())
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success(), "git {args:?}: {stderr}");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+
+        pub(crate) fn write(&self, path: &str, text: &str) {
+            self.0.write(path, text);
+        }
+
+        /// Commits the whole working tree.
+        pub(crate) fn commit(&self) {
+            self.git(&["add", "-A"]);
+            self.git(&["commit", "-q", "--allow-empty", "-m", "commit"]);
+        }
+
+        /// Starts change `id`: its branch from here, checked out. Returns the commit it starts at.
+        pub(crate) fn start(&self, id: &str) -> String {
+            self.git(&["checkout", "-q", "-b", &format!("change/{id}")]);
+            self.git(&["rev-parse", "HEAD"])
+        }
+
+        pub(crate) fn tool(&self) -> Git {
+            Git::new(self.root())
+        }
+    }
+
+    const NOTHING: [&str; 0] = [];
+
+    #[test]
+    fn a_folder_is_in_a_repository_when_it_or_one_above_it_has_git() {
+        let plain = Folder::new();
+        assert!(!is_repository(&plain.0));
+        let repo = Repo::new();
+        repo.write("app/gdd/project.toml", "");
+        assert!(is_repository(repo.root()));
+        assert!(is_repository(&repo.root().join("app")));
+    }
+
+    #[test]
+    fn the_current_branch_and_the_names_that_exist() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        assert_eq!(git.current_branch().unwrap(), "main");
+        assert!(git.exists("main").unwrap());
+        assert!(!git.exists("change/c1").unwrap());
+        repo.start("c1");
+        assert_eq!(git.current_branch().unwrap(), "change/c1");
+        assert!(git.exists("change/c1").unwrap());
+    }
+
+    #[test]
+    fn on_its_branch_a_change_touched_its_commits_and_its_working_tree() {
+        let repo = Repo::new();
+        repo.write("gdd/rules.toml", "a\n");
+        repo.write("src/old.rs", "old\n");
+        repo.commit();
+        let start = repo.start("c1");
+        let git = repo.tool();
+        assert_eq!(git.changed_since("change/c1", &start).unwrap(), NOTHING);
+        repo.write("src/committed.rs", "x\n");
+        repo.commit();
+        repo.write("gdd/rules.toml", "b\n");
+        repo.git(&["rm", "-q", "src/old.rs"]);
+        repo.write("src/new.rs", "new\n");
+        repo.write(".gdd/changes/c1/change.json", "{}");
+        assert_eq!(
+            git.changed_since("change/c1", &start).unwrap(),
+            [
+                "gdd/rules.toml",
+                "src/committed.rs",
+                "src/new.rs",
+                "src/old.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn away_from_its_branch_only_the_commits_of_a_change_count() {
+        let repo = Repo::new();
+        let start = repo.start("c1");
+        repo.write("src/committed.rs", "x\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("src/loose.rs", "y\n");
+        repo.write("README.md", "changed\n");
+        assert_eq!(
+            repo.tool().changed_since("change/c1", &start).unwrap(),
+            ["src/committed.rs"]
+        );
+    }
+
+    #[test]
+    fn against_main_a_change_touched_what_its_branch_changed() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        assert_eq!(git.changed_from("main", "change/c1").unwrap(), NOTHING);
+        repo.start("c1");
+        assert_eq!(git.changed_from("main", "change/c1").unwrap(), NOTHING);
+        repo.write("src/committed.rs", "x\n");
+        repo.commit();
+        repo.write("README.md", "changed\n");
+        repo.write("src/new.rs", "y\n");
+        repo.write(".gdd/log.jsonl", "{}\n");
+        assert_eq!(
+            git.changed_from("main", "change/c1").unwrap(),
+            ["README.md", "src/committed.rs", "src/new.rs"]
+        );
+        repo.git(&["checkout", "-q", "main"]);
+        assert_eq!(
+            git.changed_from("main", "change/c1").unwrap(),
+            ["src/committed.rs"]
+        );
+    }
+
+    #[test]
+    fn a_rename_counts_both_paths() {
+        let repo = Repo::new();
+        repo.write("gdd/rules.toml", "the rules of the project\n");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.git(&["mv", "gdd/rules.toml", "rules.toml"]);
+        repo.commit();
+        assert_eq!(
+            repo.tool().changed_since("change/c1", &start).unwrap(),
+            ["gdd/rules.toml", "rules.toml"]
+        );
+        assert_eq!(
+            repo.tool().changed_from("main", "change/c1").unwrap(),
+            ["gdd/rules.toml", "rules.toml"]
+        );
+    }
+
+    #[test]
+    fn paths_come_verbatim_whatever_their_characters() {
+        let repo = Repo::new();
+        repo.write("docs/a \"b\".md", "x\n");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.write("docs/a \"b\".md", "y\n");
+        repo.write("docs/é ñ.md", "x\n");
+        assert_eq!(
+            repo.tool().changed_since("change/c1", &start).unwrap(),
+            ["docs/a \"b\".md", "docs/é ñ.md"]
+        );
+    }
+
+    #[test]
+    fn in_a_project_inside_a_subfolder_paths_are_relative_to_it() {
+        let repo = Repo::new();
+        repo.write("app/gdd/rules.toml", "a\n");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.write("app/gdd/rules.toml", "b\n");
+        repo.write("app/src/new.rs", "x\n");
+        repo.write("other/new.rs", "x\n");
+        repo.write("README.md", "changed\n");
+        let git = Git::new(&repo.root().join("app"));
+        assert_eq!(
+            git.changed_since("change/c1", &start).unwrap(),
+            ["gdd/rules.toml", "src/new.rs"]
+        );
+        assert_eq!(
+            git.changed_from("main", "change/c1").unwrap(),
+            ["gdd/rules.toml", "src/new.rs"]
+        );
+    }
+
+    #[test]
+    fn a_file_as_it_was_at_a_commit() {
+        let repo = Repo::new();
+        repo.write("app/gdd/rules.toml", "a\n");
+        repo.write("app/docs/a \"b\".md", "x\n");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.write("app/gdd/rules.toml", "b\n");
+        repo.git(&["rm", "-q", "app/docs/a \"b\".md"]);
+        repo.commit();
+        let git = Git::new(&repo.root().join("app"));
+        assert_eq!(
+            git.file_at(&start, "gdd/rules.toml").unwrap(),
+            Some(b"a\n".to_vec())
+        );
+        let quoted = git.file_at(&start, "docs/a \"b\".md").unwrap();
+        assert_eq!(quoted, Some(b"x\n".to_vec()));
+        for nothing in ["gdd/missing.toml", "gdd", "gdd/rules.toml/x", "rules.toml"] {
+            assert_eq!(git.file_at(&start, nothing).unwrap(), None, "{nothing:?}");
+        }
+        assert_eq!(git.file_at("HEAD", "docs/a \"b\".md").unwrap(), None);
+        let err = git.file_at("0123abcd", "gdd/rules.toml").unwrap_err();
+        assert!(err.to_string().starts_with("git ls-tree "), "{err}");
+        let option = git.file_at("-x", "gdd/rules.toml");
+        assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+    }
+
+    #[test]
+    fn names_git_would_read_as_options_never_reach_it() {
+        let repo = Repo::new();
+        repo.start("c1");
+        let git = repo.tool();
+        for name in ["", "-x", "--output=x"] {
+            let exists = git.exists(name);
+            assert!(matches!(exists, Err(Error::Revision(n)) if n == name));
+            let since = git.changed_since("change/c1", name);
+            assert!(matches!(since, Err(Error::Revision(n)) if n == name));
+            let from = git.changed_from(name, "change/c1");
+            assert!(matches!(from, Err(Error::Revision(n)) if n == name));
+        }
+        repo.git(&["checkout", "-q", "main"]);
+        let away = git.changed_since("-x", "main");
+        assert!(matches!(away, Err(Error::Revision(n)) if n == "-x"));
+        assert!(!repo.root().join("x").exists());
+    }
+
+    #[test]
+    fn a_git_failure_is_an_error_not_an_empty_answer() {
+        let plain = Folder::new();
+        let message = Git::new(&plain.0).exists("main").unwrap_err().to_string();
+        assert!(
+            message.starts_with("git rev-parse --verify --quiet main failed (exit status: 128): "),
+            "{message}"
+        );
+        let message = Git::new(&plain.0).current_branch().unwrap_err().to_string();
+        assert!(
+            message.starts_with("git rev-parse --abbrev-ref HEAD failed (exit status: 128): "),
+            "{message}"
+        );
+        let repo = Repo::new();
+        repo.start("c1");
+        let err = repo
+            .tool()
+            .changed_since("change/c1", "0123abcd")
+            .unwrap_err();
+        assert!(matches!(err, Error::Failed(_)));
+        let start = "git diff --name-only -z --no-renames --relative 0123abcd -- failed";
+        assert!(err.to_string().starts_with(start), "{err}");
+        let err = repo.tool().changed_from("trunk", "change/c1").unwrap_err();
+        assert!(err.to_string().starts_with("git diff "), "{err}");
+    }
+
+    #[test]
+    fn errors_say_what_went_wrong() {
+        let start = Error::Start(std::io::Error::other("no such program"));
+        assert_eq!(start.to_string(), "cannot run git: no such program");
+        assert_eq!(
+            Error::Revision("-x".into()).to_string(),
+            "\"-x\" is not a revision git can take"
+        );
+        let failed = Error::Failed("git x failed (exit status: 1): no".into());
+        assert_eq!(failed.to_string(), "git x failed (exit status: 1): no");
+    }
+}

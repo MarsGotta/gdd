@@ -83,6 +83,10 @@ fn parse_change(text: &str) -> gdd_core::Change {
 #[given(expr = "the zone map:")]
 fn the_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     w.zone_map = docstring(step, "a zone map docstring");
+    // In a project (guard and scope features) the map also lives where the tool reads it.
+    if let Some(dir) = &w.project {
+        write_file(&dir.0.join("gdd/zones.toml"), &format!("{}\n", w.zone_map));
+    }
 }
 
 #[given("the default rules table")]
@@ -173,6 +177,7 @@ impl Drop for TempDir {
 /// What the last `gdd` run did.
 #[derive(Debug)]
 struct Ran {
+    code: u8,
     succeeded: bool,
     stdout: String,
     stderr: String,
@@ -204,6 +209,7 @@ fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
         .collect();
     let out = gdd::run(&args, cwd);
     w.ran = Some(Ran {
+        code: out.code,
         succeeded: out.code == 0,
         stdout: out.stdout,
         stderr: out.stderr,
@@ -272,6 +278,12 @@ fn planned_change(w: &mut GddWorld, id: String, text: String) {
 
 #[when(expr = "I run {string}")]
 fn i_run(w: &mut GddWorld, command: String) {
+    let root = project_root(w);
+    run_gdd(w, &command, &root);
+}
+
+#[given(expr = "I run {string}")]
+fn given_i_run(w: &mut GddWorld, command: String) {
     let root = project_root(w);
     run_gdd(w, &command, &root);
 }
@@ -366,6 +378,237 @@ fn json_field_is(w: &mut GddWorld, field: String, literal: String) {
         serde_json::from_str(&literal).expect("a JSON literal in the step");
     let json = stdout_json(w);
     assert_eq!(json.get(&field), Some(&expected), "field {field} in {json}");
+}
+
+// ---- features/guard.feature and features/scope.feature -------------------------------------
+//
+// Projects here are temporary git repositories: `main` holds the project files, the change lives
+// on `change/<id>`. Git runs with its author set on the command line, never from the user's config.
+
+/// Runs git in `root` and returns what it printed; any failure is a failed step.
+fn git(root: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=GDD Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("git can run");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn commit_all(root: &Path, message: &str) {
+    git(root, &["add", "-A"]);
+    git(root, &["commit", "-q", "--allow-empty", "-m", message]);
+}
+
+/// The record of change `id`, read and written back as JSON.
+fn read_record(root: &Path, id: &str) -> serde_json::Value {
+    let text = fs::read_to_string(root.join(format!(".gdd/changes/{id}/change.json")))
+        .expect("a change record");
+    serde_json::from_str(&text).expect("a JSON record")
+}
+
+fn write_record(root: &Path, id: &str, record: &serde_json::Value) {
+    write_file(
+        &root.join(format!(".gdd/changes/{id}/change.json")),
+        &record.to_string(),
+    );
+}
+
+/// Touches `path`: creates it, or appends a comment line when it exists, so config files
+/// keep parsing.
+fn touch(root: &Path, path: &str) {
+    let file = root.join(path);
+    let old = fs::read_to_string(&file).unwrap_or_default();
+    write_file(&file, &format!("{old}\n# touched\n"));
+}
+
+#[given(expr = "a GDD project in a git repository with the protected paths:")]
+fn git_project(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let rules = docstring(step, "a rules docstring");
+    write_file(&root.join("gdd/rules.toml"), &format!("{rules}\n"));
+    git(&root, &["init", "-q", "-b", "main"]);
+}
+
+#[given(regex = r#"^the change "([^"]+)" plans (.*) and its build has started on its branch$"#)]
+fn change_started(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let paths = parse_change(&text).paths;
+    commit_all(&root, "project");
+    git(&root, &["checkout", "-q", "-b", &format!("change/{id}")]);
+    let record = serde_json::json!({
+        "id": id,
+        "title": id,
+        "paths": paths,
+        "resumable": false,
+        "min_color": null,
+        "state": "building",
+        "gates": {},
+        "inbox": [],
+        "build_start": git(&root, &["rev-parse", "HEAD"]),
+    });
+    write_record(&root, &id, &record);
+}
+
+#[given(regex = r#"^the change "([^"]+)" plans (.*) and its build has not started$"#)]
+fn change_not_started(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let paths = parse_change(&text).paths;
+    let record = serde_json::json!({
+        "id": id,
+        "title": id,
+        "paths": paths,
+        "resumable": false,
+        "min_color": null,
+        "state": "open",
+        "gates": {},
+        "inbox": [],
+    });
+    write_record(&root, &id, &record);
+}
+
+#[given(expr = "the scenario {string} was approved in G1")]
+fn scenario_approved(w: &mut GddWorld, file: String) {
+    let root = project_root(w);
+    write_file(&root.join(&file), "Feature: approved\n");
+    commit_all(&root, "approved scenario");
+    let hash = std::process::Command::new("sha256sum")
+        .arg(&file)
+        .current_dir(&root)
+        .output()
+        .expect("sha256sum can run");
+    let hash = String::from_utf8_lossy(&hash.stdout)
+        .split_whitespace()
+        .next()
+        .expect("a hash")
+        .to_string();
+    let mut record = read_record(&root, "c1");
+    record["gates"]["G1"] = serde_json::json!({"decision": "ok", "hashes": {file: hash}});
+    // The build starts after the approval: the scenario itself is not part of the change.
+    record["build_start"] = git(&root, &["rev-parse", "HEAD"]).into();
+    write_record(&root, "c1", &record);
+}
+
+fn change_writes(w: &mut GddWorld, path: &str) {
+    let root = project_root(w);
+    touch(&root, path);
+}
+
+#[given(expr = "the change wrote {string}")]
+fn change_wrote(w: &mut GddWorld, path: String) {
+    change_writes(w, &path);
+}
+
+#[when(expr = "the change writes {string}")]
+fn change_writes_step(w: &mut GddWorld, path: String) {
+    change_writes(w, &path);
+}
+
+#[when(expr = "the change modifies {string}")]
+fn change_modifies(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    assert!(root.join(&path).is_file(), "{path} should exist already");
+    touch(&root, &path);
+}
+
+#[when(expr = "the change deletes {string}")]
+fn change_deletes(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    std::fs::remove_file(root.join(&path)).expect("the file to delete exists");
+}
+
+#[when(expr = "the change commits {string}")]
+fn change_commits(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    touch(&root, &path);
+    git(&root, &["add", "--", &path]);
+    git(&root, &["commit", "-q", "-m", "change commit"]);
+}
+
+/// The list of strings in `field` of the last JSON output.
+fn json_strings(w: &GddWorld, field: &str) -> Vec<String> {
+    let json = stdout_json(w);
+    json[field]
+        .as_array()
+        .unwrap_or_else(|| panic!("no list {field:?} in {json}"))
+        .iter()
+        .map(|v| v.as_str().expect("a string").to_string())
+        .collect()
+}
+
+fn ok_flag(w: &GddWorld) -> bool {
+    let json = stdout_json(w);
+    json["ok"]
+        .as_bool()
+        .unwrap_or_else(|| panic!("no boolean \"ok\" in {json}"))
+}
+
+#[then("Path Guard passes")]
+fn guard_passes(w: &mut GddWorld) {
+    assert!(ok_flag(w), "Path Guard failed: {}", last_run(w).stdout);
+    assert_eq!(json_strings(w, "failures"), Vec::<String>::new());
+}
+
+/// The quoted names of a step text like `"a" and "b"`.
+fn quoted(text: &str) -> Vec<&str> {
+    text.split('"').skip(1).step_by(2).collect()
+}
+
+#[then(regex = r#"^Path Guard fails naming ("[^"]+"(?: and "[^"]+")?)$"#)]
+fn guard_fails(w: &mut GddWorld, names: String) {
+    assert!(!ok_flag(w), "Path Guard passed: {}", last_run(w).stdout);
+    let failures = json_strings(w, "failures");
+    let names = quoted(&names);
+    assert!(!names.is_empty(), "the step names nothing");
+    for name in names {
+        assert!(
+            failures.iter().any(|f| f.contains(name)),
+            "no failure names {name:?}: {failures:?}"
+        );
+    }
+}
+
+#[then(regex = r"^the exit code (is|is not) 0$")]
+fn exit_code(w: &mut GddWorld, verb: String) {
+    let ran = last_run(w);
+    assert_eq!(ran.code == 0, verb == "is", "exit code {}", ran.code);
+}
+
+#[then("the scope passes with nothing accepted")]
+fn scope_passes_empty(w: &mut GddWorld) {
+    assert!(ok_flag(w), "the scope failed: {}", last_run(w).stdout);
+    assert_eq!(json_strings(w, "accepted"), Vec::<String>::new());
+}
+
+#[then(expr = "the scope passes accepting {string}")]
+fn scope_passes_accepting(w: &mut GddWorld, path: String) {
+    assert!(ok_flag(w), "the scope failed: {}", last_run(w).stdout);
+    assert_eq!(json_strings(w, "accepted"), vec![path]);
+}
+
+#[then(expr = "the scope fails naming {string} and {string}")]
+fn scope_fails(w: &mut GddWorld, path: String, color: String) {
+    assert!(!ok_flag(w), "the scope passed: {}", last_run(w).stdout);
+    let failures = json_strings(w, "failures");
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains(&path) && f.contains(&color)),
+        "no failure names {path:?} and {color:?}: {failures:?}"
+    );
 }
 
 fn repo_root() -> PathBuf {

@@ -1,4 +1,7 @@
-//! A planned change: what its record, `.gdd/changes/<id>/change.json`, says it will touch.
+//! A change and its record, `.gdd/changes/<id>/change.json`: what it plans to touch, where its
+//! build started and what its gates approved.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -17,15 +20,61 @@ pub fn record_path(id: &str) -> String {
     format!(".gdd/changes/{id}/change.json")
 }
 
-/// The fields of a change record that classifying needs; the others are ignored.
+/// Where the last snapshot of change `id` lives, from the project root.
+pub fn snapshot_path(id: &str) -> String {
+    format!(".gdd/changes/{id}/snapshot.json")
+}
+
+/// The git branch of change `id`.
+pub fn branch(id: &str) -> String {
+    format!("change/{id}")
+}
+
+/// The fields of a change record the tool reads; the others are ignored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Record {
+    /// What the change plans: its paths, its declared minimum color and whether it is resumable.
+    pub plan: Change,
+    /// Commit where its build started; `None` until the change is prepared.
+    pub build_start: Option<String>,
+    /// Color decided when the change was prepared; `None` until then.
+    pub decided_color: Option<Color>,
+    /// Scenario files approved in G1, with the SHA-256 they had then.
+    pub approved: BTreeMap<String, String>,
+}
+
 #[derive(Deserialize)]
-struct Record {
+struct RawRecord {
     #[serde(default)]
     paths: Vec<String>,
     #[serde(default)]
     resumable: bool,
     #[serde(default, deserialize_with = "color")]
     min_color: Option<Color>,
+    #[serde(default)]
+    build_start: Option<String>,
+    #[serde(default)]
+    decision: Option<RawDecision>,
+    #[serde(default)]
+    gates: RawGates,
+}
+
+#[derive(Deserialize)]
+struct RawDecision {
+    #[serde(default, deserialize_with = "color")]
+    color: Option<Color>,
+}
+
+#[derive(Default, Deserialize)]
+struct RawGates {
+    #[serde(rename = "G1")]
+    g1: Option<RawApproval>,
+}
+
+#[derive(Deserialize)]
+struct RawApproval {
+    #[serde(default)]
+    hashes: BTreeMap<String, String>,
 }
 
 fn color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Color>, D::Error> {
@@ -35,15 +84,23 @@ fn color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Color>, D:
     }
 }
 
-/// Reads a change record (JSON): its planned paths, whether it is resumable and its declared
-/// minimum color (`null` or missing: none). An unknown color is an error that names it.
-pub fn from_json(text: &str) -> Result<Change, serde_json::Error> {
-    let record: Record = serde_json::from_str(text)?;
-    Ok(Change {
-        paths: record.paths,
-        min_color: record.min_color,
-        resumable: record.resumable,
-    })
+impl Record {
+    /// Reads a change record (JSON). A field it leaves out, or `null`, takes its default: no
+    /// paths, not resumable, no minimum color, not prepared, nothing decided or approved. An
+    /// empty `build_start` is no build start. An unknown color is an error that names it.
+    pub fn from_json(text: &str) -> Result<Record, serde_json::Error> {
+        let raw: RawRecord = serde_json::from_str(text)?;
+        Ok(Record {
+            plan: Change {
+                paths: raw.paths,
+                min_color: raw.min_color,
+                resumable: raw.resumable,
+            },
+            build_start: raw.build_start.filter(|start| !start.is_empty()),
+            decided_color: raw.decision.and_then(|d| d.color),
+            approved: raw.gates.g1.map(|g1| g1.hashes).unwrap_or_default(),
+        })
+    }
 }
 
 /// What `gdd classify` prints: the id of the change, then its classification.
@@ -61,6 +118,10 @@ mod tests {
     use super::*;
     use crate::{Lane, classify, rules, zones::ZoneMap};
 
+    fn plan(text: &str) -> Change {
+        Record::from_json(text).unwrap().plan
+    }
+
     #[test]
     fn ids_are_lowercase_letters_digits_and_hyphens() {
         for id in ["a", "0", "core-classify", "x-1-"] {
@@ -74,17 +135,18 @@ mod tests {
     }
 
     #[test]
-    fn the_record_lives_in_the_folder_of_the_change() {
+    fn the_files_of_a_change_live_in_its_folder_and_its_work_on_its_branch() {
         assert_eq!(record_path("save"), ".gdd/changes/save/change.json");
+        assert_eq!(snapshot_path("save"), ".gdd/changes/save/snapshot.json");
+        assert_eq!(branch("save"), "change/save");
     }
 
     #[test]
     fn a_record_gives_the_paths_the_minimum_and_resumable() {
-        let change = from_json(
+        let change = plan(
             r#"{"id": "x", "title": "X", "paths": ["a.rs", "b.rs"], "resumable": true,
                 "min_color": "red", "state": "open", "gates": {}, "inbox": []}"#,
-        )
-        .unwrap();
+        );
         assert_eq!(
             change,
             Change {
@@ -96,33 +158,69 @@ mod tests {
     }
 
     #[test]
-    fn missing_fields_and_a_null_minimum_take_their_defaults() {
-        let empty = Change {
-            paths: vec![],
-            min_color: None,
-            resumable: false,
-        };
-        assert_eq!(from_json("{}").unwrap(), empty);
-        assert_eq!(from_json(r#"{"min_color": null}"#).unwrap(), empty);
+    fn a_prepared_record_gives_its_start_its_color_and_its_approved_scenarios() {
+        let record = Record::from_json(
+            r#"{"paths": ["a.rs"], "build_start": "37cc864",
+                "decision": {"color": "red", "lane": "full"},
+                "gates": {"G1": {"decision": "ok", "hashes": {"features/a.feature": "ab12"}},
+                          "plan": {"decision": "ok"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(record.build_start.as_deref(), Some("37cc864"));
+        assert_eq!(record.decided_color, Some(Color::Red));
+        assert_eq!(
+            record.approved,
+            BTreeMap::from([("features/a.feature".to_string(), "ab12".to_string())])
+        );
     }
 
     #[test]
-    fn an_unknown_minimum_color_is_an_error_that_names_it() {
-        let err = from_json(r#"{"min_color": "purple"}"#).unwrap_err();
+    fn missing_fields_and_nulls_take_their_defaults() {
+        let empty = Record {
+            plan: Change {
+                paths: vec![],
+                min_color: None,
+                resumable: false,
+            },
+            build_start: None,
+            decided_color: None,
+            approved: BTreeMap::new(),
+        };
+        assert_eq!(Record::from_json("{}").unwrap(), empty);
+        for text in [
+            r#"{"min_color": null, "build_start": null, "decision": null}"#,
+            r#"{"build_start": "", "decision": {}, "gates": {"G1": {}}}"#,
+            r#"{"decision": {"color": null}, "gates": {"G1": null, "G2": {"hashes": {"a": "b"}}}}"#,
+        ] {
+            assert_eq!(Record::from_json(text).unwrap(), empty, "{text}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_color_is_an_error_that_names_it() {
+        let err = Record::from_json(r#"{"min_color": "purple"}"#).unwrap_err();
         assert!(err.to_string().contains("purple"), "{err}");
+        let err = Record::from_json(r#"{"decision": {"color": "blue"}}"#).unwrap_err();
+        assert!(err.to_string().contains("blue"), "{err}");
     }
 
     #[test]
     fn a_record_that_is_not_valid_is_an_error() {
-        assert!(from_json("").is_err());
-        assert!(from_json("{not json").is_err());
-        assert!(from_json(r#"{"paths": "a.rs"}"#).is_err());
+        for text in [
+            "",
+            "{not json",
+            r#"{"paths": "a.rs"}"#,
+            r#"{"build_start": 7}"#,
+            r#"{"gates": {"G1": {"hashes": ["a"]}}}"#,
+        ] {
+            assert!(Record::from_json(text).is_err(), "{text}");
+        }
     }
 
     #[test]
     fn the_decision_starts_with_the_change_and_follows_the_classification() {
         let zones = ZoneMap::from_toml("default = \"red\"").unwrap();
-        let change = from_json(r#"{"paths": ["a.rs"]}"#).unwrap();
+        let change = plan(r#"{"paths": ["a.rs"]}"#);
         let classification = classify(&zones, &rules::default_table(), &change).unwrap();
         assert_eq!(classification.lane, Lane::Full);
         let json = serde_json::to_string(&Decision {
