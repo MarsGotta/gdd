@@ -1,0 +1,12 @@
+# Agent sheet · Claude Code (https://code.claude.com/docs/en/skills, /docs/en/headless)
+name = "claude"
+title = "Claude Code"
+
+[commands]
+path = ".claude/skills/{name}/SKILL.md"   # {name} is gdd-<command>
+format = "skill"                           # frontmatter with name and description
+invoke = "/{name}"                         # how a command is called
+
+[launch]
+# Headless run, as the recipe starts it. {invoke} {args} is the prompt.
+args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json"]

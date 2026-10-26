@@ -1,0 +1,11 @@
+# Agent sheet · Codex CLI (https://developers.openai.com/codex/skills, /codex/noninteractive)
+name = "codex"
+title = "Codex"
+
+[commands]
+path = ".agents/skills/{name}/SKILL.md"   # {name} is gdd-<command>
+format = "skill"                           # frontmatter with name and description
+invoke = "${name}"                         # skills are called with a dollar sign
+
+[launch]
+args = ["exec", "{invoke} {args}", "--model", "{model}", "--json"]
