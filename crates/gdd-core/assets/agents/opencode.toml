@@ -1,0 +1,12 @@
+# Agent sheet · OpenCode (https://opencode.ai/docs/commands, /docs/cli)
+name = "opencode"
+title = "OpenCode"
+
+[commands]
+path = ".opencode/commands/{name}.md"   # {name} is gdd-<command>
+format = "command"                       # frontmatter with the description only
+invoke = "/{name}"
+
+[launch]
+# OpenCode takes the command apart from its arguments.
+args = ["run", "--command", "{name}", "-m", "{model}", "--format", "json", "{args}"]
