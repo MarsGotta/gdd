@@ -32,22 +32,23 @@ change, stop and review before adding more.
 | Gate reports keep the failure lines of long outputs | done | gate-runner |
 | Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | done | changes-and-approvals |
 | G1 refuses hidden examples whose step sentences no visible scenario has | done | changes-and-approvals |
-| Harness self-test | next | agents block (it runs the harness) |
+| Harness self-test | next | agent-launch |
 
 ## 3. Agents and the recipe
 
 | Item | Status | Where |
 |---|---|---|
-| One data sheet per agent: Claude Code, Codex, OpenCode (folder, format, how to launch, JSON output) | next | agents block |
-| Launch agents with model and role, capture tokens; the agents use their own logins (subscriptions), not API keys | next | agents block |
-| API keys are never passed on to the agents | open | agents block |
-| Permissions by role (read-only Reviewer, Builder without the harness) | next | agents block |
-| Agents cannot edit GDD state (`.gdd/`): Claude Code | done in the kit | port in the agents block |
-| Same for Codex and OpenCode | open | agents block |
-| The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe | next | agents block |
-| Replan that can send the change back to test mode; a relaunch with G2 green skips the Builder | done in the kit | port in the agents block |
-| The merge commit carries the change's record: color, approvals, G4, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done in the kit | port in the agents block |
-| Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in the agents block |
+| One data sheet per agent: Claude Code, Codex, OpenCode (folder, format, how to launch, JSON output); GDD commands rendered per agent, Spec Kit gone | next | agent-sheets |
+| Launch agents with model and role, capture tokens; the agents use their own logins (subscriptions), not API keys | next | agent-launch |
+| API keys are never passed on to the agents | open | agent-launch |
+| Permissions by role (read-only Reviewer, Builder without the harness) | next | agent-launch |
+| Agents cannot edit GDD state (`.gdd/`): Claude Code | done in the kit | port in agent-launch |
+| Same for Codex and OpenCode | open | agent-launch |
+| Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | next | run-steps |
+| The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | next | recipe-run |
+| Replan that can send the change back to test mode; a relaunch with G2 green skips the Builder | done in the kit | port in agent-launch |
+| The merge commit carries the change's record: color, approvals, G4, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done in the kit | port in agent-launch |
+| Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in agent-launch |
 | Mutation testing with a memory cap for test processes (Linux: `prlimit`) | done in the recipes | |
 | The same cap on macOS | open | |
 
