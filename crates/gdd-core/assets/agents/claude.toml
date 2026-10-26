@@ -1,6 +1,8 @@
 # Agent sheet · Claude Code (https://code.claude.com/docs/en/skills, /docs/en/headless)
 name = "claude"
 title = "Claude Code"
+binary = "claude"          # found on PATH, unless gdd/models.toml [binaries] says otherwise
+usage = "claude-json"      # how its JSON output reports tokens, cost and the final text
 
 [commands]
 path = ".claude/skills/{name}/SKILL.md"   # {name} is gdd-<command>
@@ -8,5 +10,28 @@ format = "skill"                           # frontmatter with name and descripti
 invoke = "/{name}"                         # how a command is called
 
 [launch]
-# Headless run, as the recipe starts it. {invoke} {args} is the prompt.
-args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json"]
+# Headless run, as the recipe starts it. {invoke} {args} is the prompt; {role_args} expands to
+# the arguments of the role below.
+args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json", "{role_args}"]
+
+# Per role: no MCP servers, what it may run without asking, what it may never do. GDD state is
+# written only through gdd.
+[roles.builder-build]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd g2:*)", "Bash(bin/gdd guard:*)", "Bash(bin/gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+
+[roles.builder-test]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd g2:*)", "Bash(bin/gdd guard:*)", "Bash(bin/gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+
+[roles.reviewer]
+args = ["--strict-mcp-config", "--permission-mode", "plan",
+  "--allowedTools", "Read", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+
+[roles.orchestrator]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd status:*)", "Bash(bin/gdd classify:*)", "Bash(bin/gdd note:*)", "Bash(bin/gdd report:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Edit(.gdd/log.jsonl)", "Write(.gdd/log.jsonl)", "Edit(.gdd/changes/*/change.json)", "Write(.gdd/changes/*/change.json)"]

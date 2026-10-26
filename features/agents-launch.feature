@@ -1,5 +1,6 @@
 Feature: The recipe starts each agent as its sheet says
   The agents are the fakes of the recipe scenarios: each call is recorded with its full arguments.
+  Since agent-launch, each role also gets the arguments its sheet gives that role.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
@@ -74,8 +75,8 @@ Feature: The recipe starts each agent as its sheet says
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
     When I run "gdd launch c1"
     Then it succeeds
-    And agent call 2 was "-p /gdd-build change=c1 mode=build --model sonnet --output-format json"
-    And agent call 3 was "exec $gdd-review change=c1 round=1 --model gpt-6 --json"
+    And agent call 2 starts with "-p /gdd-build change=c1 mode=build --model sonnet --output-format json --strict-mcp-config"
+    And agent call 3 was "exec --sandbox read-only -c mcp_servers={} $gdd-review change=c1 round=1 --model gpt-6 --json"
 
   Scenario: OpenCode gets the command apart from its arguments
     Given the reviewer is "opencode" "kimi-k3"

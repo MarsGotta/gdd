@@ -1,6 +1,8 @@
 # Agent sheet · Codex CLI (https://developers.openai.com/codex/skills, /codex/noninteractive)
 name = "codex"
 title = "Codex"
+binary = "codex"
+usage = "codex-jsonl"      # turn.completed events carry the usage; no cost
 
 [commands]
 path = ".agents/skills/{name}/SKILL.md"   # {name} is gdd-<command>
@@ -8,4 +10,18 @@ format = "skill"                           # frontmatter with name and descripti
 invoke = "${name}"                         # skills are called with a dollar sign
 
 [launch]
-args = ["exec", "{invoke} {args}", "--model", "{model}", "--json"]
+args = ["exec", "{role_args}", "{invoke} {args}", "--model", "{model}", "--json"]
+# Added to the role's arguments when the role's table in gdd/models.toml has `effort`.
+effort_args = ["-c", "model_reasoning_effort={effort}"]
+
+[roles.builder-build]
+args = ["--sandbox", "workspace-write", "-c", "mcp_servers={}"]
+
+[roles.builder-test]
+args = ["--sandbox", "workspace-write", "-c", "mcp_servers={}"]
+
+[roles.reviewer]
+args = ["--sandbox", "read-only", "-c", "mcp_servers={}"]
+
+[roles.orchestrator]
+args = ["--sandbox", "workspace-write", "-c", "mcp_servers={}"]
