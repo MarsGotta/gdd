@@ -131,8 +131,10 @@ def main() -> None:
     if agent == "claude":
         extra += ["--strict-mcp-config", "--permission-mode", "plan" if role == "reviewer" else "acceptEdits"]
         extra += ["--allowedTools", *ALLOWED.get(role, ALLOWED["builder-build"])]
-        if role != "orchestrator":
-            extra += ["--disallowedTools", *FORBIDDEN]
+        # GDD state (approvals, G1 hashes, log) is written only through bin/gdd, never by hand.
+        state = ["Edit(.gdd/**)", "Write(.gdd/**)"] if role != "orchestrator" else \
+            ["Edit(.gdd/log.jsonl)", "Write(.gdd/log.jsonl)", "Edit(.gdd/changes/*/change.json)", "Write(.gdd/changes/*/change.json)"]
+        extra += ["--disallowedTools", *(FORBIDDEN if role != "orchestrator" else []), *state]
     elif agent == "codex":
         extra += ["--sandbox", "read-only" if role == "reviewer" else "workspace-write", "-c", "mcp_servers={}"]
         effort = (gdd.cfg("models").get(role.split("-")[0], {}) or {}).get("effort")
