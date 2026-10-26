@@ -1,8 +1,9 @@
 //! The gates the machines run: G2, the Loop Gate of every Builder round, and G3, the Merge
-//! Gate. A gate runs its commands from `gdd/commands.toml`, then Path Guard, the scope check in
-//! build mode and, in G3, the scenario count. It passes only if all of them pass.
+//! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
+//! Path Guard again, the scope check in build mode and, in G3, the scenario count. It passes
+//! only if all of them pass.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::io::{self, ErrorKind};
@@ -30,6 +31,9 @@ const NOT_CONFIGURED: &str =
 
 /// Why G3 fails without scenarios.
 const NO_SCENARIOS: &str = "Zero scenarios counts as a failure.";
+
+/// Why the commands of a gate did not run.
+const NOT_RUN: &str = "The gate commands did not run: Path Guard must pass first.";
 
 /// Lines that report a failure a failed command keeps from its output, at most.
 const KEPT_LINES: usize = 40;
@@ -303,12 +307,12 @@ impl Report {
         });
     }
 
-    /// Records a check that gives its failures: it passes without any.
-    fn judge(&mut self, name: &str, failures: Result<Vec<String>, guard::Error>) {
-        match failures {
-            Ok(failures) if failures.is_empty() => self.passed.push(name.to_string()),
-            Ok(failures) => self.fail(name, failures.join("\n")),
-            Err(e) => self.fail(name, e.to_string()),
+    /// Records a check by its failures: it passes without any.
+    fn judge(&mut self, name: &str, failures: Vec<String>) {
+        if failures.is_empty() {
+            self.passed.push(name.to_string());
+        } else {
+            self.fail(name, failures.join("\n"));
         }
     }
 
@@ -358,14 +362,17 @@ fn tenths(seconds: f64) -> f64 {
 }
 
 /// Runs `gate` on change `id`, whose record is `record`, for `role`. The change is classified
-/// from what it plans and what it touched against the main branch. Each configured command of
-/// the gate runs from the project root (see [`exec::run`]), except the `mutation*` ones when the
-/// change does not need mutation testing. Each gets `GDD_CHANGE`, `GDD_COLOR`, `GDD_FEATURES`
-/// (the change's scenario files) and `GDD_DIFF_FILES` (what it touched, or what it plans while
-/// it touched nothing), one path per line. Then Path Guard judges `role`, from the snapshot
-/// `snapshot` when there is one; build mode also gets the scope check, and G3 counts the
-/// scenarios: none fails it when they are required or the change has its own. A gate without
-/// commands fails. A check that cannot judge fails with the reason.
+/// from what it plans and what it touched against the main branch; its scenario files are the
+/// ones it plans or touched and the ones its record names. First Path Guard judges `role`, from
+/// the snapshot `snapshot` when there is one: the commands run only if it passes, since a role
+/// that touched the gate configuration could make them its own and put the files back as they
+/// ran. Each configured command of the gate runs from the project root (see [`exec::run`]),
+/// except the `mutation*` ones when the change does not need mutation testing. Each gets
+/// `GDD_CHANGE`, `GDD_COLOR`, `GDD_FEATURES` (the change's scenario files) and `GDD_DIFF_FILES`
+/// (what it touched, or what it plans while it touched nothing), one path per line. Then Path
+/// Guard judges again; build mode also gets the scope check, and G3 counts the scenarios: none
+/// fails it when they are required or the change has its own. A gate without commands fails. A
+/// check that cannot judge fails with the reason.
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -378,7 +385,16 @@ pub fn run(
     let touched = guard::touched(root, id, project.settings)?;
     let mut plan = record.plan.clone();
     plan.paths.extend(touched.iter().cloned());
+    // Scenarios of its own put the change in G1, and a change in G1 takes the full lane.
+    plan.resumable &= record.features.is_empty();
     let decision = classify(project.zones, &project.rules.table, &plan)?;
+    let features: BTreeSet<&str> = decision
+        .features
+        .iter()
+        .chain(&record.features)
+        .map(String::as_str)
+        .collect();
+    let g1 = !features.is_empty();
     let diff = if touched.is_empty() {
         &record.plan.paths
     } else {
@@ -387,7 +403,7 @@ pub fn run(
     let (color, diff, features) = (
         decision.color.to_string(),
         diff.join("\n"),
-        decision.features.join("\n"),
+        Vec::from_iter(features).join("\n"),
     );
     let env = [
         ("GDD_CHANGE", id),
@@ -410,27 +426,38 @@ pub fn run(
         let name = format!("{gate} not configured");
         report.fail(&name, NOT_CONFIGURED.to_string());
     }
-    for (name, command) in commands {
-        if name.starts_with("mutation") && !decision.mutation {
-            report.skipped.push(name.clone());
-        } else {
-            report.command(name, exec::run(command, root, &env, exec::TIMEOUT));
+    let guard = || {
+        let verdict = guard::path_guard(root, id, record, project.settings, role, snapshot);
+        verdict.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures)
+    };
+    let mut guarded = guard();
+    if guarded.is_empty() {
+        for (name, command) in commands {
+            if name.starts_with("mutation") && !decision.mutation {
+                report.skipped.push(name.clone());
+            } else {
+                report.command(name, exec::run(command, root, &env, exec::TIMEOUT));
+            }
         }
+        guarded = guard();
+    } else {
+        guarded.push(NOT_RUN.to_string());
     }
-    let guarded = guard::path_guard(root, id, record, project.settings, role, snapshot);
-    report.judge("path-guard", guarded.map(|verdict| verdict.failures));
+    report.judge("path-guard", guarded);
     if role == BUILD_ROLE {
-        let checked = guard::scope(root, id, record, project.zones, &project.rules.table);
-        let failures = checked.map(|scope| {
-            report.out_of_scope = scope.accepted;
-            scope.failures
-        });
+        let failures = match guard::scope(root, id, record, project.zones, &project.rules.table) {
+            Ok(scope) => {
+                report.out_of_scope = scope.accepted;
+                scope.failures
+            }
+            Err(e) => vec![e.to_string()],
+        };
         report.judge("scope", failures);
     }
     if gate == Gate::G3 {
         let folder = &project.rules.table.acceptance.dir;
         match count_scenarios(&root.join(folder)) {
-            Ok(0) if decision.g1 || project.rules.scenarios_required => {
+            Ok(0) if g1 || project.rules.scenarios_required => {
                 report.fail("scenarios", NO_SCENARIOS.to_string());
             }
             Ok(count) => report.passed.push(format!("scenarios ({count})")),
@@ -547,6 +574,7 @@ paths = ["src/storage/**"]
             build_start: Some(start),
             decided_color: None,
             approved: Hashes::new(),
+            features: vec![],
         };
         Started {
             repo,
@@ -770,9 +798,39 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let report = project.run(Gate::G3, "builder");
         let passed = ["acceptance", "path-guard", "scenarios (0)"];
         assert_eq!(report.passed, passed);
+        project.record.features = vec!["features/hidden/a.feature".into()];
+        assert_eq!(names(&project.run(Gate::G3, "builder")), ["scenarios"]);
+        project.record.features.clear();
         let feature = "features/a.feature".to_string();
         project.record.plan.paths.push(feature);
         assert_eq!(names(&project.run(Gate::G3, "builder")), ["scenarios"]);
+    }
+
+    #[test]
+    fn the_scenarios_of_the_change_include_the_ones_its_record_names() {
+        let show = "[g2]\nshow = 'printf \"%s\" \"$GDD_FEATURES\"; exit 1'\n";
+        let mut project = started(&["src/app.rs"], show);
+        let named = ["features/hidden/b.feature", "features/a.feature"];
+        project.record.features = named.map(String::from).to_vec();
+        project.repo.write("features/a.feature", "Feature: a\n");
+        project.repo.write("features/c.feature", "Feature: c\n");
+        let shown = &project.run(Gate::G2, "builder").failures[0].tail;
+        let features = "features/a.feature\nfeatures/c.feature\nfeatures/hidden/b.feature";
+        assert_eq!(shown, features);
+    }
+
+    #[test]
+    fn a_change_with_scenarios_of_its_own_takes_the_full_lane() {
+        let commands = "[g3]\nacceptance = \"true\"\nmutation = \"true\"\n";
+        let mut project = started(&["src/app.rs"], commands);
+        let lanes = "[color.yellow.fast]\nmutation = false\n[color.yellow.full]\nmutation = true\n";
+        project.rules = Rules::from_toml(lanes).unwrap();
+        project.record.plan.resumable = true;
+        assert_eq!(project.run(Gate::G3, "builder").skipped, ["mutation"]);
+        project.record.features = vec!["features/hidden/a.feature".into()];
+        let report = project.run(Gate::G3, "builder");
+        assert_eq!(report.skipped, Vec::<String>::new());
+        assert_eq!(report.passed[..2], ["acceptance", "mutation"]);
     }
 
     #[test]
@@ -792,17 +850,43 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
 
     #[test]
     fn path_guard_runs_inside_the_gate_for_the_role() {
-        let project = started(&["src/app.rs"], "[g2]\nlint = \"true\"\n");
+        let project = started(&["src/app.rs"], "[g2]\nlint = \"touch ran\"\n");
         project.repo.write("gdd/rules.toml", "# touched\n");
         let report = project.run(Gate::G2, "builder");
-        let guarded = "gdd/rules.toml: protected path for builder";
-        assert_eq!(report.failures, [failure("path-guard", guarded)]);
+        let guarded = format!("gdd/rules.toml: protected path for builder\n{NOT_RUN}");
+        assert_eq!(report.failures, [failure("path-guard", &guarded)]);
         project.repo.write("features/a.feature", "Feature: a\n");
         let report = project.run(Gate::G2, BUILD_ROLE);
-        let guarded = "features/a.feature: protected path for builder-build\n\
-                       gdd/rules.toml: protected path for builder-build";
+        let guarded = format!(
+            "features/a.feature: protected path for builder-build\n\
+             gdd/rules.toml: protected path for builder-build\n{NOT_RUN}"
+        );
+        assert_eq!(report.failures, [failure("path-guard", &guarded)]);
+        assert_eq!(report.passed, ["scope"]);
+        assert!(!project.repo.root().join("ran").exists());
+    }
+
+    #[test]
+    fn the_commands_run_only_once_path_guard_clears_them() {
+        // Rewritten commands could put their file back as they ran: Path Guard comes first.
+        let commands = "[g2]\nunit = \"rm gdd/commands.toml\"\n";
+        let project = started(&["src/app.rs"], commands);
+        project.repo.write("gdd/commands.toml", commands);
+        let report = project.run(Gate::G2, "builder");
+        let guarded = format!("gdd/commands.toml: protected path for builder\n{NOT_RUN}");
+        assert_eq!(report.failures, [failure("path-guard", &guarded)]);
+        assert_eq!(report.passed, Vec::<String>::new());
+        assert!(project.repo.root().join("gdd/commands.toml").exists());
+    }
+
+    #[test]
+    fn path_guard_judges_again_what_the_commands_wrote() {
+        let commands = "[g2]\nunit = \"echo x > gdd/rules.toml\"\n";
+        let project = started(&["src/app.rs"], commands);
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(report.passed, ["unit"]);
+        let guarded = "gdd/rules.toml: protected path for builder";
         assert_eq!(report.failures, [failure("path-guard", guarded)]);
-        assert_eq!(report.passed, ["lint", "scope"]);
     }
 
     #[test]
@@ -843,7 +927,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let report = project.run(Gate::G2, BUILD_ROLE);
         assert_eq!(names(&report), ["path-guard", "scope"]);
         let reason = "Change c1 has not been prepared: Path Guard has no starting point.";
-        assert_eq!(report.failures[0].tail, reason);
+        assert_eq!(report.failures[0].tail, format!("{reason}\n{NOT_RUN}"));
         project.record.build_start = Some("0123abcd".into());
         let report = project.run(Gate::G2, BUILD_ROLE);
         assert_eq!(names(&report), ["path-guard", "scope"]);

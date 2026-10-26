@@ -1047,7 +1047,8 @@ mod tests {
         project.write("gdd/notes.toml", "x\n");
         let guarded = "gdd/notes.toml: protected path for builder-build";
         let printed = json(&project.run("g2 save --role builder-build"));
-        assert_eq!(printed["failures"][0]["tail"], guarded);
+        let tail = format!("{guarded}\nThe gate commands did not run: Path Guard must pass first.");
+        assert_eq!(printed["failures"][0]["tail"], tail);
         let verdict = json(&project.run("guard save --role builder-build"));
         assert_eq!(verdict["failures"], serde_json::json!([guarded]));
         let record = load_record(&project.0, "save").unwrap();

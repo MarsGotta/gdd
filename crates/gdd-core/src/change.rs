@@ -63,12 +63,17 @@ pub struct Record {
     pub decided_color: Option<Color>,
     /// Scenario files approved in G1, with the SHA-256 they had then.
     pub approved: BTreeMap<String, String>,
+    /// Scenario files of the change, as G1 recorded them: hidden ones too, which never show in
+    /// what it plans or touches.
+    pub features: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct RawRecord {
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    features: Vec<String>,
     #[serde(default)]
     resumable: bool,
     #[serde(default, deserialize_with = "color")]
@@ -108,8 +113,9 @@ fn color<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Color>, D:
 
 impl Record {
     /// Reads a change record (JSON). A field it leaves out, or `null`, takes its default: no
-    /// paths, not resumable, no minimum color, not prepared, nothing decided or approved. An
-    /// empty `build_start` is no build start. An unknown color is an error that names it.
+    /// paths, not resumable, no minimum color, not prepared, nothing decided or approved, no
+    /// scenarios. An empty `build_start` is no build start. An unknown color is an error that
+    /// names it.
     pub fn from_json(text: &str) -> Result<Record, serde_json::Error> {
         let raw: RawRecord = serde_json::from_str(text)?;
         Ok(Record {
@@ -121,6 +127,7 @@ impl Record {
             build_start: raw.build_start.filter(|start| !start.is_empty()),
             decided_color: raw.decision.and_then(|d| d.color),
             approved: raw.gates.g1.map(|g1| g1.hashes).unwrap_or_default(),
+            features: raw.features,
         })
     }
 }
@@ -215,7 +222,8 @@ mod tests {
     fn a_prepared_record_gives_its_start_its_color_and_its_approved_scenarios() {
         let record = Record::from_json(
             r#"{"paths": ["a.rs"], "build_start": "37cc864",
-                "decision": {"color": "red", "lane": "full"},
+                "decision": {"color": "red", "lane": "full", "features": ["x.feature"]},
+                "features": ["features/a.feature", "features/hidden/a.feature"],
                 "gates": {"G1": {"decision": "ok", "hashes": {"features/a.feature": "ab12"}},
                           "plan": {"decision": "ok"}}}"#,
         )
@@ -226,6 +234,8 @@ mod tests {
             record.approved,
             BTreeMap::from([("features/a.feature".to_string(), "ab12".to_string())])
         );
+        let features = ["features/a.feature", "features/hidden/a.feature"];
+        assert_eq!(record.features, features);
     }
 
     #[test]
@@ -239,6 +249,7 @@ mod tests {
             build_start: None,
             decided_color: None,
             approved: BTreeMap::new(),
+            features: vec![],
         };
         assert_eq!(Record::from_json("{}").unwrap(), empty);
         for text in [
@@ -266,6 +277,7 @@ mod tests {
             r#"{"paths": "a.rs"}"#,
             r#"{"build_start": 7}"#,
             r#"{"gates": {"G1": {"hashes": ["a"]}}}"#,
+            r#"{"features": "features/a.feature"}"#,
         ] {
             assert!(Record::from_json(text).is_err(), "{text}");
         }
