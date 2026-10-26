@@ -1,10 +1,12 @@
 //! The Decision Inbox of a change: what the human must decide, what was decided without them
 //! and what was parked, from the notes of its record.
 
+use std::path::Path;
+
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::change::NOTE_KINDS;
+use crate::change::{self, NOTE_KINDS};
 
 /// The title of the group of each kind of note, in the order of [`NOTE_KINDS`].
 const HEADINGS: [&str; 3] = ["Needs your decision", "Decided without you", "Parked"];
@@ -87,8 +89,17 @@ pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
     Ok(blocks.join("\n\n"))
 }
 
+/// Renders the Decision Inbox of change `id` of the project at `root` from the text of its
+/// record (see [`render`]) and saves it next to the record, with a line break at the end. What
+/// it rendered.
+pub fn save(root: &Path, id: &str, record: &str) -> Result<String, String> {
+    let rendered = render(id, record).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+    change::write(root, &change::inbox_path(id), &format!("{rendered}\n"))?;
+    Ok(rendered)
+}
+
 /// Whether a note was resolved: its `resolved` says when, or says so.
-fn is_resolved(resolved: &Value) -> bool {
+pub(crate) fn is_resolved(resolved: &Value) -> bool {
     match resolved {
         Value::Null | Value::Bool(false) => false,
         Value::String(when) => !when.is_empty(),
@@ -99,6 +110,8 @@ fn is_resolved(resolved: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::tests::Folder;
+    use std::fs;
 
     const RECORD: &str = r#"{
         "id": "c1", "title": "Drafts", "state": "building",
@@ -160,6 +173,22 @@ mod tests {
         for done in [Value::from("x"), Value::Bool(true), Value::from(1)] {
             assert!(is_resolved(&done), "{done}");
         }
+    }
+
+    #[test]
+    fn the_inbox_is_saved_next_to_the_record_as_it_is_rendered() {
+        let folder = Folder::new();
+        let saved = save(&folder.0, "c1", RECORD).unwrap();
+        assert_eq!(saved, render("c1", RECORD).unwrap());
+        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        assert_eq!(text, format!("{saved}\n"));
+        let err = save(&folder.0, "c1", "{not json").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        fs::remove_file(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let err = save(&folder.0, "c1", RECORD).unwrap_err();
+        let start = "cannot write .gdd/changes/c1/inbox.md: ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]

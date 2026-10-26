@@ -6,12 +6,15 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
+use gdd_core::agents::{self, models::Models, models::Roles};
 use gdd_core::change::{self, Decision, Record};
-use gdd_core::gates::{self, Gate, approve};
+use gdd_core::classify::classify_with;
+use gdd_core::gates::{self, Gate, approve, prepare, release};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
+use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
-use gdd_core::{Color, Report, RulesTable, ZoneMap, inbox, log};
+use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log};
 
 /// File that marks the root of a GDD project.
 const PROJECT: &str = "gdd/project.toml";
@@ -20,7 +23,7 @@ const ZONES: &str = "gdd/zones.toml";
 /// Rules table of the project, with the protected paths of Path Guard.
 const RULES: &str = guard::RULES;
 /// Gate commands of the project.
-const COMMANDS: &str = "gdd/commands.toml";
+const COMMANDS: &str = gates::COMMANDS;
 /// Where the changes keep their records, from the project root.
 const CHANGES: &str = ".gdd/changes";
 /// The kinds of work a change can be.
@@ -58,6 +61,15 @@ impl Outcome {
             code: 1,
             stdout: String::new(),
             stderr,
+        }
+    }
+
+    /// What a command printed for the user, on a line of its own, with its exit code.
+    fn printed(text: String, code: u8) -> Outcome {
+        Outcome {
+            code,
+            stdout: format!("{text}\n"),
+            stderr: String::new(),
         }
     }
 }
@@ -139,6 +151,36 @@ enum Command {
     },
     /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
     Status,
+    /// Checks that a change may enter Build (G0, red zones, G1, plan, model families, its
+    /// branch) and starts it. Prints its decision, with the model of each role, as JSON.
+    Prepare {
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+    },
+    /// Parks a change: stops it with a message for the human in its Decision Inbox. Always
+    /// exits with 1.
+    Park {
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+        /// Why; its words are joined with single spaces.
+        #[arg(required = true, trailing_var_arg = true)]
+        reason: Vec<String>,
+    },
+    /// Merges a change whose G3 is open into the main branch, with its record in the merge
+    /// commit, then builds the artifact and deploys it to pre. Prints the deploy as JSON.
+    Merge {
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+    },
+    /// A release step of gdd/commands.toml: pre (tests and demo), promote (to production, after
+    /// G4) or observe (rolls the change back when production gets worse). Prints it as JSON.
+    Release {
+        /// The step.
+        #[arg(value_parser = release::STEPS)]
+        step: String,
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+    },
 }
 
 /// What `gdd g2` and `gdd g3` take.
@@ -215,11 +257,21 @@ fn parse_color(name: &str) -> Result<Color, String> {
 impl Command {
     /// Runs the command on the project at `root`, for the role `role`: what it prints and its
     /// exit code.
-    fn run(self, root: &Path, role: Option<&str>) -> Result<(String, u8), String> {
+    fn run(self, root: &Path, role: Option<&str>) -> Result<Outcome, String> {
         let mut code = 0;
         let text = match self {
-            Command::G2(args) => return run_gate(root, Gate::G2, &args),
-            Command::G3(args) => return run_gate(root, Gate::G3, &args),
+            Command::G2(args) => {
+                let (text, code) = run_gate(root, Gate::G2, &args)?;
+                return Ok(Outcome::printed(text, code));
+            }
+            Command::G3(args) => {
+                let (text, code) = run_gate(root, Gate::G3, &args)?;
+                return Ok(Outcome::printed(text, code));
+            }
+            Command::Park { change, reason } => {
+                let message = change::park(root, &change, &reason.join(" "))?;
+                return Ok(Outcome::failure(format!("{message}\n")));
+            }
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change)?,
             Command::Guard {
@@ -239,8 +291,11 @@ impl Command {
             Command::Note(args) => note(root, &args)?,
             Command::Inbox { change } => decision_inbox(root, &change)?,
             Command::Status => project_status(root)?,
+            Command::Prepare { change } => prepare_change(root, &change)?,
+            Command::Merge { change } => merge_change(root, &change)?,
+            Command::Release { step, change } => release_change(root, &step, &change)?,
         };
-        Ok((text, code))
+        Ok(Outcome::printed(text, code))
     }
 }
 
@@ -255,7 +310,8 @@ pub fn run(args: &[String], cwd: &Path) -> Outcome {
 /// role `role` (`None` for a person): a Builder or a Reviewer cannot record gate decisions.
 /// Help and version go to the standard output; every error goes to the standard error, with
 /// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails, and
-/// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
+/// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails. `gdd park` always exits with 1,
+/// its message on the standard error.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
     let cli = match Cli::try_parse_from(words) {
@@ -267,11 +323,7 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
         return Outcome::success(Cli::command().render_help().to_string());
     };
     match project_root(cwd).and_then(|root| command.run(&root, role)) {
-        Ok((text, code)) => Outcome {
-            code,
-            stdout: format!("{text}\n"),
-            stderr: String::new(),
-        },
+        Ok(outcome) => outcome,
         Err(message) => Outcome::failure(format!("error: {message}\n")),
     }
 }
@@ -302,22 +354,62 @@ fn report(root: &Path, by: &str, change: Option<&str>, json: bool) -> Result<Str
     }
 }
 
-/// `gdd classify`: the decision for a change, from its record, the zone map and the rules
-/// table. Its planned paths count, and the ones it touched in git (see [`guard::touched`]). A
-/// missing zone map or rules table says nothing.
+/// `gdd classify`: the decision for a change (see [`decide`]).
 fn classify(root: &Path, id: &str) -> Result<String, String> {
-    let record = load_record(root, id)?;
+    let decided = decide(root, id)?;
+    serde_json::to_string_pretty(&decided.decision(id)).map_err(|e| e.to_string())
+}
+
+/// What the tool decides for a change: its classification, its kind of work, the model of each
+/// role and the Builder rounds against G2.
+struct Decided {
+    classification: Classification,
+    kind: String,
+    models: Models,
+    roles: Roles,
+    retries: u32,
+}
+
+impl Decided {
+    /// The decision for change `id`, as `gdd classify` prints it.
+    fn decision<'a>(&'a self, id: &'a str) -> Decision<'a> {
+        Decision {
+            change: id,
+            classification: &self.classification,
+            kind: &self.kind,
+            roles: &self.roles,
+            retries: self.retries,
+        }
+    }
+}
+
+/// The decision for change `id`, from its record, the zone map, the rules table and the models.
+/// Its planned paths count, the ones it touched in git (see [`guard::touched`]) and the
+/// scenario files its record names. A missing zone map, rules table or models file says nothing.
+fn decide(root: &Path, id: &str) -> Result<Decided, String> {
+    let text = change::read_record(root, id)?;
+    let path = change::record_path(id);
+    let invalid = |e: serde_json::Error| format!("{path}: {e}");
+    let record = Record::from_json(&text).map_err(invalid)?;
+    let kind = change::kind(&text).map_err(invalid)?;
     let zones = load_zones(root)?;
     let table = load_table(root)?;
     let touched = guard::touched(root, id, &load_settings(root)?).map_err(|e| e.to_string())?;
     let mut plan = record.plan;
     plan.paths.extend(touched);
-    let classification = gdd_core::classify(&zones, &table, &plan).map_err(|e| e.to_string())?;
-    let decision = Decision {
-        change: id,
-        classification: &classification,
-    };
-    serde_json::to_string_pretty(&decision).map_err(|e| e.to_string())
+    let classification =
+        classify_with(&zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
+    let models = load_models(root)?;
+    let roles = models.roles(classification.color);
+    let rules = read(root, RULES)?.unwrap_or_default();
+    let retries = agents::builder_retries(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+    Ok(Decided {
+        classification,
+        kind,
+        models,
+        roles,
+        retries,
+    })
 }
 
 /// `gdd guard`: Path Guard for `role` on change `id`, with the protected paths of the rules
@@ -355,32 +447,95 @@ fn guard_snapshot(
 fn run_gate(root: &Path, gate: Gate, args: &GateArgs) -> Result<(String, u8), String> {
     let id = args.change.as_str();
     let record = load_record(root, id)?;
-    let zones = load_zones(root)?;
-    let settings = load_settings(root)?;
-    let rules = read(root, RULES)?.unwrap_or_default();
-    let rules = gates::Rules::from_toml(&rules).map_err(|e| format!("{RULES}: {e}"))?;
-    let commands = read(root, COMMANDS)?.unwrap_or_default();
-    let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let config = GateConfig::load(root)?;
     let snapshot = guard_snapshot(root, id, &args.role, false)?;
-    let project = gates::Project {
-        root,
-        zones: &zones,
-        rules: &rules,
-        settings: &settings,
-        commands: &commands,
-    };
+    let project = config.project(root);
     let report = gates::run(&project, gate, id, &record, &args.role, snapshot.as_ref())
         .map_err(|e| e.to_string())?;
     save_out_of_scope(root, id, &report.out_of_scope)?;
-    let saved = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?;
-    write(root, &gate.report_path(id), &format!("{saved}\n"))?;
-    let line = report
-        .log_entry(id)
-        .line(&log::now())
-        .map_err(|e| e.to_string())?;
-    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
+    gates::save(root, id, &report)?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     Ok((printed, u8::from(args.strict && !report.ok)))
+}
+
+/// What the gates read from a project: the zone map, the rules file and the gate commands.
+struct GateConfig {
+    zones: ZoneMap,
+    settings: Settings,
+    rules: gates::Rules,
+    commands: gates::Commands,
+}
+
+impl GateConfig {
+    /// The configuration of the project at `root`; a missing file says nothing.
+    fn load(root: &Path) -> Result<GateConfig, String> {
+        let zones = load_zones(root)?;
+        let settings = load_settings(root)?;
+        let rules = read(root, RULES)?.unwrap_or_default();
+        let rules = gates::Rules::from_toml(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+        let commands = read(root, COMMANDS)?.unwrap_or_default();
+        let commands =
+            gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+        Ok(GateConfig {
+            zones,
+            settings,
+            rules,
+            commands,
+        })
+    }
+
+    /// What a gate reads from the project at `root`.
+    fn project<'a>(&'a self, root: &'a Path) -> gates::Project<'a> {
+        gates::Project {
+            root,
+            zones: &self.zones,
+            rules: &self.rules,
+            settings: &self.settings,
+            commands: &self.commands,
+        }
+    }
+}
+
+/// `gdd prepare`: checks that change `id` may enter Build and starts it (see
+/// [`prepare::prepare`]).
+fn prepare_change(root: &Path, id: &str) -> Result<String, String> {
+    let decided = decide(root, id)?;
+    let config = GateConfig::load(root)?;
+    let project = config.project(root);
+    let zones = read(root, ZONES)?.unwrap_or_default();
+    let setup = prepare::Setup {
+        project: &project,
+        zones: &zones,
+        models: &decided.models,
+    };
+    prepare::prepare(&setup, id, &decided.decision(id))
+}
+
+/// `gdd merge`: merges change `id`, classified as it is now, into the main branch (see
+/// [`merge::merge`]). What follows the merge reads its configuration as the merge left it.
+fn merge_change(root: &Path, id: &str) -> Result<String, String> {
+    let decided = decide(root, id)?;
+    let settings = load_settings(root)?;
+    let project = merge::Project {
+        root,
+        main: &settings.main_branch,
+    };
+    merge::merge(&project, id, &decided.classification)
+}
+
+/// `gdd release`: the release step `step` of change `id` (see [`release`]). Promoting asks
+/// whether the change needs the human G4 as it is classified now.
+fn release_change(root: &Path, step: &str, id: &str) -> Result<String, String> {
+    let steps = load_steps(root)?;
+    match step {
+        "pre" => release::pre(root, id, &steps),
+        "promote" => {
+            let decided = decide(root, id)?;
+            release::promote(root, id, &steps, decided.classification.g4)
+        }
+        "observe" => release::observe(root, id, &steps),
+        other => Err(format!("unknown release step {other:?}")),
+    }
 }
 
 /// Writes `accepted`, the paths outside the plan the scope check accepted, in the record of
@@ -504,10 +659,7 @@ fn note(root: &Path, args: &NoteArgs) -> Result<String, String> {
 /// is printed.
 fn decision_inbox(root: &Path, id: &str) -> Result<String, String> {
     let text = change::read_record(root, id)?;
-    let path = change::record_path(id);
-    let rendered = inbox::render(id, &text).map_err(|e| format!("{path}: {e}"))?;
-    write(root, &change::inbox_path(id), &format!("{rendered}\n"))?;
-    Ok(rendered)
+    inbox::save(root, id, &text)
 }
 
 /// `gdd status`: where the project stands, and its changes.
@@ -584,6 +736,19 @@ fn load_zones(root: &Path) -> Result<ZoneMap, String> {
 fn load_table(root: &Path) -> Result<RulesTable, String> {
     let text = read(root, RULES)?.unwrap_or_default();
     RulesTable::of_project(&text).map_err(|e| format!("{RULES}: {e}"))
+}
+
+/// The models of the project: who plays each role.
+fn load_models(root: &Path) -> Result<Models, String> {
+    let path = agents::models::PATH;
+    let text = read(root, path)?.unwrap_or_default();
+    Models::from_toml(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+/// The release commands of the project.
+fn load_steps(root: &Path) -> Result<release::Steps, String> {
+    let text = read(root, COMMANDS)?.unwrap_or_default();
+    release::Steps::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))
 }
 
 /// What the rules file says to Path Guard: the main branch and the protected paths.
@@ -695,6 +860,9 @@ mod tests {
         for command in ["new-change", "gate", "note", "inbox", "status"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
+        for command in ["prepare", "park", "merge", "release"] {
+            assert!(out.stdout.contains(command), "{command}: {out:?}");
+        }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
             assert!(out.stdout.contains(gate), "{gate}: {out:?}");
         }
@@ -725,6 +893,13 @@ mod tests {
             "note c1 maybe x",
             "inbox",
             "status extra",
+            "prepare",
+            "park",
+            "park c1",
+            "merge",
+            "release",
+            "release pre",
+            "release deploy c1",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -892,8 +1067,54 @@ mod tests {
                 "reviewer": true,
                 "g4": true,
                 "human_plan": true,
+                "type": "Feature",
+                "builder": {},
+                "builder_test": {},
+                "reviewer_model": {},
+                "orchestrator": {},
+                "retries": 3,
             })
         );
+    }
+
+    const MODELS: &str = "[builder.yellow]\nintegration = \"claude\"\nmodel = \"sonnet\"\n\
+                          [builder.red]\nintegration = \"claude\"\nmodel = \"opus\"\n\
+                          [reviewer]\nintegration = \"codex\"\nmodel = \"gpt-6\"\n\
+                          [families]\n\"opus\" = \"anthropic\"\n\"sonnet\" = \"anthropic\"\n\
+                          \"gpt\" = \"openai\"\n";
+
+    #[test]
+    fn classify_names_the_model_of_each_role_and_the_retries() {
+        let project = project_with_change(
+            r#"{"type": "Spike", "paths": ["src/storage/a.rs"], "features": ["features/x.feature"]}"#,
+        );
+        project.write("gdd/models.toml", MODELS);
+        project.write(RULES, "[limits]\nbuilder_retries = 5\n");
+        let decision = json(&project.run("classify save"));
+        assert_eq!(decision["type"], "Spike");
+        let opus = serde_json::json!({"integration": "claude", "model": "opus"});
+        assert_eq!(decision["builder"], opus);
+        assert_eq!(decision["reviewer_model"]["model"], "gpt-6");
+        assert_eq!(decision["builder_test"], serde_json::json!({}));
+        assert_eq!(decision["retries"], 5);
+        // The scenarios the record names put the change in G1.
+        assert_eq!(decision["g1"], true);
+        let features = serde_json::json!(["features/x.feature"]);
+        assert_eq!(decision["features"], features);
+        project.write("gdd/models.toml", "[reviewer\n");
+        let out = project.run("classify save");
+        let start = "error: gdd/models.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        project.write("gdd/models.toml", MODELS);
+        project.write(RULES, "[limits]\nbuilder_retries = \"5\"\n");
+        let out = project.run("classify save");
+        let start = "error: gdd/rules.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        project.write(RULES, "");
+        project.write(".gdd/changes/save/change.json", r#"{"type": 3}"#);
+        let out = project.run("classify save");
+        let start = "error: .gdd/changes/save/change.json: invalid type";
+        assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
     #[test]
@@ -1629,5 +1850,136 @@ mod tests {
         let out = project.run("inbox c1");
         let start = "error: .gdd/changes/c1/change.json: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn park_stops_the_change_and_says_so_on_the_standard_error() {
+        let project = committed_project();
+        project.run("new-change c1 --title App");
+        let out = project.run("park c1 G2 still  red --after 3");
+        let message =
+            "Change c1 parked: G2 still red --after 3. Message in .gdd/changes/c1/inbox.md\n";
+        assert_eq!(out, Outcome::failure(message.into()));
+        assert_eq!(record_of(&project, "c1")["state"], "parked");
+        let inbox = fs::read_to_string(project.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let parked = "## Parked\n- G2 still red --after 3";
+        assert!(inbox.contains(parked), "{inbox}");
+        let out = project.run("park c9 Why");
+        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        assert_eq!(out, Outcome::failure(missing.into()));
+    }
+
+    /// Gives the repository of `project` an author of its own, without signing or hooks: gdd
+    /// commits as the repository's configuration says.
+    fn identify(project: &Project) {
+        for (key, value) in [
+            ("user.name", "GDD Test"),
+            ("user.email", "test@example.com"),
+            ("commit.gpgsign", "false"),
+            ("core.hooksPath", "/dev/null"),
+        ] {
+            git(project, &["config", "--local", key, value]);
+        }
+    }
+
+    /// A project in a git repository with an author, its configuration committed on `main`,
+    /// G0 open and the red zones approved; change `c1`, which plans `src/a.rs`, checked out on
+    /// its branch.
+    fn launched_project() -> Project {
+        let project = Project::new();
+        project.write(RULES, PROTECTED);
+        project.write(ZONES, ZONE_MAP);
+        project.write("gdd/models.toml", MODELS);
+        let commands = "[g2]\nlint = \"true\"\n[release]\nsimulated = true\nbuild = \"true\"\n";
+        project.write(COMMANDS, commands);
+        project.write(".gitignore", ".gdd/*\n");
+        git(&project, &["init", "-q", "-b", "main"]);
+        identify(&project);
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "project"]);
+        project.write(approve::G0_PATH, r#"{"decision": "ok"}"#);
+        assert_eq!(project.run("gate zones ok").code, 0);
+        let created = project.run("new-change c1 --title App --paths src/a.rs");
+        assert_eq!(created.code, 0, "{created:?}");
+        git(&project, &["checkout", "-q", "change/c1"]);
+        project
+    }
+
+    #[test]
+    fn prepare_starts_the_change_and_names_the_model_of_each_role() {
+        let project = launched_project();
+        let out = project.run("prepare c1");
+        assert_eq!(out.code, 0, "{out:?}");
+        let start = "{\"ok\":true,\"change\":\"c1\",";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        let prepared = json(&out);
+        let sonnet = serde_json::json!({"integration": "claude", "model": "sonnet"});
+        assert_eq!(prepared["builder"], sonnet);
+        assert_eq!(prepared["retries"], 3);
+        assert_eq!(prepared["resume_green"], false);
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "building");
+        assert_eq!(record["decision"]["builder"], sonnet);
+        git(&project, &["checkout", "-q", "main"]);
+        let refused = "error: Not on branch change/c1. Launch the change with bin/gdd launch c1.\n";
+        assert_eq!(project.run("prepare c1"), Outcome::failure(refused.into()));
+        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        assert_eq!(project.run("prepare c9"), Outcome::failure(missing.into()));
+        project.write(COMMANDS, "[g2\n");
+        let out = project.run("prepare c1");
+        let start = "error: gdd/commands.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn merge_and_release_take_the_change_to_production() {
+        let project = launched_project();
+        assert_eq!(project.run("gate G3 ok c1 --by machines").code, 0);
+        project.write("src/a.rs", "x\n");
+        let out = project.run("merge c1");
+        assert_eq!(out.code, 0, "{out:?}");
+        let merged = json(&out);
+        assert_eq!(merged["simulated"], true);
+        assert_eq!(merged["detail"]["name"], "deploy_pre");
+        assert_eq!(git(&project, &["branch", "--show-current"]), "main");
+        let message = git(&project, &["log", "-1", "--format=%B"]);
+        let start = "gdd(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature\n";
+        assert!(message.starts_with(start), "{message}");
+        assert_eq!(record_of(&project, "c1")["state"], "merged");
+        for (step, state) in [
+            ("pre", "in-pre"),
+            ("promote", "in-production"),
+            ("observe", "closed"),
+        ] {
+            let out = project.run(&format!("release {step} c1"));
+            assert_eq!(out.code, 0, "{step}: {out:?}");
+            assert_eq!(json(&out)["ok"], true, "{step}");
+            assert_eq!(record_of(&project, "c1")["state"], state, "{step}");
+        }
+        assert_eq!(record_of(&project, "c1")["gates"]["G4"]["by"], "machines");
+    }
+
+    #[test]
+    fn a_change_that_needs_g4_waits_and_production_getting_worse_rolls_it_back() {
+        let project = committed_project();
+        let commands = "[release]\nsimulated = true\nobserve = \"exit 1\"\n";
+        project.write(COMMANDS, commands);
+        project.run("new-change c1 --title Save --paths src/storage/db.rs");
+        let refused = "error: This change needs a human G4 before promotion.\n";
+        let out = project.run("release promote c1");
+        assert_eq!(out, Outcome::failure(refused.into()));
+        let closed = Outcome::failure("error: G3 is not open.\n".into());
+        assert_eq!(project.run("merge c1"), closed);
+        let out = project.run("release observe c1");
+        assert_eq!(out.code, 1);
+        let start = "error: release.observe failed (exit code 1)\nRollback: simulated\n";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_eq!(record_of(&project, "c1")["state"], "rolled-back");
+        project.write(COMMANDS, "[release\n");
+        let out = project.run("release pre c1");
+        let start = "error: gdd/commands.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        // Merge reads its release commands once merged: G3 comes first.
+        assert_eq!(project.run("merge c1"), closed);
     }
 }

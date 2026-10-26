@@ -3,6 +3,7 @@
 //! Work moves forward by passing gates; risk decides how many gates and how strict.
 //! This crate holds the method itself and has no terminal or CLI dependencies.
 
+pub mod agents;
 pub mod change;
 pub mod classify;
 pub mod config;
@@ -12,6 +13,7 @@ pub mod git;
 pub mod guard;
 pub mod inbox;
 pub mod log;
+pub mod repo;
 pub mod report;
 pub mod rules;
 pub mod status;

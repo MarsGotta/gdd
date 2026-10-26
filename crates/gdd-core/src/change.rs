@@ -1,5 +1,6 @@
 //! A change and its record, `.gdd/changes/<id>/change.json`: what it plans to touch, where its
-//! build started, what its gates decided and the notes left on it.
+//! build started, what its gates decided, the notes left on it and its state. Parking a change
+//! stops it with a note for the human.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,8 +11,13 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
+use crate::agents::models::Roles;
 use crate::classify::{Change, Classification};
 use crate::config::Color;
+use crate::{inbox, log};
+
+/// The kind of work of a change whose record says none.
+const DEFAULT_KIND: &str = "Feature";
 
 /// The kinds of note a change keeps for its Decision Inbox: a decision the human must take, a
 /// decision taken without them, and work parked.
@@ -168,6 +174,92 @@ pub fn with_note(text: &str, note: &Note) -> Result<String, serde_json::Error> {
     written(&record)
 }
 
+/// The record `text` with each of `fields` set to its value; every other field keeps its value.
+pub fn with_fields(text: &str, fields: Vec<(&str, Value)>) -> Result<String, serde_json::Error> {
+    let mut record: Map<String, Value> = serde_json::from_str(text)?;
+    for (key, value) in fields {
+        record.insert(key.to_string(), value);
+    }
+    written(&record)
+}
+
+/// The record `text` with its requests for the human still open (`needs` notes) resolved at
+/// `ts`: a (re)launch means the Orchestrator dealt with them. They stay in the record, out of
+/// the Decision Inbox. Every other field keeps its value.
+pub fn with_requests_resolved(text: &str, ts: &str) -> Result<String, serde_json::Error> {
+    let mut record: Map<String, Value> = serde_json::from_str(text)?;
+    if let Some(Value::Array(notes)) = record.get_mut("inbox") {
+        for note in notes.iter_mut().filter_map(Value::as_object_mut) {
+            let request = note.get("kind").and_then(Value::as_str) == Some("needs");
+            let resolved = note.get("resolved").is_some_and(inbox::is_resolved);
+            if request && !resolved {
+                note.insert("resolved".to_string(), Value::from(ts));
+            }
+        }
+    }
+    written(&record)
+}
+
+/// The kind of work the record `text` says its change is (`Feature`, `Spike`...): `Feature`
+/// when it says none.
+pub fn kind(text: &str) -> Result<String, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct Raw {
+        #[serde(default, rename = "type")]
+        kind: Option<String>,
+    }
+    let raw: Raw = serde_json::from_str(text)?;
+    Ok(raw.kind.unwrap_or_else(|| DEFAULT_KIND.to_string()))
+}
+
+/// Parks change `id` of the project at `root` for `reason`: a `parked` note in its record, which
+/// goes to state `parked`; logged, and its Decision Inbox saved (see [`inbox::save`]). What to
+/// tell the human, in one line.
+pub fn park(root: &Path, id: &str, reason: &str) -> Result<String, String> {
+    let text = read_record(root, id)?;
+    let path = record_path(id);
+    let ts = log::now();
+    let note = Note {
+        kind: "parked",
+        text: reason,
+        ts: &ts,
+    };
+    let parked = with_note(&text, &note)
+        .and_then(|text| with_fields(&text, vec![("state", Value::from("parked"))]))
+        .map_err(|e| format!("{path}: {e}"))?;
+    write(root, &path, &parked)?;
+    let entry = log::Entry {
+        change: id.to_string(),
+        phase: "-".to_string(),
+        gate: "-".to_string(),
+        role: "machine".to_string(),
+        agent: "-".to_string(),
+        result: "parked".to_string(),
+        duration_s: 0.0,
+        note: reason.to_string(),
+    };
+    logged(root, &entry)?;
+    inbox::save(root, id, &parked)?;
+    let inbox = inbox_path(id);
+    Ok(format!("Change {id} parked: {reason}. Message in {inbox}"))
+}
+
+/// Writes `text` to the file `path` of the project at `root`, creating its folder.
+pub fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
+    let file = root.join(path);
+    file.parent()
+        .map_or(Ok(()), fs::create_dir_all)
+        .and_then(|()| fs::write(&file, text))
+        .map_err(|e| format!("cannot write {path}: {e}"))
+}
+
+/// Adds `entry`, done now, to the log of the project at `root`.
+pub fn logged(root: &Path, entry: &log::Entry) -> Result<(), String> {
+    let line = entry.line(&log::now());
+    let line = line.map_err(|e| format!("{}: {e}", log::PATH))?;
+    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))
+}
+
 /// The field `key` of `record`; `empty` when the record has none, or `null`.
 fn field<'a>(record: &'a mut Map<String, Value>, key: &str, empty: Value) -> &'a mut Value {
     let value = record.entry(key).or_insert(Value::Null);
@@ -299,7 +391,8 @@ impl Record {
     }
 }
 
-/// What `gdd classify` prints: the id of the change, then its classification.
+/// What `gdd classify` prints: the id of the change, its classification, its kind of work, the
+/// model of each role and the Builder rounds against G2.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Decision<'a> {
     /// Id of the change.
@@ -307,11 +400,20 @@ pub struct Decision<'a> {
     /// Its classification.
     #[serde(flatten)]
     pub classification: &'a Classification,
+    /// The kind of work: `Feature`, `Spike`...
+    #[serde(rename = "type")]
+    pub kind: &'a str,
+    /// The model of each role.
+    #[serde(flatten)]
+    pub roles: &'a Roles,
+    /// Builder rounds against G2 before the change is parked.
+    pub retries: u32,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::models::Models;
     use crate::git::tests::Folder;
     use crate::{Lane, classify, rules, zones::ZoneMap};
 
@@ -605,14 +707,159 @@ mod tests {
         let change = plan(r#"{"paths": ["a.rs"]}"#);
         let classification = classify(&zones, &rules::default_table(), &change).unwrap();
         assert_eq!(classification.lane, Lane::Full);
+        let models = "[builder.red]\nintegration = \"claude\"\nmodel = \"opus\"\n";
+        let roles = Models::from_toml(models).unwrap().roles(Color::Red);
         let json = serde_json::to_string(&Decision {
             change: "save",
             classification: &classification,
+            kind: "Spike",
+            roles: &roles,
+            retries: 3,
         })
         .unwrap();
         assert_eq!(
             json,
-            r#"{"change":"save","color":"red","lane":"full","reasons":["a.rs -> red (no zone: default color)"],"g1":false,"features":[],"tests_first":true,"mutation":true,"reviewer":true,"g4":true,"human_plan":true}"#
+            concat!(
+                r#"{"change":"save","color":"red","lane":"full","#,
+                r#""reasons":["a.rs -> red (no zone: default color)"],"#,
+                r#""g1":false,"features":[],"tests_first":true,"mutation":true,"#,
+                r#""reviewer":true,"g4":true,"human_plan":true,"#,
+                r#""type":"Spike","builder":{"integration":"claude","model":"opus"},"#,
+                r#""builder_test":{},"reviewer_model":{},"orchestrator":{},"retries":3}"#
+            )
         );
+    }
+
+    #[test]
+    fn fields_are_set_and_the_rest_keep_their_values() {
+        let text = r#"{"id": "c1", "state": "open", "x": [1]}"#;
+        let fields = vec![
+            ("state", Value::from("merged")),
+            ("commit", Value::from("ab")),
+        ];
+        let written = with_fields(text, fields).unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        assert!(written.contains("\n  \"id\": \"c1\""), "{written}");
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let expected = r#"{"id": "c1", "state": "merged", "x": [1], "commit": "ab"}"#;
+        assert_eq!(value, serde_json::from_str::<Value>(expected).unwrap());
+        let same: Value = serde_json::from_str(&with_fields(text, vec![]).unwrap()).unwrap();
+        assert_eq!(same, serde_json::from_str::<Value>(text).unwrap());
+        assert!(with_fields("[]", vec![]).is_err());
+        assert!(with_fields("{not json", vec![]).is_err());
+    }
+
+    #[test]
+    fn a_launch_resolves_the_requests_still_open_and_keeps_them() {
+        let text = r#"{"id": "c1", "inbox": [
+            {"kind": "needs", "text": "Open"},
+            {"kind": "needs", "text": "Null", "resolved": null},
+            {"kind": "needs", "text": "Empty", "resolved": ""},
+            {"kind": "needs", "text": "Done", "resolved": "2026-01-02"},
+            {"kind": "decided", "text": "Kept"},
+            {"kind": "parked", "text": "Waiting"},
+            "not a note"
+        ]}"#;
+        let ts = "2026-10-26T10:00:00+00:00";
+        let written = with_requests_resolved(text, ts).unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let notes = value["inbox"].as_array().unwrap();
+        let resolved: Vec<&Value> = notes.iter().map(|note| &note["resolved"]).collect();
+        let (ts, done, null) = (Value::from(ts), Value::from("2026-01-02"), Value::Null);
+        let expected = [&ts, &ts, &ts, &done, &null, &null, &null];
+        assert_eq!(resolved, expected);
+        assert_eq!(notes[0]["text"], "Open");
+        assert_eq!(notes[6], "not a note");
+        assert_eq!(value["id"], "c1");
+        for text in ["{}", r#"{"inbox": null}"#, r#"{"inbox": {}}"#] {
+            let written = with_requests_resolved(text, "x").unwrap();
+            let value: Value = serde_json::from_str(&written).unwrap();
+            let unchanged: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(value, unchanged, "{text}");
+        }
+        assert!(with_requests_resolved("[]", "x").is_err());
+    }
+
+    #[test]
+    fn the_kind_of_work_is_the_type_of_the_record_or_feature() {
+        assert_eq!(kind(r#"{"type": "Spike"}"#).unwrap(), "Spike");
+        for text in ["{}", r#"{"type": null, "title": "x"}"#] {
+            assert_eq!(kind(text).unwrap(), "Feature", "{text}");
+        }
+        for wrong in [r#"{"type": 3}"#, "3", "{not json"] {
+            assert!(kind(wrong).is_err(), "{wrong}");
+        }
+    }
+
+    const PARKED: &str = "G2 still red after 3 retries";
+
+    fn read_json(folder: &Folder, path: &str) -> Value {
+        serde_json::from_str(&fs::read_to_string(folder.0.join(path)).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn parking_stops_the_change_with_a_note_logs_it_and_saves_its_inbox() {
+        let folder = Folder::new();
+        let record = r#"{"id": "c1", "title": "App", "state": "building", "x": 1,
+                         "inbox": [{"kind": "needs", "text": "Which format"}]}"#;
+        folder.write(".gdd/changes/c1/change.json", record);
+        let said = park(&folder.0, "c1", PARKED).unwrap();
+        let saved = ".gdd/changes/c1/inbox.md";
+        let expected = format!("Change c1 parked: {PARKED}. Message in {saved}");
+        assert_eq!(said, expected);
+        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/change.json")).unwrap();
+        let record: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(record["state"], "parked");
+        assert_eq!(record["x"], 1);
+        assert_eq!(record["inbox"][0]["text"], "Which format");
+        let note = &record["inbox"][1];
+        assert_eq!(note["kind"], "parked");
+        assert_eq!(note["text"], PARKED);
+        assert!(note["ts"].as_str().unwrap().ends_with("+00:00"), "{note}");
+        let inbox = fs::read_to_string(folder.0.join(saved)).unwrap();
+        assert_eq!(inbox, format!("{}\n", inbox::render("c1", &text).unwrap()));
+        let parked = format!("## Parked\n- {PARKED}");
+        assert!(inbox.contains(&parked), "{inbox}");
+        assert!(inbox.contains("state parked"), "{inbox}");
+        let log = log::parse(&fs::read_to_string(folder.0.join(log::PATH)).unwrap()).unwrap();
+        let [line] = log.as_slice() else {
+            panic!("one log line: {log:?}");
+        };
+        for (field, value) in [
+            ("change", "c1"),
+            ("phase", "-"),
+            ("gate", "-"),
+            ("role", "machine"),
+            ("agent", "-"),
+            ("result", "parked"),
+            ("note", PARKED),
+        ] {
+            assert_eq!(line.text(field), value, "{field}");
+        }
+    }
+
+    #[test]
+    fn parking_needs_a_record_it_can_read_and_files_it_can_write() {
+        let folder = Folder::new();
+        let missing = "change c9 does not exist: there is no .gdd/changes/c9/change.json";
+        assert_eq!(park(&folder.0, "c9", PARKED), Err(missing.into()));
+        let invalid = check_id("C9").unwrap_err();
+        assert_eq!(park(&folder.0, "C9", PARKED), Err(invalid));
+        folder.write(".gdd/changes/c1/change.json", r#"{"inbox": {}}"#);
+        let err = park(&folder.0, "c1", PARKED).unwrap_err();
+        let start = ".gdd/changes/c1/change.json: the field \"inbox\"";
+        assert!(err.starts_with(start), "{err}");
+        assert!(!folder.0.join(".gdd/changes/c1/inbox.md").exists());
+        folder.write(".gdd/changes/c2/change.json", "{}");
+        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
+        let err = park(&folder.0, "c2", PARKED).unwrap_err();
+        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        let record = read_json(&folder, ".gdd/changes/c2/change.json");
+        assert_eq!(record["state"], "parked");
+        fs::create_dir_all(folder.0.join(".gdd/changes/c3/change.json")).unwrap();
+        let err = write(&folder.0, ".gdd/changes/c3/change.json", "{}").unwrap_err();
+        let start = "cannot write .gdd/changes/c3/change.json: ";
+        assert!(err.starts_with(start), "{err}");
     }
 }

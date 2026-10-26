@@ -60,6 +60,18 @@ pub fn classify(
     table: &RulesTable,
     change: &Change,
 ) -> Result<Classification, Error> {
+    classify_with(zones, table, change, &[])
+}
+
+/// Classifies a change like [`classify`], knowing `features`: scenario files the change has
+/// that its paths may not show, such as the ones G1 sealed (hidden examples among them). They
+/// are among its scenario files, so they put it in G1, and a change in G1 takes the full lane.
+pub fn classify_with(
+    zones: &ZoneMap,
+    table: &RulesTable,
+    change: &Change,
+    features: &[String],
+) -> Result<Classification, Error> {
     let mut paths = change.paths.clone();
     paths.sort();
     paths.dedup();
@@ -86,10 +98,13 @@ pub fn classify(
         reasons.push(format!("declared minimum color: {color}"));
     }
 
-    let features: Vec<String> = paths
+    let mut features: Vec<String> = paths
         .into_iter()
         .filter(|p| table.acceptance.needs_approval(p))
+        .chain(features.iter().cloned())
         .collect();
+    features.sort();
+    features.dedup();
     let g1 = !features.is_empty();
 
     let lane = if color != Color::Red && !g1 && change.resumable {
@@ -283,6 +298,33 @@ mod tests {
         let c = classify(&zones(), &table, &change(&["features/a.feature"], true)).unwrap();
         assert_eq!(c.lane, Lane::Fast);
         assert!(!c.g1 && c.features.is_empty());
+    }
+
+    #[test]
+    fn scenarios_the_change_already_has_put_it_in_g1() {
+        let table = rules::default_table();
+        let ch = change(&["x.rs", "features/b.feature"], true);
+        let sealed = [
+            "features/hidden/a.feature".to_string(),
+            "features/b.feature".to_string(),
+            "features/hidden/a.feature".to_string(),
+        ];
+        let c = classify_with(&zones(), &table, &ch, &sealed).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Yellow, Lane::Full));
+        assert!(c.g1 && c.g4 && c.tests_first);
+        let features = ["features/b.feature", "features/hidden/a.feature"];
+        assert_eq!(c.features, features);
+        // They are scenarios, not paths: no reason, no color.
+        let plain = change(&["docs/a.md"], true);
+        let c = classify_with(&zones(), &table, &plain, &sealed[..1]).unwrap();
+        assert_eq!((c.color, c.lane), (Color::Green, Lane::Full));
+        assert!(c.g1 && c.g4 && c.tests_first);
+        assert_eq!(c.reasons, ["docs/a.md -> green ()"]);
+        assert_eq!(c.features, ["features/hidden/a.feature"]);
+        let c = classify_with(&zones(), &table, &plain, &[]).unwrap();
+        assert_eq!(c, classify(&zones(), &table, &plain).unwrap());
+        assert_eq!(c.lane, Lane::Fast);
+        assert!(!c.g1 && !c.g4);
     }
 
     #[test]
