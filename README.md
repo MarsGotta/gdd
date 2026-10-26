@@ -15,6 +15,7 @@
 
 - Method: [`GDD.md`](GDD.md)
 - Project Brief: [`docs/brief.md`](docs/brief.md)
+- Roadmap (what 0.1 will have, and its status): [`ROADMAP.md`](ROADMAP.md)
 - Decisions: [`docs/adr/`](docs/adr/)
 - Scenarios: [`features/`](features/)
 
