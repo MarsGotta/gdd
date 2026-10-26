@@ -1437,6 +1437,18 @@ mod tests {
         assert_eq!(text(&folder, &change::record_path("c1")), RECORD);
     }
 
+    #[test]
+    fn a_change_folder_that_cannot_be_looked_at_is_an_error_not_an_empty_one() {
+        let folder = Folder::new();
+        assert_eq!(links_left(&folder.0, "c1"), Ok(Vec::new()));
+        folder.write(".gdd/changes/c1/notes.md", "mine\n");
+        assert_eq!(links_left(&folder.0, "c1"), Ok(Vec::new()));
+        let long = "x".repeat(300);
+        let err = links_left(&folder.0, &long).unwrap_err();
+        let start = format!("cannot read .gdd/changes/{long}: ");
+        assert!(err.starts_with(&start), "{err}");
+    }
+
     /// The text of `path` of the project at `folder`, read as a file of its own.
     fn own(folder: &Folder, path: &str) -> String {
         let bytes = files::read(&folder.0, path).unwrap().unwrap_or_default();
@@ -1549,6 +1561,8 @@ mod tests {
         assert_eq!(ended, park(&why("link")));
         assert_eq!(entry(&folder.0, "nothing"), guard::DELETED);
         assert_eq!(entry(&folder.0, "README.md/inside"), guard::DELETED);
+        let unreadable = entry(&folder.0, &"x".repeat(300));
+        assert!(unreadable.starts_with("unreadable: "), "{unreadable}");
     }
 
     const RECORD: &str = r#"{"id": "c1", "title": "App", "state": "in-pre", "inbox": [],

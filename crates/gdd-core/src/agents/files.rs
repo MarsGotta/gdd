@@ -139,6 +139,18 @@ mod tests {
     }
 
     #[test]
+    fn a_path_that_cannot_be_looked_at_is_an_error_not_nothing() {
+        let project = Folder::new();
+        let root = &project.0;
+        project.write(".gdd/a", "mine");
+        let long = "x".repeat(300);
+        for path in [format!(".gdd/{long}"), format!(".gdd/{long}/a")] {
+            assert!(read(root, &path).is_err(), "{path}");
+            assert!(remove(root, &path).is_err(), "{path}");
+        }
+    }
+
+    #[test]
     fn a_file_is_written_new_and_never_through_a_link() {
         let (project, outside) = two();
         let root = &project.0;

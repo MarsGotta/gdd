@@ -6,9 +6,10 @@
 //! Reviewer's text is its review, and the call goes to the log. The tool prints none of it, and
 //! writes none of it through a link the agent could have left (see [`files`]).
 //!
-//! Each call runs in a process group of its own and has a time limit: when it runs out, the whole
-//! group is killed, never a process read from a file. The file where the Reviewer or the replan
-//! answers goes away before the call, so an old answer never counts.
+//! Each call runs in a process group of its own and has a time limit. When the call ends, or its
+//! time runs out, the whole group is killed, never a process read from a file: nothing the agent
+//! started outlives the call. The file where the Reviewer or the replan answers goes away before
+//! the call, so an old answer never counts.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -318,7 +319,8 @@ pub fn run(project: &Project, call: &Call) -> Result<(), Error> {
 }
 
 /// Starts `program` with `args` for `who` on the change of `project` and waits for it to end and
-/// close its output, the time limit at most; then its process group is killed.
+/// close its output, the time limit at most; then its process group is killed, with whatever it
+/// left running.
 fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Result<Ran, Error> {
     let shown = program.display().to_string();
     let failed = |e| Error::Start(shown.clone(), e);
@@ -357,9 +359,9 @@ fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Resu
         }
         thread::sleep(POLL);
     };
-    if timed_out {
-        exec::kill_group(&mut child);
-    }
+    // Whatever is left of its group, its output elsewhere, could still write after gdd checks
+    // what the call did.
+    exec::kill_group(&mut child);
     let status = child.wait().map_err(failed)?;
     let read = reader.join();
     let out = read.unwrap_or_else(|_| Err(io::Error::other("the output reader stopped")));
@@ -1063,6 +1065,15 @@ mod tests {
         }
     }
 
+    /// Whether process `pid` goes within 5 seconds: a killed process takes a moment to go.
+    fn goes(pid: &str) -> bool {
+        let start = Instant::now();
+        while !gone(pid) && start.elapsed() < Duration::from_secs(5) {
+            thread::sleep(POLL);
+        }
+        gone(pid)
+    }
+
     #[test]
     fn an_agent_out_of_time_is_stopped_with_everything_it_started() {
         let faked = Faked::new("sleep 30 & echo $! > child; wait");
@@ -1073,13 +1084,19 @@ mod tests {
         let said = "the Builder in build mode did not answer within 0 seconds";
         assert_eq!(err.to_string(), said);
         assert_eq!(faked.logged().text("result"), "timeout");
-        let pid = faked.read("child");
-        // A killed process takes a moment to go.
-        let killed = Instant::now();
-        while !gone(pid.trim()) && killed.elapsed() < Duration::from_secs(5) {
-            thread::sleep(POLL);
-        }
-        assert!(gone(pid.trim()), "the agent's child still runs");
+        let child = faked.read("child");
+        assert!(goes(child.trim()), "the agent's child still runs");
+    }
+
+    #[test]
+    fn nothing_an_agent_started_writes_after_its_call() {
+        // The Reviewer ends at once and well; what it left behind, its output elsewhere, would
+        // write a second later, after gdd checked that it only read.
+        let faked = Faked::new("(sleep 1; echo late > late) >/dev/null 2>&1 & echo $! > child");
+        faked.call(Who::Reviewer, LONG).unwrap();
+        let child = faked.read("child");
+        assert!(goes(child.trim()), "the agent's child still runs");
+        assert!(!faked.has("late"), "the agent's child wrote after the call");
     }
 
     #[test]
