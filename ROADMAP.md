@@ -38,7 +38,8 @@ change, stop and review before adding more.
 
 | Item | Status | Where |
 |---|---|---|
-| One data sheet per agent: Claude Code, Codex, OpenCode (folder, format, how to launch, JSON output); GDD commands rendered per agent, Spec Kit gone | next | agent-sheets |
+| One data sheet per agent: Claude Code, Codex, OpenCode (folder, format, how to launch, JSON output); GDD commands rendered per agent, Spec Kit gone | done | agent-sheets (2026-10-26); `gdd agents install|check` |
+| Messages of `gdd prepare` and `gdd status` still name `/speckit-gdd-setup` and `/speckit-gdd-change`: render them with the agent sheets | next | agent-launch |
 | Launch agents with model and role, capture tokens; the agents use their own logins (subscriptions), not API keys | next | agent-launch |
 | API keys are never passed on to the agents | open | agent-launch |
 | Permissions by role (read-only Reviewer, Builder without the harness) | next | agent-launch |

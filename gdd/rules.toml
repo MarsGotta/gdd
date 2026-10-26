@@ -49,7 +49,7 @@ g4_if_g1 = true       # in red, G4 always happens
 
 # Paths each role must not change. Path Guard checks them in G2 and in CI.
 [protected]
-all = ["gdd/**", "gdd-kit/**", "bin/**", ".github/**", ".claude/**", ".specify/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md", "GDD.md"]
+all = ["gdd/**", "gdd-kit/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md", "GDD.md"]
 builder_build = ["features/**", "crates/gdd-acceptance/tests/**"]   # approved scenarios and the steps written in test mode
 builder_test = ["crates/*/src/**"]   # production code: test mode only writes tests and steps
 reviewer = ["**"]

@@ -1,1 +1,0 @@
-../../../.specify/extensions/gdd/.specify-dev/agent-commands/claude/speckit-gdd-build-test/SKILL.md
