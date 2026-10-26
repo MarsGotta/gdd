@@ -130,7 +130,7 @@ printf 'Feature: t13\n  Scenario: s\n    Given a name "Ana"\n' > features/t13.fe
 printf '@hidden\nFeature: h\n  Scenario: s\n    Given a brand new sentence\n' > features/hidden/t13.feature
 git add -A; git commit -qm t13
 (bin/gdd gate G1 ok t13 --by human 2>&1 || true) | grep -c "G1 refused" >/dev/null || fail "t13 G1 accepted a hidden step with an unknown phrasing"
-printf '@hidden\nFeature: h\n  Scenario: s\n    Given a name "Luz"\n' > features/hidden/t13.feature
+printf '@hidden\nFeature: h\n  Scenario: s\n    Given a name "Luz \\"la\\" buena"\n' > features/hidden/t13.feature
 git add -A; git commit -qm t13b
 bin/gdd gate G1 ok t13 --by human >/dev/null || fail "t13 G1 refused a hidden step that reuses a visible sentence"
 git rm -rq features/hidden; git commit -qm t13c; git switch -q main

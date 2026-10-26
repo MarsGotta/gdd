@@ -603,7 +603,7 @@ def step_phrasings(files) -> set[str]:
                 in_doc = not in_doc; continue
             m = None if in_doc else STEP_RE.match(ln)
             if m:
-                t = re.sub(r'"[^"]*"', '"…"', m.group(2).strip())
+                t = re.sub(r'"(?:[^"\\]|\\.)*"', '"…"', m.group(2).strip())   # quoted data, escaped quotes included
                 t = re.sub(r"<[^>]+>", "<…>", t)
                 out.add(re.sub(r"\b\d+(\.\d+)?\b", "#", t))
     return out
