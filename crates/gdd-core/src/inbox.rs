@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::change::{self, NOTE_KINDS};
+use crate::change::{self, NOTE_KINDS, POLISH};
 
 /// The title of the group of each kind of note, in the order of [`NOTE_KINDS`].
 const HEADINGS: [&str; 3] = ["Needs your decision", "Decided without you", "Parked"];
@@ -46,8 +46,9 @@ struct RawNote {
 /// The Decision Inbox of change `id`, from the text of its record, without a line break at the
 /// end: its title, color, lane and state, then one group per kind of note with the notes still
 /// open (`Nothing.` when there are none) and, among the decisions, the paths outside the
-/// package the scope check accepted; last, how many requests were resolved before the last
-/// launch, if any. Notes of other kinds are left out.
+/// package the scope check accepted; then the human's notes at G4, when there are, under
+/// `Polish`; last, how many requests were resolved before the last launch, if any. Notes of
+/// other kinds are left out.
 pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
@@ -56,6 +57,7 @@ pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
     let lane = decision.lane.unwrap_or_else(|| "?".into());
     let state = raw.state.unwrap_or_else(|| "?".into());
     let mut groups: [Vec<String>; 3] = Default::default();
+    let mut polish = Vec::new();
     let mut resolved = 0;
     for note in raw.inbox.unwrap_or_default() {
         let group = NOTE_KINDS.iter().position(|kind| *kind == note.kind);
@@ -63,6 +65,8 @@ pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
             resolved += 1;
         } else if let Some(group) = group {
             groups[group].push(note.text);
+        } else if note.kind == POLISH {
+            polish.push(note.text);
         }
     }
     let accepted = raw.out_of_scope.unwrap_or_default();
@@ -82,6 +86,10 @@ pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
             block.push_str(&format!("\n- {note}"));
         }
         blocks.push(block);
+    }
+    if !polish.is_empty() {
+        let notes: Vec<String> = polish.iter().map(|note| format!("- {note}")).collect();
+        blocks.push(format!("## Polish\n{}", notes.join("\n")));
     }
     if resolved > 0 {
         blocks.push(format!("_{resolved} {RESOLVED}_"));
@@ -163,6 +171,24 @@ mod tests {
         let text = render("c1", record).unwrap();
         let end = "## Parked\n- Waiting for the API";
         assert!(text.ends_with(end), "{text}");
+    }
+
+    #[test]
+    fn the_human_notes_at_g4_have_their_group_only_when_there_are() {
+        let record = r#"{"inbox": [
+            {"kind": "polish", "text": "Shorter errors"},
+            {"kind": "parked", "text": "Waiting"},
+            {"kind": "polish", "text": "Old", "resolved": "2026-01-02"},
+            {"kind": "polish", "text": "Plainer words"}
+        ]}"#;
+        let text = render("c1", record).unwrap();
+        let end = concat!(
+            "## Parked\n- Waiting\n\n",
+            "## Polish\n- Shorter errors\n- Plainer words\n\n",
+            "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
+        );
+        assert!(text.ends_with(end), "{text}");
+        assert!(!render("c1", "{}").unwrap().contains("Polish"));
     }
 
     #[test]

@@ -5,12 +5,14 @@
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
-//! enter Build, and [`release`] takes a merged change to pre and production.
+//! enter Build, and [`release`] takes a merged change to pre and production. [`verdict`] reads
+//! what the Reviewer and the replan answered.
 
 pub mod approve;
 pub mod phrasing;
 pub mod prepare;
 pub mod release;
+pub mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;

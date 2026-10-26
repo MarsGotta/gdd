@@ -13,6 +13,7 @@ pub mod git;
 pub mod guard;
 pub mod inbox;
 pub mod log;
+pub mod recipe;
 pub mod repo;
 pub mod report;
 pub mod rules;

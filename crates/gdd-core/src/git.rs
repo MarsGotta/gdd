@@ -149,6 +149,13 @@ impl Git {
         Ok(!self.read(&["status", "--porcelain"])?.is_empty())
     }
 
+    /// Whether a file git tracks changed or went away in the working tree; files git does not
+    /// track yet do not count.
+    pub fn has_tracked_changes(&self) -> Result<bool, Error> {
+        let status = self.read(&["status", "--porcelain", "--untracked-files=no"])?;
+        Ok(!status.is_empty())
+    }
+
     /// Commits, on the current branch, everything the working tree changed except what git
     /// ignores, with `message`.
     pub fn commit_all(&self, message: &str) -> Result<(), Error> {
@@ -692,6 +699,23 @@ pub(crate) mod tests {
         assert!(repo.root().join("src/a.rs").is_file());
         assert!(repo.root().join("ignored/x").is_file());
         assert!(!git.has_changes().unwrap());
+    }
+
+    #[test]
+    fn only_tracked_files_make_tracked_changes() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        assert!(!git.has_tracked_changes().unwrap());
+        repo.write("new.rs", "x\n");
+        assert!(!git.has_tracked_changes().unwrap());
+        assert!(git.has_changes().unwrap());
+        repo.write("README.md", "changed\n");
+        assert!(git.has_tracked_changes().unwrap());
+        repo.git(&["checkout", "-q", "--", "README.md"]);
+        fs::remove_file(repo.root().join("README.md")).unwrap();
+        assert!(git.has_tracked_changes().unwrap());
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).has_tracked_changes().is_err());
     }
 
     #[test]
