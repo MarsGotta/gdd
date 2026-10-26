@@ -30,8 +30,8 @@ change, stop and review before adding more.
 | Snapshots, so build mode is judged only for its own work, deleted files included | done | guard-and-scope |
 | Run the G2 and G3 commands, save the gate report, log it; only harness commands reach the shell; Path Guard before and after the commands | done | gate-runner |
 | Gate reports keep the failure lines of long outputs | done | gate-runner |
-| Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | in progress | changes-and-approvals |
-| G1 refuses hidden examples whose step sentences no visible scenario has | in progress | changes-and-approvals (done in the kit) |
+| Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | done | changes-and-approvals |
+| G1 refuses hidden examples whose step sentences no visible scenario has | done | changes-and-approvals |
 | Harness self-test | next | agents block (it runs the harness) |
 
 ## 3. Agents and the recipe
@@ -76,7 +76,6 @@ change, stop and review before adding more.
 ## Open questions
 
 - Hidden examples are readable by a Builder that goes looking for them.
-- `gdd g3` classifies with the built-in rules table when `gdd/rules.toml` has no `[color]` section, while `gdd classify` does not: align them in changes-and-approvals.
 - Approvals and G1 hashes live in `.gdd/` inside the repository; a backup out of the agents' reach (outside the working tree, or signed) is still to design.
 - Codex does not report cost (the kit estimates it from the price table in `gdd/models.toml`) and OpenCode does not report the model (the log keeps the requested one).
 - CLI naming, how the TUI reads a running change, packaging (from the Brief).
