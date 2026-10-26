@@ -64,6 +64,8 @@ change, stop and review before adding more.
 | `gdd init`: the Setup form (name, platform, stack, agents found, sensitive areas), same flow with flags and no TTY, `/gdd-setup` finishes what the form left | next | human block |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
+| Changelog from the changes: one user-facing line per change, proposed at the sitting, carried as a trailer of the merge commit (`Changelog:`, `Breaking:`); `gdd changelog` writes `CHANGELOG.md` in Keep a Changelog format with an Unreleased section; Spike, No-code and invisible refactors are left out | next | changelog |
+| Versions: on promotion, the next SemVer from the change (Hotfix → patch, Feature → minor, breaking → major), a git tag, Unreleased moves to the version; `manual` mode for projects that release in batches (desktop apps) | next | changelog |
 | A library's demo is the readable run of its scenarios | done in the kit | |
 | Principle «done is not good»: the human is the editor at G4 | done (method) | `docs/discover/2026-10-26-done-is-not-good.md` |
 | G4 answers OK, KO or polish (one more Builder round with the human's notes) | done | recipe-run |
