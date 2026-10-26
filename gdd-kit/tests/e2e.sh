@@ -10,6 +10,7 @@
 #   t7 · a higher-color path outside the package fails G2 (scope).
 #   t8 · the replan sends a step bug back to test mode.
 #   t9 · a green relaunch skips the Builder.
+#   t10 · build mode is not blamed for the steps test mode wrote.
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
@@ -100,5 +101,10 @@ bin/gdd launch t9 > "$TMP/t9.out" 2>&1 || true; grep -q "completed" "$TMP/t9.out
 [ "$(grep -c "gdd-build" "$FAKELOG")" = "$N" ] || fail "t9 relaunch called the Builder again"
 grep -q "Builder skipped" .gdd/log.jsonl || fail "t9 prepare did not log the skip"
 echo "OK t9 a green relaunch skips the Builder"
+# t10 · test mode writes steps that are protected from build mode: build mode is judged from after test mode
+bin/gdd new-change t10 --title "Protected steps" --paths src/hello.txt src/n.txt tests/acceptance/steps.txt >/dev/null
+FAKE_PROTECTED_STEPS=1 bin/gdd launch t10 > "$TMP/t10.out" 2>&1 || true
+grep -c "completed" "$TMP/t10.out" >/dev/null || { tail -15 "$TMP/t10.out"; fail "t10 did not finish (Path Guard blamed build mode for test-mode steps)"; }
+echo "OK t10 build mode is not blamed for the steps test mode wrote"
 bin/gdd report --by role >/dev/null
 echo "All green."
