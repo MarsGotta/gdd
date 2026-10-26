@@ -102,6 +102,14 @@ impl Git {
         Ok(counted(paths))
     }
 
+    /// Paths the commits of `head` changed since it left `base`, and nothing else: what CI sees
+    /// of a branch, in git's order (sorted, each once). What the commits hold under `.gdd/`
+    /// counts too: it is no longer local state once it is committed.
+    pub fn committed_from(&self, base: &str, head: &str) -> Result<Vec<String>, Error> {
+        let range = format!("{}...{}", revision(base)?, revision(head)?);
+        self.diff(&[&range])
+    }
+
     /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
     /// there was no file there.
     pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
@@ -466,6 +474,34 @@ pub(crate) mod tests {
             git.changed_from("main", "change/c1").unwrap(),
             ["src/committed.rs"]
         );
+    }
+
+    #[test]
+    fn what_a_branch_committed_since_it_left_its_base() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        repo.start("c1");
+        assert_eq!(git.committed_from("main", "HEAD").unwrap(), NOTHING);
+        repo.write("src/committed.rs", "x\n");
+        repo.write(".gdd/bin/tool", "{}\n");
+        repo.commit();
+        repo.write("README.md", "changed\n");
+        repo.write("src/new.rs", "y\n");
+        repo.write(".gdd/log.jsonl", "{}\n");
+        let committed = [".gdd/bin/tool", "src/committed.rs"];
+        assert_eq!(git.committed_from("main", "HEAD").unwrap(), committed);
+        // What main got after the branch left it is not the branch's.
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("main.rs", "m\n");
+        repo.commit();
+        let away = git.committed_from("main", "change/c1").unwrap();
+        assert_eq!(away, committed);
+        for (base, head) in [("-x", "HEAD"), ("main", "--all")] {
+            let option = git.committed_from(base, head);
+            assert!(matches!(option, Err(Error::Revision(_))), "{base} {head}");
+        }
+        let err = git.committed_from("trunk", "HEAD").unwrap_err();
+        assert!(err.to_string().starts_with("git diff "), "{err}");
     }
 
     #[test]
