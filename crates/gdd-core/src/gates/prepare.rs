@@ -24,14 +24,14 @@ use crate::git::Git;
 use crate::log;
 
 /// Why a change does not start before the Setup.
-const G0_PENDING: &str = "G0 pending: run the Setup (/speckit-gdd-setup).";
+const G0_PENDING: &str = "G0 pending: run the Setup (the gdd-setup command).";
 
 /// How a human approves the red zones.
 const APPROVE_ZONES: &str = "(bin/gdd gate zones ok --by human)";
 
 /// Why a change with new or changed scenarios waits for G1.
 const G1_PENDING: &str =
-    "New or changed scenarios without G1: a human must approve them (/speckit-gdd-change).";
+    "New or changed scenarios without G1: a human must approve them (the gdd-change command).";
 
 /// Why a red change waits for its plan.
 const PLAN_PENDING: &str = "Red change: a human must approve the plan (gate 'plan').";
@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(project.refused(), G0_PENDING);
         assert_eq!(
             G0_PENDING,
-            "G0 pending: run the Setup (/speckit-gdd-setup)."
+            "G0 pending: run the Setup (the gdd-setup command)."
         );
         let closed = r#"{"decision": "ko"}"#;
         project.repo.write(approve::G0_PATH, closed);

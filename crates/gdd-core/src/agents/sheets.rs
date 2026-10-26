@@ -1,10 +1,14 @@
 //! The agent sheets: one data file per coding agent the tool knows, built into it. A sheet says
 //! where the agent keeps its commands and in which format, how one command calls another, and
-//! how the recipe starts the agent headless. In a sheet, `{name}` is always `gdd-<command>`.
+//! how the recipe starts the agent headless: its program, its arguments for each role and how its
+//! output reports what it used. In a sheet, `{name}` is always `gdd-<command>`.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::Deserialize;
+
+use crate::agents::usage::Reader;
 
 /// The sheets, by the name of their agent: the integration of `gdd/models.toml` that names it.
 const SHEETS: [(&str, &str); 3] = [
@@ -22,8 +26,16 @@ pub const NAMES: &str = "claude, codex, opencode";
 /// The sheet of an agent: what the tool reads of it.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Sheet {
+    /// The name of the agent for people.
+    title: String,
+    /// Its program, found on the `PATH`.
+    binary: String,
+    /// How its output reports what it used.
+    usage: Reader,
     commands: Commands,
     launch: Launch,
+    /// The arguments of each role, by its name (`builder-build`, `reviewer`...).
+    roles: BTreeMap<String, Role>,
 }
 
 /// Where an agent keeps its commands and how it calls them.
@@ -50,9 +62,23 @@ pub enum Format {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct Launch {
     /// The arguments of a headless run, where `{invoke}`, `{name}`, `{args}` and `{model}` are
+    /// filled in, and the argument `{role_args}` becomes the arguments of the role.
+    args: Vec<String>,
+    /// Arguments added to those of the role when its model has an `effort`, where `{effort}` is
     /// filled in.
+    #[serde(default)]
+    effort_args: Vec<String>,
+}
+
+/// What a sheet says of a role.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct Role {
+    /// Its arguments, as they are.
     args: Vec<String>,
 }
+
+/// The argument of `launch.args` that becomes the arguments of the role.
+const ROLE_ARGS: &str = "{role_args}";
 
 /// Why an agent has no sheet to work with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,9 +132,32 @@ impl Sheet {
         fill(&self.commands.invoke, &[("name", &name(command))])
     }
 
-    /// The arguments that start this agent headless on `command`, with the words `args` and the
-    /// model `model`.
-    pub fn launch(&self, command: &str, args: &str, model: &str) -> Vec<String> {
+    /// The name of this agent for people.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// The program of this agent, found on the `PATH`.
+    pub fn binary(&self) -> &str {
+        &self.binary
+    }
+
+    /// How the output of this agent reports what it used.
+    pub fn usage(&self) -> Reader {
+        self.usage
+    }
+
+    /// The arguments that start this agent headless on `command`, with the words `args`, the
+    /// model `model` and the arguments of `role`, then, when the model has an `effort`, the
+    /// effort arguments. A role the sheet does not name has no arguments.
+    pub fn launch(
+        &self,
+        command: &str,
+        args: &str,
+        model: &str,
+        role: &str,
+        effort: Option<&str>,
+    ) -> Vec<String> {
         let (name, invoke) = (name(command), self.invoke(command));
         let values = [
             ("invoke", invoke.as_str()),
@@ -116,8 +165,27 @@ impl Sheet {
             ("args", args),
             ("model", model),
         ];
-        let filled = self.launch.args.iter().map(|arg| fill(arg, &values));
-        filled.collect()
+        let mut launch = Vec::new();
+        for arg in &self.launch.args {
+            if arg == ROLE_ARGS {
+                launch.extend(self.role_args(role, effort));
+            } else {
+                launch.push(fill(arg, &values));
+            }
+        }
+        launch
+    }
+
+    /// The arguments of `role`, then the effort arguments for `effort`, if there is one.
+    fn role_args(&self, role: &str, effort: Option<&str>) -> Vec<String> {
+        let role = self.roles.get(role);
+        let mut args = role.map(|role| role.args.clone()).unwrap_or_default();
+        if let Some(effort) = effort {
+            let values = [("effort", effort)];
+            let effort_args = self.launch.effort_args.iter();
+            args.extend(effort_args.map(|arg| fill(arg, &values)));
+        }
+        args
     }
 }
 
@@ -153,15 +221,37 @@ mod tests {
         sheet(name).unwrap()
     }
 
+    /// The roles the recipe starts.
+    const ROLES: [&str; 4] = ["builder-build", "builder-test", "reviewer", "orchestrator"];
+
     #[test]
-    fn every_sheet_is_valid_and_names_its_own_agent() {
+    fn every_sheet_is_valid_and_names_its_own_agent_and_every_role() {
         let names: Vec<&str> = SHEETS.iter().map(|(name, _)| *name).collect();
         assert_eq!(names.join(", "), NAMES);
         for (name, text) in SHEETS {
-            assert!(sheet(name).is_ok(), "{name}");
+            let sheet = sheet(name).unwrap();
             let table: toml::Table = toml::from_str(text).unwrap();
             assert_eq!(table["name"].as_str(), Some(name));
+            let roles: Vec<&str> = sheet.roles.keys().map(String::as_str).collect();
+            let mut expected = ROLES;
+            expected.sort_unstable();
+            assert_eq!(roles, expected, "{name}");
+            let role_args = sheet.launch.args.iter().filter(|a| *a == ROLE_ARGS);
+            assert_eq!(role_args.count(), 1, "{name}");
         }
+    }
+
+    #[test]
+    fn each_sheet_names_its_program_and_how_it_reports_what_it_used() {
+        let claude = of("claude");
+        let named = (claude.title(), claude.binary(), claude.usage());
+        assert_eq!(named, ("Claude Code", "claude", Reader::ClaudeJson));
+        let codex = of("codex");
+        let named = (codex.title(), codex.binary(), codex.usage());
+        assert_eq!(named, ("Codex", "codex", Reader::CodexJsonl));
+        let opencode = of("opencode");
+        let named = (opencode.title(), opencode.binary(), opencode.usage());
+        assert_eq!(named, ("OpenCode", "opencode", Reader::OpencodeJsonl));
     }
 
     #[test]
@@ -193,26 +283,35 @@ mod tests {
     #[test]
     fn each_agent_is_started_as_its_sheet_says() {
         let args = "change=c1 mode=build";
-        let claude = of("claude").launch("build", args, "sonnet");
-        let expected = [
+        let claude = of("claude").launch("build", args, "sonnet", "builder-build", None);
+        let start = [
             "-p",
             "/gdd-build change=c1 mode=build",
             "--model",
             "sonnet",
             "--output-format",
             "json",
+            "--strict-mcp-config",
+            "--permission-mode",
+            "acceptEdits",
         ];
-        assert_eq!(claude, expected);
-        let codex = of("codex").launch("review", "change=c1 round=1", "gpt-6");
+        assert_eq!(claude[..9], start);
+        assert!(claude.contains(&"Write(.gdd/**)".to_string()));
+        let codex = of("codex").launch("review", "change=c1 round=1", "gpt-6", "reviewer", None);
         let expected = [
             "exec",
+            "--sandbox",
+            "read-only",
+            "-c",
+            "mcp_servers={}",
             "$gdd-review change=c1 round=1",
             "--model",
             "gpt-6",
             "--json",
         ];
         assert_eq!(codex, expected);
-        let opencode = of("opencode").launch("replan", "change=c1 r=2", "kimi");
+        let words = "change=c1 r=2";
+        let opencode = of("opencode").launch("replan", words, "kimi", "orchestrator", None);
         let expected = [
             "run",
             "--command",
@@ -224,6 +323,55 @@ mod tests {
             "change=c1 r=2",
         ];
         assert_eq!(opencode, expected);
+    }
+
+    #[test]
+    fn each_role_gets_its_own_arguments() {
+        let claude = of("claude");
+        let mode = |role: &str| {
+            let args = claude.launch("x", "", "m", role, None);
+            let at = args.iter().position(|a| a == "--permission-mode").unwrap();
+            args[at + 1].clone()
+        };
+        assert_eq!(mode("reviewer"), "plan");
+        assert_eq!(mode("builder-test"), "acceptEdits");
+        let orchestrator = claude.launch("replan", "", "m", "orchestrator", None);
+        assert!(orchestrator.contains(&"Write(.gdd/log.jsonl)".to_string()));
+        assert!(!orchestrator.contains(&"Write(.gdd/**)".to_string()));
+        let codex = of("codex");
+        let sandbox = |role: &str| codex.launch("x", "", "m", role, None)[2].clone();
+        assert_eq!(sandbox("reviewer"), "read-only");
+        assert_eq!(sandbox("builder-build"), "workspace-write");
+        // A role the sheet does not name has no arguments.
+        let none = codex.launch("x", "w", "m", "human", None);
+        assert_eq!(none, ["exec", "$gdd-x w", "--model", "m", "--json"]);
+    }
+
+    #[test]
+    fn the_effort_of_a_model_goes_after_its_role_when_the_sheet_takes_it() {
+        let codex = of("codex").launch("review", "w", "m", "reviewer", Some("high"));
+        let expected = [
+            "exec",
+            "--sandbox",
+            "read-only",
+            "-c",
+            "mcp_servers={}",
+            "-c",
+            "model_reasoning_effort=high",
+            "$gdd-review w",
+            "--model",
+            "m",
+            "--json",
+        ];
+        assert_eq!(codex, expected);
+        let unnamed = of("codex").launch("review", "w", "m", "human", Some("{model}"));
+        assert_eq!(unnamed[1..3], ["-c", "model_reasoning_effort={model}"]);
+        // A sheet without effort arguments takes no effort.
+        let claude = of("claude");
+        let with = claude.launch("build", "w", "m", "reviewer", Some("high"));
+        assert_eq!(with, claude.launch("build", "w", "m", "reviewer", None));
+        let opencode = of("opencode").launch("build", "w", "m", "reviewer", Some("high"));
+        assert_eq!(opencode.len(), 8);
     }
 
     #[test]

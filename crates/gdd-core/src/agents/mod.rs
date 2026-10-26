@@ -1,11 +1,16 @@
 //! The coding agents that carry a change: which model plays each role ([`models`]), what each
 //! agent is like ([`sheets`]), the GDD commands in their folders ([`render`]), how the recipe
-//! starts them ([`invoke`]), and the limits the rules file sets on them.
+//! starts them ([`invoke`]) with which environment ([`env`]), what they say they used
+//! ([`usage`]), the files of GDD state they could have turned into links ([`files`]), and the
+//! limits the rules file sets on them.
 
+pub mod env;
+pub mod files;
 pub mod invoke;
 pub mod models;
 pub mod render;
 pub mod sheets;
+pub mod usage;
 
 use serde::Deserialize;
 

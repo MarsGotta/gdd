@@ -21,6 +21,8 @@ pub struct GddWorld {
     outcome: Option<Outcome>,
     project: Option<TempDir>,
     ran: Option<Ran>,
+    /// The environment gdd runs in for this scenario, built on first use.
+    env: Option<Vec<(String, String)>>,
 }
 
 #[given("the gdd tool")]
@@ -206,14 +208,35 @@ fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
     run_gdd_as(w, command, cwd, None);
 }
 
-/// Runs `command` as `role`; steps never set environment variables, scenarios run concurrently.
+/// The environment gdd runs in for this scenario: the process one, minus the variables gdd's own
+/// agents set. Steps never change the process environment, scenarios run concurrently.
+fn world_env(w: &mut GddWorld) -> &mut Vec<(String, String)> {
+    w.env.get_or_insert_with(|| {
+        std::env::vars()
+            .filter(|(name, _)| !matches!(name.as_str(), "GDD_ROLE" | "GDD_CHANGE" | "GDD_ROOT"))
+            .collect()
+    })
+}
+
+fn set_env(w: &mut GddWorld, name: &str, value: &str) {
+    let env = world_env(w);
+    env.retain(|(known, _)| known != name);
+    env.push((name.to_string(), value.to_string()));
+}
+
+/// Runs `command` as `role`, in the environment of the scenario.
 fn run_gdd_as(w: &mut GddWorld, command: &str, cwd: &Path, role: Option<&str>) {
     let args: Vec<String> = command
         .split_whitespace()
         .skip_while(|word| *word == "gdd")
         .map(str::to_string)
         .collect();
-    let out = gdd::run_as(&args, cwd, role);
+    let mut env = world_env(w).clone();
+    env.retain(|(name, _)| name != "GDD_ROLE");
+    if let Some(role) = role {
+        env.push(("GDD_ROLE".to_string(), role.to_string()));
+    }
+    let out = gdd::run_with_env(&args, cwd, &env);
     w.ran = Some(Ran {
         code: out.code,
         succeeded: out.code == 0,
@@ -1002,8 +1025,8 @@ fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
 }
 
-/// `models` with the `[reviewer]` table replaced by the given integration and model.
-fn with_reviewer(models: &str, integration: &str, model: &str) -> String {
+/// `models` with the `[reviewer]` table replaced by the given integration, model and effort.
+fn with_reviewer(models: &str, integration: &str, model: &str, effort: Option<&str>) -> String {
     let mut in_reviewer = false;
     let mut lines: Vec<String> = Vec::new();
     for line in models.lines() {
@@ -1014,6 +1037,9 @@ fn with_reviewer(models: &str, integration: &str, model: &str) -> String {
             if in_reviewer {
                 lines.push(format!("integration = \"{integration}\""));
                 lines.push(format!("model = \"{model}\""));
+                if let Some(effort) = effort {
+                    lines.push(format!("effort = \"{effort}\""));
+                }
             }
         } else if !in_reviewer {
             lines.push(line.to_string());
@@ -1022,19 +1048,49 @@ fn with_reviewer(models: &str, integration: &str, model: &str) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-#[given(expr = "the reviewer is {string} {string}")]
-fn reviewer_is(w: &mut GddWorld, integration: String, model: String) {
+/// Writes `gdd/models.toml`. Harness state, as in the Background: when the project is committed
+/// already, commit it too.
+fn write_models(w: &mut GddWorld, models: &str) {
     let root = project_root(w);
-    assert!(w.models.contains("[reviewer]"), "no reviewer to change");
-    let models = with_reviewer(&w.models, &integration, &model);
-    write_file(&root.join("gdd/models.toml"), &models);
-    // Harness state, as in the Background: when the project is committed already, commit it too.
+    write_file(&root.join("gdd/models.toml"), models);
     let changed = git(&root, &["status", "--porcelain", "--", "gdd/models.toml"]);
     let known = git(&root, &["log", "--oneline", "-1", "--", "gdd/models.toml"]);
     if !changed.trim().is_empty() && !known.trim().is_empty() {
         git(&root, &["add", "--", "gdd/models.toml"]);
-        git(&root, &["commit", "-q", "-m", "reviewer model"]);
+        git(&root, &["commit", "-q", "-m", "models"]);
     }
+}
+
+fn set_reviewer(w: &mut GddWorld, integration: &str, model: &str, effort: Option<&str>) {
+    assert!(w.models.contains("[reviewer]"), "no reviewer to change");
+    let models = with_reviewer(&w.models, integration, model, effort);
+    write_models(w, &models);
+}
+
+#[given(expr = "the reviewer is {string} {string}")]
+fn reviewer_is(w: &mut GddWorld, integration: String, model: String) {
+    set_reviewer(w, &integration, &model, None);
+}
+
+#[given(expr = "the reviewer is {string} {string} with effort {string}")]
+fn reviewer_is_with_effort(w: &mut GddWorld, integration: String, model: String, effort: String) {
+    set_reviewer(w, &integration, &model, Some(&effort));
+}
+
+#[given(expr = "the models pass {string} to the agents")]
+fn models_pass(w: &mut GddWorld, name: String) {
+    assert!(
+        !w.models.contains("[env]"),
+        "the models have an [env] already"
+    );
+    w.models = format!("{}\n[env]\npass = [\"{name}\"]\n", w.models.trim_end());
+    let models = format!("{}\n", w.models);
+    write_models(w, &models);
+}
+
+#[given(expr = "the environment has {string} set to {string}")]
+fn environment_has(w: &mut GddWorld, name: String, value: String) {
+    set_env(w, &name, &value);
 }
 
 #[given("the Setup is done")]
@@ -1129,38 +1185,50 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
 
 // ---- features/recipe.feature ---------------------------------------------------------------
 //
-// The agents are shell scripts in `.gdd/bin/` of the temporary project, one per integration. They
-// check how they were started (fixed arguments, project root as working directory, `GDD_CHANGE`
-// and `GDD_ROOT` set, no `GDD_ROLE`), record each call in `.gdd/fake/calls` as `role|model|arguments`
-// and act on what the steps left in `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from
-// <call>`), `build_path`, `replan` and `reviews` (one answer per line, the last one repeats).
+// The agents are shell scripts named `claude`, `codex` and `opencode` in `.gdd/bin/` of the
+// temporary project, which the scenario's `PATH` starts with. They check how they were started
+// (project root as working directory, `GDD_CHANGE`, `GDD_ROOT` and the `GDD_ROLE` of their
+// command set), record each call: its full arguments as a line of `.gdd/fake/argv`, the names of
+// its environment variables in `.gdd/fake/env/<call>` and `role|model|arguments` in
+// `.gdd/fake/calls`. They print their agent's JSON output (100 input, 50 cached and 20 output
+// tokens, Codex and OpenCode 5 reasoning ones too) and act on what the steps left in
+// `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from <call>`), `build_path`, `replan`,
+// `reviews` (one answer per line, the last one repeats) and `reviewer_writes` (a path).
 
 const FAKE_AGENT: &str = r##"#!/bin/sh
-integration=@INTEGRATION@
+integration=${0##*/}
 [ -n "$GDD_ROOT" ] || exit 90
 [ -n "$GDD_CHANGE" ] || exit 91
-[ -z "${GDD_ROLE+x}" ] || exit 92
+[ -n "$GDD_ROLE" ] || exit 92
 [ "$(pwd -P)" = "$(cd "$GDD_ROOT" && pwd -P)" ] || exit 93
-case "$integration" in
-claude)
-  [ "$#" = 6 ] && [ "$1" = -p ] && [ "$3" = --model ] && [ "$5" = --output-format ] && [ "$6" = json ] || exit 94
-  cmd=${2#/gdd-}
-  model=$4
-  ;;
-codex)
-  [ "$#" = 5 ] && [ "$1" = exec ] && [ "$3" = --model ] && [ "$5" = --json ] || exit 94
-  cmd=${2#'$gdd-'}
-  model=$4
-  ;;
-opencode)
-  [ "$#" = 8 ] && [ "$1" = run ] && [ "$2" = --command ] && [ "$4" = -m ] && [ "$6" = --format ] && [ "$7" = json ] || exit 94
-  cmd=${3#gdd-}
-  model=$5
-  args=$8
-  ;;
-esac
-mkdir -p "$GDD_ROOT/.gdd/fake"
+mkdir -p "$GDD_ROOT/.gdd/fake/env"
 echo "$*" >> "$GDD_ROOT/.gdd/fake/argv"
+call=$(wc -l < "$GDD_ROOT/.gdd/fake/argv" | tr -d ' ')
+env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' > "$GDD_ROOT/.gdd/fake/env/$call"
+prev=
+prompt=
+model=
+cmd=
+last=
+for a in "$@"; do
+  case "$prev" in
+    -p) prompt=$a ;;
+    --model|-m) model=$a ;;
+    --command) cmd=${a#gdd-} ;;
+  esac
+  case "$a" in
+    '$gdd-'*) prompt=$a ;;
+  esac
+  prev=$a
+  last=$a
+done
+[ -n "$model" ] || exit 94
+case "$integration" in
+  claude) cmd=${prompt#/gdd-} ;;
+  codex) cmd=${prompt#'$gdd-'} ;;
+  opencode) args=$last ;;
+  *) exit 94 ;;
+esac
 if [ "$integration" != opencode ]; then
   args=${cmd#* }
   [ "$args" != "$cmd" ] || exit 95
@@ -1173,10 +1241,11 @@ case "$cmd" in
   replan) role=orchestrator ;;
   *) exit 96 ;;
 esac
+[ "$GDD_ROLE" = "$role" ] || exit 92
 fake="$GDD_ROOT/.gdd/fake"
-mkdir -p "$fake"
 echo "$role|$model|$args" >> "$fake/calls"
 n=$(grep -c "^$role|" "$fake/calls")
+text=done
 case "$role" in
   builder-test)
     mkdir -p tests/steps
@@ -1210,17 +1279,35 @@ case "$role" in
       answer=$(sed -n "${n}p" "$fake/reviews")
       [ -n "$answer" ] || answer=$(tail -n 1 "$fake/reviews")
     fi
-    mkdir -p "$GDD_ROOT/.gdd/changes/$GDD_CHANGE"
-    printf '%s\n' "$answer" > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/review.md"
+    if [ -f "$fake/reviewer_writes" ]; then
+      path=$(cat "$fake/reviewer_writes")
+      mkdir -p "$(dirname "$path")"
+      echo "the Reviewer was here" > "$path"
+    fi
+    text=$answer
     ;;
   orchestrator)
     answer="NEXT: build"
     [ -f "$fake/replan" ] && answer=$(cat "$fake/replan")
     mkdir -p "$GDD_ROOT/.gdd/changes/$GDD_CHANGE"
     printf '%s\n' "$answer" > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/replan.md"
+    text=$answer
     ;;
 esac
-echo '{"result":"ok"}'
+text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g')
+case "$integration" in
+  claude)
+    printf '{"type":"result","result":"%s","session_id":"fake-session","total_cost_usd":0.01,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":50,"output_tokens":20}}\n' "$text"
+    ;;
+  codex)
+    printf '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":50,"output_tokens":20,"reasoning_output_tokens":5}}\n'
+    printf '{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\n' "$text"
+    ;;
+  opencode)
+    printf '{"type":"step_finish","part":{"tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":50}},"cost":0}}\n'
+    printf '{"type":"text","part":{"text":"%s"}}\n' "$text"
+    ;;
+esac
 exit 0
 "##;
 
@@ -1234,10 +1321,81 @@ fn agents_are_fakes(w: &mut GddWorld) {
     use std::os::unix::fs::PermissionsExt;
     let root = project_root(w);
     for integration in ["claude", "codex", "opencode"] {
-        let path = root.join(format!(".gdd/bin/gdd-{integration}"));
-        write_file(&path, &FAKE_AGENT.replace("@INTEGRATION@", integration));
+        let path = root.join(".gdd/bin").join(integration);
+        write_file(&path, FAKE_AGENT);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("an executable");
     }
+    // The fakes come first on the PATH of the environment gdd runs in.
+    let path = std::env::var("PATH").unwrap_or_default();
+    let with_fakes = format!("{}:{path}", root.join(".gdd/bin").display());
+    set_env(w, "PATH", &with_fakes);
+}
+
+#[given(expr = "the Reviewer writes {string}")]
+fn reviewer_writes(w: &mut GddWorld, path: String) {
+    fake_file(w, "reviewer_writes", &path);
+}
+
+/// The full arguments of agent call `number` (from 1), as the fakes recorded them.
+fn agent_call(w: &GddWorld, number: usize) -> String {
+    let calls = fs::read_to_string(project_root_of(w).join(".gdd/fake/argv")).unwrap_or_default();
+    calls
+        .lines()
+        .nth(number.saturating_sub(1))
+        .unwrap_or_else(|| panic!("no agent call {number}; the calls were:\n{calls}"))
+        .to_string()
+}
+
+fn project_root_of(w: &GddWorld) -> PathBuf {
+    w.project.as_ref().expect("a project").0.clone()
+}
+
+#[then(expr = "agent call {int} starts with {string}")]
+fn agent_call_starts(w: &mut GddWorld, number: usize, start: String) {
+    let call = agent_call(w, number);
+    assert!(call.starts_with(&start), "call {number} was {call:?}");
+}
+
+#[then(expr = "agent call {int} includes {string}")]
+fn agent_call_includes(w: &mut GddWorld, number: usize, text: String) {
+    let call = agent_call(w, number);
+    assert!(call.contains(&text), "call {number} was {call:?}");
+}
+
+/// Whether agent call `number` had the environment variable `name`.
+fn agent_got(w: &GddWorld, number: usize, name: &str) -> bool {
+    agent_call(w, number); // fails when there is no such call
+    let path = project_root_of(w).join(format!(".gdd/fake/env/{number}"));
+    let names = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path:?}: {e}"));
+    names.lines().any(|line| line == name)
+}
+
+#[then(expr = "agent call {int} got {string}")]
+fn agent_call_got(w: &mut GddWorld, number: usize, name: String) {
+    assert!(
+        agent_got(w, number, &name),
+        "call {number} did not get {name}"
+    );
+}
+
+#[then(expr = "agent call {int} did not get {string}")]
+fn agent_call_did_not_get(w: &mut GddWorld, number: usize, name: String) {
+    assert!(!agent_got(w, number, &name), "call {number} got {name}");
+}
+
+#[then(expr = "the log line of agent call {int} has {string} {int}")]
+fn log_line_of_call_has(w: &mut GddWorld, number: usize, field: String, value: i64) {
+    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    // The lines of agent calls say which command they ran in their note.
+    let lines: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|r| r["note"].as_str().is_some_and(|n| n.starts_with("/gdd-")))
+        .collect();
+    let line = lines
+        .get(number.saturating_sub(1))
+        .unwrap_or_else(|| panic!("no log line for agent call {number} in:\n{text}"));
+    assert_eq!(line[&field].as_i64(), Some(value), "{field} in {line}");
 }
 
 #[given("the Builder in build mode writes nothing")]
