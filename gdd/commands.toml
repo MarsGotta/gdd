@@ -21,7 +21,7 @@ lockfile = "cargo metadata --locked --format-version 1 > /dev/null"   # Cargo.lo
 security = "cargo deny --locked check advisories bans sources"   # known vulnerabilities, banned crates, unknown sources
 dependencies = "cargo deny --locked check licenses"
 quality = ""          # clippy in G2 covers it for now; Learn may add more
-mutation = "if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2"   # only in yellow and red; each test process capped at 2 GB where prlimit exists (a mutant can turn a loop into endless allocation)
+mutation = "if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2"   # only in yellow and red; each test process capped at 2 GB where prlimit exists (a mutant can turn a loop into endless allocation); MALLOC_ARENA_MAX=2 because glibc reserves 64 MB of address space per thread arena and many test threads hit the cap without allocating
 
 [release]
 simulated = true      # no real pre/production yet: empty steps pass and are logged as simulated
