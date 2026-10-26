@@ -1,6 +1,8 @@
 # Agent sheet · OpenCode (https://opencode.ai/docs/commands, /docs/cli)
 name = "opencode"
 title = "OpenCode"
+binary = "opencode"
+usage = "opencode-jsonl"   # step_finish events carry tokens and cost, not the model
 
 [commands]
 path = ".opencode/commands/{name}.md"   # {name} is gdd-<command>
@@ -9,4 +11,17 @@ invoke = "/{name}"
 
 [launch]
 # OpenCode takes the command apart from its arguments.
-args = ["run", "--command", "{name}", "-m", "{model}", "--format", "json", "{args}"]
+args = ["run", "{role_args}", "--command", "{name}", "-m", "{model}", "--format", "json", "{args}"]
+
+# No per-role flags yet: gdd's own checks (GDD state and a read-only Reviewer) still apply.
+[roles.builder-build]
+args = []
+
+[roles.builder-test]
+args = []
+
+[roles.reviewer]
+args = []
+
+[roles.orchestrator]
+args = []

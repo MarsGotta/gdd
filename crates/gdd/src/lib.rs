@@ -1,6 +1,7 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
 //! what happened. The method itself lives in `gdd-core`.
 
+use std::ffi::OsString;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -318,9 +319,9 @@ fn parse_color(name: &str) -> Result<Color, String> {
 }
 
 impl Command {
-    /// Runs the command on the project at `root`, for the role `role`: what it prints and its
-    /// exit code.
-    fn run(self, root: &Path, role: Option<&str>) -> Result<Outcome, String> {
+    /// Runs the command on the project at `root`, for the role `role`, in the environment `env`:
+    /// what it prints and its exit code.
+    fn run(self, root: &Path, role: Option<&str>, env: &Env) -> Result<Outcome, String> {
         let mut code = 0;
         let text = match self {
             Command::G2(args) => {
@@ -335,8 +336,8 @@ impl Command {
                 let message = change::park(root, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => return launch(root, &change).map(Outcome::said),
-            Command::Resume(args) => return resume(root, &args, role).map(Outcome::said),
+            Command::Launch { change } => return launch(root, &change, env).map(Outcome::said),
+            Command::Resume(args) => return resume(root, &args, role, env).map(Outcome::said),
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change)?,
@@ -365,20 +366,37 @@ impl Command {
     }
 }
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
-/// role in the environment variable `GDD_ROLE` (see [`run_as`]).
+/// An environment: its variables, with their values.
+type Env = [(String, String)];
+
+/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, in the
+/// environment of the process (see [`run_with_env`]).
 pub fn run(args: &[String], cwd: &Path) -> Outcome {
-    let role = std::env::var("GDD_ROLE").ok();
-    run_as(args, cwd, role.as_deref())
+    run_with_env(args, cwd, &process_env())
+}
+
+/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, with `env`
+/// as the whole environment it runs in: the agents it starts get it (see [`invoke`]), and its
+/// `GDD_ROLE` is the role it runs for (see [`run_as`]).
+pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Outcome {
+    let role = env.iter().rev().find(|(name, _)| name == "GDD_ROLE");
+    run_in(args, cwd, role.map(|(_, role)| role.as_str()), env)
 }
 
 /// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
-/// role `role` (`None` for a person): a Builder or a Reviewer cannot record gate decisions.
-/// Help and version go to the standard output; every error goes to the standard error, with
-/// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails, and
-/// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails. `gdd park` always exits with 1,
-/// its message on the standard error, and `gdd agents check` when it finds a problem.
+/// role `role` (`None` for a person), in the environment of the process: a Builder or a
+/// Reviewer cannot record gate decisions. Help and version go to the standard output; every
+/// error goes to the standard error, with exit code 1. `gdd guard --strict` also exits with 1
+/// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
+/// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
+/// when it finds a problem.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
+    run_in(args, cwd, role, &process_env())
+}
+
+/// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
+/// (see [`run_as`]).
+fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome {
     let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
     let cli = match Cli::try_parse_from(words) {
         Ok(cli) => cli,
@@ -388,10 +406,18 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     let Some(command) = cli.command else {
         return Outcome::success(Cli::command().render_help().to_string());
     };
-    match project_root(cwd).and_then(|root| command.run(&root, role)) {
+    match project_root(cwd).and_then(|root| command.run(&root, role, env)) {
         Ok(outcome) => outcome,
         Err(message) => Outcome::failure(format!("error: {message}\n")),
     }
+}
+
+/// The environment of the process; a variable whose name or value is not UTF-8 is left out.
+fn process_env() -> Vec<(String, String)> {
+    let text = |(name, value): (OsString, OsString)| {
+        Some((name.into_string().ok()?, value.into_string().ok()?))
+    };
+    std::env::vars_os().filter_map(text).collect()
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -612,8 +638,9 @@ fn release_change(root: &Path, step: &str, id: &str) -> Result<String, String> {
     }
 }
 
-/// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]).
-fn launch(root: &Path, id: &str) -> Result<Said, String> {
+/// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
+/// environment `env`.
+fn launch(root: &Path, id: &str, env: &Env) -> Result<Said, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let project = recipe::Project {
@@ -621,12 +648,13 @@ fn launch(root: &Path, id: &str) -> Result<Said, String> {
         main: &main,
         replans: limits.replans,
     };
-    let mut steps = ProjectSteps::new(root, id, &limits);
+    let mut steps = ProjectSteps::new(root, id, &limits, env)?;
     recipe::launch(&project, id, &mut steps)
 }
 
-/// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]).
-fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>) -> Result<Said, String> {
+/// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
+/// whose agents start in the environment `env`.
+fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>, env: &Env) -> Result<Said, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let main = load_settings(root)?.main_branch;
@@ -636,7 +664,7 @@ fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>) -> Result<Said, St
         main: &main,
         replans: limits.replans,
     };
-    let mut steps = ProjectSteps::new(root, id, &limits);
+    let mut steps = ProjectSteps::new(root, id, &limits, env)?;
     let note = args.note.join(" ");
     recipe::resume(&project, id, answer, &note, role, &mut steps)
 }
@@ -673,19 +701,38 @@ fn agent_sheets(root: &Path, named: &[String]) -> Result<Vec<Sheet>, String> {
 }
 
 /// The steps of the recipe on change `id` of the project at `root`, as the commands of the same
-/// name run them: each reads the configuration as it is when it runs.
+/// name run them: each reads the configuration as it is when it runs, but the agents' time
+/// limit and settings, read once.
 struct ProjectSteps<'a> {
     root: &'a Path,
     id: &'a str,
     /// The time an agent has to answer.
     timeout: Duration,
+    /// The environment gdd runs in, where the agents start.
+    env: &'a Env,
+    /// What `gdd/models.toml` says of the agents besides the model of each role.
+    settings: invoke::Settings,
 }
 
 impl<'a> ProjectSteps<'a> {
-    /// The steps on change `id` of the project at `root`, whose rules file sets `limits`.
-    fn new(root: &'a Path, id: &'a str, limits: &Limits) -> ProjectSteps<'a> {
-        let timeout = Duration::from_secs(limits.agent_timeout_s);
-        ProjectSteps { root, id, timeout }
+    /// The steps on change `id` of the project at `root`, whose rules file sets `limits`, with
+    /// the agents starting in the environment `env`.
+    fn new(
+        root: &'a Path,
+        id: &'a str,
+        limits: &Limits,
+        env: &'a Env,
+    ) -> Result<ProjectSteps<'a>, String> {
+        let path = agents::models::PATH;
+        let text = read(root, path)?.unwrap_or_default();
+        let settings = invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))?;
+        Ok(ProjectSteps {
+            root,
+            id,
+            timeout: Duration::from_secs(limits.agent_timeout_s),
+            env,
+            settings,
+        })
     }
 }
 
@@ -693,13 +740,20 @@ impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
         let decided = decide(self.root, self.id)?;
-        invoke::check(&decided.roles).map_err(|e| e.to_string())?;
+        invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
         let printed = prepare_decided(self.root, self.id, &decided)?;
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
     fn agent(&mut self, call: &invoke::Call) -> Result<(), invoke::Error> {
-        invoke::run(self.root, self.id, call, self.timeout)
+        let project = invoke::Project {
+            root: self.root,
+            id: self.id,
+            env: self.env,
+            settings: &self.settings,
+            timeout: self.timeout,
+        };
+        invoke::run(&project, call)
     }
 
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
@@ -1990,7 +2044,7 @@ mod tests {
         let expected = concat!(
             "Project: demo · language en · platform ?\n",
             "Brief: missing (Setup writes it)\n",
-            "G0: pending · G0 pending: run the Setup (/speckit-gdd-setup).\n",
+            "G0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
             "Red zones: pending · Red zones not approved yet: the Orchestrator proposes them at ",
             "the end of Discover.\n",
             "Harness self-test: not run\n",
@@ -2227,12 +2281,26 @@ mod tests {
         let builder = run_as(&args, &project.0, Some("builder-test"));
         let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
         assert_eq!(builder, Outcome::failure(refused.into()));
+        // The role of a run with an environment of its own is its GDD_ROLE.
+        let role = |role: &str| ("GDD_ROLE".to_string(), role.to_string());
+        let env = [role("human"), role("reviewer")];
+        let reviewer = run_with_env(&args, &project.0, &env);
+        assert_eq!(reviewer, Outcome::failure(refused.into()));
+        let person = run_with_env(&words("resume c1 --g4 ok"), &project.0, &[]);
+        let not_paused = "error: Change c1 is not paused at G4.\n";
+        assert_eq!(person, Outcome::failure(not_paused.into()));
         git(&project, &["checkout", "-q", "main"]);
         project.write(ZONES, "default = \"red\"\n");
         let dirty = "error: The working tree has uncommitted changes. Commit them before \
                      launching a change.\n";
         assert_eq!(project.run("launch c1"), Outcome::failure(dirty.into()));
         assert_eq!(git(&project, &["branch", "--show-current"]), "main");
+    }
+
+    #[test]
+    fn without_an_environment_of_its_own_gdd_runs_in_the_one_of_the_process() {
+        let path = std::env::var("PATH").unwrap_or_default();
+        assert!(process_env().contains(&("PATH".to_string(), path)));
     }
 
     /// The roles `MODELS` lacks: the Builder in test mode and the Orchestrator.
@@ -2259,14 +2327,10 @@ mod tests {
 
     #[test]
     fn an_agent_that_fails_parks_the_change_and_fails_the_run() {
-        use std::os::unix::fs::PermissionsExt;
         let project = launched_project();
         project.write("gdd/models.toml", &format!("{MODELS}{MORE_ROLES}"));
-        let wrapper = ".gdd/bin/gdd-claude";
-        project.write(wrapper, "#!/bin/sh\nexit 1\n");
-        let mode = fs::Permissions::from_mode(0o755);
-        fs::set_permissions(project.0.join(wrapper), mode).unwrap();
-        let out = project.run("launch c1");
+        let env = with_agents(&project, "#!/bin/sh\nexit 1\n");
+        let out = launch_in(&project, &env);
         let parked = "Change c1 parked: the Builder in test mode failed (exit 1). Message in \
                       .gdd/changes/c1/inbox.md\n";
         assert_eq!(out, Outcome::failure(parked.into()));
@@ -2277,48 +2341,91 @@ mod tests {
         assert_eq!(subject, relaunch);
     }
 
+    #[test]
+    fn launch_starts_nothing_until_the_program_of_each_agent_is_on_the_path() {
+        let project = launched_project();
+        project.write("gdd/models.toml", &format!("{MODELS}{MORE_ROLES}"));
+        git(&project, &["commit", "-q", "-am", "roles"]);
+        let before = record_of(&project, "c1")["state"].clone();
+        with_agents(&project, "#!/bin/sh\n");
+        fs::remove_file(project.0.join(".gdd/bin/codex")).unwrap();
+        // Only the folder of the fakes: the tests may have a real Codex on their PATH.
+        let fakes = project.0.join(".gdd/bin").display().to_string();
+        let mut env = vec![("PATH".to_string(), fakes)];
+        let missing = "error: cannot find the codex program of Codex on PATH\n";
+        assert_eq!(launch_in(&project, &env), Outcome::failure(missing.into()));
+        assert_eq!(record_of(&project, "c1")["state"], before);
+        // The environment gdd runs in is the one given, not the process one.
+        env.clear();
+        let claude = "error: cannot find the claude program of Claude Code on PATH\n";
+        assert_eq!(launch_in(&project, &env), Outcome::failure(claude.into()));
+        let wrong = format!("{MODELS}{MORE_ROLES}[env]\npass = \"X\"\n");
+        project.write("gdd/models.toml", &wrong);
+        let out = launch_in(&project, &env);
+        let start = "error: gdd/models.toml: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
     /// Gate commands that pass once the Builder writes `src/a.rs`.
     const RECIPE_COMMANDS: &str = "[g2]\nunit = \"test -f src/a.rs\"\n[g3]\nunit = \"true\"\n\
                                    [release]\nsimulated = true\n";
 
-    /// One agent for every integration (see [`fake_agents`]).
+    /// One agent for every integration (see [`with_agents`]): it keeps its role in
+    /// `.gdd/calls`; test mode writes `@TEST@`, build mode `src/a.rs`, and the Reviewer, of
+    /// Codex, says OK.
     const FAKE_AGENT: &str = r#"#!/bin/sh
-echo "$2" >> "$GDD_ROOT/.gdd/calls"
-case "$2" in
-  /gdd-build-test*) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
-  /gdd-build*) mkdir -p src && echo b > src/a.rs ;;
-  *review*) echo 'VERDICT: OK' > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/review.md" ;;
+echo "$GDD_ROLE" >> "$GDD_ROOT/.gdd/calls"
+case "$GDD_ROLE" in
+  builder-test) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
+  builder-build) mkdir -p src && echo b > src/a.rs ;;
+  reviewer) echo '{"type":"item.completed","item":{"type":"agent_message","text":"VERDICT: OK"}}' ;;
 esac
 "#;
 
-    /// The agents of `project`, one shell script for every integration: test mode writes
-    /// `test_writes`, build mode `src/a.rs`, and the Reviewer says OK. Each call is kept in
-    /// `.gdd/calls`.
-    fn fake_agents(project: &Project, test_writes: &str) {
+    /// An environment whose `PATH` finds first the agents of `project`: `script`, as `claude`
+    /// and `codex` in its `.gdd/bin/`.
+    fn with_agents(project: &Project, script: &str) -> Vec<(String, String)> {
         use std::os::unix::fs::PermissionsExt;
-        let script = FAKE_AGENT.replace("@TEST@", test_writes);
-        for integration in ["claude", "codex"] {
-            let path = format!(".gdd/bin/gdd-{integration}");
-            project.write(&path, &script);
+        for agent in ["claude", "codex"] {
+            let path = format!(".gdd/bin/{agent}");
+            project.write(&path, script);
             let mode = fs::Permissions::from_mode(0o755);
             fs::set_permissions(project.0.join(path), mode).unwrap();
         }
+        let tests = std::env::var("PATH").unwrap_or_default();
+        let path = format!("{}:{tests}", project.0.join(".gdd/bin").display());
+        vec![("PATH".to_string(), path)]
+    }
+
+    /// Runs `gdd launch c1` on `project` in the environment `env`.
+    fn launch_in(project: &Project, env: &Env) -> Outcome {
+        run_with_env(&words("launch c1"), &project.0, env)
+    }
+
+    /// Launches change `c1` of `project` with the fake agents, whose test mode writes
+    /// `test_writes`. Each call is kept in `.gdd/calls`.
+    fn launch_with_fakes(project: &Project, test_writes: &str) -> Outcome {
+        let env = with_agents(project, &FAKE_AGENT.replace("@TEST@", test_writes));
+        launch_in(project, &env)
     }
 
     #[test]
     fn launch_runs_the_recipe_to_production() {
         let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
-        fake_agents(&project, "tests/t.txt");
-        let out = project.run("launch c1");
+        let out = launch_with_fakes(&project, "tests/t.txt");
         let closed = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd report \
                       --change c1\n";
         assert_eq!(out, Outcome::success(closed.into()));
         let calls = fs::read_to_string(project.0.join(".gdd/calls")).unwrap();
-        let expected = "/gdd-build-test change=c1 mode=test\n\
-                        /gdd-build change=c1 mode=build\n\
-                        $gdd-review change=c1 round=1\n";
-        assert_eq!(calls, expected);
+        assert_eq!(calls, "builder-test\nbuilder-build\nreviewer\n");
+        let review = project.0.join(".gdd/changes/c1/outputs/reviewer-1.md");
+        assert_eq!(fs::read_to_string(review).unwrap(), "VERDICT: OK");
+        let log = fs::read_to_string(project.0.join(log::PATH)).unwrap();
+        let lines = log::parse(&log).unwrap();
+        let notes = lines.iter().map(|line| line.text("note"));
+        let agents: Vec<String> = notes.filter(|note| note.starts_with("/gdd-")).collect();
+        assert_eq!(agents, ["/gdd-build-test", "/gdd-build", "/gdd-review"]);
         let record = record_of(&project, "c1");
         assert_eq!(record["state"], "closed");
         let opened = "automatic chain and Reviewer";
@@ -2336,8 +2443,7 @@ esac
     fn test_mode_that_writes_the_code_parks_the_change() {
         let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
-        fake_agents(&project, "src/x.rs");
-        let out = project.run("launch c1");
+        let out = launch_with_fakes(&project, "src/x.rs");
         let parked = "Change c1 parked: Path Guard failed after test mode: src/x.rs: protected \
                       path for builder-test. Message in .gdd/changes/c1/inbox.md\n";
         assert_eq!(out, Outcome::failure(parked.into()));

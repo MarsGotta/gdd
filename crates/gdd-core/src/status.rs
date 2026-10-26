@@ -15,7 +15,7 @@ const NO_BRIEF: &str = "missing (Setup writes it)";
 const G0_OK: &str = "ok · G0 ok";
 
 /// What the status says of G0 until the machines open it.
-const G0_PENDING: &str = "pending · G0 pending: run the Setup (/speckit-gdd-setup).";
+const G0_PENDING: &str = "pending · G0 pending: run the Setup (the gdd-setup command).";
 
 /// What `gdd status` says of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +200,7 @@ mod tests {
         let expected = concat!(
             "Project: demo · language es · platform cli\n",
             "Brief: missing (Setup writes it)\n",
-            "G0: pending · G0 pending: run the Setup (/speckit-gdd-setup).\n",
+            "G0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
             "Red zones: pending · Red zones not approved yet: the Orchestrator proposes them ",
             "at the end of Discover.\n",
             "Harness self-test: not run\n",
