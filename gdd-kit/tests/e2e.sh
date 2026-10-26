@@ -28,7 +28,7 @@ export GIT_AUTHOR_NAME=gdd GIT_AUTHOR_EMAIL=gdd@local GIT_COMMITTER_NAME=gdd GIT
 chmod +x "$SRC"/gdd-kit/tests/fake/*
 mkdir -p "$TMP/repo"
 (cd "$SRC" && tar --exclude=./.git --exclude='./.gdd/log.jsonl' --exclude='./.gdd/changes' \
-  --exclude='./.gdd/*.json' --exclude='./.gdd/*.txt' --exclude='__pycache__' --exclude='./.specify/workflows/runs' \
+  --exclude='./.gdd/*.json' --exclude='./.gdd/*.txt' --exclude='./.gdd/bin/gdd-rust' --exclude='__pycache__' --exclude='./.specify/workflows/runs' \
   --exclude='./features' -cf - .) | (cd "$TMP/repo" && tar xf -)
 cd "$TMP/repo"; git init -q -b main
 python3 - <<'PY'

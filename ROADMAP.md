@@ -45,9 +45,11 @@ change, stop and review before adding more.
 | Agents cannot edit GDD state (`.gdd/`): Claude Code | done in the kit | port in agent-launch |
 | Same for Codex and OpenCode | open | agent-launch |
 | Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | done | run-steps (2026-10-26) |
-| The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | next | recipe-run |
+| The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | done | recipe-run (2026-10-26); `bin/gdd launch|resume` run it |
+| `gdd resume --g4 ok` keeps the pause until promote and observe succeed, so a failed promotion can be retried (Reviewer note in recipe-run) | next | resume-retry (small red change) |
+| Kit e2e t8 fails when the suite runs from this repository (passes in the pilot repository) | open | |
 | A relaunch with G2 green skips the Builder, checked under Path Guard | done | run-steps; kit 0.5.5 |
-| Replan that can send the change back to test mode | done in the kit | port in recipe-run |
+| Replan that can send the change back to test mode | done | recipe-run |
 | The merge commit carries the change's record: color, approvals, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done | run-steps |
 | Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in agent-launch |
 | Mutation testing with a memory cap for test processes (Linux: `prlimit`) | done in the recipes | |
@@ -64,7 +66,7 @@ change, stop and review before adding more.
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
 | A library's demo is the readable run of its scenarios | done in the kit | |
 | Principle «done is not good»: the human is the editor at G4 | done (method) | `docs/discover/2026-10-26-done-is-not-good.md` |
-| G4 answers OK, KO or polish (one more Builder round with the human's notes) | next | recipe-run |
+| G4 answers OK, KO or polish (one more Builder round with the human's notes) | done | recipe-run |
 | `docs/standards.md`: the project's quality bar, read by the Builder and the Reviewer, fed by Learn | done in the kit | `gdd init` writes a first one |
 | Secrets scanning (gitleaks) and the linter's complexity rule in the gates | done in this repository | stack sheets for every stack |
 | Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | next | stack sheets |

@@ -18,3 +18,4 @@ build/
 # Python
 __pycache__/
 *.pyc
+.gdd/bin/gdd-rust   # the recipe binary built from main (bin/gdd launch|resume)

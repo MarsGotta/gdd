@@ -3,4 +3,9 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Rust toolchain installed with rustup lives in ~/.cargo/bin.
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH" && export PATH
+# The recipe runs in Rust (recipe-run): the Orchestrator installs the binary built from main in
+# .gdd/bin/gdd-rust after each merge. Without it, the kit runs the recipe through Spec Kit.
+case "${1:-}" in
+  launch|resume) [ -x "$ROOT/.gdd/bin/gdd-rust" ] && exec "$ROOT/.gdd/bin/gdd-rust" "$@" ;;
+esac
 PYTHONDONTWRITEBYTECODE=1 exec python3 "$ROOT/gdd-kit/scripts/gdd.py" "$@"
