@@ -76,6 +76,7 @@ change, stop and review before adding more.
 ## Open questions
 
 - Hidden examples are readable by a Builder that goes looking for them.
+- `gdd g3` classifies with the built-in rules table when `gdd/rules.toml` has no `[color]` section, while `gdd classify` does not: align them in changes-and-approvals.
 - Approvals and G1 hashes live in `.gdd/` inside the repository; a backup out of the agents' reach (outside the working tree, or signed) is still to design.
 - Codex does not report cost (the kit estimates it from the price table in `gdd/models.toml`) and OpenCode does not report the model (the log keeps the requested one).
 - CLI naming, how the TUI reads a running change, packaging (from the Brief).

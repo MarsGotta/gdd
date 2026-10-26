@@ -497,14 +497,20 @@ def check(c: str, gate: str, guard_role: str | None) -> dict:
     if not configured:
         failed.append({"name": f"{gate} not configured", "tail": "gdd/commands.toml has no commands for this gate. The Setup fills them in."})
     env = {"GDD_COLOR": d["color"], "GDD_DIFF_FILES": "\n".join(changed(c)), "GDD_FEATURES": "\n".join(d["features"])}
-    for name, cmd in configured.items():
-        if name.startswith("mutation") and not d["mutation"]:
-            skipped.append(name); continue
-        r = run_cmd(name, cmd, c, env)
-        (passed if r["ok"] else failed).append(r)
-    if guard_role:
-        gf = guard_failures(c, guard_role)
-        (failed.append({"name": "path-guard", "tail": "\n".join(gf)}) if gf else passed.append({"name": "path-guard"}))
+    # Path Guard runs BEFORE the commands (a changed commands.toml must never run: it could pass
+    # fake checks and restore itself) and again after (a command must not touch protected paths).
+    before = guard_failures(c, guard_role) if guard_role else []
+    if before:
+        failed.append({"name": "path-guard", "tail": "\n".join(before) + "\nThe gate commands did not run: Path Guard must pass first."})
+    else:
+        for name, cmd in configured.items():
+            if name.startswith("mutation") and not d["mutation"]:
+                skipped.append(name); continue
+            r = run_cmd(name, cmd, c, env)
+            (passed if r["ok"] else failed).append(r)
+        if guard_role:
+            gf = guard_failures(c, guard_role)
+            (failed.append({"name": "path-guard", "tail": "\n".join(gf)}) if gf else passed.append({"name": "path-guard"}))
     out_of_scope: list[str] = []
     if guard_role == "builder-build":
         sf, out_of_scope = scope_check(c)
@@ -700,7 +706,6 @@ def merge_message(c: str, d: dict) -> str:
             extra = f", {len(r.get('hashes', {}))} scenario file(s) sealed" if r.get("hashes") else ""
             appr.append(f"{g} {r.get('decision')} ({r.get('by')}, {str(r.get('ts', ''))[:10]}{extra})")
     lines.append("Approvals: " + ("; ".join(appr) if appr else "none needed"))
-    lines.append("G4: " + ("human approval required after pre" if dec.get("g4") else "automatic when pre is green"))
     reviews = sorted((CHANGES / c / "outputs").glob("reviewer-*.md")) if (CHANGES / c / "outputs").exists() else []
     if reviews:
         verdicts = []

@@ -2,9 +2,9 @@
   "schema_version": "1.0",
   "extensions": {
     "gdd": {
-      "version": "0.5.2",
+      "version": "0.5.3",
       "source": "local",
-      "manifest_hash": "sha256:d3fef78496180562210c8488bba6592ec09000f04966e5a27f94948140bfd375",
+      "manifest_hash": "sha256:ba251148fa3358647538a42a3270a7be2b2c1fc5c4af86ef3ff3f013d2ed019f",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
@@ -23,7 +23,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-10-26T06:52:27.870083+00:00"
+      "installed_at": "2026-10-26T07:04:06.292887+00:00"
     }
   }
 }

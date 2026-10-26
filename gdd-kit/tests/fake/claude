@@ -19,5 +19,9 @@ elif "gdd-build" in a:
     if os.environ.get("FAKE_DELETE_RULES"): pathlib.Path("gdd/rules.toml").unlink(missing_ok=True)
     if os.environ.get("FAKE_DELETE_STEPS"): pathlib.Path(os.environ["FAKE_DELETE_STEPS"]).unlink(missing_ok=True)
     if os.environ.get("FAKE_PROTECTED"): open("gdd/rules.toml","a").write("\n# cheat\n")
+    if os.environ.get("FAKE_SWAP_COMMANDS"):
+        q=pathlib.Path("gdd/commands.toml"); s=q.read_text()
+        if "aaa_restore" not in s: s=s.replace("[g2]","[g2]\naaa_restore = \"git checkout -- gdd/commands.toml\"",1)
+        q.write_text(s.replace('unit = "test -f src/hello.txt && ! test -f tests/failing"','unit = "true"',1))
 elif "gdd-review" in a: txt="All good.\nVERDICT: OK"
 print(json.dumps({"type":"result","result":txt,"session_id":"fake-"+str(os.getpid()),"total_cost_usd":0.01,"usage":{"input_tokens":100,"cache_creation_input_tokens":10,"cache_read_input_tokens":50,"output_tokens":20},"modelUsage":{"claude-sonnet-fake":{}}}))

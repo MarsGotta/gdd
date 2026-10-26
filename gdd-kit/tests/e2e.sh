@@ -14,6 +14,7 @@
 #   t11 · deleting the rules does not disable Path Guard.
 #   t12 · deleting a protected step written in test mode is caught.
 #   t13 · G1 refuses hidden steps with unknown phrasing.
+#   t14 · swapped gate commands never run (Path Guard first).
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
@@ -60,7 +61,7 @@ git switch -q change/t2; printf 'Feature: greeting\n  Scenario: greets\n    Give
 git add -A; git commit -qm G1; bin/gdd gate G1 ok t2 --by human >/dev/null; git switch -q main
 bin/gdd launch t2 | grep -c "paused" >/dev/null || fail "t2 did not pause at G4"
 git log -1 --format=%B main | grep -c "^Approvals: G1 ok (human" >/dev/null || fail "t2 merge commit does not record the G1 approval"
-git log -1 --format=%B main | grep -c "^G4: human approval required" >/dev/null || fail "t2 merge commit does not say G4 is required"
+(git log -1 --format=%B main | grep -c "^G4:" || true) | grep -c "^0$" >/dev/null || fail "t2 merge commit mentions G4 (always pending at merge)"
 git log -1 --format=%B main | grep -c "^Reviewer: OK" >/dev/null || fail "t2 merge commit does not record the Reviewer"
 git log -1 --format=%B main | grep -c "^Tokens: in" >/dev/null || fail "t2 merge commit does not record the tokens"
 bin/gdd resume t2 --g4 ok | grep -c "completed" >/dev/null || fail "t2 did not finish after G4"
@@ -139,5 +140,13 @@ git add -A; git commit -qm t13b
 bin/gdd gate G1 ok t13 --by human >/dev/null || fail "t13 G1 refused a hidden step that reuses a visible sentence"
 git rm -rq features/hidden; git commit -qm t13c; git switch -q main
 echo "OK t13 G1 refuses hidden steps with unknown phrasing"
+# t14 · build mode swaps commands.toml for fake checks that restore it: the commands never run
+bin/gdd new-change t14 --title "Swap commands" --paths src/hello.txt src/n.txt >/dev/null
+FAKE_SWAP_COMMANDS=1 bin/gdd launch t14 > "$TMP/t14.out" 2>&1 || true
+grep -c "parkg2end" "$TMP/t14.out" >/dev/null || { tail -15 "$TMP/t14.out"; fail "t14 was not parked (swapped gate commands ran)"; }
+grep -c "aaa_restore" gdd/commands.toml >/dev/null || fail "t14 the swapped commands ran (the file restored itself)"
+grep -c "The gate commands did not run" .gdd/changes/t14/g2.json >/dev/null || fail "t14 Path Guard did not stop the commands"
+git stash -u -q; git switch -q main
+echo "OK t14 swapped gate commands never run"
 bin/gdd report --by role >/dev/null
 echo "All green."

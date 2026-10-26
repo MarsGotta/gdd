@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: gdd
   name: "GDD · Gate-Driven Development"
-  version: "0.5.2"
+  version: "0.5.3"
   description: "Phases, gates, roles and token logging for GDD on top of Spec Kit"
   author: Marcela Gotta
   repository: https://github.com/MarsGotta/vivarium
