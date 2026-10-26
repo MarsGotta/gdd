@@ -1,4 +1,5 @@
-//! The project's git repository, read only: which paths a change touched.
+//! The project's git repository: which paths a change touched, what its branch holds, and the
+//! branch a new change gets.
 //!
 //! Git always runs as `git` with a fixed list of arguments, in the project root, never through
 //! a shell. A name read from a file never reaches git as an option, and a failure of git is an
@@ -117,6 +118,19 @@ impl Git {
             Some(object) => self.read(&["cat-file", "blob", object]).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// The files inside `folder`, from the project root, at the commit `commit`: their paths
+    /// from the project root, in git's order.
+    pub fn files_at(&self, commit: &str, folder: &str) -> Result<Vec<String>, Error> {
+        let at = revision(commit)?;
+        self.paths(&["ls-tree", "-r", "-z", "--name-only", at, "--", folder])
+    }
+
+    /// Creates the branch `name` at the commit `from`, without checking it out.
+    pub fn create_branch(&self, name: &str, from: &str) -> Result<(), Error> {
+        self.read(&["branch", revision(name)?, revision(from)?])?;
+        Ok(())
     }
 
     /// Paths that differ between two revisions, or between one and the working tree. Both
@@ -457,6 +471,57 @@ pub(crate) mod tests {
         assert!(err.to_string().starts_with("git ls-tree "), "{err}");
         let option = git.file_at("-x", "gdd/rules.toml");
         assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+    }
+
+    #[test]
+    fn the_files_of_a_folder_at_a_commit() {
+        let repo = Repo::new();
+        repo.write("app/features/a.feature", "a\n");
+        repo.write("app/features/deep/b c.feature", "b\n");
+        repo.write("app/features2/x.feature", "x\n");
+        repo.commit();
+        repo.start("c1");
+        repo.write("app/features/new.feature", "n\n");
+        repo.commit();
+        repo.write("app/features/loose.feature", "l\n");
+        repo.git(&["checkout", "-q", "main"]);
+        let git = Git::new(&repo.root().join("app"));
+        let main = ["features/a.feature", "features/deep/b c.feature"];
+        assert_eq!(git.files_at("main", "features").unwrap(), main);
+        assert_eq!(
+            git.files_at("change/c1", "features").unwrap(),
+            [
+                "features/a.feature",
+                "features/deep/b c.feature",
+                "features/new.feature",
+            ]
+        );
+        assert_eq!(git.files_at("main", "specs").unwrap(), NOTHING);
+        let err = git.files_at("change/c9", "features").unwrap_err();
+        assert!(err.to_string().starts_with("git ls-tree -r "), "{err}");
+        let option = git.files_at("-x", "features");
+        assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+    }
+
+    #[test]
+    fn a_branch_is_created_where_it_is_asked_without_leaving_the_current_one() {
+        let repo = Repo::new();
+        let main = repo.git(&["rev-parse", "main"]);
+        repo.git(&["checkout", "-q", "-b", "other"]);
+        repo.write("x.rs", "x\n");
+        repo.commit();
+        let git = repo.tool();
+        git.create_branch("change/c1", "main").unwrap();
+        assert_eq!(repo.git(&["rev-parse", "change/c1"]), main);
+        assert_eq!(git.current_branch().unwrap(), "other");
+        let again = git.create_branch("change/c1", "main").unwrap_err();
+        let failed = "git branch change/c1 main failed";
+        assert!(again.to_string().starts_with(failed), "{again}");
+        for (name, from) in [("-x", "main"), ("change/c2", "--all")] {
+            let option = git.create_branch(name, from);
+            assert!(matches!(option, Err(Error::Revision(_))), "{name} {from}");
+        }
+        assert!(!git.exists("change/c2").unwrap());
     }
 
     #[test]

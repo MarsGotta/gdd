@@ -85,8 +85,7 @@ pub struct RulesTable {
 
 #[derive(Deserialize)]
 struct RawTable {
-    #[serde(default)]
-    color: BTreeMap<String, ColorRules>,
+    color: Option<BTreeMap<String, ColorRules>>,
     #[serde(default)]
     acceptance: Acceptance,
 }
@@ -96,16 +95,39 @@ impl RulesTable {
     /// A color takes `[color.<color>.<lane>]` or `[color.<color>]`; what it leaves out takes
     /// its default (see [`RulesTable::rule`]). An unknown color is an error.
     pub fn from_toml(text: &str) -> Result<RulesTable, Error> {
+        RulesTable::read(text).map(|(table, _)| table)
+    }
+
+    /// The table a project classifies its changes with, from its rules file: the one the file
+    /// writes or, when it has no `[color]` section, the colors of the table that ships with the
+    /// tool ([`default_table`]) with the file's `[acceptance]`: saying nothing about colors
+    /// switches no gate off. `gdd classify` and the gates share it.
+    pub fn of_project(text: &str) -> Result<RulesTable, Error> {
+        let (table, has_colors) = RulesTable::read(text)?;
+        if has_colors {
+            return Ok(table);
+        }
+        Ok(RulesTable {
+            colors: default_table().colors,
+            acceptance: table.acceptance,
+        })
+    }
+
+    /// The table a rules file writes, and whether it has a `[color]` section.
+    fn read(text: &str) -> Result<(RulesTable, bool), Error> {
         let raw: RawTable = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
+        let has_colors = raw.color.is_some();
         let colors = raw
             .color
+            .unwrap_or_default()
             .into_iter()
             .map(|(name, rules)| Ok((name.parse()?, rules)))
             .collect::<Result<_, Error>>()?;
-        Ok(RulesTable {
+        let table = RulesTable {
             colors,
             acceptance: raw.acceptance,
-        })
+        };
+        Ok((table, has_colors))
     }
 
     /// The rule for a color in a lane: the lane's own table, else the color's table, else
@@ -263,6 +285,26 @@ mod tests {
             RulesTable::from_toml("[color.purple]\n"),
             Err(Error::UnknownColor("purple".into()))
         );
+    }
+
+    #[test]
+    fn a_project_without_colors_classifies_with_the_table_of_the_tool() {
+        let shipped = default_table();
+        assert_eq!(RulesTable::of_project(""), Ok(shipped.clone()));
+        let text = "[protected]\nall = [\"gdd/**\"]\n[acceptance]\ndir = \"specs\"\n";
+        let project = RulesTable::of_project(text).unwrap();
+        assert_eq!(project.acceptance.dir, "specs");
+        assert_eq!(project.colors, shipped.colors);
+        // With colors of its own, or an empty [color] section, the file decides.
+        let own = "[color.yellow.full]\nmutation = false\n";
+        assert_eq!(RulesTable::of_project(own), RulesTable::from_toml(own));
+        assert_eq!(RulesTable::of_project("[color]\n"), Ok(table("")));
+        assert_eq!(
+            RulesTable::of_project("[color.purple]\n"),
+            Err(Error::UnknownColor("purple".into()))
+        );
+        let wrong = RulesTable::of_project("color = 1\n");
+        assert!(matches!(wrong, Err(Error::Toml(_))), "{wrong:?}");
     }
 
     #[test]

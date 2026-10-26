@@ -10,9 +10,11 @@ pub mod exec;
 pub mod gates;
 pub mod git;
 pub mod guard;
+pub mod inbox;
 pub mod log;
 pub mod report;
 pub mod rules;
+pub mod status;
 pub mod zones;
 
 pub use classify::{Change, Classification, classify};
