@@ -913,7 +913,7 @@ fn commit_on_branch(root: &Path, id: &str, path: &str, content: &str) {
 #[given(expr = "the change {string} has the scenario {string} on its branch")]
 fn scenario_on_branch(w: &mut GddWorld, id: String, file: String) {
     let root = project_root(w);
-    let text = "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    Then it is saved\n";
+    let text = "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    And a name\n    Then it is saved\n";
     commit_on_branch(&root, &id, &file, text);
 }
 
