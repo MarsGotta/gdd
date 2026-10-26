@@ -46,8 +46,9 @@ change, stop and review before adding more.
 | Same for Codex and OpenCode | open | agent-launch |
 | Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | next | run-steps |
 | The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | next | recipe-run |
-| Replan that can send the change back to test mode; a relaunch with G2 green skips the Builder | done in the kit | port in agent-launch |
-| The merge commit carries the change's record: color, approvals, G4, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done in the kit | port in agent-launch |
+| A relaunch with G2 green skips the Builder | done in the kit | port in run-steps |
+| Replan that can send the change back to test mode | done in the kit | port in recipe-run |
+| The merge commit carries the change's record: color, approvals, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done in the kit | port in run-steps |
 | Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in agent-launch |
 | Mutation testing with a memory cap for test processes (Linux: `prlimit`) | done in the recipes | |
 | The same cap on macOS | open | |
