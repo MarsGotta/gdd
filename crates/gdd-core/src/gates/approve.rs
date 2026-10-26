@@ -256,8 +256,9 @@ pub fn record(project: &Project, request: &Request, role: Option<&str>) -> Resul
     }
 }
 
-/// `Ok` unless `role` is a Builder or a Reviewer: they can never record a decision.
-fn may_record(role: Option<&str>) -> Result<(), Error> {
+/// `Ok` unless `role` is a Builder or a Reviewer: they can never record a decision, nor answer a
+/// gate in any other way.
+pub fn may_record(role: Option<&str>) -> Result<(), Error> {
     let role = role.unwrap_or_default();
     if role.starts_with("builder") || role.starts_with("reviewer") {
         return Err(refused(NOT_FOR_AGENTS));

@@ -117,11 +117,11 @@ fn joined(reader: JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
         .unwrap_or_else(|_| Err(io::Error::other("the output reader stopped")))
 }
 
-/// Kills the process group `child` leads: the shell and everything it started. The standard
-/// library signals one process, not a group, so the program `kill` does it; the shell is
-/// killed directly too, so it dies even when `kill` cannot run. (A shell already ended and
-/// waited for is not signalled again.)
-fn kill_group(child: &mut Child) {
+/// Kills the process group `child` leads, started with a process group of its own: the child
+/// and everything it started. The standard library signals one process, not a group, so the
+/// program `kill` does it; the child is killed directly too, so it dies even when `kill` cannot
+/// run. (A child already ended and waited for is not signalled again.)
+pub(crate) fn kill_group(child: &mut Child) {
     let group = format!("-{}", child.id());
     let _ = Command::new("kill")
         .args(["-KILL", "--", &group])

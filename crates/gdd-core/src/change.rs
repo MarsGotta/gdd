@@ -23,6 +23,9 @@ const DEFAULT_KIND: &str = "Feature";
 /// decision taken without them, and work parked.
 pub const NOTE_KINDS: [&str; 3] = ["needs", "decided", "parked"];
 
+/// The kind of note the human's notes at G4 are: what to polish in one more Builder round.
+pub const POLISH: &str = "polish";
+
 /// Whether `id` can name a change: a lowercase letter or digit, then up to 40 lowercase
 /// letters, digits or hyphens. Nothing else, so an id never leaves `.gdd/changes/`.
 pub fn valid_id(id: &str) -> bool {
@@ -187,10 +190,32 @@ pub fn with_fields(text: &str, fields: Vec<(&str, Value)>) -> Result<String, ser
 /// `ts`: a (re)launch means the Orchestrator dealt with them. They stay in the record, out of
 /// the Decision Inbox. Every other field keeps its value.
 pub fn with_requests_resolved(text: &str, ts: &str) -> Result<String, serde_json::Error> {
+    resolved_where(text, ts, |_| true)
+}
+
+/// The record `text` with the request for the human `request` (a `needs` note that says it)
+/// resolved at `ts`, while it is still open. It stays in the record, out of the Decision Inbox.
+/// Every other field keeps its value.
+pub fn with_request_resolved(
+    text: &str,
+    request: &str,
+    ts: &str,
+) -> Result<String, serde_json::Error> {
+    resolved_where(text, ts, |said| said == request)
+}
+
+/// The record `text` with its open requests whose text `which` picks resolved at `ts`.
+fn resolved_where(
+    text: &str,
+    ts: &str,
+    which: impl Fn(&str) -> bool,
+) -> Result<String, serde_json::Error> {
     let mut record: Map<String, Value> = serde_json::from_str(text)?;
     if let Some(Value::Array(notes)) = record.get_mut("inbox") {
         for note in notes.iter_mut().filter_map(Value::as_object_mut) {
-            let request = note.get("kind").and_then(Value::as_str) == Some("needs");
+            let said = note.get("text").and_then(Value::as_str);
+            let needs = note.get("kind").and_then(Value::as_str) == Some("needs");
+            let request = needs && which(said.unwrap_or_default());
             let resolved = note.get("resolved").is_some_and(inbox::is_resolved);
             if request && !resolved {
                 note.insert("resolved".to_string(), Value::from(ts));
@@ -779,6 +804,33 @@ mod tests {
             assert_eq!(value, unchanged, "{text}");
         }
         assert!(with_requests_resolved("[]", "x").is_err());
+    }
+
+    #[test]
+    fn one_request_is_resolved_by_its_text_and_the_others_stay_open() {
+        let text = r#"{"id": "c1", "inbox": [
+            {"kind": "needs", "text": "G4?"},
+            {"kind": "needs", "text": "Other"},
+            {"kind": "needs", "text": "G4?", "resolved": "2026-01-02"},
+            {"kind": "decided", "text": "G4?"},
+            {"kind": "needs"}
+        ]}"#;
+        let written = with_request_resolved(text, "G4?", "now").unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let resolved: Vec<&Value> = value["inbox"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|note| &note["resolved"])
+            .collect();
+        let (now, done, null) = (Value::from("now"), Value::from("2026-01-02"), Value::Null);
+        assert_eq!(resolved, [&now, &null, &done, &null, &null]);
+        let all = with_requests_resolved(text, "now").unwrap();
+        let value: Value = serde_json::from_str(&all).unwrap();
+        assert_eq!(value["inbox"][4]["resolved"], "now");
+        assert!(with_request_resolved("{not json", "G4?", "now").is_err());
+        assert_eq!(POLISH, "polish");
     }
 
     #[test]

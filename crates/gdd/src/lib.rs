@@ -4,14 +4,16 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use gdd_core::agents::{self, models::Models, models::Roles};
+use gdd_core::agents::{self, Limits, invoke, models::Models, models::Roles};
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::classify_with;
 use gdd_core::gates::{self, Gate, approve, prepare, release};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
+use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log};
@@ -26,6 +28,8 @@ const RULES: &str = guard::RULES;
 const COMMANDS: &str = gates::COMMANDS;
 /// Where the changes keep their records, from the project root.
 const CHANGES: &str = ".gdd/changes";
+/// The role of test mode, which Path Guard judges after it.
+const TEST_ROLE: &str = "builder-test";
 /// The kinds of work a change can be.
 const TYPES: [&str; 6] = [
     "Feature",
@@ -70,6 +74,15 @@ impl Outcome {
             code,
             stdout: format!("{text}\n"),
             stderr: String::new(),
+        }
+    }
+
+    /// What a run of the recipe said: where it got to, or why it parked the change, which
+    /// fails the run.
+    fn said(said: Said) -> Outcome {
+        match said {
+            Said::Done(text) => Outcome::printed(text, 0),
+            Said::Parked(message) => Outcome::failure(format!("{message}\n")),
         }
     }
 }
@@ -181,6 +194,17 @@ enum Command {
         /// Id of the change: its record is .gdd/changes/<id>/change.json.
         change: String,
     },
+    /// Runs the recipe of a change on its branch change/<id>: Build, G2, G3, the Reviewer, merge
+    /// and pre; then it waits for the human G4 when the change needs it, or goes to production.
+    /// Refuses uncommitted changes outside that branch. A change that parks exits with 1.
+    Launch {
+        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        change: String,
+    },
+    /// Answers the G4 of a change paused at it: ok takes it to production, ko rejects it, and
+    /// polish runs one more Builder round with your notes and pauses at G4 again. Builders and
+    /// Reviewers cannot answer.
+    Resume(ResumeArgs),
 }
 
 /// What `gdd g2` and `gdd g3` take.
@@ -249,6 +273,19 @@ struct NoteArgs {
     text: Vec<String>,
 }
 
+/// What `gdd resume` takes.
+#[derive(Debug, Args)]
+struct ResumeArgs {
+    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    change: String,
+    /// The answer to G4.
+    #[arg(long, value_parser = recipe::ANSWERS)]
+    g4: String,
+    /// What to read about the answer: the rest of the words. Polish needs it.
+    #[arg(long, num_args = 1.., allow_hyphen_values = true)]
+    note: Vec<String>,
+}
+
 /// A color named on the command line.
 fn parse_color(name: &str) -> Result<Color, String> {
     name.parse().map_err(|e: gdd_core::Error| e.to_string())
@@ -272,6 +309,8 @@ impl Command {
                 let message = change::park(root, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
+            Command::Launch { change } => return launch(root, &change).map(Outcome::said),
+            Command::Resume(args) => return resume(root, &args, role).map(Outcome::said),
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change)?,
             Command::Guard {
@@ -287,7 +326,7 @@ impl Command {
             Command::Snapshot { change } => snapshot(root, &change)?,
             Command::Scope { change } => scope(root, &change)?,
             Command::NewChange(args) => new_change(root, &args)?,
-            Command::Gate(args) => gate(root, &args, role)?,
+            Command::Gate(args) => record_gate(root, &args, role)?,
             Command::Note(args) => note(root, &args)?,
             Command::Inbox { change } => decision_inbox(root, &change)?,
             Command::Status => project_status(root)?,
@@ -401,8 +440,7 @@ fn decide(root: &Path, id: &str) -> Result<Decided, String> {
         classify_with(&zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
     let models = load_models(root)?;
     let roles = models.roles(classification.color);
-    let rules = read(root, RULES)?.unwrap_or_default();
-    let retries = agents::builder_retries(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let retries = load_limits(root)?.builder_retries;
     Ok(Decided {
         classification,
         kind,
@@ -441,21 +479,26 @@ fn guard_snapshot(
     }
 }
 
-/// `gdd g2` and `gdd g3`: runs `gate` on the change, writes in its record the paths the scope
-/// check accepted, saves the report next to it and logs the run. The report as JSON, and exit
-/// code 1 when the gate fails and the run is strict.
+/// `gdd g2` and `gdd g3`: runs `gate` on the change (see [`gate_report`]). The report as JSON,
+/// and exit code 1 when the gate fails and the run is strict.
 fn run_gate(root: &Path, gate: Gate, args: &GateArgs) -> Result<(String, u8), String> {
-    let id = args.change.as_str();
+    let report = gate_report(root, gate, &args.change, &args.role)?;
+    let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
+    Ok((printed, u8::from(args.strict && !report.ok)))
+}
+
+/// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
+/// accepted, saves the report next to it and logs the run.
+fn gate_report(root: &Path, gate: Gate, id: &str, role: &str) -> Result<gates::Report, String> {
     let record = load_record(root, id)?;
     let config = GateConfig::load(root)?;
-    let snapshot = guard_snapshot(root, id, &args.role, false)?;
+    let snapshot = guard_snapshot(root, id, role, false)?;
     let project = config.project(root);
-    let report = gates::run(&project, gate, id, &record, &args.role, snapshot.as_ref())
+    let report = gates::run(&project, gate, id, &record, role, snapshot.as_ref())
         .map_err(|e| e.to_string())?;
     save_out_of_scope(root, id, &report.out_of_scope)?;
     gates::save(root, id, &report)?;
-    let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
-    Ok((printed, u8::from(args.strict && !report.ok)))
+    Ok(report)
 }
 
 /// What the gates read from a project: the zone map, the rules file and the gate commands.
@@ -538,6 +581,100 @@ fn release_change(root: &Path, step: &str, id: &str) -> Result<String, String> {
     }
 }
 
+/// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]).
+fn launch(root: &Path, id: &str) -> Result<Said, String> {
+    let main = load_settings(root)?.main_branch;
+    let limits = load_limits(root)?;
+    let project = recipe::Project {
+        root,
+        main: &main,
+        replans: limits.replans,
+    };
+    let mut steps = ProjectSteps::new(root, id, &limits);
+    recipe::launch(&project, id, &mut steps)
+}
+
+/// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]).
+fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>) -> Result<Said, String> {
+    let id = args.change.as_str();
+    let answer: Answer = args.g4.parse()?;
+    let main = load_settings(root)?.main_branch;
+    let limits = load_limits(root)?;
+    let project = recipe::Project {
+        root,
+        main: &main,
+        replans: limits.replans,
+    };
+    let mut steps = ProjectSteps::new(root, id, &limits);
+    let note = args.note.join(" ");
+    recipe::resume(&project, id, answer, &note, role, &mut steps)
+}
+
+/// The steps of the recipe on change `id` of the project at `root`, as the commands of the same
+/// name run them: each reads the configuration as it is when it runs.
+struct ProjectSteps<'a> {
+    root: &'a Path,
+    id: &'a str,
+    /// The time an agent has to answer.
+    timeout: Duration,
+}
+
+impl<'a> ProjectSteps<'a> {
+    /// The steps on change `id` of the project at `root`, whose rules file sets `limits`.
+    fn new(root: &'a Path, id: &'a str, limits: &Limits) -> ProjectSteps<'a> {
+        let timeout = Duration::from_secs(limits.agent_timeout_s);
+        ProjectSteps { root, id, timeout }
+    }
+}
+
+impl recipe::Steps for ProjectSteps<'_> {
+    fn prepare(&mut self) -> Result<recipe::Decided, String> {
+        let printed = prepare_change(self.root, self.id)?;
+        serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
+    }
+
+    fn agent(&mut self, call: &invoke::Call) -> Result<(), invoke::Error> {
+        invoke::run(self.root, self.id, call, self.timeout)
+    }
+
+    fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
+        let verdict = path_guard(self.root, self.id, TEST_ROLE, since_snapshot)?;
+        Ok(verdict.failures)
+    }
+
+    fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
+        let path = match snapshot {
+            Snapshot::Round => change::snapshot_path(self.id),
+            Snapshot::Build => change::build_snapshot_path(self.id),
+        };
+        save_snapshot(self.root, self.id, &path)
+    }
+
+    fn gate(&mut self, gate: Gate) -> Result<bool, String> {
+        let report = gate_report(self.root, gate, self.id, gates::BUILD_ROLE)?;
+        Ok(report.ok)
+    }
+
+    fn decide(&mut self, gate: &str, decision: &str, by: &str, note: &str) -> Result<(), String> {
+        let args = DecisionArgs {
+            gate: gate.to_string(),
+            decision: decision.to_string(),
+            change: Some(self.id.to_string()),
+            by: by.to_string(),
+            note: note.to_string(),
+        };
+        record_gate(self.root, &args, None).map(drop)
+    }
+
+    fn merge(&mut self) -> Result<(), String> {
+        merge_change(self.root, self.id).map(drop)
+    }
+
+    fn release(&mut self, step: &str) -> Result<(), String> {
+        release_change(self.root, step, self.id).map(drop)
+    }
+}
+
 /// Writes `accepted`, the paths outside the plan the scope check accepted, in the record of
 /// change `id`, when it does not say them already.
 fn save_out_of_scope(root: &Path, id: &str, accepted: &[String]) -> Result<(), String> {
@@ -552,11 +689,16 @@ fn save_out_of_scope(root: &Path, id: &str, accepted: &[String]) -> Result<(), S
 
 /// `gdd snapshot`: records the hashes of what change `id` touched since its build started.
 fn snapshot(root: &Path, id: &str) -> Result<String, String> {
+    save_snapshot(root, id, &change::snapshot_path(id))?;
+    Ok(r#"{"ok":true}"#.to_string())
+}
+
+/// Records in the file `path` the hashes of what change `id` touched since its build started.
+fn save_snapshot(root: &Path, id: &str, path: &str) -> Result<(), String> {
     let record = load_record(root, id)?;
     let hashes = guard::snapshot(root, id, &record).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&hashes).map_err(|e| e.to_string())?;
-    write(root, &change::snapshot_path(id), &format!("{text}\n"))?;
-    Ok(r#"{"ok":true}"#.to_string())
+    write(root, path, &format!("{text}\n"))
 }
 
 /// `gdd scope`: the scope check of change `id`, with the zone map and the rules table.
@@ -614,7 +756,7 @@ fn new_change(root: &Path, args: &NewChangeArgs) -> Result<String, String> {
 }
 
 /// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]).
-fn gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<String, String> {
+fn record_gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<String, String> {
     let gate = match args.gate.parse::<approve::Gate>() {
         Ok(gate) => gate,
         Err(e) => return Err(e.to_string()),
@@ -745,6 +887,12 @@ fn load_models(root: &Path) -> Result<Models, String> {
     Models::from_toml(&text).map_err(|e| format!("{path}: {e}"))
 }
 
+/// The limits the rules file of the project sets on the agents.
+fn load_limits(root: &Path) -> Result<Limits, String> {
+    let text = read(root, RULES)?.unwrap_or_default();
+    Limits::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
+}
+
 /// The release commands of the project.
 fn load_steps(root: &Path) -> Result<release::Steps, String> {
     let text = read(root, COMMANDS)?.unwrap_or_default();
@@ -863,6 +1011,9 @@ mod tests {
         for command in ["prepare", "park", "merge", "release"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
+        for command in ["launch", "resume"] {
+            assert!(out.stdout.contains(command), "{command}: {out:?}");
+        }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
             assert!(out.stdout.contains(gate), "{gate}: {out:?}");
         }
@@ -900,6 +1051,11 @@ mod tests {
             "release",
             "release pre",
             "release deploy c1",
+            "launch",
+            "resume c1",
+            "resume --g4 ok",
+            "resume c1 --g4 maybe",
+            "resume c1 --g4 ok --note",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -1886,12 +2042,19 @@ mod tests {
     /// G0 open and the red zones approved; change `c1`, which plans `src/a.rs`, checked out on
     /// its branch.
     fn launched_project() -> Project {
+        let commands = "[g2]\nlint = \"true\"\n[release]\nsimulated = true\nbuild = \"true\"\n";
+        launched_with(commands, MODELS)
+    }
+
+    /// The launched project, with the gate commands `commands`, the models `models` and a
+    /// scenario on `main`.
+    fn launched_with(commands: &str, models: &str) -> Project {
         let project = Project::new();
         project.write(RULES, PROTECTED);
         project.write(ZONES, ZONE_MAP);
-        project.write("gdd/models.toml", MODELS);
-        let commands = "[g2]\nlint = \"true\"\n[release]\nsimulated = true\nbuild = \"true\"\n";
+        project.write("gdd/models.toml", models);
         project.write(COMMANDS, commands);
+        project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
         project.write(".gitignore", ".gdd/*\n");
         git(&project, &["init", "-q", "-b", "main"]);
         identify(&project);
@@ -1981,5 +2144,139 @@ mod tests {
         assert!(out.stderr.starts_with(start), "{out:?}");
         // Merge reads its release commands once merged: G3 comes first.
         assert_eq!(project.run("merge c1"), closed);
+    }
+
+    #[test]
+    fn launch_and_resume_say_what_they_refuse() {
+        let project = launched_project();
+        let out = project.run("resume c1 --g4 ok");
+        let not_paused = "error: Change c1 is not paused at G4.\n";
+        assert_eq!(out, Outcome::failure(not_paused.into()));
+        let out = project.run("resume c1 --g4 polish");
+        let polish = "error: polish needs your notes: gdd resume c1 --g4 polish --note ...\n";
+        assert_eq!(out, Outcome::failure(polish.into()));
+        let args = words("resume c1 --g4 ok --note Fine by me");
+        let builder = run_as(&args, &project.0, Some("builder-test"));
+        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
+        assert_eq!(builder, Outcome::failure(refused.into()));
+        git(&project, &["checkout", "-q", "main"]);
+        project.write(ZONES, "default = \"red\"\n");
+        let dirty = "error: The working tree has uncommitted changes. Commit them before \
+                     launching a change.\n";
+        assert_eq!(project.run("launch c1"), Outcome::failure(dirty.into()));
+        assert_eq!(git(&project, &["branch", "--show-current"]), "main");
+    }
+
+    #[test]
+    fn launch_prepares_the_change_then_calls_its_agents() {
+        let project = launched_project();
+        let out = project.run("launch c1");
+        let nameless = "error: gdd/models.toml: the Builder in test mode has no model\n";
+        assert_eq!(out, Outcome::failure(nameless.into()));
+        assert_eq!(record_of(&project, "c1")["state"], "building");
+    }
+
+    const BUILDER_TEST: &str = "[builder_test]\nintegration = \"claude\"\nmodel = \"sonnet\"\n";
+
+    #[test]
+    fn an_agent_that_fails_parks_the_change_and_fails_the_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = launched_project();
+        project.write("gdd/models.toml", &format!("{MODELS}{BUILDER_TEST}"));
+        let wrapper = ".gdd/bin/gdd-claude";
+        project.write(wrapper, "#!/bin/sh\nexit 1\n");
+        let mode = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(project.0.join(wrapper), mode).unwrap();
+        let out = project.run("launch c1");
+        let parked = "Change c1 parked: the Builder in test mode failed (exit 1). Message in \
+                      .gdd/changes/c1/inbox.md\n";
+        assert_eq!(out, Outcome::failure(parked.into()));
+        assert_eq!(record_of(&project, "c1")["state"], "parked");
+        // The work of the earlier run on its branch: committed before the relaunch.
+        let subject = git(&project, &["log", "-1", "--format=%s"]);
+        let relaunch = "gdd(c1): work of the earlier run, before relaunch";
+        assert_eq!(subject, relaunch);
+    }
+
+    /// Gate commands that pass once the Builder writes `src/a.rs`.
+    const RECIPE_COMMANDS: &str = "[g2]\nunit = \"test -f src/a.rs\"\n[g3]\nunit = \"true\"\n\
+                                   [release]\nsimulated = true\n";
+
+    /// One agent for every integration (see [`fake_agents`]).
+    const FAKE_AGENT: &str = r#"#!/bin/sh
+echo "$2" >> "$GDD_ROOT/.gdd/calls"
+case "$2" in
+  /speckit-gdd-build-test*) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
+  /speckit-gdd-build*) mkdir -p src && echo b > src/a.rs ;;
+  *review*) echo 'VERDICT: OK' > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/review.md" ;;
+esac
+"#;
+
+    /// The agents of `project`, one shell script for every integration: test mode writes
+    /// `test_writes`, build mode `src/a.rs`, and the Reviewer says OK. Each call is kept in
+    /// `.gdd/calls`.
+    fn fake_agents(project: &Project, test_writes: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let script = FAKE_AGENT.replace("@TEST@", test_writes);
+        for integration in ["claude", "codex"] {
+            let path = format!(".gdd/bin/gdd-{integration}");
+            project.write(&path, &script);
+            let mode = fs::Permissions::from_mode(0o755);
+            fs::set_permissions(project.0.join(path), mode).unwrap();
+        }
+    }
+
+    #[test]
+    fn launch_runs_the_recipe_to_production() {
+        let models = format!("{MODELS}{BUILDER_TEST}");
+        let project = launched_with(RECIPE_COMMANDS, &models);
+        fake_agents(&project, "tests/t.txt");
+        let out = project.run("launch c1");
+        let closed = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd report \
+                      --change c1\n";
+        assert_eq!(out, Outcome::success(closed.into()));
+        let calls = fs::read_to_string(project.0.join(".gdd/calls")).unwrap();
+        let expected = "/speckit-gdd-build-test change=c1 mode=test\n\
+                        /speckit-gdd-build change=c1 mode=build\n\
+                        $speckit-gdd-review change=c1 round=1\n";
+        assert_eq!(calls, expected);
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "closed");
+        let opened = "automatic chain and Reviewer";
+        assert_eq!(record["gates"]["G3"]["note"], opened);
+        assert_eq!(record["gates"]["G4"]["by"], "machines");
+        for saved in ["g2.json", "g3.json", "snapshot-build.json"] {
+            let path = project.0.join(".gdd/changes/c1").join(saved);
+            assert!(path.is_file(), "{saved}");
+        }
+        let merged = git(&project, &["log", "-1", "--format=%s", "main"]);
+        assert_eq!(merged, "gdd(c1): G3 Merge Gate · App");
+    }
+
+    #[test]
+    fn test_mode_that_writes_the_code_parks_the_change() {
+        let models = format!("{MODELS}{BUILDER_TEST}");
+        let project = launched_with(RECIPE_COMMANDS, &models);
+        fake_agents(&project, "src/x.rs");
+        let out = project.run("launch c1");
+        let parked = "Change c1 parked: Path Guard failed after test mode: src/x.rs: protected \
+                      path for builder-test. Message in .gdd/changes/c1/inbox.md\n";
+        assert_eq!(out, Outcome::failure(parked.into()));
+    }
+
+    #[test]
+    fn resume_answers_g4_with_the_rest_of_the_words_as_the_note() {
+        let project = launched_project();
+        project.write(".gdd/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
+        let out = project.run("resume c1 --g4 ko --note Not what I asked");
+        let rejected = "Change c1 rejected at G4: production untouched.\n";
+        assert_eq!(out, Outcome::success(rejected.into()));
+        let record = record_of(&project, "c1");
+        let g4 = &record["gates"]["G4"];
+        assert_eq!(g4["decision"], "ko");
+        assert_eq!(g4["by"], "human");
+        assert_eq!(g4["note"], "Not what I asked");
+        assert_eq!(record["state"], "rejected");
+        assert!(!project.0.join(".gdd/changes/c1/run.json").exists());
     }
 }

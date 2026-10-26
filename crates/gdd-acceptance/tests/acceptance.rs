@@ -1099,6 +1099,203 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
     );
 }
 
+// ---- features/recipe.feature ---------------------------------------------------------------
+//
+// The agents are shell scripts in `.gdd/bin/` of the temporary project, one per integration. They
+// check how they were started (fixed arguments, project root as working directory, `GDD_CHANGE`
+// and `GDD_ROOT` set, no `GDD_ROLE`), record each call in `.gdd/fake/calls` as `role|model|arguments`
+// and act on what the steps left in `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from
+// <call>`), `build_path`, `replan` and `reviews` (one answer per line, the last one repeats).
+
+const FAKE_AGENT: &str = r##"#!/bin/sh
+integration=@INTEGRATION@
+[ -n "$GDD_ROOT" ] || exit 90
+[ -n "$GDD_CHANGE" ] || exit 91
+[ -z "${GDD_ROLE+x}" ] || exit 92
+[ "$(pwd -P)" = "$(cd "$GDD_ROOT" && pwd -P)" ] || exit 93
+case "$integration" in
+claude)
+  [ "$#" = 6 ] && [ "$1" = -p ] && [ "$3" = --model ] && [ "$5" = --output-format ] && [ "$6" = json ] || exit 94
+  cmd=${2#/speckit-gdd-}
+  model=$4
+  ;;
+codex)
+  [ "$#" = 5 ] && [ "$1" = exec ] && [ "$3" = --model ] && [ "$5" = --json ] || exit 94
+  cmd=${2#'$speckit-gdd-'}
+  model=$4
+  ;;
+opencode)
+  [ "$#" = 8 ] && [ "$1" = run ] && [ "$2" = --command ] && [ "$4" = -m ] && [ "$6" = --format ] && [ "$7" = json ] || exit 94
+  cmd=${3#speckit.gdd.}
+  model=$5
+  args=$8
+  ;;
+esac
+if [ "$integration" != opencode ]; then
+  args=${cmd#* }
+  [ "$args" != "$cmd" ] || exit 95
+  cmd=${cmd%% *}
+fi
+case "$cmd" in
+  build-test) role=builder-test ;;
+  build) role=builder-build ;;
+  review) role=reviewer ;;
+  replan) role=orchestrator ;;
+  *) exit 96 ;;
+esac
+fake="$GDD_ROOT/.gdd/fake"
+mkdir -p "$fake"
+echo "$role|$model|$args" >> "$fake/calls"
+n=$(grep -c "^$role|" "$fake/calls")
+case "$role" in
+  builder-test)
+    mkdir -p tests/steps
+    echo "$n" > tests/steps/app.txt
+    ;;
+  builder-build)
+    mode=default
+    [ -f "$fake/build" ] && mode=$(cat "$fake/build")
+    path=src/app.txt
+    [ -f "$fake/build_path" ] && path=$(cat "$fake/build_path")
+    write=yes
+    case "$mode" in
+      nothing) write=no ;;
+      never)
+        sleep 1000 &
+        echo $! >> "$fake/pids"
+        echo $$ >> "$fake/pids"
+        wait
+        write=no
+        ;;
+      from\ *) [ "$n" -ge "${mode#from }" ] || write=no ;;
+    esac
+    if [ "$write" = yes ]; then
+      mkdir -p "$(dirname "$path")"
+      echo "$n" > "$path"
+    fi
+    ;;
+  reviewer)
+    answer="VERDICT: OK"
+    if [ -f "$fake/reviews" ]; then
+      answer=$(sed -n "${n}p" "$fake/reviews")
+      [ -n "$answer" ] || answer=$(tail -n 1 "$fake/reviews")
+    fi
+    mkdir -p "$GDD_ROOT/.gdd/changes/$GDD_CHANGE"
+    printf '%s\n' "$answer" > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/review.md"
+    ;;
+  orchestrator)
+    answer="NEXT: build"
+    [ -f "$fake/replan" ] && answer=$(cat "$fake/replan")
+    mkdir -p "$GDD_ROOT/.gdd/changes/$GDD_CHANGE"
+    printf '%s\n' "$answer" > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/replan.md"
+    ;;
+esac
+echo '{"result":"ok"}'
+exit 0
+"##;
+
+fn fake_file(w: &mut GddWorld, name: &str, content: &str) {
+    let path = project_root(w).join(".gdd/fake").join(name);
+    write_file(&path, content);
+}
+
+#[given("the agents are fakes")]
+fn agents_are_fakes(w: &mut GddWorld) {
+    use std::os::unix::fs::PermissionsExt;
+    let root = project_root(w);
+    for integration in ["claude", "codex", "opencode"] {
+        let path = root.join(format!(".gdd/bin/gdd-{integration}"));
+        write_file(&path, &FAKE_AGENT.replace("@INTEGRATION@", integration));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("an executable");
+    }
+}
+
+#[given("the Builder in build mode writes nothing")]
+fn builder_writes_nothing(w: &mut GddWorld) {
+    fake_file(w, "build", "nothing");
+}
+
+#[given("the Builder in build mode never answers")]
+fn builder_never_answers(w: &mut GddWorld) {
+    fake_file(w, "build", "never");
+}
+
+#[given(expr = "the Builder in build mode writes {string} from call {int}")]
+fn builder_writes_from(w: &mut GddWorld, path: String, call: usize) {
+    fake_file(w, "build_path", &path);
+    fake_file(w, "build", &format!("from {call}"));
+}
+
+#[given(expr = "the replan answers {string}")]
+fn replan_answers(w: &mut GddWorld, answer: String) {
+    fake_file(w, "replan", &answer);
+}
+
+#[given(expr = "the Reviewer answers {string} and then {string}")]
+fn reviewer_answers_then(w: &mut GddWorld, first: String, second: String) {
+    fake_file(w, "reviews", &format!("{first}\n{second}\n"));
+}
+
+#[given(expr = "the Reviewer answers {string} every time")]
+fn reviewer_answers_always(w: &mut GddWorld, answer: String) {
+    fake_file(w, "reviews", &format!("{answer}\n"));
+}
+
+#[given(expr = "the agent time limit is {int} seconds")]
+fn agent_time_limit(w: &mut GddWorld, seconds: u64) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    assert!(!rules.contains("[limits]"), "the rules already have limits");
+    write_file(
+        &path,
+        &format!("{rules}\n[limits]\nagent_timeout_s = {seconds}\n"),
+    );
+    // Harness state from before the change: committed, so the working tree stays clean.
+    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["commit", "-q", "-m", "agent time limit"]);
+}
+
+#[then("the agents were called in this order:")]
+fn agents_called_in_order(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let table = step.table.as_ref().expect("a table of calls");
+    let expected: Vec<String> = table
+        .rows
+        .iter()
+        .skip(1)
+        .map(|row| {
+            let cells: Vec<&str> = row.iter().map(|c| c.trim()).collect();
+            cells.join("|")
+        })
+        .collect();
+    let calls = fs::read_to_string(project_root(w).join(".gdd/fake/calls")).unwrap_or_default();
+    let actual: Vec<String> = calls.lines().map(str::to_string).collect();
+    assert_eq!(actual, expected, "the calls the agents recorded");
+}
+
+/// Whether process `pid` is gone (or a zombie that only waits to be collected).
+fn process_is_gone(pid: &str) -> bool {
+    match fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Err(_) => true,
+        Ok(stat) => {
+            stat.rsplit_once(')')
+                .and_then(|(_, rest)| rest.split_whitespace().next())
+                == Some("Z")
+        }
+    }
+}
+
+#[then("no process the agent started is still running")]
+fn no_agent_process_left(w: &mut GddWorld) {
+    let pids = fs::read_to_string(project_root(w).join(".gdd/fake/pids"))
+        .expect("the agent recorded the processes it started");
+    let pids: Vec<&str> = pids.split_whitespace().collect();
+    assert!(!pids.is_empty(), "the agent recorded no process");
+    for pid in pids {
+        assert!(process_is_gone(pid), "process {pid} is still running");
+    }
+}
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
