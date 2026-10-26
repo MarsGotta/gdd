@@ -434,6 +434,19 @@ mod tests {
     }
 
     #[test]
+    fn install_says_why_it_cannot_take_the_place_of_a_folder() {
+        let folder = Folder::new();
+        let build = ".claude/skills/gdd-build/SKILL.md";
+        folder.write(&format!("{build}/notes.md"), "mine\n");
+        let said = install(&folder.0, &[sheet("claude")]).unwrap_err();
+        // The reason is the folder that cannot be removed, not the file that cannot be made.
+        let why = fs::remove_file(folder.0.join(build)).unwrap_err();
+        assert_eq!(said, format!("cannot write {build}: {why}"));
+        let notes = fs::read_to_string(folder.0.join(build).join("notes.md")).unwrap();
+        assert_eq!(notes, "mine\n");
+    }
+
+    #[test]
     fn install_writes_nothing_outside_the_project_through_a_linked_folder() {
         let (folder, outside) = (Folder::new(), Folder::new());
         link(&folder, ".agents", &outside.0);
