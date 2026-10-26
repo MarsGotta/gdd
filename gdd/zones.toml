@@ -40,6 +40,11 @@ reason = "Secrets and permissions when launching agents"
 
 [[zone]]
 color = "red"
+paths = ["crates/gdd-core/src/recipe/**"]
+reason = "The recipe: which gates run, in what order, and when a change stops for the human"
+
+[[zone]]
+color = "red"
 paths = ["crates/gdd-core/src/exec.rs"]
 reason = "Shell execution: agent text must never reach a command"
 
