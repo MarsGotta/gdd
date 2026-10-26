@@ -463,6 +463,23 @@ fn change_started(w: &mut GddWorld, id: String, text: String) {
     write_record(&root, &id, &record);
 }
 
+#[given(regex = r#"^the change "([^"]+)" plans (.*) and its build has not started$"#)]
+fn change_not_started(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let paths = parse_change(&text).paths;
+    let record = serde_json::json!({
+        "id": id,
+        "title": id,
+        "paths": paths,
+        "resumable": false,
+        "min_color": null,
+        "state": "open",
+        "gates": {},
+        "inbox": [],
+    });
+    write_record(&root, &id, &record);
+}
+
 #[given(expr = "the scenario {string} was approved in G1")]
 fn scenario_approved(w: &mut GddWorld, file: String) {
     let root = project_root(w);
@@ -505,6 +522,12 @@ fn change_modifies(w: &mut GddWorld, path: String) {
     let root = project_root(w);
     assert!(root.join(&path).is_file(), "{path} should exist already");
     touch(&root, &path);
+}
+
+#[when(expr = "the change deletes {string}")]
+fn change_deletes(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    std::fs::remove_file(root.join(&path)).expect("the file to delete exists");
 }
 
 #[when(expr = "the change commits {string}")]
