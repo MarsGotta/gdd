@@ -1,7 +1,7 @@
 //! Starting an agent of the recipe: always the wrapper of its integration,
-//! `<root>/.gdd/bin/gdd-<integration>`, with fixed arguments and never through a shell, from the
-//! project root, with `GDD_CHANGE` and `GDD_ROOT` and without `GDD_ROLE`. The wrapper logs and
-//! keeps what the agent says; the tool prints none of it.
+//! `<root>/.gdd/bin/gdd-<integration>`, with the arguments its agent sheet says and never through
+//! a shell, from the project root, with `GDD_CHANGE` and `GDD_ROOT` and without `GDD_ROLE`. The
+//! wrapper logs and keeps what the agent says; the tool prints none of it.
 //!
 //! Each call runs in a process group of its own and has a time limit: when it runs out, the whole
 //! group is killed, never a process read from a file. The file where the Reviewer or the replan
@@ -18,15 +18,13 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::agents::models::{self, Model};
+use crate::agents::models::{self, Model, Roles};
+use crate::agents::sheets::{self, Sheet};
 use crate::exec;
 use crate::gates::verdict;
 
 /// How often a running agent is checked.
 const POLL: Duration = Duration::from_millis(50);
-
-/// The integrations the tool starts, as the error of another one says.
-const INTEGRATIONS: &str = "use claude, codex or opencode";
 
 /// Who the recipe calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +40,7 @@ pub enum Who {
 }
 
 impl Who {
-    /// The command of the method it runs: `speckit-gdd-<command>`.
+    /// The GDD command it runs, `gdd-<command>` in every agent.
     fn command(self) -> &'static str {
         match self {
             Who::BuilderTest => "build-test",
@@ -123,51 +121,47 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The wrapper that starts `call` on change `id`, from the project root, and its arguments, by
-/// integration:
-/// `claude -p "/speckit-gdd-<cmd> change=<id> <args>" --model <m> --output-format json`,
-/// `codex exec "$speckit-gdd-<cmd> change=<id> <args>" --model <m> --json`, or
-/// `opencode run --command speckit.gdd.<cmd> -m <m> --format json "change=<id> <args>"`.
-fn command_line(call: &Call, id: &str) -> Result<(String, Vec<String>), Error> {
-    let table = call.model;
-    let text = |key| table.get(key).and_then(Value::as_str).unwrap_or_default();
-    let (integration, model) = (text("integration"), text("model").to_string());
-    if model.is_empty() {
-        return Err(Error::Model(call.who, "has no model".to_string()));
+/// Checks that the model of each role in `roles` can be started (see [`command_line`]), in the
+/// order Orchestrator, Builder, Builder in test mode, Reviewer: the recipe does it before
+/// anything runs.
+pub fn check(roles: &Roles) -> Result<(), Error> {
+    let each = [
+        (Who::Orchestrator, &roles.orchestrator),
+        (Who::BuilderBuild, &roles.builder),
+        (Who::BuilderTest, &roles.builder_test),
+        (Who::Reviewer, &roles.reviewer_model),
+    ];
+    for (who, model) in each {
+        startable(who, model)?;
     }
-    let cmd = call.who.command();
+    Ok(())
+}
+
+/// The integration of `model`, the model of `who`, its agent sheet and its model name. A model
+/// without a name, or whose integration has no sheet, cannot be started.
+fn startable(who: Who, model: &Model) -> Result<(&str, Sheet, &str), Error> {
+    let text = |key| model.get(key).and_then(Value::as_str).unwrap_or_default();
+    let (integration, name) = (text("integration"), text("model"));
+    if name.is_empty() {
+        return Err(Error::Model(who, "has no model".to_string()));
+    }
+    let sheet = sheets::sheet(integration).map_err(|e| {
+        let why = match e {
+            sheets::Error::Missing(_) => format!(", which has no agent sheet ({})", sheets::NAMES),
+            invalid @ sheets::Error::Invalid(..) => format!(": {invalid}"),
+        };
+        Error::Model(who, format!("uses {integration:?}{why}"))
+    })?;
+    Ok((integration, sheet, name))
+}
+
+/// The wrapper that starts `call` on change `id`, from the project root, and its arguments: the
+/// `launch.args` of the sheet of its integration (see [`Sheet::launch`]) for its command, with
+/// `change=<id> <args>` as the words of the command.
+fn command_line(call: &Call, id: &str) -> Result<(String, Vec<String>), Error> {
+    let (integration, sheet, model) = startable(call.who, call.model)?;
     let words = format!("change={id} {}", call.args);
-    let args = match integration {
-        "claude" => vec![
-            "-p".to_string(),
-            format!("/speckit-gdd-{cmd} {words}"),
-            "--model".to_string(),
-            model,
-            "--output-format".to_string(),
-            "json".to_string(),
-        ],
-        "codex" => vec![
-            "exec".to_string(),
-            format!("$speckit-gdd-{cmd} {words}"),
-            "--model".to_string(),
-            model,
-            "--json".to_string(),
-        ],
-        "opencode" => vec![
-            "run".to_string(),
-            "--command".to_string(),
-            format!("speckit.gdd.{cmd}"),
-            "-m".to_string(),
-            model,
-            "--format".to_string(),
-            "json".to_string(),
-            words,
-        ],
-        other => {
-            let why = format!("has the integration {other:?}: {INTEGRATIONS}");
-            return Err(Error::Model(call.who, why));
-        }
-    };
+    let args = sheet.launch(call.who.command(), &words, model);
     Ok((format!(".gdd/bin/gdd-{integration}"), args))
 }
 
@@ -251,12 +245,12 @@ mod tests {
     }
 
     #[test]
-    fn each_integration_gets_its_fixed_arguments() {
+    fn each_integration_is_started_as_its_sheet_says() {
         let (program, args) = line(Who::BuilderBuild, "claude", "mode=build fix=g3");
         assert_eq!(program, ".gdd/bin/gdd-claude");
         let expected = [
             "-p",
-            "/speckit-gdd-build change=c1 mode=build fix=g3",
+            "/gdd-build change=c1 mode=build fix=g3",
             "--model",
             "m-1",
             "--output-format",
@@ -267,7 +261,7 @@ mod tests {
         assert_eq!(program, ".gdd/bin/gdd-codex");
         let expected = [
             "exec",
-            "$speckit-gdd-review change=c1 round=2",
+            "$gdd-review change=c1 round=2",
             "--model",
             "m-1",
             "--json",
@@ -278,7 +272,7 @@ mod tests {
         let expected = [
             "run",
             "--command",
-            "speckit.gdd.replan",
+            "gdd-replan",
             "-m",
             "m-1",
             "--format",
@@ -287,17 +281,23 @@ mod tests {
         ];
         assert_eq!(args, expected);
         let (_, args) = line(Who::BuilderTest, "claude", "mode=test");
-        assert_eq!(args[1], "/speckit-gdd-build-test change=c1 mode=test");
+        assert_eq!(args[1], "/gdd-build-test change=c1 mode=test");
     }
 
     #[test]
     fn a_model_that_cannot_be_started_names_the_role() {
-        let gemini = "gdd/models.toml: the Reviewer has the integration \"gemini\": use \
-                      claude, codex or opencode";
+        let gemini = "gdd/models.toml: the Reviewer uses \"gemini\", which has no agent sheet \
+                      (claude, codex, opencode)";
         let nameless = "gdd/models.toml: the Reviewer has no model";
+        let none = "gdd/models.toml: the Reviewer uses \"\", which has no agent sheet (claude, \
+                    codex, opencode)";
+        let mut number = model("claude", "x");
+        number.insert("integration".into(), 7.into());
         for (table, why) in [
             (model("claude", ""), nameless),
             (model("gemini", "g"), gemini),
+            (model("", "g"), none),
+            (number, none),
             (Model::new(), nameless),
         ] {
             let call = Call {
@@ -309,6 +309,40 @@ mod tests {
             assert!(!err.parks());
             assert_eq!(err.to_string(), why);
         }
+    }
+
+    /// Roles whose models are all `claude` `m-1`.
+    fn roles() -> Roles {
+        Roles {
+            builder: model("claude", "m-1"),
+            builder_test: model("claude", "m-1"),
+            reviewer_model: model("claude", "m-1"),
+            orchestrator: model("claude", "m-1"),
+        }
+    }
+
+    #[test]
+    fn every_role_must_be_startable_before_anything_runs() {
+        assert!(check(&roles()).is_ok());
+        let said = |all: &Roles| check(all).unwrap_err().to_string();
+        let mut one = roles();
+        one.orchestrator = model("gemini", "g");
+        let gemini = "gdd/models.toml: the Orchestrator uses \"gemini\", which has no agent \
+                      sheet (claude, codex, opencode)";
+        assert_eq!(said(&one), gemini);
+        let start = |who: Who| format!("gdd/models.toml: the {who} uses \"gemini\"");
+        let mut one = roles();
+        one.builder = model("gemini", "g");
+        assert!(said(&one).starts_with(&start(Who::BuilderBuild)));
+        let mut one = roles();
+        one.builder_test = model("gemini", "g");
+        assert!(said(&one).starts_with(&start(Who::BuilderTest)));
+        // The first role that cannot be started is the one named.
+        one.reviewer_model = model("gemini", "g");
+        assert!(said(&one).starts_with(&start(Who::BuilderTest)));
+        let mut one = roles();
+        one.reviewer_model = Model::new();
+        assert_eq!(said(&one), "gdd/models.toml: the Reviewer has no model");
     }
 
     #[test]
@@ -363,7 +397,7 @@ mod tests {
         let seen = fs::read_to_string(folder.0.join("seen")).unwrap();
         let cwd = fs::canonicalize(&folder.0).unwrap();
         let (cwd, root) = (cwd.display(), folder.0.display());
-        let args = "-p;/speckit-gdd-build change=c1 round=1;--model;opus;--output-format;json;";
+        let args = "-p;/gdd-build change=c1 round=1;--model;opus;--output-format;json;";
         let expected = format!("{cwd}\nc1|{root}|unset\n{args}");
         assert_eq!(seen.trim_end(), expected);
     }

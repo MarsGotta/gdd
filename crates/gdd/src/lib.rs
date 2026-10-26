@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use gdd_core::agents::{self, Limits, invoke, models::Models, models::Roles};
+use gdd_core::agents::{
+    self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet,
+};
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::classify_with;
 use gdd_core::gates::{self, Gate, approve, prepare, release};
@@ -205,6 +207,30 @@ enum Command {
     /// polish runs one more Builder round with your notes and pauses at G4 again. Builders and
     /// Reviewers cannot answer.
     Resume(ResumeArgs),
+    /// The GDD commands in the folders of the coding agents (claude, codex, opencode), as their
+    /// agent sheets say.
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
+}
+
+/// What `gdd agents` does.
+#[derive(Debug, Subcommand)]
+enum AgentsAction {
+    /// Writes every GDD command for each agent, and no other file. Prints the paths as JSON.
+    Install(AgentArgs),
+    /// Checks that each GDD command of each agent is exactly what install writes; names every
+    /// file missing or edited, and exits with 1.
+    Check(AgentArgs),
+}
+
+/// What `gdd agents install` and `gdd agents check` take.
+#[derive(Debug, Args)]
+struct AgentArgs {
+    /// The agents; without it, the integrations of gdd/models.toml.
+    #[arg(long = "agent", num_args = 1..)]
+    agents: Vec<String>,
 }
 
 /// What `gdd g2` and `gdd g3` take.
@@ -311,6 +337,7 @@ impl Command {
             }
             Command::Launch { change } => return launch(root, &change).map(Outcome::said),
             Command::Resume(args) => return resume(root, &args, role).map(Outcome::said),
+            Command::Agents { action } => return agent_commands(root, &action),
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change)?,
             Command::Guard {
@@ -350,7 +377,7 @@ pub fn run(args: &[String], cwd: &Path) -> Outcome {
 /// Help and version go to the standard output; every error goes to the standard error, with
 /// exit code 1. `gdd guard --strict` also exits with 1 when Path Guard fails, and
 /// `gdd g2 --strict` and `gdd g3 --strict` when the gate fails. `gdd park` always exits with 1,
-/// its message on the standard error.
+/// its message on the standard error, and `gdd agents check` when it finds a problem.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
     let cli = match Cli::try_parse_from(words) {
@@ -542,7 +569,11 @@ impl GateConfig {
 /// `gdd prepare`: checks that change `id` may enter Build and starts it (see
 /// [`prepare::prepare`]).
 fn prepare_change(root: &Path, id: &str) -> Result<String, String> {
-    let decided = decide(root, id)?;
+    prepare_decided(root, id, &decide(root, id)?)
+}
+
+/// Prepares change `id`, for which the tool decided `decided` (see [`prepare_change`]).
+fn prepare_decided(root: &Path, id: &str, decided: &Decided) -> Result<String, String> {
     let config = GateConfig::load(root)?;
     let project = config.project(root);
     let zones = read(root, ZONES)?.unwrap_or_default();
@@ -610,6 +641,37 @@ fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>) -> Result<Said, St
     recipe::resume(&project, id, answer, &note, role, &mut steps)
 }
 
+/// `gdd agents install` and `gdd agents check` (see [`render::install`] and [`render::check`]):
+/// each problem check finds goes on a line of its own on the standard error, and fails the run.
+fn agent_commands(root: &Path, action: &AgentsAction) -> Result<Outcome, String> {
+    match action {
+        AgentsAction::Install(args) => {
+            let written = render::install(root, &agent_sheets(root, &args.agents)?)?;
+            let printed = serde_json::json!({"ok": true, "written": written});
+            Ok(Outcome::printed(printed.to_string(), 0))
+        }
+        AgentsAction::Check(args) => {
+            let problems = render::check(root, &agent_sheets(root, &args.agents)?)?;
+            if problems.is_empty() {
+                return Ok(Outcome::printed(r#"{"ok":true}"#.to_string(), 0));
+            }
+            let lines = problems.iter().map(|line| format!("error: {line}\n"));
+            Ok(Outcome::failure(lines.collect()))
+        }
+    }
+}
+
+/// The sheets of the agents `gdd agents` works on (see [`render::agents`]): the models of the
+/// project count only when no agent is `named`.
+fn agent_sheets(root: &Path, named: &[String]) -> Result<Vec<Sheet>, String> {
+    let models = if named.is_empty() {
+        load_models(root)?
+    } else {
+        Models::default()
+    };
+    render::agents(&models, named)
+}
+
 /// The steps of the recipe on change `id` of the project at `root`, as the commands of the same
 /// name run them: each reads the configuration as it is when it runs.
 struct ProjectSteps<'a> {
@@ -628,8 +690,11 @@ impl<'a> ProjectSteps<'a> {
 }
 
 impl recipe::Steps for ProjectSteps<'_> {
+    /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let printed = prepare_change(self.root, self.id)?;
+        let decided = decide(self.root, self.id)?;
+        invoke::check(&decided.roles).map_err(|e| e.to_string())?;
+        let printed = prepare_decided(self.root, self.id, &decided)?;
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
@@ -1011,7 +1076,7 @@ mod tests {
         for command in ["prepare", "park", "merge", "release"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
-        for command in ["launch", "resume"] {
+        for command in ["launch", "resume", "agents"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
@@ -1056,6 +1121,9 @@ mod tests {
             "resume --g4 ok",
             "resume c1 --g4 maybe",
             "resume c1 --g4 ok --note",
+            "agents remove",
+            "agents install --agent",
+            "agents check claude",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -2167,22 +2235,33 @@ mod tests {
         assert_eq!(git(&project, &["branch", "--show-current"]), "main");
     }
 
-    #[test]
-    fn launch_prepares_the_change_then_calls_its_agents() {
-        let project = launched_project();
-        let out = project.run("launch c1");
-        let nameless = "error: gdd/models.toml: the Builder in test mode has no model\n";
-        assert_eq!(out, Outcome::failure(nameless.into()));
-        assert_eq!(record_of(&project, "c1")["state"], "building");
-    }
+    /// The roles `MODELS` lacks: the Builder in test mode and the Orchestrator.
+    const MORE_ROLES: &str = "[builder_test]\nintegration = \"claude\"\nmodel = \"sonnet\"\n\
+                              [orchestrator]\nintegration = \"claude\"\nmodel = \"opus\"\n";
 
-    const BUILDER_TEST: &str = "[builder_test]\nintegration = \"claude\"\nmodel = \"sonnet\"\n";
+    #[test]
+    fn launch_starts_nothing_until_every_role_can_be_started() {
+        let project = launched_project();
+        let before = record_of(&project, "c1")["state"].clone();
+        let out = project.run("launch c1");
+        let nameless = "error: gdd/models.toml: the Orchestrator has no model\n";
+        assert_eq!(out, Outcome::failure(nameless.into()));
+        assert_eq!(record_of(&project, "c1")["state"], before);
+        let gemini = MODELS.replace("\"codex\"", "\"gemini\"");
+        project.write("gdd/models.toml", &format!("{gemini}{MORE_ROLES}"));
+        git(&project, &["commit", "-q", "-am", "gemini"]);
+        let out = project.run("launch c1");
+        let no_sheet = "error: gdd/models.toml: the Reviewer uses \"gemini\", which has no agent \
+                        sheet (claude, codex, opencode)\n";
+        assert_eq!(out, Outcome::failure(no_sheet.into()));
+        assert_eq!(record_of(&project, "c1")["state"], before);
+    }
 
     #[test]
     fn an_agent_that_fails_parks_the_change_and_fails_the_run() {
         use std::os::unix::fs::PermissionsExt;
         let project = launched_project();
-        project.write("gdd/models.toml", &format!("{MODELS}{BUILDER_TEST}"));
+        project.write("gdd/models.toml", &format!("{MODELS}{MORE_ROLES}"));
         let wrapper = ".gdd/bin/gdd-claude";
         project.write(wrapper, "#!/bin/sh\nexit 1\n");
         let mode = fs::Permissions::from_mode(0o755);
@@ -2206,8 +2285,8 @@ mod tests {
     const FAKE_AGENT: &str = r#"#!/bin/sh
 echo "$2" >> "$GDD_ROOT/.gdd/calls"
 case "$2" in
-  /speckit-gdd-build-test*) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
-  /speckit-gdd-build*) mkdir -p src && echo b > src/a.rs ;;
+  /gdd-build-test*) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
+  /gdd-build*) mkdir -p src && echo b > src/a.rs ;;
   *review*) echo 'VERDICT: OK' > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/review.md" ;;
 esac
 "#;
@@ -2228,7 +2307,7 @@ esac
 
     #[test]
     fn launch_runs_the_recipe_to_production() {
-        let models = format!("{MODELS}{BUILDER_TEST}");
+        let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
         fake_agents(&project, "tests/t.txt");
         let out = project.run("launch c1");
@@ -2236,9 +2315,9 @@ esac
                       --change c1\n";
         assert_eq!(out, Outcome::success(closed.into()));
         let calls = fs::read_to_string(project.0.join(".gdd/calls")).unwrap();
-        let expected = "/speckit-gdd-build-test change=c1 mode=test\n\
-                        /speckit-gdd-build change=c1 mode=build\n\
-                        $speckit-gdd-review change=c1 round=1\n";
+        let expected = "/gdd-build-test change=c1 mode=test\n\
+                        /gdd-build change=c1 mode=build\n\
+                        $gdd-review change=c1 round=1\n";
         assert_eq!(calls, expected);
         let record = record_of(&project, "c1");
         assert_eq!(record["state"], "closed");
@@ -2255,7 +2334,7 @@ esac
 
     #[test]
     fn test_mode_that_writes_the_code_parks_the_change() {
-        let models = format!("{MODELS}{BUILDER_TEST}");
+        let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
         fake_agents(&project, "src/x.rs");
         let out = project.run("launch c1");
@@ -2278,5 +2357,68 @@ esac
         assert_eq!(g4["note"], "Not what I asked");
         assert_eq!(record["state"], "rejected");
         assert!(!project.0.join(".gdd/changes/c1/run.json").exists());
+    }
+
+    /// The paths `gdd agents install` said it wrote.
+    fn written(out: &Outcome) -> Vec<String> {
+        serde_json::from_value(json(out)["written"].clone()).unwrap()
+    }
+
+    #[test]
+    fn agents_install_writes_the_commands_and_check_names_what_changed() {
+        let project = Project::new();
+        project.write("gdd/models.toml", MODELS);
+        let out = project.run("agents install");
+        let start = "{\"ok\":true,\"written\":[\".claude/skills/gdd-build/SKILL.md\",";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        let paths = written(&out);
+        assert_eq!(paths.len(), 22);
+        assert_eq!(paths[11], ".agents/skills/gdd-build/SKILL.md");
+        assert!(paths.iter().all(|path| project.0.join(path).is_file()));
+        let ok = Outcome::success("{\"ok\":true}\n".into());
+        assert_eq!(project.run("agents check"), ok);
+        let build = ".claude/skills/gdd-build/SKILL.md";
+        project.write(build, "edited\n");
+        let review = ".agents/skills/gdd-review/SKILL.md";
+        fs::remove_file(project.0.join(review)).unwrap();
+        let differs = format!("error: {build}: differs from what gdd writes\n");
+        let missing = format!("error: {review}: missing\n");
+        let both = Outcome::failure(format!("{differs}{missing}"));
+        assert_eq!(project.run("agents check"), both);
+        let out = project.run("agents check --agent codex");
+        assert_eq!(out, Outcome::failure(missing));
+        let out = project.run("agents install --agent opencode --agent codex opencode");
+        let paths = written(&out);
+        assert_eq!(paths.len(), 22);
+        assert_eq!(paths[0], ".opencode/commands/gdd-build.md");
+        assert_eq!(project.run("agents check --agent codex"), ok);
+    }
+
+    #[test]
+    fn agents_need_a_sheet_and_someone_to_name_them() {
+        let project = Project::new();
+        let none = "error: gdd/models.toml names no agent: name one with --agent (claude, codex, \
+                    opencode)\n";
+        for command in ["agents install", "agents check"] {
+            let out = project.run(command);
+            assert_eq!(out, Outcome::failure(none.into()), "{command}");
+        }
+        let gemini = "error: no agent sheet for \"gemini\" (sheets: claude, codex, opencode)\n";
+        for command in [
+            "agents install --agent gemini",
+            "agents install --agent claude gemini",
+            "agents check --agent gemini",
+        ] {
+            let out = project.run(command);
+            assert_eq!(out, Outcome::failure(gemini.into()), "{command}");
+        }
+        assert!(!project.0.join(".claude").exists());
+        // The models count only when no agent is named.
+        project.write("gdd/models.toml", "[reviewer\n");
+        let out = project.run("agents check");
+        let start = "error: gdd/models.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        let out = project.run("agents install --agent claude");
+        assert_eq!(written(&out).len(), 11);
     }
 }

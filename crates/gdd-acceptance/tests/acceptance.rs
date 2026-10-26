@@ -1028,6 +1028,13 @@ fn reviewer_is(w: &mut GddWorld, integration: String, model: String) {
     assert!(w.models.contains("[reviewer]"), "no reviewer to change");
     let models = with_reviewer(&w.models, &integration, &model);
     write_file(&root.join("gdd/models.toml"), &models);
+    // Harness state, as in the Background: when the project is committed already, commit it too.
+    let changed = git(&root, &["status", "--porcelain", "--", "gdd/models.toml"]);
+    let known = git(&root, &["log", "--oneline", "-1", "--", "gdd/models.toml"]);
+    if !changed.trim().is_empty() && !known.trim().is_empty() {
+        git(&root, &["add", "--", "gdd/models.toml"]);
+        git(&root, &["commit", "-q", "-m", "reviewer model"]);
+    }
 }
 
 #[given("the Setup is done")]
@@ -1081,6 +1088,27 @@ fn file_contains(w: &mut GddWorld, path: String, text: String) {
     assert!(content.contains(&text), "{path} lacks {text:?}: {content}");
 }
 
+#[given(expr = "the file {string} says {string}")]
+fn file_says(w: &mut GddWorld, path: String, text: String) {
+    let root = project_root(w);
+    write_file(&root.join(&path), &format!("{text}\n"));
+}
+
+#[then(expr = "the file {string} does not exist")]
+fn file_does_not_exist(w: &mut GddWorld, path: String) {
+    assert!(
+        !project_root(w).join(&path).exists(),
+        "{path} exists, and it should not"
+    );
+}
+
+#[then(expr = "agent call {int} was {string}")]
+fn agent_call_was(w: &mut GddWorld, number: usize, arguments: String) {
+    let calls = fs::read_to_string(project_root(w).join(".gdd/fake/argv")).unwrap_or_default();
+    let call = calls.lines().nth(number.saturating_sub(1));
+    assert_eq!(call, Some(arguments.as_str()), "the calls were:\n{calls}");
+}
+
 #[then(expr = "the branch {string} holds {string}")]
 fn branch_holds(w: &mut GddWorld, branch: String, path: String) {
     // `git` fails the step when the branch has no such file.
@@ -1116,21 +1144,23 @@ integration=@INTEGRATION@
 case "$integration" in
 claude)
   [ "$#" = 6 ] && [ "$1" = -p ] && [ "$3" = --model ] && [ "$5" = --output-format ] && [ "$6" = json ] || exit 94
-  cmd=${2#/speckit-gdd-}
+  cmd=${2#/gdd-}
   model=$4
   ;;
 codex)
   [ "$#" = 5 ] && [ "$1" = exec ] && [ "$3" = --model ] && [ "$5" = --json ] || exit 94
-  cmd=${2#'$speckit-gdd-'}
+  cmd=${2#'$gdd-'}
   model=$4
   ;;
 opencode)
   [ "$#" = 8 ] && [ "$1" = run ] && [ "$2" = --command ] && [ "$4" = -m ] && [ "$6" = --format ] && [ "$7" = json ] || exit 94
-  cmd=${3#speckit.gdd.}
+  cmd=${3#gdd-}
   model=$5
   args=$8
   ;;
 esac
+mkdir -p "$GDD_ROOT/.gdd/fake"
+echo "$*" >> "$GDD_ROOT/.gdd/fake/argv"
 if [ "$integration" != opencode ]; then
   args=${cmd#* }
   [ "$args" != "$cmd" ] || exit 95

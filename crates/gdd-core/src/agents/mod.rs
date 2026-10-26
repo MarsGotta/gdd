@@ -1,8 +1,11 @@
-//! The coding agents that carry a change: which model plays each role ([`models`]), how the
-//! recipe starts them ([`invoke`]), and the limits the rules file sets on them.
+//! The coding agents that carry a change: which model plays each role ([`models`]), what each
+//! agent is like ([`sheets`]), the GDD commands in their folders ([`render`]), how the recipe
+//! starts them ([`invoke`]), and the limits the rules file sets on them.
 
 pub mod invoke;
 pub mod models;
+pub mod render;
+pub mod sheets;
 
 use serde::Deserialize;
 
