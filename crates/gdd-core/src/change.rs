@@ -25,6 +25,28 @@ pub fn snapshot_path(id: &str) -> String {
     format!(".gdd/changes/{id}/snapshot.json")
 }
 
+/// Where the snapshot taken after the test mode of change `id` lives, from the project root:
+/// build mode is judged from it.
+pub fn build_snapshot_path(id: &str) -> String {
+    format!(".gdd/changes/{id}/snapshot-build.json")
+}
+
+/// The record `text` with `accepted`, the paths outside the plan the scope check accepted, as
+/// its `out_of_scope`; `None` when there is nothing to write: nothing accepted, or the record
+/// says it already. The other fields keep their values.
+pub fn with_out_of_scope(
+    text: &str,
+    accepted: &[String],
+) -> Result<Option<String>, serde_json::Error> {
+    let mut record: serde_json::Map<String, serde_json::Value> = serde_json::from_str(text)?;
+    let paths = serde_json::Value::from(accepted);
+    if accepted.is_empty() || record.get("out_of_scope") == Some(&paths) {
+        return Ok(None);
+    }
+    record.insert("out_of_scope".to_string(), paths);
+    serde_json::to_string_pretty(&record).map(|text| Some(format!("{text}\n")))
+}
+
 /// The git branch of change `id`.
 pub fn branch(id: &str) -> String {
     format!("change/{id}")
@@ -138,7 +160,39 @@ mod tests {
     fn the_files_of_a_change_live_in_its_folder_and_its_work_on_its_branch() {
         assert_eq!(record_path("save"), ".gdd/changes/save/change.json");
         assert_eq!(snapshot_path("save"), ".gdd/changes/save/snapshot.json");
+        let build = ".gdd/changes/save/snapshot-build.json";
+        assert_eq!(build_snapshot_path("save"), build);
         assert_eq!(branch("save"), "change/save");
+    }
+
+    #[test]
+    fn the_paths_the_scope_accepted_are_written_in_the_record() {
+        let accepted = ["docs/a.md".to_string(), "src/é.rs".to_string()];
+        let text = r#"{"id": "x", "paths": ["a.rs"], "gates": {"G1": {"decision": "ok"}}}"#;
+        let written = with_out_of_scope(text, &accepted).unwrap().unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        assert!(written.contains("\n  \"id\": \"x\",\n"), "{written}");
+        assert!(written.contains("\"src/é.rs\""), "{written}");
+        let value: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "id": "x",
+                "paths": ["a.rs"],
+                "gates": {"G1": {"decision": "ok"}},
+                "out_of_scope": ["docs/a.md", "src/é.rs"],
+            })
+        );
+        assert_eq!(Record::from_json(&written).unwrap().plan.paths, ["a.rs"]);
+        assert_eq!(with_out_of_scope(&written, &accepted).unwrap(), None);
+        let first = &accepted[..1];
+        let changed = with_out_of_scope(&written, first).unwrap().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&changed).unwrap();
+        assert_eq!(value["out_of_scope"], serde_json::json!(["docs/a.md"]));
+        assert_eq!(with_out_of_scope(&written, &[]).unwrap(), None);
+        assert_eq!(with_out_of_scope("{}", &[]).unwrap(), None);
+        assert!(with_out_of_scope("[]", &accepted).is_err());
+        assert!(with_out_of_scope("{not json", &accepted).is_err());
     }
 
     #[test]

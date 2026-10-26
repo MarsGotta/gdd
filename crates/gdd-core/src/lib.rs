@@ -6,6 +6,8 @@
 pub mod change;
 pub mod classify;
 pub mod config;
+pub mod exec;
+pub mod gates;
 pub mod git;
 pub mod guard;
 pub mod log;

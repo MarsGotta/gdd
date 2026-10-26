@@ -448,7 +448,25 @@ fn change_started(w: &mut GddWorld, id: String, text: String) {
     let root = project_root(w);
     let paths = parse_change(&text).paths;
     commit_all(&root, "project");
-    git(&root, &["checkout", "-q", "-b", &format!("change/{id}")]);
+    // A scenario may plan the same change again: the branch is already there.
+    let branch = format!("change/{id}");
+    let exists = std::process::Command::new("git")
+        .args([
+            "rev-parse",
+            "-q",
+            "--verify",
+            &format!("refs/heads/{branch}"),
+        ])
+        .current_dir(&root)
+        .output()
+        .expect("git can run")
+        .status
+        .success();
+    let flags: &[&str] = if exists { &[] } else { &["-b"] };
+    git(
+        &root,
+        &[&["checkout", "-q"], flags, &[branch.as_str()]].concat(),
+    );
     let record = serde_json::json!({
         "id": id,
         "title": id,
@@ -608,6 +626,180 @@ fn scope_fails(w: &mut GddWorld, path: String, color: String) {
             .iter()
             .any(|f| f.contains(&path) && f.contains(&color)),
         "no failure names {path:?} and {color:?}: {failures:?}"
+    );
+}
+
+// ---- features/gates.feature ----------------------------------------------------------------
+//
+// The gate commands live in `gdd/commands.toml`; `gdd g2 <id>` and `gdd g3 <id>` print the result
+// as JSON (`ok`, `passed`, `skipped`, `failures` with `name` and `tail`) and save it in
+// `.gdd/changes/<id>/<gate>.json`.
+
+#[given(expr = "the gate commands:")]
+fn gate_commands(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let commands = docstring(step, "a commands docstring");
+    write_file(&root.join("gdd/commands.toml"), &format!("{commands}\n"));
+}
+
+/// Replaces the command `name` of the `[gate]` section of a commands file.
+fn with_command(toml: &str, gate: &str, name: &str, command: &str) -> String {
+    let mut section = String::new();
+    let mut replaced = false;
+    let lines: Vec<String> = toml
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if let Some(header) = trimmed.strip_prefix('[') {
+                section = header.trim_end_matches(']').to_string();
+            }
+            let key = trimmed.split('=').next().unwrap_or_default().trim();
+            if section == gate && key == name && trimmed.contains('=') {
+                replaced = true;
+                let escaped = command.replace('\\', "\\\\").replace('"', "\\\"");
+                return format!("{name} = \"{escaped}\"");
+            }
+            line.to_string()
+        })
+        .collect();
+    assert!(replaced, "no command {name:?} in the [{gate}] section");
+    format!("{}\n", lines.join("\n"))
+}
+
+#[given(regex = r#"^the gate command "([^"]+)" "([^"]+)" is "((?:[^"\\]|\\.)*)"$"#)]
+fn gate_command_is(w: &mut GddWorld, gate: String, name: String, command: String) {
+    let root = project_root(w);
+    let path = root.join("gdd/commands.toml");
+    let toml = fs::read_to_string(&path).expect("gate commands to edit");
+    // The step text escapes the quotes inside the command.
+    let command = command.replace("\\\"", "\"");
+    write_file(&path, &with_command(&toml, &gate, &name, &command));
+    // A Given on the harness is state from before the build; what the change writes goes in a When.
+    git(&root, &["add", "--", "gdd/commands.toml"]);
+    git(&root, &["commit", "-q", "-m", "gate commands"]);
+    let head = git(&root, &["rev-parse", "HEAD"]);
+    let changes = root.join(".gdd/changes");
+    let ids: Vec<String> = fs::read_dir(&changes)
+        .map(|dir| {
+            dir.flatten()
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    for id in ids {
+        let mut record = read_record(&root, &id);
+        if record.get("build_start").is_some() {
+            record["build_start"] = head.clone().into();
+            write_record(&root, &id, &record);
+        }
+    }
+}
+
+#[given(expr = "the scenario {string} with {int} scenarios")]
+fn scenario_file(w: &mut GddWorld, file: String, count: usize) {
+    let root = project_root(w);
+    let mut text = String::from("Feature: counted\n");
+    for n in 1..=count {
+        text.push_str(&format!("\n  Scenario: number {n}\n    Given a thing\n"));
+    }
+    write_file(&root.join(file), &text);
+}
+
+/// The `failures` of the last gate output: `(name, tail)` of each.
+fn gate_failures(w: &GddWorld) -> Vec<(String, String)> {
+    let json = stdout_json(w);
+    json["failures"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no list \"failures\" in {json}"))
+        .iter()
+        .map(|f| {
+            let text = |key: &str| f[key].as_str().unwrap_or_default().to_string();
+            (text("name"), text("tail"))
+        })
+        .collect()
+}
+
+#[then("the gate passes")]
+fn gate_passes(w: &mut GddWorld) {
+    assert!(ok_flag(w), "the gate failed: {}", last_run(w).stdout);
+    assert!(gate_failures(w).is_empty(), "{}", last_run(w).stdout);
+}
+
+#[then(regex = r#"^the gate passed ("[^"]+"(?:, "[^"]+")*(?: and "[^"]+")?)$"#)]
+fn gate_passed(w: &mut GddWorld, names: String) {
+    let passed = json_strings(w, "passed");
+    let names = quoted(&names);
+    assert!(!names.is_empty(), "the step names nothing");
+    for name in names {
+        assert!(
+            passed.iter().any(|p| p == name),
+            "{name:?} is not among the passed: {passed:?}"
+        );
+    }
+}
+
+#[then(expr = "the gate skipped {string}")]
+fn gate_skipped(w: &mut GddWorld, name: String) {
+    let skipped = json_strings(w, "skipped");
+    assert!(skipped.contains(&name), "not skipped: {skipped:?}");
+    assert!(!json_strings(w, "passed").contains(&name));
+}
+
+#[then(expr = "the gate did not run {string}")]
+fn gate_did_not_run(w: &mut GddWorld, name: String) {
+    let failed: Vec<String> = gate_failures(w).into_iter().map(|(n, _)| n).collect();
+    for (list, names) in [
+        ("passed", json_strings(w, "passed")),
+        ("skipped", json_strings(w, "skipped")),
+        ("failures", failed),
+    ] {
+        assert!(!names.contains(&name), "{name:?} is among the {list}");
+    }
+}
+
+#[then(expr = "the gate fails on {string}")]
+fn gate_fails_on(w: &mut GddWorld, name: String) {
+    assert!(!ok_flag(w), "the gate passed: {}", last_run(w).stdout);
+    let failures = gate_failures(w);
+    assert!(
+        failures.iter().any(|(n, _)| n.contains(&name)),
+        "no failure is named {name:?}: {failures:?}"
+    );
+}
+
+#[then(expr = "the failure of {string} shows {string}")]
+fn failure_shows(w: &mut GddWorld, name: String, text: String) {
+    let failures = gate_failures(w);
+    let (_, tail) = failures
+        .iter()
+        .find(|(n, _)| *n == name)
+        .unwrap_or_else(|| panic!("no failure of {name:?}: {failures:?}"));
+    assert!(tail.contains(&text), "the tail {tail:?} lacks {text:?}");
+}
+
+#[then(expr = "the file {string} says the gate passed")]
+fn file_says_passed(w: &mut GddWorld, path: String) {
+    let text = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let saved: serde_json::Value = serde_json::from_str(&text).expect("a JSON result");
+    assert_eq!(saved["ok"], true, "{saved}");
+    assert_eq!(saved, stdout_json(w), "the file differs from the output");
+}
+
+#[then(expr = "the log has a {string} line for {string} with result {string}")]
+fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) {
+    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let found = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .any(|r| {
+            r["gate"] == gate.as_str()
+                && r["change"] == change.as_str()
+                && r["result"] == result.as_str()
+        });
+    assert!(
+        found,
+        "no {gate} line for {change} with result {result} in:\n{text}"
     );
 }
 
