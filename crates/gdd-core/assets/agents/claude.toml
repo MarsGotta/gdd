@@ -1,7 +1,7 @@
 # Agent sheet · Claude Code (https://code.claude.com/docs/en/skills, /docs/en/headless)
 name = "claude"
 title = "Claude Code"
-binary = "claude"          # found on PATH, unless gdd/models.toml [binaries] says otherwise
+binary = "claude"          # looked up on the PATH of the environment gdd runs in
 usage = "claude-json"      # how its JSON output reports tokens, cost and the final text
 
 [commands]
