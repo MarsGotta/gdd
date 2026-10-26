@@ -2,7 +2,7 @@
 
 What good looks like in this project, in words. The Builder and the Reviewer read this file; Learn adds to it when the same polish note or the same Reviewer finding comes back. Gates check what a machine can check; this file is for the rest.
 
-Draft by the Orchestrator from the first five changes. The human edits it.
+Drafted by the Orchestrator from the first five changes; approved by the human on 2026-10-26. Changes to this file need the human's OK.
 
 ## For the person using gdd
 
