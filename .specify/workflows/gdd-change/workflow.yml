@@ -143,6 +143,7 @@ steps:
     type: shell
     run: "bin/gdd g3 --role builder-build"
     output_format: json
+    timeout: 3600   # mutation testing takes minutes
 
   - id: fixg3
     type: if
@@ -165,6 +166,7 @@ steps:
         type: shell
         run: "bin/gdd g3 --role builder-build"
         output_format: json
+        timeout: 3600   # mutation testing takes minutes
       - id: parkg3
         type: if
         condition: "{{ not steps.g3again.output.data.ok }}"
@@ -211,6 +213,7 @@ steps:
             type: shell
             run: "bin/gdd g3 --role builder-build"
             output_format: json
+            timeout: 3600   # mutation testing takes minutes
           - id: reviewer2
             command: speckit.gdd.review
             integration: "{{ steps.prep.output.data.reviewer_model.integration }}"
