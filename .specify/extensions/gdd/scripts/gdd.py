@@ -334,13 +334,20 @@ def c_prepare(a) -> None:
     built_before = LOG.exists() and any(
         json.loads(line).get("change") == c and json.loads(line).get("role") == "builder-build"
         for line in LOG.open() if line.strip())
-    d["resume_green"] = bool(built_before and check(c, "G2", None)["ok"])
+    # The check runs under Path Guard: a gdd/commands.toml rewritten by the earlier build must never
+    # run, not even here. If a protected path changed, the starting point stays at the merge-base
+    # with main, so committing the change does not hide it from the next Path Guard.
+    d["resume_green"], keep_base = False, False
+    if built_before:
+        d["resume_green"] = check(c, "G2", "builder-build")["ok"]
+        keep_base = bool(guard_failures(c, "builder-build"))
     dd = load_change(c); dd["decision"] = d; dd["state"] = "building"
     # A (re)launch means the Orchestrator dealt with earlier requests: they leave the inbox.
     for n in dd.get("inbox", []):
         if n.get("kind") == "needs" and not n.get("resolved"):
             n["resolved"] = now()
-    dd["build_start"] = git("rev-parse", "HEAD"); save_change(c, dd)
+    dd["build_start"] = git("merge-base", main_branch(), "HEAD") if keep_base else git("rev-parse", "HEAD")
+    save_change(c, dd)
     for name in SNAPSHOTS.values():   # snapshots belong to the previous build
         (CHANGES / c / name).unlink(missing_ok=True)
     log(change=c, phase="2-build", role="machine", result="prepared",

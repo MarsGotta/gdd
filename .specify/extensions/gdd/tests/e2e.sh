@@ -148,5 +148,20 @@ grep -c "aaa_restore" gdd/commands.toml >/dev/null || fail "t14 the swapped comm
 grep -c "The gate commands did not run" .gdd/changes/t14/g2.json >/dev/null || fail "t14 Path Guard did not stop the commands"
 git stash -u -q; git switch -q main
 echo "OK t14 swapped gate commands never run"
+# t15 · a protected change committed by an earlier build never runs on relaunch and stays visible
+bin/gdd new-change t15 --title "Relaunch with commands" --paths src/hello.txt src/n.txt >/dev/null
+FAKE_PROTECTED=1 bin/gdd launch t15 > "$TMP/t15.out" 2>&1 || true
+grep -c "parkg2end" "$TMP/t15.out" >/dev/null || { tail -15 "$TMP/t15.out"; fail "t15 first run was not parked"; }
+git checkout -q -- gdd/rules.toml
+python3 -c 'import re,pathlib as P; q=P.Path("gdd/commands.toml"); q.write_text(re.sub(r"(?m)^\[g2\].*$", lambda m: m.group(0)+"\nzzz_mark = \"touch t15.ran\"", q.read_text(), count=1))'
+grep -c zzz_mark gdd/commands.toml >/dev/null || fail "t15 could not plant the command"
+git add -A; git commit -qm "t15: the Builder commits a changed commands.toml"
+bin/gdd gate plan ok t15 --by human >/dev/null   # touching gdd/** makes the change red
+bin/gdd launch t15 > "$TMP/t15b.out" 2>&1 || true
+test ! -f t15.ran || fail "t15 the relaunch ran a commands.toml committed by the Builder"
+grep -cE "parkg2end|step guardtest" "$TMP/t15b.out" >/dev/null || { tail -15 "$TMP/t15b.out"; fail "t15 relaunch was not stopped (the committed commands.toml became the starting point)"; }
+bin/gdd guard t15 --role builder-build | grep -c "gdd/commands.toml: protected path" >/dev/null || fail "t15 Path Guard stopped seeing the committed commands.toml"
+git stash -u -q; git switch -q main
+echo "OK t15 relaunch keeps a committed protected change visible and never runs it"
 bin/gdd report --by role >/dev/null
 echo "All green."
