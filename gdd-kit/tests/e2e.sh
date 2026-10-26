@@ -11,6 +11,9 @@
 #   t8 · the replan sends a step bug back to test mode.
 #   t9 · a green relaunch skips the Builder.
 #   t10 · build mode is not blamed for the steps test mode wrote.
+#   t11 · deleting the rules does not disable Path Guard.
+#   t12 · deleting a protected step written in test mode is caught.
+#   t13 · G1 refuses hidden steps with unknown phrasing.
 #   t4 · the Builder touches the harness: Path Guard stops it and the change is parked.
 # Usage: gdd-kit/tests/e2e.sh
 set -euo pipefail
@@ -106,5 +109,31 @@ bin/gdd new-change t10 --title "Protected steps" --paths src/hello.txt src/n.txt
 FAKE_PROTECTED_STEPS=1 bin/gdd launch t10 > "$TMP/t10.out" 2>&1 || true
 grep -c "completed" "$TMP/t10.out" >/dev/null || { tail -15 "$TMP/t10.out"; fail "t10 did not finish (Path Guard blamed build mode for test-mode steps)"; }
 echo "OK t10 build mode is not blamed for the steps test mode wrote"
+# t11 · build mode deletes the rules file: Path Guard still uses the rules from when the build started
+bin/gdd new-change t11 --title "Delete rules" --paths src/hello.txt src/n.txt >/dev/null
+FAKE_DELETE_RULES=1 bin/gdd launch t11 > "$TMP/t11.out" 2>&1 || true
+grep -c "parkg2end" "$TMP/t11.out" >/dev/null || { tail -15 "$TMP/t11.out"; fail "t11 was not parked (deleting the rules disabled Path Guard)"; }
+bin/gdd guard t11 --role builder-build | grep -c "gdd/rules.toml: protected path" >/dev/null || fail "t11 Path Guard itself let the deleted rules through"
+git stash -u -q; git checkout -q -- . ; git switch -q main
+echo "OK t11 deleting the rules does not disable Path Guard"
+# t12 · build mode deletes an untracked step file written in test mode: still caught
+bin/gdd new-change t12 --title "Delete steps" --paths src/hello.txt src/n.txt tests/acceptance/t12.txt >/dev/null
+FAKE_PROTECTED_STEPS=tests/acceptance/t12.txt FAKE_DELETE_STEPS=tests/acceptance/t12.txt bin/gdd launch t12 > "$TMP/t12.out" 2>&1 || true
+grep -c "parkg2end" "$TMP/t12.out" >/dev/null || { tail -15 "$TMP/t12.out"; fail "t12 was not parked (a deleted protected step slipped through)"; }
+bin/gdd guard t12 --role builder-build | grep -c "tests/acceptance/t12.txt: protected path" >/dev/null || fail "t12 Path Guard itself let the deleted step through"
+git stash -u -q; git switch -q main
+echo "OK t12 deleting a protected step written in test mode is caught"
+# t13 · G1 refuses hidden examples whose step sentences no visible scenario has
+bin/gdd new-change t13 --title "Hidden phrasing" --paths features/t13.feature >/dev/null
+git switch -q change/t13; mkdir -p features/hidden
+printf 'Feature: t13\n  Scenario: s\n    Given a name "Ana"\n' > features/t13.feature
+printf '@hidden\nFeature: h\n  Scenario: s\n    Given a brand new sentence\n' > features/hidden/t13.feature
+git add -A; git commit -qm t13
+(bin/gdd gate G1 ok t13 --by human 2>&1 || true) | grep -c "G1 refused" >/dev/null || fail "t13 G1 accepted a hidden step with an unknown phrasing"
+printf '@hidden\nFeature: h\n  Scenario: s\n    Given a name "Luz"\n' > features/hidden/t13.feature
+git add -A; git commit -qm t13b
+bin/gdd gate G1 ok t13 --by human >/dev/null || fail "t13 G1 refused a hidden step that reuses a visible sentence"
+git rm -rq features/hidden; git commit -qm t13c; git switch -q main
+echo "OK t13 G1 refuses hidden steps with unknown phrasing"
 bin/gdd report --by role >/dev/null
 echo "All green."

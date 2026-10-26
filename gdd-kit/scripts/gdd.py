@@ -356,11 +356,26 @@ def run_cmd(name: str, cmd: str, c: str, extra_env: dict | None = None, timeout:
         code, out = r.returncode, (r.stdout + r.stderr)
     except subprocess.TimeoutExpired:
         code, out = 124, f"timed out ({timeout}s)"
-    return {"name": name, "ok": code == 0, "code": code, "duration_s": round(time.time() - t0, 1), "tail": out[-3000:]}
+    # Runners print failures early and summaries late: keep the failure lines plus the end.
+    marks = [ln for ln in out.splitlines() if re.search(r"✘|FAILED|[Ff]ailed|panicked|^error|Error:|Traceback", ln)]
+    head = "\n".join(marks[:40])
+    tail = (head + "\n--- end of output ---\n" if head else "") + out[-2500:]
+    return {"name": name, "ok": code == 0, "code": code, "duration_s": round(time.time() - t0, 1), "tail": tail}
+
+
+def trusted_rules(c: str) -> dict:
+    """The rules as they were when the build started: the change cannot loosen its own guard
+    by editing, emptying or deleting gdd/rules.toml (that edit is itself a protected path)."""
+    since = load_change(c).get("build_start")
+    if since:
+        r = subprocess.run(["git", "show", f"{since}:gdd/rules.toml"], cwd=ROOT, capture_output=True, text=True)
+        if r.returncode == 0:
+            return tomllib.loads(r.stdout)
+    return cfg("rules")
 
 
 def guard_failures(c: str, role: str, since_snapshot: bool = False) -> list[str]:
-    prot = cfg("rules").get("protected", {})
+    prot = trusted_rules(c).get("protected", {})
     patterns = list(prot.get("all", [])) + list(prot.get(role.replace("-", "_"), []))
     since = load_change(c).get("build_start")
     if not since:
@@ -427,8 +442,15 @@ def touched_since(c: str, name: str) -> list[str]:
     if not snap.exists():
         return touched
     before = json.loads(snap.read_text())
-    now_ = snapshot_hashes(c)
-    return [p for p in touched if now_.get(p) != before.get(p)]
+    # Paths in the snapshot count too: a file created after the build started and deleted
+    # later disappears from the diff, but not from the snapshot.
+    out = []
+    for p in sorted(set(touched) | set(before)):
+        q = ROOT / p
+        cur = hashlib.sha256(q.read_bytes()).hexdigest() if q.is_file() else "deleted"
+        if cur != before.get(p):
+            out.append(p)
+    return out
 
 
 def c_snapshot(a) -> None:
@@ -452,7 +474,7 @@ def c_guard(a) -> None:
     fails = guard_failures(c, a.role, getattr(a, "since_snapshot", False))
     if a.role == "builder-test":
         # What test mode writes must be out of build mode's reach, or build mode could bend it.
-        prot = cfg("rules").get("protected", {})
+        prot = trusted_rules(c).get("protected", {})
         shield = list(prot.get("all", [])) + list(prot.get("builder_build", []))
         round_ = touched_since(c, "round") if getattr(a, "since_snapshot", False) else changed(c, load_change(c).get("build_start"))
         loose = [p for p in round_ if not matches(p, shield)]
@@ -556,12 +578,47 @@ def c_gate(a) -> None:
     rec = {"decision": dec, "by": a.by, "ts": now(), "note": a.note}
     if g == "G1" and dec == "ok":
         feats = touched_features(changed(c)) or d.get("features", [])
+        unknown = hidden_steps_without_visible_phrasing(c)
+        if unknown:
+            raise SystemExit("G1 refused: hidden examples use step phrasings that no visible scenario has, so test mode "
+                             "can never write them. Reuse visible sentences with new data:\n  - " + "\n  - ".join(unknown[:10]))
         rec["hashes"] = {f: hashlib.sha256((ROOT / f).read_bytes()).hexdigest() for f in feats if (ROOT / f).exists()}
         d["features"] = feats
     d.setdefault("gates", {})[g] = rec
     save_change(c, d)
     log(change=c, phase=PHASE_OF_GATE.get(g, "-"), gate=g, role=a.by, result=dec, note=a.note)
     print(f"{g} {dec} on {c} ({a.by}).")
+
+
+STEP_RE = re.compile(r"^\s*(Given|When|Then|And|But|\*)\s+(.*)$")
+
+
+def step_phrasings(files) -> set[str]:
+    """Step sentences with their data blanked: quoted text, numbers and outline placeholders."""
+    out = set()
+    for f in files:
+        in_doc = False
+        for ln in f.read_text(errors="replace").splitlines():
+            if ln.strip().startswith(('"""', "```")):
+                in_doc = not in_doc; continue
+            m = None if in_doc else STEP_RE.match(ln)
+            if m:
+                t = re.sub(r'"[^"]*"', '"…"', m.group(2).strip())
+                t = re.sub(r"<[^>]+>", "<…>", t)
+                out.add(re.sub(r"\b\d+(\.\d+)?\b", "#", t))
+    return out
+
+
+def hidden_steps_without_visible_phrasing(c: str) -> list[str]:
+    """Only the hidden files this change touches: older ones were approved with their changes."""
+    folder = ROOT / acceptance()["dir"]
+    if not folder.exists():
+        return []
+    hidden_dir = folder / "hidden"
+    hidden = [ROOT / p for p in changed(c) if p.endswith(".feature") and (ROOT / p).is_file()
+              and hidden_dir in (ROOT / p).parents]
+    visible = [f for f in folder.rglob("*.feature") if hidden_dir not in f.parents]
+    return sorted(step_phrasings(hidden) - step_phrasings(visible))
 
 
 def c_note(a) -> None:
