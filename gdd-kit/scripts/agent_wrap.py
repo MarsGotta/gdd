@@ -52,7 +52,7 @@ def real_binary(name: str) -> str:
 
 
 def gdd_command(args: list[str]) -> str:
-    m = re.search(r"speckit[-.]gdd[-.]([a-z0-9-]+)", " ".join(args))
+    m = re.search(r"(?:speckit[-.])?gdd[-.]([a-z0-9-]+)", " ".join(args))   # gdd agents install names them gdd-<cmd>
     return m.group(1) if m else "?"
 
 
