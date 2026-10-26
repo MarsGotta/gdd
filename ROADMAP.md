@@ -30,9 +30,9 @@ change, stop and review before adding more.
 | Snapshots, so build mode is judged only for its own work, deleted files included | done | guard-and-scope |
 | Run the G2 and G3 commands, save the gate report, log it; only harness commands reach the shell; Path Guard before and after the commands | done | gate-runner |
 | Gate reports keep the failure lines of long outputs | done | gate-runner |
-| Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes and the Decision Inbox | next | changes-and-approvals |
-| G1 refuses hidden examples whose step sentences no visible scenario has | next | changes-and-approvals (done in the kit) |
-| Harness self-test | next | changes-and-approvals |
+| Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | in progress | changes-and-approvals |
+| G1 refuses hidden examples whose step sentences no visible scenario has | in progress | changes-and-approvals (done in the kit) |
+| Harness self-test | next | agents block (it runs the harness) |
 
 ## 3. Agents and the recipe
 
