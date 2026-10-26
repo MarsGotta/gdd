@@ -4,6 +4,7 @@ a=" ".join(sys.argv[1:]); open(os.environ.get("FAKELOG","/dev/null"),"a").write(
 txt="done"
 if "gdd-build-test" in a:
     pathlib.Path("tests").mkdir(exist_ok=True); pathlib.Path("tests/steps.txt").write_text("steps\n")
+    if os.environ.get("FAKE_PROTECTED_STEPS"): pathlib.Path("tests/acceptance").mkdir(parents=True, exist_ok=True); pathlib.Path("tests/acceptance/steps.txt").write_text("steps\n")
     if os.environ.get("FAKE_STEP_BUG"):
         if "after=replan" in a: pathlib.Path("tests/failing").unlink(missing_ok=True)
         else: pathlib.Path("tests/failing").write_text("step bug\n")

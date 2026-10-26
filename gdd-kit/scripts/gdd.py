@@ -341,6 +341,8 @@ def c_prepare(a) -> None:
         if n.get("kind") == "needs" and not n.get("resolved"):
             n["resolved"] = now()
     dd["build_start"] = git("rev-parse", "HEAD"); save_change(c, dd)
+    for name in SNAPSHOTS.values():   # snapshots belong to the previous build
+        (CHANGES / c / name).unlink(missing_ok=True)
     log(change=c, phase="2-build", role="machine", result="prepared",
         note=f"{d['color']} · {d['lane']}" + (" · G2 already green: Builder skipped" if d["resume_green"] else ""))
     exit_json({"ok": True, **d})
@@ -363,12 +365,14 @@ def guard_failures(c: str, role: str, since_snapshot: bool = False) -> list[str]
     since = load_change(c).get("build_start")
     if not since:
         return [f"Change {c} has not been prepared: Path Guard has no starting point."]
-    touched = changed(c, since)
-    snap = CHANGES / c / "snapshot.json"
-    if since_snapshot and snap.exists():
-        before = json.loads(snap.read_text())
-        now_ = snapshot_hashes(c)
-        touched = [p for p in touched if now_.get(p) != before.get(p)]
+    # Build mode is judged from the snapshot taken after test mode (its steps are not build mode's
+    # doing); a test round after a replan is judged from the snapshot taken just before it.
+    if role == "builder-build":
+        touched = touched_since(c, "build")
+    elif since_snapshot:
+        touched = touched_since(c, "round")
+    else:
+        touched = changed(c, since)
     fails = [f"{p}: protected path for {role}" for p in touched if matches(p, patterns)]
     g1 = load_change(c).get("gates", {}).get("G1", {})
     for f, h in g1.get("hashes", {}).items():
@@ -413,11 +417,26 @@ def snapshot_hashes(c: str) -> dict:
     return out
 
 
+SNAPSHOTS = {"round": "snapshot.json", "build": "snapshot-build.json"}
+
+
+def touched_since(c: str, name: str) -> list[str]:
+    """Paths changed since the build started, minus those unchanged since the named snapshot."""
+    touched = changed(c, load_change(c).get("build_start"))
+    snap = CHANGES / c / SNAPSHOTS[name]
+    if not snap.exists():
+        return touched
+    before = json.loads(snap.read_text())
+    now_ = snapshot_hashes(c)
+    return [p for p in touched if now_.get(p) != before.get(p)]
+
+
 def c_snapshot(a) -> None:
-    """Records what the change looks like now, so the next round's Path Guard only judges that round."""
+    """Records the change as it is now. round: the next test round is judged from here.
+    build: build mode is judged from here (taken after test mode)."""
     c = change_id(a.change)
-    write_json(CHANGES / c / "snapshot.json", snapshot_hashes(c))
-    exit_json({"ok": True})
+    write_json(CHANGES / c / SNAPSHOTS[a.name], snapshot_hashes(c))
+    exit_json({"ok": True, "snapshot": a.name})
 
 
 def c_next(a) -> None:
@@ -435,7 +454,8 @@ def c_guard(a) -> None:
         # What test mode writes must be out of build mode's reach, or build mode could bend it.
         prot = cfg("rules").get("protected", {})
         shield = list(prot.get("all", [])) + list(prot.get("builder_build", []))
-        loose = [p for p in changed(c, load_change(c).get("build_start")) if not matches(p, shield)]
+        round_ = touched_since(c, "round") if getattr(a, "since_snapshot", False) else changed(c, load_change(c).get("build_start"))
+        loose = [p for p in round_ if not matches(p, shield)]
         if loose:
             d = load_change(c)
             text = ("Path Guard: test mode wrote files that build mode could still edit: " + ", ".join(sorted(loose)[:10])
@@ -862,7 +882,7 @@ HELP = """gdd commands (run from the repository root):
   classify <id>                    Color, lane and gates for a change.
   launch <id>                      Run the gdd-change workflow (Build -> Release).
   resume <id> --g4 ok|ko           Human G4: resume the paused workflow.
-  snapshot [<id>]                 Records the change as it is now (the next round's Path Guard judges only that round).
+  snapshot [<id>] [--name round|build]  Records the change as it is now: round = the next test round is judged from here; build = build mode is judged from here.
   next [<id>]                      Where the replan sends the change: {"test": true} = back to test mode.
   note <id> <kind> <text>          Note for the Decision Inbox (needs|decided|parked).
   inbox <id>                       The change message for the human.
@@ -890,7 +910,8 @@ def main(argv=None) -> None:
     x = s.add_parser("gate"); x.add_argument("gate", choices=["G0", "zones", "plan", "G1", "G2", "G3", "G4"])
     x.add_argument("decision"); x.add_argument("change", nargs="?"); x.add_argument("--by", default="human")
     x.add_argument("--note", default=""); x.set_defaults(f=c_gate)
-    x = s.add_parser("snapshot"); x.add_argument("change", nargs="?"); x.set_defaults(f=c_snapshot)
+    x = s.add_parser("snapshot"); x.add_argument("change", nargs="?")
+    x.add_argument("--name", choices=list(SNAPSHOTS), default="round"); x.set_defaults(f=c_snapshot)
     x = s.add_parser("next"); x.add_argument("change", nargs="?"); x.set_defaults(f=c_next)
     x = s.add_parser("note"); x.add_argument("change"); x.add_argument("kind", choices=["needs", "decided", "parked"])
     x.add_argument("text"); x.set_defaults(f=c_note)

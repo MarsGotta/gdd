@@ -47,6 +47,10 @@ steps:
         type: shell
         run: "bin/gdd guard --role builder-test --strict"
         output_format: json
+      - id: snapbuild
+        type: shell
+        run: "bin/gdd snapshot --name build"
+        output_format: json
 
   - id: buildstage
     type: if
@@ -108,6 +112,10 @@ steps:
           - id: guardretest
             type: shell
             run: "bin/gdd guard --role builder-test --strict --since-snapshot"
+            output_format: json
+          - id: snapbuildretest
+            type: shell
+            run: "bin/gdd snapshot --name build"
             output_format: json
       - id: buildreplan
         command: speckit.gdd.build
