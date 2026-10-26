@@ -17,6 +17,7 @@ use cucumber::{World, given, then, when};
 pub struct GddWorld {
     output: String,
     zone_map: String,
+    models: String,
     outcome: Option<Outcome>,
     project: Option<TempDir>,
     ran: Option<Ran>,
@@ -446,6 +447,13 @@ fn git_project(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let rules = docstring(step, "a rules docstring");
     write_file(&root.join("gdd/rules.toml"), &format!("{rules}\n"));
     git(&root, &["init", "-q", "-b", "main"]);
+    // Steps that make gdd commit need an author: repo-local, gdd never sets one.
+    git(&root, &["config", "--local", "user.name", "GDD Test"]);
+    git(
+        &root,
+        &["config", "--local", "user.email", "test@example.com"],
+    );
+    git(&root, &["config", "--local", "commit.gpgsign", "false"]);
 }
 
 #[given(regex = r#"^the change "([^"]+)" plans (.*) and its build has started on its branch$"#)]
@@ -980,6 +988,115 @@ fn record_has_gate(w: &mut GddWorld, id: String, gate: String, decision: String,
         "gate {gate} in {record}"
     );
     assert_eq!(entry["by"], by.as_str(), "gate {gate} in {record}");
+}
+
+// ---- features/run-steps.feature ------------------------------------------------------------
+//
+// The recipe steps run on temporary git repositories. The models live in `gdd/models.toml`; the
+// Setup and the red zones are approved through `gdd gate`, as a person would.
+
+#[given(expr = "the models:")]
+fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    w.models = docstring(step, "a models docstring");
+    let root = project_root(w);
+    write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
+}
+
+/// `models` with the `[reviewer]` table replaced by the given integration and model.
+fn with_reviewer(models: &str, integration: &str, model: &str) -> String {
+    let mut in_reviewer = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in models.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_reviewer = trimmed == "[reviewer]";
+            lines.push(line.to_string());
+            if in_reviewer {
+                lines.push(format!("integration = \"{integration}\""));
+                lines.push(format!("model = \"{model}\""));
+            }
+        } else if !in_reviewer {
+            lines.push(line.to_string());
+        }
+    }
+    format!("{}\n", lines.join("\n"))
+}
+
+#[given(expr = "the reviewer is {string} {string}")]
+fn reviewer_is(w: &mut GddWorld, integration: String, model: String) {
+    let root = project_root(w);
+    assert!(w.models.contains("[reviewer]"), "no reviewer to change");
+    let models = with_reviewer(&w.models, &integration, &model);
+    write_file(&root.join("gdd/models.toml"), &models);
+}
+
+#[given("the Setup is done")]
+fn setup_done(w: &mut GddWorld) {
+    let root = project_root(w);
+    write_file(&root.join("docs/brief.md"), "# Project Brief\n");
+    write_file(&root.join(".gdd/selftest.json"), r#"{"ok": true}"#);
+    run_gdd(w, "gdd gate G0 ok --by machines", &root);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+}
+
+#[given("the red zones are approved")]
+fn red_zones_approved(w: &mut GddWorld) {
+    let root = project_root(w);
+    run_gdd(w, "gdd gate zones ok --by human", &root);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+}
+
+#[given(expr = "I am on the branch {string}")]
+fn on_the_branch(w: &mut GddWorld, branch: String) {
+    git(&project_root(w), &["checkout", "-q", &branch]);
+}
+
+#[given(expr = "the log has a Builder call in build mode for {string}")]
+fn log_has_builder_call(w: &mut GddWorld, change: String) {
+    let path = project_root(w).join(".gdd/log.jsonl");
+    let old = fs::read_to_string(&path).unwrap_or_default();
+    let line = serde_json::json!({
+        "ts": "2026-01-01T00:00:00+00:00",
+        "change": change,
+        "phase": "2-build",
+        "gate": "-",
+        "role": "builder-build",
+        "agent": "claude",
+        "model": "sonnet",
+        "result": "ok",
+    });
+    write_file(&path, &format!("{old}{line}\n"));
+}
+
+#[then(expr = "the record of {string} is in state {string}")]
+fn record_state(w: &mut GddWorld, id: String, state: String) {
+    let record = read_record(&project_root(w), &id);
+    assert_eq!(record["state"], state.as_str(), "record {record}");
+}
+
+#[then(expr = "the file {string} contains {string}")]
+fn file_contains(w: &mut GddWorld, path: String, text: String) {
+    let content = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert!(content.contains(&text), "{path} lacks {text:?}: {content}");
+}
+
+#[then(expr = "the branch {string} holds {string}")]
+fn branch_holds(w: &mut GddWorld, branch: String, path: String) {
+    // `git` fails the step when the branch has no such file.
+    git(
+        &project_root(w),
+        &["cat-file", "-e", &format!("{branch}:{path}")],
+    );
+}
+
+#[then(expr = "the last commit on {word} says {string}")]
+fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
+    let message = git(&project_root(w), &["log", "-1", "--format=%B", &branch]);
+    assert!(
+        message.contains(&text),
+        "the last commit on {branch} says {message:?}, not {text:?}"
+    );
 }
 
 fn repo_root() -> PathBuf {

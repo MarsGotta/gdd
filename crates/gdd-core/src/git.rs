@@ -1,9 +1,10 @@
-//! The project's git repository: which paths a change touched, what its branch holds, and the
-//! branch a new change gets.
+//! The project's git repository: which paths a change touched, what its branch holds, the
+//! branch a new change gets, and the commits and merge that close it.
 //!
 //! Git always runs as `git` with a fixed list of arguments, in the project root, never through
 //! a shell. A name read from a file never reaches git as an option, and a failure of git is an
-//! [`Error`], never an empty answer.
+//! [`Error`], never an empty answer. The tool never sets who commits: git takes the author from
+//! the repository's configuration.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -59,8 +60,7 @@ impl Git {
 
     /// The current branch; `HEAD` when no branch is checked out.
     pub fn current_branch(&self) -> Result<String, Error> {
-        let out = self.read(&["rev-parse", "--abbrev-ref", "HEAD"])?;
-        Ok(String::from_utf8_lossy(&out).trim().to_string())
+        self.line(&["rev-parse", "--abbrev-ref", "HEAD"])
     }
 
     /// Whether `name` names a commit: a branch, a tag or a commit id.
@@ -131,6 +131,61 @@ impl Git {
     pub fn create_branch(&self, name: &str, from: &str) -> Result<(), Error> {
         self.read(&["branch", revision(name)?, revision(from)?])?;
         Ok(())
+    }
+
+    /// The commit checked out, as its full id.
+    pub fn head(&self) -> Result<String, Error> {
+        self.line(&["rev-parse", "HEAD"])
+    }
+
+    /// The commit where `branch` left `main`: their best common ancestor, as its full id.
+    pub fn merge_base(&self, main: &str, branch: &str) -> Result<String, Error> {
+        self.line(&["merge-base", revision(main)?, revision(branch)?])
+    }
+
+    /// Whether the working tree has something to commit: a file changed, deleted or added that
+    /// git does not ignore.
+    pub fn has_changes(&self) -> Result<bool, Error> {
+        Ok(!self.read(&["status", "--porcelain"])?.is_empty())
+    }
+
+    /// Commits, on the current branch, everything the working tree changed except what git
+    /// ignores, with `message`.
+    pub fn commit_all(&self, message: &str) -> Result<(), Error> {
+        self.read(&["add", "-A"])?;
+        self.read(&["commit", "-q", "-m", message])?;
+        Ok(())
+    }
+
+    /// Checks out the branch `name`.
+    pub fn checkout(&self, name: &str) -> Result<(), Error> {
+        self.read(&["checkout", "-q", revision(name)?, "--"])?;
+        Ok(())
+    }
+
+    /// Merges `branch` into the current branch with a merge commit whose message is `message`,
+    /// even when the current branch could just move forward to it.
+    pub fn merge(&self, branch: &str, message: &str) -> Result<(), Error> {
+        let args = ["merge", "--no-ff", "--no-edit", "-q", "-m", message];
+        self.read(&[&args[..], &[revision(branch)?]].concat())?;
+        Ok(())
+    }
+
+    /// Whether the repository has a remote.
+    pub fn has_remote(&self) -> Result<bool, Error> {
+        Ok(!self.read(&["remote"])?.trim_ascii().is_empty())
+    }
+
+    /// Pushes the branch `name` to the remote `origin`.
+    pub fn push(&self, name: &str) -> Result<(), Error> {
+        self.read(&["push", "-q", "origin", revision(name)?])?;
+        Ok(())
+    }
+
+    /// The one line `git args` printed, without the line break.
+    fn line(&self, args: &[&str]) -> Result<String, Error> {
+        let out = self.read(args)?;
+        Ok(String::from_utf8_lossy(&out).trim().to_string())
     }
 
     /// Paths that differ between two revisions, or between one and the working tree. Both
@@ -298,6 +353,19 @@ pub(crate) mod tests {
         pub(crate) fn start(&self, id: &str) -> String {
             self.git(&["checkout", "-q", "-b", &format!("change/{id}")]);
             self.git(&["rev-parse", "HEAD"])
+        }
+
+        /// Gives the repository an author of its own, without signing or hooks: the tool
+        /// commits as the repository's configuration says.
+        pub(crate) fn identify(&self) {
+            for (key, value) in [
+                ("user.name", "GDD Test"),
+                ("user.email", "test@example.com"),
+                ("commit.gpgsign", "false"),
+                ("core.hooksPath", "/dev/null"),
+            ] {
+                self.git(&["config", "--local", key, value]);
+            }
         }
 
         pub(crate) fn tool(&self) -> Git {
@@ -567,6 +635,105 @@ pub(crate) mod tests {
         assert!(err.to_string().starts_with(start), "{err}");
         let err = repo.tool().changed_from("trunk", "change/c1").unwrap_err();
         assert!(err.to_string().starts_with("git diff "), "{err}");
+    }
+
+    #[test]
+    fn the_commit_checked_out_and_where_a_branch_left_main() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        let main = repo.git(&["rev-parse", "HEAD"]);
+        assert_eq!(git.head().unwrap(), main);
+        repo.start("c1");
+        repo.write("a.rs", "a\n");
+        repo.commit();
+        assert_eq!(git.head().unwrap(), repo.git(&["rev-parse", "HEAD"]));
+        assert_ne!(git.head().unwrap(), main);
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("b.rs", "b\n");
+        repo.commit();
+        assert_eq!(git.merge_base("main", "change/c1").unwrap(), main);
+        let err = git.merge_base("main", "change/c9").unwrap_err();
+        let failed = "git merge-base main change/c9 failed";
+        assert!(err.to_string().starts_with(failed), "{err}");
+        for (main, branch) in [("-x", "change/c1"), ("main", "--all")] {
+            let option = git.merge_base(main, branch);
+            assert!(matches!(option, Err(Error::Revision(_))), "{branch}");
+        }
+        let plain = Folder::new();
+        assert!(matches!(Git::new(&plain.0).head(), Err(Error::Failed(_))));
+    }
+
+    #[test]
+    fn the_last_work_is_committed_then_merged_with_a_merge_commit() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write(".gitignore", "ignored/\n");
+        repo.commit();
+        let git = repo.tool();
+        assert!(!git.has_changes().unwrap());
+        repo.start("c1");
+        repo.write("src/a.rs", "a\n");
+        repo.write("ignored/x", "x\n");
+        assert!(git.has_changes().unwrap());
+        git.commit_all("gdd(c1): change work").unwrap();
+        assert!(!git.has_changes().unwrap());
+        let subject = repo.git(&["log", "-1", "--format=%s"]);
+        assert_eq!(subject, "gdd(c1): change work");
+        let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(committed, "src/a.rs");
+        git.checkout("main").unwrap();
+        assert_eq!(git.current_branch().unwrap(), "main");
+        assert!(!repo.root().join("src/a.rs").exists());
+        let message = "gdd(c1): G3 Merge Gate\n\nColor: yellow";
+        git.merge("change/c1", message).unwrap();
+        assert_eq!(repo.git(&["log", "-1", "--format=%B"]), message);
+        let parents = repo.git(&["log", "-1", "--format=%P"]);
+        assert_eq!(parents.split(' ').count(), 2, "a merge commit: {parents}");
+        assert!(repo.root().join("src/a.rs").is_file());
+        assert!(repo.root().join("ignored/x").is_file());
+        assert!(!git.has_changes().unwrap());
+    }
+
+    #[test]
+    fn what_git_refuses_to_commit_check_out_or_merge_is_an_error() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        let err = git.commit_all("nothing").unwrap_err().to_string();
+        assert!(err.starts_with("git commit -q -m nothing failed"), "{err}");
+        let err = git.checkout("change/c9").unwrap_err().to_string();
+        let failed = "git checkout -q change/c9 -- failed";
+        assert!(err.starts_with(failed), "{err}");
+        let err = git.merge("change/c9", "m").unwrap_err().to_string();
+        let failed = "git merge --no-ff --no-edit -q -m m change/c9 failed";
+        assert!(err.starts_with(failed), "{err}");
+        for name in ["-x", "--all"] {
+            assert!(matches!(git.checkout(name), Err(Error::Revision(_))));
+            assert!(matches!(git.merge(name, "m"), Err(Error::Revision(_))));
+            assert!(matches!(git.push(name), Err(Error::Revision(_))));
+        }
+        assert_eq!(git.current_branch().unwrap(), "main");
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).has_changes().is_err());
+        assert!(Git::new(&plain.0).has_remote().is_err());
+    }
+
+    #[test]
+    fn a_branch_is_pushed_to_origin() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        assert!(!git.has_remote().unwrap());
+        let err = git.push("main").unwrap_err().to_string();
+        assert!(err.starts_with("git push -q origin main failed"), "{err}");
+        let remote = Folder::new();
+        let path = remote.0.to_string_lossy().into_owned();
+        repo.git(&["init", "-q", "--bare", &path]);
+        repo.git(&["remote", "add", "origin", &path]);
+        assert!(git.has_remote().unwrap());
+        git.push("main").unwrap();
+        let pushed = Git::new(&remote.0).line(&["rev-parse", "main"]).unwrap();
+        assert_eq!(pushed, git.head().unwrap());
     }
 
     #[test]

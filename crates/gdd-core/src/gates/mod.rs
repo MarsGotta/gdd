@@ -4,10 +4,13 @@
 //! only if all of them pass.
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
-//! whether hidden examples only reuse visible sentences.
+//! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
+//! enter Build, and [`release`] takes a merged change to pre and production.
 
 pub mod approve;
 pub mod phrasing;
+pub mod prepare;
+pub mod release;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -17,7 +20,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::change::Record;
+use crate::change::{self, Record};
 use crate::classify::classify;
 use crate::config::{self, Color};
 use crate::exec;
@@ -29,6 +32,12 @@ use crate::zones::ZoneMap;
 
 /// The role of build mode: in a gate, the scope check judges it too.
 pub const BUILD_ROLE: &str = "builder-build";
+
+/// The gate and release commands of a project, from its root.
+pub const COMMANDS: &str = "gdd/commands.toml";
+
+/// The name of the Path Guard check in a report.
+pub(crate) const PATH_GUARD: &str = "path-guard";
 
 /// Why a gate without commands fails.
 const NOT_CONFIGURED: &str =
@@ -147,7 +156,7 @@ impl Commands {
 }
 
 /// The values of a section that are commands: text that is not blank.
-fn configured(section: BTreeMap<String, toml::Value>) -> BTreeMap<String, String> {
+pub(crate) fn configured(section: BTreeMap<String, toml::Value>) -> BTreeMap<String, String> {
     section
         .into_iter()
         .filter_map(|(name, value)| match value {
@@ -354,8 +363,16 @@ impl Report {
 }
 
 /// `seconds` to a tenth of a second.
-fn tenths(seconds: f64) -> f64 {
+pub(crate) fn tenths(seconds: f64) -> f64 {
     (seconds * 10.0).round() / 10.0
+}
+
+/// Saves `report`, of a run on change `id`, next to the record of the change in the project at
+/// `root` (see [`Gate::report_path`]), as indented JSON, and logs the run.
+pub fn save(root: &Path, id: &str, report: &Report) -> Result<(), String> {
+    let saved = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
+    change::write(root, &report.gate.report_path(id), &format!("{saved}\n"))?;
+    change::logged(root, &report.log_entry(id))
 }
 
 /// Runs `gate` on change `id`, whose record is `record`, for `role`. The change is classified
@@ -440,7 +457,7 @@ pub fn run(
     } else {
         guarded.push(NOT_RUN.to_string());
     }
-    report.judge("path-guard", guarded);
+    report.judge(PATH_GUARD, guarded);
     if role == BUILD_ROLE {
         let failures = match guard::scope(root, id, record, project.zones, &project.rules.table) {
             Ok(scope) => {
@@ -1018,6 +1035,32 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(entry.note, "unit, path-guard");
         report.failures = vec![failure(&"é".repeat(400), "x")];
         assert_eq!(report.log_entry("c2").note, "é".repeat(300));
+    }
+
+    #[test]
+    fn a_report_is_saved_next_to_the_record_and_logged() {
+        let project = started(&["src/app.rs"], "[g2]\nlint = \"true\"\n");
+        let root = project.repo.root();
+        let report = project.run(Gate::G2, "builder");
+        save(root, "c1", &report).unwrap();
+        let saved = fs::read_to_string(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        let pretty = serde_json::to_string_pretty(&report).unwrap();
+        assert_eq!(saved, format!("{pretty}\n"));
+        let text = fs::read_to_string(root.join(log::PATH)).unwrap();
+        let records = log::parse(&text).unwrap();
+        let [line] = records.as_slice() else {
+            panic!("one log line: {records:?}");
+        };
+        assert_eq!(line.text("gate"), "G2");
+        assert_eq!(line.text("agent"), "checks");
+        assert_eq!(line.text("result"), "ok");
+        let report = project.run(Gate::G3, "builder");
+        fs::create_dir_all(root.join(".gdd/changes/c1/g3.json")).unwrap();
+        let err = save(root, "c1", &report).unwrap_err();
+        let start = "cannot write .gdd/changes/c1/g3.json: ";
+        assert!(err.starts_with(start), "{err}");
+        let text = fs::read_to_string(root.join(log::PATH)).unwrap();
+        assert_eq!(log::parse(&text).unwrap().len(), 1);
     }
 
     #[test]
