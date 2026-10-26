@@ -1,4 +1,0 @@
-#!/bin/sh
-# Spec Kit launches opencode through this file (SPECKIT_INTEGRATION_OPENCODE_EXECUTABLE).
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PYTHONDONTWRITEBYTECODE=1 exec python3 "$ROOT/gdd-kit/scripts/agent_wrap.py" opencode "$@"

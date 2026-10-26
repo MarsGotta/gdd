@@ -1,4 +1,0 @@
-#!/bin/sh
-# Spec Kit launches claude through this file (SPECKIT_INTEGRATION_CLAUDE_EXECUTABLE).
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PYTHONDONTWRITEBYTECODE=1 exec python3 "$ROOT/gdd-kit/scripts/agent_wrap.py" claude "$@"

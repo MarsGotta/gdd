@@ -32,19 +32,20 @@ change, stop and review before adding more.
 | Gate reports keep the failure lines of long outputs | done | gate-runner |
 | Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | done | changes-and-approvals |
 | G1 refuses hidden examples whose step sentences no visible scenario has | done | changes-and-approvals |
-| Harness self-test | next | agent-launch |
+| Harness self-test | next | kit-retire |
+| Retire the bootstrap kit here: self-test, `gdd ci`, sessions, the last commands agents call through `bin/gdd`, delete `gdd-kit/`; drop or implement the `[binaries]` promise in the comment of `assets/agents/claude.toml` | next | kit-retire |
 
 ## 3. Agents and the recipe
 
 | Item | Status | Where |
 |---|---|---|
 | One data sheet per agent: Claude Code, Codex, OpenCode (folder, format, how to launch, JSON output); GDD commands rendered per agent, Spec Kit gone | done | agent-sheets (2026-10-26); `gdd agents install|check` |
-| Messages of `gdd prepare` and `gdd status` still name `/speckit-gdd-setup` and `/speckit-gdd-change`: render them with the agent sheets | next | agent-launch |
-| Launch agents with model and role, capture tokens; the agents use their own logins (subscriptions), not API keys | next | agent-launch |
-| API keys are never passed on to the agents | open | agent-launch |
-| Permissions by role (read-only Reviewer, Builder without the harness) | next | agent-launch |
-| Agents cannot edit GDD state (`.gdd/`): Claude Code | done in the kit | port in agent-launch |
-| Same for Codex and OpenCode | open | agent-launch |
+| Messages of `gdd prepare` and `gdd status` name the GDD commands, not Spec Kit | done | agent-launch (2026-10-26) |
+| Launch agents with model and role, capture tokens; the agents use their own logins (subscriptions), not API keys | done | agent-launch (2026-10-26): gdd starts each agent's own program, no Python wrapper |
+| API keys are never passed on to the agents (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`; `[env] pass` for the ones a project passes on purpose) | done | agent-launch (2026-10-26) |
+| Permissions by role (read-only Reviewer, Builder without the harness), as data in the agent sheets | done | agent-launch (2026-10-26) |
+| Agents cannot edit GDD state (`.gdd/`): checked by gdd itself around every agent call, state put back and the change parked | done | agent-launch (2026-10-26) |
+| Same for Codex and OpenCode, and the Reviewer only reads (working tree compared by type, permissions, content and link target); the agent's processes are killed when its turn ends | done | agent-launch (2026-10-26) |
 | Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | done | run-steps (2026-10-26) |
 | The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | done | recipe-run (2026-10-26); `bin/gdd launch|resume` run it |
 | `gdd resume --g4 ok` keeps the pause until promote and observe succeed, so a failed promotion can be retried (Reviewer note in recipe-run) | next | resume-retry (small red change) |
@@ -52,7 +53,7 @@ change, stop and review before adding more.
 | A relaunch with G2 green skips the Builder, checked under Path Guard | done | run-steps; kit 0.5.5 |
 | Replan that can send the change back to test mode | done | recipe-run |
 | The merge commit carries the change's record: color, approvals, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done | run-steps |
-| Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in agent-launch |
+| Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done | agent-sheets (command templates) |
 | Mutation testing with a memory cap for test processes (Linux: `prlimit`) | done in the recipes | |
 | The same cap on macOS | open | |
 
