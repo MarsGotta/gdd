@@ -1,6 +1,0 @@
-#!/usr/bin/env python3
-import sys,json,os
-a=" ".join(sys.argv[1:]); open(os.environ.get("FAKELOG","/dev/null"),"a").write("codex "+a[:300]+"\n")
-v=os.environ.get("FAKE_VERDICT","OK")
-print(json.dumps({"type":"turn.completed","usage":{"input_tokens":300,"cached_input_tokens":100,"output_tokens":30,"reasoning_output_tokens":5}}))
-print(json.dumps({"type":"item.completed","item":{"type":"agent_message","text":"Reviewed.\nVERDICT: "+v}}))

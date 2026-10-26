@@ -241,6 +241,8 @@ fn run_gdd_as(w: &mut GddWorld, command: &str, cwd: &Path, role: Option<&str>) {
         env.push(("GDD_ROLE".to_string(), role.to_string()));
     }
     let out = gdd::run_with_env(&args, cwd, &env);
+    // A check on the exit code belongs to the run it followed, never to a later one.
+    w.exit_checked = false;
     w.ran = Some(Ran {
         code: out.code,
         succeeded: out.code == 0,

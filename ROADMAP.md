@@ -32,8 +32,10 @@ change, stop and review before adding more.
 | Gate reports keep the failure lines of long outputs | done | gate-runner |
 | Create changes, record human approvals (G1 with scenario hashes, zones, plan, G4), notes, the Decision Inbox and status | done | changes-and-approvals |
 | G1 refuses hidden examples whose step sentences no visible scenario has | done | changes-and-approvals |
-| Harness self-test | next | kit-retire |
-| Retire the bootstrap kit here: self-test, `gdd ci`, sessions, the last commands agents call through `bin/gdd`, delete `gdd-kit/`; drop or implement the `[binaries]` promise in the comment of `assets/agents/claude.toml` | next | kit-retire |
+| Harness self-test (`gdd selftest`, 4 checks) | done | kit-retire (2026-10-26) |
+| Retire the bootstrap kit here: `gdd selftest`, `gdd ci`, `gdd session`, the change from `GDD_CHANGE`; `bin/gdd` runs only `gdd`; CI builds `gdd` from main and judges the change with it; `gdd-kit/` deleted | done | kit-retire (2026-10-26) |
+| Interactive sessions of Codex and OpenCode in the log (`gdd session` reads Claude Code's only, as the kit did) | open | |
+| Code comments in `agents/usage.rs` and `recipe/mod.rs` still cite the deleted kit files as reference | next | the next change that touches them |
 
 ## 3. Agents and the recipe
 
@@ -49,7 +51,7 @@ change, stop and review before adding more.
 | Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | done | run-steps (2026-10-26) |
 | The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | done | recipe-run (2026-10-26); `bin/gdd launch|resume` run it |
 | `gdd resume --g4 ok` keeps the pause until promote and observe succeed, so a failed promotion can be retried (Reviewer note in recipe-run) | next | resume-retry (small red change) |
-| Kit e2e t8 fails when the suite runs from this repository (passes in the pilot repository) | open | |
+| Kit e2e t8 fails when the suite runs from this repository (passes in the pilot repository) | no longer applies | kit-retire removed the kit here; the suite runs in the pilot |
 | A relaunch with G2 green skips the Builder, checked under Path Guard | done | run-steps; kit 0.5.5 |
 | Replan that can send the change back to test mode | done | recipe-run |
 | The merge commit carries the change's record: color, approvals, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done | run-steps |
@@ -76,7 +78,7 @@ change, stop and review before adding more.
 | Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | next | stack sheets |
 | `gdd report --dora`: DORA's five delivery metrics and GDD's signals (polish rate, parks, Reviewer findings) from the log | next | delivery-report |
 | Spikes with variants: N Builders build the same spike, the human picks one side by side | next | spike-variants |
-| All the kit's end-to-end cases pass against `gdd` (t0-t13 today) | next | closes the MVP |
+| All the kit's end-to-end cases pass against `gdd` (t0-t15, from the pilot repository, where the suite lives) | next | closes the MVP |
 | Vivarium pilot with `gdd`, run by a clean agent; compare tokens and stops with the kit | next | after the MVP |
 
 ## 5. Open source

@@ -1,11 +1,14 @@
 #!/bin/sh
-# GDD entry point. See bin/gdd help.
+# GDD entry point: the gdd binary built from the main branch. See bin/gdd help.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# Rust toolchain installed with rustup lives in ~/.cargo/bin.
+# Rust toolchain installed with rustup lives in ~/.cargo/bin (the gate commands need it).
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH" && export PATH
-# The recipe runs in Rust (recipe-run): the Orchestrator installs the binary built from main in
-# .gdd/bin/gdd-rust after each merge. Without it, launch and resume are not available here.
-case "${1:-}" in
-  launch|resume) [ -x "$ROOT/.gdd/bin/gdd-rust" ] && exec "$ROOT/.gdd/bin/gdd-rust" "$@" ;;
-esac
-PYTHONDONTWRITEBYTECODE=1 exec python3 "$ROOT/gdd-kit/scripts/gdd.py" "$@"
+# The Orchestrator installs it after each merge, on main:
+#   cargo build --release --locked && install -m 755 target/release/gdd .gdd/bin/gdd-rust
+# Never from a change branch: a Builder could rewrite its own judge. CI builds it from main too.
+BIN="$ROOT/.gdd/bin/gdd-rust"
+if [ ! -x "$BIN" ]; then
+  echo "error: $BIN is missing. On main: cargo build --release --locked && install -m 755 target/release/gdd .gdd/bin/gdd-rust" >&2
+  exit 1
+fi
+exec "$BIN" "$@"

@@ -12,7 +12,7 @@ reason = "Documentation"
 
 [[zone]]
 color = "red"
-paths = ["gdd/**", "gdd-kit/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**"]
+paths = ["gdd/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**"]
 reason = "The harness itself: touching the gates is touching the safety of the method"
 
 # Red zones mapped at the end of Discover from the sensitive areas in docs/brief.md.

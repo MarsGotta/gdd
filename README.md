@@ -11,7 +11,7 @@
 
 ## Built with itself
 
-`gdd` is being built with GDD. The Rust binary already runs the recipe and installs the GDD commands for each agent; the Rust binary also starts the agents itself; the Python bootstrap kit in `gdd-kit/` still provides some gate commands until they are ported (change kit-retire). Spec Kit is no longer used.
+`gdd` is being built with GDD. Since kit-retire the harness of this repository is `gdd` itself: `bin/gdd` runs the binary built from `main`, which runs the gates, the recipe and the agents. The Python bootstrap kit and Spec Kit are no longer used here.
 
 - Method: [`GDD.md`](GDD.md)
 - Project Brief: [`docs/brief.md`](docs/brief.md)
@@ -27,7 +27,6 @@ Requires Rust (the toolchain is pinned in `rust-toolchain.toml`), Python 3.12+ f
 cargo test --workspace           # unit tests and Gherkin scenarios
 bin/gdd status                   # where the project stands in GDD
 bin/gdd selftest                 # harness self-test (4/4)
-gdd-kit/install.sh               # (re)install the bootstrap kit for claude, codex and opencode
 ```
 
 ## License

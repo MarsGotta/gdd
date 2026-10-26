@@ -98,8 +98,8 @@ The tool, its files and its commands are in English. Agents talk to the human in
 
 - **`gdd`** (the Rust binary, installed from `main` in `.gdd/bin/gdd-rust`) runs the recipe: `bin/gdd launch <id>` and `bin/gdd resume <id> --g4 ok|ko|polish`. Build with 3 retries and 1 replan, G2, G3 with one fix, Reviewer with one fix, Merge Gate, pre, G4 pause and promotion. Every agent call uses the agent and model from `gdd/models.toml` for the change color, started as its agent sheet says.
 - **GDD commands** in every agent's folder, written by `gdd agents install` and checked by `gdd agents check`: with the human `gdd-status`, `gdd-setup`, `gdd-discover`, `gdd-change`, `gdd-learn`, `gdd-hotfix`, `gdd-report` (`/gdd-status` in Claude Code and OpenCode, `$gdd-status` in Codex); headless, started by the recipe: `gdd-build-test`, `gdd-build`, `gdd-replan`, `gdd-review`.
-- **`bin/gdd`**: the other gate commands (classify, G2, G3, Path Guard, gates, notes, Decision Inbox, report) still come from the bootstrap kit in `gdd-kit/` until agent-launch. `bin/gdd help`.
+- **`bin/gdd`** runs `.gdd/bin/gdd-rust` for every command (gates, Path Guard, Decision Inbox, report, `selftest`, `ci`, `session`). `bin/gdd help`.
 - **Agents** are started by `gdd` itself (since agent-launch): each agent's own program from its sheet, with the arguments of the role (no MCP servers; the Reviewer only reads; Builders cannot open gates or merge), an environment without API keys, and the tokens logged. Around every call `gdd` checks that no agent changed GDD state and that the Reviewer changed no file; either parks the change.
-- **CI** (`.github/workflows/gdd.yml`): runs `bin/gdd ci`. G2 and G3 block there even if an agent skips a step.
-- Spec Kit is no longer used here (removed after agent-sheets); the pilot repository still runs the kit on top of it.
+- **CI** (`.github/workflows/gdd.yml`): builds `gdd` from `main` and runs `bin/gdd ci` with it on the change, so the judge is the version before the change. G2 and G3 block there even if an agent skips a step.
+- Spec Kit and the Python kit are no longer used here (removed after agent-sheets and kit-retire); the pilot repository still runs the kit until `gdd init`.
 - **Local state** in `.gdd/` (not committed): log, changes, messages, self-test, G0 and the red zone approval.
