@@ -101,6 +101,24 @@ impl Git {
         Ok(counted(paths))
     }
 
+    /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
+    /// there was no file there.
+    pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
+        let listing = self.read(&["ls-tree", "-z", revision(commit)?, "--", path])?;
+        let listing = String::from_utf8_lossy(&listing);
+        // One entry per NUL byte: "<mode> <type> <object>\t<path>".
+        let object = listing.split('\0').find_map(|entry| {
+            let (meta, name) = entry.split_once('\t')?;
+            let mut fields = meta.split(' ');
+            let (_, kind, object) = (fields.next()?, fields.next()?, fields.next()?);
+            (name == path && kind == "blob").then_some(object)
+        });
+        match object {
+            Some(object) => self.read(&["cat-file", "blob", object]).map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Paths that differ between two revisions, or between one and the working tree. Both
     /// sides of a rename count.
     fn diff(&self, revisions: &[&str]) -> Result<Vec<String>, Error> {
@@ -412,6 +430,33 @@ pub(crate) mod tests {
             git.changed_from("main", "change/c1").unwrap(),
             ["gdd/rules.toml", "src/new.rs"]
         );
+    }
+
+    #[test]
+    fn a_file_as_it_was_at_a_commit() {
+        let repo = Repo::new();
+        repo.write("app/gdd/rules.toml", "a\n");
+        repo.write("app/docs/a \"b\".md", "x\n");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.write("app/gdd/rules.toml", "b\n");
+        repo.git(&["rm", "-q", "app/docs/a \"b\".md"]);
+        repo.commit();
+        let git = Git::new(&repo.root().join("app"));
+        assert_eq!(
+            git.file_at(&start, "gdd/rules.toml").unwrap(),
+            Some(b"a\n".to_vec())
+        );
+        let quoted = git.file_at(&start, "docs/a \"b\".md").unwrap();
+        assert_eq!(quoted, Some(b"x\n".to_vec()));
+        for nothing in ["gdd/missing.toml", "gdd", "gdd/rules.toml/x", "rules.toml"] {
+            assert_eq!(git.file_at(&start, nothing).unwrap(), None, "{nothing:?}");
+        }
+        assert_eq!(git.file_at("HEAD", "docs/a \"b\".md").unwrap(), None);
+        let err = git.file_at("0123abcd", "gdd/rules.toml").unwrap_err();
+        assert!(err.to_string().starts_with("git ls-tree "), "{err}");
+        let option = git.file_at("-x", "gdd/rules.toml");
+        assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
     }
 
     #[test]

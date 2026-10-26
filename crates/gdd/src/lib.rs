@@ -14,8 +14,8 @@ use gdd_core::{Report, RulesTable, ZoneMap, log};
 const PROJECT: &str = "gdd/project.toml";
 /// Zone map of the project.
 const ZONES: &str = "gdd/zones.toml";
-/// Rules table of the project.
-const RULES: &str = "gdd/rules.toml";
+/// Rules table of the project, with the protected paths of Path Guard.
+const RULES: &str = guard::RULES;
 
 /// What a run of `gdd` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,8 +194,8 @@ fn classify(root: &Path, id: &str) -> Result<String, String> {
 }
 
 /// `gdd guard`: Path Guard for `role` on change `id`, with the protected paths of the rules
-/// table. With `since_snapshot`, only what changed since the last snapshot counts, if there is
-/// one.
+/// table, now and where the build started. With `since_snapshot`, only what changed since the
+/// last snapshot counts, if there is one.
 fn path_guard(root: &Path, id: &str, role: &str, since_snapshot: bool) -> Result<Verdict, String> {
     let record = load_record(root, id)?;
     let settings = load_settings(root)?;
@@ -747,6 +747,26 @@ mod tests {
         assert_eq!(out.code, 1);
         assert!(out.stderr.starts_with(expected), "{out:?}");
         assert_eq!(project.run("guard save --role builder-test").code, 0);
+    }
+
+    #[test]
+    fn guard_holds_when_the_rules_go_away_or_a_file_leaves_the_diff() {
+        let project = started_project();
+        fs::remove_file(project.0.join(RULES)).unwrap();
+        let out = project.run("guard save --role builder-build --strict");
+        assert_eq!(out.code, 1, "{out:?}");
+        let printed: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        let failure = "gdd/rules.toml: protected path for builder-build";
+        assert_eq!(printed["failures"], serde_json::json!([failure]));
+        project.write(RULES, PROTECTED);
+        project.write("src/steps.rs", "x\n");
+        assert_eq!(project.run("snapshot save").code, 0);
+        fs::remove_file(project.0.join("src/steps.rs")).unwrap();
+        let out = project.run("guard save --role builder-test --since-snapshot --strict");
+        assert_eq!(out.code, 1, "{out:?}");
+        let printed: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
+        let failure = "src/steps.rs: protected path for builder-test";
+        assert_eq!(printed["failures"], serde_json::json!([failure]));
     }
 
     #[test]

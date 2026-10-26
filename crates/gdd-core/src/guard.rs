@@ -1,11 +1,11 @@
 //! Path Guard and the scope check, on what a change touched since its build started.
 //!
 //! Path Guard stops a role that touched what it must not: the protected paths of the rules
-//! file, and the scenarios approved in G1. The scope check accepts the paths outside the plan of
-//! a change whose color is not higher than the change's, and fails the others: the change would
-//! need gates it was not given.
+//! file, now and where the build started, and the scenarios approved in G1. The scope check
+//! accepts the paths outside the plan of a change whose color is not higher than the change's,
+//! and fails the others: the change would need gates it was not given.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
 use std::fs;
 use std::io::{self, ErrorKind::NotADirectory, ErrorKind::NotFound};
@@ -23,6 +23,9 @@ use crate::zones::{ZoneMap, glob_matches};
 
 /// The hash of a path where there is no file.
 pub const DELETED: &str = "deleted";
+
+/// The rules file of a project, from its root.
+pub const RULES: &str = "gdd/rules.toml";
 
 /// Hashes of the paths a change touched, at one moment: path -> SHA-256 in hex, or [`DELETED`].
 pub type Hashes = BTreeMap<String, String>;
@@ -50,6 +53,15 @@ impl Settings {
         toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))
     }
 
+    /// What the rules file said at the commit `commit`: the defaults when there was none.
+    fn committed(git: &Git, commit: &str) -> Result<Settings, Error> {
+        let bytes = git.file_at(commit, RULES)?.unwrap_or_default();
+        String::from_utf8(bytes)
+            .map_err(|e| config::Error::Toml(e.to_string()))
+            .and_then(|text| Settings::from_toml(&text))
+            .map_err(|e| Error::Rules(commit.to_string(), e))
+    }
+
     /// The patterns `role` must not touch: those of `all`, then its own.
     pub fn protected(&self, role: &str) -> Vec<&str> {
         let own = role.replace('-', "_");
@@ -71,6 +83,8 @@ pub enum Error {
     Read(String, io::Error),
     /// The zone map or the rules table could not classify the plan.
     Config(config::Error),
+    /// The rules file at a commit, the one where a build started, is not valid.
+    Rules(String, config::Error),
     /// The change has no starting point: it was never prepared.
     NotPrepared(String),
 }
@@ -81,6 +95,7 @@ impl fmt::Display for Error {
             Error::Git(e) => write!(f, "{e}"),
             Error::Read(path, e) => write!(f, "cannot read {path}: {e}"),
             Error::Config(e) => write!(f, "{e}"),
+            Error::Rules(commit, e) => write!(f, "{RULES} at {commit}: {e}"),
             Error::NotPrepared(id) => write!(
                 f,
                 "change {id} has not been prepared: its record has no build_start"
@@ -159,8 +174,11 @@ impl Verdict {
 
 /// Path Guard for `role` on change `id` of the project at `root`: the paths the change touched
 /// since its build started that `role` must not touch, then the scenarios approved in G1 that
-/// changed or went away since. With the hashes of a snapshot, only the paths whose hash changed
-/// since it count as touched. A change never prepared fails: there is no starting point.
+/// changed or went away since. What `role` must not touch is what `settings`, the rules file
+/// now, protects, and what the rules file protected when the build started: deleting the file
+/// or one of its protections frees no one from it. With the hashes of a snapshot, only the paths
+/// whose hash changed since it count as touched. A change never prepared fails: there is no
+/// starting point.
 pub fn path_guard(
     root: &Path,
     id: &str,
@@ -172,12 +190,16 @@ pub fn path_guard(
     let Some(start) = record.build_start.as_deref() else {
         return Ok(Verdict::new(vec![not_prepared(id, "Path Guard")]));
     };
-    let mut touched = Git::new(root).changed_since(&change::branch(id), start)?;
+    let git = Git::new(root);
+    let mut touched = git.changed_since(&change::branch(id), start)?;
     if let Some(before) = snapshot {
-        let now = hashes(root, &touched)?;
-        touched.retain(|path| now.get(path) != before.get(path));
+        touched = changed_after(root, touched, before)?;
     }
-    let protected = settings.protected(role);
+    let at_start = Settings::committed(&git, start)?;
+    let protected: Vec<&str> = [settings, &at_start]
+        .into_iter()
+        .flat_map(|rules| rules.protected(role))
+        .collect();
     let mut failures: Vec<String> = touched
         .iter()
         .filter(|path| protected.iter().any(|pattern| glob_matches(pattern, path)))
@@ -191,6 +213,20 @@ pub fn path_guard(
         }
     }
     Ok(Verdict::new(failures))
+}
+
+/// Of the paths in `diff` and those the snapshot `before` hashed, the ones whose hash changed
+/// since it. A path the snapshot hashed counts even when it left the diff: an untracked file
+/// deleted, or a file put back as it was when the build started.
+fn changed_after(root: &Path, diff: Vec<String>, before: &Hashes) -> Result<Vec<String>, Error> {
+    let paths: BTreeSet<String> = diff.into_iter().chain(before.keys().cloned()).collect();
+    let mut changed = Vec::new();
+    for path in paths {
+        if before.get(&path) != Some(&project_hash(root, &path)?) {
+            changed.push(path);
+        }
+    }
+    Ok(changed)
 }
 
 /// The hashes of what change `id` of the project at `root` touched since its build started, as
@@ -473,6 +509,87 @@ paths = ["src/storage/**"]
     }
 
     #[test]
+    fn a_path_the_snapshot_hashed_counts_after_it_leaves_the_diff() {
+        let (repo, start) = started();
+        let record = record(&[], Some(&start));
+        repo.write("features/a.feature", "Feature: changed\n");
+        repo.write("features/b.feature", "Feature: b\n");
+        let before = snapshot(repo.root(), "c1", &record).unwrap();
+        assert_eq!(
+            guard(&repo, &record, "builder-build", Some(&before)),
+            NOTHING
+        );
+        repo.write("features/a.feature", "Feature: a\n");
+        fs::remove_file(repo.root().join("features/b.feature")).unwrap();
+        assert_eq!(guard(&repo, &record, "builder-build", None), NOTHING);
+        assert_eq!(
+            guard(&repo, &record, "builder-build", Some(&before)),
+            [
+                "features/a.feature: protected path for builder-build",
+                "features/b.feature: protected path for builder-build",
+            ]
+        );
+    }
+
+    #[test]
+    fn deleting_the_rules_or_a_protection_frees_no_one() {
+        let (repo, start) = started();
+        let record = record(&[], Some(&start));
+        let failures = |now: &Settings| {
+            let verdict = path_guard(repo.root(), "c1", &record, now, "builder-build", None);
+            verdict.unwrap().failures
+        };
+        fs::remove_file(repo.root().join("gdd/rules.toml")).unwrap();
+        repo.write("features/b.feature", "Feature: b\n");
+        repo.write("docs/x.md", "x\n");
+        let empty = Settings::from_toml("").unwrap();
+        assert_eq!(
+            failures(&empty),
+            [
+                "features/b.feature: protected path for builder-build",
+                "gdd/rules.toml: protected path for builder-build",
+            ]
+        );
+        let added = Settings::from_toml("[protected]\nbuilder_build = [\"docs/**\"]\n").unwrap();
+        assert_eq!(
+            failures(&added),
+            [
+                "docs/x.md: protected path for builder-build",
+                "features/b.feature: protected path for builder-build",
+                "gdd/rules.toml: protected path for builder-build",
+            ]
+        );
+    }
+
+    #[test]
+    fn without_rules_where_the_build_started_the_rules_now_count() {
+        let repo = Repo::new();
+        let start = repo.start("c1");
+        repo.write("src/a.rs", "x\n");
+        let failure = "src/a.rs: protected path for builder-test";
+        let record = record(&[], Some(&start));
+        assert_eq!(guard(&repo, &record, "builder-test", None), [failure]);
+    }
+
+    #[test]
+    fn broken_rules_where_the_build_started_are_an_error_that_names_them() {
+        let broken: [&[u8]; 2] = [b"[protected]\nall = \"gdd/**\"\n", &[0xff, 0xfe]];
+        for text in broken {
+            let repo = Repo::new();
+            fs::create_dir_all(repo.root().join("gdd")).unwrap();
+            fs::write(repo.root().join("gdd/rules.toml"), text).unwrap();
+            repo.commit();
+            let start = repo.start("c1");
+            let record = record(&[], Some(&start));
+            let result = path_guard(repo.root(), "c1", &record, &settings(), "reviewer", None);
+            let err = result.unwrap_err();
+            assert!(matches!(&err, Error::Rules(commit, _) if *commit == start));
+            let prefix = format!("gdd/rules.toml at {start}: invalid TOML: ");
+            assert!(err.to_string().starts_with(&prefix), "{err}");
+        }
+    }
+
+    #[test]
     fn a_snapshot_hashes_what_the_change_touched_as_it_is_now() {
         let (repo, start) = started();
         repo.write("src/a.rs", "abc");
@@ -584,5 +701,10 @@ paths = ["src/storage/**"]
         );
         let read = Error::Read("a.rs".into(), io::Error::other("busy"));
         assert_eq!(read.to_string(), "cannot read a.rs: busy");
+        let rules = Error::Rules("37cc864".into(), config::Error::Toml("bad".into()));
+        assert_eq!(
+            rules.to_string(),
+            "gdd/rules.toml at 37cc864: invalid TOML: bad"
+        );
     }
 }
