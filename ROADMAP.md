@@ -63,6 +63,13 @@ change, stop and review before adding more.
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
 | A library's demo is the readable run of its scenarios | done in the kit | |
+| Principle «done is not good»: the human is the editor at G4 | done (method) | `docs/discover/2026-10-26-done-is-not-good.md` |
+| G4 answers OK, KO or polish (one more Builder round with the human's notes) | next | recipe-run |
+| `docs/standards.md`: the project's quality bar, read by the Builder and the Reviewer, fed by Learn | done in the kit | `gdd init` writes a first one |
+| Secrets scanning (gitleaks) and the linter's complexity rule in the gates | done in this repository | stack sheets for every stack |
+| Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | next | stack sheets |
+| `gdd report --dora`: DORA's five delivery metrics and GDD's signals (polish rate, parks, Reviewer findings) from the log | next | delivery-report |
+| Spikes with variants: N Builders build the same spike, the human picks one side by side | next | spike-variants |
 | All the kit's end-to-end cases pass against `gdd` (t0-t13 today) | next | closes the MVP |
 | Vivarium pilot with `gdd`, run by a clean agent; compare tokens and stops with the kit | next | after the MVP |
 

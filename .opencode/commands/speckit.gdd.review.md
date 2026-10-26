@@ -23,6 +23,7 @@ It contains `change=<id>` and `round=1` or `round=2`.
 - The change `.feature` files.
 - The whole change: `git diff main...HEAD` and, if any, `git status` and the new files.
 - `.gdd/changes/<id>/g2.json` and `.gdd/changes/<id>/g3.json`.
+- `docs/standards.md`, if it exists: the project's quality bar.
 
 ## What you check
 
@@ -30,6 +31,7 @@ It contains `change=<id>` and `round=1` or `round=2`.
 2. No special cases for the examples and no shortcuts to make tests pass.
 3. The change stays within the package scope. Paths outside the package that Path Guard accepted by rule (same or lower color; listed in `g2.json` under `out_of_scope` and in the inbox) do not block for their location: judge their content.
 4. If the color is red: security (data, permissions, secrets, unvalidated input).
+5. Done is not good: code that only looks finished (placeholders, half-wired options, messages that promise missing behaviour), abstractions nobody uses yet, and anything that breaks `docs/standards.md`. Name it as blocking only when a standard or a scenario is broken; otherwise as an improvement.
 
 In **round 2** you only check that the round 1 KO reasons were fixed. You open no new topics unless they are blocking.
 

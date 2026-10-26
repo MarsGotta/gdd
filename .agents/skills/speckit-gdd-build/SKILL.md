@@ -22,6 +22,8 @@ It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`.
 ## Your context (only this)
 
 - `.gdd/changes/<id>/package.md`: your task.
+- `docs/standards.md`, if it exists: the project's quality bar. Passing the gates is not enough; the work must also meet it.
+- If `fix=polish`: the human's notes at G4 in `.gdd/changes/<id>/inbox.md` (under Polish). Polish what they ask, nothing else.
 - `.gdd/changes/<id>/g2.json`: if present, the failures of the previous round.
 - If `fix=g3`: `.gdd/changes/<id>/g3.json`.
 - If `fix=review`: `.gdd/changes/<id>/review.md` (the reasons for the KO).

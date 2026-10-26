@@ -14,8 +14,8 @@
       "version": "0.2.0",
       "description": "Build \u2192 G2 \u2192 Integrate \u2192 G3 \u2192 Release \u2192 G4 for a change prepared by the Orchestrator. Launch it with bin/gdd launch <change>.",
       "source": "gdd-kit/workflows/gdd-change",
-      "installed_at": "2026-10-26T08:22:13.319584+00:00",
-      "updated_at": "2026-10-26T08:22:13.319593+00:00"
+      "installed_at": "2026-10-26T10:26:22.028336+00:00",
+      "updated_at": "2026-10-26T10:26:22.028342+00:00"
     }
   }
 }
