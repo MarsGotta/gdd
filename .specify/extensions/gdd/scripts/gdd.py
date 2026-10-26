@@ -684,6 +684,48 @@ def release_step(c: str, name: str) -> dict:
     return r
 
 
+def merge_message(c: str, d: dict) -> str:
+    """The merge commit carries the change's record: what a pull request description would hold.
+    The full working files stay in .gdd/changes/<id>/ (not versioned)."""
+    dec = d.get("decision", {})
+    lines = [f"gdd({c}): G3 Merge Gate · {d.get('title', '')}", ""]
+    lines.append(f"Color: {dec.get('color', '-')} · lane {dec.get('lane', '-')} · type {dec.get('type', d.get('type', '-'))}")
+    appr = []
+    zones = read_json(RT / "zones.json") if (RT / "zones.json").exists() else {}
+    if dec.get("color") == "red" and zones:
+        appr.append(f"red zones {zones.get('decision')} ({zones.get('by')}, {str(zones.get('ts', ''))[:10]})")
+    for g in ("G1", "plan"):
+        r = d.get("gates", {}).get(g)
+        if r:
+            extra = f", {len(r.get('hashes', {}))} scenario file(s) sealed" if r.get("hashes") else ""
+            appr.append(f"{g} {r.get('decision')} ({r.get('by')}, {str(r.get('ts', ''))[:10]}{extra})")
+    lines.append("Approvals: " + ("; ".join(appr) if appr else "none needed"))
+    lines.append("G4: " + ("human approval required after pre" if dec.get("g4") else "automatic when pre is green"))
+    reviews = sorted((CHANGES / c / "outputs").glob("reviewer-*.md")) if (CHANGES / c / "outputs").exists() else []
+    if reviews:
+        verdicts = []
+        for f in reviews:
+            m = re.search(r"VERDICT:\s*(OK|KO)", f.read_text(errors="replace"))
+            verdicts.append(m.group(1) if m else "?")
+        lines.append("Reviewer: " + " -> ".join(verdicts))
+        for f in reviews:
+            for ln in f.read_text(errors="replace").splitlines():
+                if ln.startswith("- **"):
+                    lines.append("  - " + re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", ln[2:]).replace("**", "")[:220])
+    decided = [n["text"] for n in d.get("inbox", []) if n.get("kind") == "decided"]
+    if decided:
+        lines.append("Decided without the human:")
+        lines += ["  - " + t.replace("\n", " ")[:220] for t in decided[-8:]]
+    rows = [json.loads(l) for l in (RT / "log.jsonl").read_text().splitlines() if l.strip()] if (RT / "log.jsonl").exists() else []
+    rows = [r for r in rows if r.get("change") == c and r.get("agent") not in ("-", "checks", "path-guard", "merge", "verdict", "build", "deploy_pre", "tests_pre", "demo")]
+    if rows:
+        t_in = sum(r.get("tokens_in", 0) for r in rows); t_out = sum(r.get("tokens_out", 0) for r in rows)
+        t_cache = sum(r.get("tokens_cache", 0) for r in rows); cost = sum(r.get("cost_usd", 0) for r in rows)
+        lines.append(f"Tokens: in {t_in:,} · cache {t_cache:,} · out {t_out:,} · {cost:.2f} USD (estimate) · {len(rows)} agent call(s)")
+    lines.append(f"Record: .gdd/changes/{c}/ (local)")
+    return "\n".join(lines)
+
+
 def c_merge(a) -> None:
     c = change_id(a.change)
     d = load_change(c)
@@ -692,7 +734,7 @@ def c_merge(a) -> None:
     if git("status", "--porcelain"):
         git("add", "-A"); git("commit", "-m", f"gdd({c}): change work", check=True)
     git("checkout", main_branch(), check=True)
-    git("merge", "--no-ff", branch(c), "-m", f"gdd({c}): G3 Merge Gate · {d.get('title', '')}", check=True)
+    git("merge", "--no-ff", branch(c), "-m", merge_message(c, d), check=True)
     if cfg("rules").get("push_main", False) and git("remote"):
         git("push", "origin", main_branch())
     d["state"] = "merged"; d["commit"] = git("rev-parse", "HEAD"); save_change(c, d)

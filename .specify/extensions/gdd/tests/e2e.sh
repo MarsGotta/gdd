@@ -59,6 +59,10 @@ bin/gdd new-change t2 --title "Greeting with name" --paths features/greeting.fea
 git switch -q change/t2; printf 'Feature: greeting\n  Scenario: greets\n    Given a name\n' > features/greeting.feature
 git add -A; git commit -qm G1; bin/gdd gate G1 ok t2 --by human >/dev/null; git switch -q main
 bin/gdd launch t2 | grep -c "paused" >/dev/null || fail "t2 did not pause at G4"
+git log -1 --format=%B main | grep -c "^Approvals: G1 ok (human" >/dev/null || fail "t2 merge commit does not record the G1 approval"
+git log -1 --format=%B main | grep -c "^G4: human approval required" >/dev/null || fail "t2 merge commit does not say G4 is required"
+git log -1 --format=%B main | grep -c "^Reviewer: OK" >/dev/null || fail "t2 merge commit does not record the Reviewer"
+git log -1 --format=%B main | grep -c "^Tokens: in" >/dev/null || fail "t2 merge commit does not record the tokens"
 bin/gdd resume t2 --g4 ok | grep -c "completed" >/dev/null || fail "t2 did not finish after G4"
 echo "OK t2 pauses at G4 and continues with the OK"
 # t3

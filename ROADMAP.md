@@ -46,6 +46,7 @@ change, stop and review before adding more.
 | Same for Codex and OpenCode | open | agents block |
 | The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe | next | agents block |
 | Replan that can send the change back to test mode; a relaunch with G2 green skips the Builder | done in the kit | port in the agents block |
+| The merge commit carries the change's record: color, approvals, G4, Reviewer findings, decisions taken without the human, tokens (the working files stay in `.gdd/`, not versioned) | done in the kit | port in the agents block |
 | Agents talk to the human in the project's language (`language` in `gdd/project.toml`) | done in the kit | port in the agents block |
 | Mutation testing with a memory cap for test processes (Linux: `prlimit`) | done in the recipes | |
 | The same cap on macOS | open | |
