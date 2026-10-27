@@ -22,6 +22,10 @@ use crate::{inbox, log};
 /// The steps `gdd release` runs, by name.
 pub const STEPS: [&str; 3] = ["pre", "promote", "observe"];
 
+/// The state of a change while its promotion runs. A promotion that stops before its result is
+/// recorded leaves it there: production may have the change.
+pub const PROMOTING: &str = "promoting";
+
 /// Why a change that needs the human G4 is not promoted.
 const NEEDS_G4: &str = "This change needs a human G4 before promotion.";
 
@@ -228,8 +232,8 @@ pub fn pre(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
 /// `gdd release promote`: change `id` of the project at `root` to production. A change that
 /// needs the human G4 waits for it: `needs_g4` says whether it needs it as it is classified
 /// now, and the decision stored when it was prepared counts too. Otherwise the machines approve
-/// G4, logged. The change goes to `in-production`, or stays `in-pre` when the step fails. The
-/// step as JSON, or why it was refused or failed.
+/// G4, logged. The change is [`PROMOTING`] while the step runs, then goes to `in-production`, or
+/// back to `in-pre` when the step fails. The step as JSON, or why it was refused or failed.
 pub fn promote(root: &Path, id: &str, steps: &Steps, needs_g4: bool) -> Result<String, String> {
     let (mut text, record) = read(root, id)?;
     if needs_g4 || record["decision"]["g4"] == true {
@@ -260,6 +264,7 @@ pub fn promote(root: &Path, id: &str, steps: &Steps, needs_g4: bool) -> Result<S
         };
         change::logged(root, &entry)?;
     }
+    saved_in_state(root, id, &text, PROMOTING)?;
     let promoted = step(root, id, steps, "promote")?;
     let state = if promoted.ok {
         "in-production"
@@ -605,6 +610,22 @@ flag = false
         let record = record(&folder);
         assert_eq!(record["state"], "in-pre");
         assert_eq!(record["gates"]["G4"]["by"], "machines");
+    }
+
+    #[test]
+    fn a_promotion_that_stops_before_its_result_is_recorded_leaves_the_change_promoting() {
+        // While its command runs, the record says so.
+        let folder = project(RECORD);
+        let seen = "grep -q '\"promoting\"' .gdd/changes/c1/change.json";
+        assert!(promote(&folder.0, "c1", &with("promote", seen), false).is_ok());
+        assert_eq!(record(&folder)["state"], "in-production");
+        // A command that ran, then a log that cannot be written.
+        let folder = project(RECORD);
+        let unlogged = with("promote", "rm .gdd/log.jsonl && mkdir .gdd/log.jsonl");
+        let err = promote(&folder.0, "c1", &unlogged, false).unwrap_err();
+        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        assert_eq!(record(&folder)["state"], PROMOTING);
+        assert_eq!(PROMOTING, "promoting");
     }
 
     #[test]
