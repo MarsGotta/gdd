@@ -111,4 +111,5 @@ change, stop and review before adding more.
 - Token charts.
 - Semgrep (multi-language static analysis).
 - More stacks in the catalog.
+- (MVP, small) Approving a sitting while another change's agent works must not park it: `gate zones ok` with the zone map already approved writes nothing, and a human approval during another change's agent call is not that agent's doing (today it parks the other change and puts the approval back; found 2026-10-27 running merge-queue and init-form at once).
 - Bare repositories and `--separate-git-dir`: today gdd refuses to run in a worktree of a bare repository (or of one whose main checkout git cannot name), because there is no main checkout to keep the shared `.gdd/` state in (state-root, 2026-10-27). Support them with a configurable state folder, so the "one bare repository + one worktree per branch" style works. No urgency.
