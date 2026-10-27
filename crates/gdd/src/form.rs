@@ -249,20 +249,34 @@ impl Form {
     /// A new form, on its first step. `agents`: the coding agents found on the `PATH` (claude,
     /// codex, opencode, in that order), which come checked.
     pub fn new(agents: Vec<String>) -> Form {
-        let found = |name: &str| agents.iter().any(|agent| agent == name);
         Form {
             step: Step::Name,
             name: String::new(),
             description: String::new(),
             platform: List::of(init::PLATFORMS, |_| false),
             stacks: List::of(STACKS.into_iter().chain([NOT_SURE]), |_| false),
-            agents: List::of(sheets::NAMES.split(", "), found),
+            agents: agent_list(&agents),
             language: LANGUAGE.to_string(),
             sensitive: Vec::new(),
             area: String::new(),
             problem: None,
             outcome: None,
         }
+    }
+
+    /// The form with the answers the flags of `gdd init` already gave in `given`, to change as
+    /// any other: the coding agents they name come checked instead of those found (in the order
+    /// of the list), and the language, the description and the sensitive areas are theirs. The
+    /// name, the platform and the stacks are left to answer, and the yes to one model family to
+    /// give on the summary.
+    fn answered(mut self, given: &init::Options) -> Form {
+        if !given.agents.is_empty() {
+            self.agents = agent_list(&given.agents);
+        }
+        self.language.clone_from(&given.language);
+        self.description.clone_from(&given.description);
+        self.sensitive.clone_from(&given.sensitive);
+        self
     }
 
     /// The human presses `key`: Ctrl-C quits, Esc goes back one step keeping the answers, Enter
@@ -295,14 +309,15 @@ impl Form {
         self.outcome.as_ref()
     }
 
-    /// Enter: the next step when this one is answered, else what it still needs. On the last
-    /// step it adds the area typed, and goes on from an empty line; on the summary it ends.
+    /// Enter: the next step when this one is answered, else what it still needs; a name of
+    /// spaces only is none. On the last step it adds the area typed, and goes on from a line
+    /// empty or of spaces only; on the summary it ends.
     fn enter(&mut self) {
         match self.step {
-            Step::Name if words(&self.name).is_empty() => self.problem = Some(NO_NAME),
+            Step::Name if self.name.trim().is_empty() => self.problem = Some(NO_NAME),
             Step::Stacks if self.stacks.picked().is_empty() => self.problem = Some(NO_STACK),
             Step::Agents if self.agents.picked().is_empty() => self.problem = Some(NO_AGENT),
-            Step::Sensitive if !words(&self.area).is_empty() => self.add_area(),
+            Step::Sensitive if !self.area.trim().is_empty() => self.add_area(),
             Step::Summary => self.end(),
             step => self.step = step.next(),
         }
@@ -331,10 +346,9 @@ impl Form {
         }
     }
 
-    /// Adds the area typed to the sensitive ones.
+    /// Adds the area typed, as it is, to the sensitive ones.
     fn add_area(&mut self) {
-        self.sensitive.push(words(&self.area));
-        self.area.clear();
+        self.sensitive.push(std::mem::take(&mut self.area));
     }
 
     /// Enter on the summary: the flags command when the human is not sure of the technology;
@@ -368,40 +382,40 @@ impl Form {
         families.windows(2).all(|pair| pair[0] == pair[1])
     }
 
-    /// The answers as gdd init takes them, as the flags give them: words joined with single
-    /// spaces, the stacks without Not sure.
+    /// The answers as gdd init takes them: the text as typed, which it escapes, and the stacks
+    /// without Not sure.
     fn options(&self, accept_same_family: bool) -> init::Options {
         let stacks = self.stacks.picked().into_iter();
         init::Options {
-            name: words(&self.name),
+            name: self.name.clone(),
             platform: self.platform.current(),
             stacks: stacks.filter(|stack| stack != NOT_SURE).collect(),
             agents: self.agents.picked(),
             language: self.language(),
-            description: words(&self.description),
+            description: self.description.clone(),
             sensitive: self.sensitive.clone(),
             accept_same_family,
         }
     }
 
-    /// The language typed, `en` when none is.
+    /// The language typed, `en` when none is (or only spaces).
     fn language(&self) -> String {
-        let typed = words(&self.language);
-        if typed.is_empty() {
+        if self.language.trim().is_empty() {
             LANGUAGE.to_string()
         } else {
-            typed
+            self.language.clone()
         }
     }
 
-    /// The flags command with every answer but the stacks, to run once the human knows them.
+    /// The flags command with every answer but the stacks, to run once the human knows them;
+    /// gdd init reads each answer from it as typed (see [`flag`]).
     fn command(&self) -> String {
         let options = self.options(false);
         let mut flags = vec![
             "gdd init".to_string(),
             flag("--name", &options.name),
             flag("--platform", &options.platform),
-            flag("--agents", &options.agents.join(" ")),
+            format!("--agents {}", options.agents.join(" ")),
             flag("--language", &options.language),
         ];
         if !options.description.is_empty() {
@@ -494,12 +508,16 @@ pub fn finish(root: &Path, outcome: &Outcome, env: &[(String, String)]) -> Resul
 }
 
 /// `gdd init` in a terminal: asks the form (see [`ask`]), with the coding agents on the `PATH`
-/// of the process checked, then does what the human answered in the folder `cwd` (see
-/// [`finish`]), in the environment of the process.
-pub fn in_terminal(cwd: &Path) -> crate::Outcome {
+/// of the process checked and the answers its flags already gave in `given` (see
+/// [`Form::answered`]), then does what the human answered in the folder `cwd` (see [`finish`]),
+/// in the environment of the process.
+pub fn in_terminal(cwd: &Path, given: &init::Options) -> crate::Outcome {
     let env = crate::process_env();
-    let asked = init::agents_on_path(&env).and_then(|found| ask(Form::new(found)));
-    match asked.and_then(|outcome| finish(cwd, &outcome, &env)) {
+    let form = init::agents_on_path(&env).map(|found| Form::new(found).answered(given));
+    match form
+        .and_then(ask)
+        .and_then(|outcome| finish(cwd, &outcome, &env))
+    {
         Ok(said) => crate::Outcome::printed(said, 0),
         Err(why) => crate::Outcome::failure(format!("{why}\n")),
     }
@@ -606,10 +624,11 @@ fn field(text: &str) -> String {
     format!("> {text}█")
 }
 
-/// The words of `text`, joined with single spaces, as the flags join them.
-fn words(text: &str) -> String {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    words.join(" ")
+/// The coding agents of the form (claude, codex, opencode), those of `checked` checked.
+fn agent_list(checked: &[String]) -> List {
+    List::of(sheets::NAMES.split(", "), |name| {
+        checked.iter().any(|agent| agent == name)
+    })
 }
 
 /// `text`, or `none` when it is empty.
@@ -617,10 +636,16 @@ fn or_none(text: &str) -> &str {
     if text.is_empty() { "none" } else { text }
 }
 
-/// The option `name` with `value`, each of its words as the shell reads it (see [`shell_word`]).
+/// The option `name` with `value` as one word of the shell (see [`shell_word`]), which gdd init
+/// reads whole as its value: after `=` when it starts with `-`, which it would take for an
+/// option.
 fn flag(name: &str, value: &str) -> String {
-    let value: Vec<String> = value.split_whitespace().map(shell_word).collect();
-    format!("{name} {}", value.join(" "))
+    let word = shell_word(value);
+    if value.starts_with('-') {
+        format!("{name}={word}")
+    } else {
+        format!("{name} {word}")
+    }
 }
 
 /// `word` as the shell reads it: as it is when it has only letters, digits and `-_./,:@+=%`, else
@@ -826,12 +851,20 @@ mod tests {
         press(&mut form, &[Key::Enter, Key::Enter]);
         assert_shows(&form, &["Language: en"]);
         press(&mut form, &[Key::Esc, Key::Esc, Key::Backspace]);
-        press(&mut form, &[Key::Backspace, Key::Enter, Key::Enter]);
+        press(&mut form, &[Key::Backspace, Key::Space]);
+        press(&mut form, &[Key::Enter, Key::Enter]);
         assert_shows(&form, &["Language: en"]);
-        press(&mut form, &[Key::Esc, Key::Esc]);
-        type_text(&mut form, " es ");
+        press(&mut form, &[Key::Esc, Key::Esc, Key::Backspace]);
+        type_text(&mut form, "es ");
         press(&mut form, &[Key::Enter, Key::Enter]);
         assert_shows(&form, &["Language: es"]);
+        form.press(Key::Enter);
+        let language = "es ".to_string();
+        let set_up = init::Options {
+            language,
+            ..notes(&["claude", "codex"], false)
+        };
+        assert_eq!(form.outcome(), Some(&Outcome::SetUp(set_up)));
     }
 
     #[test]
@@ -845,14 +878,72 @@ mod tests {
         form.press(Key::Enter);
         type_text(&mut form, "User  data");
         form.press(Key::Enter);
-        assert_shows(&form, &["  - Payments", "  - User data", "\n│> █"]);
+        assert_shows(&form, &["  - Payments", "  - User  data", "\n│> █"]);
         type_text(&mut form, "x");
         press(&mut form, &[Key::Backspace, Key::Backspace]);
-        assert_shows(&form, &["  - Payments", "> User data█"]);
-        assert_hides(&form, &["  - User data"]);
-        press(&mut form, &[Key::Backspace, Key::Enter, Key::Enter]);
-        assert_shows(&form, &["Sensitive: Payments; User dat"]);
-        assert_hides(&form, &["Sensitive: Payments; User data"]);
+        assert_shows(&form, &["  - Payments", "> User  data█"]);
+        assert_hides(&form, &["  - User  data"]);
+        press(&mut form, &[Key::Backspace, Key::Enter]);
+        press(&mut form, &[Key::Space, Key::Enter]);
+        assert_shows(&form, &["Sensitive: Payments; User  dat"]);
+        assert_hides(&form, &["Sensitive: Payments; User  data", "User  dat;"]);
+    }
+
+    #[test]
+    fn the_answers_go_to_gdd_init_as_typed() {
+        let mut form = Form::new(names(&["claude", "codex"]));
+        type_text(&mut form, " My  Notes ");
+        form.press(Key::Enter);
+        type_text(&mut form, "A  notes app ");
+        press(&mut form, &[Key::Enter, Key::Enter, Key::Space]);
+        press(&mut form, &[Key::Enter, Key::Enter, Key::Enter]);
+        type_text(&mut form, " User  data");
+        press(&mut form, &[Key::Enter, Key::Enter]);
+        assert_shows(&form, &["Name:  My  Notes ", "Description: A  notes app "]);
+        assert_shows(&form, &["Sensitive:  User  data"]);
+        form.press(Key::Enter);
+        let typed = init::Options {
+            name: " My  Notes ".to_string(),
+            platform: "mobile".to_string(),
+            description: "A  notes app ".to_string(),
+            sensitive: names(&[" User  data"]),
+            ..notes(&["claude", "codex"], false)
+        };
+        assert_eq!(form.outcome(), Some(&Outcome::SetUp(typed)));
+    }
+
+    #[test]
+    fn the_flags_given_are_the_first_answers() {
+        let mut given = init::Options {
+            name: String::new(),
+            platform: String::new(),
+            stacks: Vec::new(),
+            agents: Vec::new(),
+            language: "es".to_string(),
+            description: "A  notes app".to_string(),
+            sensitive: names(&["Leaks"]),
+            accept_same_family: false,
+        };
+        let form = Form::new(names(&["codex"])).answered(&given);
+        assert_eq!(form.agents.picked(), names(&["codex"]));
+        given.agents = names(&["codex", "claude"]);
+        let mut form = Form::new(names(&["opencode"])).answered(&given);
+        type_text(&mut form, "Notes");
+        form.press(Key::Enter);
+        assert_shows(&form, &["> A  notes app█"]);
+        press(&mut form, &[Key::Enter, Key::Enter, Key::Space, Key::Enter]);
+        assert_shows(&form, &["> [x] claude", "  [x] codex", "  [ ] opencode"]);
+        press(&mut form, &[Key::Enter, Key::Enter]);
+        assert_shows(&form, &["  - Leaks", "\n│> █"]);
+        press(&mut form, &[Key::Enter, Key::Enter]);
+        let set_up = init::Options {
+            platform: "mobile".to_string(),
+            language: "es".to_string(),
+            description: "A  notes app".to_string(),
+            sensitive: names(&["Leaks"]),
+            ..notes(&["claude", "codex"], false)
+        };
+        assert_eq!(form.outcome(), Some(&Outcome::SetUp(set_up)));
     }
 
     #[test]
@@ -882,7 +973,7 @@ mod tests {
     fn an_empty_description_is_none_on_the_summary() {
         let mut form = Form::new(names(&["claude", "codex"]));
         type_text(&mut form, "Notes");
-        press(&mut form, &[Key::Enter, Key::Space, Key::Enter]);
+        press(&mut form, &[Key::Enter, Key::Enter]);
         press(&mut form, &[Key::Enter, Key::Space]);
         press(&mut form, &[Key::Enter; 4]);
         assert_shows(&form, &["Description: none", "Platform: mobile"]);
@@ -908,7 +999,7 @@ mod tests {
         press(&mut form, &keys);
         press(&mut form, &[Key::Enter; 4]);
         let command = "gdd init --name Notes --platform cli --agents claude --language en \
-                       --description Personal notes --stack <pick one>";
+                       --description 'Personal notes' --stack <pick one>";
         let wide = form.render(140, 40);
         assert!(wide.contains(&format!("│{command} ")), "{wide}");
         assert_shows(&form, &[ASK_AGENT, "Enter to finish · Esc to go back"]);
@@ -922,24 +1013,63 @@ mod tests {
         assert_eq!(form.outcome(), Some(&not_sure));
     }
 
+    /// The words the shell reads in `command`: split at spaces, but not between single quotes,
+    /// and the character after `\` as it is.
+    fn shell_words(command: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word: Option<String> = None;
+        let mut quoted = false;
+        let mut chars = command.chars();
+        while let Some(c) = chars.next() {
+            match (quoted, c) {
+                (_, '\'') => {
+                    quoted = !quoted;
+                    word.get_or_insert_default();
+                }
+                (true, c) => word.get_or_insert_default().push(c),
+                (false, '\\') => word.get_or_insert_default().extend(chars.next()),
+                (false, ' ') => words.extend(word.take()),
+                (false, c) => word.get_or_insert_default().push(c),
+            }
+        }
+        words.extend(word);
+        words
+    }
+
     #[test]
-    fn the_flags_command_quotes_what_the_shell_would_read_otherwise() {
+    fn the_flags_command_gives_gdd_init_each_answer_as_typed() {
         let mut form = Form::new(names(&["claude", "codex"]));
         type_text(&mut form, "2nd  Brain!");
         form.press(Key::Enter);
-        type_text(&mut form, "it's mine");
+        type_text(&mut form, "-x --help");
         press(&mut form, &[Key::Enter, Key::Enter]);
-        let keys = [Key::Up, Key::Up, Key::Up, Key::Space, Key::Enter];
         press(&mut form, &[Key::Down, Key::Down, Key::Down, Key::Space]);
-        press(&mut form, &keys);
-        press(&mut form, &[Key::Enter, Key::Enter]);
-        type_text(&mut form, "R&D");
         press(&mut form, &[Key::Enter, Key::Enter, Key::Enter]);
-        let command = "gdd init --name 2nd 'Brain!' --platform mobile --agents claude codex \
-                       --language en --description 'it'\\''s' mine --sensitive 'R&D' --stack \
-                       <pick one>";
+        type_text(&mut form, "R&D");
+        form.press(Key::Enter);
+        type_text(&mut form, "-  it's");
+        press(&mut form, &[Key::Enter, Key::Enter, Key::Enter]);
+        let command = "gdd init --name '2nd  Brain!' --platform mobile --agents claude codex \
+                       --language en --description='-x --help' --sensitive 'R&D' \
+                       --sensitive='-  it'\\''s' --stack <pick one>";
         let not_sure = Outcome::NotSure(command.to_string());
         assert_eq!(form.outcome(), Some(&not_sure));
+        let words = shell_words(&command.replace("<pick one>", "rust"));
+        let args = match crate::parse(&words[1..]).map(|cli| cli.command) {
+            Ok(Some(crate::Run::Init(args))) => args,
+            other => panic!("{command}: {other:?}"),
+        };
+        let typed = init::Options {
+            name: "2nd  Brain!".to_string(),
+            platform: "mobile".to_string(),
+            stacks: names(&["rust"]),
+            agents: names(&["claude", "codex"]),
+            language: "en".to_string(),
+            description: "-x --help".to_string(),
+            sensitive: names(&["R&D", "-  it's"]),
+            accept_same_family: false,
+        };
+        assert_eq!(args.options(), typed);
         let plain = "a-Z_0./,:@+=%ñ";
         assert_eq!(shell_word(plain), plain);
     }

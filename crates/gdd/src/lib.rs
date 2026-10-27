@@ -1,6 +1,6 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
-//! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` alone asks the
-//! Setup form (see [`form`]).
+//! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` without the
+//! flags of the project asks the Setup form (see [`form`]).
 
 pub mod form;
 
@@ -56,7 +56,8 @@ const TYPES: [&str; 6] = [
 /// What a run of `gdd` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
-    /// Exit code: 0 when the command did its job, 1 when it failed.
+    /// Exit code: 0 when the command did its job, 1 when it failed, 2 when `gdd init` has
+    /// neither the flags of the project nor a terminal for its form.
     pub code: u8,
     /// What it printed for the user.
     pub stdout: String,
@@ -293,7 +294,8 @@ enum StacksAction {
 }
 
 /// What `gdd init` takes. A text option takes every word up to the next option. The name, the
-/// platform and the stacks go together; without any flag, in a terminal, the Setup form asks.
+/// platform and the stacks go together; without them, in a terminal, the Setup form asks, the
+/// other flags as its first answers.
 #[derive(Debug, Args)]
 struct InitArgs {
     /// The name of the project.
@@ -323,25 +325,31 @@ struct InitArgs {
 }
 
 impl InitArgs {
-    /// The new project the flags name; `None` when they leave out the platform, and so the name
-    /// and the stacks, which go with it.
-    fn options(self) -> Option<init::Options> {
-        Some(init::Options {
+    /// Whether the flags name the project: its platform, and so its name and its stacks, which
+    /// go with it.
+    fn name_the_project(&self) -> bool {
+        self.platform.is_some()
+    }
+
+    /// What the flags say of the new project; the name, the platform and the stacks are empty
+    /// when they do not name it.
+    fn options(self) -> init::Options {
+        init::Options {
             name: self.name.join(" "),
-            platform: self.platform?,
+            platform: self.platform.unwrap_or_default(),
             stacks: self.stacks,
             agents: self.agents,
             language: self.language,
             description: self.description.join(" "),
             sensitive: self.sensitive.0,
             accept_same_family: self.accept_same_family,
-        })
+        }
     }
 }
 
 /// Why `gdd init` without the flags of the project did nothing.
-const NO_TERMINAL: &str = "error: gdd init opens its Setup form only when run alone in a \
-                           terminal; else give it the flags --name, --platform and --stack";
+const NO_TERMINAL: &str = "error: gdd init opens its Setup form only in a terminal; else give it \
+                           the flags --name, --platform and --stack";
 
 /// The option of the sensitive areas of `gdd init`.
 const SENSITIVE: &str = "sensitive";
@@ -582,7 +590,7 @@ pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Ou
 /// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
 /// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
 /// when it finds a problem. `gdd selftest` and `gdd ci` exit with 1 when they fail, what they
-/// found on the standard output.
+/// found on the standard output. `gdd init` without the flags of the project exits with 2.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     run_in(args, cwd, role, &process_env())
 }
@@ -590,8 +598,7 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
 /// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
 /// (see [`run_as`]).
 fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome {
-    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
-    let cli = match Cli::try_parse_from(words) {
+    let cli = match parse(args) {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
         Err(e) => return Outcome::success(e.to_string()),
@@ -612,6 +619,12 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
     }
 }
 
+/// The command `gdd` with `args`, the words after the program name, as clap reads it.
+fn parse(args: &[String]) -> Result<Cli, clap::Error> {
+    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
+    Cli::try_parse_from(words)
+}
+
 /// The environment of the process; a variable whose name or value is not UTF-8 is left out.
 fn process_env() -> Vec<(String, String)> {
     let text = |(name, value): (OsString, OsString)| {
@@ -622,23 +635,32 @@ fn process_env() -> Vec<(String, String)> {
 
 /// `gdd init`: sets up GDD in the folder `cwd` (see [`init::init`]), with git and the agents on
 /// the `PATH` of the environment `env`. What it says goes to the standard output; why it wrote
-/// nothing, or stopped, to the standard error. Without the flags of the project, which only the
-/// form asks (see [`asks_form`]), it fails like a command missing its arguments.
+/// nothing, or stopped, to the standard error. Without the flags of the project, which then only
+/// the form asks (see [`asks_form`]), it fails like a command missing its arguments, with exit
+/// code 2.
 fn init_project(cwd: &Path, args: InitArgs, env: &Env) -> Outcome {
-    let Some(options) = args.options() else {
-        return Outcome::failure(format!("{NO_TERMINAL}\n"));
-    };
-    match init::init(cwd, &options, env) {
+    if !args.name_the_project() {
+        let missing = Outcome::failure(format!("{NO_TERMINAL}\n"));
+        return Outcome { code: 2, ..missing };
+    }
+    match init::init(cwd, &args.options(), env) {
         Ok(said) => Outcome::printed(said, 0),
         Err(e) => Outcome::failure(format!("{e}\n")),
     }
 }
 
-/// Whether `gdd` with `args` asks the Setup form (see [`form::in_terminal`]): it is `gdd init`
-/// alone, whose answers the form asks all, and its standard input and output are terminals
-/// (`stdin` and `stdout`).
-pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> bool {
-    stdin && stdout && args == ["init"]
+/// The first answers of the Setup form, when `gdd` with `args` asks it (see
+/// [`form::in_terminal`]): it is `gdd init` without the flags of the project (`--name`,
+/// `--platform` and `--stack`), whose other flags answer first, and its standard input and output
+/// are terminals (`stdin` and `stdout`).
+pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Options> {
+    if !(stdin && stdout) {
+        return None;
+    }
+    match parse(args).ok()?.command? {
+        Run::Init(args) if !args.name_the_project() => Some(args.options()),
+        _ => None,
+    }
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -1618,25 +1640,50 @@ mod tests {
     fn init_without_the_flags_of_the_project_asks_for_a_terminal_or_them() {
         for command in ["init", "init --language es --agents claude"] {
             let out = run_in(Path::new("/"), command);
-            let failed = (1, String::new(), format!("{NO_TERMINAL}\n"));
+            let failed = (2, String::new(), format!("{NO_TERMINAL}\n"));
             assert_eq!((out.code, out.stdout, out.stderr), failed, "{command:?}");
         }
-        let said = "error: gdd init opens its Setup form only when run alone in a terminal; else \
-                    give it the flags --name, --platform and --stack";
+        let said = "error: gdd init opens its Setup form only in a terminal; else give it the \
+                    flags --name, --platform and --stack";
         assert_eq!(NO_TERMINAL, said);
     }
 
     #[test]
-    fn only_gdd_init_alone_in_a_terminal_asks_the_form() {
+    fn gdd_init_without_the_flags_of_the_project_in_a_terminal_asks_the_form() {
         let asks = |command: &str, stdin, stdout| asks_form(&words(command), stdin, stdout);
-        assert!(asks("init", true, true));
-        assert!(!asks("init", false, true));
-        assert!(!asks("init", true, false));
-        assert!(!asks("init --language es", true, true));
-        let flags = "init --name x --platform cli --stack rust";
-        assert!(!asks(flags, true, true));
-        assert!(!asks("status", true, true));
-        assert!(!asks("", true, true));
+        let alone = init::Options {
+            name: String::new(),
+            platform: String::new(),
+            stacks: Vec::new(),
+            agents: Vec::new(),
+            language: "en".to_string(),
+            description: String::new(),
+            sensitive: Vec::new(),
+            accept_same_family: false,
+        };
+        assert_eq!(asks("init", true, true), Some(alone.clone()));
+        let command = "init --language es --agents codex claude --description A notes app \
+                       --sensitive Losing notes --sensitive Leaks --accept-same-family";
+        let given = init::Options {
+            agents: vec!["codex".to_string(), "claude".to_string()],
+            language: "es".to_string(),
+            description: "A notes app".to_string(),
+            sensitive: vec!["Losing notes".to_string(), "Leaks".to_string()],
+            accept_same_family: true,
+            ..alone
+        };
+        assert_eq!(asks(command, true, true), Some(given));
+        assert_eq!(asks("init", false, true), None);
+        assert_eq!(asks("init", true, false), None);
+        for command in [
+            "init --name x --platform cli --stack rust",
+            "init --name x",
+            "init --help",
+            "status",
+            "",
+        ] {
+            assert_eq!(asks(command, true, true), None, "{command:?}");
+        }
     }
 
     /// An environment for `gdd init`: the `PATH` of the tests, for git, an author, and no git

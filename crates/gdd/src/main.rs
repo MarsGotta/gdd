@@ -9,10 +9,9 @@ fn main() -> ExitCode {
     let cwd = std::env::current_dir().unwrap_or_default();
     let input = std::io::stdin().is_terminal();
     let output = std::io::stdout().is_terminal();
-    let out = if gdd::asks_form(&args, input, output) {
-        gdd::form::in_terminal(&cwd)
-    } else {
-        gdd::run(&args, &cwd)
+    let out = match gdd::asks_form(&args, input, output) {
+        Some(given) => gdd::form::in_terminal(&cwd, &given),
+        None => gdd::run(&args, &cwd),
     };
     // A closed output (`gdd report | head -1`) is not worth a panic.
     let mut stdout = std::io::stdout();
