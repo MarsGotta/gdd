@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -7,7 +7,12 @@ fn main() -> ExitCode {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let out = gdd::run(&args, &cwd);
+    let input = std::io::stdin().is_terminal();
+    let output = std::io::stdout().is_terminal();
+    let out = match gdd::asks_form(&args, input, output) {
+        Some(given) => gdd::form::in_terminal(&cwd, &given),
+        None => gdd::run(&args, &cwd),
+    };
     // A closed output (`gdd report | head -1`) is not worth a panic.
     let mut stdout = std::io::stdout();
     let _ = stdout
