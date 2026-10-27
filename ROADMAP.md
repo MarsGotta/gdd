@@ -71,8 +71,8 @@ change, stop and review before adding more.
 | `gdd init` form screen; `gdd status` notices a second model family to change the Reviewer | next | init-form |
 | `gdd upgrade`: a new gdd version proposes its changes to the files it wrote once (three-way merge against what it generated then; untouched files updated, edited ones merged, conflicts marked), as a change approved at a sitting; `init` records which version generated each file | next | gdd-upgrade (after the pilot) |
 | One state for every worktree: all `.gdd/` paths resolve to the main checkout (git common dir), so status, records, log and gates agree from any worktree | done | state-root (2026-10-27) |
-| Parallel changes: each change runs in its own git worktree (sibling folder `<repo>.worktrees/<id>`, configurable) with one shared `.gdd/` state; changes whose planned paths overlap cannot run together; `[parallel] max` (default 2) caps changes building at once | next | parallel-launch |
-| Merge queue: merges one at a time, each change takes the latest main and passes G3 again before merging; the worktree goes after the merge | next | merge-queue |
+| Each change runs in its own git worktree (sibling folder `<repo>.worktrees/<id>`, configurable); the main checkout stays on main; the agents-state check is per change; log appends under a lock | next | parallel-launch |
+| Several changes at once: changes whose planned paths overlap cannot run together, `[parallel] max` (default 2) caps changes building at once; merges one at a time, each change takes the latest main and passes G3 again before merging | next | merge-queue |
 | Adoption of a repository with code: `gdd init` runs every gate once, reports what fails, proposes Refactor changes ordered by risk; failing commands are known debt (warn, do not block) until a Refactor turns each green | done | init-adopt (2026-10-27): `gdd adopt`, `gdd/debt.toml` |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
