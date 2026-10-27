@@ -64,8 +64,9 @@ change, stop and review before adding more.
 | Item | Status | Where |
 |---|---|---|
 | Stack catalog: Rust, TypeScript, Python. One default and at most one alternative per gate need, only community-backed tools | done (data) | `docs/discover/2026-10-24-mvp.md` |
-| Per-stack sheet: gate commands, scenario runner and skeleton, protected step paths, agent skills loaded on demand | next | human block |
-| `gdd init`: the Setup form (name, platform, stack, agents found, sensitive areas), same flow with flags and no TTY, `/gdd-setup` finishes what the form left | next | human block |
+| Per-stack sheets (Rust, TypeScript, Python): gate commands, scenario runner, self-test file, protected step paths, tool catalog, per-stack instructions for the agents (`gdd-stack-<name>`); one or more per project; `gdd stacks`, `show`, `compose` | done | stack-sheets (2026-10-27) |
+| Project skeleton per stack (Cargo.toml with the acceptance target, cucumber/vitest/stryker configs, pytest-bdd test module on GDD_FEATURES) and a first real run of the TypeScript and Python commands on an empty project | next | gdd init |
+| `gdd init`: the Setup form (name, platform, stack, agents found, sensitive areas), same flow with flags and no TTY, writes `gdd stacks compose` into `gdd/`, `/gdd-setup` finishes what the form left | next | gdd init |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
 | Changelog from the changes: one user-facing line per change, proposed at the sitting, carried as a trailer of the merge commit (`Changelog:`, `Breaking:`); `gdd changelog` writes `CHANGELOG.md` in Keep a Changelog format with an Unreleased section; Spike, No-code and invisible refactors are left out | next | changelog |
@@ -75,7 +76,7 @@ change, stop and review before adding more.
 | G4 answers OK, KO or polish (one more Builder round with the human's notes) | done | recipe-run |
 | `docs/standards.md`: the project's quality bar, read by the Builder and the Reviewer, fed by Learn | done in the kit | `gdd init` writes a first one |
 | Secrets scanning (gitleaks) and the linter's complexity rule in the gates | done in this repository | stack sheets for every stack |
-| Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | next | stack sheets |
+| Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | in the sheets (`[learn]`, stack-sheets); Learn running them: next | gdd init |
 | `gdd report --dora`: DORA's five delivery metrics and GDD's signals (polish rate, parks, Reviewer findings) from the log | next | delivery-report |
 | Spikes with variants: N Builders build the same spike, the human picks one side by side | next | spike-variants |
 | All the kit's end-to-end cases pass against `gdd` (t0-t15, from the pilot repository, where the suite lives) | next | closes the MVP |
