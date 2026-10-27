@@ -148,6 +148,7 @@ Feature: Adopting a project that already has code
     And the change "c1" plans "src/app.rs" and its build has started on its branch
     When I run "gdd g2 c1"
     Then the gate fails on "unit"
+    And the output contains "known_debt"
 
   Scenario: A known debt that passes now is named as paid
     Given the gate commands:
