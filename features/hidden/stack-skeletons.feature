@@ -4,7 +4,7 @@ Feature: Hidden examples for stack skeletons
   Scenario: A Python project name with dashes becomes a package
     Given an empty folder
     When I run "gdd init --name my-garden --platform web --stack python --agents claude codex"
-    Then the file "src/my_garden/__init__.py" exists
+    Then git tracks "src/my_garden/__init__.py"
 
   Scenario: Bootstrap runs the stacks in the order of the project
     Given an empty folder
