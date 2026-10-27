@@ -17,6 +17,12 @@ use std::process::{Command, Output};
 /// Local state of the tool: it never counts as part of a change.
 const LOCAL_STATE: &str = ".gdd/";
 
+/// The folder of the tool's local state, from the project root.
+const STATE_FOLDER: &str = ".gdd";
+
+/// A pathspec for everything but the tool's local state.
+const WITHOUT_STATE: &str = ":(exclude).gdd";
+
 /// What can go wrong when reading the repository.
 #[derive(Debug)]
 pub enum Error {
@@ -154,6 +160,48 @@ impl Git {
         })
     }
 
+    /// The working trees of the repository with a branch checked out, as `git worktree list`
+    /// names them: where each is, absolute, and its branch.
+    pub fn worktrees(&self) -> Result<Vec<(PathBuf, String)>, Error> {
+        let out = self.read(&["worktree", "list", "--porcelain", "-z"])?;
+        let mut listed = Vec::new();
+        let mut path = None;
+        // One attribute per NUL byte: "worktree <path>" opens an entry, "branch <ref>" names its
+        // branch; a detached or bare one has none.
+        for attribute in out.split(|&byte| byte == 0) {
+            if let Some(at) = attribute.strip_prefix(b"worktree ") {
+                path = Some(PathBuf::from(OsStr::from_bytes(at)));
+            } else if let Some(name) = attribute.strip_prefix(b"branch refs/heads/")
+                && let Some(path) = path.take()
+            {
+                listed.push((path, String::from_utf8_lossy(name).into_owned()));
+            }
+        }
+        Ok(listed)
+    }
+
+    /// Adds the working tree `path` to the repository, with the branch `branch` checked out
+    /// there; git makes the folders on the way.
+    pub fn add_worktree(&self, path: &Path, branch: &str) -> Result<(), Error> {
+        let branch = OsStr::new(revision(branch)?);
+        let args = ["worktree", "add", "-q", "--"].map(OsStr::new);
+        self.read(&[&args[..], &[path.as_os_str(), branch]].concat())?;
+        Ok(())
+    }
+
+    /// Removes the working tree `path` of the repository, with what it has that git does not.
+    pub fn remove_worktree(&self, path: &Path) -> Result<(), Error> {
+        let args = ["worktree", "remove", "--force", "--"].map(OsStr::new);
+        self.read(&[&args[..], &[path.as_os_str()]].concat())?;
+        Ok(())
+    }
+
+    /// Forgets the working trees of the repository whose folders are gone.
+    pub fn prune_worktrees(&self) -> Result<(), Error> {
+        self.read(&["worktree", "prune"])?;
+        Ok(())
+    }
+
     /// Commits the files `paths`, from the project root, and nothing else of the working tree,
     /// with `message`; the new ones are added first.
     pub fn commit_files(&self, paths: &[String], message: &str) -> Result<(), Error> {
@@ -281,6 +329,25 @@ impl Git {
         Ok(())
     }
 
+    /// Whether the project has work to commit: a file changed, deleted or added that git does
+    /// not ignore, outside the tool's local state (`.gdd/`).
+    pub fn has_work(&self) -> Result<bool, Error> {
+        let status = self.read(&["status", "--porcelain", "--", ".", WITHOUT_STATE])?;
+        Ok(!status.is_empty())
+    }
+
+    /// Commits, on the current branch, the work of the project (see [`Git::has_work`]) with
+    /// `message`: never the tool's local state, which stays where it is whatever is checked out
+    /// next.
+    pub fn commit_work(&self, message: &str) -> Result<(), Error> {
+        self.read(&["add", "-A", "--", "."])?;
+        // The state goes back out of the commit. An excluding pathspec in `git add` would fail
+        // where git ignores the state.
+        self.read(&["reset", "-q", "--", STATE_FOLDER])?;
+        self.read(&["commit", "-q", "-m", message])?;
+        Ok(())
+    }
+
     /// Checks out the branch `name`.
     pub fn checkout(&self, name: &str) -> Result<(), Error> {
         self.read(&["checkout", "-q", revision(name)?, "--"])?;
@@ -354,7 +421,7 @@ impl Git {
     }
 
     /// What `git args` printed; a failure is an error.
-    fn read(&self, args: &[&str]) -> Result<Vec<u8>, Error> {
+    fn read<S: AsRef<OsStr>>(&self, args: &[S]) -> Result<Vec<u8>, Error> {
         let out = self.run(args)?;
         if out.status.success() {
             Ok(out.stdout)
@@ -363,7 +430,7 @@ impl Git {
         }
     }
 
-    fn run(&self, args: &[&str]) -> Result<Output, Error> {
+    fn run<S: AsRef<OsStr>>(&self, args: &[S]) -> Result<Output, Error> {
         let mut git = Command::new("git");
         git.args(args).current_dir(&self.root);
         if let Some(env) = &self.env {
@@ -375,10 +442,12 @@ impl Git {
 }
 
 /// The error of a git command that ran and failed.
-fn failed(args: &[&str], out: &Output) -> Error {
+fn failed<S: AsRef<OsStr>>(args: &[S], out: &Output) -> Error {
+    let lossy = |arg: &S| arg.as_ref().to_string_lossy().into_owned();
+    let shown: Vec<String> = args.iter().map(lossy).collect();
     Error::Failed(format!(
         "git {} failed ({}): {}",
-        args.join(" "),
+        shown.join(" "),
         out.status,
         String::from_utf8_lossy(&out.stderr).trim()
     ))
@@ -582,6 +651,56 @@ pub(crate) mod tests {
         let err = Git::new(&plain.0).main_worktree().unwrap_err().to_string();
         let failed = "git worktree list --porcelain -z failed";
         assert!(err.starts_with(failed), "{err}");
+    }
+
+    #[test]
+    fn worktrees_are_added_listed_with_their_branch_removed_and_pruned() {
+        let repo = Repo::new();
+        repo.git(&["branch", "change/c1"]);
+        let git = repo.tool();
+        let main = (fs::canonicalize(repo.root()).unwrap(), "main".to_string());
+        let only_main = std::slice::from_ref(&main);
+        assert_eq!(git.worktrees().unwrap(), only_main);
+        let linked = Folder::new();
+        let worktree = linked.0.join("deep/c \"1\"");
+        git.add_worktree(&worktree, "change/c1").unwrap();
+        assert!(worktree.join("README.md").is_file());
+        let path = fs::canonicalize(&worktree).unwrap();
+        let added = (path, "change/c1".to_string());
+        assert_eq!(git.worktrees().unwrap(), [main.clone(), added]);
+        // A detached one has no branch to name.
+        let detached = linked.0.join("detached").to_string_lossy().into_owned();
+        repo.git(&["worktree", "add", "-q", "--detach", &detached]);
+        assert_eq!(git.worktrees().unwrap().len(), 2);
+        fs::write(worktree.join("loose.txt"), "x\n").unwrap();
+        git.remove_worktree(&worktree).unwrap();
+        assert!(!worktree.exists());
+        assert_eq!(git.worktrees().unwrap(), only_main);
+        // A folder that went away leaves its worktree listed until it is pruned.
+        git.add_worktree(&worktree, "change/c1").unwrap();
+        fs::remove_dir_all(&worktree).unwrap();
+        assert_eq!(git.worktrees().unwrap().len(), 2);
+        git.prune_worktrees().unwrap();
+        assert_eq!(git.worktrees().unwrap(), [main]);
+    }
+
+    #[test]
+    fn what_git_refuses_of_a_worktree_is_an_error() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        let linked = Folder::new();
+        let worktree = linked.0.join("c1");
+        let err = git.add_worktree(&worktree, "change/c9").unwrap_err();
+        let shown = worktree.display();
+        let start = format!("git worktree add -q -- {shown} change/c9 failed");
+        assert!(err.to_string().starts_with(&start), "{err}");
+        let option = git.add_worktree(&worktree, "-x");
+        assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+        let err = git.remove_worktree(&linked.0).unwrap_err().to_string();
+        assert!(err.starts_with("git worktree remove --force -- "), "{err}");
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).worktrees().is_err());
+        assert!(Git::new(&plain.0).prune_worktrees().is_err());
     }
 
     #[test]
@@ -919,6 +1038,40 @@ pub(crate) mod tests {
         assert!(repo.root().join("src/a.rs").is_file());
         assert!(repo.root().join("ignored/x").is_file());
         assert!(!git.has_changes().unwrap());
+    }
+
+    #[test]
+    fn the_work_of_a_project_never_holds_the_local_state() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        repo.write(".gdd/changes/c1/change.json", "{}");
+        assert!(git.has_changes().unwrap());
+        assert!(!git.has_work().unwrap());
+        repo.write("src/new.rs", "x\n");
+        assert!(git.has_work().unwrap());
+        repo.write("README.md", "changed\n");
+        git.commit_work("work").unwrap();
+        let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(committed, "README.md\nsrc/new.rs");
+        assert!(!git.has_work().unwrap());
+        assert!(repo.root().join(".gdd/changes/c1/change.json").is_file());
+        let err = git.commit_work("nothing").unwrap_err().to_string();
+        assert!(err.starts_with("git commit -q -m nothing failed"), "{err}");
+        // Where git ignores the state, and where git tracks some of it.
+        repo.write(".gitignore", ".gdd/\n");
+        assert!(git.has_work().unwrap());
+        git.commit_work("ignored").unwrap();
+        repo.git(&["add", "-f", ".gdd/changes/c1/change.json"]);
+        repo.git(&["commit", "-q", "-m", "tracked"]);
+        repo.write(".gdd/changes/c1/change.json", "{\"state\": \"closed\"}");
+        repo.write("src/new.rs", "y\n");
+        git.commit_work("work").unwrap();
+        let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(committed, "src/new.rs");
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).has_work().is_err());
+        assert!(Git::new(&plain.0).commit_work("x").is_err());
     }
 
     #[test]

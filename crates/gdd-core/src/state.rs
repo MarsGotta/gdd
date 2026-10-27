@@ -42,7 +42,8 @@ fn shared(git: &Git, project_root: &Path, dirs: &Dirs) -> Result<PathBuf, String
              of the repository {repository} is; run gdd from the main checkout"
         ));
     }
-    Ok(main.path.join(&dirs.prefix))
+    // Through its components: joining an empty prefix would end the path with a slash.
+    Ok(main.path.join(&dirs.prefix).components().collect())
 }
 
 #[cfg(test)]
@@ -84,6 +85,9 @@ mod tests {
         let worktree = worktree_of(&repo, &folder);
         let main = fs::canonicalize(repo.root()).unwrap();
         assert_eq!(root(&worktree).unwrap(), main);
+        // As gdd prints it: without a slash at the end.
+        let shown = root(&worktree).unwrap().display().to_string();
+        assert_eq!(shown, main.display().to_string());
         assert_eq!(root(&worktree.join("app")).unwrap(), main.join("app"));
         // The main checkout keeps its own, with the worktree there.
         assert_eq!(root(repo.root()).unwrap(), repo.root());

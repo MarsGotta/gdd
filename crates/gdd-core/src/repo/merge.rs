@@ -1,10 +1,11 @@
 //! Merging a change (`gdd merge`): once G3 is open, the last work of the change is committed on
-//! its branch, and the branch merges into the main branch with a merge commit that carries the
-//! record of the change: what a pull request description would hold. The full working files stay
-//! in `.gdd/changes/<id>/`, which git does not keep. The known debt the change paid goes off the
-//! list in that same merge commit. Then main is pushed when the rules ask for it and there is a
-//! remote, and the artifact is built and deployed to pre: as the main branch configures them
-//! once the change merged into it, not as the branch of the change had them.
+//! its branch, where it is checked out, and the branch merges into the main branch, in the main
+//! checkout, with a merge commit that carries the record of the change: what a pull request
+//! description would hold. The full working files stay in `.gdd/changes/<id>/`, which git does
+//! not keep. The known debt the change paid goes off the list in that same merge commit. Then
+//! main is pushed when the rules ask for it and there is a remote, and the artifact is built and
+//! deployed to pre from the main checkout: as the main branch configures them once the change
+//! merged into it, not as the branch of the change had them.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -47,10 +48,11 @@ const NOT_AGENTS: [&str; 9] = [
 /// What merging a change reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
-    /// The project root.
+    /// The project root, where the branch of the change is checked out: the main checkout or the
+    /// worktree of the change.
     pub root: &'a Path,
     /// The state root, whose `.gdd/` holds the record of the change (see
-    /// [`crate::state::root`]).
+    /// [`crate::state::root`]): the project root in the main checkout, where the change merges.
     pub state: &'a Path,
     /// The branch the change merges into.
     pub main: &'a str,
@@ -69,13 +71,16 @@ fn push_main(rules: &str) -> Result<bool, config::Error> {
 }
 
 /// Merges change `id`, classified as `classification`, into the main branch (see the module).
-/// It needs G3 open and the branch of the change checked out, where its last work is. The known
-/// debt its latest G2 and G3 named as paid goes off `gdd/debt.toml` in the merge commit (see
-/// [`debt::pay`]); when it cannot, the merge is given up. The record goes to state `merged`
-/// with the merge commit, and the merge is logged; then the rules file and the release commands
-/// are read as the merge left them, and a configuration that cannot be read, or a failed push,
-/// build or deploy, is an error after that. What it prints, as JSON on one line: `ok`, whether
-/// the deploy to pre was simulated, and that step.
+/// It needs G3 open and the branch of the change checked out at the project root, where its last
+/// work is. In a worktree, the main checkout must have the main branch checked out and no
+/// uncommitted changes in tracked files (see [`not_ready`]); the main checkout itself on the
+/// branch of the change goes to the main branch. The known debt its latest G2 and G3 named as
+/// paid goes off `gdd/debt.toml` in the merge commit (see [`debt::pay`]); when it cannot, the
+/// merge is given up. The record goes to state `merged` with the merge commit, and the merge is
+/// logged; then the rules file and the release commands are read as the merge left them, and a
+/// configuration that cannot be read, or a failed push, build or deploy, is an error after that.
+/// What it prints, as JSON on one line: `ok`, whether the deploy to pre was simulated, and that
+/// step.
 pub fn merge(
     project: &Project,
     id: &str,
@@ -86,26 +91,34 @@ pub fn merge(
     if record["gates"]["G3"]["decision"] != "ok" {
         return Err(G3_CLOSED.to_string());
     }
-    let git = Git::new(root);
+    let work = Git::new(root);
     let branch = change::branch(id);
     let said = |e: crate::git::Error| e.to_string();
-    if git.current_branch().map_err(said)? != branch {
+    if work.current_branch().map_err(said)? != branch {
         return Err(format!(
             "Not on branch {branch}: merge runs where the last work of the change is."
         ));
     }
+    let in_worktree = root != state;
+    if in_worktree && let Some(why) = not_ready(state, project.main).map_err(said)? {
+        return Err(why);
+    }
     let paid = debt::reported(state, id)?.paid;
     let names = debt::by_risk(paid.iter().map(|(_, name)| name.as_str()));
     let message = message(state, id, &record, classification, &names)?;
-    if git.has_changes().map_err(said)? {
-        let work = format!("gdd({id}): change work");
-        git.commit_all(&work).map_err(said)?;
+    if work.has_changes().map_err(said)? {
+        let work_done = format!("gdd({id}): change work");
+        work.commit_all(&work_done).map_err(said)?;
     }
-    git.checkout(project.main).map_err(said)?;
+    // The main checkout, where the change merges and what follows runs.
+    let git = Git::new(state);
+    if !in_worktree {
+        git.checkout(project.main).map_err(said)?;
+    }
     if paid.is_empty() {
         git.merge(&branch, &message).map_err(said)?;
     } else {
-        merge_paying(&git, root, &branch, &message, &paid)?;
+        merge_paying(&git, state, &branch, &message, &paid)?;
     }
     let commit = git.head().map_err(said)?;
     let path = change::record_path(id);
@@ -126,24 +139,45 @@ pub fn merge(
         note: commit.chars().take(12).collect(),
     };
     change::logged(state, &entry)?;
-    let (push, steps) = configured(root)?;
+    let (push, steps) = configured(state)?;
     if push && git.has_remote().map_err(said)? {
         let main = project.main;
         if let Err(e) = git.push(main) {
             return Err(format!("Merged into {main}, but the push failed: {e}"));
         }
     }
-    let build = release::step(root, state, id, &steps, "build")?;
+    let build = release::step(state, state, id, &steps, "build")?;
     if !build.ok {
         let why = build.failure();
         return Err(format!("Could not build the artifact: {why}"));
     }
-    let pre = release::step(root, state, id, &steps, "deploy_pre")?;
+    let pre = release::step(state, state, id, &steps, "deploy_pre")?;
     if !pre.ok {
         let why = pre.failure();
         return Err(format!("Could not deploy to pre: {why}"));
     }
     Passed::detail(&pre, Some(pre.simulated)).json()
+}
+
+/// Why the main checkout at `checkout` cannot take a merge into the main branch `main`, if it
+/// cannot: it is on another branch, or it has uncommitted changes in tracked files.
+pub fn not_ready(checkout: &Path, main: &str) -> Result<Option<String>, crate::git::Error> {
+    let git = Git::new(checkout);
+    let shown = checkout.display();
+    let current = git.current_branch()?;
+    if current != main {
+        return Ok(Some(format!(
+            "the merge needs the main checkout ({shown}) on {main}, and it is on {current}: \
+             switch it back to {main}"
+        )));
+    }
+    if git.has_tracked_changes()? {
+        return Ok(Some(format!(
+            "the merge needs the main checkout ({shown}) without uncommitted changes in tracked \
+             files: commit or stash them"
+        )));
+    }
+    Ok(None)
 }
 
 /// Merges `branch` into the current branch with a merge commit whose message is `message`, and
@@ -678,24 +712,74 @@ mod tests {
         assert_eq!(line.text("note"), head[..12]);
     }
 
-    #[test]
-    fn the_record_and_the_log_of_a_merge_live_under_the_state_root() {
+    /// The project of [`started`] back on `main`, and a worktree on `change/c1` with work of
+    /// the change to commit: the main checkout keeps the state.
+    fn in_worktree() -> (Repo, Folder) {
         let repo = started(".gdd/*\n");
-        let state = Folder::new();
-        fs::rename(repo.root().join(".gdd"), state.0.join(".gdd")).unwrap();
-        repo.write("src/app.rs", "x\n");
+        repo.git(&["checkout", "-q", "main"]);
+        let trees = Folder::new();
+        let worktree = trees.0.join("c1");
+        repo.tool().add_worktree(&worktree, "change/c1").unwrap();
+        fs::create_dir_all(worktree.join("src")).unwrap();
+        fs::write(worktree.join("src/app.rs"), "x\n").unwrap();
+        (repo, trees)
+    }
+
+    fn merged_from(repo: &Repo, worktree: &Path) -> Result<String, String> {
         let project = Project {
-            root: repo.root(),
-            state: &state.0,
+            root: worktree,
+            state: repo.root(),
             main: "main",
         };
-        assert!(merge(&project, "c1", &classified("src/app.rs")).is_ok());
+        merge(&project, "c1", &classified("src/app.rs"))
+    }
+
+    #[test]
+    fn a_change_in_its_worktree_merges_in_the_main_checkout() {
+        let (repo, trees) = in_worktree();
+        let worktree = trees.0.join("c1");
+        assert!(merged_from(&repo, &worktree).is_ok());
         repo.git(&["cat-file", "-e", "main:src/app.rs"]);
-        let record = json(&change::read_record(&state.0, "c1").unwrap());
-        assert_eq!(record["state"], "merged");
-        let text = fs::read_to_string(state.0.join(log::PATH)).unwrap();
-        assert_eq!(log::parse(&text).unwrap().len(), 3);
-        assert!(!repo.root().join(".gdd").exists());
+        let message = repo.git(&["log", "-1", "--format=%s", "main"]);
+        assert_eq!(message, "gdd(c1): G3 Merge Gate · App");
+        let work = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
+        assert_eq!(work, "gdd(c1): change work");
+        assert_eq!(repo.git(&["branch", "--show-current"]), "main");
+        assert!(repo.root().join("src/app.rs").is_file());
+        assert_eq!(Git::new(&worktree).current_branch().unwrap(), "change/c1");
+        assert_eq!(record(&repo)["state"], "merged");
+        assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
+        assert!(!worktree.join(".gdd").exists());
+    }
+
+    #[test]
+    fn a_main_checkout_off_main_or_with_uncommitted_changes_takes_no_merge() {
+        let (repo, trees) = in_worktree();
+        let worktree = trees.0.join("c1");
+        let main = repo.git(&["rev-parse", "main"]);
+        repo.git(&["checkout", "-q", "-b", "other"]);
+        let err = merged_from(&repo, &worktree).unwrap_err();
+        let off = format!(
+            "the merge needs the main checkout ({}) on main, and it is on other: switch it back \
+             to main",
+            repo.root().display()
+        );
+        assert_eq!(err, off);
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("README.md", "changed\n");
+        let err = merged_from(&repo, &worktree).unwrap_err();
+        let dirty = "without uncommitted changes in tracked files: commit or stash them";
+        assert!(err.ends_with(dirty), "{err}");
+        // Nothing merged and nothing committed: the work waits in the worktree.
+        assert_eq!(repo.git(&["rev-parse", "main"]), main);
+        assert!(Git::new(&worktree).has_changes().unwrap());
+        assert_eq!(record(&repo)["state"], "building");
+        // Files git does not track do not stop it.
+        repo.git(&["checkout", "-q", "--", "README.md"]);
+        repo.write("notes.txt", "mine\n");
+        assert_eq!(not_ready(repo.root(), "main").unwrap(), None);
+        let plain = Folder::new();
+        assert!(not_ready(&plain.0, "main").is_err());
     }
 
     #[test]

@@ -78,14 +78,15 @@ impl Entry {
 }
 
 /// Adds `line` at the end of the log of the project whose state root is `state`, creating the log
-/// when there is none.
+/// when there is none. The write holds an exclusive lock on the log, which goes when the file
+/// closes: the lines of two gdd processes, each running a change, never mix.
 pub fn append(state: &Path, line: &str) -> io::Result<()> {
     let path = state.join(PATH);
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }
     let mut log = OpenOptions::new().create(true).append(true).open(path)?;
-    // One write per line, so lines written at the same time do not mix.
+    log.lock()?;
     log.write_all(format!("{line}\n").as_bytes())
 }
 
@@ -362,6 +363,29 @@ mod tests {
         let result = append(&file, "{}");
         let _ = fs::remove_file(&file);
         assert!(result.is_err(), "a project root that is a file");
+    }
+
+    #[test]
+    fn lines_appended_at_the_same_time_never_mix() {
+        let root = std::env::temp_dir().join(format!("gdd-log-lock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let writers = ['a', 'b'].map(|letter| {
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let line = letter.to_string().repeat(200_000);
+                (0..25).try_for_each(|_| append(&root, &line))
+            })
+        });
+        for writer in writers {
+            assert!(writer.join().unwrap().is_ok());
+        }
+        let text = fs::read_to_string(root.join(PATH)).unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(text.lines().count(), 50);
+        let whole = ["a", "b"].map(|letter| letter.repeat(200_000));
+        for line in text.lines() {
+            assert!(whole.iter().any(|one| one == line), "a line mixed");
+        }
     }
 
     #[test]

@@ -14,24 +14,28 @@ invoke = "/{name}"                         # how a command is called
 # the arguments of the role below.
 args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json", "{role_args}"]
 
-# Per role: no MCP servers, what it may run without asking, what it may never do. GDD state is
-# written only through gdd.
+# Per role: no MCP servers, its change's state folder among its working folders, what it may run
+# without asking, what it may never do. GDD state is written only through gdd. The agent runs in
+# the change's worktree and the state lives in the main checkout: the state is denied relative to
+# the agent and by its full path too, {state} being the state root, absolute (Claude's "//"
+# starts an absolute path). A denial wins over a working folder: of the state, only the
+# Orchestrator writes, its replan.
 [roles.builder-build]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
   "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd g2:*)", "Bash(bin/gdd guard:*)", "Bash(bin/gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
 
 [roles.builder-test]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
   "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd g2:*)", "Bash(bin/gdd guard:*)", "Bash(bin/gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
 
 [roles.reviewer]
-args = ["--strict-mcp-config", "--permission-mode", "plan",
+args = ["--strict-mcp-config", "--permission-mode", "plan", "--add-dir", "{state}/.gdd/changes/{change}",
   "--allowedTools", "Read", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)"]
+  "--disallowedTools", "Bash(bin/gdd gate:*)", "Bash(bin/gdd launch:*)", "Bash(bin/gdd resume:*)", "Bash(bin/gdd merge:*)", "Bash(bin/gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
 
 [roles.orchestrator]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits",
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
   "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(bin/gdd status:*)", "Bash(bin/gdd classify:*)", "Bash(bin/gdd note:*)", "Bash(bin/gdd report:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Edit(.gdd/log.jsonl)", "Write(.gdd/log.jsonl)", "Edit(.gdd/changes/*/change.json)", "Write(.gdd/changes/*/change.json)"]
+  "--disallowedTools", "Edit(.gdd/log.jsonl)", "Write(.gdd/log.jsonl)", "Edit(.gdd/changes/*/change.json)", "Write(.gdd/changes/*/change.json)", "Edit(/{state}/.gdd/log.jsonl)", "Write(/{state}/.gdd/log.jsonl)", "Edit(/{state}/.gdd/changes/*/change.json)", "Write(/{state}/.gdd/changes/*/change.json)"]

@@ -14,6 +14,7 @@ invoke = "/{name}"
 args = ["run", "{role_args}", "--command", "{name}", "-m", "{model}", "--format", "json", "{args}"]
 
 # No per-role flags yet: gdd's own checks (GDD state and a read-only Reviewer) still apply.
+# `opencode run` has no flag to grant a folder outside the one it runs in, the change's worktree.
 [roles.builder-build]
 args = []
 
