@@ -1,8 +1,9 @@
 //! `gdd init`: sets up GDD in the folder it runs in, which becomes the project root, from what
 //! the command line says. It checks everything before it writes anything, in this order: no GDD
 //! project in the folder or above it, the stacks known, the agents and who plays each role (see
-//! [`roles`]), none of the files it writes already there, for it never overwrites one, and no
-//! symbolic link on the way to what it writes, for it never writes out of the folder. Then
+//! [`roles`]), none of the files it writes already there, for it never overwrites one, no
+//! symbolic link on the way to what it writes and no other name (a hard link) for the file it
+//! appends to, for it never writes out of the folder. Then
 //! it writes the harness (see [`files`]), AGENTS.md and CLAUDE.md when the project has none,
 //! `.gdd/` in `.gitignore` and the agents' commands as `gdd agents install` does, and commits
 //! what it wrote, and only that, in a new repository when the folder is in none.
@@ -15,7 +16,7 @@ mod roles;
 use std::fmt;
 use std::fs::{self, OpenOptions, Permissions};
 use std::io::{ErrorKind, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::agents::models;
@@ -208,6 +209,9 @@ impl Plan {
         let appended = ignore.as_ref().map(|_| GITIGNORE);
         let paths = texts.iter().map(|(path, _)| *path).chain(appended);
         check_links(root, paths.chain(commands.iter().map(String::as_str)))?;
+        if let Some(path) = appended {
+            check_names(root, path)?;
+        }
         Ok(Plan {
             files: texts,
             ignore,
@@ -297,6 +301,21 @@ fn check_links<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> Result<
         }
     }
     Ok(())
+}
+
+/// Checks that the file `path` of the folder `root`, which gdd init appends to, has no other
+/// name: through a hard link, it would write to a file that may be out of the folder too. A file
+/// still to be made has none.
+fn check_names(root: &Path, path: &str) -> Result<(), String> {
+    match fs::symlink_metadata(root.join(path)) {
+        Ok(meta) if meta.nlink() > 1 => Err(format!(
+            "{path} has other names (a hard link): gdd init never writes through one: copy it \
+             to a file of its own and run it again"
+        )),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("cannot read {path}: {e}")),
+    }
 }
 
 /// Whether there is something at `path` in the folder `root`: a file, a folder or a link, even
@@ -570,8 +589,32 @@ mod tests {
         assert!(!folder.0.join("gdd").exists());
         assert!(exists(&folder.0, "docs").unwrap());
         assert!(!exists(&folder.0, "none").unwrap());
+        // Each check on its own: a path under a file is not a missing one.
+        let said = exists(&folder.0, "docs/brief.md").unwrap_err();
+        assert!(said.starts_with("cannot read docs/brief.md: "), "{said}");
         let said = check_links(&folder.0, ["docs/brief.md"].into_iter()).unwrap_err();
         assert!(said.starts_with("cannot read docs/brief.md: "), "{said}");
+        let said = check_names(&folder.0, "docs/.gitignore").unwrap_err();
+        assert!(said.starts_with("cannot read docs/.gitignore: "), "{said}");
+    }
+
+    #[test]
+    fn nothing_is_appended_through_a_hard_link() {
+        let elsewhere = Folder::new();
+        elsewhere.write(GITIGNORE, "target/\n");
+        let folder = Folder::new();
+        fs::hard_link(elsewhere.0.join(GITIGNORE), folder.0.join(GITIGNORE)).unwrap();
+        let said = init_notes(&folder).unwrap_err().to_string();
+        let why = "error: .gitignore has other names (a hard link): gdd init never writes \
+                   through one: copy it to a file of its own and run it again";
+        assert_eq!(said, why);
+        assert!(!folder.0.join(".git").exists());
+        assert!(!folder.0.join("gdd").exists());
+        assert_eq!(read(&elsewhere, GITIGNORE), "target/\n");
+        // One that already leaves out .gdd/ gets nothing, so its other names do not matter.
+        elsewhere.write(GITIGNORE, "target/\n.gdd/\n");
+        init_notes(&folder).unwrap();
+        assert_eq!(read(&elsewhere, GITIGNORE), "target/\n.gdd/\n");
     }
 
     #[test]
