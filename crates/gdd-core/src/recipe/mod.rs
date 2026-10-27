@@ -2421,17 +2421,17 @@ mod tests {
         repo.write(".gdd/changes/c2/change.json", parked);
         repo.git(&["checkout", "-q", "change/c1"]);
         let mut steps = played(root);
-        let refused = launch(&repo.project(), "c1", &mut steps);
-        let overlaps = "c1 overlaps c2 (parked): src/a.rs with src/**";
-        assert_eq!(refused, Err(overlaps.to_string()));
+        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
+        let overlaps = "c1 overlaps c2 (parked): src/a.rs with src/**\n";
+        assert!(refused.starts_with(overlaps), "{refused}");
         repo.write(".gdd/changes/c2/change.json", r#"{"state": "building"}"#);
         let capped = Project {
             max: 1,
             ..repo.project()
         };
-        let refused = launch(&capped, "c1", &mut steps);
-        let cap = "1 change(s) building, the cap is 1: c2";
-        assert_eq!(refused, Err(cap.to_string()));
+        let refused = launch(&capped, "c1", &mut steps).unwrap_err();
+        let cap = "1 change(s) building, the cap is 1: c2\n";
+        assert!(refused.starts_with(cap), "{refused}");
         assert!(steps.ran.is_empty());
         assert_eq!(repo.tool().current_branch().unwrap(), "change/c1");
         assert!(worktree_branch(&repo).is_err());

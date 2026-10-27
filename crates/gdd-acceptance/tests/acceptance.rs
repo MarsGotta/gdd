@@ -374,6 +374,7 @@ fn it_succeeds(w: &mut GddWorld) {
 
 #[then(expr = "it fails with a message that contains {string}")]
 fn it_fails(w: &mut GddWorld, text: String) {
+    w.exit_checked = true;
     let ran = last_run(w);
     assert!(
         !ran.succeeded,
@@ -403,10 +404,12 @@ fn output_contains(w: &mut GddWorld, text: String) {
         "gdd failed: {:?}",
         ran.stderr
     );
+    // A refusal speaks on stderr: after a failure the message counts as output too.
     assert!(
-        ran.stdout.contains(&text),
-        "the output {:?} does not contain {text:?}",
-        ran.stdout
+        ran.stdout.contains(&text) || (!ran.succeeded && ran.stderr.contains(&text)),
+        "the output {:?} (stderr {:?}) does not contain {text:?}",
+        ran.stdout,
+        ran.stderr
     );
 }
 

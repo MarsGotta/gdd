@@ -179,7 +179,7 @@ Feature: Several changes at once, merged one at a time
 
   Scenario: Merges go one at a time
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And another gdd holds the merge lock for 2 seconds
+    And another gdd holds the merge lock for 30 seconds
     When I run "gdd launch c1"
     Then it succeeds
     And the output contains "waiting for the merge of another change"
