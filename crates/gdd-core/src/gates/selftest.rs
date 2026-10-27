@@ -1,8 +1,10 @@
 //! The harness self-test (`gdd selftest`): four checks that the gates of a project fail when
 //! they must. The machines open G0 only once all four pass.
 //!
-//! 1. A failing test turns G2 red: the test `[selftest]` describes is planted, the G2 commands
-//!    run, and the file is given back as it was.
+//! 1. A failing test turns G2 red: the file at the path of the test `[selftest]` describes is
+//!    set aside, and the G2 commands must all pass without it; then the test is planted, and
+//!    one G2 command at least must fail. The file is given back as it was. Neither planting nor
+//!    giving back writes through a link, not even one the G2 commands made.
 //! 2. Editing a protected file is blocked (Path Guard and CI): the harness covers the rules file
 //!    and the CI workflow, and the workflow runs `bin/gdd ci`.
 //! 3. Rollback works in pre: `[release] rollback_pre` passes or, without it, the release is
@@ -12,13 +14,15 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs;
-use std::io::{self, ErrorKind::NotFound};
+use std::fs::{self, File, Permissions};
+use std::io::{self, ErrorKind::NotFound, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+use crate::agents::render::first_link;
 use crate::gates::{Gate, Project, approve, configured, count_scenarios};
 use crate::zones::glob_matches;
 use crate::{change, config, exec, guard, log};
@@ -82,10 +86,10 @@ impl Config {
 }
 
 /// One check of the self-test.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Check {
-    /// What it checks.
-    pub test: &'static str,
+    /// What it checks, and why it failed when it says.
+    pub test: String,
     /// Whether it passed.
     pub ok: bool,
 }
@@ -140,10 +144,10 @@ pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
         None => ROLLBACK_SIMULATED,
     };
     let checks = [
-        (FAILING_TEST, failing_test_turns_g2_red(project, config)?),
-        (PROTECTED, harness_protected(project)),
-        (rollback, rollback_works(project.root, config)),
-        (ZERO_SCENARIOS, zero_scenarios_fail(project)?),
+        failing_test_caught(project, config)?,
+        (PROTECTED.to_string(), harness_protected(project)),
+        (rollback.to_string(), rollback_works(project.root, config)),
+        (ZERO_SCENARIOS.to_string(), zero_scenarios_fail(project)?),
     ];
     let checks = checks.map(|(test, ok)| Check { test, ok }).to_vec();
     Ok(Selftest { checks })
@@ -174,40 +178,126 @@ pub fn save(root: &Path, selftest: &Selftest) -> Result<(), String> {
     change::logged(root, &entry)
 }
 
-/// Plants the failing test of `config`, runs the G2 commands until one fails, and gives the file
-/// back: its earlier bytes, or no file when there was none. It passes when a command failed; it
-/// fails without a test to plant or G2 commands.
-fn failing_test_turns_g2_red(project: &Project, config: &Config) -> Result<bool, String> {
+/// The first check: its name, and whether it passed. The file at the path of the failing test of
+/// `config` is set aside (see [`set_aside`]) and the G2 commands run, which must all pass; then
+/// the failing test is planted and they run until one fails. The file is given back in every
+/// case: its earlier bytes and permissions, or no file when there was none. The check passes
+/// when G2 was green without the test and red with it; when it was red without it, the name
+/// says which commands failed. It fails without a test to plant or G2 commands.
+fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bool), String> {
     let commands = project.commands.of(Gate::G2);
     let (Some(file), Some(content)) = (&config.file, &config.content) else {
-        return Ok(false);
+        return Ok((FAILING_TEST.to_string(), false));
     };
     if commands.is_empty() {
-        return Ok(false);
+        return Ok((FAILING_TEST.to_string(), false));
     }
-    let path = project.root.join(file);
-    let before = match fs::read(&path) {
-        Ok(bytes) => Some(bytes),
-        Err(e) if e.kind() == NotFound => None,
-        Err(e) => return Err(format!("cannot read {file}: {e}")),
+    let root = project.root;
+    let before = set_aside(root, file)?;
+    let red_without = failing(commands, root);
+    let red = if red_without.is_empty() {
+        planted_and_red(root, file, content, commands)
+    } else {
+        Ok(false)
     };
-    let planted = written(&path, content.as_bytes());
-    let red = planted.is_ok() && commands.values().any(|c| fails(c, project.root));
-    let given_back = match before {
-        Some(bytes) => fs::write(&path, bytes),
-        None => removed(&path),
-    };
-    planted.map_err(|e| format!("cannot write {file}: {e}"))?;
+    let given_back = give_back(root, file, before);
+    let red = red.map_err(|e| format!("cannot write {file}: {e}"))?;
     given_back.map_err(|e| format!("cannot give {file} back: {e}"))?;
-    Ok(red)
+    if red_without.is_empty() {
+        return Ok((FAILING_TEST.to_string(), red));
+    }
+    let failed = red_without.join(", ");
+    let named = format!("{FAILING_TEST} (G2 is red without it: {failed})");
+    Ok((named, false))
 }
 
-/// Writes `bytes` to the file at `path`, creating its folder.
-fn written(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Plants `content` at `file` of the project at `root`, in place of whatever the G2 commands
+/// left there (see [`cleared`]), and runs the `commands` from `root` until one fails: whether one
+/// did. A test that cannot be planted is an error, and then nothing runs.
+fn planted_and_red(
+    root: &Path,
+    file: &str,
+    content: &str,
+    commands: &BTreeMap<String, String>,
+) -> io::Result<bool> {
+    cleared(root, file)?;
+    written(&root.join(file), content.as_bytes())?;
+    Ok(commands.values().any(|c| fails(c, root)))
+}
+
+/// What was at `file` of the project at `root`, now set aside: its bytes and permissions, or
+/// `None` when there was no file. A file behind a symbolic link, or with other names (a hard
+/// link), is refused before anything is written: the self-test would write out of the project,
+/// or could not give it back as it was.
+fn set_aside(root: &Path, file: &str) -> Result<Option<(Vec<u8>, Permissions)>, String> {
+    let cannot_read = |e: io::Error| format!("cannot read {file}: {e}");
+    if let Some(link) = first_link(root, file).map_err(cannot_read)? {
+        return Err(format!(
+            "cannot set {file} aside: {} is a symbolic link, which the self-test does not write \
+             through: remove the link and run it again",
+            link.display()
+        ));
+    }
+    let path = root.join(file);
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == NotFound => return Ok(None),
+        Err(e) => return Err(cannot_read(e)),
+    };
+    let meta = fs::metadata(&path).map_err(cannot_read)?;
+    if meta.nlink() > 1 {
+        return Err(format!(
+            "cannot set {file} aside: it has other names (a hard link), which the self-test does \
+             not write through: copy it to a file of its own and run it again"
+        ));
+    }
+    let aside = fs::remove_file(&path);
+    aside.map_err(|e| format!("cannot set {file} aside: {e}"))?;
+    Ok(Some((bytes, meta.permissions())))
+}
+
+/// Gives back what was at `file` of the project at `root` before the self-test, in place of
+/// whatever the G2 commands left there (see [`cleared`]): `before`, its bytes and permissions,
+/// or no file.
+fn give_back(root: &Path, file: &str, before: Option<(Vec<u8>, Permissions)>) -> io::Result<()> {
+    cleared(root, file)?;
+    match before {
+        Some((bytes, permissions)) => {
+            let given = written(&root.join(file), &bytes)?;
+            given.set_permissions(permissions)
+        }
+        None => Ok(()),
+    }
+}
+
+/// Removes what the G2 commands left at `file` of the project at `root`: the planted test, a
+/// file or a link, which goes and is never followed. A symbolic link on the way to it is an
+/// error, and then nothing is removed: through it, the self-test would write out of the project.
+fn cleared(root: &Path, file: &str) -> io::Result<()> {
+    match first_link(root, file)? {
+        Some(link) if link != Path::new(file) => Err(io::Error::other(format!(
+            "{} is a symbolic link, which the self-test does not write through",
+            link.display()
+        ))),
+        _ => removed(&root.join(file)),
+    }
+}
+
+/// The names of the `commands` that fail, run from `root` (see [`fails`]), in their order.
+fn failing<'a>(commands: &'a BTreeMap<String, String>, root: &Path) -> Vec<&'a str> {
+    let failed = commands.iter().filter(|(_, c)| fails(c, root));
+    failed.map(|(name, _)| name.as_str()).collect()
+}
+
+/// Writes `bytes` as the new file at `path`, creating its folder: the file, still open.
+/// Something already at `path`, even a link, is an error.
+fn written(path: &Path, bytes: &[u8]) -> io::Result<File> {
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }
-    fs::write(path, bytes)
+    let mut file = File::create_new(path)?;
+    file.write_all(bytes)?;
+    Ok(file)
 }
 
 /// Removes the file at `path`; when there is none already, there is nothing to do.
@@ -332,10 +422,12 @@ mod tests {
             checks.iter().map(|check| check.ok).collect()
         }
 
-        /// The third check: its name and whether it passed.
+        /// The third check: its name, one of the rollback checks, and whether it passed.
         fn rollback(&self) -> (&'static str, bool) {
-            let check = self.run().unwrap().checks[2];
-            (check.test, check.ok)
+            let check = self.run().unwrap().checks.swap_remove(2);
+            let mut names = [ROLLBACK, ROLLBACK_SIMULATED].into_iter();
+            let name = names.find(|name| check.test == *name);
+            (name.unwrap_or("another check"), check.ok)
         }
 
         fn planted(&self) -> PathBuf {
@@ -383,14 +475,41 @@ mod tests {
 
     #[test]
     fn the_test_goes_back_to_what_was_there() {
+        use std::os::unix::fs::PermissionsExt;
         let harness = Harness::new(COMMANDS);
         harness.folder.write("tests/failing.txt", "mine\n");
+        let runnable = fs::Permissions::from_mode(0o751);
+        fs::set_permissions(harness.planted(), runnable).unwrap();
         assert!(harness.run().unwrap().ok());
         let mine = fs::read_to_string(harness.planted()).unwrap();
         assert_eq!(mine, "mine\n");
+        let back = fs::metadata(harness.planted()).unwrap();
+        assert_eq!(back.permissions().mode() & 0o777, 0o751);
         // A command that removed the test leaves nothing to give back.
-        let harness = Harness::with_unit("rm tests/failing.txt; false");
+        let removes = "test ! -f tests/failing.txt || { rm tests/failing.txt; false; }";
+        let harness = Harness::with_unit(removes);
         assert!(harness.run().unwrap().ok());
+        assert!(!harness.planted().exists());
+    }
+
+    #[test]
+    fn a_g2_already_red_without_the_test_fails_the_first_check_and_plants_nothing() {
+        let red = "lint = 'test ! -f tests/failing.txt || touch planted; false'\n\
+                   types = 'exit 2'\n";
+        let harness = Harness::new(&COMMANDS.replace(UNIT, &format!("{red}{UNIT}")));
+        harness.folder.write("tests/failing.txt", "mine\n");
+        let selftest = harness.run().unwrap();
+        let first = &selftest.checks[0];
+        let named = "a failing test turns G2 red (G2 is red without it: lint, types)";
+        assert_eq!((first.test.as_str(), first.ok), (named, false));
+        let shown = selftest.to_string();
+        assert!(shown.starts_with(&format!("KO {named}\n")), "{shown}");
+        assert!(!harness.folder.0.join("planted").exists());
+        let mine = fs::read_to_string(harness.planted()).unwrap();
+        assert_eq!(mine, "mine\n");
+        // Without the file there, there is nothing to give back.
+        fs::remove_file(harness.planted()).unwrap();
+        assert!(!harness.run().unwrap().checks[0].ok);
         assert!(!harness.planted().exists());
     }
 
@@ -401,22 +520,122 @@ mod tests {
         let err = harness.run().unwrap_err();
         let start = "cannot read tests/failing.txt: ";
         assert!(err.starts_with(start), "{err}");
-        let swapped = "rm tests/failing.txt && mkdir tests/failing.txt && false";
+        let swapped = "test ! -f tests/failing.txt || \
+                       { rm tests/failing.txt && mkdir tests/failing.txt && false; }";
         let err = Harness::with_unit(swapped).run().unwrap_err();
         let start = "cannot give tests/failing.txt back: ";
+        assert!(err.starts_with(start), "{err}");
+        // A path under a file is not a missing one.
+        let harness = Harness::new(COMMANDS);
+        harness.folder.write("tests", "a file\n");
+        let err = harness.run().unwrap_err();
+        let start = "cannot read tests/failing.txt: ";
         assert!(err.starts_with(start), "{err}");
     }
 
     #[test]
-    fn a_test_that_cannot_be_planted_is_an_error_and_nothing_runs() {
-        let harness = Harness::with_unit("touch ran; false");
-        fs::create_dir_all(harness.folder.0.join("tests")).unwrap();
-        let nowhere = harness.folder.0.join("missing/failing.txt");
-        std::os::unix::fs::symlink(nowhere, harness.planted()).unwrap();
+    fn a_test_that_cannot_be_planted_is_an_error_and_nothing_runs_with_it() {
+        let harness = Harness::with_unit("echo ran >> runs; mkdir -p tests/failing.txt");
         let err = harness.run().unwrap_err();
         let start = "cannot write tests/failing.txt: ";
         assert!(err.starts_with(start), "{err}");
-        assert!(!harness.folder.0.join("ran").exists());
+        let runs = fs::read_to_string(harness.folder.0.join("runs")).unwrap();
+        assert_eq!(runs, "ran\n");
+    }
+
+    #[test]
+    fn the_self_test_never_writes_through_a_link() {
+        let elsewhere = Folder::new();
+        elsewhere.write("failing.txt", "theirs\n");
+        let outside = elsewhere.0.join("failing.txt");
+        let harness = Harness::with_unit("echo ran >> runs; test ! -f tests/failing.txt");
+        fs::create_dir_all(harness.folder.0.join("tests")).unwrap();
+        std::os::unix::fs::symlink(&outside, harness.planted()).unwrap();
+        let err = harness.run().unwrap_err();
+        let why = "cannot set tests/failing.txt aside: tests/failing.txt is a symbolic link, \
+                   which the self-test does not write through: remove the link and run it again";
+        assert_eq!(err, why);
+        fs::remove_file(harness.planted()).unwrap();
+        fs::hard_link(&outside, harness.planted()).unwrap();
+        let err = harness.run().unwrap_err();
+        let why = "cannot set tests/failing.txt aside: it has other names (a hard link), which \
+                   the self-test does not write through: copy it to a file of its own and run it \
+                   again";
+        assert_eq!(err, why);
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "theirs\n");
+        assert_eq!(fs::read_to_string(harness.planted()).unwrap(), "theirs\n");
+        assert!(!harness.folder.0.join("runs").exists());
+        // A folder on the way that is a link counts too.
+        let harness = Harness::new(COMMANDS);
+        std::os::unix::fs::symlink(&elsewhere.0, harness.folder.0.join("tests")).unwrap();
+        let err = harness.run().unwrap_err();
+        let start = "cannot set tests/failing.txt aside: tests is a symbolic link";
+        assert!(err.starts_with(start), "{err}");
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_link_the_g2_commands_leave_at_the_test_is_removed_and_never_followed() {
+        use std::os::unix::fs::PermissionsExt;
+        let elsewhere = Folder::new();
+        elsewhere.write("failing.txt", "theirs\n");
+        let outside = elsewhere.0.join("failing.txt");
+        let to = outside.display();
+        for ln in ["ln -s", "ln"] {
+            // Left by G2 without the test: the test is planted in its place.
+            let leaves = format!(
+                "grep -q fails tests/failing.txt && exit 1; mkdir -p tests; \
+                 {ln} {to} tests/failing.txt"
+            );
+            let harness = Harness::with_unit(&leaves);
+            assert_eq!(harness.passed(), [true, true, true, true], "{ln}");
+            assert!(fs::symlink_metadata(harness.planted()).is_err(), "{ln}");
+            // Left by G2 with the test: the file is given back in its place.
+            let leaves = format!(
+                "test ! -f tests/failing.txt || \
+                 {{ rm tests/failing.txt; {ln} {to} tests/failing.txt; false; }}"
+            );
+            let harness = Harness::with_unit(&leaves);
+            harness.folder.write("tests/failing.txt", "mine\n");
+            let mode = fs::Permissions::from_mode(0o640);
+            fs::set_permissions(harness.planted(), mode).unwrap();
+            assert!(harness.run().unwrap().ok(), "{ln}");
+            let back = fs::symlink_metadata(harness.planted()).unwrap();
+            assert!(back.is_file(), "{ln}");
+            let mode = back.permissions().mode() & 0o777;
+            assert_eq!((back.nlink(), mode), (1, 0o640), "{ln}");
+            let mine = fs::read_to_string(harness.planted()).unwrap();
+            assert_eq!(mine, "mine\n", "{ln}");
+        }
+        assert_eq!(fs::read_to_string(&outside).unwrap(), "theirs\n");
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_link_the_g2_commands_leave_on_the_way_stops_the_self_test() {
+        let elsewhere = Folder::new();
+        // Left by G2 without the test: nothing is planted.
+        let leaves = format!(
+            "test -e tests || ln -s {} tests; test ! -f tests/failing.txt",
+            elsewhere.0.display()
+        );
+        let err = Harness::with_unit(&leaves).run().unwrap_err();
+        let why = "cannot write tests/failing.txt: tests is a symbolic link, which the self-test \
+                   does not write through";
+        assert_eq!(err, why);
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 0);
+        // Left by G2 with the test: nothing is given back through it.
+        let leaves = format!(
+            "test ! -f tests/failing.txt || {{ mv tests moved; ln -s {} tests; false; }}",
+            elsewhere.0.display()
+        );
+        let harness = Harness::with_unit(&leaves);
+        harness.folder.write("tests/failing.txt", "mine\n");
+        let err = harness.run().unwrap_err();
+        let why = "cannot give tests/failing.txt back: tests is a symbolic link, which the \
+                   self-test does not write through";
+        assert_eq!(err, why);
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 0);
     }
 
     #[test]

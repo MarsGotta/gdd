@@ -1,9 +1,11 @@
 //! The stack sheets: one data file per stack the tool knows, built into it. A sheet says how a
 //! project of that stack passes the gates: the commands of each gate, its scenario runner, the
 //! file of the harness self-test, the paths each Builder mode must not touch, the files of its
-//! supply chain and the tool chosen for each need. Each stack also has its instructions for the
-//! agents. A project names the stacks it uses in `stack` of `gdd/project.toml` ([`of_project`]);
-//! [`compose()`] says what several sheets give together.
+//! supply chain and the tool chosen for each need; and how a new project of it starts: its first
+//! install, its lines of `.gitignore` and the CI steps that set up its tools. Each stack also has
+//! its instructions for the agents and its skeleton, the files a new project of it starts with
+//! ([`skeleton`]). A project names the stacks it uses in `stack` of `gdd/project.toml`
+//! ([`of_project`]); [`compose()`] says what several sheets give together.
 
 mod compose;
 
@@ -17,24 +19,38 @@ use crate::config;
 
 pub use compose::compose;
 
-/// The sheets, sorted by the name of their stack: the sheet, then the instructions for the
-/// agents (frontmatter with `description: "..."`, then the text).
-const SHEETS: [(&str, &str, &str); 3] = [
-    (
-        "python",
-        include_str!("../../assets/stacks/python.toml"),
-        include_str!("../../assets/stacks/python.md"),
-    ),
-    (
-        "rust",
-        include_str!("../../assets/stacks/rust.toml"),
-        include_str!("../../assets/stacks/rust.md"),
-    ),
-    (
-        "typescript",
-        include_str!("../../assets/stacks/typescript.toml"),
-        include_str!("../../assets/stacks/typescript.md"),
-    ),
+/// What the tool has built in for a stack.
+struct BuiltIn {
+    /// The name of the stack.
+    name: &'static str,
+    /// Its sheet.
+    sheet: &'static str,
+    /// Its instructions for the agents: frontmatter with `description: "..."`, then the text.
+    instructions: &'static str,
+    /// Its skeleton.
+    skeleton: &'static str,
+}
+
+/// What each stack has built in, sorted by the name of the stack.
+const SHEETS: [BuiltIn; 3] = [
+    BuiltIn {
+        name: "python",
+        sheet: include_str!("../../assets/stacks/python.toml"),
+        instructions: include_str!("../../assets/stacks/python.md"),
+        skeleton: include_str!("../../assets/stacks/python-skeleton.toml"),
+    },
+    BuiltIn {
+        name: "rust",
+        sheet: include_str!("../../assets/stacks/rust.toml"),
+        instructions: include_str!("../../assets/stacks/rust.md"),
+        skeleton: include_str!("../../assets/stacks/rust-skeleton.toml"),
+    },
+    BuiltIn {
+        name: "typescript",
+        sheet: include_str!("../../assets/stacks/typescript.toml"),
+        instructions: include_str!("../../assets/stacks/typescript.md"),
+        skeleton: include_str!("../../assets/stacks/typescript-skeleton.toml"),
+    },
 ];
 
 /// The stacks with a sheet, as the errors list them.
@@ -67,6 +83,13 @@ pub struct Sheet {
     supply_chain: Vec<String>,
     /// What installs the dependencies of a project.
     install: String,
+    /// The first install of a new project, which writes its lock file.
+    bootstrap: String,
+    /// The lines of `.gitignore` that leave out what its tools make.
+    ignore: Vec<String>,
+    /// The steps of the CI workflow that set up its tools: YAML, indented, ending in a line
+    /// break.
+    ci_setup: String,
     /// The commands of each of [`SECTIONS`], in that order.
     sections: [Commands; 3],
     selftest: Selftest,
@@ -84,13 +107,42 @@ struct Raw {
     detect: Vec<String>,
     supply_chain: Vec<String>,
     install: String,
+    bootstrap: String,
+    ignore: Vec<String>,
     // Where each command is written, so they keep the order of the sheet.
     g2: BTreeMap<String, Spanned<String>>,
     g3: BTreeMap<String, Spanned<String>>,
     learn: BTreeMap<String, Spanned<String>>,
+    ci: Ci,
     selftest: Selftest,
     protected: Protected,
     tool: Vec<Tool>,
+}
+
+/// What a sheet says of the CI workflow.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Ci {
+    /// The steps that set up the tools of the stack.
+    setup: String,
+}
+
+/// A file of the skeleton of a stack. `{package}` in its path or its text stands for the
+/// package identifier of the project.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct File {
+    /// Its path, from the project root.
+    pub path: String,
+    /// Its text.
+    pub content: String,
+}
+
+/// A skeleton as it is written.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Skeleton {
+    file: Vec<File>,
 }
 
 /// The deliberately failing test of the harness self-test.
@@ -148,32 +200,44 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The sheet and the instructions of the stack `name`, as they are built in.
-fn built_in(name: &str) -> Result<(&'static str, &'static str), Error> {
-    let (_, sheet, instructions) = SHEETS
+/// What the stack `name` has built in.
+fn built_in(name: &str) -> Result<&'static BuiltIn, Error> {
+    SHEETS
         .iter()
-        .find(|(stack, ..)| *stack == name)
-        .ok_or_else(|| Error::Unknown(name.to_string()))?;
-    Ok((sheet, instructions))
+        .find(|built_in| built_in.name == name)
+        .ok_or_else(|| Error::Unknown(name.to_string()))
 }
 
 /// The sheet of the stack `name`.
 pub fn sheet(name: &str) -> Result<Sheet, Error> {
-    let (text, _) = built_in(name)?;
+    let text = built_in(name)?.sheet;
     parse(text).map_err(|why| Error::Invalid(name.to_string(), why))
 }
 
 /// The instructions of the stack `name` for the agents: frontmatter with `description: "..."`,
 /// then the text.
 pub fn instructions(name: &str) -> Result<&'static str, Error> {
-    built_in(name).map(|(_, instructions)| instructions)
+    built_in(name).map(|built_in| built_in.instructions)
+}
+
+/// The skeleton of the stack `name`: its files, in order, with `{package}` as it is written.
+pub fn skeleton(name: &str) -> Result<Vec<File>, Error> {
+    let text = built_in(name)?.skeleton;
+    let invalid = |why: String| Error::Invalid(name.to_string(), format!("its skeleton: {why}"));
+    files(text).map_err(invalid)
+}
+
+/// Reads the text of a skeleton, or says why it cannot.
+fn files(text: &str) -> Result<Vec<File>, String> {
+    let skeleton: Skeleton = toml::from_str(text).map_err(|e| e.to_string())?;
+    Ok(skeleton.file)
 }
 
 /// One line per sheet, sorted by the name of its stack: `<name> · <title> · <scenario_runner>`,
 /// without a line break at the end.
 pub fn list() -> Result<String, Error> {
     let mut lines = Vec::new();
-    for (name, ..) in SHEETS {
+    for BuiltIn { name, .. } in SHEETS {
         let sheet = sheet(name)?;
         let (title, runner) = (&sheet.title, &sheet.scenario_runner);
         lines.push(format!("{} · {title} · {runner}", sheet.name));
@@ -191,6 +255,9 @@ fn parse(text: &str) -> Result<Sheet, String> {
         detect: raw.detect,
         supply_chain: raw.supply_chain,
         install: raw.install,
+        bootstrap: raw.bootstrap,
+        ignore: raw.ignore,
+        ci_setup: raw.ci.setup,
         sections: [ordered(raw.g2), ordered(raw.g3), ordered(raw.learn)],
         selftest: raw.selftest,
         protected: raw.protected,
@@ -217,9 +284,30 @@ impl Sheet {
         &self.scenario_runner
     }
 
+    /// The files that tell a project is of this stack.
+    pub fn detect(&self) -> &[String] {
+        &self.detect
+    }
+
     /// The files of its dependencies and toolchain.
     pub fn supply_chain(&self) -> &[String] {
         &self.supply_chain
+    }
+
+    /// The first install of a new project, which writes its lock file.
+    pub fn bootstrap(&self) -> &str {
+        &self.bootstrap
+    }
+
+    /// The lines of `.gitignore` that leave out what its tools make.
+    pub fn ignore(&self) -> &[String] {
+        &self.ignore
+    }
+
+    /// The steps of the CI workflow that set up its tools: YAML, indented, ending in a line
+    /// break.
+    pub fn ci_setup(&self) -> &str {
+        &self.ci_setup
     }
 
     /// The paths the Builder in build mode must not touch.
@@ -246,6 +334,7 @@ impl fmt::Display for Sheet {
         }
         writeln!(f, "Commands:")?;
         writeln!(f, "install: {}", self.install)?;
+        writeln!(f, "bootstrap: {}", self.bootstrap)?;
         for (section, commands) in SECTIONS.iter().zip(&self.sections) {
             for (name, command) in commands.iter().filter(|(_, c)| !c.is_empty()) {
                 writeln!(f, "{section}.{name}: {command}")?;
@@ -311,7 +400,7 @@ mod tests {
 
     #[test]
     fn every_sheet_is_valid_names_its_own_stack_and_has_its_instructions() {
-        let names: Vec<&str> = SHEETS.iter().map(|(name, ..)| *name).collect();
+        let names: Vec<&str> = SHEETS.iter().map(|built_in| built_in.name).collect();
         assert_eq!(names.join(", "), NAMES);
         let mut sorted = names.clone();
         sorted.sort_unstable();
@@ -322,6 +411,48 @@ mod tests {
             assert!(!sheet.tools.is_empty(), "{name}");
             let text = instructions(name).unwrap();
             assert!(text.starts_with("---\ndescription: \""), "{name}");
+            assert!(!sheet.bootstrap().is_empty(), "{name}");
+            assert!(!sheet.ignore().is_empty(), "{name}");
+            let setup = sheet.ci_setup();
+            assert!(setup.starts_with("      - "), "{name}");
+            assert!(setup.ends_with('\n'), "{name}");
+            assert!(!skeleton(name).unwrap().is_empty(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_skeleton_lists_its_files_with_the_package_as_it_is_written() {
+        let rust = skeleton("rust").unwrap();
+        let paths: Vec<&str> = rust.iter().map(|file| file.path.as_str()).collect();
+        let expected = [
+            "Cargo.toml",
+            "deny.toml",
+            "features/.gitkeep",
+            "src/lib.rs",
+            "tests/acceptance.rs",
+            "tests/acceptance/world.rs",
+        ];
+        assert_eq!(paths, expected);
+        let cargo = "[package]\nname = \"{package}\"\n";
+        assert!(rust[0].content.starts_with(cargo), "{rust:?}");
+        assert_eq!(rust[2].content, "");
+        let python = skeleton("python").unwrap();
+        let greeting = "src/{package}/greeting.py";
+        let found = python.iter().any(|file| file.path == greeting);
+        assert!(found, "{python:?}");
+        assert_eq!(skeleton("cobol"), Err(Error::Unknown("cobol".into())));
+        let one = "[[file]]\npath = \"a\"\ncontent = \"b\"\n";
+        let file = File {
+            path: "a".into(),
+            content: "b".into(),
+        };
+        assert_eq!(files(one), Ok(vec![file]));
+        for wrong in [
+            "[[file]]\npath = \"a\"\n",
+            "[[file]]\npath = \"a\"\ncontent = \"b\"\nx = 1\n",
+            "[file]\npath = \"a\"\ncontent = \"b\"\n",
+        ] {
+            assert!(!files(wrong).unwrap_err().is_empty(), "{wrong}");
         }
     }
 
@@ -355,6 +486,8 @@ scenario_runner = "behave"
 detect = ["a.toml", "b.json"]
 supply_chain = ["a.lock", "toolchain"]
 install = "make deps"
+bootstrap = "make lock"
+ignore = ["/out", "cache/"]
 
 [g2]
 unit = "make unit"
@@ -366,6 +499,9 @@ acceptance = """make \
 mutation = "make mutants"
 
 [learn]
+
+[ci]
+setup = "      - run: make tools\n"
 
 [selftest]
 file = "t/fail.x"
@@ -391,6 +527,7 @@ alternative = "other lint"
     fn a_sheet_says_its_title_runner_supply_chain_and_protected_paths() {
         let sheet = parse(SHEET).unwrap();
         assert_eq!((sheet.title(), sheet.scenario_runner()), ("Demo", "behave"));
+        assert_eq!(sheet.detect(), ["a.toml", "b.json"]);
         assert_eq!(sheet.supply_chain(), ["a.lock", "toolchain"]);
         assert_eq!(sheet.builder_build(), ["features/**", "t/steps/**"]);
         assert_eq!(sheet.builder_test(), ["src/**"]);
@@ -400,6 +537,20 @@ alternative = "other lint"
         for name in NAMES.split(", ") {
             assert!(!of(name).supply_chain().is_empty(), "{name}");
         }
+    }
+
+    #[test]
+    fn a_sheet_says_how_a_new_project_of_it_starts() {
+        let sheet = parse(SHEET).unwrap();
+        assert_eq!(sheet.bootstrap(), "make lock");
+        assert_eq!(sheet.ignore(), ["/out", "cache/"]);
+        assert_eq!(sheet.ci_setup(), "      - run: make tools\n");
+        let rust = of("rust");
+        assert_eq!(rust.bootstrap(), "cargo generate-lockfile");
+        assert_eq!(rust.ignore(), ["/target"]);
+        assert_eq!(rust.detect(), ["Cargo.toml"]);
+        let setup = "      - uses: dtolnay/rust-toolchain@stable\n";
+        assert!(rust.ci_setup().starts_with(setup), "{}", rust.ci_setup());
     }
 
     #[test]
@@ -418,6 +569,7 @@ alternative = "other lint"
                         Lint (G2): lint · alternative: other lint\n\
                         Commands:\n\
                         install: make deps\n\
+                        bootstrap: make lock\n\
                         g2.unit: make unit\n\
                         g2.acceptance: make acceptance\n\
                         g3.mutation: make mutants\n\
@@ -432,7 +584,10 @@ alternative = "other lint"
         let python = of("python").to_string();
         let start = "Python (python) · scenarios: pytest-bdd · detected by: ";
         assert!(python.starts_with(start), "{python}");
-        assert!(python.contains("\ng2.types: mypy src\n"), "{python}");
+        let commands = "\ninstall: uv sync --locked\nbootstrap: uv lock && uv sync --locked\n\
+                        g2.lint: ";
+        assert!(python.contains(commands), "{python}");
+        assert!(python.contains("\ng2.types: uv run mypy src\n"), "{python}");
     }
 
     #[test]
@@ -444,6 +599,10 @@ alternative = "other lint"
             SHEET.replace("need = \"Lint\"", "needs = \"Lint\""),
             SHEET.replace("content", "text"),
             SHEET.replace("supply_chain = [\"a.lock\", \"toolchain\"]\n", ""),
+            SHEET.replace("bootstrap = \"make lock\"\n", ""),
+            SHEET.replace("ignore = [\"/out\", \"cache/\"]\n", ""),
+            SHEET.replace("setup = ", "steps = "),
+            SHEET.replace("[ci]\nsetup = \"      - run: make tools\\n\"\n", ""),
             format!("{SHEET}extra = 1\n"),
             "[g2".to_string(),
         ] {

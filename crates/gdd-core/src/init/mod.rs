@@ -1,17 +1,21 @@
 //! `gdd init`: sets up GDD in the folder it runs in, which becomes the project root, from what
 //! the command line says. It checks everything before it writes anything, in this order: no GDD
 //! project in the folder or above it, the stacks known, the agents and who plays each role (see
-//! [`roles`]), none of the files it writes already there, for it never overwrites one, no
-//! symbolic link on the way to what it writes and no other name (a hard link) for the file it
-//! appends to, for it never writes out of the folder. Then
-//! it writes the harness (see [`files`]), AGENTS.md and CLAUDE.md when the project has none,
-//! `.gdd/` in `.gitignore` and the agents' commands as `gdd agents install` does, and commits
-//! what it wrote, and only that, in a new repository when the folder is in none.
+//! [`roles`]), the skeletons of the stacks (see [`skeletons`]), none of the files it writes
+//! already there, for it never overwrites one, no symbolic link on the way to what it writes and
+//! no other name (a hard link) for the file it appends to, for it never writes out of the folder.
+//! Then it writes the harness (see [`files`]), AGENTS.md and CLAUDE.md when the project has none,
+//! the skeleton of each stack the folder has no project of, the lines of every stack and `.gdd/`
+//! in `.gitignore` and the agents' commands as `gdd agents install` does, and commits what it
+//! wrote, and only that, in a new repository when the folder is in none. It stays offline:
+//! [`bootstrap()`] runs the first install of each stack.
 //!
 //! Git runs in the environment gdd runs in, which says who commits (git's own rules).
 
+mod bootstrap;
 mod files;
 mod roles;
+mod skeletons;
 
 use std::fmt;
 use std::fs::{self, OpenOptions, Permissions};
@@ -25,6 +29,8 @@ use crate::agents::sheets::Sheet;
 use crate::gates::{self, approve};
 use crate::git::{self, Git};
 use crate::{VERSION, guard, log, stacks};
+
+pub use bootstrap::{Stopped, bootstrap};
 
 /// The platforms a project may run on.
 pub const PLATFORMS: [&str; 5] = ["mobile", "desktop", "web", "cli", "other"];
@@ -63,8 +69,9 @@ const NEVER_OVERWRITES: &str =
     "gdd init never overwrites a file: move or remove these, then run it again";
 
 /// What to do once the project is set up.
-const NEXT: &str = "Next: run bin/gdd agents check, then start your agent and run the gdd-setup \
-                    command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+const NEXT: &str = "Next: run bin/gdd bootstrap (first install of each stack and its lock file), \
+                    bin/gdd agents check, then start your agent and run the gdd-setup command \
+                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
 
 /// An environment: its variables, with their values.
 type Env = [(String, String)];
@@ -150,7 +157,7 @@ fn project_above(folder: &Path) -> Option<PathBuf> {
 /// What gdd init does, once everything is checked.
 struct Plan {
     /// The files it writes, from the root, with their text, in order.
-    files: Vec<(&'static str, String)>,
+    files: Vec<(String, String)>,
     /// What it appends to `.gitignore`, when it does.
     ignore: Option<String>,
     /// The agents that get the commands.
@@ -175,17 +182,21 @@ impl Plan {
         let cast = roles::Cast::new(&options.agents, env, accept, today)?;
         let agents = cast.sheets();
         let commands = render::paths(&agents, &stacks)?;
-        check_targets(root, &commands)?;
+        let package = skeletons::package(&options.name);
+        let skeleton = skeletons::files(root, &stacks, &sheets, &package)?;
+        check_targets(root, &skeleton, &commands)?;
         let mut notes = Vec::new();
         let mut instructions = Vec::new();
         for item in files::INSTRUCTIONS {
             if exists(root, item.file)? {
                 notes.push((item.yours)());
             } else {
-                instructions.push((item.file, item.template.to_string()));
+                instructions.push((item.file.to_string(), item.template.to_string()));
             }
         }
-        let ignore = ignore(root)?;
+        let lines = sheets.iter().flat_map(stacks::Sheet::ignore);
+        let lines: Vec<&str> = lines.map(String::as_str).collect();
+        let ignore = ignore(root, &lines)?;
         let git = Git::in_env(root, env);
         let repository = git::is_repository(root);
         let main = if repository {
@@ -194,7 +205,7 @@ impl Plan {
             MAIN.to_string()
         };
         let values = files::Values::new(options, &sheets, &main);
-        let mut texts = vec![
+        let harness = [
             (PROJECT, files::project(options, &stacks, &sheets)),
             (gates::COMMANDS, files::commands(&stacks)?),
             (guard::RULES, values.fill(files::RULES)),
@@ -205,9 +216,12 @@ impl Plan {
             (BIN, values.fill(files::BIN)),
             (WORKFLOW, values.fill(files::WORKFLOW)),
         ];
+        let harness = harness.map(|(path, text)| (path.to_string(), text));
+        let mut texts = Vec::from(harness);
         texts.extend(instructions);
+        texts.extend(skeleton);
         let appended = ignore.as_ref().map(|_| GITIGNORE);
-        let paths = texts.iter().map(|(path, _)| *path).chain(appended);
+        let paths = texts.iter().map(|(path, _)| path.as_str()).chain(appended);
         check_links(root, paths.chain(commands.iter().map(String::as_str)))?;
         if let Some(path) = appended {
             check_names(root, path)?;
@@ -258,9 +272,13 @@ fn stack_sheets(stacks: &[String]) -> Result<Vec<stacks::Sheet>, String> {
     stacks.iter().map(sheet).collect()
 }
 
-/// Checks that none of the files gdd init writes in the folder `root` is there: the harness and
-/// the agents' `commands`.
-fn check_targets(root: &Path, commands: &[String]) -> Result<(), Error> {
+/// Checks that none of the files gdd init writes in the folder `root` is there: the harness, the
+/// files of the `skeleton` and the agents' `commands`.
+fn check_targets(
+    root: &Path,
+    skeleton: &[(String, String)],
+    commands: &[String],
+) -> Result<(), Error> {
     let harness = [
         PROJECT,
         gates::COMMANDS,
@@ -272,9 +290,10 @@ fn check_targets(root: &Path, commands: &[String]) -> Result<(), Error> {
         BIN,
         WORKFLOW,
     ];
+    let skeleton = skeleton.iter().map(|(path, _)| path.as_str());
     let commands = commands.iter().map(String::as_str);
     let mut there = Vec::new();
-    for path in harness.into_iter().chain(commands) {
+    for path in harness.into_iter().chain(skeleton).chain(commands) {
         if exists(root, path)? {
             there.push(path.to_string());
         }
@@ -328,16 +347,19 @@ fn exists(root: &Path, path: &str) -> Result<bool, String> {
     }
 }
 
-/// What gdd init appends to the `.gitignore` of the folder `root`: a line `.gdd/` when no line
-/// is exactly that, after a line break when the file does not end with one. `None` when it has
-/// that line already.
-fn ignore(root: &Path) -> Result<Option<String>, String> {
+/// What gdd init appends to the `.gitignore` of the folder `root`: each of `lines`, then
+/// `.gdd/`, that no line of the file is exactly, in that order and each once, after a line break
+/// when the file does not end with one. `None` when it has them all already.
+fn ignore(root: &Path, lines: &[&str]) -> Result<Option<String>, String> {
     let text = match fs::read_to_string(root.join(GITIGNORE)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("cannot read {GITIGNORE}: {e}")),
     };
-    if text.lines().any(|line| line == LOCAL_STATE) {
+    let wanted = stacks::once(lines.iter().chain([&LOCAL_STATE]));
+    let there = |line: &&str| text.lines().any(|known| known == *line);
+    let missing: Vec<&str> = wanted.into_iter().filter(|line| !there(line)).collect();
+    if missing.is_empty() {
         return Ok(None);
     }
     let after = if text.is_empty() || text.ends_with('\n') {
@@ -345,7 +367,7 @@ fn ignore(root: &Path) -> Result<Option<String>, String> {
     } else {
         "\n"
     };
-    Ok(Some(format!("{after}{LOCAL_STATE}\n")))
+    Ok(Some(format!("{after}{}\n", missing.join("\n"))))
 }
 
 /// Writes `text` as the new file `path` of the folder `root`, creating its folders; a file
@@ -410,7 +432,7 @@ mod tests {
     }
 
     /// Runs git in the folder, in the environment of the tests: what it printed, trimmed.
-    fn git(folder: &Folder, args: &[&str]) -> String {
+    pub(super) fn git(folder: &Folder, args: &[&str]) -> String {
         let mut git = Command::new("git");
         git.args(args).current_dir(&folder.0);
         let out = git.env_clear().envs(env()).output().unwrap();
@@ -436,14 +458,21 @@ mod tests {
             ".github/workflows/gdd.yml",
             "AGENTS.md",
             "CLAUDE.md",
+            "Cargo.toml",
+            "deny.toml",
+            "features/.gitkeep",
+            "src/lib.rs",
+            "tests/acceptance.rs",
+            "tests/acceptance/world.rs",
             ".gitignore",
             ".claude/skills/gdd-build/SKILL.md",
         ];
         assert_eq!(lines[..first.len()], first);
         let skill = ".agents/skills/gdd-stack-rust/SKILL.md";
         assert_eq!(lines[lines.len() - 2..], [skill, NEXT]);
-        let next = "Next: run bin/gdd agents check, then start your agent and run the gdd-setup \
-                    command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+        let next = "Next: run bin/gdd bootstrap (first install of each stack and its lock file), \
+                    bin/gdd agents check, then start your agent and run the gdd-setup command \
+                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
         assert_eq!(NEXT, next);
         assert_eq!(git(&folder, &["branch", "--show-current"]), "main");
         let subject = git(&folder, &["log", "-1", "--format=%s"]);
@@ -463,7 +492,13 @@ mod tests {
         init_notes(&folder).unwrap();
         let bin = fs::metadata(folder.0.join(BIN)).unwrap();
         assert_eq!(bin.permissions().mode() & 0o777, 0o755);
-        assert_eq!(read(&folder, GITIGNORE), ".gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "/target\n.gdd/\n");
+        let cargo = read(&folder, "Cargo.toml");
+        let package = "[package]\nname = \"notes\"\n";
+        assert!(cargo.starts_with(package), "{cargo}");
+        let workflow = read(&folder, WORKFLOW);
+        let toolchain = "\n      - uses: dtolnay/rust-toolchain@stable\n";
+        assert!(workflow.contains(toolchain), "{workflow}");
         let generated: toml::Table = toml::from_str(&read(&folder, GENERATED)).unwrap();
         let once: Vec<toml::Value> = ONCE.iter().map(|&p| p.into()).collect();
         assert_eq!(generated["files"], toml::Value::Array(once));
@@ -504,7 +539,7 @@ mod tests {
         let branches = "branches: [\"trunk\", ";
         assert!(workflow.contains(branches), "{workflow}");
         assert_eq!(read(&folder, "AGENTS.md"), "Our rules\n");
-        assert_eq!(read(&folder, GITIGNORE), "target/\n.gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "target/\n/target\n.gdd/\n");
         let yours = format!("\n{}\n{NEXT}", (files::INSTRUCTIONS[0].yours)());
         assert!(said.ends_with(&yours), "{said}");
         assert!(!said.contains("\nAGENTS.md\n"), "{said}");
@@ -519,11 +554,11 @@ mod tests {
     #[test]
     fn a_gitignore_that_says_it_already_is_left_alone() {
         let folder = Folder::new();
-        folder.write(GITIGNORE, "target/\n.gdd/\n");
+        folder.write(GITIGNORE, "/target\n.gdd/\n");
         folder.write("CLAUDE.md", "mine\n");
         let said = init_notes(&folder).unwrap();
         assert!(!said.contains(".gitignore"), "{said}");
-        assert_eq!(read(&folder, GITIGNORE), "target/\n.gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "/target\n.gdd/\n");
         let claude = "\nCLAUDE.md is yours: add to CLAUDE.md: @AGENTS.md\n";
         assert!(said.contains(claude), "{said}");
         assert!(said.contains("\nAGENTS.md\n"), "{said}");
@@ -531,28 +566,49 @@ mod tests {
         assert_eq!(tracked, "");
     }
 
+    /// What `.gitignore` gets in `folder` when the stacks leave out nothing.
+    fn ignored(folder: &Folder) -> Result<Option<String>, String> {
+        ignore(&folder.0, &[])
+    }
+
     #[test]
     fn what_gitignore_gets() {
         let folder = Folder::new();
-        assert_eq!(ignore(&folder.0), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
         folder.write(GITIGNORE, "");
-        assert_eq!(ignore(&folder.0), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
         folder.write(GITIGNORE, "a\n");
-        assert_eq!(ignore(&folder.0), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
         folder.write(GITIGNORE, "a");
-        assert_eq!(ignore(&folder.0), Ok(Some("\n.gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), Ok(Some("\n.gdd/\n".to_string())));
         for close in ["/.gdd/\n", ".gdd\n", ".gdd/ \n", "# .gdd/\n"] {
             folder.write(GITIGNORE, close);
-            let said = ignore(&folder.0);
+            let said = ignored(&folder);
             assert_eq!(said, Ok(Some(".gdd/\n".to_string())), "{close:?}");
         }
         folder.write(GITIGNORE, "a\n.gdd/");
-        assert_eq!(ignore(&folder.0), Ok(None));
+        assert_eq!(ignored(&folder), Ok(None));
         // A .gitignore that cannot be read is not a missing one.
         fs::remove_file(folder.0.join(GITIGNORE)).unwrap();
         fs::create_dir(folder.0.join(GITIGNORE)).unwrap();
-        let said = ignore(&folder.0).unwrap_err();
+        let said = ignored(&folder).unwrap_err();
         assert!(said.starts_with("cannot read .gitignore: "), "{said}");
+    }
+
+    #[test]
+    fn gitignore_gets_the_lines_of_the_stacks_then_gdd_each_once() {
+        let folder = Folder::new();
+        let lines = ["/target", "node_modules/", "/target"];
+        let all = "/target\nnode_modules/\n.gdd/\n".to_string();
+        assert_eq!(ignore(&folder.0, &lines), Ok(Some(all)));
+        folder.write(GITIGNORE, "node_modules/\n/target/");
+        let rest = "\n/target\n.gdd/\n".to_string();
+        assert_eq!(ignore(&folder.0, &lines), Ok(Some(rest)));
+        folder.write(GITIGNORE, ".gdd/\nnode_modules/\n");
+        let target = "/target\n".to_string();
+        assert_eq!(ignore(&folder.0, &lines), Ok(Some(target)));
+        folder.write(GITIGNORE, "/target\n.gdd/\nnode_modules/\n");
+        assert_eq!(ignore(&folder.0, &lines), Ok(None));
     }
 
     #[test]
@@ -577,6 +633,53 @@ mod tests {
         std::os::unix::fs::symlink("nowhere", folder.0.join(BIN)).unwrap();
         let said = init_notes(&folder).unwrap_err();
         assert_eq!(said, Error::Exists(vec![BIN.to_string()]));
+    }
+
+    #[test]
+    fn a_skeleton_file_already_there_is_named_with_the_others() {
+        let folder = Folder::new();
+        folder.write("src/lib.rs", "mine\n");
+        folder.write(approve::BRIEF, "mine\n");
+        folder.write(".claude/skills/gdd-setup/SKILL.md", "mine\n");
+        let said = init_notes(&folder).unwrap_err();
+        let paths = [
+            approve::BRIEF,
+            "src/lib.rs",
+            ".claude/skills/gdd-setup/SKILL.md",
+        ];
+        assert_eq!(said, Error::Exists(names(&paths)));
+        assert!(!folder.0.join("Cargo.toml").exists());
+        assert_eq!(read(&folder, "src/lib.rs"), "mine\n");
+    }
+
+    #[test]
+    fn a_folder_with_a_project_of_a_stack_gets_only_the_other_skeletons() {
+        let folder = Folder::new();
+        let mine = "[package]\nname = \"mine\"\n";
+        folder.write("Cargo.toml", mine);
+        let options = options(&["rust", "typescript"], &["claude", "codex"]);
+        let said = init(&folder.0, &options, &env()).unwrap();
+        assert_eq!(read(&folder, "Cargo.toml"), mine);
+        assert!(!folder.0.join("src/lib.rs").exists());
+        assert!(said.contains("\npackage.json\n"), "{said}");
+        assert!(!said.contains("Cargo.toml"), "{said}");
+        let ignored = read(&folder, GITIGNORE);
+        assert!(ignored.starts_with("/target\nnode_modules/\n"), "{ignored}");
+        assert!(ignored.ends_with("\n.stryker-tmp/\n.gdd/\n"), "{ignored}");
+        let committed = git(&folder, &["ls-files", "--", "package.json", "Cargo.toml"]);
+        assert_eq!(committed, "package.json");
+    }
+
+    #[test]
+    fn stacks_that_share_a_skeleton_file_write_it_once() {
+        let folder = Folder::new();
+        let options = options(&["python", "typescript"], &["claude", "codex"]);
+        let said = init(&folder.0, &options, &env()).unwrap();
+        let shared = said.lines().filter(|line| *line == "osv-scanner.toml");
+        assert_eq!(shared.count(), 1, "{said}");
+        let package = read(&folder, "src/notes/greeting.py");
+        assert!(package.contains("def greeting"), "{package}");
+        assert_eq!(git(&folder, &["status", "--porcelain"]), "");
     }
 
     #[test]
@@ -611,10 +714,10 @@ mod tests {
         assert!(!folder.0.join(".git").exists());
         assert!(!folder.0.join("gdd").exists());
         assert_eq!(read(&elsewhere, GITIGNORE), "target/\n");
-        // One that already leaves out .gdd/ gets nothing, so its other names do not matter.
-        elsewhere.write(GITIGNORE, "target/\n.gdd/\n");
+        // One that already has every line gets nothing, so its other names do not matter.
+        elsewhere.write(GITIGNORE, "/target\n.gdd/\n");
         init_notes(&folder).unwrap();
-        assert_eq!(read(&elsewhere, GITIGNORE), "target/\n.gdd/\n");
+        assert_eq!(read(&elsewhere, GITIGNORE), "/target\n.gdd/\n");
     }
 
     #[test]
@@ -626,6 +729,7 @@ mod tests {
             ("docs", elsewhere.0.clone(), approve::BRIEF),
             (".claude", elsewhere.0.clone(), skill),
             (GITIGNORE, elsewhere.0.join(GITIGNORE), GITIGNORE),
+            ("src", elsewhere.0.clone(), "src/lib.rs"),
         ];
         for (link, to, path) in links {
             let folder = Folder::new();

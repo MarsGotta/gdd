@@ -78,9 +78,9 @@ impl Values {
     /// The placeholders for the project of `options`, whose stacks have the `sheets` and whose
     /// main branch is `main`: `{version}`, `{main}` (escaped, for it goes between double quotes
     /// in the TOML and the YAML templates), `{name}`, `{description}`, `{platform}`, `{stacks}`,
-    /// `{runners}`, `{sensitive}` (a numbered list), and the TOML lists `{builder_build}`,
-    /// `{builder_test}` and `{supply_chain}` (the paths of every sheet, in their order, each
-    /// once).
+    /// `{runners}`, `{sensitive}` (a numbered list), `{setup}` (the CI steps of every sheet, in
+    /// their order), and the TOML lists `{builder_build}`, `{builder_test}` and `{supply_chain}`
+    /// (the paths of every sheet, in their order, each once).
     pub(super) fn new(options: &Options, sheets: &[Sheet], main: &str) -> Values {
         let description = if options.description.is_empty() {
             NO_DESCRIPTION
@@ -101,6 +101,7 @@ impl Values {
             ("stacks", titles.join(", ")),
             ("runners", runners(sheets)),
             ("sensitive", sensitive(&options.sensitive)),
+            ("setup", sheets.iter().map(Sheet::ci_setup).collect()),
             ("builder_build", union(Sheet::builder_build)),
             ("builder_test", union(Sheet::builder_test)),
             ("supply_chain", union(Sheet::supply_chain)),
@@ -242,7 +243,8 @@ mod tests {
         assert!(rules.contains(test), "{rules}");
         let zones = filled(ZONES);
         let supply_chain = "paths = [\"Cargo.lock\", \"deny.toml\", \"rust-toolchain.toml\", \
-                            \"package-lock.json\", \"package.json\", \".npmrc\"]\n";
+                            \"package-lock.json\", \"package.json\", \".npmrc\", \
+                            \"osv-scanner.toml\", \"osv-scanner-licenses.toml\"]\n";
         assert!(zones.contains(supply_chain), "{zones}");
         for text in [&rules, &zones] {
             assert!(toml::from_str::<toml::Table>(text).is_ok(), "{text}");
@@ -261,6 +263,18 @@ mod tests {
         assert!(workflow.contains(gitleaks), "{workflow}");
         let install = format!("--tag v{VERSION} gdd\n");
         assert!(workflow.contains(&install), "{workflow}");
+    }
+
+    #[test]
+    fn the_workflow_sets_up_the_tools_of_every_stack_in_order() {
+        let workflow = filled(WORKFLOW);
+        let both = sheets(&["rust", "typescript"]);
+        let (rust, typescript) = (both[0].ci_setup(), both[1].ci_setup());
+        let checkout = "          fetch-depth: 0\n";
+        let gitleaks = "      - name: Install gitleaks";
+        let steps = format!("{checkout}{rust}{typescript}{gitleaks}");
+        assert!(workflow.contains(&steps), "{workflow}");
+        assert!(!workflow.contains("{setup}"), "{workflow}");
     }
 
     #[test]
