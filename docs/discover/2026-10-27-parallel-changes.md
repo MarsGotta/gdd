@@ -49,3 +49,25 @@ spike-variants, closing the MVP).
   checked out in one worktree only (git-worktree(1)).
 - Merge queues (GitHub merge queue, bors, Mergify): each pull request is tested on top of the
   latest main plus the ones ahead of it before merging; the same idea, one at a time.
+
+## Where the worktrees go (decided)
+
+Researched (Orchestrator's report `research/2026-10-27-gdd-worktree-location.md`): tools put them
+inside the repository (Claude Code `.claude/worktrees/`, with open reports of Jest and Vitest
+collecting the copies and ESLint not reading `.gitignore` by default), in a folder of the tool
+(Codex `$CODEX_HOME/worktrees`, Cursor `~/.cursor/worktrees`, Conductor
+`~/conductor/workspaces/<repo>/`, Vibe Kanban `/var/tmp/vibe-kanban/worktrees`), or in a sibling
+folder (Worktrunk's default `../<repo>.<branch>`, git's own examples, "the most popular
+convention" per gitworktree.org). All make it configurable.
+
+Decided: a sibling folder, `<repo>.worktrees/<id>` next to the repository, configurable in
+`gdd/rules.toml`. The human chose it while saying it does not fully convince her: the default can
+change later with one line of configuration.
+
+## Split again (Orchestrator)
+
+Every `.gdd/` path in gdd today hangs from the project root (about 240 places in 20 files). In a
+worktree that root is the worktree, so the state would split per worktree. Three changes, not
+two: **state-root** first (a Refactor: every `.gdd/` path goes through the main checkout, found
+through git's common dir; nothing changes in a single checkout), then parallel-launch, then
+merge-queue.
