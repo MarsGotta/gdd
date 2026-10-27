@@ -1,14 +1,16 @@
 //! The status of a project: where it stands in the method, its security exceptions, its known
-//! debt, its changes and its log.
+//! debt, its changes, its log and, when it accepted one model family only, the agents of another
+//! family on the machine.
 
 use std::fmt;
 
 use serde_json::{Map, Value};
 
-use crate::config;
+use crate::agents::models::{self, Models};
+use crate::config::{self, Color};
 use crate::gates::approve::{BRIEF, ZonesState};
 use crate::gates::debt::{self, Debt};
-use crate::log;
+use crate::{init, log};
 
 /// What the status says of a missing Project Brief.
 const NO_BRIEF: &str = "missing (Setup writes it)";
@@ -18,6 +20,10 @@ const G0_OK: &str = "ok · G0 ok";
 
 /// What the status says of G0 until the machines open it.
 const G0_PENDING: &str = "pending · G0 pending: run the Setup (the gdd-setup command).";
+
+/// What the status says when an agent of another model family could review a project that
+/// accepted one family only.
+const SECOND_FAMILY: &str = "A second model family is on this machine";
 
 /// What `gdd status` says of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +53,8 @@ pub struct Status {
     pub changes: Vec<String>,
     /// How many lines its log has; `None` when there is no log.
     pub log_lines: Option<usize>,
+    /// The coding agents on the machine that could review it (see [`second_family`]).
+    pub second_family: Vec<String>,
 }
 
 impl fmt::Display for Status {
@@ -91,8 +99,30 @@ impl fmt::Display for Status {
         if let Some(lines) = self.log_lines {
             write!(f, "\nLog: {lines} lines in {} (gdd report)", log::PATH)?;
         }
+        if !self.second_family.is_empty() {
+            let agents = self.second_family.join(", ");
+            let reviewer = format!("set it as the Reviewer in {}", models::PATH);
+            write!(f, "\n{SECOND_FAMILY} ({agents}): {reviewer}")?;
+        }
         Ok(())
     }
+}
+
+/// The coding agents `found` on the machine whose strong model (see [`init::strong_model`]) is
+/// of another model family than the red Builder's in `models`, when the human accepted a Reviewer
+/// of the Builder's family: any of them could review. None otherwise.
+pub fn second_family(models: &Models, found: &[String]) -> Vec<String> {
+    let roles = models.roles(Color::Red);
+    let accepted = models::same_family_accepted(&roles.reviewer_model);
+    if accepted.is_none() {
+        return Vec::new();
+    }
+    let builder = models.family(&roles.builder);
+    let other = |name: &&String| {
+        let model = init::strong_model(name);
+        model.is_some_and(|model| models.family(&model) != builder)
+    };
+    found.iter().filter(other).cloned().collect()
 }
 
 /// The lines of the known debt `known` in the status: `Known debt: ` and the names of its
@@ -225,6 +255,7 @@ mod tests {
             ]),
             changes: vec!["  - c1 · Drafts · open · no gates yet".into()],
             log_lines: Some(3),
+            second_family: vec![],
         }
     }
 
@@ -292,6 +323,53 @@ mod tests {
         let line = "Red zones: pending · Red zones changed after their approval: a human must \
                     approve them again.\n";
         assert!(changed.to_string().contains(line), "{changed}");
+    }
+
+    #[test]
+    fn the_status_names_the_agents_of_a_second_family_last() {
+        let two = Status {
+            second_family: vec!["codex".into(), "opencode".into()],
+            log_lines: None,
+            ..status()
+        };
+        let last = "\n  - c1 · Drafts · open · no gates yet\nA second model family is on this \
+                    machine (codex, opencode): set it as the Reviewer in gdd/models.toml";
+        assert!(two.to_string().ends_with(last), "{two}");
+    }
+
+    /// A models file whose Builder is `builder` with `model`, of the family of `[families]`, and
+    /// whose Reviewer is the same, `accepted` by the human or not.
+    fn models(builder: &str, model: &str, families: &str, accepted: bool) -> Models {
+        let table = format!("integration = \"{builder}\"\nmodel = \"{model}\"\n");
+        let day = if accepted {
+            "same_family_accepted = \"2026-10-27\"\n"
+        } else {
+            ""
+        };
+        let roles = format!("[builder.red]\n{table}[reviewer]\n{table}{day}");
+        let text = format!("{roles}[families]\n{families}");
+        Models::from_toml(&text).unwrap()
+    }
+
+    fn names(named: &[&str]) -> Vec<String> {
+        named.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn an_agent_of_another_family_could_review_a_project_that_accepted_one() {
+        let found = names(&["claude", "codex", "gemini", "opencode"]);
+        let anthropic = "\"claude\" = \"anthropic\"\n";
+        let accepted = models("claude", "opus", anthropic, true);
+        assert_eq!(second_family(&accepted, &found), ["codex", "opencode"]);
+        let not_accepted = models("claude", "opus", anthropic, false);
+        assert_eq!(second_family(&not_accepted, &found), Vec::<String>::new());
+        // The families of the file count: by model name or by integration.
+        let by_model = "\"opus\" = \"anthropic\"\n\"gpt\" = \"anthropic\"\n";
+        let accepted = models("claude", "opus", by_model, true);
+        let found = names(&["codex", "claude", "opencode"]);
+        assert_eq!(second_family(&accepted, &found), ["opencode"]);
+        let codex = models("codex", "gpt-6-astra", "\"codex\" = \"openai\"\n", true);
+        assert_eq!(second_family(&codex, &found), ["claude", "opencode"]);
     }
 
     #[test]

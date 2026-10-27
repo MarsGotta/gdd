@@ -31,6 +31,7 @@ use crate::git::{self, Git};
 use crate::{VERSION, guard, log, stacks};
 
 pub use bootstrap::{Stopped, bootstrap};
+pub use roles::{agents_on_path, family_of, strong_model};
 
 /// The platforms a project may run on.
 pub const PLATFORMS: [&str; 5] = ["mobile", "desktop", "web", "cli", "other"];

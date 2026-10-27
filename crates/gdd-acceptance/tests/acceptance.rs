@@ -29,6 +29,10 @@ pub struct GddWorld {
     exit_checked: bool,
     /// Where the scenario's fake programs live; first on its PATH. Outside the project folder.
     programs: Option<TempDir>,
+    /// The Setup form the scenario opened.
+    form: Option<OpenForm>,
+    /// `form::finish` already ran on the form's outcome.
+    form_finished: bool,
 }
 
 #[given("the gdd tool")]
@@ -1999,6 +2003,275 @@ fn agents_worked_in_worktree(w: &mut GddWorld, id: String) {
     for cwd in cwds.lines() {
         assert_eq!(Path::new(cwd), expected, "an agent worked in {cwd}");
     }
+}
+
+// ---- features/init-form.feature ------------------------------------------------------------
+//
+// API of the `gdd` crate these steps expect (the Builder in build mode implements it), as in the
+// package: `gdd::form::{Form, Key, Outcome, finish}`.
+// - `Form::new(agents)`, `press(Key)`, `render(width, height) -> String`, `outcome() -> Option<&Outcome>`.
+// - `finish(root, &Outcome, env) -> Result<String, String>`: what the CLI does after the form.
+// A space typed into a text field is `Key::Char(' ')`; `Key::Space` only toggles checklists.
+
+/// The form of the scenario, which has no `Debug` of its own.
+struct OpenForm(gdd::form::Form);
+
+impl std::fmt::Debug for OpenForm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OpenForm")
+    }
+}
+
+/// The coding agents init looks for, in the order the form lists them.
+const CODING_AGENTS: [&str; 3] = ["claude", "codex", "opencode"];
+
+/// The platforms of the form's list, in its order.
+const FORM_PLATFORMS: [&str; 5] = ["mobile", "desktop", "web", "cli", "other"];
+
+/// The stacks of the form's checklist, in catalog order; `Not sure` comes after them.
+const FORM_STACKS: [&str; 4] = ["rust", "typescript", "python", "not sure"];
+
+#[given(expr = "the coding agents on this machine are {string}")]
+fn agents_on_this_machine(w: &mut GddWorld, names: String) {
+    // Only these programs, and the system ones: the agents of the real machine are not found.
+    set_env(w, "PATH", "/usr/bin:/bin");
+    w.programs = None;
+    for name in names.split_whitespace() {
+        fake_program(w, name, "exit 0");
+    }
+}
+
+/// The coding agents found on the `PATH` of the scenario, in the order of [`CODING_AGENTS`].
+fn agents_found(w: &mut GddWorld) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = world_env(w)
+        .iter()
+        .find(|(name, _)| name == "PATH")
+        .map(|(_, value)| value.clone())
+        .unwrap_or_default();
+    let is_program = |dir: &str, name: &str| {
+        fs::metadata(Path::new(dir).join(name))
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    };
+    CODING_AGENTS
+        .iter()
+        .filter(|name| path.split(':').any(|dir| is_program(dir, name)))
+        .map(|name| name.to_string())
+        .collect()
+}
+
+fn open_form(w: &mut GddWorld) {
+    let agents = agents_found(w);
+    w.form = Some(OpenForm(gdd::form::Form::new(agents)));
+    w.form_finished = false;
+}
+
+fn form_of(w: &mut GddWorld) -> &mut gdd::form::Form {
+    &mut w.form.as_mut().expect("the Setup form is open").0
+}
+
+/// Presses `key`; the first time the form has an outcome, does what the CLI does with it and
+/// keeps its output or its error as the last run.
+fn press_key(w: &mut GddWorld, key: gdd::form::Key) {
+    let root = project_root(w);
+    let env = world_env(w).clone();
+    let finished = w.form_finished;
+    let form = form_of(w);
+    form.press(key);
+    let result = match form.outcome() {
+        Some(outcome) if !finished => Some(gdd::form::finish(&root, outcome, &env)),
+        _ => None,
+    };
+    let Some(result) = result else { return };
+    w.form_finished = true;
+    w.exit_checked = false;
+    w.ran = Some(match result {
+        Ok(stdout) => Ran {
+            code: 0,
+            succeeded: true,
+            stdout: format!("{stdout}\n"),
+            stderr: String::new(),
+        },
+        Err(stderr) => Ran {
+            code: 1,
+            succeeded: false,
+            stdout: String::new(),
+            stderr: format!("{stderr}\n"),
+        },
+    });
+}
+
+fn press_text(w: &mut GddWorld, text: &str) {
+    for letter in text.chars() {
+        press_key(w, gdd::form::Key::Char(letter));
+    }
+}
+
+fn key_named(name: &str) -> gdd::form::Key {
+    use gdd::form::Key;
+    match name {
+        "Enter" => Key::Enter,
+        "Esc" => Key::Esc,
+        "Up" => Key::Up,
+        "Down" => Key::Down,
+        "Space" => Key::Space,
+        "Backspace" => Key::Backspace,
+        letter if letter.chars().count() == 1 => Key::Char(letter.chars().next().unwrap_or(' ')),
+        other => panic!("unknown key {other:?}"),
+    }
+}
+
+#[when("I open the Setup form")]
+fn i_open_the_form(w: &mut GddWorld) {
+    open_form(w);
+}
+
+#[when(expr = "I type {string}")]
+fn i_type(w: &mut GddWorld, text: String) {
+    press_text(w, &text);
+}
+
+#[when(expr = "I press {word}")]
+fn i_press(w: &mut GddWorld, key: String) {
+    press_key(w, key_named(&key));
+}
+
+#[then(expr = "the form shows {string}")]
+fn form_shows(w: &mut GddWorld, text: String) {
+    let screen = form_of(w).render(100, 40);
+    assert!(screen.contains(&text), "the form lacks {text:?}:\n{screen}");
+}
+
+#[then(expr = "the form does not show {string}")]
+fn form_does_not_show(w: &mut GddWorld, text: String) {
+    let screen = form_of(w).render(100, 40);
+    assert!(
+        !screen.contains(&text),
+        "the form shows {text:?}:\n{screen}"
+    );
+}
+
+/// What the form is filled with: the rows of the step's table, `field | answer`.
+struct Answers(Vec<(String, String)>);
+
+impl Answers {
+    fn of(step: &cucumber::gherkin::Step) -> Answers {
+        let table = step.table.as_ref().expect("a table of field | answer");
+        let rows = table.rows.iter().skip(1);
+        Answers(
+            rows.filter(|row| row.len() >= 2)
+                .map(|row| (row[0].trim().to_string(), row[1].trim().to_string()))
+                .collect(),
+        )
+    }
+
+    fn get(&self, field: &str) -> Option<&str> {
+        let (_, answer) = self.0.iter().find(|(name, _)| name == field)?;
+        Some(answer.as_str())
+    }
+}
+
+/// Presses Down until the cursor of a list goes from `from` to `to`.
+fn move_down(w: &mut GddWorld, from: usize, to: usize) {
+    for _ in from..to {
+        press_key(w, gdd::form::Key::Down);
+    }
+}
+
+fn fill_name_and_description(w: &mut GddWorld, answers: &Answers) {
+    press_text(w, answers.get("name").expect("a name in the table"));
+    press_key(w, gdd::form::Key::Enter);
+    press_text(w, answers.get("description").unwrap_or_default());
+    press_key(w, gdd::form::Key::Enter);
+}
+
+fn fill_platform(w: &mut GddWorld, answers: &Answers) {
+    let platform = answers.get("platform").expect("a platform in the table");
+    let index = FORM_PLATFORMS.iter().position(|p| *p == platform);
+    move_down(
+        w,
+        0,
+        index.unwrap_or_else(|| panic!("no platform {platform:?}")),
+    );
+    press_key(w, gdd::form::Key::Enter);
+}
+
+/// Checks each stack of the comma-separated `stacks` (`not sure` too), without pressing Enter.
+fn check_stacks(w: &mut GddWorld, stacks: &str) {
+    let mut picked: Vec<usize> = stacks
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .map(|s| FORM_STACKS.iter().position(|known| *known == s))
+        .map(|index| index.unwrap_or_else(|| panic!("unknown stack in {stacks:?}")))
+        .collect();
+    picked.sort_unstable();
+    let mut at = 0;
+    for index in picked {
+        move_down(w, at, index);
+        at = index;
+        press_key(w, gdd::form::Key::Space);
+    }
+}
+
+fn fill_stacks(w: &mut GddWorld, answers: &Answers) {
+    check_stacks(w, answers.get("stacks").expect("stacks in the table"));
+    press_key(w, gdd::form::Key::Enter);
+}
+
+/// Types the language over the default one (the backspaces change nothing when it is a hint).
+fn fill_language(w: &mut GddWorld, answers: &Answers) {
+    if let Some(language) = answers.get("language") {
+        for _ in 0..10 {
+            press_key(w, gdd::form::Key::Backspace);
+        }
+        press_text(w, language);
+    }
+    press_key(w, gdd::form::Key::Enter);
+}
+
+/// One sensitive area per line, then Enter on an empty line to go on.
+fn fill_sensitive(w: &mut GddWorld, answers: &Answers) {
+    let areas = answers.get("sensitive").unwrap_or_default();
+    for area in areas.split(';').map(str::trim).filter(|a| !a.is_empty()) {
+        press_text(w, area);
+        press_key(w, gdd::form::Key::Enter);
+    }
+    press_key(w, gdd::form::Key::Enter);
+}
+
+/// Opens the form and answers up to `last`: `stacks`, `agents` or `summary`.
+fn fill_form(w: &mut GddWorld, step: &cucumber::gherkin::Step, last: &str) {
+    let answers = Answers::of(step);
+    open_form(w);
+    fill_name_and_description(w, &answers);
+    fill_platform(w, &answers);
+    if last == "stacks" {
+        return;
+    }
+    fill_stacks(w, &answers);
+    if last == "agents" {
+        return;
+    }
+    // The agents found on the machine stay as they come.
+    press_key(w, gdd::form::Key::Enter);
+    fill_language(w, &answers);
+    fill_sensitive(w, &answers);
+}
+
+#[given("the form is filled with:")]
+fn form_filled(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    fill_form(w, step, "summary");
+}
+
+#[given("the form is filled up to the stacks with:")]
+fn form_filled_to_stacks(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    fill_form(w, step, "stacks");
+}
+
+#[given("the form is filled up to the agents with:")]
+fn form_filled_to_agents(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    fill_form(w, step, "agents");
 }
 
 fn repo_root() -> PathBuf {

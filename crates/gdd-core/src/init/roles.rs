@@ -10,7 +10,7 @@ use toml::Value;
 
 use super::Env;
 use crate::agents::invoke;
-use crate::agents::models::SAME_FAMILY_ACCEPTED;
+use crate::agents::models::{Model, SAME_FAMILY_ACCEPTED};
 use crate::agents::sheets::{self, Sheet};
 use crate::stacks::once;
 
@@ -110,6 +110,30 @@ impl Cast {
         lines.push(String::new());
         lines.join("\n")
     }
+}
+
+/// The agents whose program is on the `PATH` of `env`, in the order of the sheets: the ones gdd
+/// init sets up when none is named.
+pub fn agents_on_path(env: &Env) -> Result<Vec<String>, String> {
+    let chosen = chosen(&[], env)?;
+    Ok(chosen.into_iter().map(|(name, _)| name).collect())
+}
+
+/// The model family gdd init gives the agent `name`; `None` for an agent it has no defaults for.
+pub fn family_of(name: &str) -> Option<String> {
+    let defaults = defaults(DEFAULTS).ok()?;
+    defaults.get(name).map(|own| own.family.clone())
+}
+
+/// The table of the strong model gdd init gives the agent `name`, as `gdd/models.toml` writes it:
+/// its integration and its model. `None` for an agent it has no defaults for.
+pub fn strong_model(name: &str) -> Option<Model> {
+    let defaults = defaults(DEFAULTS).ok()?;
+    let own = defaults.get(name)?;
+    let mut model = Model::new();
+    model.insert("integration".to_string(), name.into());
+    model.insert("model".to_string(), own.strong.as_str().into());
+    Some(model)
 }
 
 /// The defaults of each agent, from `text`.
@@ -322,6 +346,30 @@ mod tests {
                     name it with --agents";
         assert_eq!(none, said);
         assert_eq!(Cast::new(&[], &[], true, "d").unwrap_err(), said);
+    }
+
+    #[test]
+    fn the_agents_on_the_path_come_in_the_order_of_the_sheets() {
+        let found = programs(&["opencode", "codex", "claude"], true);
+        let idle = programs(&["claude"], false);
+        let all = agents_on_path(&path_of(&[&idle, &found])).unwrap();
+        assert_eq!(all, ["claude", "codex", "opencode"]);
+        let some = programs(&["opencode"], true);
+        assert_eq!(agents_on_path(&path_of(&[&some])).unwrap(), ["opencode"]);
+        let none = agents_on_path(&path_of(&[&idle])).unwrap();
+        assert_eq!(none, Vec::<String>::new());
+    }
+
+    #[test]
+    fn each_agent_has_its_family_and_its_strong_model() {
+        assert_eq!(family_of("claude").as_deref(), Some("anthropic"));
+        assert_eq!(family_of("codex").as_deref(), Some("openai"));
+        assert_eq!(family_of("gemini"), None);
+        let codex = strong_model("codex").unwrap();
+        let expected = serde_json::json!({"integration": "codex", "model": "gpt-6-astra"});
+        assert_eq!(serde_json::Value::Object(codex), expected);
+        assert_eq!(strong_model("claude").unwrap()["model"], "opus");
+        assert_eq!(strong_model("gemini"), None);
     }
 
     #[test]
