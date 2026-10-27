@@ -1,8 +1,8 @@
 //! The coding agents that carry a change: which model plays each role ([`models`]), what each
-//! agent is like ([`sheets`]), the GDD commands in their folders ([`render`]), how the recipe
-//! starts them ([`invoke`]) with which environment ([`env`]), what they say they used
-//! ([`usage`]), the files of GDD state they could have turned into links ([`files`]), and the
-//! limits the rules file sets on them.
+//! agent is like ([`sheets`]), the GDD commands and the instructions of the project's stacks in
+//! their folders ([`render`]), how the recipe starts them ([`invoke`]) with which environment
+//! ([`env`]), what they say they used ([`usage`]), the files of GDD state they could have turned
+//! into links ([`files`]), and the limits the rules file sets on them.
 
 pub mod env;
 pub mod files;

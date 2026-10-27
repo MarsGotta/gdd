@@ -1,0 +1,103 @@
+# Stack sheet · Python. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands from
+# each tool's documentation (pytest-bdd, mutmut 3, OSV-Scanner license scanning).
+# Layout: code in src/<package>/, unit tests in tests/unit/, scenario steps in tests/acceptance/
+# (its test module calls scenarios() on GDD_FEATURES, and on features/hidden/ only with GDD_HIDDEN=1).
+name = "python"
+title = "Python"
+scenario_runner = "pytest-bdd"
+detect = ["pyproject.toml"]
+install = '''python -m pip install -e '.[dev]' '''
+
+[g2]
+lint = '''ruff check . && ruff format --check .'''   # complexity: ruff C901
+types = '''mypy src'''
+unit = '''pytest -q tests/unit'''
+acceptance = '''pytest -q tests/acceptance'''   # pytest-bdd fails on a step without code; only GDD_FEATURES (all if empty)
+architecture = '''lint-imports'''   # import-linter contracts in .importlinter
+
+[g3]
+acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 pytest -q tests/acceptance'''
+lockfile = ""   # pip has no lock file of its own; a project with one (uv, pip-tools) adds its check
+security = '''bandit -q -r src && pip-audit'''
+dependencies = '''osv-scanner scan source -r --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" .'''
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
+mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | tr / . | sed 's/$/*/'); [ -z "$P" ] || { mutmut run $P && ! mutmut results | grep -q survived; }'''   # set -f: the module patterns reach mutmut unexpanded; [tool.mutmut] source_paths in pyproject.toml
+
+[learn]   # warnings for Learn, never a gate
+duplication = '''npx --yes jscpd --silent src'''
+unused = '''vulture src'''
+
+[selftest]
+file = "tests/unit/test_gdd_selftest.py"
+content = '''def test_gdd_selftest():
+    raise AssertionError("gdd selftest")
+'''
+
+[protected]
+builder_build = ["features/**", "tests/acceptance/**"]
+builder_test = ["src/**"]
+
+[[tool]]
+need = "Lint + format"
+gate = "G2"
+default = "Ruff (50.3k stars)"
+
+[[tool]]
+need = "Types"
+gate = "G2"
+default = "mypy (20.7k stars)"
+alternative = "Pyright (15.7k stars)"
+
+[[tool]]
+need = "Unit tests"
+gate = "G2"
+default = "pytest (14.6k stars)"
+
+[[tool]]
+need = "Gherkin runner"
+gate = "G2/G3"
+default = "pytest-bdd (1.5k stars), shares pytest"
+alternative = "behave (3.5k stars)"
+
+[[tool]]
+need = "Architecture rule"
+gate = "G2"
+default = "import-linter (1.2k stars)"
+
+[[tool]]
+need = "Security"
+gate = "G3"
+default = "Bandit (8.3k stars) + pip-audit (PyPA)"
+alternative = "OSV-Scanner"
+
+[[tool]]
+need = "Licenses"
+gate = "G3"
+default = "OSV-Scanner license allowlist"
+alternative = "pip-licenses"
+
+[[tool]]
+need = "Mutation"
+gate = "G3"
+default = "mutmut (1.5k stars)"
+
+[[tool]]
+need = "Secrets"
+gate = "G3"
+default = "gitleaks (30.3k stars), on the change's diff"
+alternative = "TruffleHog (28.7k stars)"
+
+[[tool]]
+need = "Duplication (warning)"
+gate = "Learn"
+default = "jscpd (6.5k stars)"
+
+[[tool]]
+need = "Unused code"
+gate = "Learn"
+default = "vulture (4.9k stars)"
+
+[[tool]]
+need = "UI / demo"
+gate = "pre"
+default = "Playwright for Python (15k stars)"

@@ -1,0 +1,87 @@
+# Stack sheet · Rust. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands as in
+# gdd's own repository, where they run every day. Layout: unit tests next to the code, the scenario
+# steps in tests/acceptance/ (a cucumber-rs test target with harness = false, named acceptance).
+name = "rust"
+title = "Rust"
+scenario_runner = "cucumber-rs"
+detect = ["Cargo.toml"]
+install = '''cargo fetch --locked'''
+
+[g2]
+lint = '''cargo fmt --all --check && cargo clippy --all-targets -- -D warnings -W clippy::cognitive_complexity'''
+types = ""   # clippy type-checks every target
+unit = '''cargo test --workspace --tests'''   # lib, bins and every target in tests/ (the self-test file too); the acceptance target runs here as well
+acceptance = '''cargo test --test acceptance'''   # cucumber-rs, strict, only GDD_FEATURES (all if empty)
+architecture = ""   # written per project: a cargo tree rule between its crates
+
+[g3]
+acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 cargo test --test acceptance --locked'''
+lockfile = '''cargo metadata --locked --format-version 1 > /dev/null'''
+security = '''cargo deny --locked check advisories bans sources'''
+dependencies = '''cargo deny --locked check licenses'''
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
+mutation = '''if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2'''
+
+[learn]   # warnings for Learn, never a gate
+duplication = '''npx --yes jscpd --silent src'''
+unused = '''cargo machete'''
+
+[selftest]
+file = "tests/gdd_selftest_failing.rs"
+content = '''#[test]
+fn gdd_selftest_must_fail() {
+    panic!("gdd selftest");
+}
+'''
+
+[protected]
+builder_build = ["features/**", "tests/acceptance/**", "tests/acceptance.rs"]
+builder_test = ["src/**", "crates/*/src/**"]
+
+[[tool]]
+need = "Lint + format"
+gate = "G2"
+default = "rustfmt + clippy (official)"
+
+[[tool]]
+need = "Unit tests"
+gate = "G2"
+default = "cargo test (official)"
+alternative = "cargo-nextest (3.4k stars)"
+
+[[tool]]
+need = "Gherkin runner"
+gate = "G2/G3"
+default = "cucumber-rs (746 stars, 1.3M recent downloads)"
+
+[[tool]]
+need = "Security + licenses"
+gate = "G3"
+default = "cargo-deny (2.5k stars)"
+alternative = "cargo-audit (RustSec; vulnerabilities only)"
+
+[[tool]]
+need = "Mutation"
+gate = "G3"
+default = "cargo-mutants (1.4k stars)"
+
+[[tool]]
+need = "Secrets"
+gate = "G3"
+default = "gitleaks (30.3k stars), on the change's diff"
+alternative = "TruffleHog (28.7k stars)"
+
+[[tool]]
+need = "Complexity"
+gate = "G2"
+default = "clippy cognitive_complexity (built in)"
+
+[[tool]]
+need = "Duplication (warning)"
+gate = "Learn"
+default = "jscpd (6.5k stars)"
+
+[[tool]]
+need = "Unused dependencies"
+gate = "Learn"
+default = "cargo-machete (1.4k stars)"

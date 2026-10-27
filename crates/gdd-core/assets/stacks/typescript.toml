@@ -1,0 +1,100 @@
+# Stack sheet · TypeScript. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands from
+# each tool's documentation (cucumber-js configuration, StrykerJS, OSV-Scanner license scanning).
+# Layout: code in src/, unit tests in tests/unit/ (*.test.ts), the scenario steps in features/steps/.
+name = "typescript"
+title = "TypeScript"
+scenario_runner = "cucumber-js"
+detect = ["package.json", "tsconfig.json"]
+install = '''npm ci'''
+
+[g2]
+lint = '''npx eslint . --max-warnings 0'''   # typescript-eslint, eslint-plugin-security and the complexity rule live in eslint.config
+types = '''npx tsc --noEmit'''
+unit = '''npx vitest run'''
+acceptance = '''npx cucumber-js --strict --tags 'not @hidden' $(printf '%s' "$GDD_FEATURES" | tr '\n' ' ')'''   # only GDD_FEATURES (all if empty)
+architecture = '''npx depcruise src --config .dependency-cruiser.cjs'''
+
+[g3]
+acceptance_full = '''npx cucumber-js --strict 'features/**/*.feature' '''
+lockfile = '''npm ci --ignore-scripts --no-audit --no-fund'''
+security = '''osv-scanner scan source -r .'''
+dependencies = '''osv-scanner scan source -r --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0" .'''
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
+mutation = '''F=$(printf '%s\n' "$GDD_DIFF_FILES" | grep -E '^src/.*\.ts$' | paste -sd, -); [ -z "$F" ] || npx stryker run --mutate "$F"'''   # stryker.config: thresholds.break = 100
+
+[learn]   # warnings for Learn, never a gate
+duplication = '''npx --yes jscpd --silent src'''
+unused = '''npx knip'''
+
+[selftest]
+file = "tests/unit/gdd-selftest.test.ts"
+content = '''import { test } from "vitest";
+
+test("gdd selftest", () => {
+  throw new Error("gdd selftest");
+});
+'''
+
+[protected]
+builder_build = ["features/**"]
+builder_test = ["src/**"]
+
+[[tool]]
+need = "Lint + format"
+gate = "G2"
+default = "ESLint + typescript-eslint (27.6k stars)"
+alternative = "Biome (26k stars)"
+
+[[tool]]
+need = "Types"
+gate = "G2"
+default = "tsc (TypeScript)"
+
+[[tool]]
+need = "Unit tests"
+gate = "G2"
+default = "Vitest (17.3k stars)"
+alternative = "Jest (45.5k stars)"
+
+[[tool]]
+need = "Gherkin runner"
+gate = "G2/G3"
+default = "cucumber-js (5.4k stars)"
+alternative = "playwright-bdd (818 stars), for @ui scenarios"
+
+[[tool]]
+need = "Architecture rule"
+gate = "G2"
+default = "dependency-cruiser (7.3k stars)"
+
+[[tool]]
+need = "Security + licenses"
+gate = "G3"
+default = "OSV-Scanner (Google, 11.3k stars) + eslint-plugin-security"
+alternative = "npm audit (vulnerabilities only)"
+
+[[tool]]
+need = "Mutation"
+gate = "G3"
+default = "StrykerJS (3.3k stars)"
+
+[[tool]]
+need = "Secrets"
+gate = "G3"
+default = "gitleaks (30.3k stars), on the change's diff"
+alternative = "TruffleHog (28.7k stars)"
+
+[[tool]]
+need = "Duplication (warning)"
+gate = "Learn"
+default = "jscpd (6.5k stars)"
+
+[[tool]]
+need = "Unused code"
+gate = "Learn"
+default = "knip (12.5k stars)"
+
+[[tool]]
+need = "UI / demo"
+gate = "pre"
+default = "Playwright (98.5k stars)"
