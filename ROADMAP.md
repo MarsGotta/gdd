@@ -70,6 +70,8 @@ change, stop and review before adding more.
 | `gdd init` from flags, without a screen: project basics, composed stack sheets, protected paths, first zone map (harness and supply chain red), roles per agent (Reviewer of another family, or one family accepted with its date), Brief skeleton, `bin/gdd`, CI, AGENTS.md/CLAUDE.md when absent, `gdd/generated.toml`; never overwrites, never writes through links or files with other names, commits only its own files | done | init (2026-10-27) |
 | `gdd init` form screen; `gdd status` notices a second model family to change the Reviewer | next | init-form |
 | `gdd upgrade`: a new gdd version proposes its changes to the files it wrote once (three-way merge against what it generated then; untouched files updated, edited ones merged, conflicts marked), as a change approved at a sitting; `init` records which version generated each file | next | gdd-upgrade (after the pilot) |
+| Parallel changes: each change runs in its own git worktree (`.gdd/worktrees/<id>`) with one shared `.gdd/` state; changes whose planned paths overlap cannot run together; `[parallel] max` (default 2) caps changes building at once | next | parallel-launch |
+| Merge queue: merges one at a time, each change takes the latest main and passes G3 again before merging; the worktree goes after the merge | next | merge-queue |
 | Adoption of a repository with code: `gdd init` runs every gate once, reports what fails, proposes Refactor changes ordered by risk; failing commands are known debt (warn, do not block) until a Refactor turns each green | next | init-adopt |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
@@ -108,4 +110,3 @@ change, stop and review before adding more.
 - Token charts.
 - Semgrep (multi-language static analysis).
 - More stacks in the catalog.
-- Parallel changes: run two or more changes at once when their paths do not overlap, each in its own git worktree, with a cap set by the agents' subscription limits. Same time per change, more changes per day. Merges stay one at a time, each on top of the latest main.
