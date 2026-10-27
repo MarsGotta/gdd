@@ -1,10 +1,11 @@
 //! The project's git repository: which paths a change touched, what its branch holds, the
-//! branch a new change gets, and the commits and merge that close it.
+//! branch a new change gets, the commits and merge that close it, and the repository and first
+//! commit of a new project.
 //!
 //! Git always runs as `git` with a fixed list of arguments, in the project root, never through
 //! a shell. A name read from a file never reaches git as an option, and a failure of git is an
 //! [`Error`], never an empty answer. The tool never sets who commits: git takes the author from
-//! the repository's configuration.
+//! the repository's configuration and the environment it runs in.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -47,6 +48,8 @@ pub fn is_repository(root: &Path) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Git {
     root: PathBuf,
+    /// The whole environment git runs in; `None`: the one of the process.
+    env: Option<Vec<(String, String)>>,
 }
 
 impl Git {
@@ -55,7 +58,41 @@ impl Git {
     pub fn new(root: &Path) -> Git {
         Git {
             root: root.to_path_buf(),
+            env: None,
         }
+    }
+
+    /// Git for the project at `root` (see [`Git::new`]), run with `env` as its whole
+    /// environment: the one gdd runs in, which also says who commits.
+    pub fn in_env(root: &Path, env: &[(String, String)]) -> Git {
+        Git {
+            root: root.to_path_buf(),
+            env: Some(env.to_vec()),
+        }
+    }
+
+    /// Makes the project folder a git repository whose first branch is `branch`.
+    pub fn init(&self, branch: &str) -> Result<(), Error> {
+        self.read(&["init", "-q", "-b", revision(branch)?])?;
+        Ok(())
+    }
+
+    /// The branch checked out, even before its first commit; an error when none is.
+    pub fn checked_out(&self) -> Result<String, Error> {
+        self.line(&["symbolic-ref", "--short", "HEAD"])
+    }
+
+    /// Commits the files `paths`, from the project root, and nothing else of the working tree,
+    /// with `message`; the new ones are added first.
+    pub fn commit_files(&self, paths: &[String], message: &str) -> Result<(), Error> {
+        let paths = paths.iter().map(String::as_str);
+        let mut add = vec!["add", "--"];
+        add.extend(paths.clone());
+        self.read(&add)?;
+        let mut commit = vec!["commit", "-q", "-m", message, "--"];
+        commit.extend(paths);
+        self.read(&commit)?;
+        Ok(())
     }
 
     /// The current branch; `HEAD` when no branch is checked out.
@@ -240,11 +277,13 @@ impl Git {
     }
 
     fn run(&self, args: &[&str]) -> Result<Output, Error> {
-        Command::new("git")
-            .args(args)
-            .current_dir(&self.root)
-            .output()
-            .map_err(Error::Start)
+        let mut git = Command::new("git");
+        git.args(args).current_dir(&self.root);
+        if let Some(env) = &self.env {
+            let vars = env.iter().map(|(name, value)| (name, value));
+            git.env_clear().envs(vars);
+        }
+        git.output().map_err(Error::Start)
     }
 }
 
@@ -794,6 +833,54 @@ pub(crate) mod tests {
         git.push("main").unwrap();
         let pushed = Git::new(&remote.0).line(&["rev-parse", "main"]).unwrap();
         assert_eq!(pushed, git.head().unwrap());
+    }
+
+    /// An environment with the `PATH` of the tests, an author of its own and no configuration of
+    /// the user's.
+    pub(crate) fn env() -> Vec<(String, String)> {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let home = std::env::temp_dir().display().to_string();
+        let vars = [
+            ("PATH", path.as_str()),
+            ("HOME", home.as_str()),
+            ("GIT_AUTHOR_NAME", "Env Author"),
+            ("GIT_AUTHOR_EMAIL", "env@example.com"),
+            ("GIT_COMMITTER_NAME", "Env Author"),
+            ("GIT_COMMITTER_EMAIL", "env@example.com"),
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+        ];
+        let owned = |(name, value): (&str, &str)| (name.to_string(), value.to_string());
+        vars.into_iter().map(owned).collect()
+    }
+
+    #[test]
+    fn a_new_repository_commits_only_the_files_named_as_the_environment_says() {
+        let folder = Folder::new();
+        let git = Git::in_env(&folder.0, &env());
+        git.init("trunk").unwrap();
+        assert_eq!(git.checked_out().unwrap(), "trunk");
+        folder.write("a.txt", "a\n");
+        folder.write("b.txt", "b\n");
+        folder.write("c/d e.txt", "d\n");
+        let named = ["a.txt".to_string(), "c/d e.txt".to_string()];
+        git.commit_files(&named, "first").unwrap();
+        let last = ["log", "-1", "--format=%an <%ce> %s"];
+        let commit = git.line(&last).unwrap();
+        assert_eq!(commit, "Env Author <env@example.com> first");
+        assert_eq!(git.files_at("HEAD", ".").unwrap(), named);
+        assert_eq!(git.untracked().unwrap(), ["b.txt"]);
+        let missing = git.commit_files(&["x.txt".to_string()], "second");
+        let err = missing.unwrap_err().to_string();
+        assert!(err.starts_with("git add -- x.txt failed"), "{err}");
+        git.read(&["checkout", "-q", "--detach"]).unwrap();
+        let err = git.checked_out().unwrap_err().to_string();
+        let failed = "git symbolic-ref --short HEAD failed";
+        assert!(err.starts_with(failed), "{err}");
+        assert!(matches!(git.init("-x"), Err(Error::Revision(_))));
+        let nowhere = [("PATH".to_string(), "/nonexistent".to_string())];
+        let lost = Git::in_env(&folder.0, &nowhere);
+        assert!(matches!(lost.checked_out(), Err(Error::Start(_))));
     }
 
     #[test]

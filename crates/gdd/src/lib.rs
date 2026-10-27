@@ -7,7 +7,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use gdd_core::agents::{
     self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet,
 };
@@ -19,7 +19,9 @@ use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
-use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log, session, stacks};
+use gdd_core::{
+    Classification, Color, Report, RulesTable, ZoneMap, inbox, init, log, session, stacks,
+};
 
 /// File that marks the root of a GDD project.
 const PROJECT: &str = "gdd/project.toml";
@@ -99,7 +101,19 @@ impl Outcome {
 #[command(name = "gdd", version = gdd_core::VERSION)]
 struct Cli {
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Option<Run>,
+}
+
+/// What `gdd` runs: `gdd init`, which makes a project, or a command that works in one.
+#[derive(Debug, Subcommand)]
+enum Run {
+    /// Sets up GDD in this folder, which becomes the project root: the harness (gdd/, bin/gdd,
+    /// the CI workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent and
+    /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file
+    /// and refuses inside a GDD project.
+    Init(InitArgs),
+    #[command(flatten)]
+    InProject(Command),
 }
 
 #[derive(Debug, Subcommand)]
@@ -258,6 +272,76 @@ enum StacksAction {
         /// The stacks; a name given twice counts once.
         names: Vec<String>,
     },
+}
+
+/// What `gdd init` takes. A text option takes every word up to the next option.
+#[derive(Debug, Args)]
+struct InitArgs {
+    /// The name of the project.
+    #[arg(long, num_args = 1.., required = true)]
+    name: Vec<String>,
+    /// Where it runs.
+    #[arg(long, value_parser = init::PLATFORMS)]
+    platform: String,
+    /// Its stacks (gdd stacks lists them).
+    #[arg(long = "stack", num_args = 1.., required = true)]
+    stacks: Vec<String>,
+    /// Its coding agents, the first builds; without it, those on the PATH (claude, codex,
+    /// opencode).
+    #[arg(long, num_args = 1..)]
+    agents: Vec<String>,
+    /// The language the agents use with the human.
+    #[arg(long, default_value = "en")]
+    language: String,
+    /// What it is, in words.
+    #[arg(long, num_args = 1..)]
+    description: Vec<String>,
+    #[command(flatten)]
+    sensitive: Sensitive,
+    /// Accept a Reviewer of the Builder's model family when every agent is of one family.
+    #[arg(long)]
+    accept_same_family: bool,
+}
+
+/// The option of the sensitive areas of `gdd init`.
+const SENSITIVE: &str = "sensitive";
+
+/// What `gdd init --sensitive` names: an area each time the option is given, its words joined
+/// with single spaces.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Sensitive(Vec<String>);
+
+impl FromArgMatches for Sensitive {
+    fn from_arg_matches(matches: &ArgMatches) -> Result<Sensitive, clap::Error> {
+        let given = matches.get_occurrences::<String>(SENSITIVE);
+        let mut areas = Vec::new();
+        for words in given.into_iter().flatten() {
+            let words: Vec<&str> = words.map(String::as_str).collect();
+            areas.push(words.join(" "));
+        }
+        Ok(Sensitive(areas))
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
+        *self = Sensitive::from_arg_matches(matches)?;
+        Ok(())
+    }
+}
+
+impl Args for Sensitive {
+    fn augment_args(command: clap::Command) -> clap::Command {
+        let option = Arg::new(SENSITIVE)
+            .long(SENSITIVE)
+            .num_args(1..)
+            .action(ArgAction::Append)
+            .value_parser(clap::value_parser!(String))
+            .help("What would be serious if it failed: one area each time");
+        command.arg(option)
+    }
+
+    fn augment_args_for_update(command: clap::Command) -> clap::Command {
+        Sensitive::augment_args(command)
+    }
 }
 
 /// What `gdd agents install` and `gdd agents check` take.
@@ -459,8 +543,10 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
         Err(e) => return Outcome::success(e.to_string()),
     };
-    let Some(command) = cli.command else {
-        return Outcome::success(Cli::command().render_help().to_string());
+    let command = match cli.command {
+        None => return Outcome::success(Cli::command().render_help().to_string()),
+        Some(Run::Init(args)) => return init_project(cwd, args, env),
+        Some(Run::InProject(command)) => command,
     };
     match project_root(cwd).and_then(|root| command.run(&root, role, env)) {
         Ok(outcome) => outcome,
@@ -474,6 +560,26 @@ fn process_env() -> Vec<(String, String)> {
         Some((name.into_string().ok()?, value.into_string().ok()?))
     };
     std::env::vars_os().filter_map(text).collect()
+}
+
+/// `gdd init`: sets up GDD in the folder `cwd` (see [`init::init`]), with git and the agents on
+/// the `PATH` of the environment `env`. What it says goes to the standard output; why it wrote
+/// nothing, or stopped, to the standard error.
+fn init_project(cwd: &Path, args: InitArgs, env: &Env) -> Outcome {
+    let options = init::Options {
+        name: args.name.join(" "),
+        platform: args.platform,
+        stacks: args.stacks,
+        agents: args.agents,
+        language: args.language,
+        description: args.description.join(" "),
+        sensitive: args.sensitive.0,
+        accept_same_family: args.accept_same_family,
+    };
+    match init::init(cwd, &options, env) {
+        Ok(said) => Outcome::printed(said, 0),
+        Err(e) => Outcome::failure(format!("{e}\n")),
+    }
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -1301,11 +1407,113 @@ mod tests {
             "stacks rust",
             "stacks show",
             "stacks show rust python",
+            "init",
+            "init --name x --stack rust",
+            "init --name x --platform tv --stack rust",
+            "init --name --platform cli --stack rust",
+            "init --name x --platform cli",
+            "init --name x --platform cli --stack rust --agents",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
             assert!(out.stderr.starts_with("error: "), "{command:?}: {out:?}");
         }
+    }
+
+    /// An environment for `gdd init`: the `PATH` of the tests, for git, an author, and no git
+    /// configuration of the user's.
+    fn init_env() -> Vec<(String, String)> {
+        let path = std::env::var("PATH").unwrap_or_default();
+        let home = std::env::temp_dir().display().to_string();
+        let vars = [
+            ("PATH", path.as_str()),
+            ("HOME", home.as_str()),
+            ("GIT_AUTHOR_NAME", "GDD Test"),
+            ("GIT_AUTHOR_EMAIL", "test@example.com"),
+            ("GIT_COMMITTER_NAME", "GDD Test"),
+            ("GIT_COMMITTER_EMAIL", "test@example.com"),
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+        ];
+        let owned = |(name, value): (&str, &str)| (name.to_string(), value.to_string());
+        vars.into_iter().map(owned).collect()
+    }
+
+    /// A folder that is not a GDD project, removed when dropped.
+    fn plain_folder() -> Project {
+        let folder = Project::new();
+        fs::remove_dir_all(folder.0.join("gdd")).unwrap();
+        folder
+    }
+
+    #[test]
+    fn init_sets_up_the_folder_it_runs_in_from_the_words_of_each_option() {
+        let folder = plain_folder();
+        let command = "init --name My notes --platform web --stack rust --agents codex claude \
+                       --description A notes app --sensitive Losing notes --sensitive Leaks \
+                       --language es";
+        let out = run_with_env(&words(command), &folder.0, &init_env());
+        assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
+        assert!(out.stdout.starts_with("gdd/project.toml\n"), "{out:?}");
+        let next = " $gdd-setup in Codex).\n";
+        assert!(out.stdout.ends_with(next), "{out:?}");
+        let read = |path: &str| fs::read_to_string(folder.0.join(path)).unwrap();
+        let project = read(PROJECT);
+        for line in [
+            "name = \"My notes\"\n",
+            "description = \"A notes app\"\n",
+            "language = \"es\"   #",
+            "platform = \"web\"   #",
+        ] {
+            assert!(project.contains(line), "{line}: {project}");
+        }
+        let brief = read("docs/brief.md");
+        let sensitive = "\n1. Losing notes\n2. Leaks\n";
+        assert!(brief.ends_with(sensitive), "{brief}");
+        let models = read("gdd/models.toml");
+        let codex = "[builder.red]\nintegration = \"codex\"\n";
+        assert!(models.contains(codex), "{models}");
+        let again = run_with_env(&words(command), &folder.0, &init_env());
+        let project = folder.0.join(PROJECT);
+        let twice = format!("error: already a GDD project: {}\n", project.display());
+        assert_eq!(again, Outcome::failure(twice));
+    }
+
+    #[test]
+    fn each_sensitive_option_names_one_area() {
+        let words = ["x", "--sensitive", "a", "b", "--sensitive", "c"];
+        let command = Sensitive::augment_args(clap::Command::new("x"));
+        let matches = command.try_get_matches_from(words).unwrap();
+        let areas = Sensitive::from_arg_matches(&matches).unwrap();
+        let expected = Sensitive(vec!["a b".into(), "c".into()]);
+        assert_eq!(areas, expected);
+        let update = Sensitive::augment_args_for_update(clap::Command::new("x"));
+        let matches = update.try_get_matches_from(words[..3].to_vec()).unwrap();
+        let mut updated = expected;
+        updated.update_from_arg_matches(&matches).unwrap();
+        assert_eq!(updated, Sensitive(vec!["a".into()]));
+        let none = Sensitive::augment_args(clap::Command::new("x"));
+        let matches = none.try_get_matches_from(["x"]).unwrap();
+        let areas = Sensitive::from_arg_matches(&matches).unwrap();
+        assert_eq!(areas, Sensitive::default());
+    }
+
+    #[test]
+    fn init_names_each_file_already_there_and_writes_nothing() {
+        let folder = plain_folder();
+        folder.write("docs/brief.md", "mine\n");
+        folder.write("bin/gdd", "mine\n");
+        let command = "init --name Notes --platform cli --stack rust --agents claude codex";
+        let out = run_with_env(&words(command), &folder.0, &init_env());
+        let said = "docs/brief.md already exists\nbin/gdd already exists\n\
+                    error: gdd init never overwrites a file: move or remove these, then run it \
+                    again\n";
+        assert_eq!(out, Outcome::failure(said.to_string()));
+        assert!(!folder.0.join("gdd").exists());
+        let cobol = words("init --name N --platform cli --stack cobol");
+        let out = run_with_env(&cobol, &folder.0, &[]);
+        let unknown = "error: unknown stack cobol (known: python, rust, typescript)\n";
+        assert_eq!(out, Outcome::failure(unknown.to_string()));
     }
 
     #[test]

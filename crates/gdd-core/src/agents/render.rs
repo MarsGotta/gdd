@@ -148,6 +148,13 @@ fn invoked(sheet: &Sheet, text: &str) -> String {
     written
 }
 
+/// The files [`install`] writes for `agents` and `stacks`, from the project root, in its order.
+/// A stack without a sheet is an error.
+pub fn paths(agents: &[Sheet], stacks: &[String]) -> Result<Vec<String>, String> {
+    let files = files(agents, stacks)?;
+    Ok(files.into_iter().map(|(path, _)| path).collect())
+}
+
 /// Writes every GDD command and the instructions of each of `stacks` for each of `agents` in the
 /// project at `root`, creating their folders, and touches no other file: the paths it wrote,
 /// from the root. It writes nothing when a stack has no sheet, or when a symbolic link on the
@@ -190,7 +197,7 @@ fn replace(root: &Path, path: &str, text: &str) -> io::Result<()> {
 
 /// The first symbolic link on the way from `root` to `path`, `path` itself included. Only the
 /// part of the way that exists is looked at: what is still to be made holds no link.
-fn first_link(root: &Path, path: &str) -> io::Result<Option<PathBuf>> {
+pub(crate) fn first_link(root: &Path, path: &str) -> io::Result<Option<PathBuf>> {
     let mut part = PathBuf::new();
     for component in Path::new(path).components() {
         part.push(component);
@@ -346,7 +353,9 @@ mod tests {
         let folder = Folder::new();
         let agents = [sheet("claude"), sheet("opencode")];
         let stacks = ["rust".to_string(), "python".to_string()];
+        let planned = paths(&agents, &stacks).unwrap();
         let written = install(&folder.0, &agents, &stacks).unwrap();
+        assert_eq!(planned, written);
         let each = COMMANDS.len() + 2;
         assert_eq!(written.len(), 2 * each);
         let rust = ".claude/skills/gdd-stack-rust/SKILL.md";
@@ -375,6 +384,7 @@ mod tests {
         let unknown = "unknown stack cobol (known: python, rust, typescript)";
         let said = install(&folder.0, &agents, &stacks).unwrap_err();
         assert_eq!(said, unknown);
+        assert_eq!(paths(&agents, &stacks).unwrap_err(), unknown);
         assert!(!folder.0.join(".claude").exists());
         let said = check(&folder.0, &agents, &stacks).unwrap_err();
         assert_eq!(said, unknown);

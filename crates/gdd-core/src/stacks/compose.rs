@@ -91,7 +91,8 @@ mod tests {
     fn demo(name: &str, g2: &str) -> Sheet {
         let text = format!(
             "name = \"{name}\"\ntitle = \"T\"\nscenario_runner = \"r\"\ndetect = []\n\
-             install = \"i-{name}\"\ntool = []\n[g2]\n{g2}\n[g3]\nmutation = \"m-{name}\"\n\
+             supply_chain = []\ninstall = \"i-{name}\"\ntool = []\n[g2]\n{g2}\n[g3]\n\
+             mutation = \"m-{name}\"\n\
              [learn]\n[selftest]\nfile = \"{name}.test\"\ncontent = \"fail\"\n[protected]\n\
              builder_build = [\"f/**\", \"{name}/**\"]\nbuilder_test = [\"src/**\"]\n"
         );

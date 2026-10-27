@@ -191,7 +191,7 @@ impl Sheet {
 
 /// `template` with each `{key}` of `values` replaced by its value, in one pass: what a value
 /// brings in is never filled again. Any other brace stays as it is.
-fn fill(template: &str, values: &[(&str, &str)]) -> String {
+pub(crate) fn fill(template: &str, values: &[(&str, &str)]) -> String {
     let mut filled = String::new();
     let mut rest = template;
     while let Some(at) = rest.find('{') {

@@ -1,9 +1,9 @@
 //! The stack sheets: one data file per stack the tool knows, built into it. A sheet says how a
 //! project of that stack passes the gates: the commands of each gate, its scenario runner, the
-//! file of the harness self-test, the paths each Builder mode must not touch and the tool chosen
-//! for each need. Each stack also has its instructions for the agents. A project names the stacks
-//! it uses in `stack` of `gdd/project.toml` ([`of_project`]); [`compose()`] says what several
-//! sheets give together.
+//! file of the harness self-test, the paths each Builder mode must not touch, the files of its
+//! supply chain and the tool chosen for each need. Each stack also has its instructions for the
+//! agents. A project names the stacks it uses in `stack` of `gdd/project.toml` ([`of_project`]);
+//! [`compose()`] says what several sheets give together.
 
 mod compose;
 
@@ -63,6 +63,8 @@ pub struct Sheet {
     scenario_runner: String,
     /// The files that tell a project is of this stack.
     detect: Vec<String>,
+    /// The files of its dependencies and toolchain: a red zone from the start.
+    supply_chain: Vec<String>,
     /// What installs the dependencies of a project.
     install: String,
     /// The commands of each of [`SECTIONS`], in that order.
@@ -80,6 +82,7 @@ struct Raw {
     title: String,
     scenario_runner: String,
     detect: Vec<String>,
+    supply_chain: Vec<String>,
     install: String,
     // Where each command is written, so they keep the order of the sheet.
     g2: BTreeMap<String, Spanned<String>>,
@@ -186,6 +189,7 @@ fn parse(text: &str) -> Result<Sheet, String> {
         title: raw.title,
         scenario_runner: raw.scenario_runner,
         detect: raw.detect,
+        supply_chain: raw.supply_chain,
         install: raw.install,
         sections: [ordered(raw.g2), ordered(raw.g3), ordered(raw.learn)],
         selftest: raw.selftest,
@@ -200,6 +204,33 @@ fn ordered(section: BTreeMap<String, Spanned<String>>) -> Commands {
     commands.sort_by_key(|(_, command)| command.span().start);
     let text = |(name, command): (String, Spanned<String>)| (name, command.into_inner());
     commands.into_iter().map(text).collect()
+}
+
+impl Sheet {
+    /// The name of the stack for people.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// The tool that runs its Gherkin scenarios.
+    pub fn scenario_runner(&self) -> &str {
+        &self.scenario_runner
+    }
+
+    /// The files of its dependencies and toolchain.
+    pub fn supply_chain(&self) -> &[String] {
+        &self.supply_chain
+    }
+
+    /// The paths the Builder in build mode must not touch.
+    pub fn builder_build(&self) -> &[String] {
+        &self.protected.builder_build
+    }
+
+    /// The paths the Builder in test mode must not touch.
+    pub fn builder_test(&self) -> &[String] {
+        &self.protected.builder_test
+    }
 }
 
 impl fmt::Display for Sheet {
@@ -258,7 +289,9 @@ pub fn of_project(text: &str) -> Result<Vec<String>, config::Error> {
 }
 
 /// `items` in their order, each once.
-fn once<'a, T: PartialEq + Clone + 'a>(items: impl IntoIterator<Item = &'a T>) -> Vec<T> {
+pub(crate) fn once<'a, T: PartialEq + Clone + 'a>(
+    items: impl IntoIterator<Item = &'a T>,
+) -> Vec<T> {
     let mut kept = Vec::new();
     for item in items {
         if !kept.contains(item) {
@@ -320,6 +353,7 @@ name = "demo"
 title = "Demo"
 scenario_runner = "behave"
 detect = ["a.toml", "b.json"]
+supply_chain = ["a.lock", "toolchain"]
 install = "make deps"
 
 [g2]
@@ -352,6 +386,21 @@ gate = "G2"
 default = "lint"
 alternative = "other lint"
 "#;
+
+    #[test]
+    fn a_sheet_says_its_title_runner_supply_chain_and_protected_paths() {
+        let sheet = parse(SHEET).unwrap();
+        assert_eq!((sheet.title(), sheet.scenario_runner()), ("Demo", "behave"));
+        assert_eq!(sheet.supply_chain(), ["a.lock", "toolchain"]);
+        assert_eq!(sheet.builder_build(), ["features/**", "t/steps/**"]);
+        assert_eq!(sheet.builder_test(), ["src/**"]);
+        let rust = of("rust");
+        let supply_chain = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"];
+        assert_eq!(rust.supply_chain(), supply_chain);
+        for name in NAMES.split(", ") {
+            assert!(!of(name).supply_chain().is_empty(), "{name}");
+        }
+    }
 
     #[test]
     fn a_sheet_keeps_the_order_of_its_commands() {
@@ -394,6 +443,7 @@ alternative = "other lint"
             SHEET.replace("[learn]\n", "[learn]\nunused = 3\n"),
             SHEET.replace("need = \"Lint\"", "needs = \"Lint\""),
             SHEET.replace("content", "text"),
+            SHEET.replace("supply_chain = [\"a.lock\", \"toolchain\"]\n", ""),
             format!("{SHEET}extra = 1\n"),
             "[g2".to_string(),
         ] {

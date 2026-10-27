@@ -1,9 +1,10 @@
 //! Preparing a change (`gdd prepare`), the first step of the recipe: it checks that the change
 //! may enter Build, in this order: G0, the red zones (only a spike starts before a human
 //! approves them), G1 for new or changed scenarios, the plan of a red change, a Reviewer of
-//! another model family than the Builder, and its own branch checked out. Then it starts the
-//! build: its decision in the record, state `building`, the build starting at the commit checked
-//! out, the requests of the earlier run resolved and the snapshots of the earlier build removed.
+//! another model family than the Builder (or of the same one, when the human accepted it at the
+//! Setup: the Decision Inbox says so), and its own branch checked out. Then it starts the build:
+//! its decision in the record, state `building`, the build starting at the commit checked out,
+//! the requests of the earlier run resolved and the snapshots of the earlier build removed.
 //!
 //! A relaunch whose code already passes G2 skips the Builder (`resume_green`): it would only
 //! spend tokens. A relaunch whose code touched protected paths starts its build where its branch
@@ -16,7 +17,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::agents::models::Models;
+use crate::agents::models::{self, Models};
 use crate::change::{self, Decision, Record};
 use crate::gates::approve::{self, ZonesState};
 use crate::gates::{self, BUILD_ROLE, Gate};
@@ -94,11 +95,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
     if classification.human_plan && !approved("plan") {
         return Err(PLAN_PENDING.to_string());
     }
-    let (models, roles) = (setup.models, decision.roles);
-    let same = models.family(&roles.reviewer_model) == models.family(&roles.builder);
-    if classification.reviewer && same {
-        return Err(SAME_FAMILY.to_string());
-    }
+    let accepted = same_family(setup.models, decision)?;
     let git = Git::new(root);
     let branch = change::branch(id);
     if git.current_branch().map_err(|e| e.to_string())? != branch {
@@ -122,8 +119,10 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         ("state", Value::from("building")),
         ("build_start", Value::from(start)),
     ];
-    let updated = change::with_requests_resolved(&text, &log::now())
+    let ts = log::now();
+    let updated = change::with_requests_resolved(&text, &ts)
         .and_then(|text| change::with_fields(&text, fields))
+        .and_then(|text| with_decided(text, accepted.as_deref(), &record, &ts))
         .map_err(invalid)?;
     change::write(root, &path, &updated)?;
     // The snapshots belong to the earlier build.
@@ -149,6 +148,51 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         started: &started,
     };
     serde_json::to_string(&prepared).map_err(|e| e.to_string())
+}
+
+/// The `decided` note for the Decision Inbox when the Reviewer of `decision` is of the Builder's
+/// model family, as `models` says, and the human accepted it at the Setup. `None` when the change
+/// has no Reviewer or its Reviewer is of another family. A Reviewer of the Builder's family that
+/// nobody accepted is a refusal.
+fn same_family(models: &Models, decision: &Decision) -> Result<Option<String>, String> {
+    let roles = decision.roles;
+    let same = models.family(&roles.reviewer_model) == models.family(&roles.builder);
+    if !(decision.classification.reviewer && same) {
+        return Ok(None);
+    }
+    let Some(day) = models::same_family_accepted(&roles.reviewer_model) else {
+        return Err(SAME_FAMILY.to_string());
+    };
+    let note = format!(
+        "Reviewer of the same model family as the Builder (accepted at the Setup on {day})."
+    );
+    Ok(Some(note))
+}
+
+/// The record `text` with the `decided` note `note` left at `ts`, when there is one and
+/// `record`, the record before this start, does not have it yet: a relaunch says it once.
+fn with_decided(
+    text: String,
+    note: Option<&str>,
+    record: &Value,
+    ts: &str,
+) -> Result<String, serde_json::Error> {
+    let notes = record["inbox"].as_array();
+    let said = |note: &str| {
+        let decided = |n: &Value| n["kind"] == "decided" && n["text"] == note;
+        notes.is_some_and(|notes| notes.iter().any(decided))
+    };
+    match note {
+        Some(note) if !said(note) => {
+            let decided = change::Note {
+                kind: "decided",
+                text: note,
+                ts,
+            };
+            change::with_note(&text, &decided)
+        }
+        _ => Ok(text),
+    }
 }
 
 /// Whether the log of the project at `root` has a call to the Builder in build mode for change
@@ -454,6 +498,44 @@ mod tests {
         let out = project.prepared();
         assert_eq!(out["color"], "green");
         assert_eq!(out["reviewer"], false);
+    }
+
+    /// The `decided` notes of the record of `c1`.
+    fn decided(project: &Fixture) -> Vec<Value> {
+        let record = project.record();
+        let notes = record["inbox"].as_array().unwrap().iter();
+        let decided = notes.filter(|n| n["kind"] == "decided");
+        decided.cloned().collect()
+    }
+
+    #[test]
+    fn a_reviewer_of_the_same_family_the_human_accepted_starts_and_the_inbox_says_so() {
+        let reviewer = "integration = \"claude\"\nmodel = \"haiku\"\n\
+                        same_family_accepted = \"2026-10-27\"";
+        let haiku = MODELS.replace("integration = \"codex\"\nmodel = \"gpt-6\"", reviewer);
+        let other = r#"{"kind": "decided", "text": "Other", "ts": "x"}"#;
+        let record = RECORD.replace("[{", &format!("[{other}, {{"));
+        let project = fixture_with(&record, "[g2]\nlint = \"true\"\n", &haiku);
+        project.ready();
+        let out = project.prepared();
+        let reviewer = &out["reviewer_model"];
+        assert_eq!(reviewer["same_family_accepted"], "2026-10-27");
+        let note = "Reviewer of the same model family as the Builder (accepted at the Setup on \
+                    2026-10-27).";
+        let notes = decided(&project);
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(notes[1]["text"], note);
+        assert!(notes[1]["ts"].as_str().unwrap().ends_with("+00:00"));
+        // A relaunch says it once.
+        project.prepared();
+        assert_eq!(decided(&project), notes);
+        // A Reviewer of another family needs no note, accepted or not.
+        let gpt = "model = \"gpt-6\"\nsame_family_accepted = \"2026-10-27\"";
+        let accepted = MODELS.replace("model = \"gpt-6\"", gpt);
+        let fresh = fixture_with(&record, "[g2]\nlint = \"true\"\n", &accepted);
+        fresh.ready();
+        fresh.prepared();
+        assert_eq!(decided(&fresh).len(), 1);
     }
 
     #[test]
