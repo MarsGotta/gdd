@@ -567,7 +567,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
     };
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
-        let state = state::root(&root);
+        let state = state::root(&root)?;
         command.run(&root, &state, role, env)
     });
     match ran {

@@ -58,6 +58,16 @@ pub struct Dirs {
     pub prefix: PathBuf,
 }
 
+/// The first working tree git lists for a repository: its main checkout, or the repository
+/// itself when it is bare.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MainWorktree {
+    /// Where it is, absolute.
+    pub path: PathBuf,
+    /// Whether the repository is bare: then `path` is the repository, not a checkout.
+    pub bare: bool,
+}
+
 /// The git repository of a project, read from the project root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Git {
@@ -116,6 +126,31 @@ impl Git {
             common: next(),
             own: next(),
             prefix: next(),
+        })
+    }
+
+    /// The main working tree of the repository (see [`MainWorktree`]): the first entry of
+    /// `git worktree list`, whatever working tree the project is in.
+    pub fn main_worktree(&self) -> Result<MainWorktree, Error> {
+        let args = ["worktree", "list", "--porcelain", "-z"];
+        let out = self.read(&args)?;
+        // One attribute per NUL byte, "worktree <path>" first; an empty one ends the entry.
+        let mut first = out
+            .split(|&byte| byte == 0)
+            .take_while(|line| !line.is_empty());
+        let path = first
+            .next()
+            .and_then(|line| line.strip_prefix(b"worktree "));
+        let Some(path) = path else {
+            let listed = String::from_utf8_lossy(&out).into_owned();
+            return Err(Error::Failed(format!(
+                "git {} listed no working tree first: {listed:?}",
+                args.join(" ")
+            )));
+        };
+        Ok(MainWorktree {
+            path: PathBuf::from(OsStr::from_bytes(path)),
+            bare: first.any(|line| line == b"bare"),
         })
     }
 
@@ -503,6 +538,35 @@ pub(crate) mod tests {
         let err = Git::new(&plain.0).dirs().unwrap_err().to_string();
         let start = "git rev-parse --path-format=absolute ";
         assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn the_main_worktree_is_the_first_one_git_lists() {
+        let repo = Repo::new();
+        let main = MainWorktree {
+            path: fs::canonicalize(repo.root()).unwrap(),
+            bare: false,
+        };
+        assert_eq!(repo.tool().main_worktree().unwrap(), main);
+        let linked = Folder::new();
+        let worktree = linked.0.join("c \"1\"");
+        let path = worktree.to_string_lossy().into_owned();
+        repo.git(&["worktree", "add", "-q", "-b", "change/c1", &path]);
+        assert_eq!(Git::new(&worktree).main_worktree().unwrap(), main);
+        let bare = Folder::new();
+        let path = bare.0.join("repo.git").to_string_lossy().into_owned();
+        repo.git(&["clone", "-q", "--bare", ".", &path]);
+        let repository = fs::canonicalize(&path).unwrap();
+        let listed = Git::new(&repository).main_worktree().unwrap();
+        let bare = MainWorktree {
+            path: repository,
+            bare: true,
+        };
+        assert_eq!(listed, bare);
+        let plain = Folder::new();
+        let err = Git::new(&plain.0).main_worktree().unwrap_err().to_string();
+        let failed = "git worktree list --porcelain -z failed";
+        assert!(err.starts_with(failed), "{err}");
     }
 
     #[test]
