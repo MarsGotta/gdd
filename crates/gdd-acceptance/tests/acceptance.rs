@@ -29,8 +29,6 @@ pub struct GddWorld {
     exit_checked: bool,
     /// Where the scenario's fake programs live; first on its PATH. Outside the project folder.
     programs: Option<TempDir>,
-    /// The folder next to the project that holds its worktrees, removed with the scenario.
-    worktrees: Option<TempDir>,
 }
 
 #[given("the gdd tool")]
@@ -95,8 +93,11 @@ fn parse_change(text: &str) -> gdd_core::Change {
 fn the_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     w.zone_map = docstring(step, "a zone map docstring");
     // In a project (guard and scope features) the map also lives where the tool reads it.
-    if let Some(dir) = &w.project {
-        write_file(&dir.0.join("gdd/zones.toml"), &format!("{}\n", w.zone_map));
+    if w.project.is_some() {
+        write_file(
+            &project_root_of(w).join("gdd/zones.toml"),
+            &format!("{}\n", w.zone_map),
+        );
     }
 }
 
@@ -206,15 +207,30 @@ fn write_file(path: &Path, content: &str) {
 
 /// The project root of the scenario, created on first use with its `gdd/project.toml`.
 fn project_root(w: &mut GddWorld) -> PathBuf {
-    let dir = w.project.get_or_insert_with(|| {
-        let dir = TempDir::new();
+    if w.project.is_none() {
+        let dir = scenario_folder();
         write_file(
-            &dir.0.join("gdd/project.toml"),
+            &dir.0.join("project/gdd/project.toml"),
             "name = \"demo\"\nlanguage = \"en\"\n",
         );
-        dir
-    });
-    dir.0.clone()
+        w.project = Some(dir);
+    }
+    project_root_of(w)
+}
+
+/// The scenario's own folder, with the project inside it as `project`: what hangs off the
+/// project's parent (its worktrees, `../trees`...) goes with the scenario.
+fn scenario_folder() -> TempDir {
+    let dir = TempDir::new();
+    fs::create_dir_all(dir.0.join("project")).expect("a project folder");
+    dir
+}
+
+/// The default folder of the worktrees of the project at `root`: `<root>.worktrees`.
+fn worktrees_folder_of(root: &Path) -> PathBuf {
+    let mut name = root.as_os_str().to_os_string();
+    name.push(".worktrees");
+    PathBuf::from(name)
 }
 
 fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
@@ -226,7 +242,12 @@ fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
 fn world_env(w: &mut GddWorld) -> &mut Vec<(String, String)> {
     w.env.get_or_insert_with(|| {
         std::env::vars()
-            .filter(|(name, _)| !matches!(name.as_str(), "GDD_ROLE" | "GDD_CHANGE" | "GDD_ROOT"))
+            .filter(|(name, _)| {
+                !matches!(
+                    name.as_str(),
+                    "GDD_ROLE" | "GDD_CHANGE" | "GDD_ROOT" | "GDD_STATE"
+                )
+            })
             .collect()
     })
 }
@@ -1321,24 +1342,28 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
 //
 // The agents are shell scripts named `claude`, `codex` and `opencode` in `.gdd/bin/` of the
 // temporary project, which the scenario's `PATH` starts with. They check how they were started
-// (project root as working directory, `GDD_CHANGE`, `GDD_ROOT` and the `GDD_ROLE` of their
-// command set), record each call: its full arguments as a line of `.gdd/fake/argv`, the names of
-// its environment variables in `.gdd/fake/env/<call>` and `role|model|arguments` in
-// `.gdd/fake/calls`. They print their agent's JSON output (100 input, 50 cached and 20 output
+// (the change's worktree as working directory and `GDD_ROOT`, `GDD_STATE`, `GDD_CHANGE` and the
+// `GDD_ROLE` of their command set), record each call under `$GDD_STATE/.gdd/fake/`: its full
+// arguments as a line of `argv`, its working directory in `cwds`, the names of its environment
+// variables in `env/<call>` and `role|model|arguments` in `calls`. They print their agent's JSON output (100 input, 50 cached and 20 output
 // tokens, Codex and OpenCode 5 reasoning ones too) and act on what the steps left in
 // `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from <call>`), `build_path`, `replan`,
-// `reviews` (one answer per line, the last one repeats) and `reviewer_writes` (a path).
+// `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
+// (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
+// (`<change>|<build call>`: that call appends a line of the log for the change).
 
 const FAKE_AGENT: &str = r##"#!/bin/sh
 integration=${0##*/}
 [ -n "$GDD_ROOT" ] || exit 90
 [ -n "$GDD_CHANGE" ] || exit 91
 [ -n "$GDD_ROLE" ] || exit 92
+[ -n "$GDD_STATE" ] || exit 97
 [ "$(pwd -P)" = "$(cd "$GDD_ROOT" && pwd -P)" ] || exit 93
-mkdir -p "$GDD_ROOT/.gdd/fake/env"
-echo "$*" >> "$GDD_ROOT/.gdd/fake/argv"
-call=$(wc -l < "$GDD_ROOT/.gdd/fake/argv" | tr -d ' ')
-env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' > "$GDD_ROOT/.gdd/fake/env/$call"
+mkdir -p "$GDD_STATE/.gdd/fake/env"
+echo "$*" >> "$GDD_STATE/.gdd/fake/argv"
+pwd -P >> "$GDD_STATE/.gdd/fake/cwds"
+call=$(wc -l < "$GDD_STATE/.gdd/fake/argv" | tr -d ' ')
+env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' > "$GDD_STATE/.gdd/fake/env/$call"
 prev=
 prompt=
 model=
@@ -1376,7 +1401,7 @@ case "$cmd" in
   *) exit 96 ;;
 esac
 [ "$GDD_ROLE" = "$role" ] || exit 92
-fake="$GDD_ROOT/.gdd/fake"
+fake="$GDD_STATE/.gdd/fake"
 echo "$role|$model|$args" >> "$fake/calls"
 n=$(grep -c "^$role|" "$fake/calls")
 text=done
@@ -1406,6 +1431,17 @@ case "$role" in
       mkdir -p "$(dirname "$path")"
       echo "$n" > "$path"
     fi
+    if [ -f "$fake/record" ]; then
+      record=$(cat "$fake/record")
+      mkdir -p "$(dirname "$GDD_STATE/.gdd/changes/$record")"
+      echo "touched by the Builder" >> "$GDD_STATE/.gdd/changes/$record"
+    fi
+    if [ -f "$fake/log_line" ]; then
+      log_line=$(cat "$fake/log_line")
+      if [ "$n" = "${log_line#*|}" ]; then
+        printf '{"ts":"2026-01-01T00:00:00+00:00","change":"%s","phase":"2-build","gate":"-","role":"builder-build","agent":"claude","model":"sonnet","result":"ok"}\n' "${log_line%%|*}" >> "$GDD_STATE/.gdd/log.jsonl"
+      fi
+    fi
     ;;
   reviewer)
     answer="VERDICT: OK"
@@ -1423,8 +1459,8 @@ case "$role" in
   orchestrator)
     answer="NEXT: build"
     [ -f "$fake/replan" ] && answer=$(cat "$fake/replan")
-    mkdir -p "$GDD_ROOT/.gdd/changes/$GDD_CHANGE"
-    printf '%s\n' "$answer" > "$GDD_ROOT/.gdd/changes/$GDD_CHANGE/replan.md"
+    mkdir -p "$GDD_STATE/.gdd/changes/$GDD_CHANGE"
+    printf '%s\n' "$answer" > "$GDD_STATE/.gdd/changes/$GDD_CHANGE/replan.md"
     text=$answer
     ;;
 esac
@@ -1481,7 +1517,7 @@ fn agent_call(w: &GddWorld, number: usize) -> String {
 }
 
 fn project_root_of(w: &GddWorld) -> PathBuf {
-    w.project.as_ref().expect("a project").0.clone()
+    w.project.as_ref().expect("a project").0.join("project")
 }
 
 #[then(expr = "agent call {int} starts with {string}")]
@@ -1625,7 +1661,7 @@ fn no_agent_process_left(w: &mut GddWorld) {
 
 #[given("an empty folder")]
 fn an_empty_folder(w: &mut GddWorld) {
-    w.project = Some(TempDir::new());
+    w.project = Some(scenario_folder());
     for (name, value) in [
         ("GIT_AUTHOR_NAME", "GDD Test"),
         ("GIT_AUTHOR_EMAIL", "test@example.com"),
@@ -1812,19 +1848,13 @@ fn toml_file_has(w: &mut GddWorld, path: String, key: String, expected: String) 
 
 /// The folder of the worktree of change `id`.
 fn worktree_of(w: &mut GddWorld, id: &str) -> PathBuf {
-    let root = project_root(w);
-    let mut name = root.as_os_str().to_os_string();
-    name.push(".worktrees");
-    PathBuf::from(name).join(id)
+    worktrees_folder_of(&project_root(w)).join(id)
 }
 
 #[given(expr = "the change {string} has a worktree with the file {string}")]
 fn change_has_worktree(w: &mut GddWorld, id: String, file: String) {
     let root = project_root(w);
     let folder = worktree_of(w, &id);
-    let parent = folder.parent().expect("a folder for the worktrees");
-    // Removed with the scenario, whatever happens to the worktree itself.
-    w.worktrees = Some(TempDir(parent.to_path_buf()));
     // The branch of the change cannot be checked out twice: the main checkout goes back to main.
     git(&root, &["checkout", "-q", "main"]);
     let folder_text = folder.to_string_lossy().to_string();
@@ -1861,6 +1891,114 @@ fn worktree_has_no(w: &mut GddWorld, id: String, path: String) {
         "{} exists in the worktree of {id}, and it should not",
         at.display()
     );
+}
+
+// ---- features/parallel-launch.feature ------------------------------------------------------
+
+#[then(expr = "the current branch is {string}")]
+fn current_branch_is(w: &mut GddWorld, branch: String) {
+    let current = git(&project_root(w), &["rev-parse", "--abbrev-ref", "HEAD"]);
+    assert_eq!(current, branch, "the main checkout is on {current}");
+}
+
+/// The worktrees git lists for the project: each folder with the branch it has checked out.
+fn listed_worktrees(root: &Path) -> Vec<(PathBuf, Option<String>)> {
+    let text = git(root, &["worktree", "list", "--porcelain"]);
+    let mut listed: Vec<(PathBuf, Option<String>)> = Vec::new();
+    for line in text.lines() {
+        if let Some(folder) = line.strip_prefix("worktree ") {
+            listed.push((PathBuf::from(folder), None));
+        } else if let (Some(branch), Some(last)) = (line.strip_prefix("branch "), listed.last_mut())
+        {
+            last.1 = Some(branch.trim_start_matches("refs/heads/").to_string());
+        }
+    }
+    listed
+}
+
+/// Whether git lists `folder` as a worktree on the branch `change/<id>`.
+fn is_worktree_of(root: &Path, folder: &Path, id: &str) -> bool {
+    let Ok(folder) = folder.canonicalize() else {
+        return false;
+    };
+    let branch = format!("change/{id}");
+    listed_worktrees(root).iter().any(|(listed, on)| {
+        listed.canonicalize().is_ok_and(|l| l == folder) && on.as_deref() == Some(branch.as_str())
+    })
+}
+
+fn assert_worktree_at(w: &mut GddWorld, id: &str, folder: &Path) {
+    let root = project_root(w);
+    assert!(
+        is_worktree_of(&root, folder, id),
+        "{} is not a worktree on change/{id}; git lists {:?}",
+        folder.display(),
+        listed_worktrees(&root)
+    );
+}
+
+#[then(expr = "the change {string} has a worktree next to the project")]
+fn change_has_worktree_next_to_project(w: &mut GddWorld, id: String) {
+    let folder = worktree_of(w, &id);
+    assert_worktree_at(w, &id, &folder);
+}
+
+#[then(expr = "the change {string} has a worktree in {string}")]
+fn change_has_worktree_in(w: &mut GddWorld, id: String, folder: String) {
+    let folder = project_root(w).join(folder);
+    assert_worktree_at(w, &id, &folder);
+}
+
+#[then(expr = "the change {string} has no worktree")]
+fn change_has_no_worktree(w: &mut GddWorld, id: String) {
+    let root = project_root(w);
+    let folder = worktree_of(w, &id);
+    assert!(
+        fs::symlink_metadata(&folder).is_err(),
+        "{} still exists",
+        folder.display()
+    );
+    let branch = format!("change/{id}");
+    let on_branch: Vec<_> = listed_worktrees(&root)
+        .into_iter()
+        .filter(|(_, on)| on.as_deref() == Some(branch.as_str()))
+        .collect();
+    assert!(on_branch.is_empty(), "git still lists {on_branch:?}");
+}
+
+#[given(expr = "the project keeps its worktrees in {string}")]
+fn project_keeps_worktrees_in(w: &mut GddWorld, folder: String) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    write_file(
+        &path,
+        &format!("{rules}\n[parallel]\nfolder = \"{folder}\"\n"),
+    );
+    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["commit", "-q", "-m", "worktrees folder"]);
+}
+
+#[given(expr = "the Builder in build mode changes the record file {string} of the change {string}")]
+fn builder_changes_record_file(w: &mut GddWorld, file: String, id: String) {
+    fake_file(w, "record", &format!("{id}/{file}"));
+}
+
+#[given(expr = "the log gets a line for the change {string} during Builder call {int}")]
+fn log_gets_line_during_call(w: &mut GddWorld, id: String, call: usize) {
+    fake_file(w, "log_line", &format!("{id}|{call}"));
+}
+
+#[then(expr = "the agents worked in the worktree of {string}")]
+fn agents_worked_in_worktree(w: &mut GddWorld, id: String) {
+    // The worktree may be gone by now: the physical folder is the project's plus its name.
+    let root = project_root(w).canonicalize().expect("the project folder");
+    let expected = worktrees_folder_of(&root).join(&id);
+    let cwds = fs::read_to_string(project_root(w).join(".gdd/fake/cwds")).unwrap_or_default();
+    assert!(!cwds.is_empty(), "no agent recorded its working folder");
+    for cwd in cwds.lines() {
+        assert_eq!(Path::new(cwd), expected, "an agent worked in {cwd}");
+    }
 }
 
 fn repo_root() -> PathBuf {

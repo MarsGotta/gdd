@@ -18,13 +18,15 @@ It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`.
 
 ## Your context (only this)
 
-- `.gdd/changes/<id>/package.md`: your task.
+You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `bin/gdd`, and never create a `.gdd` in your working folder.
+
+- `<state>/.gdd/changes/<id>/package.md`: your task.
 - `docs/standards.md`, if it exists: the project's quality bar. Passing the gates is not enough; the work must also meet it.
-- If `fix=polish`: the human's notes at G4 in `.gdd/changes/<id>/inbox.md` (under Polish). Polish what they ask, nothing else.
-- `.gdd/changes/<id>/g2.json`: if present, the failures of the previous round.
-- If `fix=g3`: `.gdd/changes/<id>/g3.json`.
-- If `fix=review`: `.gdd/changes/<id>/review.md` (the reasons for the KO).
-- If `after=replan`: `.gdd/changes/<id>/replan.md`.
+- If `fix=polish`: the human's notes at G4 in `<state>/.gdd/changes/<id>/inbox.md` (under Polish). Polish what they ask, nothing else.
+- `<state>/.gdd/changes/<id>/g2.json`: if present, the failures of the previous round.
+- If `fix=g3`: `<state>/.gdd/changes/<id>/g3.json`.
+- If `fix=review`: `<state>/.gdd/changes/<id>/review.md` (the reasons for the KO).
+- If `after=replan`: `<state>/.gdd/changes/<id>/replan.md`.
 - The code under the package paths.
 
 ## What you do

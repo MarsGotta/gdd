@@ -153,10 +153,12 @@ enum Command {
         change: String,
     },
     /// Loop Gate: the G2 commands of gdd/commands.toml, Path Guard and, in build mode, the
-    /// scope. Saves the result next to the change, logs it and prints it as JSON.
+    /// scope. Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE)
+    /// and prints it as JSON.
     G2(GateArgs),
     /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
-    /// Saves the result next to the change, logs it and prints it as JSON.
+    /// Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE) and
+    /// prints it as JSON.
     G3(GateArgs),
     /// Creates a change: its record and, when it has none, its branch change/<id> from the main
     /// branch. Logs it and prints its classification as JSON.
@@ -233,9 +235,11 @@ enum Command {
         /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
         change: Option<String>,
     },
-    /// Runs the recipe of a change on its branch change/<id>: Build, G2, G3, the Reviewer, merge
-    /// and pre; then it waits for the human G4 when the change needs it, or goes to production.
-    /// Refuses uncommitted changes outside that branch. A change that parks exits with 1.
+    /// Runs the recipe of a change in its own git worktree, on its branch change/<id>, while
+    /// this checkout goes to the main branch: Build, G2, G3, the Reviewer, merge and pre; then it
+    /// waits for the human G4 when the change needs it, or goes to production. The worktree goes
+    /// when the change closes. Refuses uncommitted changes outside that branch. A change that
+    /// parks exits with 1.
     Launch {
         /// Id of the change: its record is .gdd/changes/<id>/change.json.
         change: String,
@@ -475,8 +479,8 @@ impl Command {
         env: &Env,
     ) -> Result<Outcome, String> {
         let text = match self {
-            Command::G2(args) => return run_gate(root, state, Gate::G2, args, env),
-            Command::G3(args) => return run_gate(root, state, Gate::G3, args, env),
+            Command::G2(args) => return run_gate(root, state, Gate::G2, args, role, env),
+            Command::G3(args) => return run_gate(root, state, Gate::G3, args, role, env),
             Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
             Command::Selftest => return run_selftest(root, state),
@@ -743,18 +747,21 @@ fn run_guard(root: &Path, state: &Path, args: GuardArgs, env: &Env) -> Result<Ou
 }
 
 /// `gdd g2` and `gdd g3`: runs `gate` on the change of `args`, else on the one `GDD_CHANGE` of
-/// the environment `env` names (see [`gate_report`]). The report as JSON, then, for the person
-/// who reads it, one line per security exception the change adds on the standard error; exit
-/// code 1 when the gate fails and the run is strict.
+/// the environment `env` names (see [`gate_report`]). Started by an agent, for the role `role`,
+/// the run is not logged: an agent writes only its change's state folder, and the recipe logs
+/// its own run of the gate after the call. The report as JSON, then, for the person who reads
+/// it, one line per security exception the change adds on the standard error; exit code 1 when
+/// the gate fails and the run is strict.
 fn run_gate(
     root: &Path,
     state: &Path,
     gate: Gate,
     args: GateArgs,
+    role: Option<&str>,
     env: &Env,
 ) -> Result<Outcome, String> {
     let id = change_id(args.change, env)?;
-    let report = gate_report(root, state, gate, &id, &args.role)?;
+    let report = gate_report(root, state, gate, &id, &args.role, role.is_none())?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !report.ok);
     let mut outcome = Outcome::printed(printed, code);
@@ -814,13 +821,15 @@ fn import_session(
 }
 
 /// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
-/// accepted, saves the report next to it and logs the run, under the state root `state`.
+/// accepted and saves the report next to it, under the state root `state`; `logged`, it logs the
+/// run too.
 fn gate_report(
     root: &Path,
     state: &Path,
     gate: Gate,
     id: &str,
     role: &str,
+    logged: bool,
 ) -> Result<gates::Report, String> {
     let record = load_record(state, id)?;
     let config = GateConfig::load(root)?;
@@ -829,7 +838,11 @@ fn gate_report(
     let report = gates::run(&project, gate, id, &record, role, snapshot.as_ref())
         .map_err(|e| e.to_string())?;
     save_out_of_scope(state, id, &report.out_of_scope)?;
-    gates::save(state, id, &report)?;
+    if logged {
+        gates::save(state, id, &report)?;
+    } else {
+        gates::keep(state, id, &report)?;
+    }
     Ok(report)
 }
 
@@ -927,16 +940,9 @@ fn release_change(root: &Path, state: &Path, step: &str, id: &str) -> Result<Str
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
 /// environment `env`.
 fn launch(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Said, String> {
-    let main = load_settings(root)?.main_branch;
-    let limits = load_limits(root)?;
-    let project = recipe::Project {
-        root,
-        state,
-        main: &main,
-        replans: limits.replans,
-    };
-    let mut steps = ProjectSteps::new(root, state, id, &limits, env)?;
-    recipe::launch(&project, id, &mut steps)
+    in_worktree(root, state, id, env, |project, steps| {
+        recipe::launch(project, id, steps)
+    })
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
@@ -950,17 +956,48 @@ fn resume(
 ) -> Result<Said, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
+    let note = args.note.join(" ");
+    in_worktree(root, state, id, env, |project, steps| {
+        recipe::resume(project, id, answer, &note, role, steps)
+    })
+}
+
+/// Runs `run`, a run of the recipe, on change `id` of the project at `root`, whose state root is
+/// `state`, with its steps in the project's folder of the worktree of the change, in the folder
+/// of the worktrees the rules file names (see [`recipe::worktree`]); the agents start in the
+/// environment `env`.
+fn in_worktree(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    env: &Env,
+    run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
+) -> Result<Said, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
+    let rules = read(root, RULES)?.unwrap_or_default();
+    let folder = recipe::worktree::folder(root, &rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let worktree = recipe::worktree::path(&folder, id)?;
+    let work = recipe::worktree::project_root(root, &worktree)?;
     let project = recipe::Project {
         root,
         state,
+        worktree: &worktree,
+        work: &work,
         main: &main,
         replans: limits.replans,
     };
-    let mut steps = ProjectSteps::new(root, state, id, &limits, env)?;
-    let note = args.note.join(" ");
-    recipe::resume(&project, id, answer, &note, role, &mut steps)
+    let settings = agent_settings(root)?;
+    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env);
+    run(&project, &mut steps)
+}
+
+/// What `gdd/models.toml` of the project at `root` says of the agents besides the model of each
+/// role.
+fn agent_settings(root: &Path) -> Result<invoke::Settings, String> {
+    let path = agents::models::PATH;
+    let text = read(root, path)?.unwrap_or_default();
+    invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// `gdd agents install` and `gdd agents check` (see [`render::install`] and [`render::check`]),
@@ -1012,9 +1049,9 @@ fn stack_sheets(action: Option<StacksAction>) -> Result<String, stacks::Error> {
     }
 }
 
-/// The steps of the recipe on change `id` of the project at `root`, as the commands of the same
-/// name run them: each reads the configuration as it is when it runs, but the agents' time
-/// limit and settings, read once.
+/// The steps of the recipe on change `id` of the project at `root`, the worktree of the change,
+/// as the commands of the same name run them: each reads the configuration as it is when it
+/// runs, but the agents' time limit and settings, read once.
 struct ProjectSteps<'a> {
     root: &'a Path,
     /// The state root of the project (see [`state::root`]).
@@ -1030,25 +1067,24 @@ struct ProjectSteps<'a> {
 
 impl<'a> ProjectSteps<'a> {
     /// The steps on change `id` of the project at `root`, whose state root is `state` and whose
-    /// rules file sets `limits`, with the agents starting in the environment `env`.
+    /// rules file sets `limits`, with the agents starting in the environment `env` with
+    /// `settings`.
     fn new(
         root: &'a Path,
         state: &'a Path,
         id: &'a str,
         limits: &Limits,
+        settings: invoke::Settings,
         env: &'a Env,
-    ) -> Result<ProjectSteps<'a>, String> {
-        let path = agents::models::PATH;
-        let text = read(root, path)?.unwrap_or_default();
-        let settings = invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))?;
-        Ok(ProjectSteps {
+    ) -> ProjectSteps<'a> {
+        ProjectSteps {
             root,
             state,
             id,
             timeout: Duration::from_secs(limits.agent_timeout_s),
             env,
             settings,
-        })
+        }
     }
 }
 
@@ -1087,7 +1123,8 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
-        let report = gate_report(self.root, self.state, gate, self.id, gates::BUILD_ROLE)?;
+        let (root, state, id) = (self.root, self.state, self.id);
+        let report = gate_report(root, state, gate, id, gates::BUILD_ROLE, true)?;
         Ok(report.ok)
     }
 
@@ -1106,8 +1143,10 @@ impl recipe::Steps for ProjectSteps<'_> {
         merge_change(self.root, self.state, self.id).map(drop)
     }
 
+    /// After the merge the change is on the main branch: its release runs from the main checkout,
+    /// the project root of the state root, as the main branch configures it.
     fn release(&mut self, step: &str) -> Result<(), String> {
-        release_change(self.root, self.state, step, self.id).map(drop)
+        release_change(self.state, self.state, step, self.id).map(drop)
     }
 }
 
@@ -1415,9 +1454,19 @@ mod tests {
         }
     }
 
+    impl Project {
+        /// Where gdd makes the worktrees of the changes: next to the project.
+        fn worktrees(&self) -> PathBuf {
+            let mut folder = self.0.clone().into_os_string();
+            folder.push(".worktrees");
+            PathBuf::from(folder)
+        }
+    }
+
     impl Drop for Project {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+            let _ = fs::remove_dir_all(self.worktrees());
         }
     }
 
@@ -2244,6 +2293,23 @@ mod tests {
     }
 
     #[test]
+    fn a_gate_an_agent_runs_saves_its_report_and_leaves_the_log_alone() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        project.write(log::PATH, LOG);
+        let mut env = process_env();
+        env.push(("GDD_ROLE".to_string(), "builder-build".to_string()));
+        for gate in ["g2", "g3"] {
+            let command = words(&format!("{gate} save --role builder-build"));
+            let printed = json(&run_with_env(&command, &project.0, &env));
+            let path = project.0.join(format!(".gdd/changes/save/{gate}.json"));
+            let saved: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+            assert_eq!(saved, printed, "{gate}");
+        }
+        assert_eq!(fs::read_to_string(project.0.join(log::PATH)).unwrap(), LOG);
+    }
+
+    #[test]
     fn a_gate_that_passes_exits_with_0_even_when_strict() {
         let project = started_with_commands("[g3]\nacceptance = \"true\"\n");
         project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
@@ -2985,9 +3051,18 @@ mod tests {
         let nameless = "error: gdd/models.toml: the Orchestrator has no model\n";
         assert_eq!(out, Outcome::failure(nameless.into()));
         assert_eq!(record_of(&project, "c1")["state"], before);
+        // The models of the change are the ones on its branch, in its worktree.
+        let worktree = project.worktrees().join("c1");
         let gemini = MODELS.replace("\"codex\"", "\"gemini\"");
-        project.write("gdd/models.toml", &format!("{gemini}{MORE_ROLES}"));
-        git(&project, &["commit", "-q", "-am", "gemini"]);
+        let models = format!("{gemini}{MORE_ROLES}");
+        fs::write(worktree.join("gdd/models.toml"), models).unwrap();
+        let committed = std::process::Command::new("git")
+            .args(GIT_CONFIG)
+            .args(["commit", "-q", "-am", "gemini"])
+            .current_dir(&worktree)
+            .status()
+            .unwrap();
+        assert!(committed.success());
         let out = project.run("launch c1");
         let no_sheet = "error: gdd/models.toml: the Reviewer uses \"gemini\", which has no agent \
                         sheet (claude, codex, opencode)\n";
@@ -3006,9 +3081,12 @@ mod tests {
         assert_eq!(out, Outcome::failure(parked.into()));
         assert_eq!(record_of(&project, "c1")["state"], "parked");
         // The work of the earlier run on its branch: committed before the relaunch.
-        let subject = git(&project, &["log", "-1", "--format=%s"]);
+        let subject = git(&project, &["log", "-1", "--format=%s", "change/c1"]);
         let relaunch = "gdd(c1): work of the earlier run, before relaunch";
         assert_eq!(subject, relaunch);
+        // The change waits in its worktree; this checkout is back on main.
+        assert_eq!(git(&project, &["branch", "--show-current"]), "main");
+        assert!(project.worktrees().join("c1/gdd/models.toml").is_file());
     }
 
     #[test]
@@ -3041,10 +3119,11 @@ mod tests {
                                    [release]\nsimulated = true\n";
 
     /// One agent for every integration (see [`with_agents`]): it keeps its role in
-    /// `.gdd/calls`; test mode writes `@TEST@`, build mode `src/a.rs`, and the Reviewer, of
-    /// Codex, says OK.
+    /// `.gdd/fake/calls` of the state root, a folder that is not GDD state; test mode writes
+    /// `@TEST@`, build mode `src/a.rs`, and the Reviewer, of Codex, says OK.
     const FAKE_AGENT: &str = r#"#!/bin/sh
-echo "$GDD_ROLE" >> "$GDD_ROOT/.gdd/calls"
+mkdir -p "$GDD_STATE/.gdd/fake"
+echo "$GDD_ROLE" >> "$GDD_STATE/.gdd/fake/calls"
 case "$GDD_ROLE" in
   builder-test) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
   builder-build) mkdir -p src && echo b > src/a.rs ;;
@@ -3073,7 +3152,7 @@ esac
     }
 
     /// Launches change `c1` of `project` with the fake agents, whose test mode writes
-    /// `test_writes`. Each call is kept in `.gdd/calls`.
+    /// `test_writes`. Each call is kept in `.gdd/fake/calls`.
     fn launch_with_fakes(project: &Project, test_writes: &str) -> Outcome {
         let env = with_agents(project, &FAKE_AGENT.replace("@TEST@", test_writes));
         launch_in(project, &env)
@@ -3087,7 +3166,7 @@ esac
         let closed = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd report \
                       --change c1\n";
         assert_eq!(out, Outcome::success(closed.into()));
-        let calls = fs::read_to_string(project.0.join(".gdd/calls")).unwrap();
+        let calls = fs::read_to_string(project.0.join(".gdd/fake/calls")).unwrap();
         assert_eq!(calls, "builder-test\nbuilder-build\nreviewer\n");
         let review = project.0.join(".gdd/changes/c1/outputs/reviewer-1.md");
         assert_eq!(fs::read_to_string(review).unwrap(), "VERDICT: OK");

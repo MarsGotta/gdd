@@ -1,10 +1,11 @@
 //! Starting an agent of the recipe: the program its agent sheet names, found on the `PATH` of the
-//! environment gdd runs in, with the arguments the sheet gives its command and its role, and never
-//! through a shell. It runs from the project root, with that environment without its secrets (see
-//! [`Env`]) plus `GDD_CHANGE`, `GDD_ROOT` and `GDD_ROLE`. What it prints is read with the reader
-//! of its sheet (see [`usage`]): its final text and its output are kept next to the change, the
-//! Reviewer's text is its review, and the call goes to the log. The tool prints none of it, and
-//! writes none of it through a link the agent could have left (see [`files`]).
+//! environment gdd runs in, with the arguments the sheet gives its command and its role where the
+//! call runs (see [`Place`]), and never through a shell. It runs from the project root, the
+//! change's worktree, with that environment without its secrets (see [`Env`]) plus `GDD_CHANGE`,
+//! `GDD_ROOT` (the project root), `GDD_STATE` (the state root) and `GDD_ROLE`. What it prints is
+//! read with the reader of its sheet (see [`usage`]): its final text and its output are kept next
+//! to the change, the Reviewer's text is its review, and the call goes to the log. The tool prints
+//! none of it, and writes none of it through a link the agent could have left (see [`files`]).
 //!
 //! Each call runs in a process group of its own and has a time limit. When the call ends, or its
 //! time runs out, the whole group is killed, never a process read from a file: nothing the agent
@@ -28,7 +29,7 @@ use serde_json::Value;
 use crate::agents::env::Env;
 use crate::agents::files;
 use crate::agents::models::{self, Model, Roles};
-use crate::agents::sheets::{self, Sheet};
+use crate::agents::sheets::{self, Place, Sheet};
 use crate::agents::usage::{self, Price, Said};
 use crate::gates::verdict;
 use crate::{config, exec, log};
@@ -38,7 +39,7 @@ const POLL: Duration = Duration::from_millis(50);
 
 /// Where the sessions of the Claude Code calls are kept, one per line, from the state root (see
 /// [`crate::state::root`]).
-const SESSIONS: &str = ".gdd/headless_sessions.txt";
+pub(crate) const SESSIONS: &str = ".gdd/headless_sessions.txt";
 
 /// Who the recipe calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,8 +65,8 @@ impl Who {
         }
     }
 
-    /// Its role, as the sheets, the log and `GDD_ROLE` name it.
-    fn role(self) -> &'static str {
+    /// Its role, as the sheets, the log, `GDD_ROLE` and its outputs name it.
+    pub(crate) fn role(self) -> &'static str {
         match self {
             Who::BuilderTest => "builder-test",
             Who::BuilderBuild => "builder-build",
@@ -83,7 +84,7 @@ impl Who {
     }
 
     /// The file where it answers on change `id`, from the state root, if it answers in one.
-    fn answer(self, id: &str) -> Option<String> {
+    pub(crate) fn answer(self, id: &str) -> Option<String> {
         match self {
             Who::Reviewer => Some(verdict::review_path(id)),
             Who::Orchestrator => Some(verdict::replan_path(id)),
@@ -135,7 +136,7 @@ impl Settings {
 /// What a call reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
-    /// The project root: the agent runs from it.
+    /// The project root: the agent runs from it. The recipe runs a change in its worktree.
     pub root: &'a Path,
     /// The state root, whose `.gdd/` keeps what the call said and the log (see
     /// [`crate::state::root`]).
@@ -270,15 +271,21 @@ struct Start<'a> {
     args: Vec<String>,
 }
 
-/// What starts `call` on change `id`: the `launch.args` of the sheet of its integration (see
-/// [`Sheet::launch`]) for its command and its role, with `change=<id> <args>` as the words of
-/// the command and the `effort` of its model, if it has one.
-fn start<'a>(call: &Call<'a>, id: &str) -> Result<Start<'a>, Error> {
+/// What starts `call` on change `id`, whose state root is `state`: the `launch.args` of the
+/// sheet of its integration (see [`Sheet::launch`]) for its command and its role, with
+/// `change=<id> <args>` as the words of the command and the `effort` of its model, if it has
+/// one.
+fn start<'a>(call: &Call<'a>, id: &str, state: &Path) -> Result<Start<'a>, Error> {
     let (integration, sheet, model) = startable(call.who, call.model)?;
     let words = format!("change={id} {}", call.args);
     let effort = call.model.get("effort").and_then(Value::as_str);
     let (command, role) = (call.who.command(), call.who.role());
-    let args = sheet.launch(command, &words, model, role, effort);
+    let state = state.to_string_lossy();
+    let place = Place {
+        state: &state,
+        change: id,
+    };
+    let args = sheet.launch(command, &words, model, role, effort, place);
     Ok(Start {
         integration,
         sheet,
@@ -307,7 +314,7 @@ struct Ran {
 /// time limit at most. Its answer file goes away first. What it said is kept and logged even when
 /// it fails or runs out of time.
 pub fn run(project: &Project, call: &Call) -> Result<(), Error> {
-    let start = start(call, project.id)?;
+    let start = start(call, project.id, project.state)?;
     let program = program(&start.sheet, project.env)?;
     if let Some(answer) = call.who.answer(project.id) {
         remove(project.state, &answer)?;
@@ -335,6 +342,7 @@ fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Resu
         .envs(project.settings.env.of_agent(project.env))
         .env("GDD_CHANGE", project.id)
         .env("GDD_ROOT", project.root)
+        .env("GDD_STATE", project.state)
         .env("GDD_ROLE", who.role())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -530,7 +538,7 @@ mod tests {
             model: table,
             args,
         };
-        let started = start(&call, "c1");
+        let started = start(&call, "c1", Path::new("/state"));
         started.map(|start| start.args).unwrap_or_default()
     }
 
@@ -579,8 +587,11 @@ mod tests {
         let test = line(Who::BuilderTest, "claude", "mode=test");
         assert_eq!(test[1], "/gdd-build-test change=c1 mode=test");
         assert_eq!(line(Who::Reviewer, "claude", "round=1")[8], "plan");
-        let sandbox = &line(Who::BuilderTest, "codex", "mode=test")[2];
-        assert_eq!(sandbox, "workspace-write");
+        let sandbox = &line(Who::BuilderTest, "codex", "mode=test")[2..5];
+        let own = "/state/.gdd/changes/c1";
+        assert_eq!(sandbox, ["workspace-write", "--add-dir", own]);
+        let build = line(Who::BuilderBuild, "claude", "mode=build");
+        assert!(build.contains(&"Write(//state/.gdd/**)".to_string()));
         // A model without an effort, or whose effort is not text, takes none.
         let mut table = model("codex", "m-1");
         table.remove("effort");
@@ -611,7 +622,7 @@ mod tests {
                 model: &table,
                 args: "round=1",
             };
-            let err = start(&call, "c1").err().unwrap();
+            let err = start(&call, "c1", Path::new("/state")).err().unwrap();
             assert!(!err.parks());
             assert_eq!(err.to_string(), why);
         }
@@ -844,7 +855,7 @@ mod tests {
 
     #[test]
     fn the_agent_runs_from_the_root_with_its_role_and_without_secrets() {
-        let script = "{ pwd -P; echo \"$GDD_CHANGE|$GDD_ROOT|$GDD_ROLE|${EDITOR-}|\
+        let script = "{ pwd -P; echo \"$GDD_CHANGE|$GDD_ROOT|$GDD_STATE|$GDD_ROLE|${EDITOR-}|\
                       ${OPENAI_API_KEY-none}|${HOME-none}\"; printf '%s;' \"$@\"; } > seen; \
                       read x && exit 7; echo err >&2";
         let mut faked = Faked::new(script);
@@ -852,17 +863,25 @@ mod tests {
             ("EDITOR", "vim"),
             ("OPENAI_API_KEY", "sk"),
             ("GDD_ROLE", "x"),
+            ("GDD_STATE", "/elsewhere"),
         ] {
             faked.env.push((name.into(), value.into()));
         }
+        let state = Folder::new();
+        faked.state = state.0.clone();
         faked.call(Who::BuilderBuild, LONG).unwrap();
         let seen = faked.read("seen");
         let cwd = fs::canonicalize(&faked.folder.0).unwrap();
-        let (cwd, root) = (cwd.display(), faked.folder.0.display());
-        let args = "-p;/gdd-build change=c1 round=1;--model;opus;--output-format;json;\
-                    --strict-mcp-config;--permission-mode;acceptEdits;--allowedTools;";
-        let start = format!("{cwd}\nc1|{root}|builder-build|vim|none|none\n{args}");
-        assert!(seen.starts_with(&start), "{seen}");
+        let (cwd, root, state) = (cwd.display(), faked.folder.0.display(), state.0.display());
+        let args = format!(
+            "-p;/gdd-build change=c1 round=1;--model;opus;--output-format;json;\
+             --strict-mcp-config;--permission-mode;acceptEdits;\
+             --add-dir;{state}/.gdd/changes/c1;--allowedTools;"
+        );
+        let env = format!("c1|{root}|{state}|builder-build|vim|none|none");
+        assert!(seen.starts_with(&format!("{cwd}\n{env}\n{args}")), "{seen}");
+        let denied = format!(";Write(/{state}/.gdd/**);");
+        assert!(seen.contains(&denied), "{seen}");
         // A project passes a secret on purpose.
         faked.settings = Settings::from_toml("[env]\npass = [\"OPENAI_API_KEY\"]\n").unwrap();
         faked.call(Who::Reviewer, LONG).unwrap();

@@ -1,7 +1,8 @@
 //! The agent sheets: one data file per coding agent the tool knows, built into it. A sheet says
 //! where the agent keeps its commands and in which format, how one command calls another, and
 //! how the recipe starts the agent headless: its program, its arguments for each role and how its
-//! output reports what it used. In a sheet, `{name}` is always `gdd-<command>`.
+//! output reports what it used. In a sheet, `{name}` is always `gdd-<command>`; the arguments of
+//! a role may name where the call runs (see [`Place`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -73,8 +74,17 @@ struct Launch {
 /// What a sheet says of a role.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct Role {
-    /// Its arguments, as they are.
+    /// Its arguments, where `{state}` and `{change}` are filled in (see [`Place`]).
     args: Vec<String>,
+}
+
+/// Where a headless call runs, as the arguments of its role name it: `{state}` and `{change}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Place<'a> {
+    /// The state root, absolute (see [`crate::state::root`]).
+    pub state: &'a str,
+    /// The id of the change.
+    pub change: &'a str,
 }
 
 /// The argument of `launch.args` that becomes the arguments of the role.
@@ -148,8 +158,8 @@ impl Sheet {
     }
 
     /// The arguments that start this agent headless on `command`, with the words `args`, the
-    /// model `model` and the arguments of `role`, then, when the model has an `effort`, the
-    /// effort arguments. A role the sheet does not name has no arguments.
+    /// model `model` and the arguments of `role` where it runs (`place`), then, when the model has
+    /// an `effort`, the effort arguments. A role the sheet does not name has no arguments.
     pub fn launch(
         &self,
         command: &str,
@@ -157,6 +167,7 @@ impl Sheet {
         model: &str,
         role: &str,
         effort: Option<&str>,
+        place: Place,
     ) -> Vec<String> {
         let (name, invoke) = (name(command), self.invoke(command));
         let values = [
@@ -168,7 +179,7 @@ impl Sheet {
         let mut launch = Vec::new();
         for arg in &self.launch.args {
             if arg == ROLE_ARGS {
-                launch.extend(self.role_args(role, effort));
+                launch.extend(self.role_args(role, effort, place));
             } else {
                 launch.push(fill(arg, &values));
             }
@@ -176,10 +187,13 @@ impl Sheet {
         launch
     }
 
-    /// The arguments of `role`, then the effort arguments for `effort`, if there is one.
-    fn role_args(&self, role: &str, effort: Option<&str>) -> Vec<String> {
-        let role = self.roles.get(role);
-        let mut args = role.map(|role| role.args.clone()).unwrap_or_default();
+    /// The arguments of `role` where it runs (`place`), then the effort arguments for `effort`,
+    /// if there is one.
+    fn role_args(&self, role: &str, effort: Option<&str>, place: Place) -> Vec<String> {
+        let at = [("state", place.state), ("change", place.change)];
+        let role = self.roles.get(role).map(|role| role.args.iter());
+        let filled = role.into_iter().flatten().map(|arg| fill(arg, &at));
+        let mut args: Vec<String> = filled.collect();
         if let Some(effort) = effort {
             let values = [("effort", effort)];
             let effort_args = self.launch.effort_args.iter();
@@ -280,10 +294,16 @@ mod tests {
         assert_eq!(opencode.format(), Format::Command);
     }
 
+    /// A call on change `c1` whose state root is `/state`.
+    const HERE: Place = Place {
+        state: "/state",
+        change: "c1",
+    };
+
     #[test]
     fn each_agent_is_started_as_its_sheet_says() {
         let args = "change=c1 mode=build";
-        let claude = of("claude").launch("build", args, "sonnet", "builder-build", None);
+        let claude = of("claude").launch("build", args, "sonnet", "builder-build", None, HERE);
         let start = [
             "-p",
             "/gdd-build change=c1 mode=build",
@@ -297,7 +317,8 @@ mod tests {
         ];
         assert_eq!(claude[..9], start);
         assert!(claude.contains(&"Write(.gdd/**)".to_string()));
-        let codex = of("codex").launch("review", "change=c1 round=1", "gpt-6", "reviewer", None);
+        let words = "change=c1 round=1";
+        let codex = of("codex").launch("review", words, "gpt-6", "reviewer", None, HERE);
         let expected = [
             "exec",
             "--sandbox",
@@ -311,7 +332,7 @@ mod tests {
         ];
         assert_eq!(codex, expected);
         let words = "change=c1 r=2";
-        let opencode = of("opencode").launch("replan", words, "kimi", "orchestrator", None);
+        let opencode = of("opencode").launch("replan", words, "kimi", "orchestrator", None, HERE);
         let expected = [
             "run",
             "--command",
@@ -329,27 +350,77 @@ mod tests {
     fn each_role_gets_its_own_arguments() {
         let claude = of("claude");
         let mode = |role: &str| {
-            let args = claude.launch("x", "", "m", role, None);
+            let args = claude.launch("x", "", "m", role, None, HERE);
             let at = args.iter().position(|a| a == "--permission-mode").unwrap();
             args[at + 1].clone()
         };
         assert_eq!(mode("reviewer"), "plan");
         assert_eq!(mode("builder-test"), "acceptEdits");
-        let orchestrator = claude.launch("replan", "", "m", "orchestrator", None);
+        let orchestrator = claude.launch("replan", "", "m", "orchestrator", None, HERE);
         assert!(orchestrator.contains(&"Write(.gdd/log.jsonl)".to_string()));
         assert!(!orchestrator.contains(&"Write(.gdd/**)".to_string()));
         let codex = of("codex");
-        let sandbox = |role: &str| codex.launch("x", "", "m", role, None)[2].clone();
+        let sandbox = |role: &str| codex.launch("x", "", "m", role, None, HERE)[2].clone();
         assert_eq!(sandbox("reviewer"), "read-only");
         assert_eq!(sandbox("builder-build"), "workspace-write");
         // A role the sheet does not name has no arguments.
-        let none = codex.launch("x", "w", "m", "human", None);
+        let none = codex.launch("x", "w", "m", "human", None, HERE);
         assert_eq!(none, ["exec", "$gdd-x w", "--model", "m", "--json"]);
+    }
+
+    /// Whether `args` has `name` followed by `value`.
+    fn has(args: &[String], name: &str, value: &str) -> bool {
+        args.windows(2).any(|pair| pair == [name, value])
+    }
+
+    /// What every Claude Code role but the Orchestrator may never write.
+    const DENIED: [&str; 3] = [
+        "Edit(.gdd/**)",
+        "Edit(//state/.gdd/**)",
+        "Write(//state/.gdd/**)",
+    ];
+
+    #[test]
+    fn the_arguments_of_a_role_name_the_state_by_its_full_path() {
+        let claude = of("claude");
+        for role in ["builder-build", "builder-test", "reviewer"] {
+            let args = claude.launch("x", "", "m", role, None, HERE);
+            for denied in DENIED {
+                assert!(args.contains(&denied.to_string()), "{role}: {denied}");
+            }
+        }
+        let orchestrator = claude.launch("replan", "", "m", "orchestrator", None, HERE);
+        let record = "Write(//state/.gdd/changes/*/change.json)";
+        for denied in ["Edit(//state/.gdd/log.jsonl)", record] {
+            assert!(orchestrator.contains(&denied.to_string()), "{denied}");
+        }
+        // Every Claude Code role has its change's state folder among its working folders.
+        for role in ROLES {
+            let args = claude.launch("x", "", "m", role, None, HERE);
+            assert!(has(&args, "--add-dir", "/state/.gdd/changes/c1"), "{role}");
+        }
+        // A Codex Builder or Orchestrator may write its own change's state folder, never the
+        // log; the Reviewer, nothing.
+        let codex = of("codex");
+        let other = Place {
+            state: "/s {change}",
+            change: "c2",
+        };
+        let own = "/s {change}/.gdd/changes/c2";
+        let granted = |role: &str| {
+            let args = codex.launch("x", "", "m", role, None, other);
+            let pairs = args.windows(2).filter(|pair| pair[0] == "--add-dir");
+            pairs.map(|pair| pair[1].clone()).collect::<Vec<String>>()
+        };
+        for role in ["builder-build", "builder-test", "orchestrator"] {
+            assert_eq!(granted(role), [own], "{role}");
+        }
+        assert!(granted("reviewer").is_empty());
     }
 
     #[test]
     fn the_effort_of_a_model_goes_after_its_role_when_the_sheet_takes_it() {
-        let codex = of("codex").launch("review", "w", "m", "reviewer", Some("high"));
+        let codex = of("codex").launch("review", "w", "m", "reviewer", Some("high"), HERE);
         let expected = [
             "exec",
             "--sandbox",
@@ -364,13 +435,14 @@ mod tests {
             "--json",
         ];
         assert_eq!(codex, expected);
-        let unnamed = of("codex").launch("review", "w", "m", "human", Some("{model}"));
+        let unnamed = of("codex").launch("review", "w", "m", "human", Some("{model}"), HERE);
         assert_eq!(unnamed[1..3], ["-c", "model_reasoning_effort={model}"]);
         // A sheet without effort arguments takes no effort.
         let claude = of("claude");
-        let with = claude.launch("build", "w", "m", "reviewer", Some("high"));
-        assert_eq!(with, claude.launch("build", "w", "m", "reviewer", None));
-        let opencode = of("opencode").launch("build", "w", "m", "reviewer", Some("high"));
+        let with = claude.launch("build", "w", "m", "reviewer", Some("high"), HERE);
+        let without = claude.launch("build", "w", "m", "reviewer", None, HERE);
+        assert_eq!(with, without);
+        let opencode = of("opencode").launch("build", "w", "m", "reviewer", Some("high"), HERE);
         assert_eq!(opencode.len(), 8);
     }
 

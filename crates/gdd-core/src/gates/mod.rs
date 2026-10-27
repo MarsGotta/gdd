@@ -425,11 +425,17 @@ pub(crate) fn tenths(seconds: f64) -> f64 {
 }
 
 /// Saves `report`, of a run on change `id`, next to the record of the change under the state root
-/// `state` (see [`Gate::report_path`]), as indented JSON, and logs the run.
+/// `state` (see [`keep`]), and logs the run.
 pub fn save(state: &Path, id: &str, report: &Report) -> Result<(), String> {
-    let saved = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
-    change::write(state, &report.gate.report_path(id), &format!("{saved}\n"))?;
+    keep(state, id, report)?;
     change::logged(state, &report.log_entry(id))
+}
+
+/// Saves `report`, of a run on change `id`, next to the record of the change under the state root
+/// `state` (see [`Gate::report_path`]), as indented JSON; the log is left as it is.
+pub fn keep(state: &Path, id: &str, report: &Report) -> Result<(), String> {
+    let saved = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
+    change::write(state, &report.gate.report_path(id), &format!("{saved}\n"))
 }
 
 /// Runs `gate` on change `id`, whose record is `record`, for `role`. The change is classified
@@ -1325,6 +1331,11 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(line.text("gate"), "G2");
         assert_eq!(line.text("agent"), "checks");
         assert_eq!(line.text("result"), "ok");
+        // Kept, it is saved and the log stays as it was.
+        fs::remove_file(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        keep(root, "c1", &report).unwrap();
+        let saved = fs::read_to_string(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        assert_eq!(saved, format!("{pretty}\n"));
         let report = project.run(Gate::G3, "builder");
         fs::create_dir_all(root.join(".gdd/changes/c1/g3.json")).unwrap();
         let err = save(root, "c1", &report).unwrap_err();

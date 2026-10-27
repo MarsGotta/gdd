@@ -15,32 +15,38 @@
 //!    observed: closed.
 //!
 //! The recipe decides which steps run, in what order, and when the change stops; the steps that
-//! read the configuration of the project are [`Steps`].
+//! read the configuration of the project are [`Steps`]. Its agents and gates run in the
+//! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
+//! main branch and takes the merge: the worktree is kept while the change is parked or waits at
+//! G4, and goes when the change closes or is rejected.
 //!
-//! Around every agent call, its own checks: no agent changes GDD state (see [`State`]) or leaves
-//! links where gdd writes next (see [`links_left`]), and the Reviewer only reads: the working
-//! tree outside `.gdd/` is the same after its call, down to the kind of each path, its
-//! permissions and where its links point (see [`Tree`]). Either parks the change.
+//! Around every agent call, its own checks: no agent changes the GDD state of its change or the
+//! shared one, links included (see [`State`]), or leaves a state folder in its worktree (see
+//! [`state_left`]), and the Reviewer only reads: the working tree outside `.gdd/` is the same
+//! after its call, down to the kind of each path, its permissions and where its links point (see
+//! [`Tree`]). Either parks the change.
 
 pub mod state;
+pub mod worktree;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::str::FromStr;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::agents::files;
+use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::Model;
 use crate::change::{self, Note};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
+use crate::repo::merge;
 use crate::{inbox, log};
 
 /// The arguments of a round of build mode.
@@ -68,9 +74,26 @@ const IN_PRODUCTION: &str = "in-production";
 /// Local state of the tool, which the Reviewer's read-only check leaves out.
 const LOCAL_STATE: &str = ".gdd/";
 
+/// The folder of the local state of the tool, which only the state root holds.
+const STATE_FOLDER: &str = ".gdd";
+
 /// The fields of the record of a change the gdd commands an agent may run write: its notes and
 /// the paths the scope check accepted.
 const AGENT_FIELDS: [&str; 2] = ["inbox", "out_of_scope"];
+
+/// The files of GDD state gdd keeps for every change: the approvals of G0 and of the red zones,
+/// the self-test, the log and the sessions of the calls.
+const SHARED: [&str; 5] = [
+    approve::G0_PATH,
+    approve::ZONES_PATH,
+    approve::SELFTEST_PATH,
+    log::PATH,
+    invoke::SESSIONS,
+];
+
+/// The folders of GDD state an agent call is checked on at any depth, whatever the change: the
+/// harness binary and the agents' programs, and the files the self-test sets aside.
+const HARNESS: [&str; 2] = [".gdd/bin", ".gdd/selftest"];
 
 /// What prepare decided for a change, as the recipe reads it: from what `gdd prepare` printed,
 /// or from the record of a prepared change. Every field must be there: a missing one would skip
@@ -144,11 +167,16 @@ pub trait Steps {
 /// What the recipe reads from the project itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Project<'a> {
-    /// The project root.
+    /// The project root, where gdd runs: the recipe only runs from the main checkout.
     pub root: &'a Path,
     /// The state root, whose `.gdd/` holds the record of the change (see
     /// [`crate::state::root`]): the project root itself, but in a linked worktree.
     pub state: &'a Path,
+    /// Where the worktree of the change goes (see [`worktree::path`]).
+    pub worktree: &'a Path,
+    /// The project root in that worktree (see [`worktree::project_root`]): the project root of
+    /// its agents and its steps.
+    pub work: &'a Path,
     /// The branch changes merge into.
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
@@ -222,14 +250,14 @@ enum Ended {
     Closed,
 }
 
-/// `gdd launch`: checks out the branch of change `id` (uncommitted work in tracked files is
-/// refused, unless it is on that branch: then it is the work of an earlier run, committed
-/// first), prepares it and runs the recipe. Only from the main checkout (see
-/// [`from_main_checkout`]).
+/// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
+/// worktree of change `id` or reuses it (see [`worktree::open`]), prepares the change and runs
+/// the recipe there. Only from the main checkout (see [`from_main_checkout`]).
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
     change::read_record(project.state, id)?;
-    to_branch(project.root, id)?;
+    to_main(project, id)?;
+    worktree::open(project.root, project.worktree, id)?;
     state::clear(project.state, id)?;
     let decided = steps.prepare()?;
     let mut run = Run {
@@ -239,45 +267,49 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
         decided,
     };
     let ended = run.launched();
-    finish(project.state, id, ended)
+    finish(project, id, ended)
 }
 
 /// `Ok` when `gdd <command>` runs in a project whose state is its own; else, before anything
 /// is read or done, why not: a linked worktree shares the state of the main checkout, and the
-/// recipe does not run there until parallel launches do.
+/// recipe makes and removes the worktrees of the changes from there.
 fn from_main_checkout(project: &Project, command: &str) -> Result<(), String> {
     if project.root == project.state {
         return Ok(());
     }
     Err(format!(
-        "run gdd {command} from the main checkout ({}): parallel launches in worktrees are not \
-         here yet",
+        "run gdd {command} from the main checkout ({}): the worktrees of the changes are made \
+         and removed from there",
         project.state.display()
     ))
 }
 
-/// Checks out the branch of change `id` of the project at `root`; see [`launch`].
-fn to_branch(root: &Path, id: &str) -> Result<(), String> {
-    let git = Git::new(root);
-    let branch = change::branch(id);
+/// Leaves the main checkout of `project` on the main branch before change `id` runs in its
+/// worktree. On the branch of the change, its work there is the work of an earlier run,
+/// committed first, without the state (see [`Git::commit_work`]); on any other branch,
+/// uncommitted changes in tracked files are refused.
+fn to_main(project: &Project, id: &str) -> Result<(), String> {
+    let git = Git::new(project.root);
     let said = |e: git::Error| e.to_string();
-    if git.has_tracked_changes().map_err(said)? {
-        if git.current_branch().map_err(said)? != branch {
-            return Err(UNCOMMITTED.to_string());
+    if git.current_branch().map_err(said)? == change::branch(id) {
+        if git.has_work().map_err(said)? {
+            let message = format!("gdd({id}): work of the earlier run, before relaunch");
+            git.commit_work(&message).map_err(said)?;
         }
-        let message = format!("gdd({id}): work of the earlier run, before relaunch");
-        git.commit_all(&message).map_err(said)?;
+    } else if git.has_tracked_changes().map_err(said)? {
+        return Err(UNCOMMITTED.to_string());
     }
-    git.checkout(&branch).map_err(said)
+    git.checkout(project.main).map_err(said)
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
 /// it, with `note` (which `polish` needs). Builders and Reviewers cannot answer. The answer
 /// resolves the request of G4 and the notes on promotions that failed. `ok` promotes the change
-/// (see [`ok_at_g4`]); `ko` rejects it, production untouched; `polish` checks out the branch of
-/// the change and runs a polish pass from the commit it is at (see [`polish_pass`]). A change
-/// that an earlier `ok` promoted takes only `ok`, which observes it; one whose promotion did not
-/// end parks, whatever the answer (see [`unsure`]). Only from the main checkout (see
+/// (see [`ok_at_g4`]); `ko` rejects it, production untouched; either way its worktree goes once
+/// it ends. `polish` runs a polish pass in its worktree from the commit it is at, made again from
+/// the branch of the change when it went away (see [`polish_pass`]). A change that an earlier
+/// `ok` promoted takes only `ok`, which observes it; one whose promotion did not end parks,
+/// whatever the answer (see [`unsure`]). Only from the main checkout (see
 /// [`from_main_checkout`]).
 pub fn resume(
     project: &Project,
@@ -317,7 +349,7 @@ pub fn resume(
     match answer {
         Answer::Ok => {
             answered(state_root, id, text, &record)?;
-            ok_at_g4(state_root, id, note, in_production, steps)
+            ok_at_g4(project, id, note, in_production, steps)
         }
         Answer::Ko => {
             answered(state_root, id, text, &record)?;
@@ -325,11 +357,11 @@ pub fn resume(
             steps.decide("G4", "ko", "human", note)?;
             saved_in_state(state_root, id, "rejected")?;
             let said = format!("Change {id} rejected at G4: production untouched.");
-            Ok(Said::Done(said))
+            without_worktree(project, said)
         }
         Answer::Polish => {
-            // First, so a checkout that fails leaves the change paused.
-            let start = to_polish(project.root, id)?;
+            // First, so a worktree that cannot be made leaves the change paused.
+            let start = to_polish(project, id)?;
             answered(state_root, id, text, &record)?;
             state::clear(state_root, id)?;
             polish_pass(project, id, note, &start, steps)
@@ -351,13 +383,11 @@ fn answered(root: &Path, id: &str, text: String, record: &Value) -> Result<(), S
     change::write(root, &path, &answered)
 }
 
-/// Checks out the branch of change `id` of the project at `root` for a polish pass: the commit
-/// it is at, where the pass starts.
-fn to_polish(root: &Path, id: &str) -> Result<String, String> {
-    let (git, branch) = (Git::new(root), change::branch(id));
-    let said = |e: git::Error| e.to_string();
-    git.checkout(&branch).map_err(said)?;
-    git.head().map_err(said)
+/// The worktree of change `id` of `project`, ready for a polish pass (see [`worktree::open`]):
+/// the commit it is at, where the pass starts.
+fn to_polish(project: &Project, id: &str) -> Result<String, String> {
+    worktree::open(project.root, project.worktree, id)?;
+    Git::new(project.work).head().map_err(|e| e.to_string())
 }
 
 /// The requests to the human that an answer to the G4 of change `id`, whose record is `record`,
@@ -372,18 +402,19 @@ fn g4_requests(id: &str, record: &Value) -> Vec<String> {
     requests
 }
 
-/// OK at G4 of change `id`, under the state root `root`, by the human with `note`: the decision
-/// recorded, the change promoted unless it is `in_production` already (an earlier OK promoted it
-/// and stopped before observing it: never twice), then observed. Until the promotion passed, it
-/// stays paused at G4 unless production may have it (see [`not_promoted`]); a failed
-/// observation rolls it back, as it does without G4.
+/// OK at G4 of change `id` of `project`, by the human with `note`: the decision recorded, the
+/// change promoted unless it is `in_production` already (an earlier OK promoted it and stopped
+/// before observing it: never twice), then observed. Until the promotion passed, it stays paused
+/// at G4 unless production may have it (see [`not_promoted`]); a failed observation rolls it
+/// back, as it does without G4.
 fn ok_at_g4(
-    root: &Path,
+    project: &Project,
     id: &str,
     note: &str,
     in_production: bool,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
+    let root = project.state;
     let mut promotion = steps.decide("G4", "ok", "human", note);
     if promotion.is_ok() && !in_production {
         promotion = steps.release("promote");
@@ -392,7 +423,7 @@ fn ok_at_g4(
         return not_promoted(root, id, &failure);
     }
     state::clear(root, id)?;
-    finish(root, id, observed(steps))
+    finish(project, id, observed(steps))
 }
 
 /// What the human reads when the OK at G4 of change `id`, under the state root `root`, failed
@@ -468,7 +499,7 @@ fn polish_pass(
         decided: decided_of(state_root, id)?,
     };
     let ended = run.polished();
-    finish(state_root, id, ended)
+    finish(project, id, ended)
 }
 
 /// Keeps `note`, the human's notes at G4, in the record of change `id` under the state root
@@ -538,16 +569,18 @@ fn g4_request(id: &str) -> String {
     )
 }
 
-/// What the person who ran the recipe of change `id`, whose state root is `root`, reads, from
-/// how it ended. A pause at G4 leaves the request in the Decision Inbox and the run state paused;
-/// a stop that parks parks the change (see [`change::park`]).
-fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, String> {
+/// What the person who ran the recipe of change `id` of `project` reads, from how it ended. A
+/// closed change loses its worktree (see [`without_worktree`]); a pause at G4 leaves the request
+/// in the Decision Inbox and the run state paused; a stop that parks parks the change (see
+/// [`change::park`]).
+fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Said, String> {
+    let root = project.state;
     let inbox = format!("Message: {}", change::inbox_path(id));
     match ended {
         Ok(Ended::Closed) => {
             let tokens = format!("Tokens: gdd report --change {id}");
             let said = format!("Change {id} closed. {inbox} · {tokens}");
-            Ok(Said::Done(said))
+            without_worktree(project, said)
         }
         Ok(Ended::Paused) => {
             pause_at_g4(root, id, None)?;
@@ -556,6 +589,16 @@ fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, Str
         }
         Err(Stop::Park(reason)) => change::park(root, id, &reason).map(Said::Parked),
         Err(Stop::Fail(e)) => Err(e),
+    }
+}
+
+/// What the human reads of a change of `project` that ended (`said`), once its worktree is
+/// removed (see [`worktree::remove`]). When it cannot be, the change stays as it ended, and the
+/// human reads why too.
+fn without_worktree(project: &Project, said: String) -> Result<Said, String> {
+    match worktree::remove(project.root, project.worktree) {
+        Ok(()) => Ok(Said::Done(said)),
+        Err(e) => Err(format!("{said}\nIts worktree stays: {e}")),
     }
 }
 
@@ -628,32 +671,30 @@ impl<S: Steps> Run<'_, S> {
         self.integrate(true)
     }
 
-    /// Calls `who` with `args`, then checks what it did: GDD state it changed goes back as it was,
-    /// what it left in the folder of the change that gdd would write through goes (see
-    /// [`links_left`]), and either parks the change, as a Reviewer that changed the working tree
-    /// does.
+    /// Calls `who` with `args`, then checks what it did: GDD state it changed goes back as it was
+    /// (see [`State`]), and a state folder it left in the worktree goes (see [`state_left`]);
+    /// either parks the change, as a Reviewer that changed the working tree does.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
-        let Project { root, state, .. } = *self.project;
+        let Project { state, work, .. } = *self.project;
         let call = Call {
             who,
             model: self.decided.model(who),
             args,
         };
-        let before = State::of(state, self.id)?;
+        let before = State::of(state, self.id, who)?;
         let tree = match who {
-            Who::Reviewer => Some(working_tree(root)?),
+            Who::Reviewer => Some(working_tree(work)?),
             Who::BuilderTest | Who::BuilderBuild | Who::Orchestrator => None,
         };
         let called = self.steps.agent(&call);
-        // The state first: it leaves real folders on the way to the folder of the change.
         let mut changed = before.put_back(state)?;
-        changed.extend(links_left(state, self.id)?);
+        changed.extend(state_left(work, state)?);
         if !changed.is_empty() {
             let files = changed.join(", ");
             return Err(Stop::Park(format!("the {who} changed GDD state: {files}")));
         }
         if let Some(before) = tree {
-            let changed = differ(&before, &working_tree(root)?);
+            let changed = differ(&before, &working_tree(work)?);
             if !changed.is_empty() {
                 let paths = changed.join(", ");
                 let why = format!("the Reviewer changed {paths}: Reviewers only read");
@@ -714,7 +755,8 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// G3, the review, the merge and pre; then the pause at G4, or production. A polish pass
-    /// (`polishing`) with nothing new for the main branch skips the merge.
+    /// (`polishing`) with nothing new for the main branch skips the merge. The change merges in
+    /// the main checkout: one that cannot take it parks the change (see [`merge::not_ready`]).
     fn integrate(&mut self, polishing: bool) -> Result<Ended, Stop> {
         self.g3()?;
         if self.decided.reviewer {
@@ -722,11 +764,12 @@ impl<S: Steps> Run<'_, S> {
         }
         let note = "automatic chain and Reviewer";
         self.steps.decide("G3", "ok", "machines", note)?;
-        let Project { root, main, .. } = *self.project;
+        let Project { work, main, .. } = *self.project;
         let said = |e: git::Error| Stop::Fail(e.to_string());
-        if polishing && nothing_new(root, self.id, main).map_err(said)? {
-            Git::new(root).checkout(main).map_err(said)?;
-        } else {
+        if !(polishing && nothing_new(work, self.id, main).map_err(said)?) {
+            if let Some(why) = merge::not_ready(self.project.root, main).map_err(said)? {
+                return Err(Stop::Park(why));
+            }
             self.steps.merge()?;
         }
         self.steps.release("pre")?;
@@ -771,54 +814,95 @@ impl<S: Steps> Run<'_, S> {
     }
 }
 
-/// What a file of GDD state is, which says how it may change during an agent call.
+/// What a file of GDD state is during an agent call, which says how it may change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     /// The record of the change: only in [`AGENT_FIELDS`].
     Record,
-    /// An approval of G0 or of the red zones: never.
-    Approval,
-    /// The log: only by lines added at its end.
+    /// The log, and the sessions of the calls: only by lines added at their end.
     Log,
+    /// An output of the role that is called, which gdd keeps for each call: it may be added,
+    /// never changed.
+    Output,
+    /// The report of the G2 a Builder runs: only into a report of G2.
+    Report,
+    /// The answer of the Reviewer or of the Orchestrator: anything, as long as it stays a file
+    /// of its own.
+    Answer,
+    /// Anything else, from the approvals to the snapshots Path Guard judges from: never.
+    Kept,
 }
 
-/// GDD state as it was before an agent call: the record of the change, the approvals of G0 and
-/// of the red zones, and the log, each with its bytes (`None` when it did not exist), read as
-/// files of their own (see [`files::read`]). Agents change it only through gdd.
-struct State {
-    files: Vec<(Kind, String, Option<Vec<u8>>)>,
-}
-
-impl State {
-    /// The GDD state of change `id`, under the state root `root`, as it is now.
-    fn of(root: &Path, id: &str) -> Result<State, String> {
-        let paths = [
-            (Kind::Record, change::record_path(id)),
-            (Kind::Approval, approve::G0_PATH.to_string()),
-            (Kind::Approval, approve::ZONES_PATH.to_string()),
-            (Kind::Log, log::PATH.to_string()),
-        ];
-        let mut state = State { files: Vec::new() };
-        for (kind, path) in paths {
-            let unread = |e: io::Error| format!("cannot read {path}: {e}");
-            let bytes = files::read(root, &path).map_err(unread)?;
-            state.files.push((kind, path, bytes));
+impl Kind {
+    /// The kind of the file `path` of GDD state during a call of `who` on change `id`.
+    fn of(path: &str, id: &str, who: Who) -> Kind {
+        let own = format!(".gdd/changes/{id}/");
+        let Some(inside) = path.strip_prefix(&own) else {
+            let logs = [log::PATH, invoke::SESSIONS];
+            return if logs.contains(&path) {
+                Kind::Log
+            } else {
+                Kind::Kept
+            };
+        };
+        let builds = matches!(who, Who::BuilderTest | Who::BuilderBuild);
+        let output = inside.strip_prefix(&format!("outputs/{}-", who.role()));
+        if path == change::record_path(id) {
+            Kind::Record
+        } else if builds && path == Gate::G2.report_path(id) {
+            Kind::Report
+        } else if who.answer(id).as_deref() == Some(path) {
+            Kind::Answer
+        } else if output.is_some_and(|number| !number.contains('/')) {
+            Kind::Output
+        } else {
+            Kind::Kept
         }
-        Ok(state)
+    }
+}
+
+/// GDD state as it was before a call of `who` on change `id`: every file of it (see
+/// [`state_files`]) with its bytes and its permissions, read as a file of its own (see
+/// [`files::found`]). Agents change it only through gdd.
+struct State<'a> {
+    id: &'a str,
+    who: Who,
+    files: BTreeMap<String, Found>,
+}
+
+impl<'a> State<'a> {
+    /// The GDD state of a call of `who` on change `id`, under the state root `root`, as it is
+    /// now. What is not a file of its own cannot be read.
+    fn of(root: &Path, id: &'a str, who: Who) -> Result<State<'a>, String> {
+        let mut files = BTreeMap::new();
+        for path in state_files(root, id)? {
+            let unread = |e: io::Error| format!("cannot read {path}: {e}");
+            if let Some(found) = files::found(root, &path).map_err(unread)? {
+                files.insert(path, found);
+            }
+        }
+        Ok(State { id, who, files })
     }
 
-    /// Puts back as it was each file of this state that changed in a way its kind does not
-    /// allow, or that is no longer a file of its own: those files, in order. Every file is
-    /// checked and put back before a file that could not be put back stops the recipe.
+    /// Puts back as it was, with its permissions, each file of this state whose bytes changed in
+    /// a way its kind does not allow, or that is no longer a file of its own, and removes what was
+    /// not there: their paths, sorted. Every file is checked and put back before a file that
+    /// could not be put back stops the recipe.
     fn put_back(&self, root: &Path) -> Result<Vec<String>, String> {
+        let after = state_files(root, self.id)?;
+        // Sorted, a folder that is no longer one goes before what was in it comes back.
+        let paths: BTreeSet<&String> = self.files.keys().chain(&after).collect();
         let (mut changed, mut stuck) = (Vec::new(), Vec::new());
-        for (kind, path, before) in &self.files {
+        for path in paths {
+            let kind = Kind::of(path, self.id, self.who);
+            let found = self.files.get(path);
+            let before = found.map(|file| file.bytes.as_slice());
             let now = files::read(root, path).ok();
-            if now.is_some_and(|now| allowed(*kind, before.as_deref(), now.as_deref())) {
+            if now.is_some_and(|now| allowed(kind, before, now.as_deref())) {
                 continue;
             }
-            let restored = match before {
-                Some(bytes) => files::replace(root, path, bytes),
+            let restored = match found {
+                Some(file) => files::put_back(root, path, file),
                 None => files::remove(root, path),
             };
             if let Err(e) = restored {
@@ -834,6 +918,54 @@ impl State {
     }
 }
 
+/// The files of GDD state an agent call is checked on, under the state root `root`, as paths
+/// from it: the ones gdd keeps for every change ([`SHARED`]), whatever is at their path, the
+/// others right in `.gdd/`, and every one in the folders of [`HARNESS`] and in the folder of
+/// change `id`, at any depth. The other folders of `.gdd/`, other changes' or ones gdd decides
+/// nothing from, are left out. Links are never followed: one where a folder was is a file here.
+fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
+    let mut paths = BTreeSet::from(SHARED.map(String::from));
+    listed(root, STATE_FOLDER, false, &mut paths)?;
+    let own = format!(".gdd/changes/{id}");
+    for folder in HARNESS.into_iter().chain([own.as_str()]) {
+        listed(root, folder, true, &mut paths)?;
+    }
+    Ok(paths)
+}
+
+/// Adds to `paths` what is in the folder `folder` of the state root `root` and is not a folder,
+/// and, `deep`, what is in its folders too. A `folder` that is not one is added itself; nothing
+/// there, or a file on the way to it, adds nothing.
+fn listed(
+    root: &Path,
+    folder: &str,
+    deep: bool,
+    paths: &mut BTreeSet<String>,
+) -> Result<(), String> {
+    let unread = |e: io::Error| format!("cannot read {folder}: {e}");
+    match fs::symlink_metadata(root.join(folder)) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => {
+            paths.insert(folder.to_string());
+            return Ok(());
+        }
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            return Ok(());
+        }
+        Err(e) => return Err(unread(e)),
+    }
+    for entry in fs::read_dir(root.join(folder)).map_err(unread)? {
+        let entry = entry.map_err(unread)?;
+        let path = format!("{folder}/{}", entry.file_name().to_string_lossy());
+        if !entry.file_type().map_err(unread)?.is_dir() {
+            paths.insert(path);
+        } else if deep {
+            listed(root, &path, deep, paths)?;
+        }
+    }
+    Ok(())
+}
+
 /// Whether a file of GDD state of `kind` may go from `before` to `now` during an agent call
 /// (`None`: no file).
 fn allowed(kind: Kind, before: Option<&[u8]>, now: Option<&[u8]>) -> bool {
@@ -842,12 +974,22 @@ fn allowed(kind: Kind, before: Option<&[u8]>, now: Option<&[u8]>) -> bool {
             (Some(was), Some(is)) => was == is,
             _ => before == now,
         },
-        Kind::Approval => before == now,
         Kind::Log => {
             let (before, now) = (before.unwrap_or_default(), now.unwrap_or_default());
             now.starts_with(before)
         }
+        Kind::Output => before.is_none() || before == now,
+        Kind::Report => before == now || now.is_some_and(g2_report),
+        Kind::Answer => true,
+        Kind::Kept => before == now,
     }
+}
+
+/// Whether `bytes` are a report of G2, a JSON object of that gate, as `gdd g2` saves it.
+fn g2_report(bytes: &[u8]) -> bool {
+    let report = serde_json::from_slice::<Map<String, Value>>(bytes);
+    let gate = Value::from(Gate::G2.to_string());
+    report.is_ok_and(|report| report.get("gate") == Some(&gate))
 }
 
 /// The fields of the record `bytes` that no agent may change, if it is a JSON object.
@@ -859,36 +1001,23 @@ fn own_fields(bytes: &[u8]) -> Option<Map<String, Value>> {
     Some(record)
 }
 
-/// What an agent left in the folder of change `id`, under the state root `root`, that gdd would
-/// write through: links, files with other names, and anything else that is neither a file nor a
-/// folder. They go, never what they point to; their paths, sorted.
-fn links_left(root: &Path, id: &str) -> Result<Vec<String>, String> {
-    let folder = format!(".gdd/changes/{id}");
-    let mut left = Vec::new();
-    let removed = remove_links(root, &root.join(&folder), &mut left);
-    removed.map_err(|e| format!("cannot read {folder}: {e}"))?;
-    left.sort();
-    Ok(left)
-}
-
-/// Removes what is at `path` of the project at `root`, or inside it when it is a folder, that is
-/// neither a folder nor a file of its own, without following links: the paths go to `left`.
-fn remove_links(root: &Path, path: &Path, left: &mut Vec<String>) -> io::Result<()> {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    if meta.is_dir() {
-        for inside in fs::read_dir(path)? {
-            remove_links(root, &inside?.path(), left)?;
-        }
-    } else if !meta.is_file() || meta.nlink() > 1 {
-        fs::remove_file(path)?;
-        let shown = path.strip_prefix(root).unwrap_or(path);
-        left.push(shown.display().to_string());
+/// What an agent left in the worktree `work` that only the state root `state` holds: a state
+/// folder, `.gdd`, which goes, never what a link there points to. Its path, when there was one.
+/// Nothing is looked at when the worktree is the state root itself.
+fn state_left(work: &Path, state: &Path) -> Result<Vec<String>, String> {
+    let path = work.join(STATE_FOLDER);
+    let shown = path.display();
+    if work == state {
+        return Ok(Vec::new());
     }
-    Ok(())
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot look at {shown}: {e}")),
+    }
+    let removed = files::remove(work, STATE_FOLDER);
+    removed.map_err(|e| format!("cannot remove {shown}: {e}"))?;
+    Ok(vec![shown.to_string()])
 }
 
 /// The working tree of a project at one moment: each path, and what is there (see [`entry`]).
@@ -952,6 +1081,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::fs;
     use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
 
     /// A git repository with one commit, as a folder.
     fn repo_folder() -> Folder {
@@ -1120,11 +1250,14 @@ mod tests {
         }
     }
 
-    /// Runs the recipe of a launch on change `c1`, once prepared, with `replans` replans.
+    /// Runs the recipe of a launch on change `c1`, once prepared, with `replans` replans, all in
+    /// one folder: the main checkout is the worktree of the change.
     fn launched(steps: &mut Played, replans: u32) -> Result<Ended, Stop> {
         let project = Project {
             root: steps.root,
             state: steps.root,
+            worktree: steps.root,
+            work: steps.root,
             main: "main",
             replans,
         };
@@ -1447,8 +1580,8 @@ mod tests {
             change::write(root, approve::ZONES_PATH, "ko").unwrap();
             change::write(root, log::PATH, "{}\n").unwrap();
         });
-        let why = "the Builder in test mode changed GDD state: .gdd/g0.json, .gdd/zones.json, \
-                   .gdd/log.jsonl";
+        let why = "the Builder in test mode changed GDD state: .gdd/g0.json, .gdd/log.jsonl, \
+                   .gdd/zones.json";
         assert_eq!(ended, park(why));
         assert!(!folder.0.join(approve::G0_PATH).exists());
         assert_eq!(text(&folder, approve::ZONES_PATH), "ok");
@@ -1467,7 +1600,82 @@ mod tests {
         });
         assert!(matches!(ended, Err(Stop::Park(_))), "{ended:?}");
         assert_eq!(text(&folder, &record), RECORD);
+        // A file where the folders of the changes were goes before the record comes back.
+        let folder = with_state();
+        let ended = acting(&folder, Who::BuilderBuild, |root| {
+            fs::remove_dir_all(root.join(".gdd/changes")).unwrap();
+            change::write(root, ".gdd/changes", "x").unwrap();
+        });
+        let changed = format!(".gdd/changes, {record}");
+        let why = format!("the Builder in build mode changed GDD state: {changed}");
+        assert_eq!(ended, park(&why));
+        assert_eq!(text(&folder, &record), RECORD);
     }
+
+    #[test]
+    fn every_file_of_the_change_and_of_the_shared_state_is_checked() {
+        let folder = with_state();
+        folder.write(&change::build_snapshot_path("c1"), "{}");
+        folder.write(".gdd/changes/c1/review.md", "VERDICT: KO\n");
+        folder.write(".gdd/changes/c1/outputs/reviewer-1.md", "VERDICT: KO\n");
+        folder.write(".gdd/imported_requests.json", "[]");
+        let ended = acting(&folder, Who::BuilderBuild, |root| {
+            // What Path Guard judges from, a snapshot it would judge from, an answer and an
+            // output of another role, and shared state with no name of its own here.
+            let changed = [
+                change::build_snapshot_path("c1"),
+                change::snapshot_path("c1"),
+                verdict::review_path("c1"),
+                ".gdd/changes/c1/outputs/reviewer-1.md".to_string(),
+                ".gdd/changes/c1/outputs/reviewer-2.md".to_string(),
+                ".gdd/imported_requests.json".to_string(),
+            ];
+            for path in changed {
+                change::write(root, &path, "{\"files\": {}}").unwrap();
+            }
+        });
+        let why = "the Builder in build mode changed GDD state: .gdd/changes/c1/outputs/\
+                   reviewer-1.md, .gdd/changes/c1/outputs/reviewer-2.md, .gdd/changes/c1/review.md, \
+                   .gdd/changes/c1/snapshot-build.json, .gdd/changes/c1/snapshot.json, \
+                   .gdd/imported_requests.json";
+        assert_eq!(ended, park(why));
+        assert_eq!(text(&folder, &change::build_snapshot_path("c1")), "{}");
+        assert!(!folder.0.join(change::snapshot_path("c1")).exists());
+        assert_eq!(text(&folder, ".gdd/changes/c1/review.md"), "VERDICT: KO\n");
+        assert_eq!(text(&folder, ".gdd/imported_requests.json"), "[]");
+    }
+
+    #[test]
+    fn the_harness_and_what_the_selftest_set_aside_come_back_as_they_were() {
+        let folder = with_state();
+        let (harness, program) = (".gdd/bin/gdd-rust", ".gdd/bin/agents/codex");
+        let kept = ".gdd/selftest/kept/tests/failing.txt";
+        for path in [harness, program, kept] {
+            folder.write(path, "mine");
+        }
+        let executable = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(folder.0.join(harness), executable).unwrap();
+        let ended = acting(&folder, Who::BuilderBuild, |root| {
+            change::write(root, ".gdd/bin/gdd-rust", "the Builder's own judge").unwrap();
+            fs::remove_dir_all(root.join(".gdd/bin/agents")).unwrap();
+            change::write(root, ".gdd/bin/new", "x").unwrap();
+            change::write(root, ".gdd/selftest/kept/tests/failing.txt", "x").unwrap();
+        });
+        let why = format!(
+            "the Builder in build mode changed GDD state: .gdd/bin/agents/codex, \
+             .gdd/bin/gdd-rust, .gdd/bin/new, {kept}"
+        );
+        assert_eq!(ended, park(&why));
+        for path in [harness, program, kept] {
+            assert_eq!(text(&folder, path), "mine", "{path}");
+        }
+        assert!(!folder.0.join(".gdd/bin/new").exists());
+        let meta = fs::metadata(folder.0.join(harness)).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+    }
+
+    /// A report of G2, as `gdd g2` saves it.
+    const G2_REPORT: &str = "{\"ok\": true, \"gate\": \"G2\"}\n";
 
     #[test]
     fn agents_may_change_gdd_state_through_gdd() {
@@ -1486,12 +1694,27 @@ mod tests {
             let scoped = change::with_out_of_scope(&noted, &paths).unwrap();
             change::write(root, &path, &scoped.unwrap()).unwrap();
             log::append(root, "{\"change\": \"c1\", \"role\": \"machine\"}").unwrap();
+            // Its G2, what gdd keeps of its call, and what is neither its change's nor shared.
+            change::write(root, ".gdd/changes/c1/g2.json", G2_REPORT).unwrap();
+            change::write(root, ".gdd/changes/c1/outputs/builder-build-1.md", "done").unwrap();
+            change::write(root, invoke::SESSIONS, "s-1\n").unwrap();
+            change::write(root, ".gdd/changes/c2/change.json", "{}").unwrap();
+            change::write(root, ".gdd/fake/calls", "builder-build\n").unwrap();
         });
         assert_eq!(ended, Ok(Ended::Closed));
         assert!(text(&folder, &change::record_path("c1")).contains("kept it"));
         let log = text(&folder, log::PATH);
         let appended = log.starts_with(LOG_LINE) && log.contains("machine");
         assert!(appended, "{log}");
+        assert_eq!(text(&folder, ".gdd/changes/c1/g2.json"), G2_REPORT);
+        // The answer of each role is its own.
+        let folder = with_state();
+        let mut steps = played(&folder.0);
+        steps.decided.reviewer = false;
+        steps.g2 = VecDeque::from([false, false, false]);
+        steps.replan = "NEXT: test";
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        assert_eq!(text(&folder, &verdict::replan_path("c1")), "NEXT: test\n");
         // Without a record or a log before the call, nothing counts but what the call wrote.
         let folder = repo_folder();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
@@ -1549,8 +1772,8 @@ mod tests {
                 fs::create_dir(root.join(path)).unwrap();
             }
         });
-        let why = "the Builder in test mode changed GDD state: .gdd/g0.json, .gdd/zones.json, \
-                   .gdd/log.jsonl";
+        let why = "the Builder in test mode changed GDD state: .gdd/g0.json, .gdd/log.jsonl, \
+                   .gdd/zones.json";
         assert_eq!(ended, park(why));
         assert!(!folder.0.join(approve::G0_PATH).exists());
         assert_eq!(text(&folder, approve::ZONES_PATH), "ok");
@@ -1573,14 +1796,14 @@ mod tests {
             // A second name of the log.
             fs::hard_link(root.join(log::PATH), root.join("log.jsonl")).unwrap();
         });
-        let changed = [record.as_str(), approve::ZONES_PATH, log::PATH].join(", ");
+        let changed = [record.as_str(), log::PATH, approve::ZONES_PATH].join(", ");
         let why = format!("the Builder in build mode changed GDD state: {changed}");
         assert_eq!(ended, park(&why));
         assert_eq!(own(&folder, &record), RECORD);
         assert_eq!(own(&folder, approve::ZONES_PATH), "ok");
         assert_eq!(own(&folder, log::PATH), LOG_LINE);
         assert_eq!(text(&folder, "zones.json"), "ko");
-        // A folder on the way that links elsewhere.
+        // A folder on the way that links elsewhere: the link goes, not what it points to.
         let folder = with_state();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
             let c1 = root.join(".gdd/changes/c1");
@@ -1588,14 +1811,15 @@ mod tests {
             fs::rename(&c1, root.join("elsewhere/c1")).unwrap();
             symlink(root.join("elsewhere/c1"), &c1).unwrap();
         });
-        let why = format!("the Builder in build mode changed GDD state: {record}");
+        let changed = format!(".gdd/changes/c1, {record}");
+        let why = format!("the Builder in build mode changed GDD state: {changed}");
         assert_eq!(ended, park(&why));
         assert_eq!(own(&folder, &record), RECORD);
         assert_eq!(text(&folder, "elsewhere/c1/change.json"), RECORD);
     }
 
     #[test]
-    fn links_left_where_gdd_writes_next_go_and_park_the_change() {
+    fn links_and_files_left_in_the_folder_of_the_change_go_and_park_it() {
         let folder = with_state();
         folder.write("target.json", "outside");
         let ended = acting(&folder, Who::BuilderBuild, |root| {
@@ -1607,27 +1831,113 @@ mod tests {
             change::write(root, ".gdd/changes/c1/notes.md", "mine\n").unwrap();
         });
         let why = "the Builder in build mode changed GDD state: .gdd/changes/c1/g2.json, \
-                   .gdd/changes/c1/outputs/src, .gdd/changes/c1/outputs/x.md";
+                   .gdd/changes/c1/notes.md, .gdd/changes/c1/outputs/src, \
+                   .gdd/changes/c1/outputs/x.md";
         assert_eq!(ended, park(why));
         let c1 = folder.0.join(".gdd/changes/c1");
-        for path in ["g2.json", "outputs/x.md", "outputs/src"] {
+        for path in ["g2.json", "notes.md", "outputs/x.md", "outputs/src"] {
             assert!(fs::symlink_metadata(c1.join(path)).is_err(), "{path}");
         }
         assert_eq!(text(&folder, "target.json"), "outside");
-        assert_eq!(text(&folder, ".gdd/changes/c1/notes.md"), "mine\n");
         assert_eq!(text(&folder, &change::record_path("c1")), RECORD);
     }
 
+    /// `paths`, and the files gdd keeps for every change.
+    fn with_shared(paths: &[&str]) -> BTreeSet<String> {
+        let mut all = BTreeSet::from(SHARED.map(String::from));
+        all.extend(paths.iter().map(|path| path.to_string()));
+        all
+    }
+
     #[test]
-    fn a_change_folder_that_cannot_be_looked_at_is_an_error_not_an_empty_one() {
+    fn the_state_of_a_call_is_what_is_right_in_its_folder_and_in_the_folder_of_its_change() {
         let folder = Folder::new();
-        assert_eq!(links_left(&folder.0, "c1"), Ok(Vec::new()));
-        folder.write(".gdd/changes/c1/notes.md", "mine\n");
-        assert_eq!(links_left(&folder.0, "c1"), Ok(Vec::new()));
+        assert_eq!(state_files(&folder.0, "c1"), Ok(with_shared(&[])));
+        for path in [
+            "imported_requests.json",
+            "changes/c1/notes.md",
+            "changes/c1/outputs/a/b.md",
+            "changes/c2/change.json",
+            "changes/c10/change.json",
+            "bin/gdd-rust",
+            "bin/agents/codex",
+            "selftest/kept/tests/failing.txt",
+            "fake/argv",
+            "pre/x",
+            "adoption/x",
+        ] {
+            folder.write(&format!(".gdd/{path}"), "x");
+        }
+        let listed = [
+            ".gdd/imported_requests.json",
+            ".gdd/changes/c1/notes.md",
+            ".gdd/changes/c1/outputs/a/b.md",
+            ".gdd/bin/gdd-rust",
+            ".gdd/bin/agents/codex",
+            ".gdd/selftest/kept/tests/failing.txt",
+        ];
+        assert_eq!(state_files(&folder.0, "c1"), Ok(with_shared(&listed)));
+        // A folder that cannot be looked at is an error, not an empty one.
         let long = "x".repeat(300);
-        let err = links_left(&folder.0, &long).unwrap_err();
+        let err = state_files(&folder.0, &long).unwrap_err();
         let start = format!("cannot read .gdd/changes/{long}: ");
         assert!(err.starts_with(&start), "{err}");
+        // What is no longer a folder is a file, and a file on the way to one lists nothing.
+        let folder = Folder::new();
+        folder.write(".gdd/changes/c1", "x");
+        let listed = with_shared(&[".gdd/changes/c1"]);
+        assert_eq!(state_files(&folder.0, "c1"), Ok(listed));
+        let folder = Folder::new();
+        folder.write(".gdd/changes", "x");
+        let listed = with_shared(&[".gdd/changes"]);
+        assert_eq!(state_files(&folder.0, "c1"), Ok(listed));
+    }
+
+    #[test]
+    fn what_a_call_may_write_depends_on_who_is_called() {
+        let of = |path: &str, who: Who| Kind::of(path, "c1", who);
+        let everyone = [
+            Who::BuilderTest,
+            Who::BuilderBuild,
+            Who::Reviewer,
+            Who::Orchestrator,
+        ];
+        for who in everyone {
+            assert_eq!(of(log::PATH, who), Kind::Log, "{who}");
+            assert_eq!(of(invoke::SESSIONS, who), Kind::Log, "{who}");
+            assert_eq!(of(&change::record_path("c1"), who), Kind::Record, "{who}");
+            for kept in [
+                approve::G0_PATH,
+                ".gdd/changes/c2/change.json",
+                ".gdd/changes/c1/package.md",
+                ".gdd/changes/c1/g3.json",
+                ".gdd/changes/c1/outputs/x.md",
+            ] {
+                assert_eq!(of(kept, who), Kind::Kept, "{who}: {kept}");
+            }
+        }
+        let own = |file: &str, who: Who| of(&format!(".gdd/changes/c1/{file}"), who);
+        assert_eq!(own("g2.json", Who::BuilderTest), Kind::Report);
+        assert_eq!(own("g2.json", Who::BuilderBuild), Kind::Report);
+        assert_eq!(own("review.md", Who::Reviewer), Kind::Answer);
+        assert_eq!(own("replan.md", Who::Orchestrator), Kind::Answer);
+        for (who, file) in [
+            (Who::Reviewer, "g2.json"),
+            (Who::Orchestrator, "g2.json"),
+            (Who::BuilderBuild, "review.md"),
+            (Who::Reviewer, "replan.md"),
+        ] {
+            assert_eq!(own(file, who), Kind::Kept, "{who}");
+        }
+        let output = |name: &str, who: Who| own(&format!("outputs/{name}"), who);
+        let build = Who::BuilderBuild;
+        assert_eq!(output("builder-build-2.md", build), Kind::Output);
+        assert_eq!(output("builder-test-1.raw", Who::BuilderTest), Kind::Output);
+        assert_eq!(output("reviewer-1.md", Who::Reviewer), Kind::Output);
+        assert_eq!(output("orchestrator-1.md", Who::Orchestrator), Kind::Output);
+        assert_eq!(output("builder-test-1.md", build), Kind::Kept);
+        assert_eq!(output("reviewer-1/x.md", Who::Reviewer), Kind::Kept);
+        assert_eq!(of(".gdd/changes/c10/g2.json", build), Kind::Kept);
     }
 
     /// The text of `path` of the project at `folder`, read as a file of its own.
@@ -1649,16 +1959,43 @@ mod tests {
         assert!(allowed(Kind::Record, Some(b"x"), Some(b"x")));
         assert!(!allowed(Kind::Record, Some(b"x"), Some(b"y")));
         assert!(allowed(Kind::Record, None, None));
-        assert!(allowed(Kind::Approval, Some(b"a"), Some(b"a")));
-        assert!(!allowed(Kind::Approval, Some(b"a"), Some(b"a ")));
-        assert!(!allowed(Kind::Approval, None, Some(b"a")));
-        assert!(!allowed(Kind::Approval, Some(b"a"), None));
-        assert!(allowed(Kind::Approval, None, None));
+        assert!(allowed(Kind::Kept, Some(b"a"), Some(b"a")));
+        assert!(!allowed(Kind::Kept, Some(b"a"), Some(b"a ")));
+        assert!(!allowed(Kind::Kept, None, Some(b"a")));
+        assert!(!allowed(Kind::Kept, Some(b"a"), None));
+        assert!(allowed(Kind::Kept, None, None));
         assert!(allowed(Kind::Log, Some(b"a\n"), Some(b"a\nb\n")));
         assert!(allowed(Kind::Log, None, Some(b"a\n")));
         assert!(allowed(Kind::Log, Some(b""), None));
         assert!(!allowed(Kind::Log, Some(b"a\n"), Some(b"b\na\n")));
         assert!(!allowed(Kind::Log, Some(b"a\n"), None));
+    }
+
+    #[test]
+    fn what_a_call_writes_may_change_only_as_gdd_writes_it() {
+        assert!(allowed(Kind::Output, None, Some(b"a")));
+        assert!(allowed(Kind::Output, Some(b"a"), Some(b"a")));
+        assert!(!allowed(Kind::Output, Some(b"a"), Some(b"b")));
+        assert!(!allowed(Kind::Output, Some(b"a"), None));
+        let rewritten = [
+            (None, Some(b"a")),
+            (Some(b"a"), Some(b"b")),
+            (Some(b"a"), None),
+        ];
+        for (before, now) in rewritten {
+            let (before, now) = (before.map(|b| &b[..]), now.map(|n| &n[..]));
+            assert!(allowed(Kind::Answer, before, now));
+        }
+        let report = G2_REPORT.as_bytes();
+        assert!(allowed(Kind::Report, Some(b"x"), Some(report)));
+        assert!(allowed(Kind::Report, None, Some(report)));
+        assert!(allowed(Kind::Report, Some(b"x"), Some(b"x")));
+        assert!(allowed(Kind::Report, None, None));
+        let wrong: [&[u8]; 4] = [br#"{"gate": "G3"}"#, br#"{"ok": true}"#, b"[1]", b"x"];
+        for now in wrong {
+            assert!(!allowed(Kind::Report, Some(report), Some(now)), "{now:?}");
+        }
+        assert!(!allowed(Kind::Report, Some(report), None));
     }
 
     #[test]
@@ -1687,7 +2024,7 @@ mod tests {
         let folder = with_state();
         folder.write("src/app.rs", "builder\n");
         let ended = acting(&folder, Who::Reviewer, |root| {
-            change::write(root, ".gdd/changes/c1/notes.md", "read it all\n").unwrap();
+            change::write(root, ".gdd/elsewhere/notes.md", "read it all\n").unwrap();
         });
         assert_eq!(ended, Ok(Ended::Closed));
     }
@@ -1717,8 +2054,9 @@ mod tests {
         // A link to a copy with the same bytes is not the file.
         let folder = with_state();
         let ended = acting(&folder, Who::Reviewer, |root| {
-            fs::rename(root.join("README.md"), root.join(".gdd/readme")).unwrap();
-            symlink(root.join(".gdd/readme"), root.join("README.md")).unwrap();
+            fs::create_dir_all(root.join(".gdd/elsewhere")).unwrap();
+            fs::rename(root.join("README.md"), root.join(".gdd/elsewhere/readme")).unwrap();
+            symlink(root.join(".gdd/elsewhere/readme"), root.join("README.md")).unwrap();
         });
         assert_eq!(ended, park(&why("README.md")));
         // Nor is a script that can no longer run.
@@ -1735,9 +2073,10 @@ mod tests {
         let folder = with_state();
         symlink("README.md", folder.0.join("link")).unwrap();
         let ended = acting(&folder, Who::Reviewer, |root| {
-            fs::copy(root.join("README.md"), root.join(".gdd/readme")).unwrap();
+            fs::create_dir_all(root.join(".gdd/elsewhere")).unwrap();
+            fs::copy(root.join("README.md"), root.join(".gdd/elsewhere/readme")).unwrap();
             fs::remove_file(root.join("link")).unwrap();
-            symlink(".gdd/readme", root.join("link")).unwrap();
+            symlink(".gdd/elsewhere/readme", root.join("link")).unwrap();
         });
         assert_eq!(ended, park(&why("link")));
         assert_eq!(entry(&folder.0, "nothing"), guard::DELETED);
@@ -1776,19 +2115,19 @@ mod tests {
         }
     }
 
+    const CLOSED: &str = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd \
+                          report --change c1";
+
     #[test]
     fn the_end_of_a_run_says_what_happened_and_what_to_do() {
-        let folder = repo_folder();
-        folder.write(".gdd/changes/c1/change.json", RECORD);
-        let root = &folder.0;
-        let closed = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd report \
-                      --change c1";
-        let said = finish(root, "c1", Ok(Ended::Closed));
-        assert_eq!(said, Ok(Said::Done(closed.into())));
+        let repo = repo_with_change(RECORD);
+        let (root, here) = (repo.root(), repo.project());
+        let said = finish(&here, "c1", Ok(Ended::Closed));
+        assert_eq!(said, Ok(Said::Done(CLOSED.into())));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         let paused = "Paused at G4. Message: .gdd/changes/c1/inbox.md · To continue: gdd resume \
                       c1 --g4 ok|ko|polish";
-        let said = finish(root, "c1", Ok(Ended::Paused));
+        let said = finish(&here, "c1", Ok(Ended::Paused));
         assert_eq!(said, Ok(Said::Done(paused.into())));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let request = &record(root)["inbox"][0];
@@ -1799,54 +2138,98 @@ mod tests {
         for answer in ["--g4 ok", "--g4 ko", "--g4 polish --note"] {
             assert!(inbox.contains(answer), "{answer}: {inbox}");
         }
-        let said = finish(root, "c1", park(G3_RED));
+        let said = finish(&here, "c1", park(G3_RED));
         let message = "Change c1 parked: G3 still red after one fix. Message in \
                        .gdd/changes/c1/inbox.md";
         assert_eq!(said, Ok(Said::Parked(message.into())));
         assert_eq!(record(root)["state"], "parked");
-        let failed = finish(root, "c1", Err(Stop::Fail("boom".into())));
+        let failed = finish(&here, "c1", Err(Stop::Fail("boom".into())));
         assert_eq!(failed, Err("boom".into()));
     }
 
+    #[test]
+    fn a_change_that_ends_says_so_even_when_its_worktree_stays() {
+        let repo = repo_with_change(RECORD);
+        fs::create_dir_all(repo.work.join("mine")).unwrap();
+        let err = finish(&repo.project(), "c1", Ok(Ended::Closed)).unwrap_err();
+        let stays = "\nIts worktree stays: git worktree remove --force -- ";
+        assert!(err.starts_with(&format!("{CLOSED}{stays}")), "{err}");
+        assert!(repo.work.join("mine").is_dir());
+    }
+
+    /// A repository with change `c1` (see [`repo_with_change`]), from its main checkout, and
+    /// where the worktree of the change goes.
+    struct Checkout {
+        repo: Repo,
+        work: PathBuf,
+        _trees: Folder,
+    }
+
+    impl Checkout {
+        /// What the recipe reads of it: one replan.
+        fn project(&self) -> Project<'_> {
+            Project {
+                root: self.repo.root(),
+                state: self.repo.root(),
+                worktree: &self.work,
+                work: &self.work,
+                main: "main",
+                replans: 1,
+            }
+        }
+    }
+
+    impl std::ops::Deref for Checkout {
+        type Target = Repo;
+
+        fn deref(&self) -> &Repo {
+            &self.repo
+        }
+    }
+
     /// A repository with an author, that ignores `.gdd/`, with change `c1` and its branch, not
-    /// checked out.
-    fn repo_with_change(record: &str) -> Repo {
+    /// checked out, and a folder for the worktree of the change.
+    fn repo_with_change(record: &str) -> Checkout {
         let repo = Repo::new();
         repo.identify();
         repo.write(".gitignore", ".gdd/\n");
         repo.commit();
         repo.git(&["branch", "change/c1"]);
         repo.write(".gdd/changes/c1/change.json", record);
-        repo
-    }
-
-    fn project(root: &Path) -> Project<'_> {
-        Project {
-            root,
-            state: root,
-            main: "main",
-            replans: 1,
+        let trees = Folder::new();
+        Checkout {
+            repo,
+            work: trees.0.join("c1"),
+            _trees: trees,
         }
     }
 
+    /// The branch the worktree of `repo` has checked out; an error when there is none.
+    fn worktree_branch(repo: &Checkout) -> Result<String, git::Error> {
+        Git::new(&repo.work).current_branch()
+    }
+
     #[test]
-    fn launch_goes_to_the_branch_of_the_change_and_runs_the_recipe() {
+    fn launch_runs_the_recipe_in_the_worktree_of_the_change() {
         let repo = repo_with_change(RECORD);
         let root = repo.root();
         state::pause_at_g4(root, "c1").unwrap();
         let mut steps = played(root);
         steps.decided.reviewer = false;
-        let said = launch(&project(root), "c1", &mut steps);
+        let said = launch(&repo.project(), "c1", &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
-        assert_eq!(repo.tool().current_branch().unwrap(), "change/c1");
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
+        assert!(!repo.work.exists(), "the worktree stays");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         assert_eq!(steps.ran[..2], ["prepare", "test t mode=test"]);
         let mut steps = played(root);
         steps.decided.reviewer = false;
         steps.decided.g4 = true;
-        let said = launch(&project(root), "c1", &mut steps);
+        let said = launch(&repo.project(), "c1", &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
     }
 
     #[test]
@@ -1855,11 +2238,12 @@ mod tests {
         let root = repo.root();
         repo.write("README.md", "changed\n");
         let mut steps = played(root);
-        let refused = launch(&project(root), "c1", &mut steps);
+        let refused = launch(&repo.project(), "c1", &mut steps);
         assert_eq!(refused, Err(UNCOMMITTED.to_string()));
         assert!(steps.ran.is_empty());
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
-        let missing = launch(&project(root), "c9", &mut steps).unwrap_err();
+        assert!(worktree_branch(&repo).is_err());
+        let missing = launch(&repo.project(), "c9", &mut steps).unwrap_err();
         let start = "change c9 does not exist";
         assert!(missing.starts_with(start), "{missing}");
     }
@@ -1871,14 +2255,14 @@ mod tests {
         state::pause_at_g4(root, "c1").unwrap();
         let worktree = Folder::new();
         let elsewhere = Project {
-            state: root,
-            ..project(&worktree.0)
+            root: &worktree.0,
+            ..repo.project()
         };
         let mut steps = played(root);
         let why = |command: &str| {
             format!(
-                "run gdd {command} from the main checkout ({}): parallel launches in worktrees \
-                 are not here yet",
+                "run gdd {command} from the main checkout ({}): the worktrees of the changes are \
+                 made and removed from there",
                 root.display()
             )
         };
@@ -1900,24 +2284,150 @@ mod tests {
         repo.write("src/new.rs", "x\n");
         let mut steps = played(root);
         steps.decided.resume_green = true;
-        assert!(launch(&project(root), "c1", &mut steps).is_ok());
+        assert!(launch(&repo.project(), "c1", &mut steps).is_ok());
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
         let relaunch = "gdd(c1): work of the earlier run, before relaunch";
         assert_eq!(subject, relaunch);
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
         assert!(!repo.tool().has_changes().unwrap());
         assert_eq!(steps.ran[0], "prepare");
+        // Files git does not track yet are work of the earlier run too.
+        repo.git(&["checkout", "-q", "change/c1"]);
+        repo.write("src/only.rs", "y\n");
         let mut steps = played(root);
         steps.stuck = Some(Who::Reviewer);
-        let said = launch(&project(root), "c1", &mut steps);
+        let said = launch(&repo.project(), "c1", &mut steps);
         let why = "Change c1 parked: the Reviewer did not answer within 2 seconds.";
         assert!(parked(said).starts_with(why));
+        let committed = repo.git(&["show", "--name-only", "--format=%s", "change/c1"]);
+        assert_eq!(committed, format!("{relaunch}\n\nsrc/only.rs"));
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+        assert!(repo.work.join("src/only.rs").is_file());
+    }
+
+    #[test]
+    fn a_relaunch_on_the_branch_never_commits_the_state() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        repo.git(&["checkout", "-q", "change/c1"]);
+        // From here on, the project does not ignore the state.
+        repo.git(&["rm", "-q", ".gitignore"]);
+        let mut steps = played(root);
+        steps.stuck = Some(Who::BuilderTest);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        let why = "Change c1 parked: the Builder in test mode did not answer within 2 seconds.";
+        assert!(parked(said).starts_with(why));
+        let committed = repo.git(&["show", "--name-only", "--format=", "change/c1"]);
+        assert_eq!(committed, ".gitignore");
+        assert_eq!(record(root)["state"], "parked");
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
+    }
+
+    #[test]
+    fn a_main_checkout_that_cannot_take_the_merge_parks_the_change() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.decided.reviewer = false;
+        // Someone edits a tracked file of the main checkout while the change runs.
+        let edits: Act = |root| change::write(root, "README.md", "edited\n").unwrap();
+        steps.acts = vec![(Who::BuilderBuild, edits)];
+        let said = launch(&repo.project(), "c1", &mut steps);
+        let why = format!(
+            "Change c1 parked: the merge needs the main checkout ({}) without uncommitted \
+             changes in tracked files: commit or stash them.",
+            root.display()
+        );
+        assert!(parked(said).starts_with(&why));
+        assert_eq!(last(&steps), OPENED);
+        assert_eq!(record(root)["state"], "parked");
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+    }
+
+    #[test]
+    fn an_agent_that_leaves_a_state_folder_in_its_worktree_parks_the_change() {
+        let repo = repo_with_change(RECORD);
+        // The agents act in the worktree.
+        let mut steps = played(&repo.work);
+        steps.decided.reviewer = false;
+        let writes: Act = |work| change::write(work, ".gdd/changes/c1/change.json", "{}").unwrap();
+        steps.acts = vec![(Who::BuilderBuild, writes)];
+        let said = launch(&repo.project(), "c1", &mut steps);
+        let left = repo.work.join(".gdd");
+        let why = format!(
+            "Change c1 parked: the Builder in build mode changed GDD state: {}.",
+            left.display()
+        );
+        assert!(parked(said).starts_with(&why));
+        assert!(fs::symlink_metadata(&left).is_err());
+        assert_eq!(record(repo.root())["state"], "parked");
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+    }
+
+    #[test]
+    fn a_project_in_a_folder_of_its_repository_runs_in_that_folder_of_its_worktree() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write("app/.gitignore", ".gdd/\n");
+        repo.commit();
+        repo.git(&["branch", "change/c1"]);
+        let root = repo.root().join("app");
+        change::write(&root, ".gdd/changes/c1/change.json", RECORD).unwrap();
+        let trees = Folder::new();
+        let worktree = trees.0.join("c1");
+        let work = worktree.join("app");
+        let project = Project {
+            root: &root,
+            state: &root,
+            worktree: &worktree,
+            work: &work,
+            main: "main",
+            replans: 1,
+        };
+        // The agents act in the project's folder of the worktree.
+        let mut steps = played(&work);
+        steps.decided.reviewer = false;
+        let writes: Act = |work| change::write(work, ".gdd/changes/c1/change.json", "{}").unwrap();
+        steps.acts = vec![(Who::BuilderBuild, writes)];
+        let said = launch(&project, "c1", &mut steps);
+        let left = work.join(".gdd");
+        let why = format!(
+            "Change c1 parked: the Builder in build mode changed GDD state: {}.",
+            left.display()
+        );
+        assert!(parked(said).starts_with(&why));
+        assert!(fs::symlink_metadata(&left).is_err());
+        assert!(work.join(".gitignore").is_file());
+        assert_eq!(Git::new(&worktree).current_branch().unwrap(), "change/c1");
+        assert_eq!(record(&root)["state"], "parked");
+    }
+
+    #[test]
+    fn a_state_folder_left_in_a_worktree_goes_but_never_what_it_links_to() {
+        let (work, state) = (Folder::new(), Folder::new());
+        assert_eq!(state_left(&work.0, &state.0), Ok(Vec::new()));
+        state.write(".gdd/log.jsonl", "{}\n");
+        symlink(state.0.join(".gdd"), work.0.join(".gdd")).unwrap();
+        let left = work.0.join(".gdd").display().to_string();
+        assert_eq!(state_left(&work.0, &state.0), Ok(vec![left]));
+        assert!(fs::symlink_metadata(work.0.join(".gdd")).is_err());
+        assert_eq!(text(&state, ".gdd/log.jsonl"), "{}\n");
+        // The state root keeps its own.
+        assert_eq!(state_left(&state.0, &state.0), Ok(Vec::new()));
+        assert_eq!(text(&state, ".gdd/log.jsonl"), "{}\n");
+        // A worktree that cannot be looked at is an error, not one without a state folder.
+        work.write("file", "");
+        let under = work.0.join("file");
+        let err = state_left(&under, &state.0).unwrap_err();
+        let start = format!("cannot look at {}: ", under.join(".gdd").display());
+        assert!(err.starts_with(&start), "{err}");
     }
 
     #[test]
     fn only_a_person_answers_a_change_paused_at_g4() {
         let repo = repo_with_change(RECORD);
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Ok, "", None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
@@ -1939,14 +2449,14 @@ mod tests {
     }
 
     /// The repository with change `c1` paused at G4.
-    fn paused() -> Repo {
+    fn paused() -> Checkout {
         paused_in("in-pre")
     }
 
     /// The repository with change `c1` in state `state`, paused at G4.
-    fn paused_in(state: &str) -> Repo {
+    fn paused_in(state: &str) -> Checkout {
         let repo = repo_with_change(&RECORD.replace("in-pre", state));
-        finish(repo.root(), "c1", Ok(Ended::Paused)).unwrap();
+        finish(&repo.project(), "c1", Ok(Ended::Paused)).unwrap();
         repo
     }
 
@@ -1954,12 +2464,14 @@ mod tests {
     fn ok_at_g4_promotes_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
+        worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
         let role = Some("orchestrator");
         let said = resume(&here, "c1", Answer::Ok, "Fine", role, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
+        assert!(!repo.work.exists(), "the worktree stays");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         let request = &record(root)["inbox"][0];
         assert!(request["resolved"].is_string(), "{request}");
@@ -1983,7 +2495,7 @@ mod tests {
     fn a_failed_promotion_leaves_the_change_paused_and_the_same_answer_retries_it() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
@@ -2022,7 +2534,7 @@ mod tests {
     fn after_a_failed_promotion_the_human_can_still_reject_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
         assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
@@ -2039,7 +2551,7 @@ mod tests {
     fn after_a_failed_promotion_the_human_can_still_polish_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
         assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
@@ -2057,7 +2569,7 @@ mod tests {
         let repo = paused_in(IN_PRODUCTION);
         let root = repo.root();
         let mut steps = played(root);
-        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -2069,7 +2581,7 @@ mod tests {
         let root = repo.root();
         let mut steps = played(root);
         steps.fails = vec![("observe", "release.observe failed")];
-        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
         assert_eq!(said, Err("release.observe failed".into()));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -2090,7 +2602,7 @@ mod tests {
     fn a_promotion_that_may_have_reached_production_parks_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.released = vec![("promote", promoting)];
         steps.fails = vec![("promote", UNLOGGED)];
@@ -2118,7 +2630,7 @@ mod tests {
             let repo = paused_in(release::PROMOTING);
             let root = repo.root();
             let mut steps = played(root);
-            let said = resume(&project(root), "c1", answer, note, None, &mut steps);
+            let said = resume(&repo.project(), "c1", answer, note, None, &mut steps);
             let why = "Change c1 parked: production may have it, but gdd cannot go on with it \
                        (an earlier answer stopped while promoting it). Check production";
             assert!(parked(said).starts_with(why), "{answer:?}");
@@ -2134,7 +2646,7 @@ mod tests {
         let root = repo.root();
         fs::create_dir_all(root.join(log::PATH)).unwrap();
         let mut steps = played(root);
-        let err = resume(&project(root), "c1", Answer::Ok, "", None, &mut steps).unwrap_err();
+        let err = resume(&repo.project(), "c1", Answer::Ok, "", None, &mut steps).unwrap_err();
         let start = "Change c1 cannot park: production may have it, but gdd cannot go on with it";
         assert!(err.starts_with(start), "{err}");
         assert!(err.ends_with(&format!("twice.\n{UNLOGGED}")), "{err}");
@@ -2149,7 +2661,7 @@ mod tests {
                        be rejected or polished. To observe it: gdd resume c1 --g4 ok.";
         for (answer, note) in [(Answer::Ko, "No"), (Answer::Polish, "x")] {
             let mut steps = played(root);
-            let said = resume(&project(root), "c1", answer, note, None, &mut steps);
+            let said = resume(&repo.project(), "c1", answer, note, None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{answer:?}");
             assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
         }
@@ -2166,7 +2678,7 @@ mod tests {
         let mut steps = played(root);
         let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
         steps.fails = vec![("G4", unwritten)];
-        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but gdd cannot go on with it \
              ({unwritten})."
@@ -2188,7 +2700,7 @@ mod tests {
         };
         steps.released = vec![("promote", unreadable)];
         steps.fails = vec![("promote", "release.promote failed")];
-        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
         let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
                      whether production has it: cannot read .gdd/changes/c1/change.json: ";
         let err = said.unwrap_err();
@@ -2200,7 +2712,7 @@ mod tests {
     fn ok_at_g4_keeps_the_pause_when_the_record_cannot_be_written() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         // The decision of G4 is not written: nothing is promoted.
         let mut steps = played(root);
         let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
@@ -2230,11 +2742,13 @@ mod tests {
     fn ko_at_g4_rejects_the_change_and_production_stays_as_it_is() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
+        worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(said, Ok(Said::Done(rejected.into())));
+        assert!(!repo.work.exists(), "the worktree stays");
         assert_eq!(steps.ran, ["G4 ko human: No"]);
         assert_eq!(record(root)["state"], "rejected");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -2256,7 +2770,7 @@ mod tests {
         // What main got since is not the pass's: its build starts on the branch.
         repo.write("gdd/commands.toml", "[release]\n");
         repo.commit();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         let note = "Shorter error messages";
         let said = resume(&here, "c1", Answer::Polish, note, None, &mut steps);
@@ -2271,7 +2785,8 @@ mod tests {
             "pre",
         ];
         assert_eq!(steps.ran, expected);
-        assert_eq!(repo.tool().current_branch().unwrap(), "change/c1");
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let record = record(root);
         let notes = record["inbox"].as_array().unwrap();
@@ -2301,7 +2816,7 @@ mod tests {
     fn a_polish_pass_with_nothing_new_for_main_skips_the_merge() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false, false]);
         let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
@@ -2328,11 +2843,11 @@ mod tests {
         let repo = paused();
         let root = repo.root();
         repo.git(&["branch", "-D", "change/c1"]);
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
-        let start = "git checkout -q change/c1 -- failed";
-        assert!(said.unwrap_err().starts_with(start));
+        let err = said.unwrap_err();
+        assert!(err.starts_with("git worktree add -q -- "), "{err}");
         assert!(steps.ran.is_empty());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], "in-pre");
@@ -2342,7 +2857,7 @@ mod tests {
     fn a_polish_pass_that_parks_leaves_the_change_parked() {
         let repo = paused();
         let root = repo.root();
-        let here = project(root);
+        let here = repo.project();
         let mut steps = played(root);
         steps.g3 = VecDeque::from([false, false]);
         let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
@@ -2353,7 +2868,7 @@ mod tests {
         let broken = repo_with_change(r#"{"id": "c1", "decision": {"g4": true}}"#);
         let root = broken.root();
         state::pause_at_g4(root, "c1").unwrap();
-        let here = project(root);
+        let here = broken.project();
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
         let start = ".gdd/changes/c1/change.json: missing field";

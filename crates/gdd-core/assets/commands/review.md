@@ -18,10 +18,12 @@ It contains `change=<id>` and `round=1` or `round=2`.
 
 ## What you look at
 
-- `.gdd/changes/<id>/package.md` (what was asked) and `.gdd/changes/<id>/change.json` (color and gates).
+You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders.
+
+- `<state>/.gdd/changes/<id>/package.md` (what was asked) and `<state>/.gdd/changes/<id>/change.json` (color and gates).
 - The change `.feature` files.
 - The whole change: `git diff main...HEAD` and, if any, `git status` and the new files.
-- `.gdd/changes/<id>/g2.json` and `.gdd/changes/<id>/g3.json`.
+- `<state>/.gdd/changes/<id>/g2.json` and `<state>/.gdd/changes/<id>/g3.json`.
 - `docs/standards.md`, if it exists: the project's quality bar.
 
 ## What you check
