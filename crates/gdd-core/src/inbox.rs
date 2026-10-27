@@ -112,27 +112,27 @@ fn listed(heading: &str, lines: &[String]) -> Option<String> {
     Some(format!("## {heading}\n{}", items.join("\n")))
 }
 
-/// Renders the Decision Inbox of change `id` of the project at `root` from the text of its
-/// record and the security exceptions its last G3 named as added (see [`render`]), and saves it
-/// next to the record, with a line break at the end. What it rendered.
-pub fn save(root: &Path, id: &str, record: &str) -> Result<String, String> {
-    let added = added_exceptions(root, id)?;
+/// Renders the Decision Inbox of change `id` of the project whose state root is `state` from the
+/// text of its record and the security exceptions its last G3 named as added (see [`render`]),
+/// and saves it next to the record, with a line break at the end. What it rendered.
+pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
+    let added = added_exceptions(state, id)?;
     let rendered =
         render(id, record, &added).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
-    change::write(root, &change::inbox_path(id), &format!("{rendered}\n"))?;
+    change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
 }
 
-/// The security exceptions the last G3 of change `id` of the project at `root` named as added,
-/// from its report: none before G3 ran.
-fn added_exceptions(root: &Path, id: &str) -> Result<Vec<String>, String> {
+/// The security exceptions the last G3 of change `id` of the project whose state root is `state`
+/// named as added, from its report: none before G3 ran.
+fn added_exceptions(state: &Path, id: &str) -> Result<Vec<String>, String> {
     #[derive(Deserialize)]
     struct Saved {
         #[serde(default)]
         added_exceptions: Vec<String>,
     }
     let path = Gate::G3.report_path(id);
-    let text = match fs::read_to_string(root.join(&path)) {
+    let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("cannot read {path}: {e}")),

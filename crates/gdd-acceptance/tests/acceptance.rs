@@ -29,6 +29,8 @@ pub struct GddWorld {
     exit_checked: bool,
     /// Where the scenario's fake programs live; first on its PATH. Outside the project folder.
     programs: Option<TempDir>,
+    /// The folder next to the project that holds its worktrees, removed with the scenario.
+    worktrees: Option<TempDir>,
 }
 
 #[given("the gdd tool")]
@@ -1797,6 +1799,63 @@ fn toml_file_has(w: &mut GddWorld, path: String, key: String, expected: String) 
         toml_value(&content, &key).as_deref(),
         Some(expected.as_str()),
         "{path} has no {key} = {expected:?}:\n{content}"
+    );
+}
+
+// ---- features/state-root.feature -----------------------------------------------------------
+//
+// A change's worktree is a sibling of the project folder: `<project>.worktrees/<id>`.
+
+/// The folder of the worktree of change `id`.
+fn worktree_of(w: &mut GddWorld, id: &str) -> PathBuf {
+    let root = project_root(w);
+    let mut name = root.as_os_str().to_os_string();
+    name.push(".worktrees");
+    PathBuf::from(name).join(id)
+}
+
+#[given(expr = "the change {string} has a worktree with the file {string}")]
+fn change_has_worktree(w: &mut GddWorld, id: String, file: String) {
+    let root = project_root(w);
+    let folder = worktree_of(w, &id);
+    let parent = folder.parent().expect("a folder for the worktrees");
+    // Removed with the scenario, whatever happens to the worktree itself.
+    w.worktrees = Some(TempDir(parent.to_path_buf()));
+    // The branch of the change cannot be checked out twice: the main checkout goes back to main.
+    git(&root, &["checkout", "-q", "main"]);
+    let folder_text = folder.to_string_lossy().to_string();
+    git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            &folder_text,
+            &format!("change/{id}"),
+        ],
+    );
+    write_file(&folder.join(&file), "text\n");
+}
+
+#[when(expr = "I run {string} in the worktree of {string}")]
+fn i_run_in_worktree(w: &mut GddWorld, command: String, id: String) {
+    let folder = worktree_of(w, &id);
+    run_gdd(w, &command, &folder);
+}
+
+#[given(expr = "I run {string} in the worktree of {string}")]
+fn given_i_run_in_worktree(w: &mut GddWorld, command: String, id: String) {
+    let folder = worktree_of(w, &id);
+    run_gdd(w, &command, &folder);
+}
+
+#[then(expr = "the worktree of {string} has no {string}")]
+fn worktree_has_no(w: &mut GddWorld, id: String, path: String) {
+    let at = worktree_of(w, &id).join(&path);
+    assert!(
+        fs::symlink_metadata(&at).is_err(),
+        "{} exists in the worktree of {id}, and it should not",
+        at.display()
     );
 }
 

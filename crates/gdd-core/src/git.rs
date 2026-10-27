@@ -8,7 +8,9 @@
 //! the repository's configuration and the environment it runs in.
 
 use std::collections::BTreeSet;
+use std::ffi::OsStr;
 use std::fmt;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -42,6 +44,18 @@ impl std::error::Error for Error {}
 /// `.git`.
 pub fn is_repository(root: &Path) -> bool {
     root.ancestors().any(|folder| folder.join(".git").exists())
+}
+
+/// Where git keeps the repository of the working tree the project is in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dirs {
+    /// What every working tree of the repository shares (`--git-common-dir`), absolute.
+    pub common: PathBuf,
+    /// What this working tree keeps of its own (`--git-dir`), absolute: the same folder in the
+    /// main checkout.
+    pub own: PathBuf,
+    /// The project root from the top of its working tree (`--show-prefix`): empty at the top.
+    pub prefix: PathBuf,
 }
 
 /// The git repository of a project, read from the project root.
@@ -80,6 +94,29 @@ impl Git {
     /// The branch checked out, even before its first commit; an error when none is.
     pub fn checked_out(&self) -> Result<String, Error> {
         self.line(&["symbolic-ref", "--short", "HEAD"])
+    }
+
+    /// Where git keeps the repository of the working tree the project is in (see [`Dirs`]).
+    pub fn dirs(&self) -> Result<Dirs, Error> {
+        let asked = [
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+            "--git-dir",
+            "--show-prefix",
+        ];
+        let out = self.read(&asked)?;
+        let mut lines = out.split(|&byte| byte == b'\n');
+        // One line each, in the order asked; components drop the slash a prefix ends with.
+        let mut next = || {
+            let line = OsStr::from_bytes(lines.next().unwrap_or_default());
+            Path::new(line).components().collect::<PathBuf>()
+        };
+        Ok(Dirs {
+            common: next(),
+            own: next(),
+            prefix: next(),
+        })
     }
 
     /// Commits the files `paths`, from the project root, and nothing else of the working tree,
@@ -437,6 +474,35 @@ pub(crate) mod tests {
         repo.write("app/gdd/project.toml", "");
         assert!(is_repository(repo.root()));
         assert!(is_repository(&repo.root().join("app")));
+    }
+
+    #[test]
+    fn where_git_keeps_the_repository_of_a_checkout_and_of_a_linked_worktree() {
+        let repo = Repo::new();
+        repo.write("app/gdd/project.toml", "");
+        let top = fs::canonicalize(repo.root()).unwrap();
+        let git = top.join(".git");
+        let checkout = Dirs {
+            common: git.clone(),
+            own: git.clone(),
+            prefix: PathBuf::new(),
+        };
+        assert_eq!(repo.tool().dirs().unwrap(), checkout);
+        let app = Git::new(&repo.root().join("app")).dirs().unwrap();
+        assert_eq!(app.prefix, Path::new("app"));
+        let linked = Folder::new();
+        let worktree = linked.0.join("c1");
+        let path = worktree.to_string_lossy().into_owned();
+        repo.git(&["worktree", "add", "-q", "-b", "change/c1", &path]);
+        fs::create_dir_all(worktree.join("app")).unwrap();
+        let dirs = Git::new(&worktree.join("app")).dirs().unwrap();
+        let own = git.join("worktrees/c1");
+        assert_eq!((dirs.common, dirs.own), (git, own));
+        assert_eq!(dirs.prefix, Path::new("app"));
+        let plain = Folder::new();
+        let err = Git::new(&plain.0).dirs().unwrap_err().to_string();
+        let start = "git rev-parse --path-format=absolute ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]

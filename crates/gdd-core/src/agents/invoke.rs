@@ -36,7 +36,8 @@ use crate::{config, exec, log};
 /// How often a running agent is checked.
 const POLL: Duration = Duration::from_millis(50);
 
-/// Where the sessions of the Claude Code calls are kept, one per line, from the project root.
+/// Where the sessions of the Claude Code calls are kept, one per line, from the state root (see
+/// [`crate::state::root`]).
 const SESSIONS: &str = ".gdd/headless_sessions.txt";
 
 /// Who the recipe calls.
@@ -81,7 +82,7 @@ impl Who {
         }
     }
 
-    /// The file where it answers on change `id`, from the project root, if it answers in one.
+    /// The file where it answers on change `id`, from the state root, if it answers in one.
     fn answer(self, id: &str) -> Option<String> {
         match self {
             Who::Reviewer => Some(verdict::review_path(id)),
@@ -134,8 +135,11 @@ impl Settings {
 /// What a call reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
-    /// The project root.
+    /// The project root: the agent runs from it.
     pub root: &'a Path,
+    /// The state root, whose `.gdd/` keeps what the call said and the log (see
+    /// [`crate::state::root`]).
+    pub state: &'a Path,
     /// The change.
     pub id: &'a str,
     /// The environment gdd runs in.
@@ -306,7 +310,7 @@ pub fn run(project: &Project, call: &Call) -> Result<(), Error> {
     let start = start(call, project.id)?;
     let program = program(&start.sheet, project.env)?;
     if let Some(answer) = call.who.answer(project.id) {
-        remove(project.root, &answer)?;
+        remove(project.state, &answer)?;
     }
     let ran = spawned(project, call.who, &program, &start.args)?;
     let said = usage::read(start.sheet.usage(), &String::from_utf8_lossy(&ran.out));
@@ -404,22 +408,23 @@ struct Line<'a> {
     note: &'a str,
 }
 
-/// Keeps what the call of `who`, started as `start`, did (`ran`) and said (`said`): its final text
-/// and its output as `outputs/<role>-<n>.md` and `.raw` next to the change, `n` after the earlier
-/// lines of its role on the change in the log; the Reviewer's text as its review; the session of
-/// a Claude Code call; and one line in the log, priced with the model's price when the agent
-/// reports no cost. A log that is not a file of its own stops it before it writes anything.
+/// Keeps what the call of `who`, started as `start`, did (`ran`) and said (`said`), under the
+/// state root: its final text and its output as `outputs/<role>-<n>.md` and `.raw` next to the
+/// change, `n` after the earlier lines of its role on the change in the log; the Reviewer's text
+/// as its review; the session of a Claude Code call; and one line in the log, priced with the
+/// model's price when the agent reports no cost. A log that is not a file of its own stops it
+/// before it writes anything.
 fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Result<(), Error> {
-    let (root, id, role) = (project.root, project.id, who.role());
-    let earlier = earlier_lines(root, id, role)?;
+    let (state, id, role) = (project.state, project.id, who.role());
+    let earlier = earlier_lines(state, id, role)?;
     let outputs = format!(".gdd/changes/{id}/outputs/{role}-{}", earlier + 1);
-    save(root, &format!("{outputs}.md"), said.text.as_bytes())?;
-    save(root, &format!("{outputs}.raw"), &ran.out)?;
+    save(state, &format!("{outputs}.md"), said.text.as_bytes())?;
+    save(state, &format!("{outputs}.raw"), &ran.out)?;
     if who == Who::Reviewer {
-        save(root, &verdict::review_path(id), said.text.as_bytes())?;
+        save(state, &verdict::review_path(id), said.text.as_bytes())?;
     }
     if let Some(session) = &said.session {
-        append(root, SESSIONS, &format!("{session}\n"))?;
+        append(state, SESSIONS, &format!("{session}\n"))?;
     }
     let mut usage = said.usage;
     if usage.cost_usd == 0.0 {
@@ -452,7 +457,7 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
     };
     let unwritten = |e| Error::Write(log::PATH.to_string(), e);
     let line = serde_json::to_string(&line).map_err(|e| unwritten(e.into()))?;
-    log::append(root, &line).map_err(unwritten)
+    log::append(state, &line).map_err(unwritten)
 }
 
 /// `duration` in seconds, to the tenth, as the log writes it.
@@ -460,12 +465,12 @@ fn seconds(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10.0).round() / 10.0
 }
 
-/// How many lines of the log of the project at `root` are of `role` on change `id`. Lines that
-/// are not JSON objects are left out. A log that is not a file of its own (see [`files::read`])
-/// is an error.
-fn earlier_lines(root: &Path, id: &str, role: &str) -> Result<usize, Error> {
+/// How many lines of the log under the state root `state` are of `role` on change `id`. Lines
+/// that are not JSON objects are left out. A log that is not a file of its own (see
+/// [`files::read`]) is an error.
+fn earlier_lines(state: &Path, id: &str, role: &str) -> Result<usize, Error> {
     let unread = |e| Error::Read(log::PATH.to_string(), e);
-    let bytes = files::read(root, log::PATH).map_err(unread)?;
+    let bytes = files::read(state, log::PATH).map_err(unread)?;
     let text = String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned();
     let says =
         |line: &Value, key: &str, value: &str| line.get(key).and_then(Value::as_str) == Some(value);
@@ -475,24 +480,24 @@ fn earlier_lines(root: &Path, id: &str, role: &str) -> Result<usize, Error> {
     Ok(theirs.count())
 }
 
-/// Makes `path` of the project at `root` a new file with `bytes` (see [`files::replace`]).
-fn save(root: &Path, path: &str, bytes: &[u8]) -> Result<(), Error> {
-    files::replace(root, path, bytes).map_err(|e| Error::Write(path.to_string(), e))
+/// Makes `path` under the state root `state` a new file with `bytes` (see [`files::replace`]).
+fn save(state: &Path, path: &str, bytes: &[u8]) -> Result<(), Error> {
+    files::replace(state, path, bytes).map_err(|e| Error::Write(path.to_string(), e))
 }
 
-/// Adds `text` at the end of the file `path` of the project at `root`, which must be a file of
-/// its own if there is one (see [`files::read`]).
-fn append(root: &Path, path: &str, text: &str) -> Result<(), Error> {
+/// Adds `text` at the end of the file `path` under the state root `state`, which must be a file
+/// of its own if there is one (see [`files::read`]).
+fn append(state: &Path, path: &str, text: &str) -> Result<(), Error> {
     let unwritten = |e| Error::Write(path.to_string(), e);
-    let earlier = files::read(root, path).map_err(unwritten)?;
+    let earlier = files::read(state, path).map_err(unwritten)?;
     let mut bytes = earlier.unwrap_or_default();
     bytes.extend_from_slice(text.as_bytes());
-    files::replace(root, path, &bytes).map_err(unwritten)
+    files::replace(state, path, &bytes).map_err(unwritten)
 }
 
-/// Removes the file `path` of the project at `root`, if there is one.
-fn remove(root: &Path, path: &str) -> Result<(), Error> {
-    match fs::remove_file(root.join(path)) {
+/// Removes the file `path` under the state root `state`, if there is one.
+fn remove(state: &Path, path: &str) -> Result<(), Error> {
+    match fs::remove_file(state.join(path)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(Error::Remove(path.to_string(), e)),
@@ -754,6 +759,8 @@ mod tests {
     /// agents.
     struct Faked {
         folder: Folder,
+        /// The state root: the project folder itself, unless a test moves it.
+        state: PathBuf,
         env: Vec<(String, String)>,
         settings: Settings,
     }
@@ -768,6 +775,7 @@ mod tests {
             let tests = std::env::var("PATH").unwrap_or_default();
             let path = format!("{}:{tests}", bin.display());
             Faked {
+                state: folder.0.clone(),
                 folder,
                 env: vec![("PATH".into(), path)],
                 settings: Settings::default(),
@@ -787,6 +795,7 @@ mod tests {
             };
             let project = Project {
                 root: &self.folder.0,
+                state: &self.state,
                 id: "c1",
                 env: &self.env,
                 settings: &self.settings,
@@ -870,6 +879,25 @@ mod tests {
         r#""usage":{"input_tokens":100,"cache_creation_input_tokens":0,"#,
         r#""cache_read_input_tokens":50,"output_tokens":20}}"#
     );
+
+    #[test]
+    fn the_agent_runs_in_the_project_and_what_it_says_is_kept_under_the_state_root() {
+        let mut faked = Faked::new(&format!("touch ran; {SAYS}"));
+        faked.write("said", &format!("{RESULT}\n"));
+        let state = Folder::new();
+        faked.state = state.0.clone();
+        state.write(&verdict::replan_path("c1"), "NEXT: test\n");
+        faked.call(Who::Orchestrator, LONG).unwrap();
+        assert!(!state.0.join(verdict::replan_path("c1")).exists());
+        faked.call(Who::Reviewer, LONG).unwrap();
+        let kept = |path: &str| fs::read_to_string(state.0.join(path)).unwrap_or_default();
+        assert_eq!(kept(&verdict::review_path("c1")), "all done");
+        assert_eq!(kept(".gdd/changes/c1/outputs/reviewer-1.md"), "all done");
+        assert_eq!(kept(SESSIONS), "s-9\ns-9\n");
+        assert_eq!(kept(log::PATH).lines().count(), 2);
+        assert!(faked.has("ran"));
+        assert!(!faked.has(".gdd"));
+    }
 
     #[test]
     fn what_an_agent_says_is_kept_and_logged() {

@@ -26,13 +26,13 @@ use crate::log;
 use crate::rules::Acceptance;
 use crate::zones::ZoneMap;
 
-/// Where the decision on G0 lives, from the project root.
+/// Where the decision on G0 lives, from the state root (see [`crate::state::root`]).
 pub const G0_PATH: &str = ".gdd/g0.json";
 
-/// Where the approval of the red zones lives, from the project root.
+/// Where the approval of the red zones lives, from the state root.
 pub const ZONES_PATH: &str = ".gdd/zones.json";
 
-/// Where the result of the harness self-test lives, from the project root.
+/// Where the result of the harness self-test lives, from the state root.
 pub const SELFTEST_PATH: &str = ".gdd/selftest.json";
 
 /// The Project Brief, from the project root.
@@ -189,6 +189,8 @@ pub struct Request<'a> {
 pub struct Project<'a> {
     /// The project root.
     pub root: &'a Path,
+    /// The state root, whose `.gdd/` holds the decisions (see [`crate::state::root`]).
+    pub state: &'a Path,
     /// The text of the zone map; empty when there is none.
     pub zones: &'a str,
     /// What the rules file says to Path Guard: the main branch.
@@ -273,14 +275,14 @@ fn open_g0(
     decision: Decision,
     ts: &str,
 ) -> Result<String, Error> {
-    let root = project.root;
+    let state = project.state;
     if request.by != "machines" {
         return Err(refused(G0_BY_MACHINES));
     }
-    if decision == Decision::Ok && !self_test_passed(root)? {
+    if decision == Decision::Ok && !self_test_passed(state)? {
         return Err(refused(G0_UNTESTED));
     }
-    if decision == Decision::Ok && !root.join(BRIEF).is_file() {
+    if decision == Decision::Ok && !project.root.join(BRIEF).is_file() {
         return Err(refused(G0_NO_BRIEF));
     }
     let decided = decision.to_string();
@@ -291,8 +293,8 @@ fn open_g0(
         note: request.note,
         hashes: None,
     };
-    write_json(root, G0_PATH, &approval)?;
-    logged(root, ts, "-", "machine", request, decision)?;
+    write_json(state, G0_PATH, &approval)?;
+    logged(state, ts, "-", "machine", request, decision)?;
     Ok(format!("G0 {decision} ({}).", request.by))
 }
 
@@ -330,9 +332,9 @@ fn approve_zones(
         red: &reds,
         note: request.note,
     };
-    write_json(project.root, ZONES_PATH, &approval)?;
+    write_json(project.state, ZONES_PATH, &approval)?;
     let change = request.change.unwrap_or("-");
-    logged(project.root, ts, change, "human", request, decision)?;
+    logged(project.state, ts, change, "human", request, decision)?;
     let count = reds.len();
     Ok(format!("Red zones {decision} ({count} red zone(s))."))
 }
@@ -350,7 +352,7 @@ fn record_on_change(
         let why = format!("Missing change id: {gate} is recorded on a change.");
         return Err(Error::Refused(why));
     };
-    let text = change::read_record(project.root, id).map_err(Error::Project)?;
+    let text = change::read_record(project.state, id).map_err(Error::Project)?;
     let path = change::record_path(id);
     let invalid = |e: serde_json::Error| Error::Project(format!("{path}: {e}"));
     let sealed = if gate == Gate::G1 && decision == Decision::Ok {
@@ -370,8 +372,8 @@ fn record_on_change(
     let features = sealed.as_ref().map(|s| s.features.as_slice());
     let name = gate.to_string();
     let updated = change::with_gate(&text, &name, &approval, features).map_err(invalid)?;
-    write(project.root, &path, &updated)?;
-    logged(project.root, ts, id, request.by, request, decision)?;
+    write(project.state, &path, &updated)?;
+    logged(project.state, ts, id, request.by, request, decision)?;
     Ok(format!("{gate} {decision} on {id} ({}).", request.by))
 }
 
@@ -554,10 +556,10 @@ impl ZonesState {
     }
 }
 
-/// Whether a human approved the red zones of the zone map `zones`, of the project at `root`, as
-/// they are.
-pub fn zones_state(root: &Path, zones: &str) -> Result<ZonesState, Error> {
-    let approval = saved(root, ZONES_PATH)?.filter(|a| a["decision"] == "ok");
+/// Whether a human approved the red zones of the zone map `zones`, of the project whose state root
+/// is `state`, as they are.
+pub fn zones_state(state: &Path, zones: &str) -> Result<ZonesState, Error> {
+    let approval = saved(state, ZONES_PATH)?.filter(|a| a["decision"] == "ok");
     let Some(approval) = approval else {
         return Ok(ZonesState::NotApproved);
     };
@@ -568,15 +570,15 @@ pub fn zones_state(root: &Path, zones: &str) -> Result<ZonesState, Error> {
     }
 }
 
-/// Whether the machines opened G0 on the project at `root`.
-pub fn g0_open(root: &Path) -> Result<bool, Error> {
-    let g0 = saved(root, G0_PATH)?;
+/// Whether the machines opened G0 on the project whose state root is `state`.
+pub fn g0_open(state: &Path) -> Result<bool, Error> {
+    let g0 = saved(state, G0_PATH)?;
     Ok(g0.is_some_and(|g0| g0["decision"] == "ok"))
 }
 
-/// Whether the last harness self-test of the project at `root` passed.
-fn self_test_passed(root: &Path) -> Result<bool, Error> {
-    let test = saved(root, SELFTEST_PATH)?;
+/// Whether the last harness self-test of the project whose state root is `state` passed.
+fn self_test_passed(state: &Path) -> Result<bool, Error> {
+    let test = saved(state, SELFTEST_PATH)?;
     Ok(test.is_some_and(|test| test["ok"] == true))
 }
 
@@ -682,35 +684,38 @@ fn sha256(bytes: &[u8]) -> String {
     hex
 }
 
-/// The JSON a file of the tool holds; `None` when there is no file or it is not JSON.
-fn saved(root: &Path, path: &str) -> Result<Option<serde_json::Value>, Error> {
-    match fs::read_to_string(root.join(path)) {
+/// The JSON a file of the tool under the state root `state` holds; `None` when there is no file
+/// or it is not JSON.
+fn saved(state: &Path, path: &str) -> Result<Option<serde_json::Value>, Error> {
+    match fs::read_to_string(state.join(path)) {
         Ok(text) => Ok(serde_json::from_str(&text).ok()),
         Err(e) if e.kind() == NotFound => Ok(None),
         Err(e) => Err(unreadable(path, e)),
     }
 }
 
-/// Writes `value` as indented JSON, with a line break at the end, to a file of the project.
-fn write_json(root: &Path, path: &str, value: &impl Serialize) -> Result<(), Error> {
+/// Writes `value` as indented JSON, with a line break at the end, to a file of the tool under the
+/// state root `state`.
+fn write_json(state: &Path, path: &str, value: &impl Serialize) -> Result<(), Error> {
     match serde_json::to_string_pretty(value) {
-        Ok(text) => write(root, path, &format!("{text}\n")),
+        Ok(text) => write(state, path, &format!("{text}\n")),
         Err(e) => Err(Error::Project(format!("{path}: {e}"))),
     }
 }
 
-/// Writes `text` to a file of the project, creating its folder.
-fn write(root: &Path, path: &str, text: &str) -> Result<(), Error> {
-    let file = root.join(path);
+/// Writes `text` to a file of the tool under the state root `state`, creating its folder.
+fn write(state: &Path, path: &str, text: &str) -> Result<(), Error> {
+    let file = state.join(path);
     file.parent()
         .map_or(Ok(()), fs::create_dir_all)
         .and_then(|()| fs::write(&file, text))
         .map_err(|e| unwritable(path, e))
 }
 
-/// Logs the decision of `request`, recorded at `ts` on `change` (`-` for none) by `role`.
+/// Logs the decision of `request`, recorded at `ts` on `change` (`-` for none) by `role`, in the
+/// log under the state root `state`.
 fn logged(
-    root: &Path,
+    state: &Path,
     ts: &str,
     change: &str,
     role: &str,
@@ -728,7 +733,7 @@ fn logged(
         note: request.note.to_string(),
     };
     match entry.line(ts) {
-        Ok(line) => log::append(root, &line).map_err(|e| unwritable(log::PATH, e)),
+        Ok(line) => log::append(state, &line).map_err(|e| unwritable(log::PATH, e)),
         Err(e) => Err(Error::Project(format!("{}: {e}", log::PATH))),
     }
 }
@@ -819,6 +824,7 @@ mod tests {
         fn project(&self) -> Project<'_> {
             Project {
                 root: self.root(),
+                state: self.root(),
                 zones: &self.zones,
                 settings: &self.settings,
                 acceptance: &self.acceptance,
@@ -961,6 +967,40 @@ mod tests {
             let done = project.run_as(Gate::G4, "ok", Some("c1"), "human", role);
             assert_eq!(done.unwrap(), "G4 ok on c1 (human).", "{role:?}");
         }
+    }
+
+    #[test]
+    fn decisions_live_under_the_state_root_and_the_brief_in_the_project() {
+        let (project, state) = (Folder::new(), Folder::new());
+        project.write(BRIEF, "# Brief\n");
+        state.write(SELFTEST_PATH, r#"{"ok": true}"#);
+        state.write(".gdd/changes/c1/change.json", RECORD);
+        let settings = Settings::from_toml("").unwrap();
+        let acceptance = Acceptance::default();
+        let at = Project {
+            root: &project.0,
+            state: &state.0,
+            zones: ZONES,
+            settings: &settings,
+            acceptance: &acceptance,
+        };
+        let request = |gate, by, change| Request {
+            gate,
+            decision: "ok",
+            change,
+            by,
+            note: "",
+        };
+        record(&at, &request(Gate::G0, "machines", None), None).unwrap();
+        record(&at, &request(Gate::Zones, "human", None), None).unwrap();
+        record(&at, &request(Gate::G4, "human", Some("c1")), None).unwrap();
+        assert!(g0_open(&state.0).unwrap());
+        assert!(zones_state(&state.0, ZONES).unwrap().approved());
+        let saved = fs::read_to_string(state.0.join(change::record_path("c1"))).unwrap();
+        assert!(saved.contains("\"G4\""), "{saved}");
+        let log = fs::read_to_string(state.0.join(log::PATH)).unwrap();
+        assert_eq!(log.lines().count(), 3);
+        assert!(!project.0.join(".gdd").exists());
     }
 
     #[test]

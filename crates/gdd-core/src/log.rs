@@ -9,7 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Where the log lives, from the project root.
+/// Where the log lives, from the state root (see [`crate::state::root`]).
 pub const PATH: &str = ".gdd/log.jsonl";
 
 /// A machine step for the log: what the tool did by itself. The fields of an agent call (model,
@@ -77,10 +77,10 @@ impl Entry {
     }
 }
 
-/// Adds `line` at the end of the log of the project at `root`, creating the log when there is
-/// none.
-pub fn append(root: &Path, line: &str) -> io::Result<()> {
-    let path = root.join(PATH);
+/// Adds `line` at the end of the log of the project whose state root is `state`, creating the log
+/// when there is none.
+pub fn append(state: &Path, line: &str) -> io::Result<()> {
+    let path = state.join(PATH);
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }

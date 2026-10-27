@@ -1,7 +1,9 @@
 //! The files of `.gdd/` that gdd reads and writes around an agent call, where the agent could
 //! have left a link to a file outside the project, or a second name of one. gdd never reads or
 //! writes through either: what stands where its folder or its file goes is removed, never what
-//! it points to, and a file is written new, never over another name of it.
+//! it points to, and a file is written new, never over another name of it. `root` is the state
+//! root (see [`crate::state::root`]), whose `.gdd/` gets these checks whatever folder gdd runs
+//! in.
 
 use std::fs::{self, File, FileType};
 use std::io::{self, ErrorKind, Write};

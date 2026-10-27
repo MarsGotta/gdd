@@ -146,6 +146,9 @@ pub trait Steps {
 pub struct Project<'a> {
     /// The project root.
     pub root: &'a Path,
+    /// The state root, whose `.gdd/` holds the record of the change (see
+    /// [`crate::state::root`]): the project root itself, but in a linked worktree.
+    pub state: &'a Path,
     /// The branch changes merge into.
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
@@ -221,12 +224,13 @@ enum Ended {
 
 /// `gdd launch`: checks out the branch of change `id` (uncommitted work in tracked files is
 /// refused, unless it is on that branch: then it is the work of an earlier run, committed
-/// first), prepares it and runs the recipe.
+/// first), prepares it and runs the recipe. Only from the main checkout (see
+/// [`from_main_checkout`]).
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
-    let root = project.root;
-    change::read_record(root, id)?;
-    to_branch(root, id)?;
-    state::clear(root, id)?;
+    from_main_checkout(project, "launch")?;
+    change::read_record(project.state, id)?;
+    to_branch(project.root, id)?;
+    state::clear(project.state, id)?;
     let decided = steps.prepare()?;
     let mut run = Run {
         project,
@@ -235,7 +239,21 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
         decided,
     };
     let ended = run.launched();
-    finish(root, id, ended)
+    finish(project.state, id, ended)
+}
+
+/// `Ok` when `gdd <command>` runs in a project whose state is its own; else, before anything
+/// is read or done, why not: a linked worktree shares the state of the main checkout, and the
+/// recipe does not run there until parallel launches do.
+fn from_main_checkout(project: &Project, command: &str) -> Result<(), String> {
+    if project.root == project.state {
+        return Ok(());
+    }
+    Err(format!(
+        "run gdd {command} from the main checkout ({}): parallel launches in worktrees are not \
+         here yet",
+        project.state.display()
+    ))
 }
 
 /// Checks out the branch of change `id` of the project at `root`; see [`launch`].
@@ -259,7 +277,8 @@ fn to_branch(root: &Path, id: &str) -> Result<(), String> {
 /// (see [`ok_at_g4`]); `ko` rejects it, production untouched; `polish` checks out the branch of
 /// the change and runs a polish pass from the commit it is at (see [`polish_pass`]). A change
 /// that an earlier `ok` promoted takes only `ok`, which observes it; one whose promotion did not
-/// end parks, whatever the answer (see [`unsure`]).
+/// end parks, whatever the answer (see [`unsure`]). Only from the main checkout (see
+/// [`from_main_checkout`]).
 pub fn resume(
     project: &Project,
     id: &str,
@@ -268,20 +287,25 @@ pub fn resume(
     role: Option<&str>,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
-    let root = project.root;
+    from_main_checkout(project, "resume")?;
+    let state_root = project.state;
     approve::may_record(role).map_err(|e| e.to_string())?;
-    let (text, record) = release::read(root, id)?;
+    let (text, record) = release::read(state_root, id)?;
     if answer == Answer::Polish && note.trim().is_empty() {
         return Err(format!(
             "polish needs your notes: gdd resume {id} --g4 polish --note ..."
         ));
     }
-    if !state::paused_at_g4(root, id)? {
+    if !state::paused_at_g4(state_root, id)? {
         return Err(format!("Change {id} is not paused at G4."));
     }
     if record["state"] == release::PROMOTING {
-        answered(root, id, text, &record)?;
-        return unsure(root, id, "an earlier answer stopped while promoting it");
+        answered(state_root, id, text, &record)?;
+        return unsure(
+            state_root,
+            id,
+            "an earlier answer stopped while promoting it",
+        );
     }
     let in_production = record["state"] == IN_PRODUCTION;
     if in_production && answer != Answer::Ok {
@@ -292,29 +316,29 @@ pub fn resume(
     }
     match answer {
         Answer::Ok => {
-            answered(root, id, text, &record)?;
-            ok_at_g4(root, id, note, in_production, steps)
+            answered(state_root, id, text, &record)?;
+            ok_at_g4(state_root, id, note, in_production, steps)
         }
         Answer::Ko => {
-            answered(root, id, text, &record)?;
-            state::clear(root, id)?;
+            answered(state_root, id, text, &record)?;
+            state::clear(state_root, id)?;
             steps.decide("G4", "ko", "human", note)?;
-            saved_in_state(root, id, "rejected")?;
+            saved_in_state(state_root, id, "rejected")?;
             let said = format!("Change {id} rejected at G4: production untouched.");
             Ok(Said::Done(said))
         }
         Answer::Polish => {
             // First, so a checkout that fails leaves the change paused.
-            let start = to_polish(root, id)?;
-            answered(root, id, text, &record)?;
-            state::clear(root, id)?;
+            let start = to_polish(project.root, id)?;
+            answered(state_root, id, text, &record)?;
+            state::clear(state_root, id)?;
             polish_pass(project, id, note, &start, steps)
         }
     }
 }
 
-/// Writes `text`, the record of change `id` of the project at `root`, whose JSON is `record`,
-/// with the requests an answer to its G4 resolves resolved (see [`g4_requests`]).
+/// Writes `text`, the record of change `id` under the state root `root`, whose JSON is
+/// `record`, with the requests an answer to its G4 resolves resolved (see [`g4_requests`]).
 fn answered(root: &Path, id: &str, text: String, record: &Value) -> Result<(), String> {
     let path = change::record_path(id);
     let ts = log::now();
@@ -348,7 +372,7 @@ fn g4_requests(id: &str, record: &Value) -> Vec<String> {
     requests
 }
 
-/// OK at G4 of change `id` of the project at `root`, by the human with `note`: the decision
+/// OK at G4 of change `id`, under the state root `root`, by the human with `note`: the decision
 /// recorded, the change promoted unless it is `in_production` already (an earlier OK promoted it
 /// and stopped before observing it: never twice), then observed. Until the promotion passed, it
 /// stays paused at G4 unless production may have it (see [`not_promoted`]); a failed
@@ -371,9 +395,9 @@ fn ok_at_g4(
     finish(root, id, observed(steps))
 }
 
-/// What the human reads when the OK at G4 of change `id` of the project at `root` failed with
-/// `failure` before the change was promoted and observed. Its record says what production has:
-/// nothing of the change, which stays paused at G4 (see [`promotion_failed`]); or maybe the
+/// What the human reads when the OK at G4 of change `id`, under the state root `root`, failed
+/// with `failure` before the change was promoted and observed. Its record says what production
+/// has: nothing of the change, which stays paused at G4 (see [`promotion_failed`]); or maybe the
 /// change, promoted now or before, which parks it (see [`unsure`]). A record that cannot be read
 /// keeps the pause.
 fn not_promoted(root: &Path, id: &str, failure: &str) -> Result<Said, String> {
@@ -391,9 +415,9 @@ fn not_promoted(root: &Path, id: &str, failure: &str) -> Result<Said, String> {
     Err(promotion_failed(root, id, failure))
 }
 
-/// What the human reads when production may have change `id` of the project at `root` and the
-/// recipe cannot go on with it (`why`): the change parks, no longer paused at G4, so that no
-/// answer promotes it twice (see [`change::park`]). When it cannot park, it says why too.
+/// What the human reads when production may have change `id`, under the state root `root`, and
+/// the recipe cannot go on with it (`why`): the change parks, no longer paused at G4, so that
+/// no answer promotes it twice (see [`change::park`]). When it cannot park, it says why too.
 fn unsure(root: &Path, id: &str, why: &str) -> Result<Said, String> {
     let reason = format!(
         "production may have it, but gdd cannot go on with it ({why}). Check production \
@@ -406,10 +430,10 @@ fn unsure(root: &Path, id: &str, why: &str) -> Result<Said, String> {
         .map_err(|e| format!("Change {id} cannot park: {reason}.\n{e}"))
 }
 
-/// What the human reads when the promotion of change `id` of the project at `root` failed with
-/// `failure`, or could not run: production is untouched, so the change stays paused at G4, with a
-/// note on why and its request of G4 back in the Decision Inbox. When they cannot be left there,
-/// it says why too.
+/// What the human reads when the promotion of change `id`, under the state root `root`, failed
+/// with `failure`, or could not run: production is untouched, so the change stays paused at G4,
+/// with a note on why and its request of G4 back in the Decision Inbox. When they cannot be left
+/// there, it says why too.
 fn promotion_failed(root: &Path, id: &str, failure: &str) -> String {
     let why = format!(
         "{PROMOTION_FAILED}{failure}. Fix the cause and answer again: gdd resume {id} --g4 ok, \
@@ -435,22 +459,22 @@ fn polish_pass(
     start: &str,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
-    let root = project.root;
-    polish_noted(root, id, note, start)?;
+    let state_root = project.state;
+    polish_noted(state_root, id, note, start)?;
     let mut run = Run {
         project,
         id,
         steps,
-        decided: decided_of(root, id)?,
+        decided: decided_of(state_root, id)?,
     };
     let ended = run.polished();
-    finish(root, id, ended)
+    finish(state_root, id, ended)
 }
 
-/// Keeps `note`, the human's notes at G4, in the record of change `id` of the project at `root`
-/// for the Builder (see [`change::POLISH`]); logs it as the answer to G4, which stays pending;
-/// and puts the change back in Build, its build starting at the commit `start`: what the change
-/// did before passed every gate and merged, so Path Guard judges what the pass touches.
+/// Keeps `note`, the human's notes at G4, in the record of change `id` under the state root
+/// `root` for the Builder (see [`change::POLISH`]); logs it as the answer to G4, which stays
+/// pending; and puts the change back in Build, its build starting at the commit `start`: what the
+/// change did before passed every gate and merged, so Path Guard judges what the pass touches.
 fn polish_noted(root: &Path, id: &str, note: &str, start: &str) -> Result<(), String> {
     let text = change::read_record(root, id)?;
     let path = change::record_path(id);
@@ -482,7 +506,7 @@ fn polish_noted(root: &Path, id: &str, note: &str, start: &str) -> Result<(), St
     inbox::save(root, id, &noted).map(drop)
 }
 
-/// What prepare decided for change `id` of the project at `root`, as its record keeps it.
+/// What prepare decided for change `id`, as its record under the state root `root` keeps it.
 fn decided_of(root: &Path, id: &str) -> Result<Decided, String> {
     #[derive(Deserialize)]
     struct Raw {
@@ -494,8 +518,8 @@ fn decided_of(root: &Path, id: &str) -> Result<Decided, String> {
     Ok(raw.decision)
 }
 
-/// Writes the record of change `id` of the project at `root` in state `state`, and saves its
-/// Decision Inbox.
+/// Writes the record of change `id`, under the state root `root`, in state `state`, and saves
+/// its Decision Inbox.
 fn saved_in_state(root: &Path, id: &str, state: &str) -> Result<(), String> {
     let text = change::read_record(root, id)?;
     let path = change::record_path(id);
@@ -514,9 +538,9 @@ fn g4_request(id: &str) -> String {
     )
 }
 
-/// What the person who ran the recipe of change `id` of the project at `root` reads, from how
-/// it ended. A pause at G4 leaves the request in the Decision Inbox and the run state paused; a
-/// stop that parks parks the change (see [`change::park`]).
+/// What the person who ran the recipe of change `id`, whose state root is `root`, reads, from
+/// how it ended. A pause at G4 leaves the request in the Decision Inbox and the run state paused;
+/// a stop that parks parks the change (see [`change::park`]).
 fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, String> {
     let inbox = format!("Message: {}", change::inbox_path(id));
     match ended {
@@ -535,8 +559,8 @@ fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, Str
     }
 }
 
-/// Leaves the request of G4 in the Decision Inbox of change `id` of the project at `root`, after
-/// `why` when there is one, and its run state paused at G4.
+/// Leaves the request of G4 in the Decision Inbox of change `id`, under the state root `root`,
+/// after `why` when there is one, and its run state paused at G4.
 fn pause_at_g4(root: &Path, id: &str, why: Option<&str>) -> Result<(), String> {
     let mut noted = change::read_record(root, id)?;
     let path = change::record_path(id);
@@ -609,21 +633,21 @@ impl<S: Steps> Run<'_, S> {
     /// [`links_left`]), and either parks the change, as a Reviewer that changed the working tree
     /// does.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
-        let root = self.project.root;
+        let Project { root, state, .. } = *self.project;
         let call = Call {
             who,
             model: self.decided.model(who),
             args,
         };
-        let state = State::of(root, self.id)?;
+        let before = State::of(state, self.id)?;
         let tree = match who {
             Who::Reviewer => Some(working_tree(root)?),
             Who::BuilderTest | Who::BuilderBuild | Who::Orchestrator => None,
         };
         let called = self.steps.agent(&call);
         // The state first: it leaves real folders on the way to the folder of the change.
-        let mut changed = state.put_back(root)?;
-        changed.extend(links_left(root, self.id)?);
+        let mut changed = before.put_back(state)?;
+        changed.extend(links_left(state, self.id)?);
         if !changed.is_empty() {
             let files = changed.join(", ");
             return Err(Stop::Park(format!("the {who} changed GDD state: {files}")));
@@ -661,7 +685,7 @@ impl<S: Steps> Run<'_, S> {
         let replans = self.project.replans;
         for _ in 0..replans {
             self.call(Who::Orchestrator, "reason=g2")?;
-            if verdict::replanned_to_test(self.project.root, self.id)? {
+            if verdict::replanned_to_test(self.project.state, self.id)? {
                 self.steps.snapshot(Snapshot::Round)?;
                 self.test_mode("mode=test after=replan", true)?;
             }
@@ -730,16 +754,16 @@ impl<S: Steps> Run<'_, S> {
     /// The Reviewer; KO, one fix by the Builder, G2, G3 and a second review. KO, or G3 red, the
     /// change parks.
     fn review(&mut self) -> Result<(), Stop> {
-        let (root, id) = (self.project.root, self.id);
+        let (state, id) = (self.project.state, self.id);
         self.call(Who::Reviewer, "round=1")?;
-        if verdict::review(root, id)? {
+        if verdict::review(state, id)? {
             return Ok(());
         }
         self.call(Who::BuilderBuild, "mode=build fix=review")?;
         self.steps.gate(Gate::G2)?;
         let g3 = self.steps.gate(Gate::G3)?;
         self.call(Who::Reviewer, "round=2")?;
-        if verdict::review(root, id)? && g3 {
+        if verdict::review(state, id)? && g3 {
             Ok(())
         } else {
             Err(Stop::Park(REVIEW_KO.to_string()))
@@ -766,7 +790,7 @@ struct State {
 }
 
 impl State {
-    /// The GDD state of change `id` of the project at `root`, as it is now.
+    /// The GDD state of change `id`, under the state root `root`, as it is now.
     fn of(root: &Path, id: &str) -> Result<State, String> {
         let paths = [
             (Kind::Record, change::record_path(id)),
@@ -835,7 +859,7 @@ fn own_fields(bytes: &[u8]) -> Option<Map<String, Value>> {
     Some(record)
 }
 
-/// What an agent left in the folder of change `id` of the project at `root` that gdd would
+/// What an agent left in the folder of change `id`, under the state root `root`, that gdd would
 /// write through: links, files with other names, and anything else that is neither a file nor a
 /// folder. They go, never what they point to; their paths, sorted.
 fn links_left(root: &Path, id: &str) -> Result<Vec<String>, String> {
@@ -1100,6 +1124,7 @@ mod tests {
     fn launched(steps: &mut Played, replans: u32) -> Result<Ended, Stop> {
         let project = Project {
             root: steps.root,
+            state: steps.root,
             main: "main",
             replans,
         };
@@ -1798,6 +1823,7 @@ mod tests {
     fn project(root: &Path) -> Project<'_> {
         Project {
             root,
+            state: root,
             main: "main",
             replans: 1,
         }
@@ -1836,6 +1862,33 @@ mod tests {
         let missing = launch(&project(root), "c9", &mut steps).unwrap_err();
         let start = "change c9 does not exist";
         assert!(missing.starts_with(start), "{missing}");
+    }
+
+    #[test]
+    fn the_recipe_runs_only_where_the_state_is_the_project_s_own() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        state::pause_at_g4(root, "c1").unwrap();
+        let worktree = Folder::new();
+        let elsewhere = Project {
+            state: root,
+            ..project(&worktree.0)
+        };
+        let mut steps = played(root);
+        let why = |command: &str| {
+            format!(
+                "run gdd {command} from the main checkout ({}): parallel launches in worktrees \
+                 are not here yet",
+                root.display()
+            )
+        };
+        let refused = launch(&elsewhere, "c1", &mut steps);
+        assert_eq!(refused, Err(why("launch")));
+        let refused = resume(&elsewhere, "c1", Answer::Ok, "", None, &mut steps);
+        assert_eq!(refused, Err(why("resume")));
+        assert!(steps.ran.is_empty());
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
     }
 
     #[test]

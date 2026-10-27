@@ -48,6 +48,9 @@ const NOT_AGENTS: [&str; 9] = [
 pub struct Project<'a> {
     /// The project root.
     pub root: &'a Path,
+    /// The state root, whose `.gdd/` holds the record of the change (see
+    /// [`crate::state::root`]).
+    pub state: &'a Path,
     /// The branch the change merges into.
     pub main: &'a str,
 }
@@ -75,8 +78,8 @@ pub fn merge(
     id: &str,
     classification: &Classification,
 ) -> Result<String, String> {
-    let root = project.root;
-    let (text, record) = release::read(root, id)?;
+    let (root, state) = (project.root, project.state);
+    let (text, record) = release::read(state, id)?;
     if record["gates"]["G3"]["decision"] != "ok" {
         return Err(G3_CLOSED.to_string());
     }
@@ -88,7 +91,7 @@ pub fn merge(
             "Not on branch {branch}: merge runs where the last work of the change is."
         ));
     }
-    let message = message(root, id, &record, classification)?;
+    let message = message(state, id, &record, classification)?;
     if git.has_changes().map_err(said)? {
         let work = format!("gdd({id}): change work");
         git.commit_all(&work).map_err(said)?;
@@ -102,7 +105,7 @@ pub fn merge(
         ("commit", Value::from(commit.as_str())),
     ];
     let merged = change::with_fields(&text, fields).map_err(|e| format!("{path}: {e}"))?;
-    change::write(root, &path, &merged)?;
+    change::write(state, &path, &merged)?;
     let entry = log::Entry {
         change: id.to_string(),
         phase: "3-integrate".to_string(),
@@ -113,7 +116,7 @@ pub fn merge(
         duration_s: 0.0,
         note: commit.chars().take(12).collect(),
     };
-    change::logged(root, &entry)?;
+    change::logged(state, &entry)?;
     let (push, steps) = configured(root)?;
     if push && git.has_remote().map_err(said)? {
         let main = project.main;
@@ -121,12 +124,12 @@ pub fn merge(
             return Err(format!("Merged into {main}, but the push failed: {e}"));
         }
     }
-    let build = release::step(root, id, &steps, "build")?;
+    let build = release::step(root, state, id, &steps, "build")?;
     if !build.ok {
         let why = build.failure();
         return Err(format!("Could not build the artifact: {why}"));
     }
-    let pre = release::step(root, id, &steps, "deploy_pre")?;
+    let pre = release::step(root, state, id, &steps, "deploy_pre")?;
     if !pre.ok {
         let why = pre.failure();
         return Err(format!("Could not deploy to pre: {why}"));
@@ -153,13 +156,13 @@ fn configuration(root: &Path, path: &str) -> Result<String, String> {
     }
 }
 
-/// The message of the merge commit of change `id` of the project at `root`, whose record is
-/// `record` and whose classification is `classification`: the title, then the color, lane and
-/// kind of work; the approvals; the verdicts of the Reviewer and its points; the decisions
-/// taken without the human (the last ones); the tokens of its agent calls; and where its record
-/// lives.
+/// The message of the merge commit of change `id` of the project whose state root is `state`,
+/// whose record is `record` and whose classification is `classification`: the title, then the
+/// color, lane and kind of work; the approvals; the verdicts of the Reviewer and its points; the
+/// decisions taken without the human (the last ones); the tokens of its agent calls; and where
+/// its record lives.
 pub fn message(
-    root: &Path,
+    state: &Path,
     id: &str,
     record: &Value,
     classification: &Classification,
@@ -172,13 +175,13 @@ pub fn message(
         String::new(),
         format!("Color: {color} · lane {lane} · type {kind}"),
     ];
-    let approvals = approvals(root, record, color)?;
+    let approvals = approvals(state, record, color)?;
     if approvals.is_empty() {
         lines.push("Approvals: none needed".to_string());
     } else {
         lines.push(format!("Approvals: {}", approvals.join("; ")));
     }
-    lines.extend(reviews(root, id)?);
+    lines.extend(reviews(state, id)?);
     let none = Vec::new();
     let notes = record["inbox"].as_array().unwrap_or(&none);
     let decided: Vec<&str> = notes
@@ -192,17 +195,17 @@ pub fn message(
             lines.push(format!("  - {}", clipped(&text.replace('\n', " "))));
         }
     }
-    lines.extend(tokens(root, id)?);
+    lines.extend(tokens(state, id)?);
     lines.push(format!("Record: .gdd/changes/{id}/ (local)"));
     Ok(lines.join("\n"))
 }
 
 /// The approvals the message names: the red zones for a red change, then G1 and the plan when
 /// the record has them.
-fn approvals(root: &Path, record: &Value, color: Color) -> Result<Vec<String>, String> {
+fn approvals(state: &Path, record: &Value, color: Color) -> Result<Vec<String>, String> {
     let mut approvals = Vec::new();
     let zones = match color {
-        Color::Red => saved(root, approve::ZONES_PATH)?,
+        Color::Red => saved(state, approve::ZONES_PATH)?,
         _ => None,
     };
     if let Some(zones) = zones {
@@ -231,10 +234,10 @@ fn approval(decided: &Value, extra: &str) -> String {
     format!("{decision} ({by}, {day}{extra})")
 }
 
-/// The JSON object a file of the tool holds: `None` when there is no file, or it holds no
-/// object or an empty one.
-fn saved(root: &Path, path: &str) -> Result<Option<Value>, String> {
-    let text = match fs::read_to_string(root.join(path)) {
+/// The JSON object a file of the tool under the state root `state` holds: `None` when there is no
+/// file, or it holds no object or an empty one.
+fn saved(state: &Path, path: &str) -> Result<Option<Value>, String> {
+    let text = match fs::read_to_string(state.join(path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("cannot read {path}: {e}")),
@@ -246,9 +249,9 @@ fn saved(root: &Path, path: &str) -> Result<Option<Value>, String> {
 /// The lines of the Reviewer: its verdicts, in the order of its outputs
 /// (`.gdd/changes/<id>/outputs/reviewer-*.md`), then the points of each output (its lines that
 /// start with `- **`), as plain text. Nothing without outputs.
-fn reviews(root: &Path, id: &str) -> Result<Vec<String>, String> {
+fn reviews(state: &Path, id: &str) -> Result<Vec<String>, String> {
     let folder = format!(".gdd/changes/{id}/outputs");
-    let entries = match fs::read_dir(root.join(&folder)) {
+    let entries = match fs::read_dir(state.join(&folder)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("cannot read {folder}: {e}")),
@@ -262,7 +265,7 @@ fn reviews(root: &Path, id: &str) -> Result<Vec<String>, String> {
     let mut outputs = Vec::new();
     for name in names {
         let path = format!("{folder}/{name}");
-        let bytes = fs::read(root.join(&path)).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let bytes = fs::read(state.join(&path)).map_err(|e| format!("cannot read {path}: {e}"))?;
         outputs.push(String::from_utf8_lossy(&bytes).into_owned());
     }
     if outputs.is_empty() {
@@ -319,10 +322,10 @@ fn unlinked(text: &str) -> String {
     out
 }
 
-/// The tokens of the agent calls of change `id` in the log of the project at `root`, in one
+/// The tokens of the agent calls of change `id` in the log under the state root `state`, in one
 /// line: nothing when there are none.
-fn tokens(root: &Path, id: &str) -> Result<Option<String>, String> {
-    let text = match fs::read_to_string(root.join(log::PATH)) {
+fn tokens(state: &Path, id: &str) -> Result<Option<String>, String> {
+    let text = match fs::read_to_string(state.join(log::PATH)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
@@ -591,6 +594,7 @@ mod tests {
     fn merged(repo: &Repo) -> Result<String, String> {
         let project = Project {
             root: repo.root(),
+            state: repo.root(),
             main: "main",
         };
         merge(&project, "c1", &classified("src/app.rs"))
@@ -637,6 +641,26 @@ mod tests {
     }
 
     #[test]
+    fn the_record_and_the_log_of_a_merge_live_under_the_state_root() {
+        let repo = started(".gdd/*\n");
+        let state = Folder::new();
+        fs::rename(repo.root().join(".gdd"), state.0.join(".gdd")).unwrap();
+        repo.write("src/app.rs", "x\n");
+        let project = Project {
+            root: repo.root(),
+            state: &state.0,
+            main: "main",
+        };
+        assert!(merge(&project, "c1", &classified("src/app.rs")).is_ok());
+        repo.git(&["cat-file", "-e", "main:src/app.rs"]);
+        let record = json(&change::read_record(&state.0, "c1").unwrap());
+        assert_eq!(record["state"], "merged");
+        let text = fs::read_to_string(state.0.join(log::PATH)).unwrap();
+        assert_eq!(log::parse(&text).unwrap().len(), 3);
+        assert!(!repo.root().join(".gdd").exists());
+    }
+
+    #[test]
     fn a_branch_with_nothing_left_to_commit_merges_as_it_is() {
         let repo = started(".gdd/*\n");
         repo.write("src/app.rs", "x\n");
@@ -678,6 +702,7 @@ mod tests {
         let missing = Folder::new();
         let project = Project {
             root: &missing.0,
+            state: &missing.0,
             main: "main",
         };
         let err = merge(&project, "c1", &classified("src/app.rs")).unwrap_err();
