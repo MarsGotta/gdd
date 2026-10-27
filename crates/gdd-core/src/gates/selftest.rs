@@ -50,7 +50,7 @@ const WORKFLOW: &str = ".github/workflows/gdd.yml";
 const RUNS_CI: &str = "bin/gdd ci";
 
 /// Where the file at the path of the failing test is kept while it is set aside, under its own
-/// path, from the project root.
+/// path, from the state root (see [`crate::state::root`]).
 const KEPT: &str = ".gdd/selftest/kept";
 
 /// What the self-test reads from `gdd/commands.toml` besides the G2 commands.
@@ -159,9 +159,9 @@ pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
     Ok(Selftest { checks })
 }
 
-/// Saves `selftest` in `.gdd/selftest.json` of the project at `root`, as indented JSON with
+/// Saves `selftest` in `.gdd/selftest.json` under the state root `state`, as indented JSON with
 /// `ok`, `summary`, `detail` and `ts`, and logs it: a machine step of G0.
-pub fn save(root: &Path, selftest: &Selftest) -> Result<(), String> {
+pub fn save(state: &Path, selftest: &Selftest) -> Result<(), String> {
     let (summary, ts) = (selftest.summary(), log::now());
     let saved = Saved {
         ok: selftest.ok(),
@@ -170,7 +170,7 @@ pub fn save(root: &Path, selftest: &Selftest) -> Result<(), String> {
         ts: &ts,
     };
     let text = serde_json::to_string_pretty(&saved).map_err(|e| e.to_string())?;
-    change::write(root, approve::SELFTEST_PATH, &format!("{text}\n"))?;
+    change::write(state, approve::SELFTEST_PATH, &format!("{text}\n"))?;
     let entry = log::Entry {
         change: "-".to_string(),
         phase: "0-setup".to_string(),
@@ -181,7 +181,7 @@ pub fn save(root: &Path, selftest: &Selftest) -> Result<(), String> {
         duration_s: 0.0,
         note: summary,
     };
-    change::logged(root, &entry)
+    change::logged(state, &entry)
 }
 
 /// The first check: its name, and whether it passed. The file at the path of the failing test of
@@ -200,15 +200,15 @@ fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bo
     if commands.is_empty() {
         return Ok((FAILING_TEST.to_string(), false));
     }
-    let root = project.root;
-    let kept = set_aside(root, file)?;
+    let (root, state) = (project.root, project.state);
+    let kept = set_aside(root, state, file)?;
     let red_without = failing(commands, root);
     let red = if red_without.is_empty() {
         planted_and_red(root, file, content, commands)
     } else {
         Ok(false)
     };
-    let given_back = give_back(root, file, kept.as_deref());
+    let given_back = give_back(root, state, file, kept.as_deref());
     if let Some(kept) = &kept {
         let given = given_back.as_ref();
         if !*given.map_err(|e| format!("cannot give {file} back: {e}: a copy is in {kept}"))? {
@@ -241,15 +241,15 @@ fn planted_and_red(
 }
 
 /// Sets aside what was at `file` of the project at `root`: a copy of it, bytes and permissions,
-/// is kept at its path under [`KEPT`], and it goes. Where the copy is, or `None` when there was
-/// no file. A symbolic link on the way to the file or to its copy, a file with other names (a
-/// hard link) or a copy already there is refused before anything is written: the self-test would
-/// write out of the project, could not give the file back as it was, or would lose the copy an
-/// earlier run kept.
-fn set_aside(root: &Path, file: &str) -> Result<Option<String>, String> {
+/// is kept at its path under [`KEPT`] of the state root `state`, and it goes. Where the copy is,
+/// from the state root, or `None` when there was no file. A symbolic link on the way to the file
+/// or to its copy, a file with other names (a hard link) or a copy already there is refused
+/// before anything is written: the self-test would write out of the project, could not give the
+/// file back as it was, or would lose the copy an earlier run kept.
+fn set_aside(root: &Path, state: &Path, file: &str) -> Result<Option<String>, String> {
     let kept = format!("{KEPT}/{file}");
-    for path in [file, kept.as_str()] {
-        let link = first_link(root, path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    for (base, path) in [(root, file), (state, kept.as_str())] {
+        let link = first_link(base, path).map_err(|e| format!("cannot read {path}: {e}"))?;
         if let Some(link) = link {
             return Err(format!(
                 "cannot set {file} aside: {} is a symbolic link, which the self-test does not \
@@ -272,7 +272,7 @@ fn set_aside(root: &Path, file: &str) -> Result<Option<String>, String> {
              not write through: copy it to a file of its own and run it again"
         ));
     }
-    let copied = written(&root.join(&kept), &bytes);
+    let copied = written(&state.join(&kept), &bytes);
     let copied = copied.and_then(|copy| copy.set_permissions(meta.permissions()));
     copied.map_err(|e| not_kept(file, &kept, e))?;
     let aside = fs::remove_file(&path);
@@ -293,12 +293,12 @@ fn not_kept(file: &str, kept: &str, e: io::Error) -> String {
 }
 
 /// Gives back what was at `file` of the project at `root` before the self-test, in place of
-/// whatever the G2 commands left there: the file whose copy is at `kept`, its bytes and
-/// permissions, and then the copy goes; or no file (see [`cleared`]). Whether it was given back:
-/// not when a symbolic link is now on the way to the file, or to its copy, itself included,
-/// which would take the self-test out of the project. Then nothing goes through the link and the
-/// copy stays.
-fn give_back(root: &Path, file: &str, kept: Option<&str>) -> io::Result<bool> {
+/// whatever the G2 commands left there: the file whose copy is at `kept` of the state root
+/// `state`, its bytes and permissions, and then the copy goes; or no file (see [`cleared`]).
+/// Whether it was given back: not when a symbolic link is now on the way to the file, or to its
+/// copy, itself included, which would take the self-test out of the project. Then nothing goes
+/// through the link and the copy stays.
+fn give_back(root: &Path, state: &Path, file: &str, kept: Option<&str>) -> io::Result<bool> {
     let Some(kept) = kept else {
         return cleared(root, file).map(|()| true);
     };
@@ -306,10 +306,10 @@ fn give_back(root: &Path, file: &str, kept: Option<&str>) -> io::Result<bool> {
         return Ok(false);
     }
     removed(&root.join(file))?;
-    if first_link(root, kept)?.is_some() {
+    if first_link(state, kept)?.is_some() {
         return Ok(false);
     }
-    let copy = root.join(kept);
+    let copy = state.join(kept);
     let bytes = fs::read(&copy)?;
     let permissions = fs::metadata(&copy)?.permissions();
     let given = written(&root.join(file), &bytes)?;
@@ -460,15 +460,20 @@ mod tests {
             Harness::new(&COMMANDS.replace(UNIT, &format!("unit = '{unit}'")))
         }
 
-        fn run(&self) -> Result<Selftest, String> {
-            let project = Project {
+        /// What the self-test reads of this project, whose state root is `state`.
+        fn project<'a>(&'a self, state: &'a Path) -> Project<'a> {
+            Project {
                 root: &self.folder.0,
+                state,
                 zones: &self.zones,
                 rules: &self.rules,
                 settings: &self.settings,
                 commands: &self.commands,
-            };
-            run(&project, &self.config)
+            }
+        }
+
+        fn run(&self) -> Result<Selftest, String> {
+            run(&self.project(&self.folder.0), &self.config)
         }
 
         /// Whether each check passed, in order.
@@ -560,6 +565,21 @@ mod tests {
         let harness = Harness::with_unit(removes);
         assert!(harness.run().unwrap().ok());
         assert!(!harness.planted().exists());
+    }
+
+    #[test]
+    fn the_test_is_kept_aside_under_the_state_root() {
+        let state = Folder::new();
+        let copy = state.0.join(".gdd/selftest/kept/tests/failing.txt");
+        // Green only while the copy is there, under the state root, and the test is not.
+        let unit = format!("test ! -f tests/failing.txt && test -f {}", copy.display());
+        let harness = Harness::with_unit(&unit);
+        harness.folder.write("tests/failing.txt", "mine\n");
+        let selftest = run(&harness.project(&state.0), &harness.config).unwrap();
+        assert!(selftest.ok(), "{selftest}");
+        assert_eq!(fs::read_to_string(harness.planted()).unwrap(), "mine\n");
+        assert!(!copy.exists());
+        assert!(!harness.folder.0.join(".gdd").exists());
     }
 
     #[test]

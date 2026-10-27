@@ -20,6 +20,7 @@ pub mod report;
 pub mod rules;
 pub mod session;
 pub mod stacks;
+pub mod state;
 pub mod status;
 pub mod zones;
 

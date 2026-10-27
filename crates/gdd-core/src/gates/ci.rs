@@ -192,6 +192,7 @@ mod tests {
         fn project<'a>(&'a self, root: &'a std::path::Path) -> Project<'a> {
             Project {
                 root,
+                state: root,
                 zones: &self.zones,
                 rules: &self.rules,
                 settings: &self.settings,

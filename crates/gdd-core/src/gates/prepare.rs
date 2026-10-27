@@ -74,16 +74,16 @@ struct Prepared<'a> {
 /// that says why. Once started, the record keeps the decision with `resume_green`, the start is
 /// logged, and what it prints, as JSON on one line, is `ok` and that decision.
 pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, String> {
-    let root = setup.project.root;
-    if !approve::g0_open(root).map_err(|e| e.to_string())? {
+    let state = setup.project.state;
+    if !approve::g0_open(state).map_err(|e| e.to_string())? {
         return Err(G0_PENDING.to_string());
     }
-    let zones = approve::zones_state(root, setup.zones).map_err(|e| e.to_string())?;
+    let zones = approve::zones_state(state, setup.zones).map_err(|e| e.to_string())?;
     let spike = zones == ZonesState::NotApproved && decision.kind == "Spike";
     if !zones.approved() && !spike {
         return Err(format!("{} {APPROVE_ZONES}", zones.message()));
     }
-    let text = change::read_record(root, id)?;
+    let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     let invalid = |e: serde_json::Error| format!("{path}: {e}");
     let record: Value = serde_json::from_str(&text).map_err(invalid)?;
@@ -96,14 +96,14 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         return Err(PLAN_PENDING.to_string());
     }
     let accepted = same_family(setup.models, decision)?;
-    let git = Git::new(root);
+    let git = Git::new(setup.project.root);
     let branch = change::branch(id);
     if git.current_branch().map_err(|e| e.to_string())? != branch {
         return Err(format!(
             "Not on branch {branch}. Launch the change with bin/gdd launch {id}."
         ));
     }
-    let (resume_green, start) = if built_before(root, id)? {
+    let (resume_green, start) = if built_before(state, id)? {
         let record = Record::from_json(&text).map_err(invalid)?;
         relaunched(setup.project, id, &record, &git)?
     } else {
@@ -124,10 +124,10 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         .and_then(|text| change::with_fields(&text, fields))
         .and_then(|text| with_decided(text, accepted.as_deref(), &record, &ts))
         .map_err(invalid)?;
-    change::write(root, &path, &updated)?;
+    change::write(state, &path, &updated)?;
     // The snapshots belong to the earlier build.
-    remove(root, &change::snapshot_path(id))?;
-    remove(root, &change::build_snapshot_path(id))?;
+    remove(state, &change::snapshot_path(id))?;
+    remove(state, &change::build_snapshot_path(id))?;
     let mut note = format!("{} · {}", classification.color, classification.lane);
     if resume_green {
         note.push_str(" · G2 already green: Builder skipped");
@@ -142,7 +142,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         duration_s: 0.0,
         note,
     };
-    change::logged(root, &entry)?;
+    change::logged(state, &entry)?;
     let prepared = Prepared {
         ok: true,
         started: &started,
@@ -195,10 +195,10 @@ fn with_decided(
     }
 }
 
-/// Whether the log of the project at `root` has a call to the Builder in build mode for change
-/// `id`: the change ran before. No log, no call.
-fn built_before(root: &Path, id: &str) -> Result<bool, String> {
-    let text = match fs::read_to_string(root.join(log::PATH)) {
+/// Whether the log of the project whose state root is `state` has a call to the Builder in build
+/// mode for change `id`: the change ran before. No log, no call.
+fn built_before(state: &Path, id: &str) -> Result<bool, String> {
+    let text = match fs::read_to_string(state.join(log::PATH)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
@@ -231,7 +231,7 @@ fn relaunched(
     };
     let report = gates::run(project, Gate::G2, id, &from_main, RELAUNCH_ROLE, None)
         .map_err(|e| e.to_string())?;
-    gates::save(project.root, id, &report)?;
+    gates::save(project.state, id, &report)?;
     let guarded = report.failures.iter().any(|f| f.name == gates::PATH_GUARD);
     let start = if guarded {
         left
@@ -241,9 +241,9 @@ fn relaunched(
     Ok((report.ok, start))
 }
 
-/// Removes the file `path` of the project at `root`, if there is one.
-fn remove(root: &Path, path: &str) -> Result<(), String> {
-    match fs::remove_file(root.join(path)) {
+/// Removes the file `path` under the state root `state`, if there is one.
+fn remove(state: &Path, path: &str) -> Result<(), String> {
+    match fs::remove_file(state.join(path)) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(format!("cannot remove {path}: {e}")),
@@ -344,6 +344,7 @@ mod tests {
         fn gates(&self) -> gates::Project<'_> {
             gates::Project {
                 root: self.root(),
+                state: self.root(),
                 zones: &self.zones,
                 rules: &self.rules,
                 settings: &self.settings,

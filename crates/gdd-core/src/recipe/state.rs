@@ -19,12 +19,13 @@ struct State {
     paused_at: String,
 }
 
-/// Where the run state of change `id` lives, from the project root.
+/// Where the run state of change `id` lives, from the state root (see [`crate::state::root`]).
 pub fn path(id: &str) -> String {
     format!(".gdd/changes/{id}/run.json")
 }
 
-/// Records that the recipe of change `id` of the project at `root` waits for the human at G4.
+/// Records that the recipe of change `id`, of the project whose state root is `root`, waits for
+/// the human at G4.
 pub fn pause_at_g4(root: &Path, id: &str) -> Result<(), String> {
     let state = State {
         paused_at: G4.to_string(),
@@ -33,8 +34,8 @@ pub fn pause_at_g4(root: &Path, id: &str) -> Result<(), String> {
     change::write(root, &path(id), &format!("{text}\n"))
 }
 
-/// Whether the recipe of change `id` of the project at `root` waits at G4. Without a run state,
-/// it does not.
+/// Whether the recipe of change `id`, of the project whose state root is `root`, waits at G4.
+/// Without a run state, it does not.
 pub fn paused_at_g4(root: &Path, id: &str) -> Result<bool, String> {
     let path = path(id);
     let text = match fs::read_to_string(root.join(&path)) {
@@ -46,7 +47,8 @@ pub fn paused_at_g4(root: &Path, id: &str) -> Result<bool, String> {
     Ok(state.paused_at == G4)
 }
 
-/// Clears the run state of change `id` of the project at `root`: its recipe no longer waits.
+/// Clears the run state of change `id`, of the project whose state root is `root`: its recipe no
+/// longer waits.
 pub fn clear(root: &Path, id: &str) -> Result<(), String> {
     let path = path(id);
     match fs::remove_file(root.join(&path)) {

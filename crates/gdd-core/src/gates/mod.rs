@@ -109,7 +109,8 @@ impl Gate {
         }
     }
 
-    /// Where the report of its last run on change `id` lives, from the project root.
+    /// Where the report of its last run on change `id` lives, from the state root (see
+    /// [`crate::state::root`]).
     pub fn report_path(self, id: &str) -> String {
         format!(".gdd/changes/{id}/{}.json", self.key())
     }
@@ -223,11 +224,14 @@ impl Rules {
     }
 }
 
-/// What a gate reads from the project: its root and its configuration.
+/// What a gate reads from the project: its root, its state root and its configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
     /// The project root: the commands run from it.
     pub root: &'a Path,
+    /// The state root, whose `.gdd/` holds the records and the reports (see
+    /// [`crate::state::root`]).
+    pub state: &'a Path,
     /// The zone map.
     pub zones: &'a ZoneMap,
     /// What the rules file says to the gates.
@@ -388,12 +392,12 @@ pub(crate) fn tenths(seconds: f64) -> f64 {
     (seconds * 10.0).round() / 10.0
 }
 
-/// Saves `report`, of a run on change `id`, next to the record of the change in the project at
-/// `root` (see [`Gate::report_path`]), as indented JSON, and logs the run.
-pub fn save(root: &Path, id: &str, report: &Report) -> Result<(), String> {
+/// Saves `report`, of a run on change `id`, next to the record of the change under the state root
+/// `state` (see [`Gate::report_path`]), as indented JSON, and logs the run.
+pub fn save(state: &Path, id: &str, report: &Report) -> Result<(), String> {
     let saved = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
-    change::write(root, &report.gate.report_path(id), &format!("{saved}\n"))?;
-    change::logged(root, &report.log_entry(id))
+    change::write(state, &report.gate.report_path(id), &format!("{saved}\n"))?;
+    change::logged(state, &report.log_entry(id))
 }
 
 /// Runs `gate` on change `id`, whose record is `record`, for `role`. The change is classified
@@ -673,6 +677,7 @@ paths = ["src/storage/**"]
         fn project(&self) -> Project<'_> {
             Project {
                 root: self.repo.root(),
+                state: self.repo.root(),
                 zones: &self.zones,
                 rules: &self.rules,
                 settings: &self.settings,

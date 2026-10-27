@@ -23,14 +23,15 @@ pub const PHASES: [&str; 6] = [
     "5-learn",
 ];
 
-/// The sessions gdd started for its agents, from the project root: their ids, one per line.
+/// The sessions gdd started for its agents, from the state root (see [`crate::state::root`]):
+/// their ids, one per line.
 const HEADLESS: &str = ".gdd/headless_sessions.txt";
 
-/// The requests already in the log, from the project root: their ids, as a JSON list.
+/// The requests already in the log, from the state root: their ids, as a JSON list.
 const IMPORTED: &str = ".gdd/imported_requests.json";
 
-/// Where the new list of [`IMPORTED`] waits, from the project root, until the log has the
-/// requests it adds.
+/// Where the new list of [`IMPORTED`] waits, from the state root, until the log has the requests
+/// it adds.
 const IMPORTING: &str = ".gdd/imported_requests.json.new";
 
 /// What requests used: how many they are and their tokens, as the log counts them.
@@ -96,23 +97,29 @@ struct Line<'a> {
     note: &'a str,
 }
 
-/// Adds to the log of the project at `root` the requests of its Claude Code sessions that are
-/// not there yet, in `phase` and for change `id` (`-` without one). The transcripts are the
-/// `.jsonl` files of `<home>/.claude/projects/<root>`, `<root>` being the canonical root with
-/// every character outside `A-Za-z0-9` turned into `-`, but those of the sessions in
-/// `.gdd/headless_sessions.txt`. The log gets the new requests, one line per model, and they
-/// join the ones in `.gdd/imported_requests.json`: a request is never counted twice, and when
-/// either file cannot be written both stay as they were, so the import can run again. What to
-/// tell the human, in one line. An id that cannot name a change is an error before anything is
-/// read.
-pub fn import(root: &Path, home: &Path, phase: &str, id: Option<&str>) -> Result<String, String> {
+/// Adds to the log of the project at `root`, whose state root is `state`, the requests of its
+/// Claude Code sessions that are not there yet, in `phase` and for change `id` (`-` without
+/// one). The transcripts are the `.jsonl` files of `<home>/.claude/projects/<root>`, `<root>`
+/// being the canonical root with every character outside `A-Za-z0-9` turned into `-`, but those
+/// of the sessions in `.gdd/headless_sessions.txt`. The log gets the new requests, one line per
+/// model, and they join the ones in `.gdd/imported_requests.json`: a request is never counted
+/// twice, and when either file cannot be written both stay as they were, so the import can run
+/// again. What to tell the human, in one line. An id that cannot name a change is an error before
+/// anything is read.
+pub fn import(
+    root: &Path,
+    state: &Path,
+    home: &Path,
+    phase: &str,
+    id: Option<&str>,
+) -> Result<String, String> {
     if let Some(id) = id {
         change::check_id(id)?;
     }
     let folder = transcripts(root, home)?;
-    let headless = read(root, HEADLESS)?.unwrap_or_default();
+    let headless = read(state, HEADLESS)?.unwrap_or_default();
     let headless: BTreeSet<&str> = headless.split_whitespace().collect();
-    let mut imported: BTreeSet<String> = match read(root, IMPORTED)? {
+    let mut imported: BTreeSet<String> = match read(state, IMPORTED)? {
         Some(text) => serde_json::from_str(&text).map_err(|e| format!("{IMPORTED}: {e}"))?,
         None => BTreeSet::new(),
     };
@@ -124,7 +131,7 @@ pub fn import(root: &Path, home: &Path, phase: &str, id: Option<&str>) -> Result
         used.count(&request.used);
     }
     let lines = lines(phase, id.unwrap_or("-"), &models)?;
-    kept(root, &lines, &imported)?;
+    kept(state, &lines, &imported)?;
     Ok(format!(
         "Session imported: {} new requests across {} model(s), phase {phase}.",
         new.len(),
@@ -149,9 +156,9 @@ fn folder_name(root: &Path) -> String {
     root.chars().map(named).collect()
 }
 
-/// The text of the file `path` of the project at `root`; `None` when there is none.
-fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
-    match fs::read_to_string(root.join(path)) {
+/// The text of the file `path` under the state root `state`; `None` when there is none.
+fn read(state: &Path, path: &str) -> Result<Option<String>, String> {
+    match fs::read_to_string(state.join(path)) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == NotFound => Ok(None),
         Err(e) => Err(format!("cannot read {path}: {e}")),
@@ -227,20 +234,20 @@ fn request(line: &str) -> Option<(String, Request)> {
     Some((id.to_string(), request))
 }
 
-/// Adds `lines` to the log of the project at `root`, and makes `imported` its list of the
+/// Adds `lines` to the log under the state root `state`, and makes `imported` its list of the
 /// requests the log has. The list waits aside until the log has the lines, so a failure leaves
 /// the log and the old list as they were; the lines go in one write.
-fn kept(root: &Path, lines: &[String], imported: &BTreeSet<String>) -> Result<(), String> {
+fn kept(state: &Path, lines: &[String], imported: &BTreeSet<String>) -> Result<(), String> {
     let text = serde_json::to_string_pretty(imported).map_err(|e| e.to_string())?;
-    change::write(root, IMPORTING, &format!("{text}\n"))?;
+    change::write(state, IMPORTING, &format!("{text}\n"))?;
     if !lines.is_empty()
-        && let Err(e) = log::append(root, &lines.join("\n"))
+        && let Err(e) = log::append(state, &lines.join("\n"))
     {
         // Its requests are not in the log: the old list stays, and the next import retries.
-        let _ = fs::remove_file(root.join(IMPORTING));
+        let _ = fs::remove_file(state.join(IMPORTING));
         return Err(format!("cannot write {}: {e}", log::PATH));
     }
-    fs::rename(root.join(IMPORTING), root.join(IMPORTED))
+    fs::rename(state.join(IMPORTING), state.join(IMPORTED))
         .map_err(|e| format!("cannot write {IMPORTED}: {e}"))
 }
 
@@ -306,7 +313,7 @@ mod tests {
         }
 
         fn import(&self, id: Option<&str>) -> Result<String, String> {
-            import(&self.root.0, &self.home.0, "1-discover", id)
+            import(&self.root.0, &self.root.0, &self.home.0, "1-discover", id)
         }
 
         fn log(&self) -> Vec<log::Record> {
@@ -369,6 +376,27 @@ mod tests {
         assert_eq!(log[1].text("note"), sonnet);
         let ids = serde_json::json!(["r1", "r2", "r3", "r4"]);
         assert_eq!(sessions.imported(), ids);
+    }
+
+    #[test]
+    fn the_transcripts_are_the_project_s_and_the_log_is_under_its_state_root() {
+        let sessions = Sessions::new();
+        let state = Folder::new();
+        state.write(HEADLESS, "s2\n");
+        sessions.said("s1", &request_line("r1", "opus", 40));
+        sessions.said("s2", &request_line("r2", "opus", 2));
+        let said = import(
+            &sessions.root.0,
+            &state.0,
+            &sessions.home.0,
+            "1-discover",
+            None,
+        );
+        assert_eq!(said, Ok(message(1, 1)));
+        let text = fs::read_to_string(state.0.join(log::PATH)).unwrap();
+        assert_eq!(log::parse(&text).unwrap()[0].tokens_out, 40);
+        assert!(state.0.join(IMPORTED).is_file());
+        assert!(!sessions.root.0.join(".gdd").exists());
     }
 
     #[test]

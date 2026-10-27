@@ -44,22 +44,23 @@ pub fn check_id(id: &str) -> Result<(), String> {
     }
 }
 
-/// Where the record of change `id` lives, from the project root.
+/// Where the record of change `id` lives, from the state root (see [`crate::state::root`]).
 pub fn record_path(id: &str) -> String {
     format!(".gdd/changes/{id}/change.json")
 }
 
-/// Where the Decision Inbox of change `id` lives, from the project root.
+/// Where the Decision Inbox of change `id` lives, from the state root.
 pub fn inbox_path(id: &str) -> String {
     format!(".gdd/changes/{id}/inbox.md")
 }
 
-/// The text of the record of change `id` of the project at `root`. An id that cannot name a
-/// change, a change without a record and a record that cannot be read are errors that say so.
-pub fn read_record(root: &Path, id: &str) -> Result<String, String> {
+/// The text of the record of change `id` of the project whose state root is `state`. An id that
+/// cannot name a change, a change without a record and a record that cannot be read are errors
+/// that say so.
+pub fn read_record(state: &Path, id: &str) -> Result<String, String> {
     check_id(id)?;
     let path = record_path(id);
-    match fs::read_to_string(root.join(&path)) {
+    match fs::read_to_string(state.join(&path)) {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == ErrorKind::NotFound => {
             Err(format!("change {id} does not exist: there is no {path}"))
@@ -237,11 +238,11 @@ pub fn kind(text: &str) -> Result<String, serde_json::Error> {
     Ok(raw.kind.unwrap_or_else(|| DEFAULT_KIND.to_string()))
 }
 
-/// Parks change `id` of the project at `root` for `reason`: a `parked` note in its record, which
-/// goes to state `parked`; logged, and its Decision Inbox saved (see [`inbox::save`]). What to
-/// tell the human, in one line.
-pub fn park(root: &Path, id: &str, reason: &str) -> Result<String, String> {
-    let text = read_record(root, id)?;
+/// Parks change `id` of the project whose state root is `state` for `reason`: a `parked` note in
+/// its record, which goes to state `parked`; logged, and its Decision Inbox saved (see
+/// [`inbox::save`]). What to tell the human, in one line.
+pub fn park(state: &Path, id: &str, reason: &str) -> Result<String, String> {
+    let text = read_record(state, id)?;
     let path = record_path(id);
     let ts = log::now();
     let note = Note {
@@ -252,7 +253,7 @@ pub fn park(root: &Path, id: &str, reason: &str) -> Result<String, String> {
     let parked = with_note(&text, &note)
         .and_then(|text| with_fields(&text, vec![("state", Value::from("parked"))]))
         .map_err(|e| format!("{path}: {e}"))?;
-    write(root, &path, &parked)?;
+    write(state, &path, &parked)?;
     let entry = log::Entry {
         change: id.to_string(),
         phase: "-".to_string(),
@@ -263,13 +264,13 @@ pub fn park(root: &Path, id: &str, reason: &str) -> Result<String, String> {
         duration_s: 0.0,
         note: reason.to_string(),
     };
-    logged(root, &entry)?;
-    inbox::save(root, id, &parked)?;
+    logged(state, &entry)?;
+    inbox::save(state, id, &parked)?;
     let inbox = inbox_path(id);
     Ok(format!("Change {id} parked: {reason}. Message in {inbox}"))
 }
 
-/// Writes `text` to the file `path` of the project at `root`, creating its folder.
+/// Writes `text` to the file `path` under the folder `root`, creating its folder.
 pub fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
     let file = root.join(path);
     file.parent()
@@ -278,11 +279,11 @@ pub fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
         .map_err(|e| format!("cannot write {path}: {e}"))
 }
 
-/// Adds `entry`, done now, to the log of the project at `root`.
-pub fn logged(root: &Path, entry: &log::Entry) -> Result<(), String> {
+/// Adds `entry`, done now, to the log of the project whose state root is `state`.
+pub fn logged(state: &Path, entry: &log::Entry) -> Result<(), String> {
     let line = entry.line(&log::now());
     let line = line.map_err(|e| format!("{}: {e}", log::PATH))?;
-    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))
+    log::append(state, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))
 }
 
 /// The field `key` of `record`; `empty` when the record has none, or `null`.
@@ -304,13 +305,13 @@ fn written(record: &impl Serialize) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(record).map(|text| format!("{text}\n"))
 }
 
-/// Where the last snapshot of change `id` lives, from the project root.
+/// Where the last snapshot of change `id` lives, from the state root.
 pub fn snapshot_path(id: &str) -> String {
     format!(".gdd/changes/{id}/snapshot.json")
 }
 
-/// Where the snapshot taken after the test mode of change `id` lives, from the project root:
-/// build mode is judged from it.
+/// Where the snapshot taken after the test mode of change `id` lives, from the state root: build
+/// mode is judged from it.
 pub fn build_snapshot_path(id: &str) -> String {
     format!(".gdd/changes/{id}/snapshot-build.json")
 }

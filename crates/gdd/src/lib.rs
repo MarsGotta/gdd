@@ -20,7 +20,7 @@ use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
-    Classification, Color, Report, RulesTable, ZoneMap, inbox, init, log, session, stacks,
+    Classification, Color, Report, RulesTable, ZoneMap, inbox, init, log, session, stacks, state,
 };
 
 /// File that marks the root of a GDD project.
@@ -31,7 +31,7 @@ const ZONES: &str = "gdd/zones.toml";
 const RULES: &str = guard::RULES;
 /// Gate commands of the project.
 const COMMANDS: &str = gates::COMMANDS;
-/// Where the changes keep their records, from the project root.
+/// Where the changes keep their records, from the state root (see [`state::root`]).
 const CHANGES: &str = ".gdd/changes";
 /// The role of test mode, which Path Guard judges after it.
 const TEST_ROLE: &str = "builder-test";
@@ -458,40 +458,51 @@ fn parse_color(name: &str) -> Result<Color, String> {
 }
 
 impl Command {
-    /// Runs the command on the project at `root`, for the role `role`, in the environment `env`:
-    /// what it prints and its exit code.
-    fn run(self, root: &Path, role: Option<&str>, env: &Env) -> Result<Outcome, String> {
+    /// Runs the command on the project at `root`, whose state root is `state` (see
+    /// [`state::root`]), for the role `role`, in the environment `env`: what it prints and its
+    /// exit code.
+    fn run(
+        self,
+        root: &Path,
+        state: &Path,
+        role: Option<&str>,
+        env: &Env,
+    ) -> Result<Outcome, String> {
         let text = match self {
-            Command::G2(args) => return run_gate(root, Gate::G2, args, env),
-            Command::G3(args) => return run_gate(root, Gate::G3, args, env),
-            Command::Guard(args) => return run_guard(root, args, env),
+            Command::G2(args) => return run_gate(root, state, Gate::G2, args, env),
+            Command::G3(args) => return run_gate(root, state, Gate::G3, args, env),
+            Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
-            Command::Selftest => return run_selftest(root),
-            Command::Ci => return run_ci(root, env),
+            Command::Selftest => return run_selftest(root, state),
+            Command::Ci => return run_ci(root, state, env),
             Command::Park { change, reason } => {
-                let message = change::park(root, &change, &reason.join(" "))?;
+                let message = change::park(state, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => return launch(root, &change, env).map(Outcome::said),
-            Command::Resume(args) => return resume(root, &args, role, env).map(Outcome::said),
+            Command::Launch { change } => {
+                return launch(root, state, &change, env).map(Outcome::said);
+            }
+            Command::Resume(args) => {
+                return resume(root, state, &args, role, env).map(Outcome::said);
+            }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
-            Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
-            Command::Classify { change } => classify(root, &change_id(change, env)?)?,
-            Command::Snapshot { change } => snapshot(root, &change_id(change, env)?)?,
-            Command::Scope { change } => scope(root, &change)?,
-            Command::NewChange(args) => new_change(root, &args)?,
-            Command::Gate(args) => record_gate(root, &args, role)?,
-            Command::Note(args) => note(root, &args)?,
-            Command::Inbox { change } => decision_inbox(root, &change_id(change, env)?)?,
-            Command::Status => project_status(root)?,
+            Command::Report { by, change, json } => report(state, &by, change.as_deref(), json)?,
+            Command::Classify { change } => classify(root, state, &change_id(change, env)?)?,
+            Command::Snapshot { change } => snapshot(root, state, &change_id(change, env)?)?,
+            Command::Scope { change } => scope(root, state, &change)?,
+            Command::NewChange(args) => new_change(root, state, &args)?,
+            Command::Gate(args) => record_gate(root, state, &args, role)?,
+            Command::Note(args) => note(state, &args)?,
+            Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
+            Command::Status => project_status(root, state)?,
             Command::Session { phase, change } => {
-                import_session(root, &phase, change.as_deref(), env)?
+                import_session(root, state, &phase, change.as_deref(), env)?
             }
-            Command::Prepare { change } => prepare_change(root, &change_id(change, env)?)?,
-            Command::Merge { change } => merge_change(root, &change_id(change, env)?)?,
+            Command::Prepare { change } => prepare_change(root, state, &change_id(change, env)?)?,
+            Command::Merge { change } => merge_change(root, state, &change_id(change, env)?)?,
             Command::Release { step, change } => {
-                release_change(root, &step, &change_id(change, env)?)?
+                release_change(root, state, &step, &change_id(change, env)?)?
             }
         };
         Ok(Outcome::printed(text, 0))
@@ -554,7 +565,12 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
         Some(Run::Init(args)) => return init_project(cwd, args, env),
         Some(Run::InProject(command)) => command,
     };
-    match project_root(cwd).and_then(|root| command.run(&root, role, env)) {
+    let ran = project_root(cwd).and_then(|root| {
+        // Once per command, then passed down: git is asked here only.
+        let state = state::root(&root);
+        command.run(&root, &state, role, env)
+    });
+    match ran {
         Ok(outcome) => outcome,
         Err(message) => Outcome::failure(format!("error: {message}\n")),
     }
@@ -601,9 +617,10 @@ fn project_root(cwd: &Path) -> Result<PathBuf, String> {
         })
 }
 
-/// `gdd report`: the agent calls of the log added up by the fields `by`.
-fn report(root: &Path, by: &str, change: Option<&str>, json: bool) -> Result<String, String> {
-    let text = read(root, log::PATH)?.unwrap_or_default();
+/// `gdd report`: the agent calls of the log under the state root `state`, added up by the fields
+/// `by`.
+fn report(state: &Path, by: &str, change: Option<&str>, json: bool) -> Result<String, String> {
+    let text = read(state, log::PATH)?.unwrap_or_default();
     let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
     let by: Vec<String> = by.split(',').map(str::to_string).collect();
     let report = Report::new(&records, &by, change);
@@ -615,8 +632,8 @@ fn report(root: &Path, by: &str, change: Option<&str>, json: bool) -> Result<Str
 }
 
 /// `gdd classify`: the decision for a change (see [`decide`]).
-fn classify(root: &Path, id: &str) -> Result<String, String> {
-    let decided = decide(root, id)?;
+fn classify(root: &Path, state: &Path, id: &str) -> Result<String, String> {
+    let decided = decide(root, state, id)?;
     serde_json::to_string_pretty(&decided.decision(id)).map_err(|e| e.to_string())
 }
 
@@ -643,11 +660,12 @@ impl Decided {
     }
 }
 
-/// The decision for change `id`, from its record, the zone map, the rules table and the models.
-/// Its planned paths count, the ones it touched in git (see [`guard::touched`]) and the
-/// scenario files its record names. A missing zone map, rules table or models file says nothing.
-fn decide(root: &Path, id: &str) -> Result<Decided, String> {
-    let text = change::read_record(root, id)?;
+/// The decision for change `id`, from its record under the state root `state`, and the zone
+/// map, the rules table and the models of the project at `root`. Its planned paths count, the
+/// ones it touched in git (see [`guard::touched`]) and the scenario files its record names. A
+/// missing zone map, rules table or models file says nothing.
+fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
+    let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     let invalid = |e: serde_json::Error| format!("{path}: {e}");
     let record = Record::from_json(&text).map_err(invalid)?;
@@ -673,28 +691,34 @@ fn decide(root: &Path, id: &str) -> Result<Decided, String> {
 
 /// `gdd guard`: Path Guard for `role` on change `id`, with the protected paths of the rules
 /// table, now and where the build started, judged from the snapshot of [`guard_snapshot`].
-fn path_guard(root: &Path, id: &str, role: &str, since_snapshot: bool) -> Result<Verdict, String> {
-    let record = load_record(root, id)?;
+fn path_guard(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    role: &str,
+    since_snapshot: bool,
+) -> Result<Verdict, String> {
+    let record = load_record(state, id)?;
     let settings = load_settings(root)?;
-    let before = guard_snapshot(root, id, role, since_snapshot)?;
+    let before = guard_snapshot(state, id, role, since_snapshot)?;
     guard::path_guard(root, id, &record, &settings, role, before.as_ref())
         .map_err(|e| e.to_string())
 }
 
-/// The snapshot Path Guard judges `role` from on change `id`, if there is one: build mode is
-/// judged from the one taken after test mode (what test mode wrote is not build mode's doing);
-/// with `since_snapshot`, other roles from the last `gdd snapshot`. Otherwise, none: everything
-/// the change touched since its build started counts.
+/// The snapshot, under the state root `state`, Path Guard judges `role` from on change `id`, if
+/// there is one: build mode is judged from the one taken after test mode (what test mode wrote is
+/// not build mode's doing); with `since_snapshot`, other roles from the last `gdd snapshot`.
+/// Otherwise, none: everything the change touched since its build started counts.
 fn guard_snapshot(
-    root: &Path,
+    state: &Path,
     id: &str,
     role: &str,
     since_snapshot: bool,
 ) -> Result<Option<Hashes>, String> {
     if role == gates::BUILD_ROLE {
-        read_snapshot(root, &change::build_snapshot_path(id))
+        read_snapshot(state, &change::build_snapshot_path(id))
     } else if since_snapshot {
-        read_snapshot(root, &change::snapshot_path(id))
+        read_snapshot(state, &change::snapshot_path(id))
     } else {
         Ok(None)
     }
@@ -703,9 +727,9 @@ fn guard_snapshot(
 /// `gdd guard`: Path Guard on the change of `args`, else on the one `GDD_CHANGE` of the
 /// environment `env` names (see [`path_guard`]). Its verdict as JSON, and exit code 1 when it
 /// fails and the run is strict.
-fn run_guard(root: &Path, args: GuardArgs, env: &Env) -> Result<Outcome, String> {
+fn run_guard(root: &Path, state: &Path, args: GuardArgs, env: &Env) -> Result<Outcome, String> {
     let id = change_id(args.change, env)?;
-    let verdict = path_guard(root, &id, &args.role, args.since_snapshot)?;
+    let verdict = path_guard(root, state, &id, &args.role, args.since_snapshot)?;
     let printed = serde_json::to_string(&verdict).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !verdict.ok);
     Ok(Outcome::printed(printed, code))
@@ -715,9 +739,15 @@ fn run_guard(root: &Path, args: GuardArgs, env: &Env) -> Result<Outcome, String>
 /// the environment `env` names (see [`gate_report`]). The report as JSON, then, for the person
 /// who reads it, one line per security exception the change adds on the standard error; exit
 /// code 1 when the gate fails and the run is strict.
-fn run_gate(root: &Path, gate: Gate, args: GateArgs, env: &Env) -> Result<Outcome, String> {
+fn run_gate(
+    root: &Path,
+    state: &Path,
+    gate: Gate,
+    args: GateArgs,
+    env: &Env,
+) -> Result<Outcome, String> {
     let id = change_id(args.change, env)?;
-    let report = gate_report(root, gate, &id, &args.role)?;
+    let report = gate_report(root, state, gate, &id, &args.role)?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !report.ok);
     let mut outcome = Outcome::printed(printed, code);
@@ -742,23 +772,23 @@ fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
 }
 
 /// `gdd selftest`: the harness self-test of the project (see [`selftest::run`]), saved and
-/// logged. It fails the run unless every check passed.
-fn run_selftest(root: &Path) -> Result<Outcome, String> {
+/// logged under the state root `state`. It fails the run unless every check passed.
+fn run_selftest(root: &Path, state: &Path) -> Result<Outcome, String> {
     let gates = GateConfig::load(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
     let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
-    let checked = selftest::run(&gates.project(root), &config)?;
-    selftest::save(root, &checked)?;
+    let checked = selftest::run(&gates.project(root, state), &config)?;
+    selftest::save(state, &checked)?;
     let code = u8::from(!checked.ok());
     Ok(Outcome::printed(checked.to_string(), code))
 }
 
 /// `gdd ci`: what CI runs on the branch `GITHUB_HEAD_REF` of the environment `env` names, else
 /// on the current one (see [`ci::check`]). It fails the run when CI fails.
-fn run_ci(root: &Path, env: &Env) -> Result<Outcome, String> {
+fn run_ci(root: &Path, state: &Path, env: &Env) -> Result<Outcome, String> {
     let gates = GateConfig::load(root)?;
     let head_ref = variable(env, "GITHUB_HEAD_REF");
-    let checked = ci::check(&gates.project(root), head_ref)?;
+    let checked = ci::check(&gates.project(root, state), head_ref)?;
     let code = u8::from(!checked.ok());
     Ok(Outcome::printed(checked.to_string(), code))
 }
@@ -767,25 +797,32 @@ fn run_ci(root: &Path, env: &Env) -> Result<Outcome, String> {
 /// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`.
 fn import_session(
     root: &Path,
+    state: &Path,
     phase: &str,
     change: Option<&str>,
     env: &Env,
 ) -> Result<String, String> {
     let home = variable(env, "HOME").ok_or(NO_HOME)?;
-    session::import(root, Path::new(home), phase, change)
+    session::import(root, state, Path::new(home), phase, change)
 }
 
 /// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
-/// accepted, saves the report next to it and logs the run.
-fn gate_report(root: &Path, gate: Gate, id: &str, role: &str) -> Result<gates::Report, String> {
-    let record = load_record(root, id)?;
+/// accepted, saves the report next to it and logs the run, under the state root `state`.
+fn gate_report(
+    root: &Path,
+    state: &Path,
+    gate: Gate,
+    id: &str,
+    role: &str,
+) -> Result<gates::Report, String> {
+    let record = load_record(state, id)?;
     let config = GateConfig::load(root)?;
-    let snapshot = guard_snapshot(root, id, role, false)?;
-    let project = config.project(root);
+    let snapshot = guard_snapshot(state, id, role, false)?;
+    let project = config.project(root, state);
     let report = gates::run(&project, gate, id, &record, role, snapshot.as_ref())
         .map_err(|e| e.to_string())?;
-    save_out_of_scope(root, id, &report.out_of_scope)?;
-    gates::save(root, id, &report)?;
+    save_out_of_scope(state, id, &report.out_of_scope)?;
+    gates::save(state, id, &report)?;
     Ok(report)
 }
 
@@ -815,10 +852,11 @@ impl GateConfig {
         })
     }
 
-    /// What a gate reads from the project at `root`.
-    fn project<'a>(&'a self, root: &'a Path) -> gates::Project<'a> {
+    /// What a gate reads from the project at `root`, whose state root is `state`.
+    fn project<'a>(&'a self, root: &'a Path, state: &'a Path) -> gates::Project<'a> {
         gates::Project {
             root,
+            state,
             zones: &self.zones,
             rules: &self.rules,
             settings: &self.settings,
@@ -829,14 +867,19 @@ impl GateConfig {
 
 /// `gdd prepare`: checks that change `id` may enter Build and starts it (see
 /// [`prepare::prepare`]).
-fn prepare_change(root: &Path, id: &str) -> Result<String, String> {
-    prepare_decided(root, id, &decide(root, id)?)
+fn prepare_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
+    prepare_decided(root, state, id, &decide(root, state, id)?)
 }
 
 /// Prepares change `id`, for which the tool decided `decided` (see [`prepare_change`]).
-fn prepare_decided(root: &Path, id: &str, decided: &Decided) -> Result<String, String> {
+fn prepare_decided(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    decided: &Decided,
+) -> Result<String, String> {
     let config = GateConfig::load(root)?;
-    let project = config.project(root);
+    let project = config.project(root, state);
     let zones = read(root, ZONES)?.unwrap_or_default();
     let setup = prepare::Setup {
         project: &project,
@@ -848,11 +891,12 @@ fn prepare_decided(root: &Path, id: &str, decided: &Decided) -> Result<String, S
 
 /// `gdd merge`: merges change `id`, classified as it is now, into the main branch (see
 /// [`merge::merge`]). What follows the merge reads its configuration as the merge left it.
-fn merge_change(root: &Path, id: &str) -> Result<String, String> {
-    let decided = decide(root, id)?;
+fn merge_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
+    let decided = decide(root, state, id)?;
     let settings = load_settings(root)?;
     let project = merge::Project {
         root,
+        state,
         main: &settings.main_branch,
     };
     merge::merge(&project, id, &decided.classification)
@@ -860,46 +904,54 @@ fn merge_change(root: &Path, id: &str) -> Result<String, String> {
 
 /// `gdd release`: the release step `step` of change `id` (see [`release`]). Promoting asks
 /// whether the change needs the human G4 as it is classified now.
-fn release_change(root: &Path, step: &str, id: &str) -> Result<String, String> {
+fn release_change(root: &Path, state: &Path, step: &str, id: &str) -> Result<String, String> {
     let steps = load_steps(root)?;
     match step {
-        "pre" => release::pre(root, id, &steps),
+        "pre" => release::pre(root, state, id, &steps),
         "promote" => {
-            let decided = decide(root, id)?;
-            release::promote(root, id, &steps, decided.classification.g4)
+            let decided = decide(root, state, id)?;
+            release::promote(root, state, id, &steps, decided.classification.g4)
         }
-        "observe" => release::observe(root, id, &steps),
+        "observe" => release::observe(root, state, id, &steps),
         other => Err(format!("unknown release step {other:?}")),
     }
 }
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
 /// environment `env`.
-fn launch(root: &Path, id: &str, env: &Env) -> Result<Said, String> {
+fn launch(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Said, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let project = recipe::Project {
         root,
+        state,
         main: &main,
         replans: limits.replans,
     };
-    let mut steps = ProjectSteps::new(root, id, &limits, env)?;
+    let mut steps = ProjectSteps::new(root, state, id, &limits, env)?;
     recipe::launch(&project, id, &mut steps)
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
 /// whose agents start in the environment `env`.
-fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>, env: &Env) -> Result<Said, String> {
+fn resume(
+    root: &Path,
+    state: &Path,
+    args: &ResumeArgs,
+    role: Option<&str>,
+    env: &Env,
+) -> Result<Said, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let project = recipe::Project {
         root,
+        state,
         main: &main,
         replans: limits.replans,
     };
-    let mut steps = ProjectSteps::new(root, id, &limits, env)?;
+    let mut steps = ProjectSteps::new(root, state, id, &limits, env)?;
     let note = args.note.join(" ");
     recipe::resume(&project, id, answer, &note, role, &mut steps)
 }
@@ -958,6 +1010,8 @@ fn stack_sheets(action: Option<StacksAction>) -> Result<String, stacks::Error> {
 /// limit and settings, read once.
 struct ProjectSteps<'a> {
     root: &'a Path,
+    /// The state root of the project (see [`state::root`]).
+    state: &'a Path,
     id: &'a str,
     /// The time an agent has to answer.
     timeout: Duration,
@@ -968,10 +1022,11 @@ struct ProjectSteps<'a> {
 }
 
 impl<'a> ProjectSteps<'a> {
-    /// The steps on change `id` of the project at `root`, whose rules file sets `limits`, with
-    /// the agents starting in the environment `env`.
+    /// The steps on change `id` of the project at `root`, whose state root is `state` and whose
+    /// rules file sets `limits`, with the agents starting in the environment `env`.
     fn new(
         root: &'a Path,
+        state: &'a Path,
         id: &'a str,
         limits: &Limits,
         env: &'a Env,
@@ -981,6 +1036,7 @@ impl<'a> ProjectSteps<'a> {
         let settings = invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))?;
         Ok(ProjectSteps {
             root,
+            state,
             id,
             timeout: Duration::from_secs(limits.agent_timeout_s),
             env,
@@ -992,15 +1048,16 @@ impl<'a> ProjectSteps<'a> {
 impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let decided = decide(self.root, self.id)?;
+        let decided = decide(self.root, self.state, self.id)?;
         invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
-        let printed = prepare_decided(self.root, self.id, &decided)?;
+        let printed = prepare_decided(self.root, self.state, self.id, &decided)?;
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
     fn agent(&mut self, call: &invoke::Call) -> Result<(), invoke::Error> {
         let project = invoke::Project {
             root: self.root,
+            state: self.state,
             id: self.id,
             env: self.env,
             settings: &self.settings,
@@ -1010,7 +1067,7 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
-        let verdict = path_guard(self.root, self.id, TEST_ROLE, since_snapshot)?;
+        let verdict = path_guard(self.root, self.state, self.id, TEST_ROLE, since_snapshot)?;
         Ok(verdict.failures)
     }
 
@@ -1019,11 +1076,11 @@ impl recipe::Steps for ProjectSteps<'_> {
             Snapshot::Round => change::snapshot_path(self.id),
             Snapshot::Build => change::build_snapshot_path(self.id),
         };
-        save_snapshot(self.root, self.id, &path)
+        save_snapshot(self.root, self.state, self.id, &path)
     }
 
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
-        let report = gate_report(self.root, gate, self.id, gates::BUILD_ROLE)?;
+        let report = gate_report(self.root, self.state, gate, self.id, gates::BUILD_ROLE)?;
         Ok(report.ok)
     }
 
@@ -1035,60 +1092,62 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        record_gate(self.root, &args, None).map(drop)
+        record_gate(self.root, self.state, &args, None).map(drop)
     }
 
     fn merge(&mut self) -> Result<(), String> {
-        merge_change(self.root, self.id).map(drop)
+        merge_change(self.root, self.state, self.id).map(drop)
     }
 
     fn release(&mut self, step: &str) -> Result<(), String> {
-        release_change(self.root, step, self.id).map(drop)
+        release_change(self.root, self.state, step, self.id).map(drop)
     }
 }
 
 /// Writes `accepted`, the paths outside the plan the scope check accepted, in the record of
-/// change `id`, when it does not say them already.
-fn save_out_of_scope(root: &Path, id: &str, accepted: &[String]) -> Result<(), String> {
+/// change `id` under the state root `state`, when it does not say them already.
+fn save_out_of_scope(state: &Path, id: &str, accepted: &[String]) -> Result<(), String> {
     let path = change::record_path(id);
-    let text = read(root, &path)?.unwrap_or_default();
+    let text = read(state, &path)?.unwrap_or_default();
     match change::with_out_of_scope(&text, accepted) {
-        Ok(Some(record)) => write(root, &path, &record),
+        Ok(Some(record)) => write(state, &path, &record),
         Ok(None) => Ok(()),
         Err(e) => Err(format!("{path}: {e}")),
     }
 }
 
 /// `gdd snapshot`: records the hashes of what change `id` touched since its build started.
-fn snapshot(root: &Path, id: &str) -> Result<String, String> {
-    save_snapshot(root, id, &change::snapshot_path(id))?;
+fn snapshot(root: &Path, state: &Path, id: &str) -> Result<String, String> {
+    save_snapshot(root, state, id, &change::snapshot_path(id))?;
     Ok(r#"{"ok":true}"#.to_string())
 }
 
-/// Records in the file `path` the hashes of what change `id` touched since its build started.
-fn save_snapshot(root: &Path, id: &str, path: &str) -> Result<(), String> {
-    let record = load_record(root, id)?;
+/// Records in the file `path`, under the state root `state`, the hashes of what change `id` of
+/// the project at `root` touched since its build started.
+fn save_snapshot(root: &Path, state: &Path, id: &str, path: &str) -> Result<(), String> {
+    let record = load_record(state, id)?;
     let hashes = guard::snapshot(root, id, &record).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&hashes).map_err(|e| e.to_string())?;
-    write(root, path, &format!("{text}\n"))
+    write(state, path, &format!("{text}\n"))
 }
 
 /// `gdd scope`: the scope check of change `id`, with the zone map and the rules table.
-fn scope(root: &Path, id: &str) -> Result<String, String> {
-    let record = load_record(root, id)?;
+fn scope(root: &Path, state: &Path, id: &str) -> Result<String, String> {
+    let record = load_record(state, id)?;
     let zones = load_zones(root)?;
     let table = load_table(root)?;
     let checked = guard::scope(root, id, &record, &zones, &table).map_err(|e| e.to_string())?;
     serde_json::to_string(&checked).map_err(|e| e.to_string())
 }
 
-/// `gdd new-change`: the record of a new change `id` and, when it has none, its branch from the
-/// main branch; logged. Its classification as JSON. A change that exists already is an error.
-fn new_change(root: &Path, args: &NewChangeArgs) -> Result<String, String> {
+/// `gdd new-change`: the record of a new change `id`, under the state root `state`, and, when it
+/// has none, its branch from the main branch; logged. Its classification as JSON. A change that
+/// exists already is an error.
+fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String, String> {
     let id = args.change.as_str();
     change::check_id(id)?;
     let path = change::record_path(id);
-    if root.join(&path).exists() {
+    if state.join(&path).exists() {
         return Err(format!("Change {id} already exists."));
     }
     let main = load_settings(root)?.main_branch;
@@ -1111,7 +1170,7 @@ fn new_change(root: &Path, args: &NewChangeArgs) -> Result<String, String> {
         created: &ts,
     };
     let record = change::new_record(&new).map_err(|e| e.to_string())?;
-    write(root, &path, &record)?;
+    write(state, &path, &record)?;
     let entry = log::Entry {
         change: id.to_string(),
         phase: "1-discover".to_string(),
@@ -1123,12 +1182,17 @@ fn new_change(root: &Path, args: &NewChangeArgs) -> Result<String, String> {
         note: args.title.clone(),
     };
     let line = entry.line(&ts).map_err(|e| e.to_string())?;
-    log::append(root, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
-    classify(root, id)
+    log::append(state, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
+    classify(root, state, id)
 }
 
 /// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]).
-fn record_gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<String, String> {
+fn record_gate(
+    root: &Path,
+    state: &Path,
+    args: &DecisionArgs,
+    role: Option<&str>,
+) -> Result<String, String> {
     let gate = match args.gate.parse::<approve::Gate>() {
         Ok(gate) => gate,
         Err(e) => return Err(e.to_string()),
@@ -1138,6 +1202,7 @@ fn record_gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<S
     let table = load_table(root)?;
     let project = approve::Project {
         root,
+        state,
         zones: &zones,
         settings: &settings,
         acceptance: &table.acceptance,
@@ -1152,10 +1217,11 @@ fn record_gate(root: &Path, args: &DecisionArgs, role: Option<&str>) -> Result<S
     approve::record(&project, &request, role).map_err(|e| e.to_string())
 }
 
-/// `gdd note`: adds a note to the record of a change, for its Decision Inbox.
-fn note(root: &Path, args: &NoteArgs) -> Result<String, String> {
+/// `gdd note`: adds a note to the record of a change, under the state root `state`, for its
+/// Decision Inbox.
+fn note(state: &Path, args: &NoteArgs) -> Result<String, String> {
     let id = args.change.as_str();
-    let text = change::read_record(root, id)?;
+    let text = change::read_record(state, id)?;
     let ts = log::now();
     let words = args.text.join(" ");
     let note = change::Note {
@@ -1165,19 +1231,20 @@ fn note(root: &Path, args: &NoteArgs) -> Result<String, String> {
     };
     let path = change::record_path(id);
     let record = change::with_note(&text, &note).map_err(|e| format!("{path}: {e}"))?;
-    write(root, &path, &record)?;
+    write(state, &path, &record)?;
     Ok("noted".to_string())
 }
 
-/// `gdd inbox`: the Decision Inbox of change `id`, also saved next to its record exactly as it
-/// is printed.
-fn decision_inbox(root: &Path, id: &str) -> Result<String, String> {
-    let text = change::read_record(root, id)?;
-    inbox::save(root, id, &text)
+/// `gdd inbox`: the Decision Inbox of change `id`, also saved next to its record, under the state
+/// root `state`, exactly as it is printed.
+fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
+    let text = change::read_record(state, id)?;
+    inbox::save(state, id, &text)
 }
 
-/// `gdd status`: where the project stands, and its changes.
-fn project_status(root: &Path) -> Result<String, String> {
+/// `gdd status`: where the project at `root` stands, and its changes, from its files and what
+/// the state root `state` keeps.
+fn project_status(root: &Path, state: &Path) -> Result<String, String> {
     let project = read(root, PROJECT)?.unwrap_or_default();
     let basics = status::Basics::from_toml(&project).map_err(|e| format!("{PROJECT}: {e}"))?;
     let zones = read(root, ZONES)?.unwrap_or_default();
@@ -1185,27 +1252,27 @@ fn project_status(root: &Path) -> Result<String, String> {
     let scenarios = gates::count_scenarios(&root.join(&dir)).map_err(|e| e.to_string());
     let today = exceptions::today();
     let found = exceptions::read(root);
-    let selftest = read(root, approve::SELFTEST_PATH)?;
-    let log_lines = read(root, log::PATH)?.map(|text| text.lines().count());
+    let selftest = read(state, approve::SELFTEST_PATH)?;
+    let log_lines = read(state, log::PATH)?.map(|text| text.lines().count());
     let status = Status {
         basics,
         brief: root.join(approve::BRIEF).is_file(),
-        g0: approve::g0_open(root).map_err(|e| e.to_string())?,
-        zones: approve::zones_state(root, &zones).map_err(|e| e.to_string())?,
+        g0: approve::g0_open(state).map_err(|e| e.to_string())?,
+        zones: approve::zones_state(state, &zones).map_err(|e| e.to_string())?,
         selftest: selftest.and_then(|text| status::selftest_summary(&text)),
         scenarios_dir: dir,
         scenarios,
         exceptions: found.map(|found| found.iter().map(|e| e.line(today)).collect()),
-        changes: change_lines(root)?,
+        changes: change_lines(state)?,
         log_lines,
     };
     Ok(status.to_string())
 }
 
-/// The line of each change in the status, in the order of their folders; a folder without a
-/// record is not a change.
-fn change_lines(root: &Path) -> Result<Vec<String>, String> {
-    let entries = match fs::read_dir(root.join(CHANGES)) {
+/// The line of each change in the status, in the order of their folders under the state root
+/// `state`; a folder without a record is not a change.
+fn change_lines(state: &Path) -> Result<Vec<String>, String> {
+    let entries = match fs::read_dir(state.join(CHANGES)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(format!("cannot read {CHANGES}: {e}")),
@@ -1218,23 +1285,23 @@ fn change_lines(root: &Path) -> Result<Vec<String>, String> {
     ids.sort();
     let mut lines = Vec::new();
     for id in ids {
-        if let Some(text) = read(root, &change::record_path(&id))? {
+        if let Some(text) = read(state, &change::record_path(&id))? {
             lines.push(status::change_line(&id, &text));
         }
     }
     Ok(lines)
 }
 
-/// The record of change `id` (see [`change::read_record`]).
-fn load_record(root: &Path, id: &str) -> Result<Record, String> {
-    let text = change::read_record(root, id)?;
+/// The record of change `id`, under the state root `state` (see [`change::read_record`]).
+fn load_record(state: &Path, id: &str) -> Result<Record, String> {
+    let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
 }
 
-/// The hashes of the snapshot at `path`; `None` when there is none.
-fn read_snapshot(root: &Path, path: &str) -> Result<Option<Hashes>, String> {
-    match read(root, path)? {
+/// The hashes of the snapshot at `path` under the state root `state`; `None` when there is none.
+fn read_snapshot(state: &Path, path: &str) -> Result<Option<Hashes>, String> {
+    match read(state, path)? {
         Some(text) => serde_json::from_str(&text)
             .map(Some)
             .map_err(|e| format!("{path}: {e}")),
@@ -1280,7 +1347,8 @@ fn load_settings(root: &Path) -> Result<Settings, String> {
     Settings::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
 }
 
-/// The text of a file of the project, or `None` when it does not exist.
+/// The text of the file `path` under the folder `root` (the project root or the state root), or
+/// `None` when it does not exist.
 fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
     match fs::read_to_string(root.join(path)) {
         Ok(text) => Ok(Some(text)),
@@ -1289,7 +1357,7 @@ fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// Writes `text` to a file of the project, creating its folder.
+/// Writes `text` to the file `path` under the folder `root`, creating its folder.
 fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
     let file = root.join(path);
     file.parent()

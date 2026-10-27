@@ -172,11 +172,17 @@ impl<'a> Passed<'a> {
     }
 }
 
-/// Runs the release step `name` of change `id` from the root of the project at `root`, with
-/// `GDD_CHANGE`, and logs it: `build` and `deploy_pre` belong to Integrate, the others to
-/// Release. A step without a command in `steps` passes as simulated when `steps` simulates the
-/// release, and fails when not.
-pub fn step(root: &Path, id: &str, steps: &Steps, name: &str) -> Result<Step, String> {
+/// Runs the release step `name` of change `id` from the project root `root`, with `GDD_CHANGE`,
+/// and logs it under the state root `state`: `build` and `deploy_pre` belong to Integrate, the
+/// others to Release. A step without a command in `steps` passes as simulated when `steps`
+/// simulates the release, and fails when not.
+pub fn step(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    steps: &Steps,
+    name: &str,
+) -> Result<Step, String> {
     let step = match steps.commands.get(name) {
         Some(command) => {
             let env = [("GDD_CHANGE", id)];
@@ -208,20 +214,20 @@ pub fn step(root: &Path, id: &str, steps: &Steps, name: &str) -> Result<Step, St
         duration_s: step.duration_s.unwrap_or(0.0),
         note: String::new(),
     };
-    change::logged(root, &entry)?;
+    change::logged(state, &entry)?;
     Ok(step)
 }
 
-/// `gdd release pre`: the tests in pre, then the demo, for change `id` of the project at `root`.
-/// The change is in pre whatever they say: its state becomes `in-pre`. Both steps as JSON, or
-/// why they failed.
-pub fn pre(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
-    let (text, _) = read(root, id)?;
+/// `gdd release pre`: the tests in pre, then the demo, for change `id` of the project at `root`,
+/// whose state root is `state`. The change is in pre whatever they say: its state becomes
+/// `in-pre`. Both steps as JSON, or why they failed.
+pub fn pre(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<String, String> {
+    let (text, _) = read(state, id)?;
     let ran = [
-        step(root, id, steps, "tests_pre")?,
-        step(root, id, steps, "demo")?,
+        step(root, state, id, steps, "tests_pre")?,
+        step(root, state, id, steps, "demo")?,
     ];
-    saved_in_state(root, id, &text, "in-pre")?;
+    saved_in_state(state, id, &text, "in-pre")?;
     let failures: Vec<String> = ran.iter().filter(|s| !s.ok).map(Step::failure).collect();
     if !failures.is_empty() {
         return Err(failures.join("\n"));
@@ -229,13 +235,20 @@ pub fn pre(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
     Passed::steps(&ran).json()
 }
 
-/// `gdd release promote`: change `id` of the project at `root` to production. A change that
-/// needs the human G4 waits for it: `needs_g4` says whether it needs it as it is classified
-/// now, and the decision stored when it was prepared counts too. Otherwise the machines approve
-/// G4, logged. The change is [`PROMOTING`] while the step runs, then goes to `in-production`, or
-/// back to `in-pre` when the step fails. The step as JSON, or why it was refused or failed.
-pub fn promote(root: &Path, id: &str, steps: &Steps, needs_g4: bool) -> Result<String, String> {
-    let (mut text, record) = read(root, id)?;
+/// `gdd release promote`: change `id` of the project at `root`, whose state root is `state`, to
+/// production. A change that needs the human G4 waits for it: `needs_g4` says whether it needs it
+/// as it is classified now, and the decision stored when it was prepared counts too. Otherwise
+/// the machines approve G4, logged. The change is [`PROMOTING`] while the step runs, then goes to
+/// `in-production`, or back to `in-pre` when the step fails. The step as JSON, or why it was
+/// refused or failed.
+pub fn promote(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    steps: &Steps,
+    needs_g4: bool,
+) -> Result<String, String> {
+    let (mut text, record) = read(state, id)?;
     if needs_g4 || record["decision"]["g4"] == true {
         if record["gates"]["G4"]["decision"] != "ok" {
             return Err(NEEDS_G4.to_string());
@@ -262,35 +275,35 @@ pub fn promote(root: &Path, id: &str, steps: &Steps, needs_g4: bool) -> Result<S
             duration_s: 0.0,
             note: "automatic".to_string(),
         };
-        change::logged(root, &entry)?;
+        change::logged(state, &entry)?;
     }
-    saved_in_state(root, id, &text, PROMOTING)?;
-    let promoted = step(root, id, steps, "promote")?;
-    let state = if promoted.ok {
+    saved_in_state(state, id, &text, PROMOTING)?;
+    let promoted = step(root, state, id, steps, "promote")?;
+    let after = if promoted.ok {
         "in-production"
     } else {
         "in-pre"
     };
-    saved_in_state(root, id, &text, state)?;
+    saved_in_state(state, id, &text, after)?;
     if !promoted.ok {
         return Err(promoted.failure());
     }
     Passed::detail(&promoted, None).json()
 }
 
-/// `gdd release observe`: watches change `id` of the project at `root` in production. When the
-/// step passes, the change is `closed`. When it fails, the rollback runs and the change goes to
-/// `rolled-back` with a request for a hotfix; the error says so, with what the rollback did.
-/// Either way its Decision Inbox is saved (see [`inbox::save`]).
-pub fn observe(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
-    let (text, _) = read(root, id)?;
-    let observed = step(root, id, steps, "observe")?;
+/// `gdd release observe`: watches change `id` of the project at `root`, whose state root is
+/// `state`, in production. When the step passes, the change is `closed`. When it fails, the
+/// rollback runs and the change goes to `rolled-back` with a request for a hotfix; the error says
+/// so, with what the rollback did. Either way its Decision Inbox is saved (see [`inbox::save`]).
+pub fn observe(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<String, String> {
+    let (text, _) = read(state, id)?;
+    let observed = step(root, state, id, steps, "observe")?;
     if observed.ok {
-        let closed = saved_in_state(root, id, &text, "closed")?;
-        inbox::save(root, id, &closed)?;
+        let closed = saved_in_state(state, id, &text, "closed")?;
+        inbox::save(state, id, &closed)?;
         return Passed::detail(&observed, None).json();
     }
-    let rollback = step(root, id, steps, "rollback")?;
+    let rollback = step(root, state, id, steps, "rollback")?;
     let path = change::record_path(id);
     let ts = log::now();
     let note = Note {
@@ -299,8 +312,8 @@ pub fn observe(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
         ts: &ts,
     };
     let noted = change::with_note(&text, &note).map_err(|e| format!("{path}: {e}"))?;
-    let rolled_back = saved_in_state(root, id, &noted, "rolled-back")?;
-    inbox::save(root, id, &rolled_back)?;
+    let rolled_back = saved_in_state(state, id, &noted, "rolled-back")?;
+    inbox::save(state, id, &rolled_back)?;
     let rollback = if rollback.ok {
         rollback.result().to_string()
     } else {
@@ -313,18 +326,18 @@ pub fn observe(root: &Path, id: &str, steps: &Steps) -> Result<String, String> {
     ))
 }
 
-/// The record of change `id` of the project at `root`: its text, and the JSON object it holds.
-/// A record that is not one is an error before any step runs.
-pub(crate) fn read(root: &Path, id: &str) -> Result<(String, Value), String> {
-    let text = change::read_record(root, id)?;
+/// The record of change `id` of the project whose state root is `state`: its text, and the JSON
+/// object it holds. A record that is not one is an error before any step runs.
+pub(crate) fn read(state: &Path, id: &str) -> Result<(String, Value), String> {
+    let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     let record: Map<String, Value> =
         serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
     Ok((text, Value::Object(record)))
 }
 
-/// Writes the record `text` of change `id` of the project at `root` in state `state`; every
-/// other field keeps its value. The record written.
+/// Writes the record `text` of change `id`, of the project whose state root is `root`, in state
+/// `state`; every other field keeps its value. The record written.
 fn saved_in_state(root: &Path, id: &str, text: &str, state: &str) -> Result<String, String> {
     let path = change::record_path(id);
     let fields = vec![("state", Value::from(state))];
@@ -414,14 +427,14 @@ flag = false
     #[test]
     fn a_step_runs_its_command_with_the_change_and_is_logged() {
         let folder = project(RECORD);
-        let ran = step(&folder.0, "c1", &steps(COMMANDS), "deploy_pre").unwrap();
+        let ran = step(&folder.0, &folder.0, "c1", &steps(COMMANDS), "deploy_pre").unwrap();
         assert!(ran.ok && !ran.simulated, "{ran:?}");
         assert_eq!((ran.code, ran.tail.as_deref()), (Some(0), Some("")));
         assert!(ran.duration_s.is_some_and(|d| (0.0..10.0).contains(&d)));
         let deployed = fs::read_to_string(folder.0.join("deployed")).unwrap();
         assert_eq!(deployed, "c1");
         let failing = with("tests_pre", "echo broken; exit 4");
-        let failed = step(&folder.0, "c1", &failing, "tests_pre").unwrap();
+        let failed = step(&folder.0, &folder.0, "c1", &failing, "tests_pre").unwrap();
         assert!(!failed.ok);
         assert_eq!(failed.code, Some(4));
         assert_eq!(failed.tail.as_deref(), Some("broken\n"));
@@ -443,7 +456,7 @@ flag = false
     fn a_step_without_a_command_passes_only_when_the_release_is_simulated() {
         let folder = project(RECORD);
         for name in ["demo", "promote", "observe", "flag", "missing"] {
-            let simulated = step(&folder.0, "c1", &steps(COMMANDS), name).unwrap();
+            let simulated = step(&folder.0, &folder.0, "c1", &steps(COMMANDS), name).unwrap();
             let expected = Step {
                 simulated: true,
                 ..Step::new(name, true)
@@ -454,9 +467,9 @@ flag = false
         assert_eq!(results, ["simulated"; 5]);
         assert_eq!(log(&folder)[0].duration_s, 0.0);
         let real = "[release]\nsimulated = false\nbuild = \"true\"\n";
-        let built = step(&folder.0, "c1", &steps(real), "build").unwrap();
+        let built = step(&folder.0, &folder.0, "c1", &steps(real), "build").unwrap();
         assert!(built.ok && !built.simulated);
-        let refused = step(&folder.0, "c1", &steps(real), "deploy_pre").unwrap();
+        let refused = step(&folder.0, &folder.0, "c1", &steps(real), "deploy_pre").unwrap();
         let why = "release.deploy_pre not configured and simulated = false";
         let expected = Step {
             tail: Some(why.to_string()),
@@ -519,7 +532,7 @@ flag = false
     #[test]
     fn pre_runs_the_tests_and_the_demo_and_puts_the_change_in_pre() {
         let folder = project(RECORD);
-        let out = json(&pre(&folder.0, "c1", &steps(COMMANDS)).unwrap());
+        let out = json(&pre(&folder.0, &folder.0, "c1", &steps(COMMANDS)).unwrap());
         assert_eq!(out["ok"], true);
         let steps = out["steps"].as_array().unwrap();
         let names: Vec<&Value> = steps.iter().map(|step| &step["name"]).collect();
@@ -533,25 +546,40 @@ flag = false
     }
 
     #[test]
+    fn the_steps_run_in_the_project_and_the_change_moves_in_its_state_root() {
+        let (root, state) = (Folder::new(), project(RECORD));
+        let ran = with("tests_pre", "touch ran");
+        assert!(pre(&root.0, &state.0, "c1", &ran).is_ok());
+        assert!(root.0.join("ran").is_file());
+        assert_eq!(record(&state)["state"], "in-pre");
+        assert_eq!(log(&state).len(), 2);
+        assert!(promote(&root.0, &state.0, "c1", &ran, false).is_ok());
+        assert!(observe(&root.0, &state.0, "c1", &ran).is_ok());
+        assert_eq!(record(&state)["state"], "closed");
+        assert!(state.0.join(".gdd/changes/c1/inbox.md").is_file());
+        assert!(!root.0.join(".gdd").exists());
+    }
+
+    #[test]
     fn failing_tests_in_pre_fail_the_step_but_the_change_is_in_pre() {
         let folder = project(RECORD);
         let mut failing = with("tests_pre", "echo red; exit 1");
         failing.commands.insert("demo".into(), "exit 2".into());
-        let err = pre(&folder.0, "c1", &failing).unwrap_err();
+        let err = pre(&folder.0, &folder.0, "c1", &failing).unwrap_err();
         let expected =
             "release.tests_pre failed (exit code 1):\nred\nrelease.demo failed (exit code 2)";
         assert_eq!(err, expected);
         assert_eq!(record(&folder)["state"], "in-pre");
         assert_eq!(log(&folder).len(), 2);
         let demo_only = with("demo", "exit 2");
-        let err = pre(&folder.0, "c1", &demo_only).unwrap_err();
+        let err = pre(&folder.0, &folder.0, "c1", &demo_only).unwrap_err();
         assert_eq!(err, "release.demo failed (exit code 2)");
     }
 
     #[test]
     fn a_change_that_does_not_need_g4_is_promoted_by_the_machines() {
         let folder = project(RECORD);
-        let out = promote(&folder.0, "c1", &steps(COMMANDS), false).unwrap();
+        let out = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), false).unwrap();
         let out = json(&out);
         assert_eq!(out["ok"], true);
         assert_eq!(out["detail"]["name"], "promote");
@@ -575,7 +603,7 @@ flag = false
     #[test]
     fn a_change_that_needs_g4_waits_for_the_human() {
         let folder = project(RECORD);
-        let err = promote(&folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
         assert_eq!(err, NEEDS_G4);
         assert_eq!(NEEDS_G4, "This change needs a human G4 before promotion.");
         assert_eq!(record(&folder)["state"], "merged");
@@ -584,17 +612,18 @@ flag = false
         // The decision stored when it was prepared counts too.
         let prepared = r#"{"id": "c1", "decision": {"g4": true}, "gates": {}}"#;
         let folder = project(prepared);
-        let err = promote(&folder.0, "c1", &steps(COMMANDS), false).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), false).unwrap_err();
         assert_eq!(err, NEEDS_G4);
         for refused in [r#"{"decision": "ko"}"#, r#"{"by": "human"}"#] {
             let text = format!(r#"{{"id": "c1", "gates": {{"G4": {refused}}}}}"#);
             let folder = project(&text);
-            let err = promote(&folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
+            let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
             assert_eq!(err, NEEDS_G4, "{refused}");
         }
         let approved = r#"{"id": "c1", "gates": {"G4": {"decision": "ok", "by": "human"}}}"#;
         let folder = project(approved);
-        assert!(promote(&folder.0, "c1", &steps(COMMANDS), true).is_ok());
+        let release = steps(COMMANDS);
+        assert!(promote(&folder.0, &folder.0, "c1", &release, true).is_ok());
         let record = record(&folder);
         assert_eq!(record["state"], "in-production");
         assert_eq!(record["gates"]["G4"]["by"], "human");
@@ -605,7 +634,8 @@ flag = false
     #[test]
     fn a_failed_promotion_leaves_the_change_in_pre() {
         let folder = project(RECORD);
-        let err = promote(&folder.0, "c1", &with("promote", "exit 5"), false).unwrap_err();
+        let failing = with("promote", "exit 5");
+        let err = promote(&folder.0, &folder.0, "c1", &failing, false).unwrap_err();
         assert_eq!(err, "release.promote failed (exit code 5)");
         let record = record(&folder);
         assert_eq!(record["state"], "in-pre");
@@ -617,12 +647,14 @@ flag = false
         // While its command runs, the record says so.
         let folder = project(RECORD);
         let seen = "grep -q '\"promoting\"' .gdd/changes/c1/change.json";
-        assert!(promote(&folder.0, "c1", &with("promote", seen), false).is_ok());
+        let watched = with("promote", seen);
+        let promoted = promote(&folder.0, &folder.0, "c1", &watched, false);
+        assert!(promoted.is_ok());
         assert_eq!(record(&folder)["state"], "in-production");
         // A command that ran, then a log that cannot be written.
         let folder = project(RECORD);
         let unlogged = with("promote", "rm .gdd/log.jsonl && mkdir .gdd/log.jsonl");
-        let err = promote(&folder.0, "c1", &unlogged, false).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &unlogged, false).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
         assert_eq!(record(&folder)["state"], PROMOTING);
         assert_eq!(PROMOTING, "promoting");
@@ -631,7 +663,8 @@ flag = false
     #[test]
     fn production_that_holds_closes_the_change() {
         let folder = project(RECORD);
-        let out = json(&observe(&folder.0, "c1", &steps(COMMANDS)).unwrap());
+        let observed = observe(&folder.0, &folder.0, "c1", &steps(COMMANDS));
+        let out = json(&observed.unwrap());
         assert_eq!(out["detail"]["name"], "observe");
         assert_eq!(record(&folder)["state"], "closed");
         let inbox = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
@@ -643,7 +676,8 @@ flag = false
     #[test]
     fn production_getting_worse_rolls_the_change_back_and_asks_for_a_hotfix() {
         let folder = project(RECORD);
-        let err = observe(&folder.0, "c1", &with("observe", "echo worse; exit 1")).unwrap_err();
+        let worse = with("observe", "echo worse; exit 1");
+        let err = observe(&folder.0, &folder.0, "c1", &worse).unwrap_err();
         let expected = "release.observe failed (exit code 1):\nworse\nRollback: simulated\n\
                         Production failed while observing: rolled back to the previous version. \
                         A hotfix is needed. Message in .gdd/changes/c1/inbox.md";
@@ -661,12 +695,12 @@ flag = false
         let mut both = with("observe", "exit 1");
         both.commands.insert("rollback".into(), "true".into());
         let folder = project(RECORD);
-        let err = observe(&folder.0, "c1", &both).unwrap_err();
+        let err = observe(&folder.0, &folder.0, "c1", &both).unwrap_err();
         assert!(err.contains("\nRollback: ok\n"), "{err}");
         let stuck = "echo stuck; exit 9";
         both.commands.insert("rollback".into(), stuck.into());
         let folder = project(RECORD);
-        let err = observe(&folder.0, "c1", &both).unwrap_err();
+        let err = observe(&folder.0, &folder.0, "c1", &both).unwrap_err();
         let rollback = "\nRollback: release.rollback failed (exit code 9):\nstuck\n";
         assert!(err.contains(rollback), "{err}");
         assert_eq!(record(&folder)["state"], "rolled-back");
@@ -678,16 +712,19 @@ flag = false
         let missing = "change c9 does not exist: there is no .gdd/changes/c9/change.json";
         let release = steps(COMMANDS);
         let missing: Result<String, String> = Err(missing.into());
-        assert_eq!(pre(&folder.0, "c9", &release), missing);
-        assert_eq!(promote(&folder.0, "c9", &release, false), missing);
-        assert_eq!(observe(&folder.0, "c9", &release), missing);
+        assert_eq!(pre(&folder.0, &folder.0, "c9", &release), missing);
+        assert_eq!(
+            promote(&folder.0, &folder.0, "c9", &release, false),
+            missing
+        );
+        assert_eq!(observe(&folder.0, &folder.0, "c9", &release), missing);
         assert!(log(&folder).is_empty());
         for wrong in ["{not json", "[]"] {
             let broken = project(wrong);
             for err in [
-                pre(&broken.0, "c1", &release).unwrap_err(),
-                promote(&broken.0, "c1", &release, false).unwrap_err(),
-                observe(&broken.0, "c1", &release).unwrap_err(),
+                pre(&broken.0, &broken.0, "c1", &release).unwrap_err(),
+                promote(&broken.0, &broken.0, "c1", &release, false).unwrap_err(),
+                observe(&broken.0, &broken.0, "c1", &release).unwrap_err(),
             ] {
                 assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
             }
@@ -695,9 +732,9 @@ flag = false
         }
         let unlogged = project(RECORD);
         fs::create_dir_all(unlogged.0.join(log::PATH)).unwrap();
-        let err = pre(&unlogged.0, "c1", &release).unwrap_err();
+        let err = pre(&unlogged.0, &unlogged.0, "c1", &release).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
-        let err = promote(&unlogged.0, "c1", &release, false).unwrap_err();
+        let err = promote(&unlogged.0, &unlogged.0, "c1", &release, false).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
         assert_eq!(record(&unlogged)["state"], "merged");
     }

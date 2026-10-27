@@ -12,12 +12,13 @@ use crate::{change, log};
 /// Why a Reviewer without a readable verdict counts as KO.
 const NO_VERDICT: &str = "The Reviewer left no readable VERDICT: counts as KO.";
 
-/// Where the Reviewer of change `id` leaves its verdict, from the project root.
+/// Where the Reviewer of change `id` leaves its verdict, from the state root (see
+/// [`crate::state::root`]).
 pub fn review_path(id: &str) -> String {
     format!(".gdd/changes/{id}/review.md")
 }
 
-/// Where the replan of change `id` says where the change goes next, from the project root.
+/// Where the replan of change `id` says where the change goes next, from the state root.
 pub fn replan_path(id: &str) -> String {
     format!(".gdd/changes/{id}/replan.md")
 }
@@ -56,10 +57,11 @@ fn answer(rest: &str) -> &str {
     rest.trim_start().trim_start_matches('*').trim_start()
 }
 
-/// The verdict of the Reviewer of change `id` of the project at `root` (see [`verdict`]): whether
-/// it is OK. No file, or no readable verdict, is KO. Logged as a machine step of G3.
-pub fn review(root: &Path, id: &str) -> Result<bool, String> {
-    let said = verdict(&read(root, &review_path(id))?);
+/// The verdict of the Reviewer of change `id`, of the project whose state root is `state` (see
+/// [`verdict`]): whether it is OK. No file, or no readable verdict, is KO. Logged as a machine
+/// step of G3.
+pub fn review(state: &Path, id: &str) -> Result<bool, String> {
+    let said = verdict(&read(state, &review_path(id))?);
     let ok = said == Some(true);
     let entry = log::Entry {
         change: id.to_string(),
@@ -71,20 +73,20 @@ pub fn review(root: &Path, id: &str) -> Result<bool, String> {
         duration_s: 0.0,
         note: if said.is_none() { NO_VERDICT } else { "" }.to_string(),
     };
-    change::logged(root, &entry)?;
+    change::logged(state, &entry)?;
     Ok(ok)
 }
 
-/// Whether the replan of change `id` of the project at `root` sends it back to test mode (see
-/// [`sends_to_test`]). No file says build mode.
-pub fn replanned_to_test(root: &Path, id: &str) -> Result<bool, String> {
-    Ok(sends_to_test(&read(root, &replan_path(id))?))
+/// Whether the replan of change `id`, of the project whose state root is `state`, sends it back to
+/// test mode (see [`sends_to_test`]). No file says build mode.
+pub fn replanned_to_test(state: &Path, id: &str) -> Result<bool, String> {
+    Ok(sends_to_test(&read(state, &replan_path(id))?))
 }
 
-/// The text of the file `path` of the project at `root`: empty when there is none. Bytes that are
-/// not UTF-8 are replaced.
-fn read(root: &Path, path: &str) -> Result<String, String> {
-    match fs::read(root.join(path)) {
+/// The text of the file `path` under the state root `state`: empty when there is none. Bytes that
+/// are not UTF-8 are replaced.
+fn read(state: &Path, path: &str) -> Result<String, String> {
+    match fs::read(state.join(path)) {
         Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(format!("cannot read {path}: {e}")),
