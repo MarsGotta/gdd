@@ -8,10 +8,19 @@ Read this before writing tests, scenario steps or code in Rust in a GDD project.
 
 ## Scenario steps (cucumber-rs)
 
-- The steps live in `tests/acceptance/` (the `acceptance` test target, `harness = false`); the
-  `.feature` files in `features/`. When the project keeps them elsewhere, `builder_build`
-  in `gdd/rules.toml` says where. The runner is strict: a sentence with no step fails the run.
-  Never skip, comment out or loosen a scenario to make it pass.
+- The steps live in `tests/acceptance/` (the `acceptance` test target); the `.feature` files in
+  `features/`. When the project keeps them elsewhere, `builder_build` in `gdd/rules.toml` says
+  where. The runner is strict: a sentence with no step fails the run. Never skip, comment out or
+  loosen a scenario to make it pass.
+- Declare the target in `Cargo.toml` with `test = false`, so the unit gate (`cargo test
+  --workspace`) skips it and only the acceptance gates (`cargo test --test acceptance`) run it:
+
+  ```toml
+  [[test]]
+  name = "acceptance"
+  harness = false   # cucumber-rs brings its own main
+  test = false      # plain cargo test skips it; cargo test --test acceptance runs it
+  ```
 - One step per sentence, matched by `#[given]`, `#[when]`, `#[then]` with a cucumber expression
   (`{string}`, `{int}`) or a regex. An `And` takes the kind of the step before it.
 - Steps talk to the library (the crate's public API), never to the terminal or a shell. Each

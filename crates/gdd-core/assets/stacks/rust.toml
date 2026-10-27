@@ -1,6 +1,7 @@
 # Stack sheet · Rust. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands as in
 # gdd's own repository, where they run every day. Layout: unit tests next to the code, the scenario
-# steps in tests/acceptance/ (a cucumber-rs test target with harness = false, named acceptance).
+# steps in tests/acceptance/ (a cucumber-rs test target named acceptance, declared in Cargo.toml with
+# harness = false and test = false: plain cargo test skips it, cargo test --test acceptance runs it).
 name = "rust"
 title = "Rust"
 scenario_runner = "cucumber-rs"
@@ -10,7 +11,7 @@ install = '''cargo fetch --locked'''
 [g2]
 lint = '''cargo fmt --all --check && cargo clippy --all-targets -- -D warnings -W clippy::cognitive_complexity'''
 types = ""   # clippy type-checks every target
-unit = '''cargo test --workspace --tests'''   # lib, bins and every target in tests/ (the self-test file too); the acceptance target runs here as well
+unit = '''cargo test --workspace'''   # lib, bins, doc tests and every target in tests/ (the self-test file too) but acceptance (test = false)
 acceptance = '''cargo test --test acceptance'''   # cucumber-rs, strict, only GDD_FEATURES (all if empty)
 architecture = ""   # written per project: a cargo tree rule between its crates
 
