@@ -30,10 +30,10 @@ Feature: Hidden examples for stack sheets
     When I run "gdd stacks show typescript"
     Then the output contains "Mutation (G3): StrykerJS (3.3k stars)"
 
-  Scenario: Python and TypeScript run both unit suites and share the features folder
+  Scenario: Python and TypeScript run both unit suites and share the source folder
     When I run "gdd stacks compose typescript python"
     Then the output contains "unit-python = "
-    And the output contains "features/**" exactly 1 times
+    And the output contains "src/**" exactly 1 times
 
   Scenario: Codex gets the TypeScript instructions as a skill
     Given the project uses the stack "typescript"

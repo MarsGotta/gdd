@@ -78,7 +78,7 @@ Feature: Stack sheets
   Scenario: Protected paths add up and are listed once
     When I run "gdd stacks compose python typescript"
     Then the output contains "tests/acceptance/**"
-    And the output contains "features/**" exactly 1 times
+    And the output contains "src/**" exactly 1 times
 
   Scenario: The installs run one after the other
     When I run "gdd stacks compose rust python"
