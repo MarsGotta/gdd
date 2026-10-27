@@ -1,0 +1,11 @@
+
+[release]
+simulated = true      # no real pre or production yet: empty steps pass and are logged as simulated
+build = ""            # build the artifact once
+deploy_pre = ""
+tests_pre = ""
+demo = ""             # leaves video, screenshots or the readable scenario run in .gdd/changes/$GDD_CHANGE/demo/
+promote = ""          # the same version, from pre to production
+observe = ""          # fails if errors rise
+rollback = ""         # back to the previous production version
+rollback_pre = ""     # for the harness self-test

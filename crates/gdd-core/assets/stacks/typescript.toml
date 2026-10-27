@@ -5,6 +5,7 @@ name = "typescript"
 title = "TypeScript"
 scenario_runner = "cucumber-js"
 detect = ["package.json", "tsconfig.json"]
+supply_chain = ["package-lock.json", "package.json", ".npmrc"]   # red zone written by gdd init: dependencies and toolchain
 install = '''npm ci'''
 
 [g2]

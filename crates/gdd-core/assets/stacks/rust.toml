@@ -6,6 +6,7 @@ name = "rust"
 title = "Rust"
 scenario_runner = "cucumber-rs"
 detect = ["Cargo.toml"]
+supply_chain = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]   # red zone written by gdd init: dependencies and toolchain
 install = '''cargo fetch --locked'''
 
 [g2]

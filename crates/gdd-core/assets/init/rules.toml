@@ -1,0 +1,54 @@
+# Rules table · GDD (written by gdd init {version})
+# Single source of truth: read by the classifier, the recipe and CI. Color beats work type and lane.
+
+main_branch = "{main}"
+push_main = false   # true = push main after the Merge Gate (once there is a remote and CI)
+
+[acceptance]
+dir = "features"                    # Gherkin scenarios (.feature)
+regression = "features/regression"  # changes here do not trigger G1
+required = true                     # zero scenarios counts as a G3 failure
+
+[limits]
+builder_retries = 3   # Builder rounds against G2
+replans = 1           # Orchestrator replans per stuck change
+reviewer_fixes = 1
+
+# What each color gets. "fast" only exists when the color is not red, no .feature changes
+# and the Orchestrator marks the change as resumable.
+[color.green.fast]
+tests_first = false
+mutation = false
+reviewer = false
+g4_if_g1 = false
+
+[color.green.full]
+tests_first = true
+mutation = false
+reviewer = true
+g4_if_g1 = true
+
+[color.yellow.fast]
+tests_first = true    # characterization tests before touching
+mutation = true
+reviewer = true
+g4_if_g1 = false
+
+[color.yellow.full]
+tests_first = true
+mutation = true
+reviewer = true
+g4_if_g1 = true
+
+[color.red.full]
+tests_first = true
+mutation = true
+reviewer = true       # also checks security
+g4_if_g1 = true       # in red, G4 always happens
+
+# Paths each role must not change. Path Guard checks them in G2 and in CI.
+[protected]
+all = ["gdd/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md"]
+builder_build = {builder_build}   # approved scenarios and the steps written in test mode
+builder_test = {builder_test}   # production code: test mode only writes tests and steps
+reviewer = ["**"]

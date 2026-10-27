@@ -1,0 +1,26 @@
+name: gdd
+# Written by gdd init {version}. G2 and G3 in CI: they block even if an agent skips a step.
+on:
+  pull_request:
+  push:
+    branches: ["{main}", "change/**"]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The setup of each stack (toolchains and gate tools) comes with the project skeleton.
+      - name: Install gitleaks (checksum verified)
+        run: |
+          V=8.30.1; D=$(mktemp -d); cd "$D"
+          curl -sSfLO https://github.com/gitleaks/gitleaks/releases/download/v$V/gitleaks_${V}_linux_x64.tar.gz
+          curl -sSfLO https://github.com/gitleaks/gitleaks/releases/download/v$V/gitleaks_${V}_checksums.txt
+          grep "gitleaks_${V}_linux_x64.tar.gz" gitleaks_${V}_checksums.txt | sha256sum -c -
+          sudo tar -xzf gitleaks_${V}_linux_x64.tar.gz -C /usr/local/bin gitleaks
+      - name: Install gdd {version}
+        run: cargo install --locked --git https://github.com/MarsGotta/gdd --tag v{version} gdd
+      - name: GDD gates (Path Guard, G2, G3)
+        run: bin/gdd ci
