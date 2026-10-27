@@ -47,7 +47,7 @@ Feature: Stack sheets
 
   Scenario: A sheet shows its gate commands
     When I run "gdd stacks show python"
-    Then the output contains "g2.types: mypy src"
+    Then the output contains "g2.types: uv run mypy src"
 
   Scenario: An unknown sheet is named in the error
     When I run "gdd stacks show cobol"
@@ -82,7 +82,7 @@ Feature: Stack sheets
 
   Scenario: The installs run one after the other
     When I run "gdd stacks compose rust python"
-    Then the output contains "cargo fetch --locked && python -m pip install"
+    Then the output contains "cargo fetch --locked && uv sync --locked"
 
   Scenario: The self-test file comes from the first sheet
     When I run "gdd stacks compose python rust"
