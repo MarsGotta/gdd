@@ -13,7 +13,7 @@ use gdd_core::agents::{
 };
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::classify_with;
-use gdd_core::gates::{self, Gate, approve, ci, prepare, release, selftest};
+use gdd_core::gates::{self, Gate, approve, ci, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::recipe::{self, Answer, Said, Snapshot};
@@ -712,14 +712,18 @@ fn run_guard(root: &Path, args: GuardArgs, env: &Env) -> Result<Outcome, String>
 }
 
 /// `gdd g2` and `gdd g3`: runs `gate` on the change of `args`, else on the one `GDD_CHANGE` of
-/// the environment `env` names (see [`gate_report`]). The report as JSON, and exit code 1 when
-/// the gate fails and the run is strict.
+/// the environment `env` names (see [`gate_report`]). The report as JSON, then, for the person
+/// who reads it, one line per security exception the change adds on the standard error; exit
+/// code 1 when the gate fails and the run is strict.
 fn run_gate(root: &Path, gate: Gate, args: GateArgs, env: &Env) -> Result<Outcome, String> {
     let id = change_id(args.change, env)?;
     let report = gate_report(root, gate, &id, &args.role)?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !report.ok);
-    Ok(Outcome::printed(printed, code))
+    let mut outcome = Outcome::printed(printed, code);
+    let added = report.added_exceptions.iter();
+    outcome.stderr = added.map(|line| format!("{line}\n")).collect();
+    Ok(outcome)
 }
 
 /// `gdd bootstrap`: the first install of each stack of the project at `root`, in the environment
@@ -1179,6 +1183,8 @@ fn project_status(root: &Path) -> Result<String, String> {
     let zones = read(root, ZONES)?.unwrap_or_default();
     let dir = load_table(root)?.acceptance.dir;
     let scenarios = gates::count_scenarios(&root.join(&dir)).map_err(|e| e.to_string());
+    let today = exceptions::today();
+    let found = exceptions::read(root);
     let selftest = read(root, approve::SELFTEST_PATH)?;
     let log_lines = read(root, log::PATH)?.map(|text| text.lines().count());
     let status = Status {
@@ -1189,6 +1195,7 @@ fn project_status(root: &Path) -> Result<String, String> {
         selftest: selftest.and_then(|text| status::selftest_summary(&text)),
         scenarios_dir: dir,
         scenarios,
+        exceptions: found.map(|found| found.iter().map(|e| e.line(today)).collect()),
         changes: change_lines(root)?,
         log_lines,
     };
@@ -2156,8 +2163,9 @@ mod tests {
         let out = project.run("g3 save --strict");
         assert_eq!(out.code, 0, "{out:?}");
         let printed = json(&out);
-        let passed = serde_json::json!(["acceptance", "path-guard", "scenarios (1)"]);
-        assert_eq!(printed["passed"], passed);
+        let passed = ["acceptance", "path-guard", "scenarios (1)", "exceptions"];
+        assert_eq!(printed["passed"], serde_json::json!(passed));
+        assert_eq!(out.stderr, "");
         let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g3.json")).unwrap();
         let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved, printed);
@@ -2166,6 +2174,28 @@ mod tests {
         assert_eq!(records[0].text("phase"), "3-integrate");
         assert_eq!(records[0].text("result"), "ok");
         assert_eq!(records[0].text("note"), "");
+    }
+
+    #[test]
+    fn g3_names_the_exceptions_the_change_adds_and_the_inbox_shows_them() {
+        let project = started_with_commands("[g3]\nacceptance = \"true\"\n");
+        project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
+        let deny = "[advisories]\nignore = [{ id = \"RUSTSEC-1\", reason = \"r\" }]\n";
+        project.write("deny.toml", deny);
+        let out = project.run("g3 save");
+        let line = "exception added: RUSTSEC-1 · deny.toml · no end date · r";
+        assert_eq!(out.stderr, format!("{line}\n"));
+        let printed = json(&out);
+        assert_eq!(printed["added_exceptions"], serde_json::json!([line]));
+        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g3.json")).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved, printed);
+        let inbox = project.run("inbox save").stdout;
+        let group = format!("\n## Security exceptions this change adds\n- {line}\n");
+        assert!(inbox.contains(&group), "{inbox}");
+        let status = project.run("status").stdout;
+        let listed = "\nSecurity exceptions: 1\n  - RUSTSEC-1 · deny.toml · no end date · r\n";
+        assert!(status.contains(listed), "{status}");
     }
 
     #[test]
@@ -2534,6 +2564,7 @@ mod tests {
             "Red zones: approved · red zones approved\n",
             "Harness self-test: harness 4/4\n",
             "Scenarios in features/: 0\n",
+            "Security exceptions: none\n",
             "Changes:\n",
             "  - c1 · Drafts · open · plan:ok\n",
             "Log: 4 lines in .gdd/log.jsonl (gdd report)\n"
@@ -2557,9 +2588,15 @@ mod tests {
             "the end of Discover.\n",
             "Harness self-test: not run\n",
             "Scenarios in features/: 0\n",
+            "Security exceptions: none\n",
             "Changes:\n"
         );
         assert_eq!(project.run("status"), Outcome::success(expected.into()));
+        project.write("osv-scanner.toml", "[[IgnoredVulns]");
+        let out = project.run("status");
+        let line = "\nSecurity exceptions: osv-scanner.toml: invalid TOML: ";
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.contains(line), "{out:?}");
     }
 
     #[test]

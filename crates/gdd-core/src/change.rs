@@ -870,7 +870,8 @@ mod tests {
         assert_eq!(note["text"], PARKED);
         assert!(note["ts"].as_str().unwrap().ends_with("+00:00"), "{note}");
         let inbox = fs::read_to_string(folder.0.join(saved)).unwrap();
-        assert_eq!(inbox, format!("{}\n", inbox::render("c1", &text).unwrap()));
+        let rendered = inbox::render("c1", &text, &[]).unwrap();
+        assert_eq!(inbox, format!("{rendered}\n"));
         let parked = format!("## Parked\n- {PARKED}");
         assert!(inbox.contains(&parked), "{inbox}");
         assert!(inbox.contains("state parked"), "{inbox}");

@@ -588,6 +588,18 @@ fn change_writes_step(w: &mut GddWorld, path: String) {
     change_writes(w, &path);
 }
 
+#[when(expr = "the change writes {string} saying:")]
+fn change_writes_saying(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Step) {
+    let content = docstring(step, "the step needs a doc string with the file content");
+    write_file(&project_root(w).join(&path), &format!("{content}\n"));
+}
+
+#[given(expr = "the file {string} says:")]
+fn file_says_docstring(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Step) {
+    let content = docstring(step, "the step needs a doc string with the file content");
+    write_file(&project_root(w).join(&path), &format!("{content}\n"));
+}
+
 #[when(expr = "the change modifies {string}")]
 fn change_modifies(w: &mut GddWorld, path: String) {
     let root = project_root(w);
@@ -870,6 +882,10 @@ fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) 
 fn everything_committed(w: &mut GddWorld) {
     let root = project_root(w);
     commit_all(&root, "project");
+    // Off main (a change branch), the commit must still land on main: a fast-forward.
+    if git(&root, &["branch", "--show-current"]) != "main" {
+        git(&root, &["branch", "-f", "main", "HEAD"]);
+    }
 }
 
 fn branch_exists(root: &Path, branch: &str) -> bool {

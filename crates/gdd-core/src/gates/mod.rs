@@ -1,7 +1,7 @@
 //! The gates the machines run: G2, the Loop Gate of every Builder round, and G3, the Merge
 //! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
-//! Path Guard again, the scope check in build mode and, in G3, the scenario count. It passes
-//! only if all of them pass.
+//! Path Guard again, the scope check in build mode and, in G3, the scenario count and the
+//! security exceptions ([`exceptions`]). It passes only if all of them pass.
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
@@ -11,6 +11,7 @@
 
 pub mod approve;
 pub mod ci;
+pub mod exceptions;
 pub mod phrasing;
 pub mod prepare;
 pub mod release;
@@ -288,6 +289,10 @@ pub struct Report {
     pub failures: Vec<Failure>,
     /// In build mode, the paths outside the plan the scope check accepted.
     pub out_of_scope: Vec<String>,
+    /// In G3, a line for each security exception the change adds (see [`exceptions::added`]);
+    /// left out of the JSON when there is none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub added_exceptions: Vec<String>,
     /// Seconds the commands took, added up.
     #[serde(skip)]
     pub duration_s: f64,
@@ -401,8 +406,10 @@ pub fn save(root: &Path, id: &str, report: &Report) -> Result<(), String> {
 /// `GDD_CHANGE`, `GDD_COLOR`, `GDD_FEATURES` (the change's scenario files) and `GDD_DIFF_FILES`
 /// (what it touched, or what it plans while it touched nothing), one path per line. Then Path
 /// Guard judges again; build mode also gets the scope check, and G3 counts the scenarios: none
-/// fails it when they are required or the change has its own. A gate without commands fails. A
-/// check that cannot judge fails with the reason.
+/// fails it when they are required or the change has its own. G3 also refuses a security
+/// exception without a reason and names the ones the change adds against the main branch (see
+/// [`exceptions`]). A gate without commands fails. A check that cannot judge fails with the
+/// reason.
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -457,6 +464,13 @@ pub fn run(
     }
     if gate == Gate::G3 {
         judged.scenarios(&mut report, project);
+        let found = exceptions::read(root);
+        exceptions::judge(&mut report, &found);
+        if let Ok(found) = &found {
+            let main = &project.settings.main_branch;
+            let added = exceptions::added(root, main, found, exceptions::today())?;
+            report.added_exceptions = added;
+        }
     }
     report.ok = report.failures.is_empty();
     Ok(report)
@@ -486,6 +500,7 @@ impl Judged<'_> {
             skipped: Vec::new(),
             failures: Vec::new(),
             out_of_scope: Vec::new(),
+            added_exceptions: Vec::new(),
             duration_s: 0.0,
         };
         if commands.is_empty() {
@@ -767,6 +782,7 @@ paths = ["src/storage/**"]
             skipped: vec![],
             failures: vec![],
             out_of_scope: vec![],
+            added_exceptions: vec![],
             duration_s: report.duration_s,
         };
         assert_eq!(report, expected);
@@ -859,7 +875,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let feature = "Feature: a\n  Scenario: one\n  Scenario: two\n";
         project.repo.write("features/a.feature", feature);
         let report = project.run(Gate::G3, "builder");
-        let passed = ["acceptance", "path-guard", "scenarios (2)"];
+        let passed = ["acceptance", "path-guard", "scenarios (2)", "exceptions"];
         assert_eq!(report.passed, passed);
         assert_eq!(report.failures, NO_FAILURES);
         let report = project.run(Gate::G2, "builder");
@@ -871,7 +887,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let mut project = started(&["src/app.rs"], "[g3]\nacceptance = \"true\"\n");
         project.rules = Rules::from_toml("[acceptance]\nrequired = false\n").unwrap();
         let report = project.run(Gate::G3, "builder");
-        let passed = ["acceptance", "path-guard", "scenarios (0)"];
+        let passed = ["acceptance", "path-guard", "scenarios (0)", "exceptions"];
         assert_eq!(report.passed, passed);
         project.record.features = vec!["features/hidden/a.feature".into()];
         assert_eq!(names(&project.run(Gate::G3, "builder")), ["scenarios"]);
@@ -921,6 +937,35 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(names(&report), ["scenarios"]);
         let reason = "cannot count the scenarios in specs/b.feature: ";
         assert!(report.failures[0].tail.starts_with(reason), "{report:?}");
+    }
+
+    #[test]
+    fn g3_refuses_an_exception_without_a_reason_and_names_the_ones_the_change_adds() {
+        let commands = "[g2]\nunit = \"true\"\n[g3]\nacceptance = \"true\"\n";
+        let project = started(&["src/app.rs"], commands);
+        project.repo.write("features/a.feature", "Scenario: a\n");
+        let osv = "[[IgnoredVulns]]\nid = \"A\"\nreason = \"r\"\n";
+        project.repo.write(exceptions::OSV, osv);
+        let report = project.run(Gate::G3, "builder");
+        let passed = ["acceptance", "path-guard", "scenarios (1)", "exceptions"];
+        assert_eq!(report.passed, passed);
+        let added = ["exception added: A · osv-scanner.toml · no end date · r"];
+        assert_eq!(report.added_exceptions, added);
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(report.passed, ["unit", "path-guard"]);
+        assert_eq!(report.added_exceptions, Vec::<String>::new());
+        let deny = "[advisories]\nignore = [\"B\"]\n";
+        project.repo.write(exceptions::DENY, deny);
+        let report = project.run(Gate::G3, "builder");
+        let refused = failure("exceptions", "deny.toml: B has no reason");
+        assert_eq!(report.failures, [refused]);
+        assert_eq!(report.added_exceptions.len(), 2, "{report:?}");
+        project.repo.write(exceptions::OSV, "[[IgnoredVulns]\n");
+        let report = project.run(Gate::G3, "builder");
+        assert_eq!(names(&report), ["exceptions"]);
+        let invalid = "osv-scanner.toml: invalid TOML: ";
+        assert!(report.failures[0].tail.starts_with(invalid), "{report:?}");
+        assert_eq!(report.added_exceptions, Vec::<String>::new());
     }
 
     #[test]
@@ -1048,6 +1093,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
                 failure("scope", "x"),
             ],
             out_of_scope: vec!["docs/a.md".into()],
+            added_exceptions: vec![],
             duration_s: 9.0,
         };
         assert_eq!(
@@ -1059,6 +1105,17 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
                 r#"{"name":"scope","tail":"x"}],"out_of_scope":["docs/a.md"]}"#
             )
         );
+        let added = Report {
+            failures: vec![],
+            added_exceptions: vec!["exception added: A · deny.toml".into()],
+            ..report
+        };
+        let json = serde_json::to_string(&added).unwrap();
+        let end = concat!(
+            r#""out_of_scope":["docs/a.md"],"#,
+            r#""added_exceptions":["exception added: A · deny.toml"]}"#
+        );
+        assert!(json.ends_with(end), "{json}");
     }
 
     #[test]
@@ -1071,6 +1128,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             skipped: vec![],
             failures: vec![],
             out_of_scope: vec![],
+            added_exceptions: vec![],
             duration_s: 0.1 + 0.2,
         };
         let entry = log::Entry {

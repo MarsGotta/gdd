@@ -7,7 +7,7 @@ use std::fmt;
 
 use crate::change;
 use crate::classify::{Change, classify};
-use crate::gates::{Gate, Judged, Project, Report};
+use crate::gates::{Gate, Judged, Project, Report, exceptions};
 use crate::git::{self, Git};
 use crate::zones::glob_matches;
 
@@ -131,13 +131,15 @@ pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, Strin
     })
 }
 
-/// `gate` on the change `judged`, as CI runs it: its commands and, in G3, the scenario count.
+/// `gate` on the change `judged`, as CI runs it: its commands and, in G3, the scenario count and
+/// the check of the security exceptions.
 fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
     let commands = project.commands.of(gate);
     let mut report = judged.report(gate, commands);
     judged.run_commands(&mut report, project.root, commands);
     if gate == Gate::G3 {
         judged.scenarios(&mut report, project);
+        exceptions::judge(&mut report, &exceptions::read(project.root));
     }
     report.ok = report.failures.is_empty();
     report
@@ -246,7 +248,7 @@ mod tests {
         assert_eq!(found.harness, Vec::<String>::new());
         assert_eq!(found.g2.color, Color::Yellow);
         assert_eq!(found.g2.passed, ["show", "unit"]);
-        let passed = ["acceptance", "mutation", "scenarios (1)"];
+        let passed = ["acceptance", "mutation", "scenarios (1)", "exceptions"];
         assert_eq!(found.g3.passed, passed);
         let diff = "features/b.feature\nsrc/app.rs";
         let shown = format!("c1|yellow|{diff}|features/b.feature");
@@ -308,6 +310,21 @@ mod tests {
         let checked = ci.check(None).unwrap();
         let said = "G2 red: G2 not configured\nG3 red: acceptance, scenarios\nCI failed";
         assert_eq!(checked.to_string(), said);
+    }
+
+    #[test]
+    fn an_exception_without_a_reason_fails_g3_in_ci() {
+        let ci = Ci::new();
+        ci.repo.start("c1");
+        let deny = "[advisories]\nignore = [\"RUSTSEC-1\"]\n";
+        ci.repo.write("deny.toml", deny);
+        ci.repo.git(&["add", "--", "deny.toml"]);
+        ci.repo.git(&["commit", "-q", "-m", "deny"]);
+        let checked = ci.check(None).unwrap();
+        let said = "G2 green\nG3 red: exceptions\nCI failed";
+        assert_eq!(checked.to_string(), said);
+        let g3 = &found(&checked).g3;
+        assert_eq!(g3.failures[0].tail, "deny.toml: RUSTSEC-1 has no reason");
     }
 
     #[test]
