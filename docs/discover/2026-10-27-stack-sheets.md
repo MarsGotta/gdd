@@ -15,3 +15,15 @@ pilot (Vivarium, a desktop app) has not picked its stack yet.
 
 Alternative not chosen: one sheet per project plus hand-made combined sheets ("Tauri"): simpler at
 first, but every new mix is one more sheet to maintain.
+
+## 2. What the first change includes (decided)
+
+Change `stack-sheets`: the three sheets as data inside gdd (written by the Orchestrator before the
+sitting, like the agent sheets, with every tool command checked); `gdd stacks` lists them and shows
+one; `gdd stacks compose <a> [<b>...]` shows the combination (gate commands and protected paths)
+without writing anything; the per-stack instructions for the agents, installed by
+`gdd agents install` when the project uses that sheet.
+
+Left for `gdd init` (next change): writing the combination into `gdd/`, the Setup form and the
+skeleton of a new project. Writing `gdd/` touches the harness, which belongs to the Setup, with the
+human's form in front of them; this change only shows.
