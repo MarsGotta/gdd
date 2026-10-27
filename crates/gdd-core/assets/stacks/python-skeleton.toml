@@ -1,0 +1,182 @@
+# Skeleton of a new python project, written by gdd init when the folder has no project of this
+# stack yet (none of its detect files). Checked for real on 2026-10-27: every gate command of the
+# sheet green, red on a surviving mutant and on a step without code. {package} is the project
+# name as an identifier.
+
+[[file]]
+path = "features/.gitkeep"
+content = '''
+'''
+
+[[file]]
+path = "osv-scanner.toml"
+content = '''
+# OSV-Scanner (G3 security): every dependency, dev tools included: they run on the developer's
+# machine and in CI, next to the keys.
+
+# Exceptions, under the developer's responsibility (a red zone: adding one is a red change):
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2027-01-31   # it blocks again after this date
+# reason = "why it cannot reach users, and who decided"
+'''
+
+[[file]]
+path = "pyproject.toml"
+content = '''
+[project]
+name = "{package}"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.4",
+    "import-linter>=2.15",
+    "mutmut>=3.8.0",
+    "mypy>=2.4.0",
+    "pip-audit>=2.10.1",
+    "pytest>=9.1.1",
+    "pytest-bdd>=9.0.0",
+    "ruff>=0.17.3",
+    "vulture>=2.16",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C90"]   # C90: complexity (C901)
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]   # assert is how tests check
+
+[tool.mypy]
+strict = true
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+bdd_features_base_dir = "features/"
+
+[tool.importlinter]
+root_package = "{package}"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The package does not import its tests"
+type = "forbidden"
+source_modules = ["{package}"]
+forbidden_modules = ["tests"]
+
+[tool.mutmut]
+source_paths = ["src/"]
+pytest_add_cli_args_test_selection = ["tests/unit/"]
+'''
+
+[[file]]
+path = "src/{package}/__init__.py"
+content = '''
+"""The project's package."""
+'''
+
+[[file]]
+path = "src/{package}/greeting.py"
+content = '''
+"""A placeholder for the project's first code."""
+
+
+def greeting(name: str) -> str:
+    """The greeting for ``name``."""
+    return "Hello!" if name == "" else f"Hello, {name}!"
+'''
+
+[[file]]
+path = "tests/__init__.py"
+content = '''
+'''
+
+[[file]]
+path = "tests/acceptance/__init__.py"
+content = '''
+'''
+
+[[file]]
+path = "tests/acceptance/steps/__init__.py"
+content = '''
+"""Step definitions, one module per feature; import them here."""
+'''
+
+[[file]]
+path = "tests/acceptance/test_features.py"
+content = '''
+"""Binds the Gherkin scenarios to the steps (pytest-bdd).
+
+G2 runs the features in GDD_FEATURES (one path per line; all of features/
+when empty) and never features/hidden/; G3 sets GDD_HIDDEN=1 to run those
+too. Steps live in tests/acceptance/steps/.
+"""
+
+import os
+from pathlib import Path
+
+from pytest_bdd import scenarios
+
+from tests.acceptance.steps import *  # noqa: F403  (the step definitions)
+
+ROOT = Path(__file__).resolve().parents[2]
+FEATURES = ROOT / "features"
+
+
+def _chosen() -> list[Path]:
+    lines = os.environ.get("GDD_FEATURES", "").splitlines()
+    named = [ROOT / line for line in lines if line.strip()]
+    found = named or sorted(FEATURES.glob("**/*.feature"))
+    hidden = FEATURES / "hidden"
+    if os.environ.get("GDD_HIDDEN") == "1":
+        return found
+    return [path for path in found if hidden not in path.parents]
+
+
+for _feature in _chosen():
+    scenarios(str(_feature))
+'''
+
+[[file]]
+path = "tests/unit/__init__.py"
+content = '''
+'''
+
+[[file]]
+path = "tests/unit/test_greeting.py"
+content = '''
+from {package}.greeting import greeting
+
+
+def test_a_name_is_greeted_by_name() -> None:
+    assert greeting("Ada") == "Hello, Ada!"
+
+
+def test_no_name_gets_a_plain_greeting() -> None:
+    assert greeting("") == "Hello!"
+'''
+
+[[file]]
+path = "osv-scanner-licenses.toml"
+content = '''
+# OSV-Scanner for G3 dependencies: licenses only (vulnerabilities are G3 security's job), and only
+# of what ships: dev tools are not distributed.
+[[PackageOverrides]]
+vulnerability.ignore = true
+reason = "licenses only"
+
+[[PackageOverrides]]
+group = "dev"
+license.ignore = true
+reason = "dev tools are not shipped"
+'''

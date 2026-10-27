@@ -27,6 +27,8 @@ pub struct GddWorld {
     home: Option<TempDir>,
     /// The scenario looked at the exit code itself, so a failed run may still be read.
     exit_checked: bool,
+    /// Where the scenario's fake programs live; first on its PATH. Outside the project folder.
+    programs: Option<TempDir>,
 }
 
 #[given("the gdd tool")]
@@ -1247,6 +1249,8 @@ fn record_state(w: &mut GddWorld, id: String, state: String) {
 
 #[then(expr = "the file {string} contains {string}")]
 fn file_contains(w: &mut GddWorld, path: String, text: String) {
+    // The step text escapes the quotes inside the text.
+    let text = text.replace("\\\"", "\"");
     let content = fs::read_to_string(project_root(w).join(&path))
         .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
     assert!(content.contains(&text), "{path} lacks {text:?}: {content}");
@@ -1612,10 +1616,67 @@ fn an_empty_folder(w: &mut GddWorld) {
 
 #[given(expr = "the folder is a git repository with the file {string}")]
 fn folder_is_a_repository(w: &mut GddWorld, path: String) {
+    // As the first step of a scenario there is no folder yet: start from an empty one.
+    if w.project.is_none() {
+        an_empty_folder(w);
+    }
     let root = project_root(w);
     git(&root, &["init", "-q", "-b", "main"]);
     write_file(&root.join(&path), "some text\n");
     commit_all(&root, "existing");
+}
+
+// ---- features/stack-skeletons.feature ------------------------------------------------------
+//
+// Fake programs are executable scripts in a folder of their own, put first on the PATH of the
+// scenario environment (outside the project, so `gdd init` still finds an empty folder).
+
+/// Writes the executable `name` with `body` and makes sure its folder leads the PATH.
+fn fake_program(w: &mut GddWorld, name: &str, body: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let first_use = w.programs.is_none();
+    let dir = w.programs.get_or_insert_with(TempDir::new).0.clone();
+    let path = dir.join(name);
+    write_file(&path, &format!("#!/bin/sh\n{body}\n"));
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("an executable");
+    if first_use {
+        let old = world_env(w)
+            .iter()
+            .find(|(known, _)| known == "PATH")
+            .map(|(_, value)| value.clone())
+            .or_else(|| std::env::var("PATH").ok())
+            .unwrap_or_default();
+        set_env(w, "PATH", &format!("{}:{old}", dir.display()));
+    }
+}
+
+#[given(expr = "the program {string} on the PATH writes the file {string}")]
+fn program_writes_file(w: &mut GddWorld, name: String, file: String) {
+    fake_program(w, &name, &format!("echo generated > '{file}'\nexit 0"));
+}
+
+#[given(expr = "the program {string} on the PATH fails")]
+fn program_fails(w: &mut GddWorld, name: String) {
+    fake_program(w, &name, "exit 1");
+}
+
+#[given(expr = "the program {string} on the PATH does nothing")]
+fn program_does_nothing(w: &mut GddWorld, name: String) {
+    fake_program(w, &name, "exit 0");
+}
+
+#[then(expr = "git tracks {string}")]
+fn git_tracks(w: &mut GddWorld, path: String) {
+    let tracked = git(&project_root(w), &["ls-files", "--", &path]);
+    assert_eq!(tracked, path, "git does not track {path}");
+}
+
+#[then(expr = "the file {string} exists")]
+fn file_exists(w: &mut GddWorld, path: String) {
+    assert!(
+        project_root(w).join(&path).exists(),
+        "{path} does not exist, and it should"
+    );
 }
 
 #[given("no coding agent is on the PATH")]

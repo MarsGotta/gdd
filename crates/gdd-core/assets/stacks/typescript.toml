@@ -1,12 +1,15 @@
 # Stack sheet · TypeScript. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands from
-# each tool's documentation (cucumber-js configuration, StrykerJS, OSV-Scanner license scanning).
+# each tool's documentation (cucumber-js configuration, StrykerJS, OSV-Scanner); first real run
+# 2026-10-27 (docs/discover/2026-10-27-gdd-init.md).
 # Layout: code in src/, unit tests in tests/unit/ (*.test.ts), the scenario steps in features/steps/.
 name = "typescript"
 title = "TypeScript"
 scenario_runner = "cucumber-js"
 detect = ["package.json", "tsconfig.json"]
-supply_chain = ["package-lock.json", "package.json", ".npmrc"]   # red zone written by gdd init: dependencies and toolchain
+supply_chain = ["package-lock.json", "package.json", ".npmrc", "osv-scanner.toml", "osv-scanner-licenses.toml"]   # red zone written by gdd init: dependencies and toolchain
 install = '''npm ci'''
+bootstrap = '''npm install --no-fund --no-audit'''   # the first install: writes the lock file
+ignore = ["node_modules/", "reports/", "coverage/", ".stryker-tmp/"]
 
 [g2]
 lint = '''npx eslint . --max-warnings 0'''   # typescript-eslint, eslint-plugin-security and the complexity rule live in eslint.config
@@ -18,14 +21,30 @@ architecture = '''npx depcruise src --config .dependency-cruiser.cjs'''
 [g3]
 acceptance_full = '''npx cucumber-js --strict 'features/**/*.feature' '''
 lockfile = '''npm ci --ignore-scripts --no-audit --no-fund'''
-security = '''osv-scanner scan source -r .'''
-dependencies = '''osv-scanner scan source -r --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0" .'''
+security = '''osv-scanner scan source -L package-lock.json'''   # dev tools included; exceptions: [[IgnoredVulns]] in osv-scanner.toml, with a reason
+dependencies = '''osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0" -L package-lock.json'''   # licenses of what ships (osv-scanner-licenses.toml)
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
 mutation = '''F=$(printf '%s\n' "$GDD_DIFF_FILES" | grep -E '^src/.*\.ts$' | paste -sd, -); [ -z "$F" ] || npx stryker run --mutate "$F"'''   # stryker.config: thresholds.break = 100
 
 [learn]   # warnings for Learn, never a gate
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''npx knip'''
+
+[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+setup = '''
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install the TypeScript dependencies
+        run: npm ci
+      - name: Install OSV-Scanner (checksum verified)
+        run: |
+          V=2.7.0; D=$(mktemp -d); cd "$D"
+          curl -sSfLO https://github.com/google/osv-scanner/releases/download/v$V/osv-scanner_linux_amd64
+          curl -sSfLO https://github.com/google/osv-scanner/releases/download/v$V/osv-scanner_SHA256SUMS
+          grep " osv-scanner_linux_amd64$" osv-scanner_SHA256SUMS | sha256sum -c -
+          sudo install -m 755 osv-scanner_linux_amd64 /usr/local/bin/osv-scanner
+'''
 
 [selftest]
 file = "tests/unit/gdd-selftest.test.ts"

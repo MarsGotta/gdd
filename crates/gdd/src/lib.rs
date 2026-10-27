@@ -108,9 +108,10 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Run {
     /// Sets up GDD in this folder, which becomes the project root: the harness (gdd/, bin/gdd,
-    /// the CI workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent and
-    /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file
-    /// and refuses inside a GDD project.
+    /// the CI workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent, the
+    /// skeleton of each stack the folder has no project of, and the lines of each stack and
+    /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file,
+    /// refuses inside a GDD project and installs nothing (gdd bootstrap does).
     Init(InitArgs),
     #[command(flatten)]
     InProject(Command),
@@ -173,9 +174,13 @@ enum Command {
     },
     /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
     Status,
-    /// Harness self-test: a failing test turns G2 red, the harness is protected and CI runs the
-    /// gates, rollback works in pre, and zero scenarios fail G3. Saved in .gdd/selftest.json and
-    /// logged; exits with 1 unless all four pass.
+    /// The first install of each stack of gdd/project.toml, in order, which writes its lock file:
+    /// stops at the first that fails, then commits the files of the stacks' supply chain the run
+    /// created or changed, and nothing else. Run it once, after gdd init.
+    Bootstrap,
+    /// Harness self-test: a failing test turns a green G2 red, the harness is protected and CI
+    /// runs the gates, rollback works in pre, and zero scenarios fail G3. Saved in
+    /// .gdd/selftest.json and logged; exits with 1 unless all four pass.
     Selftest,
     /// What CI runs: on the branch change/<id> (GITHUB_HEAD_REF, else the current one), no
     /// harness path changed against the main branch, and G2 and G3 green. Reads and writes
@@ -460,6 +465,7 @@ impl Command {
             Command::G2(args) => return run_gate(root, Gate::G2, args, env),
             Command::G3(args) => return run_gate(root, Gate::G3, args, env),
             Command::Guard(args) => return run_guard(root, args, env),
+            Command::Bootstrap => return bootstrap(root, env),
             Command::Selftest => return run_selftest(root),
             Command::Ci => return run_ci(root, env),
             Command::Park { change, reason } => {
@@ -714,6 +720,21 @@ fn run_gate(root: &Path, gate: Gate, args: GateArgs, env: &Env) -> Result<Outcom
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !report.ok);
     Ok(Outcome::printed(printed, code))
+}
+
+/// `gdd bootstrap`: the first install of each stack of the project at `root`, in the environment
+/// `env` (see [`init::bootstrap`]). What it said goes to the standard output; why it stopped, to
+/// the standard error, and fails the run.
+fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
+    let stacks = project_stacks(root)?;
+    Ok(match init::bootstrap(root, &stacks, env) {
+        Ok(said) => Outcome::printed(said, 0),
+        Err(stopped) => Outcome {
+            code: 1,
+            stdout: stopped.said,
+            stderr: format!("error: {}\n", stopped.why),
+        },
+    })
 }
 
 /// `gdd selftest`: the harness self-test of the project (see [`selftest::run`]), saved and
@@ -1514,6 +1535,43 @@ mod tests {
         let out = run_with_env(&cobol, &folder.0, &[]);
         let unknown = "error: unknown stack cobol (known: python, rust, typescript)\n";
         assert_eq!(out, Outcome::failure(unknown.to_string()));
+    }
+
+    #[test]
+    fn bootstrap_says_each_install_and_why_it_stopped() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = plain_folder();
+        let command = "init --name Notes --platform cli --stack rust --agents claude codex";
+        let out = run_with_env(&words(command), &folder.0, &init_env());
+        assert_eq!(out.code, 0, "{out:?}");
+        let cargo = ".gdd/bin/cargo";
+        folder.write(cargo, "#!/bin/sh\necho lock > Cargo.lock\n");
+        let mode = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(folder.0.join(cargo), mode).unwrap();
+        let mut env = init_env();
+        let bin = folder.0.join(".gdd/bin");
+        for (name, value) in &mut env {
+            if name == "PATH" {
+                *value = format!("{}:{value}", bin.display());
+            }
+        }
+        let out = run_with_env(&words("bootstrap"), &folder.0, &env);
+        let said = "rust: cargo generate-lockfile\nCommitted: Cargo.lock\n\
+                    Next: bin/gdd selftest\n";
+        assert_eq!(out, Outcome::success(said.to_string()));
+        folder.write(cargo, "#!/bin/sh\necho broken\nexit 2\n");
+        let out = run_with_env(&words("bootstrap"), &folder.0, &env);
+        let stopped = Outcome {
+            code: 1,
+            stdout: "rust: cargo generate-lockfile\nbroken\n".to_string(),
+            stderr: "error: rust: cargo generate-lockfile failed (exit 2)\n".to_string(),
+        };
+        assert_eq!(out, stopped);
+        folder.write(PROJECT, "stack = 3\n");
+        let out = run_with_env(&words("bootstrap"), &folder.0, &env);
+        let wrong = "error: gdd/project.toml: invalid TOML: stack is not a name or a list of \
+                     names\n";
+        assert_eq!(out, Outcome::failure(wrong.to_string()));
     }
 
     #[test]

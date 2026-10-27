@@ -1,0 +1,179 @@
+# Skeleton of a new typescript project, written by gdd init when the folder has no project of this
+# stack yet (none of its detect files). Checked for real on 2026-10-27: every gate command of the
+# sheet green, red on a surviving mutant and on a step without code. {package} is the project
+# name as an identifier.
+
+[[file]]
+path = ".dependency-cruiser.cjs"
+content = '''
+/** Architecture rules (G2). Add the project's layer rules here. */
+module.exports = {
+  forbidden: [
+    { name: "no-circular", severity: "error", from: {}, to: { circular: true } },
+  ],
+  options: { tsConfig: { fileName: "tsconfig.json" }, doNotFollow: { path: "node_modules" } },
+};
+'''
+
+[[file]]
+path = "cucumber.js"
+content = '''
+// Scenarios (G2/G3): steps in features/steps/, TypeScript compiled on the fly by tsx.
+export default {
+  import: ["features/support/tsx-register.js", "features/steps/**/*.ts"],
+  strict: true,
+};
+'''
+
+[[file]]
+path = "eslint.config.js"
+content = '''
+// Lint for G2: typescript-eslint, the security plugin and a complexity limit.
+import js from "@eslint/js";
+import tseslint from "typescript-eslint";
+import security from "eslint-plugin-security";
+
+export default tseslint.config(
+  { ignores: ["node_modules/", "reports/", ".stryker-tmp/", "coverage/"] },
+  js.configs.recommended,
+  ...tseslint.configs.strict,
+  security.configs.recommended,
+  { rules: { complexity: ["error", 10] } },
+  {
+    files: ["**/*.cjs"],
+    languageOptions: { sourceType: "commonjs", globals: { module: "writable", require: "readonly" } },
+  },
+);
+'''
+
+[[file]]
+path = "features/steps/.gitkeep"
+content = '''
+'''
+
+[[file]]
+path = "features/support/tsx-register.js"
+content = '''
+// Lets cucumber-js load the TypeScript steps (ESM): https://github.com/cucumber/cucumber-js/blob/main/docs/transpiling.md
+import { register } from "tsx/esm/api";
+
+register();
+'''
+
+[[file]]
+path = "osv-scanner.toml"
+content = '''
+# OSV-Scanner (G3 security): every dependency, dev tools included: they run on the developer's
+# machine and in CI, next to the keys.
+
+# Exceptions, under the developer's responsibility (a red zone: adding one is a red change):
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2027-01-31   # it blocks again after this date
+# reason = "why it cannot reach users, and who decided"
+'''
+
+[[file]]
+path = "package.json"
+content = '''
+{
+  "name": "{package}",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.3.0",
+    "@eslint/js": "^10.0.1",
+    "@stryker-mutator/core": "^10.1.1",
+    "@stryker-mutator/vitest-runner": "^10.1.1",
+    "@types/node": "^26.6.5",
+    "dependency-cruiser": "^18.7.0",
+    "eslint": "^10.13.0",
+    "eslint-plugin-security": "^4.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
+  }
+}
+'''
+
+[[file]]
+path = "src/greeting.ts"
+content = '''
+/** The greeting for `name`; a placeholder for the project's first code. */
+export function greeting(name: string): string {
+  return name === "" ? "Hello!" : `Hello, ${name}!`;
+}
+'''
+
+[[file]]
+path = "stryker.config.json"
+content = '''
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "coverageAnalysis": "perTest",
+  "reporters": ["clear-text", "progress"],
+  "thresholds": { "high": 100, "low": 100, "break": 100 }
+}
+'''
+
+[[file]]
+path = "tests/unit/greeting.test.ts"
+content = '''
+import { expect, test } from "vitest";
+import { greeting } from "../../src/greeting.js";
+
+test("a name is greeted by name", () => {
+  expect(greeting("Ada")).toBe("Hello, Ada!");
+});
+
+test("no name gets a plain greeting", () => {
+  expect(greeting("")).toBe("Hello!");
+});
+'''
+
+[[file]]
+path = "tsconfig.json"
+content = '''
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src", "tests", "features", "*.config.ts"]
+}
+'''
+
+[[file]]
+path = "vitest.config.ts"
+content = '''
+import { defineConfig } from "vitest/config";
+
+// Unit tests (G2) live in tests/unit/.
+export default defineConfig({
+  test: { include: ["tests/unit/**/*.test.ts"] },
+});
+'''
+
+[[file]]
+path = "osv-scanner-licenses.toml"
+content = '''
+# OSV-Scanner for G3 dependencies: licenses only (vulnerabilities are G3 security's job), and only
+# of what ships: dev tools are not distributed.
+[[PackageOverrides]]
+vulnerability.ignore = true
+reason = "licenses only"
+
+[[PackageOverrides]]
+group = "dev"
+license.ignore = true
+reason = "dev tools are not shipped"
+'''
