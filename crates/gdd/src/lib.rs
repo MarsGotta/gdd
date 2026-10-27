@@ -1,5 +1,8 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
-//! what happened. The method itself lives in `gdd-core`.
+//! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` without the
+//! flags of the project asks the Setup form (see [`form`]).
+
+pub mod form;
 
 use std::ffi::OsString;
 use std::fs;
@@ -53,7 +56,8 @@ const TYPES: [&str; 6] = [
 /// What a run of `gdd` did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
-    /// Exit code: 0 when the command did its job, 1 when it failed.
+    /// Exit code: 0 when the command did its job, 1 when it failed, 2 when `gdd init` has
+    /// neither the flags of the project nor a terminal for its form.
     pub code: u8,
     /// What it printed for the user.
     pub stdout: String,
@@ -294,17 +298,19 @@ enum StacksAction {
     },
 }
 
-/// What `gdd init` takes. A text option takes every word up to the next option.
+/// What `gdd init` takes. A text option takes every word up to the next option. The name, the
+/// platform and the stacks go together; without them, in a terminal, the Setup form asks, the
+/// other flags as its first answers.
 #[derive(Debug, Args)]
 struct InitArgs {
     /// The name of the project.
-    #[arg(long, num_args = 1.., required = true)]
+    #[arg(long, num_args = 1.., requires_all = ["platform", "stacks"])]
     name: Vec<String>,
     /// Where it runs.
-    #[arg(long, value_parser = init::PLATFORMS)]
-    platform: String,
+    #[arg(long, value_parser = init::PLATFORMS, requires_all = ["name", "stacks"])]
+    platform: Option<String>,
     /// Its stacks (gdd stacks lists them).
-    #[arg(long = "stack", num_args = 1.., required = true)]
+    #[arg(long = "stack", num_args = 1.., requires_all = ["name", "platform"])]
     stacks: Vec<String>,
     /// Its coding agents, the first builds; without it, those on the PATH (claude, codex,
     /// opencode).
@@ -322,6 +328,33 @@ struct InitArgs {
     #[arg(long)]
     accept_same_family: bool,
 }
+
+impl InitArgs {
+    /// Whether the flags name the project: its platform, and so its name and its stacks, which
+    /// go with it.
+    fn name_the_project(&self) -> bool {
+        self.platform.is_some()
+    }
+
+    /// What the flags say of the new project; the name, the platform and the stacks are empty
+    /// when they do not name it.
+    fn options(self) -> init::Options {
+        init::Options {
+            name: self.name.join(" "),
+            platform: self.platform.unwrap_or_default(),
+            stacks: self.stacks,
+            agents: self.agents,
+            language: self.language,
+            description: self.description.join(" "),
+            sensitive: self.sensitive.0,
+            accept_same_family: self.accept_same_family,
+        }
+    }
+}
+
+/// Why `gdd init` without the flags of the project did nothing.
+const NO_TERMINAL: &str = "error: gdd init opens its Setup form only in a terminal; else give it \
+                           the flags --name, --platform and --stack";
 
 /// The option of the sensitive areas of `gdd init`.
 const SENSITIVE: &str = "sensitive";
@@ -509,7 +542,7 @@ impl Command {
             Command::Gate(args) => record_gate(root, state, &args, role)?,
             Command::Note(args) => note(state, &args)?,
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
-            Command::Status => project_status(root, state)?,
+            Command::Status => project_status(root, state, env)?,
             Command::Adopt => adopt_project(root, state)?,
             Command::Session { phase, change } => {
                 import_session(root, state, &phase, change.as_deref(), env)?
@@ -560,7 +593,7 @@ pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Ou
 /// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
 /// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
 /// when it finds a problem. `gdd selftest` and `gdd ci` exit with 1 when they fail, what they
-/// found on the standard output.
+/// found on the standard output. `gdd init` without the flags of the project exits with 2.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
     run_in(args, cwd, role, &process_env())
 }
@@ -568,8 +601,7 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
 /// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
 /// (see [`run_as`]).
 fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome {
-    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
-    let cli = match Cli::try_parse_from(words) {
+    let cli = match parse(args) {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
         Err(e) => return Outcome::success(e.to_string()),
@@ -587,6 +619,12 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
     ran.unwrap_or_else(|message| Outcome::error(&message))
 }
 
+/// The command `gdd` with `args`, the words after the program name, as clap reads it.
+fn parse(args: &[String]) -> Result<Cli, clap::Error> {
+    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
+    Cli::try_parse_from(words)
+}
+
 /// The environment of the process; a variable whose name or value is not UTF-8 is left out.
 fn process_env() -> Vec<(String, String)> {
     let text = |(name, value): (OsString, OsString)| {
@@ -597,21 +635,31 @@ fn process_env() -> Vec<(String, String)> {
 
 /// `gdd init`: sets up GDD in the folder `cwd` (see [`init::init`]), with git and the agents on
 /// the `PATH` of the environment `env`. What it says goes to the standard output; why it wrote
-/// nothing, or stopped, to the standard error.
+/// nothing, or stopped, to the standard error. Without the flags of the project, which then only
+/// the form asks (see [`asks_form`]), it fails like a command missing its arguments, with exit
+/// code 2.
 fn init_project(cwd: &Path, args: InitArgs, env: &Env) -> Outcome {
-    let options = init::Options {
-        name: args.name.join(" "),
-        platform: args.platform,
-        stacks: args.stacks,
-        agents: args.agents,
-        language: args.language,
-        description: args.description.join(" "),
-        sensitive: args.sensitive.0,
-        accept_same_family: args.accept_same_family,
-    };
-    match init::init(cwd, &options, env) {
+    if !args.name_the_project() {
+        let missing = Outcome::failure(format!("{NO_TERMINAL}\n"));
+        return Outcome { code: 2, ..missing };
+    }
+    match init::init(cwd, &args.options(), env) {
         Ok(said) => Outcome::printed(said, 0),
         Err(e) => Outcome::failure(format!("{e}\n")),
+    }
+}
+
+/// The first answers of the Setup form, when `gdd` with `args` asks it (see
+/// [`form::in_terminal`]): it is `gdd init` without the flags of the project (`--name`,
+/// `--platform` and `--stack`), whose other flags answer first, and its standard input and output
+/// are terminals (`stdin` and `stdout`).
+pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Options> {
+    if !(stdin && stdout) {
+        return None;
+    }
+    match parse(args).ok()?.command? {
+        Run::Init(args) if !args.name_the_project() => Some(args.options()),
+        _ => None,
     }
 }
 
@@ -1326,8 +1374,9 @@ fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
 }
 
 /// `gdd status`: where the project at `root` stands, and its changes, from its files and what
-/// the state root `state` keeps.
-fn project_status(root: &Path, state: &Path) -> Result<String, String> {
+/// the state root `state` keeps; and the coding agents on the `PATH` of the environment `env`
+/// that could review it when it accepted one model family only (see [`status::second_family`]).
+fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String> {
     let project = read(root, PROJECT)?.unwrap_or_default();
     let basics = status::Basics::from_toml(&project).map_err(|e| format!("{PROJECT}: {e}"))?;
     let zones = read(root, ZONES)?.unwrap_or_default();
@@ -1337,6 +1386,7 @@ fn project_status(root: &Path, state: &Path) -> Result<String, String> {
     let found = exceptions::read(root);
     let selftest = read(state, approve::SELFTEST_PATH)?;
     let log_lines = read(state, log::PATH)?.map(|text| text.lines().count());
+    let models = load_models(root)?;
     let status = Status {
         basics,
         brief: root.join(approve::BRIEF).is_file(),
@@ -1349,6 +1399,7 @@ fn project_status(root: &Path, state: &Path) -> Result<String, String> {
         debt: debt::read(root).map(|known| known.map(|known| known.debt).unwrap_or_default()),
         changes: change_lines(state)?,
         log_lines,
+        second_family: status::second_family(&models, &init::agents_on_path(env)?),
     };
     Ok(status.to_string())
 }
@@ -1464,7 +1515,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A project in a temporary folder, removed when dropped.
-    struct Project(PathBuf);
+    pub(super) struct Project(pub(super) PathBuf);
 
     impl Project {
         fn new() -> Project {
@@ -1608,7 +1659,8 @@ mod tests {
             "stacks rust",
             "stacks show",
             "stacks show rust python",
-            "init",
+            "init --platform cli",
+            "init --stack rust",
             "init --name x --stack rust",
             "init --name x --platform tv --stack rust",
             "init --name --platform cli --stack rust",
@@ -1621,9 +1673,59 @@ mod tests {
         }
     }
 
+    #[test]
+    fn init_without_the_flags_of_the_project_asks_for_a_terminal_or_them() {
+        for command in ["init", "init --language es --agents claude"] {
+            let out = run_in(Path::new("/"), command);
+            let failed = (2, String::new(), format!("{NO_TERMINAL}\n"));
+            assert_eq!((out.code, out.stdout, out.stderr), failed, "{command:?}");
+        }
+        let said = "error: gdd init opens its Setup form only in a terminal; else give it the \
+                    flags --name, --platform and --stack";
+        assert_eq!(NO_TERMINAL, said);
+    }
+
+    #[test]
+    fn gdd_init_without_the_flags_of_the_project_in_a_terminal_asks_the_form() {
+        let asks = |command: &str, stdin, stdout| asks_form(&words(command), stdin, stdout);
+        let alone = init::Options {
+            name: String::new(),
+            platform: String::new(),
+            stacks: Vec::new(),
+            agents: Vec::new(),
+            language: "en".to_string(),
+            description: String::new(),
+            sensitive: Vec::new(),
+            accept_same_family: false,
+        };
+        assert_eq!(asks("init", true, true), Some(alone.clone()));
+        let command = "init --language es --agents codex claude --description A notes app \
+                       --sensitive Losing notes --sensitive Leaks --accept-same-family";
+        let given = init::Options {
+            agents: vec!["codex".to_string(), "claude".to_string()],
+            language: "es".to_string(),
+            description: "A notes app".to_string(),
+            sensitive: vec!["Losing notes".to_string(), "Leaks".to_string()],
+            accept_same_family: true,
+            ..alone
+        };
+        assert_eq!(asks(command, true, true), Some(given));
+        assert_eq!(asks("init", false, true), None);
+        assert_eq!(asks("init", true, false), None);
+        for command in [
+            "init --name x --platform cli --stack rust",
+            "init --name x",
+            "init --help",
+            "status",
+            "",
+        ] {
+            assert_eq!(asks(command, true, true), None, "{command:?}");
+        }
+    }
+
     /// An environment for `gdd init`: the `PATH` of the tests, for git, an author, and no git
     /// configuration of the user's.
-    fn init_env() -> Vec<(String, String)> {
+    pub(super) fn init_env() -> Vec<(String, String)> {
         let path = std::env::var("PATH").unwrap_or_default();
         let home = std::env::temp_dir().display().to_string();
         let vars = [
@@ -1641,7 +1743,7 @@ mod tests {
     }
 
     /// A folder that is not a GDD project, removed when dropped.
-    fn plain_folder() -> Project {
+    pub(super) fn plain_folder() -> Project {
         let folder = Project::new();
         fs::remove_dir_all(folder.0.join("gdd")).unwrap();
         folder
@@ -2857,6 +2959,40 @@ mod tests {
         project.write(PROJECT, "name = ");
         let out = project.run("status");
         let start = "error: gdd/project.toml: invalid TOML: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn status_names_the_agents_on_the_path_that_could_review_a_project_of_one_family() {
+        use std::os::unix::fs::PermissionsExt;
+        let project = Project::new();
+        let claude = "integration = \"claude\"\nmodel = \"opus\"\n";
+        let roles = format!("[builder.red]\n{claude}[reviewer]\n{claude}");
+        let families = "[families]\n\"claude\" = \"anthropic\"\n";
+        let accepted = "same_family_accepted = \"2026-10-27\"\n";
+        let models = format!("{roles}{accepted}{families}");
+        project.write(agents::models::PATH, &models);
+        for agent in ["claude", "codex"] {
+            let program = format!("agents/{agent}");
+            project.write(&program, "#!/bin/sh\n");
+            let runnable = fs::Permissions::from_mode(0o755);
+            let file = project.0.join(&program);
+            fs::set_permissions(file, runnable).unwrap();
+        }
+        let path = project.0.join("agents").display().to_string();
+        let env = [("PATH".to_string(), path)];
+        let out = run_with_env(&words("status"), &project.0, &env);
+        let line = "\nA second model family is on this machine (codex): set it as the Reviewer \
+                    in gdd/models.toml\n";
+        assert!(out.stdout.ends_with(line), "{out:?}");
+        let models = format!("{roles}{families}");
+        project.write(agents::models::PATH, &models);
+        let out = run_with_env(&words("status"), &project.0, &env);
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(!out.stdout.contains("second model family"), "{out:?}");
+        project.write(agents::models::PATH, "[reviewer");
+        let out = run_with_env(&words("status"), &project.0, &env);
+        let start = "error: gdd/models.toml: invalid TOML: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
