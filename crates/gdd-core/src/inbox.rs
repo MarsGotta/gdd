@@ -1,15 +1,22 @@
 //! The Decision Inbox of a change: what the human must decide, what was decided without them
-//! and what was parked, from the notes of its record.
+//! and what was parked, from the notes of its record; and the security exceptions its last G3
+//! named as added.
 
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::change::{self, NOTE_KINDS, POLISH};
+use crate::gates::Gate;
 
 /// The title of the group of each kind of note, in the order of [`NOTE_KINDS`].
 const HEADINGS: [&str; 3] = ["Needs your decision", "Decided without you", "Parked"];
+
+/// The title of the group of the security exceptions the change adds.
+const EXCEPTIONS: &str = "Security exceptions this change adds";
 
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
@@ -43,13 +50,14 @@ struct RawNote {
     resolved: Value,
 }
 
-/// The Decision Inbox of change `id`, from the text of its record, without a line break at the
-/// end: its title, color, lane and state, then one group per kind of note with the notes still
-/// open (`Nothing.` when there are none) and, among the decisions, the paths outside the
-/// package the scope check accepted; then the human's notes at G4, when there are, under
+/// The Decision Inbox of change `id`, from the text of its record and `added`, the lines of the
+/// security exceptions it adds, without a line break at the end: its title, color, lane and
+/// state, then one group per kind of note with the notes still open (`Nothing.` when there are
+/// none) and, among the decisions, the paths outside the package the scope check accepted; then
+/// the exceptions it adds, when there are; then the human's notes at G4, when there are, under
 /// `Polish`; last, how many requests were resolved before the last launch, if any. Notes of
 /// other kinds are left out.
-pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
+pub fn render(id: &str, record: &str, added: &[String]) -> Result<String, serde_json::Error> {
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
     let decision = raw.decision.unwrap_or_default();
@@ -87,23 +95,50 @@ pub fn render(id: &str, record: &str) -> Result<String, serde_json::Error> {
         }
         blocks.push(block);
     }
-    if !polish.is_empty() {
-        let notes: Vec<String> = polish.iter().map(|note| format!("- {note}")).collect();
-        blocks.push(format!("## Polish\n{}", notes.join("\n")));
-    }
+    blocks.extend(listed(EXCEPTIONS, added));
+    blocks.extend(listed("Polish", &polish));
     if resolved > 0 {
         blocks.push(format!("_{resolved} {RESOLVED}_"));
     }
     Ok(blocks.join("\n\n"))
 }
 
+/// The group `heading` with one item per line of `lines`; nothing without lines.
+fn listed(heading: &str, lines: &[String]) -> Option<String> {
+    if lines.is_empty() {
+        return None;
+    }
+    let items: Vec<String> = lines.iter().map(|line| format!("- {line}")).collect();
+    Some(format!("## {heading}\n{}", items.join("\n")))
+}
+
 /// Renders the Decision Inbox of change `id` of the project at `root` from the text of its
-/// record (see [`render`]) and saves it next to the record, with a line break at the end. What
-/// it rendered.
+/// record and the security exceptions its last G3 named as added (see [`render`]), and saves it
+/// next to the record, with a line break at the end. What it rendered.
 pub fn save(root: &Path, id: &str, record: &str) -> Result<String, String> {
-    let rendered = render(id, record).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+    let added = added_exceptions(root, id)?;
+    let rendered =
+        render(id, record, &added).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
     change::write(root, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
+}
+
+/// The security exceptions the last G3 of change `id` of the project at `root` named as added,
+/// from its report: none before G3 ran.
+fn added_exceptions(root: &Path, id: &str) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct Saved {
+        #[serde(default)]
+        added_exceptions: Vec<String>,
+    }
+    let path = Gate::G3.report_path(id);
+    let text = match fs::read_to_string(root.join(&path)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot read {path}: {e}")),
+    };
+    let saved: Saved = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+    Ok(saved.added_exceptions)
 }
 
 /// Whether a note was resolved: its `resolved` says when, or says so.
@@ -119,7 +154,8 @@ pub(crate) fn is_resolved(resolved: &Value) -> bool {
 mod tests {
     use super::*;
     use crate::git::tests::Folder;
-    use std::fs;
+
+    const NONE: [String; 0] = [];
 
     const RECORD: &str = r#"{
         "id": "c1", "title": "Drafts", "state": "building",
@@ -146,7 +182,7 @@ mod tests {
             "## Parked\n- Nothing.\n\n",
             "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
         );
-        assert_eq!(render("c1", RECORD).unwrap(), expected);
+        assert_eq!(render("c1", RECORD, &NONE).unwrap(), expected);
     }
 
     #[test]
@@ -158,17 +194,17 @@ mod tests {
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
         );
-        assert_eq!(render("c2", "{}").unwrap(), expected);
+        assert_eq!(render("c2", "{}", &NONE).unwrap(), expected);
         let nulls = r#"{"decision": null, "inbox": null, "out_of_scope": null}"#;
-        assert_eq!(render("c2", nulls).unwrap(), expected);
+        assert_eq!(render("c2", nulls, &NONE).unwrap(), expected);
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
-        assert_eq!(render("c2", empty).unwrap(), expected);
+        assert_eq!(render("c2", empty, &NONE).unwrap(), expected);
     }
 
     #[test]
     fn parked_notes_have_their_group() {
         let record = r#"{"inbox": [{"kind": "parked", "text": "Waiting for the API"}]}"#;
-        let text = render("c1", record).unwrap();
+        let text = render("c1", record, &NONE).unwrap();
         let end = "## Parked\n- Waiting for the API";
         assert!(text.ends_with(end), "{text}");
     }
@@ -181,14 +217,52 @@ mod tests {
             {"kind": "polish", "text": "Old", "resolved": "2026-01-02"},
             {"kind": "polish", "text": "Plainer words"}
         ]}"#;
-        let text = render("c1", record).unwrap();
+        let text = render("c1", record, &NONE).unwrap();
         let end = concat!(
             "## Parked\n- Waiting\n\n",
             "## Polish\n- Shorter errors\n- Plainer words\n\n",
             "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
         );
         assert!(text.ends_with(end), "{text}");
-        assert!(!render("c1", "{}").unwrap().contains("Polish"));
+        assert!(!render("c1", "{}", &NONE).unwrap().contains("Polish"));
+    }
+
+    #[test]
+    fn the_exceptions_the_change_adds_have_their_group_only_when_there_are() {
+        let record = r#"{"inbox": [{"kind": "polish", "text": "Shorter errors"}]}"#;
+        let line = "exception added: A · deny.toml · no end date · r";
+        let text = render("c1", record, &[line.to_string()]).unwrap();
+        let end = concat!(
+            "## Parked\n- Nothing.\n\n",
+            "## Security exceptions this change adds\n",
+            "- exception added: A · deny.toml · no end date · r\n\n",
+            "## Polish\n- Shorter errors"
+        );
+        assert!(text.ends_with(end), "{text}");
+        let text = render("c1", record, &NONE).unwrap();
+        assert!(!text.contains("Security exceptions"), "{text}");
+    }
+
+    #[test]
+    fn the_saved_inbox_shows_the_exceptions_the_last_g3_named_as_added() {
+        let folder = Folder::new();
+        let report = ".gdd/changes/c1/g3.json";
+        let added = r#"{"ok": true, "added_exceptions": ["exception added: A", "added: B"]}"#;
+        folder.write(report, added);
+        let saved = save(&folder.0, "c1", "{}").unwrap();
+        let group = "## Security exceptions this change adds\n- exception added: A\n- added: B";
+        assert!(saved.ends_with(group), "{saved}");
+        folder.write(report, r#"{"ok": true}"#);
+        let saved = save(&folder.0, "c1", "{}").unwrap();
+        assert_eq!(saved, render("c1", "{}", &NONE).unwrap());
+        folder.write(report, "{not json");
+        let err = save(&folder.0, "c1", "{}").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
+        fs::remove_file(folder.0.join(report)).unwrap();
+        fs::create_dir_all(folder.0.join(report)).unwrap();
+        let err = save(&folder.0, "c1", "{}").unwrap_err();
+        let start = "cannot read .gdd/changes/c1/g3.json: ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]
@@ -205,7 +279,7 @@ mod tests {
     fn the_inbox_is_saved_next_to_the_record_as_it_is_rendered() {
         let folder = Folder::new();
         let saved = save(&folder.0, "c1", RECORD).unwrap();
-        assert_eq!(saved, render("c1", RECORD).unwrap());
+        assert_eq!(saved, render("c1", RECORD, &NONE).unwrap());
         let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
         assert_eq!(text, format!("{saved}\n"));
         let err = save(&folder.0, "c1", "{not json").unwrap_err();
@@ -225,7 +299,7 @@ mod tests {
             r#"{"inbox": [{"text": 3}]}"#,
             r#"{"title": 1}"#,
         ] {
-            assert!(render("c1", record).is_err(), "{record}");
+            assert!(render("c1", record, &NONE).is_err(), "{record}");
         }
     }
 }

@@ -1,4 +1,5 @@
-//! The status of a project: where it stands in the method, its changes and its log.
+//! The status of a project: where it stands in the method, its security exceptions, its changes
+//! and its log.
 
 use std::fmt;
 
@@ -34,6 +35,11 @@ pub struct Status {
     pub scenarios_dir: String,
     /// How many scenarios it has, or why they could not be counted.
     pub scenarios: Result<usize, String>,
+    /// How each of its security exceptions shows (see [`Exception::line`]), or why they could
+    /// not be read.
+    ///
+    /// [`Exception::line`]: crate::gates::exceptions::Exception::line
+    pub exceptions: Result<Vec<String>, String>,
     /// One line per change (see [`change_line`]).
     pub changes: Vec<String>,
     /// How many lines its log has; `None` when there is no log.
@@ -63,6 +69,16 @@ impl fmt::Display for Status {
         match &self.scenarios {
             Ok(count) => writeln!(f, "{count}")?,
             Err(why) => writeln!(f, "cannot count them: {why}")?,
+        }
+        match &self.exceptions {
+            Ok(lines) if lines.is_empty() => writeln!(f, "Security exceptions: none")?,
+            Ok(lines) => {
+                writeln!(f, "Security exceptions: {}", lines.len())?;
+                for line in lines {
+                    writeln!(f, "  - {line}")?;
+                }
+            }
+            Err(why) => writeln!(f, "Security exceptions: {why}")?,
         }
         write!(f, "Changes:")?;
         for line in &self.changes {
@@ -168,6 +184,10 @@ mod tests {
             selftest: Some("harness 4/4".into()),
             scenarios_dir: "features".into(),
             scenarios: Ok(12),
+            exceptions: Ok(vec![
+                "A · deny.toml · no end date · r".into(),
+                "B · deny.toml · no end date · no reason".into(),
+            ]),
             changes: vec!["  - c1 · Drafts · open · no gates yet".into()],
             log_lines: Some(3),
         }
@@ -182,6 +202,9 @@ mod tests {
             "Red zones: approved · red zones approved\n",
             "Harness self-test: harness 4/4\n",
             "Scenarios in features/: 12\n",
+            "Security exceptions: 2\n",
+            "  - A · deny.toml · no end date · r\n",
+            "  - B · deny.toml · no end date · no reason\n",
             "Changes:\n",
             "  - c1 · Drafts · open · no gates yet\n",
             "Log: 3 lines in .gdd/log.jsonl (gdd report)"
@@ -197,6 +220,7 @@ mod tests {
             zones: ZonesState::NotApproved,
             selftest: None,
             scenarios: Err("not a folder".into()),
+            exceptions: Ok(vec![]),
             changes: vec![],
             log_lines: None,
             ..status()
@@ -209,9 +233,16 @@ mod tests {
             "at the end of Discover.\n",
             "Harness self-test: not run\n",
             "Scenarios in features/: cannot count them: not a folder\n",
+            "Security exceptions: none\n",
             "Changes:"
         );
         assert_eq!(new.to_string(), expected);
+        let unreadable = Status {
+            exceptions: Err("deny.toml: invalid TOML: x".into()),
+            ..status()
+        };
+        let line = "\nSecurity exceptions: deny.toml: invalid TOML: x\nChanges:\n";
+        assert!(unreadable.to_string().contains(line), "{unreadable}");
         let changed = Status {
             zones: ZonesState::Changed,
             ..status()
