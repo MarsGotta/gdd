@@ -706,7 +706,11 @@ fn scope_fails(w: &mut GddWorld, path: String, color: String) {
 #[given(expr = "the gate commands:")]
 fn gate_commands(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
-    let commands = docstring(step, "a commands docstring");
+    let mut commands = docstring(step, "a commands docstring");
+    // A scenario that merges says nothing about the release: it runs simulated, like `gdd init` leaves it.
+    if !commands.contains("[release]") {
+        commands.push_str("\n\n[release]\nsimulated = true");
+    }
     write_file(&root.join("gdd/commands.toml"), &format!("{commands}\n"));
 }
 

@@ -13,14 +13,15 @@ use gdd_core::agents::{
 };
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::classify_with;
-use gdd_core::gates::{self, Gate, approve, ci, exceptions, prepare, release, selftest};
+use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
-    Classification, Color, Report, RulesTable, ZoneMap, inbox, init, log, session, stacks, state,
+    Classification, Color, Report, RulesTable, ZoneMap, adopt, inbox, init, log, session, stacks,
+    state,
 };
 
 /// File that marks the root of a GDD project.
@@ -178,6 +179,11 @@ enum Command {
     /// stops at the first that fails, then commits the files of the stacks' supply chain the run
     /// created or changed, and nothing else. Run it once, after gdd init.
     Bootstrap,
+    /// Adopts a project that already has code: runs once each G2 and G3 command that judges the
+    /// whole project (not acceptance*, mutation* or secrets*), keeps what each failing one said in
+    /// .gdd/adoption/, records them as known debt in gdd/debt.toml, which it commits alone, and
+    /// proposes a Refactor per command, riskiest first. Refused once gdd/debt.toml exists.
+    Adopt,
     /// Harness self-test: a failing test turns a green G2 red, the harness is protected and CI
     /// runs the gates, rollback works in pre, and zero scenarios fail G3. Saved in
     /// .gdd/selftest.json and logged; exits with 1 unless all four pass.
@@ -496,6 +502,7 @@ impl Command {
             Command::Note(args) => note(state, &args)?,
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state)?,
+            Command::Adopt => adopt_project(root, state)?,
             Command::Session { phase, change } => {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
@@ -1263,10 +1270,19 @@ fn project_status(root: &Path, state: &Path) -> Result<String, String> {
         scenarios_dir: dir,
         scenarios,
         exceptions: found.map(|found| found.iter().map(|e| e.line(today)).collect()),
+        debt: debt::read(root).map(|known| known.map(|known| known.debt).unwrap_or_default()),
         changes: change_lines(state)?,
         log_lines,
     };
     Ok(status.to_string())
+}
+
+/// `gdd adopt`: adopts the project at `root`, whose state root is `state`, with its gate
+/// commands (see [`adopt::adopt`]).
+fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
+    let commands = read(root, COMMANDS)?.unwrap_or_default();
+    let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    adopt::adopt(root, state, &commands).map(|adopted| adopted.to_string())
 }
 
 /// The line of each change in the status, in the order of their folders under the state root
@@ -1454,7 +1470,9 @@ mod tests {
         for command in ["prepare", "park", "merge", "release", "stacks"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
-        for command in ["launch", "resume", "agents", "selftest", "ci", "session"] {
+        for command in [
+            "launch", "resume", "agents", "selftest", "ci", "session", "adopt",
+        ] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
         for gate in ["g2", "Loop Gate", "g3", "Merge Gate"] {
@@ -1483,6 +1501,7 @@ mod tests {
             "note c1 needs",
             "note c1 maybe x",
             "status extra",
+            "adopt extra",
             "selftest extra",
             "ci extra",
             "session",
@@ -2633,6 +2652,7 @@ mod tests {
             "Harness self-test: harness 4/4\n",
             "Scenarios in features/: 0\n",
             "Security exceptions: none\n",
+            "Known debt: none\n",
             "Changes:\n",
             "  - c1 · Drafts · open · plan:ok\n",
             "Log: 4 lines in .gdd/log.jsonl (gdd report)\n"
@@ -2657,6 +2677,7 @@ mod tests {
             "Harness self-test: not run\n",
             "Scenarios in features/: 0\n",
             "Security exceptions: none\n",
+            "Known debt: none\n",
             "Changes:\n"
         );
         assert_eq!(project.run("status"), Outcome::success(expected.into()));
@@ -2665,6 +2686,42 @@ mod tests {
         let line = "\nSecurity exceptions: osv-scanner.toml: invalid TOML: ";
         assert_eq!(out.code, 0, "{out:?}");
         assert!(out.stdout.contains(line), "{out:?}");
+        project.write(debt::PATH, "[[debt]");
+        let out = project.run("status");
+        let line = "\nKnown debt: gdd/debt.toml: invalid TOML: ";
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.contains(line), "{out:?}");
+    }
+
+    #[test]
+    fn adopt_records_the_known_debt_once_and_the_status_lists_it() {
+        let project = committed_project();
+        identify(&project);
+        let commands = "[g2]\nlint = \"echo unused import; exit 1\"\nunit = \"true\"\n";
+        project.write(COMMANDS, commands);
+        let out = project.run("adopt");
+        assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
+        let start = "Passed: unit\nKnown debt: lint\nProposed Refactors, riskiest first:\n  \
+                     1. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        assert!(out.stdout.ends_with("--paths ...\n"), "{out:?}");
+        let kept = fs::read_to_string(project.0.join(".gdd/adoption/lint.txt")).unwrap();
+        assert_eq!(kept, "unused import\n");
+        let subject = git(&project, &["log", "-1", "--format=%s"]);
+        assert_eq!(subject, "gdd adopt: known debt in lint");
+        let status = project.run("status").stdout;
+        let since = exceptions::today();
+        let line = format!("  - lint · since {since} · Refactor debt-lint\n");
+        let listed = format!("\nKnown debt: lint\n{line}");
+        assert!(status.contains(&listed), "{status}");
+        let again = project.run("adopt");
+        let refused = format!("error: this project was already adopted on {since}");
+        let refused = format!("{refused} (gdd/debt.toml)\n");
+        assert_eq!(again, Outcome::failure(refused));
+        project.write(COMMANDS, "[g2\n");
+        let out = project.run("adopt");
+        let start = "error: gdd/commands.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
     #[test]

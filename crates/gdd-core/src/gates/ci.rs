@@ -2,12 +2,13 @@
 //! branch, and G2 and G3 green. CI has only what the repository holds: the local state of the
 //! tool (`.gdd/`) never travels with it, so CI reads nothing there and writes nothing there.
 //! Without a change record there is no Path Guard per role: the harness paths stand for it.
+//! A command with known debt only warns, as in the gates (see [`debt`]).
 
 use std::fmt;
 
 use crate::change;
 use crate::classify::{Change, classify};
-use crate::gates::{Gate, Judged, Project, Report, exceptions};
+use crate::gates::{Gate, Judged, Project, Report, debt, exceptions};
 use crate::git::{self, Git};
 use crate::zones::glob_matches;
 
@@ -65,13 +66,21 @@ impl fmt::Display for Checked {
     }
 }
 
-/// How a gate ended: `G2 green`, or `G2 red: ` and the names of what failed.
+/// How a gate ended: `G2 green`, or `G2 red: ` and the names of what failed; then, when some
+/// command with known debt failed, ` · known debt still failing: ` and their names.
 fn ended(report: &Report) -> String {
-    if report.ok {
-        return format!("{} green", report.gate);
+    let ended = if report.ok {
+        format!("{} green", report.gate)
+    } else {
+        let failed: Vec<&str> = report.failures.iter().map(|f| f.name.as_str()).collect();
+        format!("{} red: {}", report.gate, failed.join(", "))
+    };
+    if report.known_debt.is_empty() {
+        return ended;
     }
-    let failed: Vec<&str> = report.failures.iter().map(|f| f.name.as_str()).collect();
-    format!("{} red: {}", report.gate, failed.join(", "))
+    let names = report.known_debt.iter().map(|owed| owed.name.as_str());
+    let owed: Vec<&str> = names.collect();
+    format!("{ended} · known debt still failing: {}", owed.join(", "))
 }
 
 /// Checks the branch `head_ref` names, else the current branch, of the project `project`. On
@@ -131,12 +140,13 @@ pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, Strin
     })
 }
 
-/// `gate` on the change `judged`, as CI runs it: its commands and, in G3, the scenario count and
-/// the check of the security exceptions.
+/// `gate` on the change `judged`, as CI runs it: its commands, the ones with known debt only
+/// warning, and, in G3, the scenario count and the check of the security exceptions.
 fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
     let commands = project.commands.of(gate);
     let mut report = judged.report(gate, commands);
-    judged.run_commands(&mut report, project.root, commands);
+    let owed = debt::owed(&mut report, project.root, gate);
+    judged.run_commands(&mut report, project.root, commands, &owed);
     if gate == Gate::G3 {
         judged.scenarios(&mut report, project);
         exceptions::judge(&mut report, &exceptions::read(project.root));
@@ -311,6 +321,46 @@ mod tests {
         let checked = ci.check(None).unwrap();
         let said = "G2 red: G2 not configured\nG3 red: acceptance, scenarios\nCI failed";
         assert_eq!(checked.to_string(), said);
+    }
+
+    #[test]
+    fn a_command_with_known_debt_warns_in_ci_without_failing_it() {
+        let ci = Ci::new();
+        let known = "adopted = \"2026-10-27\"\n\
+                     [[debt]]\ncommand = \"unit\"\ngate = \"g2\"\nsince = \"2026-10-27\"\n";
+        ci.repo.write(debt::PATH, known);
+        ci.repo.git(&["add", "--", debt::PATH]);
+        ci.repo.git(&["commit", "-q", "-m", "debt"]);
+        ci.repo.start("c1");
+        ci.commits("tests/failing.txt");
+        let checked = ci.check(None).unwrap();
+        let said = "G2 green · known debt still failing: unit\nG3 green\nCI passed";
+        assert_eq!(checked.to_string(), said);
+        assert!(checked.ok());
+        let g2 = &found(&checked).g2;
+        assert_eq!(g2.known_debt[0].name, "unit");
+        // A debt file CI cannot read fails both gates, and the debt blocks again.
+        ci.repo.write(debt::PATH, "[[debt]");
+        let checked = ci.check(None).unwrap();
+        let said = "G2 red: debt, unit\nG3 red: debt\nCI failed";
+        assert_eq!(checked.to_string(), said);
+    }
+
+    #[test]
+    fn a_command_that_judges_the_change_blocks_in_ci_even_when_the_debt_file_lists_it() {
+        let mut ci = Ci::new();
+        let commands = "[g2]\nunit = 'true'\n[g3]\nsecrets = 'exit 1'\n";
+        ci.commands = Commands::from_toml(commands).unwrap();
+        let listed = "adopted = \"2026-10-27\"\n\
+                      [[debt]]\ncommand = \"secrets\"\ngate = \"g3\"\nsince = \"2026-10-27\"\n";
+        ci.repo.write(debt::PATH, listed);
+        ci.repo.commit();
+        ci.repo.start("c1");
+        ci.commits("src/app.rs");
+        let checked = ci.check(None).unwrap();
+        let said = "G2 red: debt\nG3 red: debt, secrets\nCI failed";
+        assert_eq!(checked.to_string(), said);
+        assert_eq!(found(&checked).g3.known_debt, Vec::<debt::Owed>::new());
     }
 
     #[test]

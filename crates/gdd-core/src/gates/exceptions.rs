@@ -526,6 +526,8 @@ ignore = [
             failures: vec![],
             out_of_scope: vec![],
             added_exceptions: vec![],
+            known_debt: vec![],
+            paid_debt: vec![],
             duration_s: 0.0,
         };
         judge(&mut report, &Ok(vec![]));

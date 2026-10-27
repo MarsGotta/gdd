@@ -1,5 +1,5 @@
-//! The status of a project: where it stands in the method, its security exceptions, its changes
-//! and its log.
+//! The status of a project: where it stands in the method, its security exceptions, its known
+//! debt, its changes and its log.
 
 use std::fmt;
 
@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 
 use crate::config;
 use crate::gates::approve::{BRIEF, ZonesState};
+use crate::gates::debt::{self, Debt};
 use crate::log;
 
 /// What the status says of a missing Project Brief.
@@ -40,6 +41,8 @@ pub struct Status {
     ///
     /// [`Exception::line`]: crate::gates::exceptions::Exception::line
     pub exceptions: Result<Vec<String>, String>,
+    /// Its known debt (see [`debt`]), or why it could not be read.
+    pub debt: Result<Vec<Debt>, String>,
     /// One line per change (see [`change_line`]).
     pub changes: Vec<String>,
     /// How many lines its log has; `None` when there is no log.
@@ -80,6 +83,7 @@ impl fmt::Display for Status {
             }
             Err(why) => writeln!(f, "Security exceptions: {why}")?,
         }
+        known_debt(f, &self.debt)?;
         write!(f, "Changes:")?;
         for line in &self.changes {
             write!(f, "\n{line}")?;
@@ -89,6 +93,23 @@ impl fmt::Display for Status {
         }
         Ok(())
     }
+}
+
+/// The lines of the known debt `known` in the status: `Known debt: ` and the names of its
+/// commands, riskiest first, then a line per command with the day it was recorded and the
+/// Refactor that pays it; `none` without debt, or why it could not be read.
+fn known_debt(f: &mut fmt::Formatter<'_>, known: &Result<Vec<Debt>, String>) -> fmt::Result {
+    let debts = match known {
+        Ok(debts) if debts.is_empty() => return writeln!(f, "Known debt: none"),
+        Ok(debts) => debt::listed(debts),
+        Err(why) => return writeln!(f, "Known debt: {why}"),
+    };
+    let names: Vec<&str> = debts.iter().map(|debt| debt.command.as_str()).collect();
+    writeln!(f, "Known debt: {}", names.join(", "))?;
+    for Debt { command, since, .. } in debts {
+        writeln!(f, "  - {command} · since {since} · Refactor debt-{command}")?;
+    }
+    Ok(())
 }
 
 /// The name, language and platform of a project, from `gdd/project.toml`.
@@ -170,6 +191,15 @@ pub fn selftest_summary(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gates::Gate;
+
+    fn debt(command: &str, gate: Gate, since: &str) -> Debt {
+        Debt {
+            command: command.into(),
+            gate,
+            since: since.into(),
+        }
+    }
 
     fn status() -> Status {
         Status {
@@ -188,6 +218,11 @@ mod tests {
                 "A · deny.toml · no end date · r".into(),
                 "B · deny.toml · no end date · no reason".into(),
             ]),
+            debt: Ok(vec![
+                debt("lint", Gate::G2, "2026-10-26"),
+                debt("security", Gate::G3, "2026-10-27"),
+                debt("lint", Gate::G3, "2026-10-27"),
+            ]),
             changes: vec!["  - c1 · Drafts · open · no gates yet".into()],
             log_lines: Some(3),
         }
@@ -205,6 +240,9 @@ mod tests {
             "Security exceptions: 2\n",
             "  - A · deny.toml · no end date · r\n",
             "  - B · deny.toml · no end date · no reason\n",
+            "Known debt: security, lint\n",
+            "  - security · since 2026-10-27 · Refactor debt-security\n",
+            "  - lint · since 2026-10-26 · Refactor debt-lint\n",
             "Changes:\n",
             "  - c1 · Drafts · open · no gates yet\n",
             "Log: 3 lines in .gdd/log.jsonl (gdd report)"
@@ -221,6 +259,7 @@ mod tests {
             selftest: None,
             scenarios: Err("not a folder".into()),
             exceptions: Ok(vec![]),
+            debt: Ok(vec![]),
             changes: vec![],
             log_lines: None,
             ..status()
@@ -234,15 +273,18 @@ mod tests {
             "Harness self-test: not run\n",
             "Scenarios in features/: cannot count them: not a folder\n",
             "Security exceptions: none\n",
+            "Known debt: none\n",
             "Changes:"
         );
         assert_eq!(new.to_string(), expected);
         let unreadable = Status {
             exceptions: Err("deny.toml: invalid TOML: x".into()),
+            debt: Err("gdd/debt.toml: invalid TOML: y".into()),
             ..status()
         };
-        let line = "\nSecurity exceptions: deny.toml: invalid TOML: x\nChanges:\n";
-        assert!(unreadable.to_string().contains(line), "{unreadable}");
+        let lines = "\nSecurity exceptions: deny.toml: invalid TOML: x\n\
+                     Known debt: gdd/debt.toml: invalid TOML: y\nChanges:\n";
+        assert!(unreadable.to_string().contains(lines), "{unreadable}");
         let changed = Status {
             zones: ZonesState::Changed,
             ..status()

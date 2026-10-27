@@ -1,7 +1,8 @@
 //! The gates the machines run: G2, the Loop Gate of every Builder round, and G3, the Merge
 //! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
 //! Path Guard again, the scope check in build mode and, in G3, the scenario count and the
-//! security exceptions ([`exceptions`]). It passes only if all of them pass.
+//! security exceptions ([`exceptions`]). It passes only if all of them pass, but a command with
+//! known debt ([`debt`]) only warns.
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
@@ -11,6 +12,7 @@
 
 pub mod approve;
 pub mod ci;
+pub mod debt;
 pub mod exceptions;
 pub mod phrasing;
 pub mod prepare;
@@ -83,8 +85,9 @@ const SCENARIO_KEYWORDS: [&str; 4] = [
     "Esquema del escenario",
 ];
 
-/// A gate the machines run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A gate the machines run; a file names it `g2` or `g3`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Gate {
     /// The Loop Gate: every Builder round.
     G2,
@@ -94,7 +97,7 @@ pub enum Gate {
 
 impl Gate {
     /// Its section of `gdd/commands.toml`, and the name of its report.
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Gate::G2 => "g2",
             Gate::G3 => "g3",
@@ -297,6 +300,14 @@ pub struct Report {
     /// left out of the JSON when there is none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub added_exceptions: Vec<String>,
+    /// The commands with known debt that failed, in the order they ran: they do not fail the
+    /// gate (see [`debt`]); left out of the JSON when there is none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub known_debt: Vec<debt::Owed>,
+    /// The names of the commands with known debt that passed, in the order they ran: paid, the
+    /// merge takes them off the list; left out of the JSON when there is none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub paid_debt: Vec<String>,
     /// Seconds the commands took, added up.
     #[serde(skip)]
     pub duration_s: f64,
@@ -347,27 +358,48 @@ impl Report {
         }
     }
 
-    /// Records what the command `name` did.
-    fn command(&mut self, name: &str, ran: io::Result<exec::Ran>) {
+    /// Records what the command `name` did. When it has known debt (`owed`), a failure goes to
+    /// the known debt instead of the failures, and a pass pays it.
+    fn command(&mut self, name: &str, ran: io::Result<exec::Ran>, owed: bool) {
+        match self.failure(name, ran) {
+            None => {
+                self.passed.push(name.to_string());
+                if owed {
+                    self.paid_debt.push(name.to_string());
+                }
+            }
+            Some(failure) if owed => self.known_debt.push(debt::Owed {
+                name: failure.name,
+                tail: failure.tail,
+            }),
+            Some(failure) => self.failures.push(failure),
+        }
+    }
+
+    /// How the command `name` failed, from what it did; `None` when it passed. The time it ran
+    /// is added to the report's.
+    fn failure(&mut self, name: &str, ran: io::Result<exec::Ran>) -> Option<Failure> {
         let ran = match ran {
             Ok(ran) => ran,
-            Err(e) => return self.fail(name, format!("cannot run sh: {e}")),
+            Err(e) => {
+                return Some(Failure {
+                    name: name.to_string(),
+                    exit: None,
+                    tail: format!("cannot run sh: {e}"),
+                });
+            }
         };
         let duration_s = tenths(ran.duration.as_secs_f64());
         self.duration_s += duration_s;
-        if ran.ok() {
-            self.passed.push(name.to_string());
-        } else {
-            self.failures.push(Failure {
-                name: name.to_string(),
-                exit: Some(Exit {
-                    ok: false,
-                    code: ran.code,
-                    duration_s,
-                }),
-                tail: kept(&ran.output),
-            });
-        }
+        (!ran.ok()).then(|| Failure {
+            name: name.to_string(),
+            exit: Some(Exit {
+                ok: false,
+                code: ran.code,
+                duration_s,
+            }),
+            tail: kept(&ran.output),
+        })
     }
 
     /// The line of the log for this run on change `id`: a machine step, `ok` or `ko`, with the
@@ -412,8 +444,10 @@ pub fn save(state: &Path, id: &str, report: &Report) -> Result<(), String> {
 /// Guard judges again; build mode also gets the scope check, and G3 counts the scenarios: none
 /// fails it when they are required or the change has its own. G3 also refuses a security
 /// exception without a reason and names the ones the change adds against the main branch (see
-/// [`exceptions`]). A gate without commands fails. A check that cannot judge fails with the
-/// reason.
+/// [`exceptions`]). A command with known debt in `gdd/debt.toml` that fails does not fail the
+/// gate, and one that passes is named as paid (see [`debt`]); a debt file that cannot be read
+/// fails the check `debt`. A gate without commands fails. A check that cannot judge fails with
+/// the reason.
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -444,13 +478,14 @@ pub fn run(
     };
     let commands = project.commands.of(gate);
     let mut report = judged.report(gate, commands);
+    let owed = debt::owed(&mut report, root, gate);
     let guard = || {
         let verdict = guard::path_guard(root, id, record, project.settings, role, snapshot);
         verdict.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures)
     };
     let mut guarded = guard();
     if guarded.is_empty() {
-        judged.run_commands(&mut report, root, commands);
+        judged.run_commands(&mut report, root, commands, &owed);
         guarded = guard();
     } else {
         guarded.push(NOT_RUN.to_string());
@@ -505,6 +540,8 @@ impl Judged<'_> {
             failures: Vec::new(),
             out_of_scope: Vec::new(),
             added_exceptions: Vec::new(),
+            known_debt: Vec::new(),
+            paid_debt: Vec::new(),
             duration_s: 0.0,
         };
         if commands.is_empty() {
@@ -515,13 +552,15 @@ impl Judged<'_> {
     }
 
     /// Runs each of `commands` from `root` (see [`exec::run`]) into `report`, except the
-    /// `mutation*` ones when the change does not need mutation testing. Each gets `GDD_CHANGE`,
-    /// `GDD_COLOR`, `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
+    /// `mutation*` ones when the change does not need mutation testing; the ones named in `owed`
+    /// have known debt, and only warn (see [`debt`]). Each gets `GDD_CHANGE`, `GDD_COLOR`,
+    /// `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
     pub(crate) fn run_commands(
         &self,
         report: &mut Report,
         root: &Path,
         commands: &BTreeMap<String, String>,
+        owed: &BTreeSet<String>,
     ) {
         let color = self.decision.color.to_string();
         let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
@@ -535,7 +574,8 @@ impl Judged<'_> {
             if name.starts_with("mutation") && !self.decision.mutation {
                 report.skipped.push(name.clone());
             } else {
-                report.command(name, exec::run(command, root, &env, exec::TIMEOUT));
+                let ran = exec::run(command, root, &env, exec::TIMEOUT);
+                report.command(name, ran, owed.contains(name));
             }
         }
     }
@@ -788,9 +828,98 @@ paths = ["src/storage/**"]
             failures: vec![],
             out_of_scope: vec![],
             added_exceptions: vec![],
+            known_debt: vec![],
+            paid_debt: vec![],
             duration_s: report.duration_s,
         };
         assert_eq!(report, expected);
+    }
+
+    /// The known debt of `lint` in G2 and `security` in G3, committed on `main` with the rules,
+    /// before the change started.
+    const DEBT: &str = "adopted = \"2026-10-27\"\n\
+                        [[debt]]\ncommand = \"lint\"\ngate = \"g2\"\nsince = \"2026-10-27\"\n\
+                        [[debt]]\ncommand = \"security\"\ngate = \"g3\"\nsince = \"2026-10-27\"\n";
+
+    /// The project of [`started`], with `known` as its known debt on `main` before the build of
+    /// the change started.
+    fn in_debt(commands: &str, known: &str) -> Started {
+        let mut project = started(&["src/app.rs"], commands);
+        let repo = &project.repo;
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write(debt::PATH, known);
+        repo.commit();
+        repo.git(&["checkout", "-q", "change/c1"]);
+        repo.git(&["merge", "-q", "main"]);
+        project.record.build_start = Some(repo.git(&["rev-parse", "HEAD"]));
+        project
+    }
+
+    fn owed(name: &str, tail: &str) -> debt::Owed {
+        debt::Owed {
+            name: name.to_string(),
+            tail: tail.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_command_with_known_debt_warns_but_does_not_fail_the_gate() {
+        let commands = "[g2]\nlint = \"echo unused import; exit 1\"\nunit = \"true\"\n\
+                        [g3]\nlint = \"exit 1\"\nsecurity = \"echo qs; exit 1\"\n";
+        let project = in_debt(commands, DEBT);
+        let report = project.run(Gate::G2, "builder");
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.passed, ["unit", "path-guard"]);
+        assert_eq!(report.known_debt, [owed("lint", "unused import\n")]);
+        assert_eq!(report.paid_debt, Vec::<String>::new());
+        project.repo.write("features/a.feature", "Scenario: a\n");
+        let report = project.run(Gate::G3, "builder");
+        // The debt of lint is G2's: in G3, lint blocks.
+        assert_eq!(names(&report), ["lint"]);
+        assert_eq!(report.known_debt, [owed("security", "qs\n")]);
+    }
+
+    #[test]
+    fn a_command_with_known_debt_that_passes_is_paid() {
+        let commands = "[g2]\nlint = \"true\"\nunit = \"exit 1\"\n";
+        let project = in_debt(commands, DEBT);
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(report.passed, ["lint", "path-guard"]);
+        assert_eq!(report.paid_debt, ["lint"]);
+        assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
+        // Without known debt, a failure still blocks.
+        assert_eq!(names(&report), ["unit"]);
+    }
+
+    #[test]
+    fn a_debt_file_that_cannot_be_read_fails_the_gate_and_every_command_blocks() {
+        let commands = "[g2]\nlint = \"exit 1\"\nunit = \"true\"\n";
+        let project = in_debt(commands, "[[debt]");
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(names(&report), ["debt", "lint"]);
+        let tail = &report.failures[0].tail;
+        assert!(tail.starts_with("gdd/debt.toml: invalid TOML: "), "{tail}");
+        assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
+    }
+
+    #[test]
+    fn a_command_that_judges_the_change_blocks_even_when_the_debt_file_lists_it() {
+        let commands = "[g2]\nacceptance = \"exit 1\"\nunit = \"true\"\n\
+                        [g3]\nsecrets = \"echo leaked; exit 1\"\n";
+        let listed = "adopted = \"2026-10-27\"\n\
+                      [[debt]]\ncommand = \"acceptance\"\ngate = \"g2\"\nsince = \"2026-10-27\"\n\
+                      [[debt]]\ncommand = \"secrets\"\ngate = \"g3\"\nsince = \"2026-10-27\"\n";
+        let project = in_debt(commands, listed);
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(names(&report), ["debt", "acceptance"]);
+        let tail = &report.failures[0].tail;
+        let said = "gdd/debt.toml: \"acceptance\" can never be known debt";
+        assert!(tail.starts_with(said), "{tail}");
+        project.repo.write("features/a.feature", "Scenario: a\n");
+        let report = project.run(Gate::G3, "builder");
+        assert_eq!(names(&report), ["debt", "secrets"]);
+        assert_eq!(report.failures[1].tail, "leaked\n");
+        assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
     }
 
     #[test]
@@ -815,10 +944,14 @@ paths = ["src/storage/**"]
     fn a_command_that_cannot_start_fails_with_the_reason() {
         let mut report = started(&[], "").run(Gate::G2, "builder");
         report.failures.clear();
-        report.command("unit", Err(io::Error::other("no shell")));
+        report.command("unit", Err(io::Error::other("no shell")), false);
         let expected = failure("unit", "cannot run sh: no shell");
         assert_eq!(report.failures, [expected]);
         assert_eq!(report.duration_s, 0.0);
+        report.command("lint", Err(io::Error::other("no shell")), true);
+        let owing = owed("lint", "cannot run sh: no shell");
+        assert_eq!(report.known_debt, [owing]);
+        assert_eq!(report.failures.len(), 1);
     }
 
     #[test]
@@ -1099,6 +1232,8 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             ],
             out_of_scope: vec!["docs/a.md".into()],
             added_exceptions: vec![],
+            known_debt: vec![],
+            paid_debt: vec![],
             duration_s: 9.0,
         };
         assert_eq!(
@@ -1121,6 +1256,17 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             r#""added_exceptions":["exception added: A · deny.toml"]}"#
         );
         assert!(json.ends_with(end), "{json}");
+        let in_debt = Report {
+            known_debt: vec![owed("lint", "unused")],
+            paid_debt: vec!["unit".into()],
+            ..added
+        };
+        let json = serde_json::to_string(&in_debt).unwrap();
+        let end = concat!(
+            r#""known_debt":[{"name":"lint","tail":"unused"}],"#,
+            r#""paid_debt":["unit"]}"#
+        );
+        assert!(json.ends_with(end), "{json}");
     }
 
     #[test]
@@ -1134,6 +1280,8 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             failures: vec![],
             out_of_scope: vec![],
             added_exceptions: vec![],
+            known_debt: vec![],
+            paid_debt: vec![],
             duration_s: 0.1 + 0.2,
         };
         let entry = log::Entry {

@@ -1,6 +1,6 @@
 //! The Decision Inbox of a change: what the human must decide, what was decided without them
-//! and what was parked, from the notes of its record; and the security exceptions its last G3
-//! named as added.
+//! and what was parked, from the notes of its record; the security exceptions its last G3 named
+//! as added; and the known debt its latest G2 and G3 found still failing or paid.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -10,13 +10,22 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::change::{self, NOTE_KINDS, POLISH};
-use crate::gates::Gate;
+use crate::gates::{Gate, debt};
 
 /// The title of the group of each kind of note, in the order of [`NOTE_KINDS`].
 const HEADINGS: [&str; 3] = ["Needs your decision", "Decided without you", "Parked"];
 
 /// The title of the group of the security exceptions the change adds.
 const EXCEPTIONS: &str = "Security exceptions this change adds";
+
+/// The title of the group of the commands with known debt still failing.
+const KNOWN_DEBT: &str = "Known debt";
+
+/// The title of the group of the commands with known debt the change paid.
+const DEBT_PAID: &str = "Known debt paid";
+
+/// A group of the inbox from the gate reports: its title and one item per entry.
+pub type Group = (&'static str, Vec<String>);
 
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
@@ -50,14 +59,14 @@ struct RawNote {
     resolved: Value,
 }
 
-/// The Decision Inbox of change `id`, from the text of its record and `added`, the lines of the
-/// security exceptions it adds, without a line break at the end: its title, color, lane and
-/// state, then one group per kind of note with the notes still open (`Nothing.` when there are
-/// none) and, among the decisions, the paths outside the package the scope check accepted; then
-/// the exceptions it adds, when there are; then the human's notes at G4, when there are, under
-/// `Polish`; last, how many requests were resolved before the last launch, if any. Notes of
-/// other kinds are left out.
-pub fn render(id: &str, record: &str, added: &[String]) -> Result<String, serde_json::Error> {
+/// The Decision Inbox of change `id`, from the text of its record and `reported`, the groups
+/// from its gate reports (see [`save`]), without a line break at the end: its title, color, lane
+/// and state, then one group per kind of note with the notes still open (`Nothing.` when there
+/// are none) and, among the decisions, the paths outside the package the scope check accepted;
+/// then each group of `reported` that has entries; then the human's notes at G4, when there are,
+/// under `Polish`; last, how many requests were resolved before the last launch, if any. Notes
+/// of other kinds are left out.
+pub fn render(id: &str, record: &str, reported: &[Group]) -> Result<String, serde_json::Error> {
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
     let decision = raw.decision.unwrap_or_default();
@@ -95,7 +104,9 @@ pub fn render(id: &str, record: &str, added: &[String]) -> Result<String, serde_
         }
         blocks.push(block);
     }
-    blocks.extend(listed(EXCEPTIONS, added));
+    for (heading, lines) in reported {
+        blocks.extend(listed(heading, lines));
+    }
     blocks.extend(listed("Polish", &polish));
     if resolved > 0 {
         blocks.push(format!("_{resolved} {RESOLVED}_"));
@@ -113,14 +124,35 @@ fn listed(heading: &str, lines: &[String]) -> Option<String> {
 }
 
 /// Renders the Decision Inbox of change `id` of the project whose state root is `state` from the
-/// text of its record and the security exceptions its last G3 named as added (see [`render`]),
-/// and saves it next to the record, with a line break at the end. What it rendered.
+/// text of its record (see [`render`]) and its gate reports: the security exceptions its last G3
+/// named as added, then the commands with known debt its latest G2 and G3 found still failing,
+/// with what their output keeps, then the ones they found paid (see [`debt::reported`]). It
+/// saves it next to the record, with a line break at the end. What it rendered.
 pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
     let added = added_exceptions(state, id)?;
+    let known = debt::reported(state, id)?;
+    let reported = [
+        (EXCEPTIONS, added),
+        (KNOWN_DEBT, known.owed.iter().map(still_failing).collect()),
+        (DEBT_PAID, known.paid.iter().map(paid_in).collect()),
+    ];
     let rendered =
-        render(id, record, &added).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+        render(id, record, &reported).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
     change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
+}
+
+/// The entry of a command with known debt still failing in its gate: its name and gate, then
+/// what its output keeps, as a block of code inside the entry.
+fn still_failing((gate, owed): &(Gate, debt::Owed)) -> String {
+    let lines = owed.tail.lines().map(|line| format!("\n  {line}"));
+    let tail: String = lines.collect();
+    format!("{} ({gate}), still failing:\n  ```{tail}\n  ```", owed.name)
+}
+
+/// The entry of a command with known debt paid in its gate: its name and gate.
+fn paid_in((gate, name): &(Gate, String)) -> String {
+    format!("{name} ({gate})")
 }
 
 /// The security exceptions the last G3 of change `id` of the project whose state root is `state`
@@ -155,7 +187,7 @@ mod tests {
     use super::*;
     use crate::git::tests::Folder;
 
-    const NONE: [String; 0] = [];
+    const NONE: [Group; 0] = [];
 
     const RECORD: &str = r#"{
         "id": "c1", "title": "Drafts", "state": "building",
@@ -231,7 +263,8 @@ mod tests {
     fn the_exceptions_the_change_adds_have_their_group_only_when_there_are() {
         let record = r#"{"inbox": [{"kind": "polish", "text": "Shorter errors"}]}"#;
         let line = "exception added: A · deny.toml · no end date · r";
-        let text = render("c1", record, &[line.to_string()]).unwrap();
+        let added = (EXCEPTIONS, vec![line.to_string()]);
+        let text = render("c1", record, &[added, (KNOWN_DEBT, vec![])]).unwrap();
         let end = concat!(
             "## Parked\n- Nothing.\n\n",
             "## Security exceptions this change adds\n",
@@ -241,6 +274,28 @@ mod tests {
         assert!(text.ends_with(end), "{text}");
         let text = render("c1", record, &NONE).unwrap();
         assert!(!text.contains("Security exceptions"), "{text}");
+    }
+
+    #[test]
+    fn the_saved_inbox_shows_the_known_debt_still_failing_and_paid() {
+        let folder = Folder::new();
+        let g2 = r#"{"known_debt": [{"name": "lint", "tail": "unused import\nin a.rs\n"}],
+                     "paid_debt": ["unit"]}"#;
+        folder.write(".gdd/changes/c1/g2.json", g2);
+        let g3 = r#"{"added_exceptions": ["exception added: A"], "paid_debt": ["security"]}"#;
+        folder.write(".gdd/changes/c1/g3.json", g3);
+        let saved = save(&folder.0, "c1", "{}").unwrap();
+        let end = concat!(
+            "## Parked\n- Nothing.\n\n",
+            "## Security exceptions this change adds\n- exception added: A\n\n",
+            "## Known debt\n- lint (G2), still failing:\n",
+            "  ```\n  unused import\n  in a.rs\n  ```\n\n",
+            "## Known debt paid\n- unit (G2)\n- security (G3)"
+        );
+        assert!(saved.ends_with(end), "{saved}");
+        folder.write(".gdd/changes/c1/g2.json", "{not json");
+        let err = save(&folder.0, "c1", "{}").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/g2.json: "), "{err}");
     }
 
     #[test]

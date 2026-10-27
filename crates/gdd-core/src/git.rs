@@ -295,6 +295,21 @@ impl Git {
         Ok(())
     }
 
+    /// Merges `branch` into the current branch as [`Git::merge`] does, but stops before the merge
+    /// commit: [`Git::commit_all`] makes it, with what the working tree has then.
+    pub fn merge_uncommitted(&self, branch: &str) -> Result<(), Error> {
+        let args = ["merge", "--no-ff", "--no-commit", "-q"];
+        self.read(&[&args[..], &[revision(branch)?]].concat())?;
+        Ok(())
+    }
+
+    /// Gives up the merge in progress: the current branch and its files go back to how they were
+    /// before it.
+    pub fn abort_merge(&self) -> Result<(), Error> {
+        self.read(&["merge", "--abort"])?;
+        Ok(())
+    }
+
     /// Whether the repository has a remote.
     pub fn has_remote(&self) -> Result<bool, Error> {
         Ok(!self.read(&["remote"])?.trim_ascii().is_empty())
@@ -963,6 +978,33 @@ pub(crate) mod tests {
         git.push("main").unwrap();
         let pushed = Git::new(&remote.0).line(&["rev-parse", "main"]).unwrap();
         assert_eq!(pushed, git.head().unwrap());
+    }
+
+    #[test]
+    fn a_merge_can_stop_before_its_commit_and_be_given_up() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.start("c1");
+        repo.write("a.txt", "a\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        let main = repo.git(&["rev-parse", "main"]);
+        let git = repo.tool();
+        git.merge_uncommitted("change/c1").unwrap();
+        assert_eq!(git.head().unwrap(), main);
+        repo.git(&["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+        git.abort_merge().unwrap();
+        assert!(!repo.root().join("a.txt").exists());
+        let err = git.abort_merge().unwrap_err().to_string();
+        assert!(err.starts_with("git merge --abort failed"), "{err}");
+        git.merge_uncommitted("change/c1").unwrap();
+        repo.write("b.txt", "b\n");
+        git.commit_all("merged").unwrap();
+        let parents = repo.git(&["log", "-1", "--format=%P"]);
+        assert_eq!(parents.split(' ').count(), 2, "a merge commit");
+        repo.git(&["cat-file", "-e", "HEAD:b.txt"]);
+        let wrong = git.merge_uncommitted("-x");
+        assert!(matches!(wrong, Err(Error::Revision(_))));
     }
 
     /// An environment with the `PATH` of the tests, an author of its own and no configuration of

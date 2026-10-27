@@ -1,9 +1,10 @@
 //! Merging a change (`gdd merge`): once G3 is open, the last work of the change is committed on
 //! its branch, and the branch merges into the main branch with a merge commit that carries the
 //! record of the change: what a pull request description would hold. The full working files stay
-//! in `.gdd/changes/<id>/`, which git does not keep. Then main is pushed when the rules ask for
-//! it and there is a remote, and the artifact is built and deployed to pre: as the main branch
-//! configures them once the change merged into it, not as the branch of the change had them.
+//! in `.gdd/changes/<id>/`, which git does not keep. The known debt the change paid goes off the
+//! list in that same merge commit. Then main is pushed when the rules ask for it and there is a
+//! remote, and the artifact is built and deployed to pre: as the main branch configures them
+//! once the change merged into it, not as the branch of the change had them.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -16,7 +17,7 @@ use crate::change;
 use crate::classify::Classification;
 use crate::config::{self, Color};
 use crate::gates::release::{self, Passed, Steps};
-use crate::gates::{self, approve};
+use crate::gates::{self, Gate, approve, debt};
 use crate::git::Git;
 use crate::guard;
 use crate::log;
@@ -68,11 +69,13 @@ fn push_main(rules: &str) -> Result<bool, config::Error> {
 }
 
 /// Merges change `id`, classified as `classification`, into the main branch (see the module).
-/// It needs G3 open and the branch of the change checked out, where its last work is. The
-/// record goes to state `merged` with the merge commit, and the merge is logged; then the rules
-/// file and the release commands are read as the merge left them, and a configuration that
-/// cannot be read, or a failed push, build or deploy, is an error after that. What it prints,
-/// as JSON on one line: `ok`, whether the deploy to pre was simulated, and that step.
+/// It needs G3 open and the branch of the change checked out, where its last work is. The known
+/// debt its latest G2 and G3 named as paid goes off `gdd/debt.toml` in the merge commit (see
+/// [`debt::pay`]); when it cannot, the merge is given up. The record goes to state `merged`
+/// with the merge commit, and the merge is logged; then the rules file and the release commands
+/// are read as the merge left them, and a configuration that cannot be read, or a failed push,
+/// build or deploy, is an error after that. What it prints, as JSON on one line: `ok`, whether
+/// the deploy to pre was simulated, and that step.
 pub fn merge(
     project: &Project,
     id: &str,
@@ -91,13 +94,19 @@ pub fn merge(
             "Not on branch {branch}: merge runs where the last work of the change is."
         ));
     }
-    let message = message(state, id, &record, classification)?;
+    let paid = debt::reported(state, id)?.paid;
+    let names = debt::by_risk(paid.iter().map(|(_, name)| name.as_str()));
+    let message = message(state, id, &record, classification, &names)?;
     if git.has_changes().map_err(said)? {
         let work = format!("gdd({id}): change work");
         git.commit_all(&work).map_err(said)?;
     }
     git.checkout(project.main).map_err(said)?;
-    git.merge(&branch, &message).map_err(said)?;
+    if paid.is_empty() {
+        git.merge(&branch, &message).map_err(said)?;
+    } else {
+        merge_paying(&git, root, &branch, &message, &paid)?;
+    }
     let commit = git.head().map_err(said)?;
     let path = change::record_path(id);
     let fields = vec![
@@ -137,6 +146,26 @@ pub fn merge(
     Passed::detail(&pre, Some(pre.simulated)).json()
 }
 
+/// Merges `branch` into the current branch with a merge commit whose message is `message`, and
+/// takes the known debt `paid`, each with its gate, off the list of the project at `root` in that
+/// same commit. When the list cannot be written or the commit fails, the merge is given up and
+/// the current branch stays as it was.
+fn merge_paying(
+    git: &Git,
+    root: &Path,
+    branch: &str,
+    message: &str,
+    paid: &[(Gate, String)],
+) -> Result<(), String> {
+    let said = |e: crate::git::Error| e.to_string();
+    git.merge_uncommitted(branch).map_err(said)?;
+    let committed = debt::pay(root, paid).and_then(|()| git.commit_all(message).map_err(said));
+    committed.map_err(|e| match git.abort_merge() {
+        Ok(()) => format!("{e}. The merge was given up: main is as it was."),
+        Err(abort) => format!("{e}. Giving up the merge failed too: {abort}"),
+    })
+}
+
 /// Whether to push the main branch, and the release commands, as the project at `root` has them
 /// in its working tree: after the merge, the main branch's. A missing file says nothing.
 fn configured(root: &Path) -> Result<(bool, Steps), String> {
@@ -159,13 +188,14 @@ fn configuration(root: &Path, path: &str) -> Result<String, String> {
 /// The message of the merge commit of change `id` of the project whose state root is `state`,
 /// whose record is `record` and whose classification is `classification`: the title, then the
 /// color, lane and kind of work; the approvals; the verdicts of the Reviewer and its points; the
-/// decisions taken without the human (the last ones); the tokens of its agent calls; and where
-/// its record lives.
+/// decisions taken without the human (the last ones); the tokens of its agent calls; the known
+/// debt it paid, `paid`, when there is; and where its record lives.
 pub fn message(
     state: &Path,
     id: &str,
     record: &Value,
     classification: &Classification,
+    paid: &[&str],
 ) -> Result<String, String> {
     let title = record["title"].as_str().unwrap_or_default();
     let kind = record["type"].as_str().unwrap_or("-");
@@ -196,6 +226,9 @@ pub fn message(
         }
     }
     lines.extend(tokens(state, id)?);
+    if !paid.is_empty() {
+        lines.push(format!("Known debt paid: {}", paid.join(", ")));
+    }
     lines.push(format!("Record: .gdd/changes/{id}/ (local)"));
     Ok(lines.join("\n"))
 }
@@ -427,13 +460,18 @@ mod tests {
         let folder = Folder::new();
         let record = r#"{"title": "App", "type": "Feature", "gates": {"G3": {"decision": "ok"}}}"#;
         let record = json(record);
-        let text = message(&folder.0, "c1", &record, &classified("src/app.rs")).unwrap();
+        let text = message(&folder.0, "c1", &record, &classified("src/app.rs"), &[]).unwrap();
         let expected = "gdd(c1): G3 Merge Gate · App\n\n\
                         Color: yellow · lane full · type Feature\n\
                         Approvals: none needed\n\
                         Record: .gdd/changes/c1/ (local)";
         assert_eq!(text, expected);
-        let bare = message(&folder.0, "c1", &json("{}"), &classified("src/app.rs")).unwrap();
+        let paid = ["security", "lint"];
+        let text = message(&folder.0, "c1", &record, &classified("src/app.rs"), &paid).unwrap();
+        let line = "\nApprovals: none needed\nKnown debt paid: security, lint\nRecord: ";
+        assert!(text.contains(line), "{text}");
+        let app = classified("src/app.rs");
+        let bare = message(&folder.0, "c1", &json("{}"), &app, &[]).unwrap();
         let start = "gdd(c1): G3 Merge Gate · \n\nColor: yellow · lane full · type -\n";
         assert!(bare.starts_with(start), "{bare}");
     }
@@ -478,7 +516,7 @@ mod tests {
             "inbox": inbox
         });
         let red = classified("src/storage/db.rs");
-        let text = message(&folder.0, "c1", &record, &red).unwrap();
+        let text = message(&folder.0, "c1", &record, &red, &[]).unwrap();
         let approvals = "Approvals: red zones ok (human, 2026-10-20); \
                          G1 ok (human, 2026-10-21, 2 scenario file(s) sealed); \
                          plan ok (human, 2026-10-22)";
@@ -499,7 +537,7 @@ mod tests {
         expected.push("Record: .gdd/changes/c1/ (local)".to_string());
         assert_eq!(text, expected.join("\n"));
         // Only a red change names the red zones.
-        let yellow = message(&folder.0, "c1", &record, &classified("src/app.rs")).unwrap();
+        let yellow = message(&folder.0, "c1", &record, &classified("src/app.rs"), &[]).unwrap();
         let g1 = "\nApprovals: G1 ok (human, 2026-10-21, 2 scenario file(s) sealed); plan";
         assert!(yellow.contains(g1), "{yellow}");
     }
@@ -509,18 +547,18 @@ mod tests {
         let folder = Folder::new();
         let red = classified("src/storage/db.rs");
         // A red change whose zones nobody approved names no approval of them.
-        let text = message(&folder.0, "c1", &json("{}"), &red).unwrap();
+        let text = message(&folder.0, "c1", &json("{}"), &red, &[]).unwrap();
         assert!(text.contains("\nApprovals: none needed\n"), "{text}");
         folder.write(approve::ZONES_PATH, "{}");
         let record = json(r#"{"gates": {"G1": {"decision": "ko"}, "plan": {}}}"#);
-        let text = message(&folder.0, "c1", &record, &red).unwrap();
+        let text = message(&folder.0, "c1", &record, &red, &[]).unwrap();
         assert!(text.contains("\nApprovals: G1 ko (-, )\n"), "{text}");
         folder.write(approve::ZONES_PATH, "{not json");
-        let text = message(&folder.0, "c1", &json("{}"), &red).unwrap();
+        let text = message(&folder.0, "c1", &json("{}"), &red, &[]).unwrap();
         assert!(text.contains("\nApprovals: none needed\n"), "{text}");
         fs::remove_file(folder.0.join(approve::ZONES_PATH)).unwrap();
         fs::create_dir_all(folder.0.join(approve::ZONES_PATH)).unwrap();
-        let err = message(&folder.0, "c1", &json("{}"), &red).unwrap_err();
+        let err = message(&folder.0, "c1", &json("{}"), &red, &[]).unwrap_err();
         assert!(err.starts_with("cannot read .gdd/zones.json: "), "{err}");
     }
 
@@ -529,20 +567,20 @@ mod tests {
         let folder = Folder::new();
         let yellow = classified("src/app.rs");
         folder.write(log::PATH, "{not json\n");
-        let err = message(&folder.0, "c1", &json("{}"), &yellow).unwrap_err();
+        let err = message(&folder.0, "c1", &json("{}"), &yellow, &[]).unwrap_err();
         assert!(err.starts_with(".gdd/log.jsonl, line 1: "), "{err}");
         fs::remove_file(folder.0.join(log::PATH)).unwrap();
         fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
-        let err = message(&folder.0, "c1", &json("{}"), &yellow).unwrap_err();
+        let err = message(&folder.0, "c1", &json("{}"), &yellow, &[]).unwrap_err();
         assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
         fs::remove_dir(folder.0.join(log::PATH)).unwrap();
         folder.write(".gdd/changes/c1/outputs", "not a folder");
-        let err = message(&folder.0, "c1", &json("{}"), &yellow).unwrap_err();
+        let err = message(&folder.0, "c1", &json("{}"), &yellow, &[]).unwrap_err();
         let start = "cannot read .gdd/changes/c1/outputs: ";
         assert!(err.starts_with(start), "{err}");
         fs::remove_file(folder.0.join(".gdd/changes/c1/outputs")).unwrap();
         fs::create_dir_all(folder.0.join(".gdd/changes/c1/outputs/reviewer-1.md")).unwrap();
-        let err = message(&folder.0, "c1", &json("{}"), &yellow).unwrap_err();
+        let err = message(&folder.0, "c1", &json("{}"), &yellow, &[]).unwrap_err();
         let start = "cannot read .gdd/changes/c1/outputs/reviewer-1.md: ";
         assert!(err.starts_with(start), "{err}");
     }
@@ -678,6 +716,81 @@ mod tests {
         assert!(merged(&repo).is_ok());
         assert_eq!(record(&repo)["state"], "merged");
         assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
+    }
+
+    /// Known debt of `lint` in G2 and in G3, and of `security` in G3.
+    const DEBT: &str = "adopted = \"2026-10-27\"\n\
+                        [[debt]]\ncommand = \"lint\"\ngate = \"g2\"\nsince = \"2026-10-27\"\n\
+                        [[debt]]\ncommand = \"lint\"\ngate = \"g3\"\nsince = \"2026-10-27\"\n\
+                        [[debt]]\ncommand = \"security\"\ngate = \"g3\"\nsince = \"2026-10-27\"\n";
+
+    /// The project of [`started`] with `known` as its known debt on `main` before the change
+    /// started, the latest G2 of `c1` naming `paid` as paid, and work of the change to commit.
+    fn paying(known: &str, paid: &str) -> Repo {
+        let repo = started(".gdd/*\n");
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write(debt::PATH, known);
+        repo.commit();
+        repo.git(&["checkout", "-q", "change/c1"]);
+        repo.git(&["merge", "-q", "main"]);
+        let g2 = format!(r#"{{"ok": true, "paid_debt": {paid}}}"#);
+        repo.write(".gdd/changes/c1/g2.json", &g2);
+        repo.write("src/app.rs", "x\n");
+        repo
+    }
+
+    #[test]
+    fn the_merge_commit_takes_the_paid_debt_off_the_list() {
+        let repo = paying(DEBT, r#"["lint"]"#);
+        let g3 = r#"{"ok": true, "paid_debt": ["security"]}"#;
+        repo.write(".gdd/changes/c1/g3.json", g3);
+        assert!(merged(&repo).is_ok());
+        let message = repo.git(&["log", "-1", "--format=%B", "main"]);
+        let paid = "\nKnown debt paid: security, lint\n";
+        assert!(message.contains(paid), "{message}");
+        let parents = repo.git(&["log", "-1", "--format=%P", "main"]);
+        assert_eq!(parents.split(' ').count(), 2, "a merge commit");
+        // Only the debt of the gate that paid it goes: lint stays in G3.
+        let left = repo.git(&["show", "main:gdd/debt.toml"]);
+        assert_eq!(left.matches("[[debt]]").count(), 1, "{left}");
+        let lint = "command = \"lint\"\ngate = \"g3\"";
+        assert!(left.contains(lint), "{left}");
+        // The branch of the change keeps the list as it was: the merge commit pays.
+        let branch = repo.git(&["show", "change/c1:gdd/debt.toml"]);
+        assert_eq!(branch, DEBT.trim_end());
+        assert_eq!(repo.git(&["status", "--porcelain"]), "");
+        assert_eq!(record(&repo)["state"], "merged");
+    }
+
+    #[test]
+    fn the_last_debt_paid_takes_the_list_away() {
+        let only = "adopted = \"2026-10-27\"\n\
+                    [[debt]]\ncommand = \"lint\"\ngate = \"g2\"\nsince = \"2026-10-27\"\n";
+        let repo = paying(only, r#"["lint"]"#);
+        assert!(merged(&repo).is_ok());
+        assert!(!repo.root().join(debt::PATH).exists());
+        let listed = repo.git(&["ls-tree", "--name-only", "main", "gdd/"]);
+        assert_eq!(listed, gates::COMMANDS);
+        let message = repo.git(&["log", "-1", "--format=%B", "main"]);
+        assert!(message.contains("\nKnown debt paid: lint\n"), "{message}");
+    }
+
+    #[test]
+    fn a_debt_list_that_cannot_be_paid_gives_the_merge_up() {
+        let repo = paying("[[debt]", "\"lint\"");
+        let err = merged(&repo).unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/g2.json: "), "{err}");
+        assert_eq!(repo.git(&["branch", "--show-current"]), "change/c1");
+        repo.write(".gdd/changes/c1/g2.json", r#"{"paid_debt": ["lint"]}"#);
+        let main = repo.git(&["rev-parse", "main"]);
+        let err = merged(&repo).unwrap_err();
+        assert!(err.starts_with("gdd/debt.toml: invalid TOML: "), "{err}");
+        let given_up = "The merge was given up: main is as it was.";
+        assert!(err.ends_with(given_up), "{err}");
+        assert_eq!(repo.git(&["rev-parse", "main"]), main);
+        assert!(!repo.tool().exists("MERGE_HEAD").unwrap());
+        assert_eq!(repo.git(&["status", "--porcelain"]), "");
+        assert_eq!(record(&repo)["state"], "building");
     }
 
     #[test]
