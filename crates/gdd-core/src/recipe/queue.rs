@@ -2,7 +2,8 @@
 //! several can run at once, and two rules keep them from stepping on each other. A change does
 //! not launch while a change in flight plans a path that overlaps one of its own, nor while
 //! `[parallel] max` changes build already: the agents' subscriptions are shared (see
-//! [`may_launch`]). And merges go one at a time, under the merge lock (see [`lock`]): a change
+//! [`may_launch`]). Launches are judged one at a time, under the launch lock (see
+//! [`admission`]). And merges go one at a time, under the merge lock (see [`lock`]): a change
 //! whose main branch moved since it was built takes the latest main first (see [`main_moved`]
 //! and [`take_main`]), and its build starts again there (see [`restarted`]).
 
@@ -44,6 +45,12 @@ const CHANGES: &str = ".gdd/changes";
 
 /// The merge lock, from the state root: a file of its own, made when it is missing.
 pub const LOCK: &str = ".gdd/merge.lock";
+
+/// The launch lock, from the state root: a file of its own, made when it is missing.
+pub const ADMISSION: &str = ".gdd/launch.lock";
+
+/// The locks, which gdd runs of other changes make and take at any time.
+pub const LOCKS: [&str; 2] = [LOCK, ADMISSION];
 
 /// What a merge that waits for the merge of another change says.
 pub const WAITING: &str = "waiting for the merge of another change";
@@ -207,18 +214,32 @@ impl<'a> Planned<'a> {
     }
 }
 
-/// The merge lock, held: the merge of another change waits until it is dropped.
+/// A lock, held: whoever wants it waits until it is dropped.
 #[derive(Debug)]
 pub struct Lock {
     _file: File,
 }
 
-/// Takes the merge lock of the project whose state root is `state` (see [`LOCK`]), never through
-/// a link or another name of the file (see [`files::open`]). While the merge of another change
-/// holds it, calls `waiting` once, then waits until it is free.
+/// Takes the merge lock of the project whose state root is `state` (see [`LOCK`]). While the
+/// merge of another change holds it, calls `waiting` once, then waits until it is free.
 pub fn lock(state: &Path, waiting: impl FnOnce()) -> Result<Lock, String> {
-    let file = files::open(state, LOCK).map_err(|e| format!("cannot open {LOCK}: {e}"))?;
-    let failed = |e: io::Error| format!("cannot lock {LOCK}: {e}");
+    held(state, LOCK, waiting)
+}
+
+/// Takes the launch lock of the project whose state root is `state` (see [`ADMISSION`]), which
+/// the launch of a change holds from the moment it is judged (see [`may_launch`]) until it is
+/// building: so no other launch is judged next to a change that is about to build. While
+/// another launch holds it, waits until it is free.
+pub fn admission(state: &Path) -> Result<Lock, String> {
+    held(state, ADMISSION, || {})
+}
+
+/// Takes the lock `path` of the project whose state root is `state`, never through a link or
+/// another name of the file (see [`files::open`]). While someone else holds it, calls `waiting`
+/// once, then waits until it is free.
+fn held(state: &Path, path: &str, waiting: impl FnOnce()) -> Result<Lock, String> {
+    let file = files::open(state, path).map_err(|e| format!("cannot open {path}: {e}"))?;
+    let failed = |e: io::Error| format!("cannot lock {path}: {e}");
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
@@ -514,6 +535,31 @@ mod tests {
         drop(held);
         wait_released.recv().unwrap();
         assert_eq!(other.join().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_launch_waits_for_the_launch_that_holds_the_launch_lock_and_never_for_a_merge() {
+        let state = Folder::new();
+        let merging = lock(&state.0, || {}).unwrap();
+        let held = admission(&state.0).unwrap();
+        assert!(state.0.join(ADMISSION).is_file());
+        let (admitted, wait_admitted) = mpsc::channel();
+        let root = state.0.clone();
+        let other = thread::spawn(move || {
+            let mine = admission(&root).unwrap();
+            admitted.send(()).unwrap();
+            drop(mine);
+        });
+        thread::sleep(Duration::from_millis(100));
+        assert!(wait_admitted.try_recv().is_err(), "it is held");
+        drop(held);
+        wait_admitted.recv().unwrap();
+        other.join().unwrap();
+        drop(merging);
+        let file = Folder::new();
+        file.write(".gdd", "");
+        let err = admission(&file.0).unwrap_err();
+        assert_eq!(err, "cannot open .gdd/launch.lock: .gdd is not a folder");
     }
 
     #[test]

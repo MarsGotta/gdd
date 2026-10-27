@@ -88,21 +88,11 @@ pub fn merge(
 ) -> Result<String, String> {
     let (root, state) = (project.root, project.state);
     let (text, record) = release::read(state, id)?;
-    if record["gates"]["G3"]["decision"] != "ok" {
-        return Err(G3_CLOSED.to_string());
-    }
+    ready(project, id, &record)?;
     let work = Git::new(root);
     let branch = change::branch(id);
     let said = |e: crate::git::Error| e.to_string();
-    if work.current_branch().map_err(said)? != branch {
-        return Err(format!(
-            "Not on branch {branch}: merge runs where the last work of the change is."
-        ));
-    }
     let in_worktree = root != state;
-    if in_worktree && let Some(why) = not_ready(state, project.main).map_err(said)? {
-        return Err(why);
-    }
     let paid = debt::reported(state, id)?.paid;
     let names = debt::by_risk(paid.iter().map(|(_, name)| name.as_str()));
     let message = message(state, id, &record, classification, &names)?;
@@ -157,6 +147,33 @@ pub fn merge(
         return Err(format!("Could not deploy to pre: {why}"));
     }
     Passed::detail(&pre, Some(pre.simulated)).json()
+}
+
+/// `Ok` when change `id` of `project` may merge (see [`merge`]); else why not.
+pub fn may_merge(project: &Project, id: &str) -> Result<(), String> {
+    let (_, record) = release::read(project.state, id)?;
+    ready(project, id, &record)
+}
+
+/// `Ok` when change `id` of `project`, whose record is `record`, may merge: G3 open, the branch
+/// of the change checked out at the project root and, in a worktree, a main checkout that can
+/// take the merge (see [`not_ready`]). Else why not.
+fn ready(project: &Project, id: &str, record: &Value) -> Result<(), String> {
+    if record["gates"]["G3"]["decision"] != "ok" {
+        return Err(G3_CLOSED.to_string());
+    }
+    let branch = change::branch(id);
+    let said = |e: crate::git::Error| e.to_string();
+    if Git::new(project.root).current_branch().map_err(said)? != branch {
+        return Err(format!(
+            "Not on branch {branch}: merge runs where the last work of the change is."
+        ));
+    }
+    let in_worktree = project.root != project.state;
+    if in_worktree && let Some(why) = not_ready(project.state, project.main).map_err(said)? {
+        return Err(why);
+    }
+    Ok(())
 }
 
 /// Why the main checkout at `checkout` cannot take a merge into the main branch `main`, if it
@@ -780,6 +797,36 @@ mod tests {
         assert_eq!(not_ready(repo.root(), "main").unwrap(), None);
         let plain = Folder::new();
         assert!(not_ready(&plain.0, "main").is_err());
+    }
+
+    #[test]
+    fn may_merge_says_what_merge_refuses_and_touches_nothing() {
+        let (repo, trees) = in_worktree();
+        let worktree = trees.0.join("c1");
+        let project = Project {
+            root: &worktree,
+            state: repo.root(),
+            main: "main",
+        };
+        assert_eq!(may_merge(&project, "c1"), Ok(()));
+        repo.write("README.md", "changed\n");
+        let err = may_merge(&project, "c1").unwrap_err();
+        assert!(err.ends_with("commit or stash them"), "{err}");
+        repo.git(&["checkout", "-q", "--", "README.md"]);
+        let off = Project {
+            root: repo.root(),
+            ..project
+        };
+        let expected = "Not on branch change/c1: merge runs where the last work of the change is.";
+        assert_eq!(may_merge(&off, "c1"), Err(expected.to_string()));
+        let closed = r#"{"gates": {"G3": {"decision": "ko"}}}"#;
+        repo.write(".gdd/changes/c1/change.json", closed);
+        assert_eq!(may_merge(&project, "c1"), Err(G3_CLOSED.to_string()));
+        let err = may_merge(&project, "c9").unwrap_err();
+        assert!(err.starts_with("change c9 does not exist"), "{err}");
+        assert!(Git::new(&worktree).has_changes().unwrap());
+        let last = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
+        assert_eq!(last, "commit");
     }
 
     #[test]

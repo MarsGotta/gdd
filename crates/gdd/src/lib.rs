@@ -497,7 +497,7 @@ impl Command {
             Command::Launch { change } => return launch(root, state, &change, env),
             Command::Resume(args) => return resume(root, state, &args, role, env),
             Command::Merge { change } => {
-                return merge_queued(root, state, &change_id(change, env)?);
+                return merge_queued(root, state, &change_id(change, env)?, env);
             }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
@@ -909,14 +909,25 @@ fn prepare_decided(
     prepare::prepare(&setup, id, &decided.decision(id))
 }
 
-/// `gdd merge`: [`merge_change`], one merge at a time: under the merge lock (see
-/// [`queue::lock`]). Waiting for the merge of another change says so on the standard error: the
-/// standard output is the JSON of the merge.
-fn merge_queued(root: &Path, state: &Path, id: &str) -> Result<Outcome, String> {
-    let mut waited = String::new();
-    let _lock = queue::lock(state, || waited = format!("{}\n", queue::WAITING))?;
-    let mut outcome = Outcome::printed(merge_change(root, state, id)?, 0);
-    outcome.stderr = waited;
+/// `gdd merge`: the merge of change `id`, whose branch is checked out at the project root `root`,
+/// as the recipe merges (see [`recipe::merge`]): one merge at a time, on top of the latest main,
+/// with its steps there; the gates it runs again start in the environment `env`. What it says on
+/// its way goes to the standard error, before why it parked or failed: the standard output is
+/// the JSON of the merge.
+fn merge_queued(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcome, String> {
+    let main = load_settings(root)?.main_branch;
+    let limits = load_limits(root)?;
+    let settings = agent_settings(root)?;
+    let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env);
+    let at = recipe::Merging {
+        state,
+        work: root,
+        main: &main,
+        id,
+    };
+    let ran = recipe::merge(&at, &mut steps);
+    let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
+    outcome.stderr.insert_str(0, &steps.said);
     Ok(outcome)
 }
 
@@ -1160,8 +1171,8 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     /// The recipe holds the merge lock already.
-    fn merge(&mut self) -> Result<(), String> {
-        merge_change(self.root, self.state, self.id).map(drop)
+    fn merge(&mut self) -> Result<String, String> {
+        merge_change(self.root, self.state, self.id)
     }
 
     /// After the merge the change is on the main branch: its release runs from the main checkout,
@@ -3025,6 +3036,61 @@ mod tests {
         assert_eq!(out.stderr, format!("{}\n", queue::WAITING));
         assert_eq!(json(&out)["detail"]["name"], "deploy_pre");
         assert_eq!(record_of(&project, "c1")["state"], "merged");
+    }
+
+    /// Gate commands whose G3 fails once main has `docs/breaking.md`.
+    const BREAKABLE: &str = "[g3]\nfresh = \"test ! -f docs/breaking.md\"\n\
+                             [release]\nsimulated = true\nbuild = \"true\"\n";
+
+    /// The launched project with [`BREAKABLE`] gates and G3 open on change `c1`, once main got
+    /// the file `path` after the branch of the change left it.
+    fn moved_under_c1(path: &str) -> Project {
+        let project = launched_with(BREAKABLE, MODELS);
+        assert_eq!(project.run("gate G3 ok c1 --by machines").code, 0);
+        git(&project, &["checkout", "-q", "main"]);
+        project.write(path, "x\n");
+        git(&project, &["add", path]);
+        git(&project, &["commit", "-q", "-m", path]);
+        git(&project, &["checkout", "-q", "change/c1"]);
+        project
+    }
+
+    const MOVED_UNDER_C1: &str = "main moved under c1: G3 again on top of it\n";
+
+    #[test]
+    fn a_merge_on_top_of_a_main_that_moved_passes_g3_again_there_first() {
+        let project = moved_under_c1("docs/news.md");
+        let out = project.run("merge c1");
+        assert_eq!(out.stderr, MOVED_UNDER_C1);
+        assert_eq!(json(&out)["detail"]["name"], "deploy_pre");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "merged");
+        let g3 = &record["gates"]["G3"];
+        assert_eq!(g3["decision"], "ok");
+        assert_eq!(g3["by"], "machines");
+        assert_eq!(g3["note"], "automatic chain on top of the latest main");
+        git(&project, &["cat-file", "-e", "main:docs/news.md"]);
+        let took = git(&project, &["log", "-1", "--format=%s", "main^2"]);
+        assert_eq!(took, "gdd(c1): take the latest main");
+    }
+
+    #[test]
+    fn g3_red_on_top_of_the_latest_main_parks_the_change_and_leaves_g3_closed() {
+        let project = moved_under_c1("docs/breaking.md");
+        let out = project.run("merge c1");
+        assert_eq!(out.code, 1, "{out:?}");
+        let parked = "\nChange c1 parked: G3 red on top of the latest main.";
+        assert!(out.stderr.starts_with(MOVED_UNDER_C1), "{out:?}");
+        assert!(out.stderr.contains(parked), "{out:?}");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "parked");
+        assert_eq!(record["gates"]["G3"]["decision"], "ko");
+        // Its branch has the latest main now, and still does not merge without G3.
+        let main = git(&project, &["rev-parse", "main"]);
+        let again = project.run("merge c1");
+        let closed = "error: G3 is not open.\n";
+        assert!(again.stderr.ends_with(closed), "{again:?}");
+        assert_eq!(git(&project, &["rev-parse", "main"]), main);
     }
 
     #[test]

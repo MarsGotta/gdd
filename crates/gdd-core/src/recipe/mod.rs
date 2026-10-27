@@ -75,6 +75,12 @@ const G3_RED_ON_MAIN: &str = "G3 red on top of the latest main";
 /// Why a change parks when the latest main does not merge into it: the paths in conflict follow.
 const CONFLICTS: &str = "main moved under it and the merge has conflicts in";
 
+/// The note on G3 closed when main moved under the change.
+const MAIN_MOVED: &str = "main moved under it: G3 again on top of the latest main";
+
+/// The note on G3 opened again once it passed on top of the latest main.
+const ON_LATEST_MAIN: &str = "automatic chain on top of the latest main";
+
 /// What the note on a promotion that failed after the human's OK starts with.
 const PROMOTION_FAILED: &str = "Promotion failed: ";
 
@@ -168,8 +174,9 @@ pub trait Steps {
     /// Records the decision `decision` (`ok` or `ko`) on `gate` of the change, by `by`, with
     /// `note` (`gdd gate`).
     fn decide(&mut self, gate: &str, decision: &str, by: &str, note: &str) -> Result<(), String>;
-    /// Merges the change into the main branch and deploys it to pre (`gdd merge`).
-    fn merge(&mut self) -> Result<(), String>;
+    /// Merges the change into the main branch and deploys it to pre: what it printed (see
+    /// [`merge::merge`]).
+    fn merge(&mut self) -> Result<String, String>;
     /// The release step `step`: `pre`, `promote` or `observe` (`gdd release`).
     fn release(&mut self, step: &str) -> Result<(), String>;
     /// Tells the person who runs the recipe `line` on the way, before what the run says at its
@@ -268,15 +275,19 @@ enum Ended {
 /// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
 /// worktree of change `id` or reuses it (see [`worktree::open`]), prepares the change and runs
 /// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only next to
-/// the changes in flight (see [`queue::may_launch`]): a refusal touches nothing.
+/// the changes in flight (see [`queue::may_launch`]): a refusal touches nothing. From that
+/// judgement until prepare makes the change building, it holds the launch lock (see
+/// [`queue::admission`]): two launches at once never both pass it.
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
     let record = change::read_record(project.state, id)?;
+    let admitted = queue::admission(project.state)?;
     queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
     worktree::open(project.root, project.worktree, id)?;
     state::clear(project.state, id)?;
     let decided = steps.prepare()?;
+    drop(admitted);
     let mut run = Run {
         project,
         id,
@@ -317,6 +328,65 @@ fn to_main(project: &Project, id: &str) -> Result<(), String> {
         return Err(UNCOMMITTED.to_string());
     }
     git.checkout(project.main).map_err(said)
+}
+
+/// A change at its merge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Merging<'a> {
+    /// The state root, whose main checkout takes the merge.
+    pub state: &'a Path,
+    /// Where the branch of the change is checked out, with its last work.
+    pub work: &'a Path,
+    /// The branch changes merge into.
+    pub main: &'a str,
+    /// The id of the change.
+    pub id: &'a str,
+}
+
+/// `gdd merge`: the merge of the change `at`, as the recipe merges (see [`Run::merged`]): one at
+/// a time, under the merge lock, which the merge of another change makes it wait for, saying so
+/// (see [`queue::lock`]); then, once it may merge (see [`merge::may_merge`]), on top of the
+/// latest main (see [`on_latest_main`]), which parks it on a conflict or G3 red. What the merge
+/// printed.
+pub fn merge(at: &Merging, steps: &mut impl Steps) -> Result<Said, String> {
+    let _lock = queue::lock(at.state, || steps.say(queue::WAITING))?;
+    let project = merge::Project {
+        root: at.work,
+        state: at.state,
+        main: at.main,
+    };
+    merge::may_merge(&project, at.id)?;
+    match on_latest_main(at, steps) {
+        Ok(()) => steps.merge().map(Said::Done),
+        Err(Stop::Park(reason)) => change::park(at.state, at.id, &reason).map(Said::Parked),
+        Err(Stop::Fail(e)) => Err(e),
+    }
+}
+
+/// When the main branch moved since the change `at` was built (see [`queue::main_moved`]): G3
+/// closes, as what passed it is no longer what would merge, and the change takes the latest main
+/// (see [`queue::take_main`]), where a conflict parks it. Its build starts again there (see
+/// [`queue::restarted`]), and it passes G3 again on top of it: green opens G3 again, red parks
+/// it, G3 still closed.
+fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
+    let (work, main, id) = (at.work, at.main, at.id);
+    let said = |e: git::Error| Stop::Fail(e.to_string());
+    if !queue::main_moved(work, main).map_err(said)? {
+        return Ok(());
+    }
+    steps.decide("G3", "ko", "machines", MAIN_MOVED)?;
+    let conflicts = queue::take_main(work, main, id).map_err(said)?;
+    if !conflicts.is_empty() {
+        let paths = conflicts.join(", ");
+        return Err(Stop::Park(format!("{CONFLICTS} {paths}")));
+    }
+    let start = Git::new(work).head().map_err(said)?;
+    queue::restarted(at.state, id, &start)?;
+    steps.say(&format!("main moved under {id}: G3 again on top of it"));
+    if !steps.gate(Gate::G3)? {
+        return Err(Stop::Park(G3_RED_ON_MAIN.to_string()));
+    }
+    Ok(steps.decide("G3", "ok", "machines", ON_LATEST_MAIN)?)
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
@@ -795,7 +865,7 @@ impl<S: Steps> Run<'_, S> {
     /// The merge, one at a time: under the merge lock, which the merge of another change makes
     /// it wait for, saying so (see [`queue::lock`]). The change merges in the main checkout: one
     /// that cannot take it parks the change (see [`merge::not_ready`]). When main moved since the
-    /// change was built, it takes the latest main first (see [`Run::on_latest_main`]).
+    /// change was built, it takes the latest main first (see [`on_latest_main`]).
     fn merged(&mut self) -> Result<(), Stop> {
         let project = *self.project;
         let said = |e: git::Error| Stop::Fail(e.to_string());
@@ -803,33 +873,15 @@ impl<S: Steps> Run<'_, S> {
         if let Some(why) = merge::not_ready(project.root, project.main).map_err(said)? {
             return Err(Stop::Park(why));
         }
-        if queue::main_moved(project.work, project.main).map_err(said)? {
-            self.on_latest_main()?;
-        }
-        Ok(self.steps.merge()?)
-    }
-
-    /// The change takes the latest main (see [`queue::take_main`]): a conflict parks it. Its
-    /// build starts again there (see [`queue::restarted`]), and it passes G3 again on top of it,
-    /// which red parks it.
-    fn on_latest_main(&mut self) -> Result<(), Stop> {
-        let Project { work, main, .. } = *self.project;
-        let (state, id) = (self.project.state, self.id);
-        let said = |e: git::Error| Stop::Fail(e.to_string());
-        let conflicts = queue::take_main(work, main, id).map_err(said)?;
-        if !conflicts.is_empty() {
-            let paths = conflicts.join(", ");
-            return Err(Stop::Park(format!("{CONFLICTS} {paths}")));
-        }
-        let start = Git::new(work).head().map_err(said)?;
-        queue::restarted(state, id, &start)?;
-        let moved = format!("main moved under {id}: G3 again on top of it");
-        self.steps.say(&moved);
-        if self.steps.gate(Gate::G3)? {
-            Ok(())
-        } else {
-            Err(Stop::Park(G3_RED_ON_MAIN.to_string()))
-        }
+        let at = Merging {
+            state: project.state,
+            work: project.work,
+            main: project.main,
+            id: self.id,
+        };
+        on_latest_main(&at, &mut *self.steps)?;
+        self.steps.merge()?;
+        Ok(())
     }
 
     /// G3; red, one fix by the Builder, G2, and G3 again: G3 decides, as it runs the whole
@@ -975,13 +1027,15 @@ impl<'a> State<'a> {
 /// from it: the ones gdd keeps for every change ([`SHARED`]), whatever is at their path, the
 /// others right in `.gdd/`, and every one in the folders of [`HARNESS`] and in the folder of
 /// change `id`, at any depth. The other folders of `.gdd/`, other changes' or ones gdd decides
-/// nothing from, are left out, and so is the merge lock, which the merges of other changes make
-/// and take while the call runs (see [`queue::lock`]). Links are never followed: one where a
-/// folder was is a file here.
+/// nothing from, are left out, and so are the locks, which the launches and merges of other
+/// changes make and take while the call runs (see [`queue::LOCKS`]). Links are never followed:
+/// one where a folder was is a file here.
 fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
     let mut paths = BTreeSet::from(SHARED.map(String::from));
     listed(root, STATE_FOLDER, false, &mut paths)?;
-    paths.remove(queue::LOCK);
+    for lock in queue::LOCKS {
+        paths.remove(lock);
+    }
     let own = format!(".gdd/changes/{id}");
     for folder in HARNESS.into_iter().chain([own.as_str()]) {
         listed(root, folder, true, &mut paths)?;
@@ -1223,6 +1277,16 @@ mod tests {
         steps.ran.last().cloned().unwrap_or_default()
     }
 
+    /// What ran, but waiting for the merge lock. A run that takes it right after another one let
+    /// it go may wait a moment: a process another test starts meanwhile keeps the lock of the run
+    /// before until it starts its program (a lock belongs to the open file, see `File::lock`).
+    fn unwaited(steps: &Played) -> Vec<String> {
+        let waited = format!("say {}", queue::WAITING);
+        let mut ran = steps.ran.clone();
+        ran.retain(|step| *step != waited);
+        ran
+    }
+
     impl Played<'_> {
         /// Writes `text` as the answer of an agent in `path`.
         fn answer(&self, path: &str, text: &str) {
@@ -1295,9 +1359,9 @@ mod tests {
             self.ended(gate)
         }
 
-        fn merge(&mut self) -> Result<(), String> {
+        fn merge(&mut self) -> Result<String, String> {
             self.ran.push("merge".into());
-            Ok(())
+            self.ended("merge").map(|()| MERGED.to_string())
         }
 
         fn release(&mut self, step: &str) -> Result<(), String> {
@@ -1928,6 +1992,8 @@ mod tests {
             "fake/argv",
             "pre/x",
             "adoption/x",
+            "merge.lock",
+            "launch.lock",
         ] {
             folder.write(&format!(".gdd/{path}"), "x");
         }
@@ -2459,6 +2525,16 @@ mod tests {
 
     const MOVED: &str = "say main moved under c1: G3 again on top of it";
 
+    /// G3 closed when main moved under the change, before it takes the latest main.
+    const UNOPENED: &str =
+        "G3 ko machines: main moved under it: G3 again on top of the latest main";
+
+    /// G3 opened again once it passed on top of the latest main.
+    const REOPENED: &str = "G3 ok machines: automatic chain on top of the latest main";
+
+    /// What the merge of the played steps prints.
+    const MERGED: &str = r#"{"ok":true}"#;
+
     #[test]
     fn when_main_moved_the_change_takes_it_and_passes_g3_again_before_it_merges() {
         let repo = repo_with_change(RECORD);
@@ -2468,8 +2544,9 @@ mod tests {
         let said = launch(&repo.project(), "c1", &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         let mut expected = TO_OPENED.to_vec();
-        let merged = [OPENED, MOVED, "G3", "merge", "pre", "promote", "observe"];
+        let merged = [OPENED, UNOPENED, MOVED, "G3", REOPENED, "merge", "pre"];
         expected.extend(merged);
+        expected.extend(["promote", "observe"]);
         assert_eq!(steps.ran, expected);
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
         assert_eq!(subject, "gdd(c1): take the latest main");
@@ -2488,7 +2565,11 @@ mod tests {
         let said = launch(&repo.project(), "c1", &mut steps);
         let why = "Change c1 parked: G3 red on top of the latest main.";
         assert!(parked(said).starts_with(why));
-        assert_eq!(steps.ran[TO_OPENED.len()..], [OPENED, MOVED, "G3"]);
+        // G3 stays closed: the change no longer merges as it passed it.
+        assert_eq!(
+            steps.ran[TO_OPENED.len()..],
+            [OPENED, UNOPENED, MOVED, "G3"]
+        );
         assert_eq!(record(root)["state"], "parked");
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
         assert!(repo.work.join("docs/news.md").is_file());
@@ -2513,7 +2594,7 @@ mod tests {
         let said = launch(&repo.project(), "c1", &mut steps);
         let why = "Change c1 parked: main moved under it and the merge has conflicts in app.txt.";
         assert!(parked(said).starts_with(why));
-        assert_eq!(last(&steps), OPENED);
+        assert_eq!(steps.ran[TO_OPENED.len()..], [OPENED, UNOPENED]);
         assert_eq!(record(root)["state"], "parked");
         let work = Git::new(&repo.work);
         assert_eq!(work.head().unwrap(), branch);
@@ -2542,6 +2623,111 @@ mod tests {
         let waited = format!("say {}", queue::WAITING);
         assert_eq!(steps.ran[5..7], [OPENED, waited.as_str()]);
         assert_eq!(steps.ran[7..], ["merge", "pre", "promote", "observe"]);
+    }
+
+    #[test]
+    fn a_launch_is_judged_once_the_launch_before_it_made_its_change_building() {
+        let repo = repo_with_change(&planning_a());
+        let root = repo.root();
+        let c2 = ".gdd/changes/c2/change.json";
+        repo.write(c2, r#"{"state": "open", "paths": ["src/**"]}"#);
+        // Another launch holds the launch lock, and its change builds before it lets go.
+        let held = queue::admission(root).unwrap();
+        let state = root.to_path_buf();
+        let other = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            let building = r#"{"state": "building", "paths": ["src/**"]}"#;
+            change::write(&state, c2, building).unwrap();
+            drop(held);
+        });
+        let mut steps = played(root);
+        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
+        other.join().unwrap();
+        let overlaps = "c1 overlaps c2 (building): src/a.rs with src/**\n";
+        assert!(refused.starts_with(overlaps), "{refused}");
+        assert!(steps.ran.is_empty());
+        assert!(worktree_branch(&repo).is_err());
+    }
+
+    /// The record of change `c1` with G3 open.
+    fn g3_open() -> String {
+        RECORD.replace(
+            "\"title\"",
+            "\"gates\": {\"G3\": {\"decision\": \"ok\"}}, \"title\"",
+        )
+    }
+
+    /// Change `c1` of `repo` at its merge, from its worktree.
+    fn merging(repo: &Checkout) -> Merging<'_> {
+        Merging {
+            state: repo.root(),
+            work: &repo.work,
+            main: "main",
+            id: "c1",
+        }
+    }
+
+    #[test]
+    fn gdd_merge_takes_the_latest_main_and_passes_g3_again_before_it_merges() {
+        let repo = repo_with_change(&g3_open());
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let at = merging(&repo);
+        // Main did not move: the change merges as it is.
+        let mut steps = played(root);
+        assert_eq!(merge(&at, &mut steps), Ok(Said::Done(MERGED.into())));
+        assert_eq!(steps.ran, ["merge"]);
+        news_on_main(root);
+        let mut steps = played(root);
+        assert_eq!(merge(&at, &mut steps), Ok(Said::Done(MERGED.into())));
+        let ran = unwaited(&steps);
+        assert_eq!(ran, [UNOPENED, MOVED, "G3", REOPENED, "merge"]);
+        let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
+        assert_eq!(subject, "gdd(c1): take the latest main");
+        repo.git(&["cat-file", "-e", "change/c1:docs/news.md"]);
+        let took_main = repo.git(&["rev-parse", "change/c1"]);
+        assert_eq!(record(root)["build_start"], took_main.as_str());
+    }
+
+    #[test]
+    fn gdd_merge_parks_a_change_whose_g3_is_red_on_top_of_the_latest_main() {
+        let repo = repo_with_change(&g3_open());
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        news_on_main(root);
+        let mut steps = played(root);
+        steps.g3 = VecDeque::from([false]);
+        let said = merge(&merging(&repo), &mut steps);
+        let why = "Change c1 parked: G3 red on top of the latest main.";
+        assert!(parked(said).starts_with(why));
+        assert_eq!(steps.ran, [UNOPENED, MOVED, "G3"]);
+        assert_eq!(record(root)["state"], "parked");
+        assert!(repo.work.join("docs/news.md").is_file());
+    }
+
+    #[test]
+    fn gdd_merge_refuses_a_change_that_may_not_merge_before_anything_is_touched() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        news_on_main(root);
+        let head = Git::new(&repo.work).head().unwrap();
+        let at = merging(&repo);
+        let mut steps = played(root);
+        assert_eq!(merge(&at, &mut steps).unwrap_err(), "G3 is not open.");
+        repo.write(".gdd/changes/c1/change.json", &g3_open());
+        let elsewhere = Merging { work: root, ..at };
+        let refused = merge(&elsewhere, &mut steps).unwrap_err();
+        let off = "Not on branch change/c1: ";
+        assert!(refused.starts_with(off), "{refused}");
+        assert!(unwaited(&steps).is_empty());
+        assert_eq!(Git::new(&repo.work).head().unwrap(), head);
+        // A step that fails stops it, and says why.
+        steps.fails = vec![("G3", "cannot record G3")];
+        assert_eq!(merge(&at, &mut steps).unwrap_err(), "cannot record G3");
+        assert_eq!(unwaited(&steps), [UNOPENED]);
+        assert_eq!(Git::new(&repo.work).head().unwrap(), head);
+        assert_eq!(record(root)["state"], "in-pre");
     }
 
     #[test]
@@ -2983,8 +3169,10 @@ mod tests {
             "G3",
             "review r round=1",
             OPENED,
-            "say main moved under c1: G3 again on top of it",
+            UNOPENED,
+            MOVED,
             "G3",
+            REOPENED,
             "merge",
             "pre",
         ];
