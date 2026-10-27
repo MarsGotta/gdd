@@ -267,6 +267,15 @@ impl Git {
         self.diff(&[&range])
     }
 
+    /// Whether the commits of `head` changed anything since it left `base`, anywhere in the
+    /// repository: also outside the project folder, which [`Git::committed_from`] leaves out,
+    /// whatever the repository's configuration says.
+    pub fn changed_anywhere(&self, base: &str, head: &str) -> Result<bool, Error> {
+        let range = format!("{}...{}", revision(base)?, revision(head)?);
+        let args = ["diff", "--name-only", "-z", "--no-relative", &range, "--"];
+        Ok(!self.paths(&args)?.is_empty())
+    }
+
     /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
     /// there was no file there.
     pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
@@ -810,6 +819,30 @@ pub(crate) mod tests {
             assert!(matches!(option, Err(Error::Revision(_))), "{base} {head}");
         }
         let err = git.committed_from("trunk", "HEAD").unwrap_err();
+        assert!(err.to_string().starts_with("git diff "), "{err}");
+    }
+
+    #[test]
+    fn what_a_branch_changed_outside_the_project_folder_is_a_change_anywhere() {
+        let repo = Repo::new();
+        repo.write("app/gdd/rules.toml", "a\n");
+        repo.commit();
+        repo.start("c1");
+        let git = Git::new(&repo.root().join("app"));
+        assert!(!git.changed_anywhere("main", "HEAD").unwrap());
+        repo.write("shared/lib.rs", "x\n");
+        repo.commit();
+        assert_eq!(git.committed_from("main", "HEAD").unwrap(), NOTHING);
+        assert!(git.changed_anywhere("main", "HEAD").unwrap());
+        assert!(!git.changed_anywhere("HEAD", "main").unwrap());
+        // A configuration that keeps diffs to the folder git runs in changes nothing.
+        repo.git(&["config", "--local", "diff.relative", "true"]);
+        assert!(git.changed_anywhere("main", "HEAD").unwrap());
+        for (base, head) in [("-x", "HEAD"), ("main", "--all")] {
+            let option = git.changed_anywhere(base, head);
+            assert!(matches!(option, Err(Error::Revision(_))), "{base} {head}");
+        }
+        let err = git.changed_anywhere("trunk", "HEAD").unwrap_err();
         assert!(err.to_string().starts_with("git diff "), "{err}");
     }
 

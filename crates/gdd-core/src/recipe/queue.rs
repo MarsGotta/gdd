@@ -252,10 +252,11 @@ fn held(state: &Path, path: &str, waiting: impl FnOnce()) -> Result<Lock, String
 }
 
 /// Whether the main branch `main` moved since the change checked out at `work` was last built:
-/// its commits since they parted changed something. The merge commit of the change itself, with
+/// its commits since they parted changed something anywhere in the repository, also outside the
+/// project folder, as the merge brings it all. The merge commit of the change itself, with
 /// nothing else, is no move.
 pub fn main_moved(work: &Path, main: &str) -> Result<bool, git::Error> {
-    Ok(!Git::new(work).committed_from("HEAD", main)?.is_empty())
+    Git::new(work).changed_anywhere("HEAD", main)
 }
 
 /// Takes the latest main branch `main` into the branch of change `id`, checked out at `work`:
@@ -618,6 +619,32 @@ mod tests {
         repo.commit();
         assert!(main_moved(&work, "main").unwrap());
         assert!(main_moved(&work, "trunk").is_err());
+    }
+
+    #[test]
+    fn main_moved_when_it_changed_only_what_is_outside_the_project_folder() {
+        // The project lives in `app/` of the repository; main changes only `shared/`.
+        let repo = Repo::new();
+        repo.identify();
+        repo.write("app/gdd/project.toml", "name = \"app\"\n");
+        repo.write("shared/lib.txt", "old\n");
+        repo.commit();
+        repo.start("c1");
+        repo.write("app/app.txt", "change\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        let trees = Folder::new();
+        let tree = trees.0.join("c1");
+        let path = tree.to_string_lossy().into_owned();
+        repo.git(&["worktree", "add", "-q", &path, "change/c1"]);
+        repo.write("shared/lib.txt", "new\n");
+        repo.commit();
+        let work = tree.join("app");
+        assert!(main_moved(&work, "main").unwrap());
+        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
+        let shared = fs::read_to_string(tree.join("shared/lib.txt")).unwrap();
+        assert_eq!(shared, "new\n");
+        assert!(!main_moved(&work, "main").unwrap());
     }
 
     #[test]
