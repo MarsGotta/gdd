@@ -907,6 +907,51 @@ fn output_lacks(w: &mut GddWorld, text: String) {
     );
 }
 
+#[then(expr = "the output contains {string} exactly {int} times")]
+fn output_contains_times(w: &mut GddWorld, text: String, times: usize) {
+    let ran = last_run(w);
+    assert!(
+        ran.succeeded || w.exit_checked,
+        "gdd failed: {:?}",
+        ran.stderr
+    );
+    let found = ran.stdout.matches(&text).count();
+    assert_eq!(
+        found, times,
+        "the output {:?} has {text:?} {found} times",
+        ran.stdout
+    );
+}
+
+/// Rewrites `gdd/project.toml` with `stack_line` first and the other lines kept, but for any
+/// earlier `stack` key.
+fn set_project_stack(w: &mut GddWorld, stack_line: &str) {
+    let path = project_root(w).join("gdd/project.toml");
+    let current = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path:?}: {e}"));
+    let kept: Vec<&str> = current
+        .lines()
+        .filter(|line| {
+            let key = line.split('=').next().unwrap_or("").trim();
+            !line.contains('=') || key != "stack"
+        })
+        .collect();
+    write_file(&path, &format!("{stack_line}\n{}\n", kept.join("\n")));
+}
+
+#[given(expr = "the project uses the stacks {string}")]
+fn project_uses_stacks(w: &mut GddWorld, names: String) {
+    let list: Vec<String> = names
+        .split_whitespace()
+        .map(|n| format!("\"{n}\""))
+        .collect();
+    set_project_stack(w, &format!("stack = [{}]", list.join(", ")));
+}
+
+#[given(expr = "the project uses the stack {string}")]
+fn project_uses_stack(w: &mut GddWorld, name: String) {
+    set_project_stack(w, &format!("stack = \"{name}\""));
+}
+
 #[given(expr = "the change {string} has a resolved request {string}")]
 fn resolved_request(w: &mut GddWorld, id: String, text: String) {
     let root = project_root(w);

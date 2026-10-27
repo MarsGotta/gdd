@@ -19,7 +19,7 @@ use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::recipe::{self, Answer, Said, Snapshot};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
-use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log, session};
+use gdd_core::{Classification, Color, Report, RulesTable, ZoneMap, inbox, log, session, stacks};
 
 /// File that marks the root of a GDD project.
 const PROJECT: &str = "gdd/project.toml";
@@ -219,22 +219,45 @@ enum Command {
     /// polish runs one more Builder round with your notes and pauses at G4 again. Builders and
     /// Reviewers cannot answer.
     Resume(ResumeArgs),
-    /// The GDD commands in the folders of the coding agents (claude, codex, opencode), as their
-    /// agent sheets say.
+    /// The GDD commands, and the instructions of each stack in `stack` of gdd/project.toml, in
+    /// the folders of the coding agents (claude, codex, opencode), as their agent sheets say.
     Agents {
         #[command(subcommand)]
         action: AgentsAction,
+    },
+    /// The stack sheets gdd comes with (python, rust, typescript): one line per sheet.
+    Stacks {
+        #[command(subcommand)]
+        action: Option<StacksAction>,
     },
 }
 
 /// What `gdd agents` does.
 #[derive(Debug, Subcommand)]
 enum AgentsAction {
-    /// Writes every GDD command for each agent, and no other file. Prints the paths as JSON.
+    /// Writes every GDD command and the instructions of each stack of the project for each
+    /// agent, and no other file. Prints the paths as JSON.
     Install(AgentArgs),
-    /// Checks that each GDD command of each agent is exactly what install writes; names every
-    /// file missing or edited, and exits with 1.
+    /// Checks that each GDD command and the instructions of each stack of the project of each
+    /// agent are exactly what install writes; names every file missing or edited, and exits
+    /// with 1.
     Check(AgentArgs),
+}
+
+/// What `gdd stacks` does besides listing the sheets.
+#[derive(Debug, Subcommand)]
+enum StacksAction {
+    /// One sheet: the tool for each need, the commands and the protected paths.
+    Show {
+        /// The stack.
+        name: String,
+    },
+    /// What the named sheets give together, as TOML: the shape of gdd/commands.toml plus a
+    /// [protected] table. Writes nothing.
+    Compose {
+        /// The stacks; a name given twice counts once.
+        names: Vec<String>,
+    },
 }
 
 /// What `gdd agents install` and `gdd agents check` take.
@@ -362,6 +385,7 @@ impl Command {
             Command::Launch { change } => return launch(root, &change, env).map(Outcome::said),
             Command::Resume(args) => return resume(root, &args, role, env).map(Outcome::said),
             Command::Agents { action } => return agent_commands(root, &action),
+            Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
             Command::Report { by, change, json } => report(root, &by, change.as_deref(), json)?,
             Command::Classify { change } => classify(root, &change_id(change, env)?)?,
             Command::Snapshot { change } => snapshot(root, &change_id(change, env)?)?,
@@ -749,17 +773,19 @@ fn resume(root: &Path, args: &ResumeArgs, role: Option<&str>, env: &Env) -> Resu
     recipe::resume(&project, id, answer, &note, role, &mut steps)
 }
 
-/// `gdd agents install` and `gdd agents check` (see [`render::install`] and [`render::check`]):
-/// each problem check finds goes on a line of its own on the standard error, and fails the run.
+/// `gdd agents install` and `gdd agents check` (see [`render::install`] and [`render::check`]),
+/// with the stacks of the project: each problem check finds goes on a line of its own on the
+/// standard error, and fails the run.
 fn agent_commands(root: &Path, action: &AgentsAction) -> Result<Outcome, String> {
+    let stacks = project_stacks(root)?;
     match action {
         AgentsAction::Install(args) => {
-            let written = render::install(root, &agent_sheets(root, &args.agents)?)?;
+            let written = render::install(root, &agent_sheets(root, &args.agents)?, &stacks)?;
             let printed = serde_json::json!({"ok": true, "written": written});
             Ok(Outcome::printed(printed.to_string(), 0))
         }
         AgentsAction::Check(args) => {
-            let problems = render::check(root, &agent_sheets(root, &args.agents)?)?;
+            let problems = render::check(root, &agent_sheets(root, &args.agents)?, &stacks)?;
             if problems.is_empty() {
                 return Ok(Outcome::printed(r#"{"ok":true}"#.to_string(), 0));
             }
@@ -778,6 +804,22 @@ fn agent_sheets(root: &Path, named: &[String]) -> Result<Vec<Sheet>, String> {
         Models::default()
     };
     render::agents(&models, named)
+}
+
+/// The stacks `gdd/project.toml` names (see [`stacks::of_project`]).
+fn project_stacks(root: &Path) -> Result<Vec<String>, String> {
+    let text = read(root, PROJECT)?.unwrap_or_default();
+    stacks::of_project(&text).map_err(|e| format!("{PROJECT}: {e}"))
+}
+
+/// `gdd stacks`: the list of the sheets, one of them (see [`stacks::Sheet`]) or what several
+/// give together (see [`stacks::compose`]).
+fn stack_sheets(action: Option<StacksAction>) -> Result<String, stacks::Error> {
+    match action {
+        None => stacks::list(),
+        Some(StacksAction::Show { name }) => Ok(stacks::sheet(&name)?.to_string()),
+        Some(StacksAction::Compose { names }) => stacks::compose(&names),
+    }
 }
 
 /// The steps of the recipe on change `id` of the project at `root`, as the commands of the same
@@ -1207,7 +1249,7 @@ mod tests {
         for command in ["new-change", "gate", "note", "inbox", "status"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
-        for command in ["prepare", "park", "merge", "release"] {
+        for command in ["prepare", "park", "merge", "release", "stacks"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
         for command in ["launch", "resume", "agents", "selftest", "ci", "session"] {
@@ -1256,6 +1298,9 @@ mod tests {
             "agents remove",
             "agents install --agent",
             "agents check claude",
+            "stacks rust",
+            "stacks show",
+            "stacks show rust python",
         ] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command:?}");
@@ -2723,5 +2768,66 @@ esac
         assert!(out.stderr.starts_with(start), "{out:?}");
         let out = project.run("agents install --agent claude");
         assert_eq!(written(&out).len(), 11);
+    }
+
+    #[test]
+    fn agents_install_and_check_the_instructions_of_the_stacks_of_the_project() {
+        let project = Project::new();
+        project.write(PROJECT, "stack = [\"rust\", \"python\"]\n");
+        let paths = written(&project.run("agents install --agent claude"));
+        let instructions = [
+            ".claude/skills/gdd-stack-rust/SKILL.md",
+            ".claude/skills/gdd-stack-python/SKILL.md",
+        ];
+        assert_eq!(paths[11..], instructions);
+        let ok = Outcome::success("{\"ok\":true}\n".into());
+        assert_eq!(project.run("agents check --agent claude"), ok);
+        project.write(PROJECT, "stack = \"typescript\"\n");
+        let missing = "error: .claude/skills/gdd-stack-typescript/SKILL.md: missing\n";
+        let out = project.run("agents check --agent claude");
+        assert_eq!(out, Outcome::failure(missing.into()));
+        project.write(PROJECT, "stack = \"\"\n");
+        assert_eq!(project.run("agents check --agent claude"), ok);
+    }
+
+    #[test]
+    fn agents_install_nothing_for_a_project_whose_stacks_cannot_be_read() {
+        let project = Project::new();
+        project.write(PROJECT, "stack = [\"rust\", \"cobol\"]\n");
+        let unknown = "error: unknown stack cobol (known: python, rust, typescript)\n";
+        for command in [
+            "agents install --agent claude",
+            "agents check --agent claude",
+        ] {
+            let out = project.run(command);
+            assert_eq!(out, Outcome::failure(unknown.into()), "{command}");
+        }
+        project.write(PROJECT, "stack = 3\n");
+        let out = project.run("agents install --agent claude");
+        let wrong = "error: gdd/project.toml: invalid TOML: stack is not a name or a list of \
+                     names\n";
+        assert_eq!(out, Outcome::failure(wrong.into()));
+        assert!(!project.0.join(".claude").exists());
+    }
+
+    #[test]
+    fn stacks_lists_shows_and_composes_the_sheets() {
+        let project = Project::new();
+        let listed = format!("{}\n", stacks::list().unwrap());
+        assert_eq!(project.run("stacks"), Outcome::success(listed));
+        let shown = format!("{}\n", stacks::sheet("python").unwrap());
+        let out = project.run("stacks show python");
+        assert_eq!(out, Outcome::success(shown));
+        let composed = stacks::compose(&words("rust typescript")).unwrap();
+        let out = project.run("stacks compose rust typescript rust");
+        assert_eq!(out, Outcome::success(format!("{composed}\n")));
+        let unknown = "error: unknown stack cobol (known: python, rust, typescript)\n";
+        for command in ["stacks show cobol", "stacks compose rust cobol"] {
+            let out = project.run(command);
+            assert_eq!(out, Outcome::failure(unknown.into()), "{command}");
+        }
+        let none = "error: name at least one stack: gdd stacks compose <name>...\n";
+        let out = project.run("stacks compose");
+        assert_eq!(out, Outcome::failure(none.into()));
     }
 }

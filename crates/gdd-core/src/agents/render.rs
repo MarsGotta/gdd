@@ -1,6 +1,7 @@
 //! The GDD commands as each agent keeps them: rendered for its sheet from the templates built
-//! into the tool, then installed in a project or checked against it. Rendering is deterministic:
-//! the same tool writes the same bytes. Only the files the sheets name are written.
+//! into the tool, then installed in a project or checked against it, with the instructions of
+//! each stack of the project as one more command. Rendering is deterministic: the same tool
+//! writes the same bytes. Only the files the sheets name are written.
 
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write};
@@ -11,6 +12,7 @@ use serde_json::Value;
 use crate::agents::models::{self, Models};
 use crate::agents::sheets::{self, Format, Sheet};
 use crate::config::Color;
+use crate::stacks;
 
 /// The GDD commands built into the tool, by name: frontmatter with `description: "..."`, then
 /// the text, where `{{invoke:<command>}}` marks a call to another command.
@@ -81,11 +83,21 @@ fn integrations(models: &Models) -> Vec<String> {
         .collect()
 }
 
-/// Every GDD command for each of `agents`: where it goes, from the project root, and its text.
-fn files(agents: &[Sheet]) -> Result<Vec<(String, String)>, String> {
+/// Every GDD command, then the instructions of each of `stacks` as the command
+/// `stack-<name>`, for each of `agents`: where it goes, from the project root, and its text. A
+/// stack without a sheet is an error.
+fn files(agents: &[Sheet], stacks: &[String]) -> Result<Vec<(String, String)>, String> {
+    let mut commands: Vec<(String, &str)> = COMMANDS
+        .iter()
+        .map(|&(command, template)| (command.to_string(), template))
+        .collect();
+    for stack in stacks {
+        let instructions = stacks::instructions(stack).map_err(|e| e.to_string())?;
+        commands.push((format!("stack-{stack}"), instructions));
+    }
     let mut files = Vec::new();
     for sheet in agents {
-        for (command, template) in COMMANDS {
+        for (command, template) in &commands {
             files.push((sheet.path(command), render(sheet, command, template)?));
         }
     }
@@ -136,11 +148,12 @@ fn invoked(sheet: &Sheet, text: &str) -> String {
     written
 }
 
-/// Writes every GDD command for each of `agents` in the project at `root`, creating their
-/// folders, and touches no other file: the paths it wrote, from the root. A symbolic link on the
-/// way to any of them would send a command elsewhere, so then it writes nothing.
-pub fn install(root: &Path, agents: &[Sheet]) -> Result<Vec<String>, String> {
-    let files = files(agents)?;
+/// Writes every GDD command and the instructions of each of `stacks` for each of `agents` in the
+/// project at `root`, creating their folders, and touches no other file: the paths it wrote,
+/// from the root. It writes nothing when a stack has no sheet, or when a symbolic link on the
+/// way to any of them would send a command elsewhere.
+pub fn install(root: &Path, agents: &[Sheet], stacks: &[String]) -> Result<Vec<String>, String> {
+    let files = files(agents, stacks)?;
     for (path, _) in &files {
         let cannot = |why: String| format!("cannot write {path}: {why}");
         match first_link(root, path) {
@@ -200,12 +213,12 @@ fn not_followed(link: &Path) -> String {
     )
 }
 
-/// What is wrong with the GDD commands of `agents` in the project at `root`: one line for each
-/// file that is missing, behind a symbolic link [`install`] would not write through, or does not
-/// hold exactly what [`install`] writes.
-pub fn check(root: &Path, agents: &[Sheet]) -> Result<Vec<String>, String> {
+/// What is wrong with the GDD commands and the instructions of each of `stacks` of `agents` in
+/// the project at `root`: one line for each file that is missing, behind a symbolic link
+/// [`install`] would not write through, or does not hold exactly what [`install`] writes.
+pub fn check(root: &Path, agents: &[Sheet], stacks: &[String]) -> Result<Vec<String>, String> {
     let mut problems = Vec::new();
-    for (path, text) in files(agents)? {
+    for (path, text) in files(agents, stacks)? {
         let link = first_link(root, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
         if let Some(link) = link {
             problems.push(format!("{path}: {}", not_followed(&link)));
@@ -310,6 +323,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_instructions_of_every_stack_render_for_every_agent() {
+        for stack in stacks::NAMES.split(", ") {
+            let template = stacks::instructions(stack).unwrap();
+            let (_, text) = parts(template).unwrap();
+            assert!(text.starts_with("# GDD · "), "{stack}");
+            let command = format!("stack-{stack}");
+            for name in sheets::NAMES.split(", ") {
+                let rendered = render(&sheet(name), &command, template).unwrap();
+                assert!(rendered.ends_with(text), "{name} {stack}");
+                assert!(!rendered.contains(INVOKE), "{name} {stack}");
+            }
+            let claude = render(&sheet("claude"), &command, template).unwrap();
+            let front = format!("---\nname: gdd-stack-{stack}\ndescription: '");
+            assert!(claude.starts_with(&front), "{claude}");
+        }
+    }
+
+    #[test]
+    fn install_writes_the_instructions_of_each_stack_after_the_commands() {
+        let folder = Folder::new();
+        let agents = [sheet("claude"), sheet("opencode")];
+        let stacks = ["rust".to_string(), "python".to_string()];
+        let written = install(&folder.0, &agents, &stacks).unwrap();
+        let each = COMMANDS.len() + 2;
+        assert_eq!(written.len(), 2 * each);
+        let rust = ".claude/skills/gdd-stack-rust/SKILL.md";
+        let python = ".claude/skills/gdd-stack-python/SKILL.md";
+        assert_eq!(written[each - 2..each], [rust, python]);
+        let last = ".opencode/commands/gdd-stack-python.md";
+        assert_eq!(written[2 * each - 1], last);
+        assert_eq!(check(&folder.0, &agents, &stacks), Ok(Vec::new()));
+        // The commands alone are all there, with no stack.
+        assert_eq!(check(&folder.0, &agents, &[]), Ok(Vec::new()));
+        let more = ["rust".to_string(), "typescript".to_string()];
+        let problems = check(&folder.0, &agents[..1], &more).unwrap();
+        let typescript = ".claude/skills/gdd-stack-typescript/SKILL.md: missing";
+        assert_eq!(problems, [typescript]);
+        folder.write(rust, "edited\n");
+        let problems = check(&folder.0, &agents[..1], &stacks).unwrap();
+        let differs = format!("{rust}: differs from what gdd writes");
+        assert_eq!(problems, [differs]);
+    }
+
+    #[test]
+    fn a_stack_without_a_sheet_installs_and_checks_nothing() {
+        let folder = Folder::new();
+        let agents = [sheet("claude")];
+        let stacks = ["rust".to_string(), "cobol".to_string()];
+        let unknown = "unknown stack cobol (known: python, rust, typescript)";
+        let said = install(&folder.0, &agents, &stacks).unwrap_err();
+        assert_eq!(said, unknown);
+        assert!(!folder.0.join(".claude").exists());
+        let said = check(&folder.0, &agents, &stacks).unwrap_err();
+        assert_eq!(said, unknown);
+    }
+
     const MODELS: &str = "[reviewer]\nintegration = \"codex\"\nmodel = \"gpt\"\n\
                           [builder.red]\nintegration = \"opencode\"\nmodel = \"k\"\n\
                           [builder.yellow]\nintegration = \"claude\"\nmodel = \"s\"\n\
@@ -362,11 +432,11 @@ mod tests {
         folder.write(".claude/skills/mine/SKILL.md", "mine\n");
         folder.write(".claude/skills/gdd-build/SKILL.md", "old\n");
         let agents = [sheet("claude"), sheet("opencode")];
-        let written = install(&folder.0, &agents).unwrap();
+        let written = install(&folder.0, &agents, &[]).unwrap();
         assert_eq!(written.len(), 2 * COMMANDS.len());
         assert_eq!(written[0], ".claude/skills/gdd-build/SKILL.md");
         assert_eq!(written[11], ".opencode/commands/gdd-build.md");
-        let files = files(&agents).unwrap();
+        let files = files(&agents, &[]).unwrap();
         let paths: Vec<String> = files.iter().map(|(path, _)| path.clone()).collect();
         assert_eq!(written, paths);
         for (path, text) in &files {
@@ -377,15 +447,15 @@ mod tests {
         assert_eq!(mine, "mine\n");
         assert!(!folder.0.join(".agents").exists());
         // The same tool writes the same bytes.
-        assert_eq!(install(&folder.0, &agents).unwrap(), written);
-        assert_eq!(check(&folder.0, &agents), Ok(Vec::new()));
+        assert_eq!(install(&folder.0, &agents, &[]).unwrap(), written);
+        assert_eq!(check(&folder.0, &agents, &[]), Ok(Vec::new()));
     }
 
     #[test]
     fn install_says_what_it_cannot_write() {
         let folder = Folder::new();
         folder.write(".opencode/commands", "a file where a folder goes\n");
-        let said = install(&folder.0, &[sheet("claude"), sheet("opencode")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("claude"), sheet("opencode")], &[]).unwrap_err();
         let start = "cannot write .opencode/commands/gdd-build.md: ";
         assert!(said.starts_with(start), "{said}");
         // Nothing is written, not even the commands of the agent before.
@@ -411,7 +481,7 @@ mod tests {
         folder.write(".claude/skills/my-skill/SKILL.md", "mine\n");
         let status = ".claude/skills/gdd-status/SKILL.md";
         link(&folder, status, Path::new("../my-skill/SKILL.md"));
-        let said = install(&folder.0, &[sheet("claude")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("claude")], &[]).unwrap_err();
         assert_eq!(said, format!("cannot write {status}: {}", behind(status)));
         let mine = fs::read_to_string(folder.0.join(".claude/skills/my-skill/SKILL.md")).unwrap();
         assert_eq!(mine, "mine\n");
@@ -428,9 +498,9 @@ mod tests {
         fs::create_dir_all(folder.0.join(".claude/skills/gdd-build")).unwrap();
         fs::hard_link(folder.0.join(mine), folder.0.join(build)).unwrap();
         let agents = [sheet("claude")];
-        install(&folder.0, &agents).unwrap();
+        install(&folder.0, &agents, &[]).unwrap();
         assert_eq!(fs::read_to_string(folder.0.join(mine)).unwrap(), "mine\n");
-        assert_eq!(check(&folder.0, &agents), Ok(Vec::new()));
+        assert_eq!(check(&folder.0, &agents, &[]), Ok(Vec::new()));
     }
 
     #[test]
@@ -438,7 +508,7 @@ mod tests {
         let folder = Folder::new();
         let build = ".claude/skills/gdd-build/SKILL.md";
         folder.write(&format!("{build}/notes.md"), "mine\n");
-        let said = install(&folder.0, &[sheet("claude")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("claude")], &[]).unwrap_err();
         // The reason is the folder that cannot be removed, not the file that cannot be made.
         let why = fs::remove_file(folder.0.join(build)).unwrap_err();
         assert_eq!(said, format!("cannot write {build}: {why}"));
@@ -450,13 +520,13 @@ mod tests {
     fn install_writes_nothing_outside_the_project_through_a_linked_folder() {
         let (folder, outside) = (Folder::new(), Folder::new());
         link(&folder, ".agents", &outside.0);
-        let said = install(&folder.0, &[sheet("codex")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("codex")], &[]).unwrap_err();
         let build = ".agents/skills/gdd-build/SKILL.md";
         assert_eq!(said, format!("cannot write {build}: {}", behind(".agents")));
         // A link to nothing yet would make the file where it points.
         let commands = ".opencode/commands";
         link(&folder, commands, &outside.0.join("not yet"));
-        let said = install(&folder.0, &[sheet("opencode")]).unwrap_err();
+        let said = install(&folder.0, &[sheet("opencode")], &[]).unwrap_err();
         let build = ".opencode/commands/gdd-build.md";
         assert_eq!(said, format!("cannot write {build}: {}", behind(commands)));
         assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 0);
@@ -466,12 +536,12 @@ mod tests {
     fn check_names_each_command_behind_a_symbolic_link() {
         let folder = Folder::new();
         let agents = [sheet("codex")];
-        install(&folder.0, &agents).unwrap();
+        install(&folder.0, &agents, &[]).unwrap();
         // Even a link to exactly what gdd writes is not a command of its own.
         let review = ".agents/skills/gdd-review";
         fs::rename(folder.0.join(review), folder.0.join("review")).unwrap();
         link(&folder, review, Path::new("../../review"));
-        let problems = check(&folder.0, &agents).unwrap();
+        let problems = check(&folder.0, &agents, &[]).unwrap();
         assert_eq!(problems, [format!("{review}/SKILL.md: {}", behind(review))]);
     }
 
@@ -479,23 +549,23 @@ mod tests {
     fn check_names_each_command_missing_or_edited() {
         let folder = Folder::new();
         let agents = [sheet("codex")];
-        install(&folder.0, &agents).unwrap();
+        install(&folder.0, &agents, &[]).unwrap();
         let review = ".agents/skills/gdd-review/SKILL.md";
         fs::remove_file(folder.0.join(review)).unwrap();
         let build = ".agents/skills/gdd-build/SKILL.md";
         let text = fs::read_to_string(folder.0.join(build)).unwrap();
         folder.write(build, &format!("{text}\n"));
-        let problems = check(&folder.0, &agents).unwrap();
+        let problems = check(&folder.0, &agents, &[]).unwrap();
         let expected = [
             format!("{build}: differs from what gdd writes"),
             format!("{review}: missing"),
         ];
         assert_eq!(problems, expected);
-        let claude = check(&folder.0, &[sheet("claude")]).unwrap();
+        let claude = check(&folder.0, &[sheet("claude")], &[]).unwrap();
         assert_eq!(claude.len(), COMMANDS.len());
         assert!(claude.iter().all(|problem| problem.ends_with(": missing")));
         fs::create_dir_all(folder.0.join(review)).unwrap();
-        let said = check(&folder.0, &agents).unwrap_err();
+        let said = check(&folder.0, &agents, &[]).unwrap_err();
         let start = format!("cannot read {review}: ");
         assert!(said.starts_with(&start), "{said}");
     }
