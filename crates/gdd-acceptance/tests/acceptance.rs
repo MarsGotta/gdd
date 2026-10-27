@@ -733,9 +733,12 @@ fn gate_command_is(w: &mut GddWorld, gate: String, name: String, command: String
                 .collect()
         })
         .unwrap_or_default();
+    // Only the change whose branch got the commit: a commit on main (after a launch, say) is not
+    // in another change's branch, and a build start outside its branch blinds Path Guard.
+    let current = git(&root, &["branch", "--show-current"]);
     for id in ids {
         let mut record = read_record(&root, &id);
-        if record.get("build_start").is_some() {
+        if record.get("build_start").is_some() && current == format!("change/{id}") {
             record["build_start"] = head.clone().into();
             write_record(&root, &id, &record);
         }

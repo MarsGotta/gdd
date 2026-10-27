@@ -35,7 +35,7 @@ change, stop and review before adding more.
 | Harness self-test (`gdd selftest`, 4 checks) | done | kit-retire (2026-10-26) |
 | Retire the bootstrap kit here: `gdd selftest`, `gdd ci`, `gdd session`, the change from `GDD_CHANGE`; `bin/gdd` runs only `gdd`; CI builds `gdd` from main and judges the change with it; `gdd-kit/` deleted | done | kit-retire (2026-10-26) |
 | Interactive sessions of Codex and OpenCode in the log (`gdd session` reads Claude Code's only, as the kit did) | open | |
-| Code comments in `agents/usage.rs` and `recipe/mod.rs` still cite the deleted kit files as reference | next | the next change that touches them |
+| Code comments in `agents/usage.rs` and `recipe/mod.rs` still cite the deleted kit files as reference | done | resume-retry (2026-10-27) |
 
 ## 3. Agents and the recipe
 
@@ -50,7 +50,7 @@ change, stop and review before adding more.
 | Same for Codex and OpenCode, and the Reviewer only reads (working tree compared by type, permissions, content and link target); the agent's processes are killed when its turn ends | done | agent-launch (2026-10-26) |
 | Single recipe steps: prepare (entry checks, models per role), park, merge with the change's record, release pre/promote/observe with rollback | done | run-steps (2026-10-26) |
 | The fixed recipe: Build (test mode, then build mode) → G2 → G3 → Reviewer → merge → pre → G4 pause and resume → promote → observe; Spec Kit stops running it | done | recipe-run (2026-10-26); `bin/gdd launch|resume` run it |
-| `gdd resume --g4 ok` keeps the pause until promote and observe succeed, so a failed promotion can be retried (Reviewer note in recipe-run) | next | resume-retry (small red change) |
+| `gdd resume --g4 ok` keeps the pause until the promotion passes, so a failed promotion can be retried; a change caught mid-promotion (`promoting`) parks instead of guessing; a change already in production is only observed | done | resume-retry (2026-10-27) |
 | Kit e2e t8 fails when the suite runs from this repository (passes in the pilot repository) | no longer applies | kit-retire removed the kit here; the suite runs in the pilot |
 | A relaunch with G2 green skips the Builder, checked under Path Guard | done | run-steps; kit 0.5.5 |
 | Replan that can send the change back to test mode | done | recipe-run |
