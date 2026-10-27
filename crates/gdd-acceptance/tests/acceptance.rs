@@ -1350,7 +1350,8 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
 // `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from <call>`), `build_path`, `replan`,
 // `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
 // (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
-// (`<change>|<build call>`: that call appends a line of the log for the change).
+// (`<change>|<build call>`: that call appends a line of the log for the change) and `main_gets`
+// (a path the first Reviewer call commits on main in the main checkout).
 
 const FAKE_AGENT: &str = r##"#!/bin/sh
 integration=${0##*/}
@@ -1453,6 +1454,14 @@ case "$role" in
       path=$(cat "$fake/reviewer_writes")
       mkdir -p "$(dirname "$path")"
       echo "the Reviewer was here" > "$path"
+    fi
+    if [ -f "$fake/main_gets" ] && [ "$n" = 1 ]; then
+      path=$(cat "$fake/main_gets")
+      mkdir -p "$(dirname "$GDD_STATE/$path")"
+      echo "main moved on" > "$GDD_STATE/$path"
+      unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+      git -C "$GDD_STATE" add -- "$path"
+      git -C "$GDD_STATE" -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "main moves on" -- "$path"
     fi
     text=$answer
     ;;
@@ -1999,6 +2008,60 @@ fn agents_worked_in_worktree(w: &mut GddWorld, id: String) {
     for cwd in cwds.lines() {
         assert_eq!(Path::new(cwd), expected, "an agent worked in {cwd}");
     }
+}
+
+// ---- features/merge-queue.feature ----------------------------------------------------------
+//
+// The fake Reviewer also acts on `main_gets` in `.gdd/fake/` (a path): on its first call it writes
+// that file in the main checkout (`$GDD_STATE`) and commits it on main there.
+
+#[given(expr = "the cap of changes building at once is {int}")]
+fn cap_of_changes_building(w: &mut GddWorld, cap: usize) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    // A `[parallel]` table already there (the worktrees folder) keeps its lines.
+    let rules = match rules.split_once("[parallel]\n") {
+        Some((before, after)) => format!("{before}[parallel]\nmax = {cap}\n{after}"),
+        None => format!("{rules}\n[parallel]\nmax = {cap}\n"),
+    };
+    write_file(&path, &rules);
+    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["commit", "-q", "-m", "cap of changes building"]);
+}
+
+#[given(expr = "the change {string} is building")]
+fn change_is_building(w: &mut GddWorld, id: String) {
+    let root = project_root(w);
+    let mut record = read_record(&root, &id);
+    record["state"] = "building".into();
+    write_record(&root, &id, &record);
+}
+
+#[given(expr = "the main branch gets the file {string} during the Reviewer call")]
+fn main_gets_file_during_review(w: &mut GddWorld, path: String) {
+    fake_file(w, "main_gets", &path);
+}
+
+#[given(expr = "another gdd holds the merge lock for {int} seconds")]
+fn another_gdd_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
+    let file = project_root(w).join(".gdd/merge.lock");
+    write_file(&file, "");
+    let (taken, wait_taken) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let held = fs::OpenOptions::new().write(true).open(&file);
+        let held = held.and_then(|f| f.lock().map(|()| f));
+        let ok = held.is_ok();
+        // The sender may be gone when the step already failed; nothing to tell then.
+        let _ = taken.send(ok);
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        drop(held);
+    });
+    assert_eq!(
+        wait_taken.recv(),
+        Ok(true),
+        "the lock holder could not take .gdd/merge.lock"
+    );
 }
 
 fn repo_root() -> PathBuf {

@@ -5,7 +5,7 @@
 //! root (see [`crate::state::root`]), whose `.gdd/` gets these checks whatever folder gdd runs
 //! in.
 
-use std::fs::{self, File, FileType, Permissions};
+use std::fs::{self, File, FileType, OpenOptions, Permissions};
 use std::io::{self, ErrorKind, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,20 @@ pub fn found(root: &Path, path: &str) -> io::Result<Option<Found>> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// The file `path` of the project at `root`, open as it is; made empty, with the folders on the
+/// way, when there is none. What [`found`] refuses is refused: never through a link or another
+/// name of the file.
+pub fn open(root: &Path, path: &str) -> io::Result<File> {
+    found(root, path)?;
+    let file = root.join(path);
+    if let Some(folder) = file.parent() {
+        fs::create_dir_all(folder)?;
+    }
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    options.open(file)
 }
 
 /// Makes `path` of the project at `root` a new file with `bytes`. What is in the way goes
@@ -183,6 +197,36 @@ mod tests {
             assert!(read(root, &path).is_err(), "{path}");
             assert!(remove(root, &path).is_err(), "{path}");
         }
+    }
+
+    #[test]
+    fn a_file_is_opened_as_it_is_or_made_empty_and_never_through_a_link() {
+        let (project, outside) = two();
+        let root = &project.0;
+        project.write(".gdd/kept", "mine");
+        open(root, ".gdd/kept").unwrap();
+        assert_eq!(text(&root.join(".gdd/kept")), "mine");
+        open(root, ".gdd/new").unwrap();
+        assert_eq!(read(root, ".gdd/new").unwrap(), Some(Vec::new()));
+        symlink(outside.0.join("f"), root.join(".gdd/link")).unwrap();
+        symlink(outside.0.join("none"), root.join(".gdd/dangling")).unwrap();
+        fs::hard_link(outside.0.join("f"), root.join(".gdd/hard")).unwrap();
+        fs::create_dir(root.join(".gdd/folder")).unwrap();
+        for path in [".gdd/link", ".gdd/dangling", ".gdd/hard", ".gdd/folder"] {
+            let err = open(root, path).unwrap_err();
+            assert_eq!(err.to_string(), NOT_OWN, "{path}");
+        }
+        assert!(!outside.0.join("none").exists());
+        symlink(&outside.0, root.join(".gdd/out")).unwrap();
+        let err = open(root, ".gdd/out/new").unwrap_err();
+        assert_eq!(err.to_string(), ".gdd/out is not a folder");
+        project.write("file", "");
+        let err = open(root, "file/new").unwrap_err();
+        assert_eq!(err.to_string(), "file is not a folder");
+        open(root, "nowhere/deep/new").unwrap();
+        assert_eq!(read(root, "nowhere/deep/new").unwrap(), Some(Vec::new()));
+        assert_eq!(text(&outside.0.join("f")), "outside");
+        assert!(!outside.0.join("new").exists());
     }
 
     #[test]

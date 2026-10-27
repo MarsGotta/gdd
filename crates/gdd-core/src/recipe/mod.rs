@@ -10,7 +10,9 @@
 //! 3. G3. Red: one fix by the Builder, G2, and G3 again, which decides. Still red, it parks.
 //! 4. When the change has a Reviewer: its review. KO: one fix, G2, G3 and a second review. KO,
 //!    or G3 red, it parks.
-//! 5. G3 opened by the machines, merge, pre.
+//! 5. G3 opened by the machines, merge, pre. Merges go one at a time; when main moved since the
+//!    change was built, the change takes the latest main and passes G3 again on top of it before
+//!    it merges: a conflict, or G3 red, parks it.
 //! 6. A change that needs the human G4 waits for `gdd resume`. Any other is promoted and
 //!    observed: closed.
 //!
@@ -18,7 +20,8 @@
 //! read the configuration of the project are [`Steps`]. Its agents and gates run in the
 //! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
 //! main branch and takes the merge: the worktree is kept while the change is parked or waits at
-//! G4, and goes when the change closes or is rejected.
+//! G4, and goes when the change closes or is rejected. Several changes run at once, each in its
+//! worktree, as long as they plan no overlapping paths and the cap allows it (see [`queue`]).
 //!
 //! Around every agent call, its own checks: no agent changes the GDD state of its change or the
 //! shared one, links included (see [`State`]), or leaves a state folder in its worktree (see
@@ -26,6 +29,7 @@
 //! after its call, down to the kind of each path, its permissions and where its links point (see
 //! [`Tree`]). Either parks the change.
 
+pub mod queue;
 pub mod state;
 pub mod worktree;
 
@@ -64,6 +68,12 @@ const G3_RED: &str = "G3 still red after one fix";
 
 /// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix.
 const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
+
+/// Why a change parks when G3 is red once it took the latest main.
+const G3_RED_ON_MAIN: &str = "G3 red on top of the latest main";
+
+/// Why a change parks when the latest main does not merge into it: the paths in conflict follow.
+const CONFLICTS: &str = "main moved under it and the merge has conflicts in";
 
 /// What the note on a promotion that failed after the human's OK starts with.
 const PROMOTION_FAILED: &str = "Promotion failed: ";
@@ -162,6 +172,9 @@ pub trait Steps {
     fn merge(&mut self) -> Result<(), String>;
     /// The release step `step`: `pre`, `promote` or `observe` (`gdd release`).
     fn release(&mut self, step: &str) -> Result<(), String>;
+    /// Tells the person who runs the recipe `line` on the way, before what the run says at its
+    /// end.
+    fn say(&mut self, line: &str);
 }
 
 /// What the recipe reads from the project itself.
@@ -181,6 +194,8 @@ pub struct Project<'a> {
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
     pub replans: u32,
+    /// Changes that build at once at most (see [`queue::cap`]).
+    pub max: usize,
 }
 
 /// What a run of the recipe tells the person who ran it.
@@ -252,10 +267,12 @@ enum Ended {
 
 /// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
 /// worktree of change `id` or reuses it (see [`worktree::open`]), prepares the change and runs
-/// the recipe there. Only from the main checkout (see [`from_main_checkout`]).
+/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only next to
+/// the changes in flight (see [`queue::may_launch`]): a refusal touches nothing.
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
-    change::read_record(project.state, id)?;
+    let record = change::read_record(project.state, id)?;
+    queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
     worktree::open(project.root, project.worktree, id)?;
     state::clear(project.state, id)?;
@@ -755,8 +772,7 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// G3, the review, the merge and pre; then the pause at G4, or production. A polish pass
-    /// (`polishing`) with nothing new for the main branch skips the merge. The change merges in
-    /// the main checkout: one that cannot take it parks the change (see [`merge::not_ready`]).
+    /// (`polishing`) with nothing new for the main branch skips the merge (see [`Run::merged`]).
     fn integrate(&mut self, polishing: bool) -> Result<Ended, Stop> {
         self.g3()?;
         if self.decided.reviewer {
@@ -767,16 +783,53 @@ impl<S: Steps> Run<'_, S> {
         let Project { work, main, .. } = *self.project;
         let said = |e: git::Error| Stop::Fail(e.to_string());
         if !(polishing && nothing_new(work, self.id, main).map_err(said)?) {
-            if let Some(why) = merge::not_ready(self.project.root, main).map_err(said)? {
-                return Err(Stop::Park(why));
-            }
-            self.steps.merge()?;
+            self.merged()?;
         }
         self.steps.release("pre")?;
         if self.decided.g4 {
             return Ok(Ended::Paused);
         }
         promoted(&mut *self.steps)
+    }
+
+    /// The merge, one at a time: under the merge lock, which the merge of another change makes
+    /// it wait for, saying so (see [`queue::lock`]). The change merges in the main checkout: one
+    /// that cannot take it parks the change (see [`merge::not_ready`]). When main moved since the
+    /// change was built, it takes the latest main first (see [`Run::on_latest_main`]).
+    fn merged(&mut self) -> Result<(), Stop> {
+        let project = *self.project;
+        let said = |e: git::Error| Stop::Fail(e.to_string());
+        let _lock = queue::lock(project.state, || self.steps.say(queue::WAITING))?;
+        if let Some(why) = merge::not_ready(project.root, project.main).map_err(said)? {
+            return Err(Stop::Park(why));
+        }
+        if queue::main_moved(project.work, project.main).map_err(said)? {
+            self.on_latest_main()?;
+        }
+        Ok(self.steps.merge()?)
+    }
+
+    /// The change takes the latest main (see [`queue::take_main`]): a conflict parks it. Its
+    /// build starts again there (see [`queue::restarted`]), and it passes G3 again on top of it,
+    /// which red parks it.
+    fn on_latest_main(&mut self) -> Result<(), Stop> {
+        let Project { work, main, .. } = *self.project;
+        let (state, id) = (self.project.state, self.id);
+        let said = |e: git::Error| Stop::Fail(e.to_string());
+        let conflicts = queue::take_main(work, main, id).map_err(said)?;
+        if !conflicts.is_empty() {
+            let paths = conflicts.join(", ");
+            return Err(Stop::Park(format!("{CONFLICTS} {paths}")));
+        }
+        let start = Git::new(work).head().map_err(said)?;
+        queue::restarted(state, id, &start)?;
+        let moved = format!("main moved under {id}: G3 again on top of it");
+        self.steps.say(&moved);
+        if self.steps.gate(Gate::G3)? {
+            Ok(())
+        } else {
+            Err(Stop::Park(G3_RED_ON_MAIN.to_string()))
+        }
     }
 
     /// G3; red, one fix by the Builder, G2, and G3 again: G3 decides, as it runs the whole
@@ -922,10 +975,13 @@ impl<'a> State<'a> {
 /// from it: the ones gdd keeps for every change ([`SHARED`]), whatever is at their path, the
 /// others right in `.gdd/`, and every one in the folders of [`HARNESS`] and in the folder of
 /// change `id`, at any depth. The other folders of `.gdd/`, other changes' or ones gdd decides
-/// nothing from, are left out. Links are never followed: one where a folder was is a file here.
+/// nothing from, are left out, and so is the merge lock, which the merges of other changes make
+/// and take while the call runs (see [`queue::lock`]). Links are never followed: one where a
+/// folder was is a file here.
 fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
     let mut paths = BTreeSet::from(SHARED.map(String::from));
     listed(root, STATE_FOLDER, false, &mut paths)?;
+    paths.remove(queue::LOCK);
     let own = format!(".gdd/changes/{id}");
     for folder in HARNESS.into_iter().chain([own.as_str()]) {
         listed(root, folder, true, &mut paths)?;
@@ -1082,6 +1138,8 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
 
     /// A git repository with one commit, as a folder.
     fn repo_folder() -> Folder {
@@ -1248,6 +1306,10 @@ mod tests {
             acts.for_each(|(_, act)| act(self.root));
             self.ended(step)
         }
+
+        fn say(&mut self, line: &str) {
+            self.ran.push(format!("say {line}"));
+        }
     }
 
     /// Runs the recipe of a launch on change `c1`, once prepared, with `replans` replans, all in
@@ -1260,6 +1322,7 @@ mod tests {
             work: steps.root,
             main: "main",
             replans,
+            max: 2,
         };
         let decided = steps.decided.clone();
         let mut run = Run {
@@ -2166,7 +2229,7 @@ mod tests {
     }
 
     impl Checkout {
-        /// What the recipe reads of it: one replan.
+        /// What the recipe reads of it: one replan, and two changes building at once.
         fn project(&self) -> Project<'_> {
             Project {
                 root: self.repo.root(),
@@ -2175,6 +2238,7 @@ mod tests {
                 work: &self.work,
                 main: "main",
                 replans: 1,
+                max: 2,
             }
         }
     }
@@ -2344,6 +2408,142 @@ mod tests {
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
     }
 
+    /// The record of change `c1` planning `src/a.rs`, in state `in-pre`.
+    fn planning_a() -> String {
+        RECORD.replace("\"title\"", "\"paths\": [\"src/a.rs\"], \"title\"")
+    }
+
+    #[test]
+    fn a_launch_next_to_a_change_it_overlaps_or_past_the_cap_touches_nothing() {
+        let repo = repo_with_change(&planning_a());
+        let root = repo.root();
+        let parked = r#"{"state": "parked", "paths": ["src/**"]}"#;
+        repo.write(".gdd/changes/c2/change.json", parked);
+        repo.git(&["checkout", "-q", "change/c1"]);
+        let mut steps = played(root);
+        let refused = launch(&repo.project(), "c1", &mut steps);
+        let overlaps = "c1 overlaps c2 (parked): src/a.rs with src/**";
+        assert_eq!(refused, Err(overlaps.to_string()));
+        repo.write(".gdd/changes/c2/change.json", r#"{"state": "building"}"#);
+        let capped = Project {
+            max: 1,
+            ..repo.project()
+        };
+        let refused = launch(&capped, "c1", &mut steps);
+        let cap = "1 change(s) building, the cap is 1: c2";
+        assert_eq!(refused, Err(cap.to_string()));
+        assert!(steps.ran.is_empty());
+        assert_eq!(repo.tool().current_branch().unwrap(), "change/c1");
+        assert!(worktree_branch(&repo).is_err());
+    }
+
+    /// What a Reviewer call does while the main branch moves on: `docs/news.md` committed on it
+    /// in the main checkout at `root`.
+    fn news_on_main(root: &Path) {
+        change::write(root, "docs/news.md", "news\n").unwrap();
+        let news = ["docs/news.md".to_string()];
+        Git::new(root).commit_files(&news, "news").unwrap();
+    }
+
+    /// What runs of a launch of a change with tests first, up to G3 opened.
+    const TO_OPENED: [&str; 8] = [
+        "prepare",
+        "test t mode=test",
+        "guard since=false",
+        "snapshot Build",
+        "build b mode=build",
+        "G2",
+        "G3",
+        "review r round=1",
+    ];
+
+    const MOVED: &str = "say main moved under c1: G3 again on top of it";
+
+    #[test]
+    fn when_main_moved_the_change_takes_it_and_passes_g3_again_before_it_merges() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.acts = vec![(Who::Reviewer, news_on_main as Act)];
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        let mut expected = TO_OPENED.to_vec();
+        let merged = [OPENED, MOVED, "G3", "merge", "pre", "promote", "observe"];
+        expected.extend(merged);
+        assert_eq!(steps.ran, expected);
+        let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
+        assert_eq!(subject, "gdd(c1): take the latest main");
+        repo.git(&["cat-file", "-e", "change/c1:docs/news.md"]);
+        let took_main = repo.git(&["rev-parse", "change/c1"]);
+        assert_eq!(record(root)["build_start"], took_main.as_str());
+    }
+
+    #[test]
+    fn g3_red_on_top_of_the_latest_main_parks_the_change() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.acts = vec![(Who::Reviewer, news_on_main as Act)];
+        steps.g3 = VecDeque::from([true, false]);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        let why = "Change c1 parked: G3 red on top of the latest main.";
+        assert!(parked(said).starts_with(why));
+        assert_eq!(steps.ran[TO_OPENED.len()..], [OPENED, MOVED, "G3"]);
+        assert_eq!(record(root)["state"], "parked");
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+        assert!(repo.work.join("docs/news.md").is_file());
+    }
+
+    #[test]
+    fn a_conflict_with_the_latest_main_parks_the_change_with_its_paths() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        repo.git(&["checkout", "-q", "change/c1"]);
+        repo.write("app.txt", "change\n");
+        repo.commit();
+        let branch = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["checkout", "-q", "main"]);
+        let mut steps = played(root);
+        let conflicting: Act = |root| {
+            change::write(root, "app.txt", "main\n").unwrap();
+            let app = ["app.txt".to_string()];
+            Git::new(root).commit_files(&app, "app").unwrap();
+        };
+        steps.acts = vec![(Who::Reviewer, conflicting)];
+        let said = launch(&repo.project(), "c1", &mut steps);
+        let why = "Change c1 parked: main moved under it and the merge has conflicts in app.txt.";
+        assert!(parked(said).starts_with(why));
+        assert_eq!(last(&steps), OPENED);
+        assert_eq!(record(root)["state"], "parked");
+        let work = Git::new(&repo.work);
+        assert_eq!(work.head().unwrap(), branch);
+        assert!(work.conflicts().unwrap().is_empty());
+        assert!(!work.has_changes().unwrap());
+    }
+
+    #[test]
+    fn a_merge_waits_for_the_merge_of_another_change_and_says_so() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.decided.tests_first = false;
+        // Another merge takes the lock while the Reviewer runs: its call does not make it state.
+        let another: Act = |root| {
+            let file = files::open(root, queue::LOCK).unwrap();
+            file.lock().unwrap();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(1));
+                drop(file);
+            });
+        };
+        steps.acts = vec![(Who::Reviewer, another)];
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        let waited = format!("say {}", queue::WAITING);
+        assert_eq!(steps.ran[5..7], [OPENED, waited.as_str()]);
+        assert_eq!(steps.ran[7..], ["merge", "pre", "promote", "observe"]);
+    }
+
     #[test]
     fn an_agent_that_leaves_a_state_folder_in_its_worktree_parks_the_change() {
         let repo = repo_with_change(RECORD);
@@ -2383,6 +2583,7 @@ mod tests {
             work: &work,
             main: "main",
             replans: 1,
+            max: 2,
         };
         // The agents act in the project's folder of the worktree.
         let mut steps = played(&work);
@@ -2767,7 +2968,8 @@ mod tests {
         repo.commit();
         let start = repo.git(&["rev-parse", "HEAD"]);
         repo.git(&["checkout", "-q", "main"]);
-        // What main got since is not the pass's: its build starts on the branch.
+        // What main got since is not the pass's: its build starts on the branch, then again
+        // where the branch takes the latest main.
         repo.write("gdd/commands.toml", "[release]\n");
         repo.commit();
         let here = repo.project();
@@ -2781,6 +2983,8 @@ mod tests {
             "G3",
             "review r round=1",
             OPENED,
+            "say main moved under c1: G3 again on top of it",
+            "G3",
             "merge",
             "pre",
         ];
@@ -2796,7 +3000,9 @@ mod tests {
         assert!(notes[0]["resolved"].is_string());
         assert!(notes[2].get("resolved").is_none());
         assert_eq!(record["state"], "building");
-        assert_eq!(record["build_start"], start.as_str());
+        let took_main = repo.git(&["rev-parse", "change/c1"]);
+        assert_eq!(record["build_start"], took_main.as_str());
+        assert_eq!(repo.git(&["rev-parse", "change/c1^1"]), start);
         assert!(inbox_of(root).contains(&format!("## Polish\n- {note}")));
         let log = fs::read_to_string(root.join(log::PATH)).unwrap();
         let lines = log::parse(&log).unwrap();

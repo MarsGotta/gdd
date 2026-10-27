@@ -308,6 +308,12 @@ impl Git {
         self.line(&["merge-base", revision(main)?, revision(branch)?])
     }
 
+    /// The paths a merge in progress left in conflict, from the top of the working tree: git's
+    /// order, each once.
+    pub fn conflicts(&self) -> Result<Vec<String>, Error> {
+        self.paths(&["diff", "--name-only", "--diff-filter=U", "-z"])
+    }
+
     /// Whether the working tree has something to commit: a file changed, deleted or added that
     /// git does not ignore.
     pub fn has_changes(&self) -> Result<bool, Error> {
@@ -1158,6 +1164,33 @@ pub(crate) mod tests {
         repo.git(&["cat-file", "-e", "HEAD:b.txt"]);
         let wrong = git.merge_uncommitted("-x");
         assert!(matches!(wrong, Err(Error::Revision(_))));
+    }
+
+    #[test]
+    fn a_merge_in_conflict_names_its_paths() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.start("c1");
+        repo.write("src/a.txt", "change\n");
+        repo.write("same.txt", "same\n");
+        repo.write("only-change.txt", "c\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("src/a.txt", "main\n");
+        repo.write("same.txt", "same\n");
+        repo.write("README.md", "main\n");
+        repo.commit();
+        let git = repo.tool();
+        assert_eq!(git.conflicts().unwrap(), Vec::<String>::new());
+        assert!(git.merge("change/c1", "m").is_err());
+        assert_eq!(git.conflicts().unwrap(), ["src/a.txt"]);
+        // From the top of the working tree, wherever the project is.
+        let inside = Git::new(&repo.root().join("src"));
+        assert_eq!(inside.conflicts().unwrap(), ["src/a.txt"]);
+        git.abort_merge().unwrap();
+        assert_eq!(git.conflicts().unwrap(), Vec::<String>::new());
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).conflicts().is_err());
     }
 
     /// An environment with the `PATH` of the tests, an author of its own and no configuration of
