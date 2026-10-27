@@ -153,10 +153,12 @@ enum Command {
         change: String,
     },
     /// Loop Gate: the G2 commands of gdd/commands.toml, Path Guard and, in build mode, the
-    /// scope. Saves the result next to the change, logs it and prints it as JSON.
+    /// scope. Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE)
+    /// and prints it as JSON.
     G2(GateArgs),
     /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
-    /// Saves the result next to the change, logs it and prints it as JSON.
+    /// Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE) and
+    /// prints it as JSON.
     G3(GateArgs),
     /// Creates a change: its record and, when it has none, its branch change/<id> from the main
     /// branch. Logs it and prints its classification as JSON.
@@ -477,8 +479,8 @@ impl Command {
         env: &Env,
     ) -> Result<Outcome, String> {
         let text = match self {
-            Command::G2(args) => return run_gate(root, state, Gate::G2, args, env),
-            Command::G3(args) => return run_gate(root, state, Gate::G3, args, env),
+            Command::G2(args) => return run_gate(root, state, Gate::G2, args, role, env),
+            Command::G3(args) => return run_gate(root, state, Gate::G3, args, role, env),
             Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
             Command::Selftest => return run_selftest(root, state),
@@ -745,18 +747,21 @@ fn run_guard(root: &Path, state: &Path, args: GuardArgs, env: &Env) -> Result<Ou
 }
 
 /// `gdd g2` and `gdd g3`: runs `gate` on the change of `args`, else on the one `GDD_CHANGE` of
-/// the environment `env` names (see [`gate_report`]). The report as JSON, then, for the person
-/// who reads it, one line per security exception the change adds on the standard error; exit
-/// code 1 when the gate fails and the run is strict.
+/// the environment `env` names (see [`gate_report`]). Started by an agent, for the role `role`,
+/// the run is not logged: an agent writes only its change's state folder, and the recipe logs
+/// its own run of the gate after the call. The report as JSON, then, for the person who reads
+/// it, one line per security exception the change adds on the standard error; exit code 1 when
+/// the gate fails and the run is strict.
 fn run_gate(
     root: &Path,
     state: &Path,
     gate: Gate,
     args: GateArgs,
+    role: Option<&str>,
     env: &Env,
 ) -> Result<Outcome, String> {
     let id = change_id(args.change, env)?;
-    let report = gate_report(root, state, gate, &id, &args.role)?;
+    let report = gate_report(root, state, gate, &id, &args.role, role.is_none())?;
     let printed = serde_json::to_string(&report).map_err(|e| e.to_string())?;
     let code = u8::from(args.strict && !report.ok);
     let mut outcome = Outcome::printed(printed, code);
@@ -816,13 +821,15 @@ fn import_session(
 }
 
 /// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
-/// accepted, saves the report next to it and logs the run, under the state root `state`.
+/// accepted and saves the report next to it, under the state root `state`; `logged`, it logs the
+/// run too.
 fn gate_report(
     root: &Path,
     state: &Path,
     gate: Gate,
     id: &str,
     role: &str,
+    logged: bool,
 ) -> Result<gates::Report, String> {
     let record = load_record(state, id)?;
     let config = GateConfig::load(root)?;
@@ -831,7 +838,11 @@ fn gate_report(
     let report = gates::run(&project, gate, id, &record, role, snapshot.as_ref())
         .map_err(|e| e.to_string())?;
     save_out_of_scope(state, id, &report.out_of_scope)?;
-    gates::save(state, id, &report)?;
+    if logged {
+        gates::save(state, id, &report)?;
+    } else {
+        gates::keep(state, id, &report)?;
+    }
     Ok(report)
 }
 
@@ -1112,7 +1123,8 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
-        let report = gate_report(self.root, self.state, gate, self.id, gates::BUILD_ROLE)?;
+        let (root, state, id) = (self.root, self.state, self.id);
+        let report = gate_report(root, state, gate, id, gates::BUILD_ROLE, true)?;
         Ok(report.ok)
     }
 
@@ -2278,6 +2290,23 @@ mod tests {
         let printed: serde_json::Value = serde_json::from_str(&strict.stdout).unwrap();
         assert_eq!(printed["ok"], false);
         assert_eq!(log_records(&project).len(), 2);
+    }
+
+    #[test]
+    fn a_gate_an_agent_runs_saves_its_report_and_leaves_the_log_alone() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        project.write(log::PATH, LOG);
+        let mut env = process_env();
+        env.push(("GDD_ROLE".to_string(), "builder-build".to_string()));
+        for gate in ["g2", "g3"] {
+            let command = words(&format!("{gate} save --role builder-build"));
+            let printed = json(&run_with_env(&command, &project.0, &env));
+            let path = project.0.join(format!(".gdd/changes/save/{gate}.json"));
+            let saved: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+            assert_eq!(saved, printed, "{gate}");
+        }
+        assert_eq!(fs::read_to_string(project.0.join(log::PATH)).unwrap(), LOG);
     }
 
     #[test]

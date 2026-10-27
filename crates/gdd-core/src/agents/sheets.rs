@@ -399,8 +399,8 @@ mod tests {
             let args = claude.launch("x", "", "m", role, None, HERE);
             assert!(has(&args, "--add-dir", "/state/.gdd/changes/c1"), "{role}");
         }
-        // A Codex Builder may write its own change's state folder and the log; the Orchestrator,
-        // that folder; the Reviewer, nothing.
+        // A Codex Builder or Orchestrator may write its own change's state folder, never the
+        // log; the Reviewer, nothing.
         let codex = of("codex");
         let other = Place {
             state: "/s {change}",
@@ -412,11 +412,9 @@ mod tests {
             let pairs = args.windows(2).filter(|pair| pair[0] == "--add-dir");
             pairs.map(|pair| pair[1].clone()).collect::<Vec<String>>()
         };
-        let log = "/s {change}/.gdd/log.jsonl";
-        for role in ["builder-build", "builder-test"] {
-            assert_eq!(granted(role), [own, log], "{role}");
+        for role in ["builder-build", "builder-test", "orchestrator"] {
+            assert_eq!(granted(role), [own], "{role}");
         }
-        assert_eq!(granted("orchestrator"), [own]);
         assert!(granted("reviewer").is_empty());
     }
 

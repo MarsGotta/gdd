@@ -15,15 +15,15 @@ args = ["exec", "{role_args}", "{invoke} {args}", "--model", "{model}", "--json"
 effort_args = ["-c", "model_reasoning_effort={effort}"]
 
 # The sandbox of workspace-write writes only the folder the agent runs in, the change's worktree,
-# and the paths of --add-dir ({state} is the state root). A Builder may also write its own
-# change's state folder, where the gdd commands it runs keep their notes and the G2 report, and
-# the log, the one file outside it that `gdd g2` adds to. The Orchestrator writes its replan
-# there too. The Reviewer only reads.
+# and the folders of --add-dir ({state} is the state root). A Builder may also write its own
+# change's state folder, where the gdd commands it runs keep their notes and the G2 report: a
+# gdd an agent starts never writes the shared log. The Orchestrator writes its replan there too.
+# The Reviewer only reads.
 [roles.builder-build]
-args = ["--sandbox", "workspace-write", "--add-dir", "{state}/.gdd/changes/{change}", "--add-dir", "{state}/.gdd/log.jsonl", "-c", "mcp_servers={}"]
+args = ["--sandbox", "workspace-write", "--add-dir", "{state}/.gdd/changes/{change}", "-c", "mcp_servers={}"]
 
 [roles.builder-test]
-args = ["--sandbox", "workspace-write", "--add-dir", "{state}/.gdd/changes/{change}", "--add-dir", "{state}/.gdd/log.jsonl", "-c", "mcp_servers={}"]
+args = ["--sandbox", "workspace-write", "--add-dir", "{state}/.gdd/changes/{change}", "-c", "mcp_servers={}"]
 
 [roles.reviewer]
 args = ["--sandbox", "read-only", "-c", "mcp_servers={}"]

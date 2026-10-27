@@ -5,7 +5,7 @@
 //! root (see [`crate::state::root`]), whose `.gdd/` gets these checks whatever folder gdd runs
 //! in.
 
-use std::fs::{self, File, FileType};
+use std::fs::{self, File, FileType, Permissions};
 use std::io::{self, ErrorKind, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -13,9 +13,25 @@ use std::path::{Path, PathBuf};
 /// Why a file is not read: what is at its path is something else.
 const NOT_OWN: &str = "not a file of its own (a link, a folder or a file with other names)";
 
-/// The bytes of the file `path` of the project at `root`; `None` when there is none. A link or a
-/// file on the way, or anything at `path` but a file with no other name, is an error.
+/// A file of its own as gdd found it: its bytes and its permissions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    /// What it holds.
+    pub bytes: Vec<u8>,
+    /// Who may read, write and run it.
+    pub permissions: Permissions,
+}
+
+/// The bytes of the file `path` of the project at `root`; `None` when there is none (see
+/// [`found`]).
 pub fn read(root: &Path, path: &str) -> io::Result<Option<Vec<u8>>> {
+    Ok(found(root, path)?.map(|file| file.bytes))
+}
+
+/// The file `path` of the project at `root`, its bytes and its permissions; `None` when there is
+/// none. A link or a file on the way, or anything at `path` but a file with no other name, is an
+/// error.
+pub fn found(root: &Path, path: &str) -> io::Result<Option<Found>> {
     let (folders, file) = on_the_way(root, path);
     for folder in &folders {
         match kind(folder)? {
@@ -25,7 +41,10 @@ pub fn read(root: &Path, path: &str) -> io::Result<Option<Vec<u8>>> {
         }
     }
     match fs::symlink_metadata(&file) {
-        Ok(meta) if meta.is_file() && meta.nlink() == 1 => fs::read(&file).map(Some),
+        Ok(meta) if meta.is_file() && meta.nlink() == 1 => Ok(Some(Found {
+            bytes: fs::read(&file)?,
+            permissions: meta.permissions(),
+        })),
         Ok(_) => Err(io::Error::other(NOT_OWN)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
@@ -35,6 +54,20 @@ pub fn read(root: &Path, path: &str) -> io::Result<Option<Vec<u8>>> {
 /// Makes `path` of the project at `root` a new file with `bytes`. What is in the way goes
 /// first: a link or a file where a folder goes, and whatever is at `path`.
 pub fn replace(root: &Path, path: &str, bytes: &[u8]) -> io::Result<()> {
+    created(root, path)?.write_all(bytes)
+}
+
+/// Makes `path` of the project at `root` the file `found` again: a new file with its bytes and
+/// its permissions (see [`replace`]).
+pub fn put_back(root: &Path, path: &str, found: &Found) -> io::Result<()> {
+    let mut file = created(root, path)?;
+    file.write_all(&found.bytes)?;
+    file.set_permissions(found.permissions.clone())
+}
+
+/// A new file at `path` of the project at `root`, open to write, once what was in the way is
+/// gone (see [`replace`]).
+fn created(root: &Path, path: &str) -> io::Result<File> {
     let (folders, file) = on_the_way(root, path);
     for folder in &folders {
         match kind(folder)? {
@@ -45,7 +78,7 @@ pub fn replace(root: &Path, path: &str, bytes: &[u8]) -> io::Result<()> {
         fs::create_dir(folder)?;
     }
     clear(&file)?;
-    File::create_new(&file)?.write_all(bytes)
+    File::create_new(&file)
 }
 
 /// Leaves nothing at `path` of the project at `root`: a link on the way goes, not what it
@@ -176,6 +209,29 @@ mod tests {
             assert_eq!(read(root, path).unwrap(), Some(b"gdd".to_vec()), "{path}");
         }
         assert_eq!(text(&outside.0.join("f")), "outside");
+    }
+
+    #[test]
+    fn a_file_put_back_has_its_bytes_and_its_permissions_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let (project, outside) = two();
+        let root = &project.0;
+        project.write(".gdd/bin/tool", "mine");
+        let tool = root.join(".gdd/bin/tool");
+        fs::set_permissions(&tool, Permissions::from_mode(0o750)).unwrap();
+        let kept = found(root, ".gdd/bin/tool").unwrap().unwrap();
+        assert_eq!(kept.bytes, b"mine");
+        assert_eq!(kept.permissions.mode() & 0o777, 0o750);
+        // Whatever stands there, a link to elsewhere too, goes; a folder comes back on the way.
+        fs::remove_dir_all(root.join(".gdd/bin")).unwrap();
+        put_back(root, ".gdd/bin/tool", &kept).unwrap();
+        assert_eq!(found(root, ".gdd/bin/tool").unwrap(), Some(kept.clone()));
+        fs::remove_file(&tool).unwrap();
+        symlink(outside.0.join("f"), &tool).unwrap();
+        put_back(root, ".gdd/bin/tool", &kept).unwrap();
+        assert_eq!(found(root, ".gdd/bin/tool").unwrap(), Some(kept));
+        assert_eq!(text(&outside.0.join("f")), "outside");
+        assert_eq!(found(root, ".gdd/none").unwrap(), None);
     }
 
     #[test]

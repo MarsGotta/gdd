@@ -39,7 +39,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::agents::files;
+use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::Model;
 use crate::change::{self, Note};
@@ -90,6 +90,10 @@ const SHARED: [&str; 5] = [
     log::PATH,
     invoke::SESSIONS,
 ];
+
+/// The folders of GDD state an agent call is checked on at any depth, whatever the change: the
+/// harness binary and the agents' programs, and the files the self-test sets aside.
+const HARNESS: [&str; 2] = [".gdd/bin", ".gdd/selftest"];
 
 /// What prepare decided for a change, as the recipe reads it: from what `gdd prepare` printed,
 /// or from the record of a prepared change. Every field must be there: a missing one would skip
@@ -858,12 +862,12 @@ impl Kind {
 }
 
 /// GDD state as it was before a call of `who` on change `id`: every file of it (see
-/// [`state_files`]) with its bytes, read as a file of its own (see [`files::read`]). Agents
-/// change it only through gdd.
+/// [`state_files`]) with its bytes and its permissions, read as a file of its own (see
+/// [`files::found`]). Agents change it only through gdd.
 struct State<'a> {
     id: &'a str,
     who: Who,
-    files: BTreeMap<String, Vec<u8>>,
+    files: BTreeMap<String, Found>,
 }
 
 impl<'a> State<'a> {
@@ -873,17 +877,17 @@ impl<'a> State<'a> {
         let mut files = BTreeMap::new();
         for path in state_files(root, id)? {
             let unread = |e: io::Error| format!("cannot read {path}: {e}");
-            if let Some(bytes) = files::read(root, &path).map_err(unread)? {
-                files.insert(path, bytes);
+            if let Some(found) = files::found(root, &path).map_err(unread)? {
+                files.insert(path, found);
             }
         }
         Ok(State { id, who, files })
     }
 
-    /// Puts back as it was each file of this state that changed in a way its kind does not
-    /// allow, or that is no longer a file of its own, and removes what was not there: their
-    /// paths, sorted. Every file is checked and put back before a file that could not be put back
-    /// stops the recipe.
+    /// Puts back as it was, with its permissions, each file of this state whose bytes changed in
+    /// a way its kind does not allow, or that is no longer a file of its own, and removes what was
+    /// not there: their paths, sorted. Every file is checked and put back before a file that
+    /// could not be put back stops the recipe.
     fn put_back(&self, root: &Path) -> Result<Vec<String>, String> {
         let after = state_files(root, self.id)?;
         // Sorted, a folder that is no longer one goes before what was in it comes back.
@@ -891,13 +895,14 @@ impl<'a> State<'a> {
         let (mut changed, mut stuck) = (Vec::new(), Vec::new());
         for path in paths {
             let kind = Kind::of(path, self.id, self.who);
-            let before = self.files.get(path).map(Vec::as_slice);
+            let found = self.files.get(path);
+            let before = found.map(|file| file.bytes.as_slice());
             let now = files::read(root, path).ok();
             if now.is_some_and(|now| allowed(kind, before, now.as_deref())) {
                 continue;
             }
-            let restored = match before {
-                Some(bytes) => files::replace(root, path, bytes),
+            let restored = match found {
+                Some(file) => files::put_back(root, path, file),
                 None => files::remove(root, path),
             };
             if let Err(e) = restored {
@@ -915,13 +920,16 @@ impl<'a> State<'a> {
 
 /// The files of GDD state an agent call is checked on, under the state root `root`, as paths
 /// from it: the ones gdd keeps for every change ([`SHARED`]), whatever is at their path, the
-/// others right in `.gdd/`, and every one in the folder of change `id`, at any depth. The other
-/// folders of `.gdd/`, other changes' or ones gdd decides nothing from, are left out. Links are
-/// never followed: one where a folder was is a file here.
+/// others right in `.gdd/`, and every one in the folders of [`HARNESS`] and in the folder of
+/// change `id`, at any depth. The other folders of `.gdd/`, other changes' or ones gdd decides
+/// nothing from, are left out. Links are never followed: one where a folder was is a file here.
 fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
     let mut paths = BTreeSet::from(SHARED.map(String::from));
     listed(root, STATE_FOLDER, false, &mut paths)?;
-    listed(root, &format!(".gdd/changes/{id}"), true, &mut paths)?;
+    let own = format!(".gdd/changes/{id}");
+    for folder in HARNESS.into_iter().chain([own.as_str()]) {
+        listed(root, folder, true, &mut paths)?;
+    }
     Ok(paths)
 }
 
@@ -1637,6 +1645,35 @@ mod tests {
         assert_eq!(text(&folder, ".gdd/imported_requests.json"), "[]");
     }
 
+    #[test]
+    fn the_harness_and_what_the_selftest_set_aside_come_back_as_they_were() {
+        let folder = with_state();
+        let (harness, program) = (".gdd/bin/gdd-rust", ".gdd/bin/agents/codex");
+        let kept = ".gdd/selftest/kept/tests/failing.txt";
+        for path in [harness, program, kept] {
+            folder.write(path, "mine");
+        }
+        let executable = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(folder.0.join(harness), executable).unwrap();
+        let ended = acting(&folder, Who::BuilderBuild, |root| {
+            change::write(root, ".gdd/bin/gdd-rust", "the Builder's own judge").unwrap();
+            fs::remove_dir_all(root.join(".gdd/bin/agents")).unwrap();
+            change::write(root, ".gdd/bin/new", "x").unwrap();
+            change::write(root, ".gdd/selftest/kept/tests/failing.txt", "x").unwrap();
+        });
+        let why = format!(
+            "the Builder in build mode changed GDD state: .gdd/bin/agents/codex, \
+             .gdd/bin/gdd-rust, .gdd/bin/new, {kept}"
+        );
+        assert_eq!(ended, park(&why));
+        for path in [harness, program, kept] {
+            assert_eq!(text(&folder, path), "mine", "{path}");
+        }
+        assert!(!folder.0.join(".gdd/bin/new").exists());
+        let meta = fs::metadata(folder.0.join(harness)).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+    }
+
     /// A report of G2, as `gdd g2` saves it.
     const G2_REPORT: &str = "{\"ok\": true, \"gate\": \"G2\"}\n";
 
@@ -1822,7 +1859,12 @@ mod tests {
             "changes/c1/outputs/a/b.md",
             "changes/c2/change.json",
             "changes/c10/change.json",
+            "bin/gdd-rust",
+            "bin/agents/codex",
+            "selftest/kept/tests/failing.txt",
             "fake/argv",
+            "pre/x",
+            "adoption/x",
         ] {
             folder.write(&format!(".gdd/{path}"), "x");
         }
@@ -1830,6 +1872,9 @@ mod tests {
             ".gdd/imported_requests.json",
             ".gdd/changes/c1/notes.md",
             ".gdd/changes/c1/outputs/a/b.md",
+            ".gdd/bin/gdd-rust",
+            ".gdd/bin/agents/codex",
+            ".gdd/selftest/kept/tests/failing.txt",
         ];
         assert_eq!(state_files(&folder.0, "c1"), Ok(with_shared(&listed)));
         // A folder that cannot be looked at is an error, not an empty one.
