@@ -6,6 +6,7 @@ name = "python"
 title = "Python"
 scenario_runner = "pytest-bdd"
 detect = ["pyproject.toml"]
+supply_chain = ["pyproject.toml", "requirements*.txt", "uv.lock", "poetry.lock"]   # red zone written by gdd init: dependencies and toolchain
 install = '''python -m pip install -e '.[dev]' '''
 
 [g2]

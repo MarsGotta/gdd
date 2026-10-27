@@ -1,6 +1,7 @@
 //! The model of each role, from `gdd/models.toml`: the Builder by the color of the change, the
 //! Builder in test mode, the Reviewer and the Orchestrator. And the family of a model: the
-//! Reviewer must not be of the Builder's family, or it would share its blind spots.
+//! Reviewer must not be of the Builder's family, or it would share its blind spots, unless the
+//! human accepted it at the Setup ([`same_family_accepted`]).
 
 use std::collections::BTreeMap;
 
@@ -12,6 +13,10 @@ use crate::config::{self, Color};
 
 /// Where the models of a project live, from its root.
 pub const PATH: &str = "gdd/models.toml";
+
+/// The key of the Reviewer's table that records the day (`YYYY-MM-DD`) the human accepted a
+/// Reviewer of the Builder's model family.
+pub const SAME_FAMILY_ACCEPTED: &str = "same_family_accepted";
 
 /// A model as `gdd/models.toml` writes it: its table as it is (`integration`, `model`, and what
 /// else it says, such as `effort`). Empty when the file says nothing about it.
@@ -95,6 +100,13 @@ impl Models {
             None => integration.to_string(),
         }
     }
+}
+
+/// The day the human accepted that `reviewer`, the Reviewer's table, be of the Builder's model
+/// family: its [`SAME_FAMILY_ACCEPTED`], when it is text that is not empty.
+pub fn same_family_accepted(reviewer: &Model) -> Option<&str> {
+    let day = reviewer.get(SAME_FAMILY_ACCEPTED).and_then(Value::as_str);
+    day.filter(|day| !day.is_empty())
 }
 
 #[cfg(test)]
@@ -209,6 +221,25 @@ effort = "high"
         // The name must start with the key.
         let inside = serde_json::json!({"integration": "x", "model": "my-opus"});
         assert_eq!(family(inside), "x");
+    }
+
+    #[test]
+    fn the_reviewer_says_when_the_human_accepted_one_family() {
+        let accepted = "[reviewer]\nintegration = \"claude\"\nmodel = \"opus\"\n\
+                        same_family_accepted = \"2026-10-27\"\n";
+        let models = Models::from_toml(accepted).unwrap();
+        let reviewer = models.roles(Color::Red).reviewer_model;
+        assert_eq!(same_family_accepted(&reviewer), Some("2026-10-27"));
+        assert_eq!(SAME_FAMILY_ACCEPTED, "same_family_accepted");
+        for not_accepted in [
+            serde_json::json!({"integration": "claude"}),
+            serde_json::json!({"same_family_accepted": ""}),
+            serde_json::json!({"same_family_accepted": true}),
+        ] {
+            let reviewer = model(not_accepted.clone());
+            let said = same_family_accepted(&reviewer);
+            assert_eq!(said, None, "{not_accepted}");
+        }
     }
 
     #[test]

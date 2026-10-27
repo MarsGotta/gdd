@@ -1,0 +1,23 @@
+# Zone map · GDD (written by gdd init {version})
+# The highest color wins. Paths that match no zone take the default color.
+# Patterns: "**" crosses folders, "*" does not.
+
+default = "yellow"   # code without a zone = code without known tests
+
+[[zone]]
+color = "green"
+paths = ["docs/**", "*.md"]
+reason = "Documentation"
+
+[[zone]]
+color = "red"
+paths = ["gdd/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**"]
+reason = "The harness itself: touching the gates is touching the safety of the method"
+
+[[zone]]
+color = "red"
+paths = {supply_chain}
+reason = "Dependencies and toolchain: supply chain"
+
+# Red zones mapped at the end of Discover from the sensitive areas in docs/brief.md.
+# The human approves them in the same sitting as the first scenarios (gate "zones").

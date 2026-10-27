@@ -239,7 +239,7 @@ fn startable(who: Who, model: &Model) -> Result<(&str, Sheet, &str), Error> {
 /// The program of the agent of `sheet`: the first file of its name that can be run, in the
 /// folders of the `PATH` of `env`, the environment gdd runs in. Folders that are not absolute are
 /// left out: what they find would depend on the folder gdd runs from.
-fn program(sheet: &Sheet, env: &[(String, String)]) -> Result<PathBuf, Error> {
+pub(crate) fn program(sheet: &Sheet, env: &[(String, String)]) -> Result<PathBuf, Error> {
     let path = env.iter().rev().find(|(name, _)| name == "PATH");
     let folders = path.map_or("", |(_, folders)| folders.as_str());
     folders

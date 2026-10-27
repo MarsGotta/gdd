@@ -1,0 +1,23 @@
+# Defaults of gdd init for each coding agent: its model family and the model for strong, standard
+# and light work. The project edits gdd/models.toml afterwards; these only fill it the first time.
+# Strong: Orchestrator, red Builder and Reviewer. Standard: yellow Builder and test mode.
+# Light: green Builder. Model names are the agents' own (aliases where the agent has them).
+
+[claude]
+family = "anthropic"
+strong = "opus"
+standard = "sonnet"
+light = "haiku"
+
+[codex]
+family = "openai"
+strong = "gpt-6-astra"
+standard = "gpt-6-astra"
+light = "gpt-6-astra"
+effort = "high"   # Codex reasoning for the Reviewer: low, medium, high, xhigh
+
+[opencode]
+family = "minimax"
+strong = "minimax/MiniMax-M3"
+standard = "minimax/MiniMax-M3"
+light = "minimax/MiniMax-M3"

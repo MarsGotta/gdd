@@ -113,6 +113,11 @@ fn classified(w: &GddWorld) -> &gdd_core::Classification {
 
 #[then(expr = "its color is {string}")]
 fn its_color(w: &mut GddWorld, color: String) {
+    // A change made with `gdd new-change` shows its color in the JSON the command printed.
+    if w.outcome.is_none() {
+        assert_eq!(stdout_json(w)["color"], color.as_str());
+        return;
+    }
     assert_eq!(classified(w).color.to_string(), color);
 }
 
@@ -1585,6 +1590,137 @@ fn no_agent_process_left(w: &mut GddWorld) {
     for pid in pids {
         assert!(process_is_gone(pid), "process {pid} is still running");
     }
+}
+
+// ---- features/init.feature -----------------------------------------------------------------
+//
+// Every scenario starts in `an empty folder`, a project root without `gdd/project.toml`. gdd runs
+// there through `gdd::run_with_env`, so `git commit` finds an author in the scenario environment.
+
+#[given("an empty folder")]
+fn an_empty_folder(w: &mut GddWorld) {
+    w.project = Some(TempDir::new());
+    for (name, value) in [
+        ("GIT_AUTHOR_NAME", "GDD Test"),
+        ("GIT_AUTHOR_EMAIL", "test@example.com"),
+        ("GIT_COMMITTER_NAME", "GDD Test"),
+        ("GIT_COMMITTER_EMAIL", "test@example.com"),
+    ] {
+        set_env(w, name, value);
+    }
+}
+
+#[given(expr = "the folder is a git repository with the file {string}")]
+fn folder_is_a_repository(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    git(&root, &["init", "-q", "-b", "main"]);
+    write_file(&root.join(&path), "some text\n");
+    commit_all(&root, "existing");
+}
+
+#[given("no coding agent is on the PATH")]
+fn no_agent_on_the_path(w: &mut GddWorld) {
+    set_env(w, "PATH", "/usr/bin:/bin");
+}
+
+#[then(expr = "the file {string} is executable")]
+fn file_is_executable(w: &mut GddWorld, path: String) {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"))
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o755, 0o755, "{path} has mode {mode:o}");
+}
+
+#[then(expr = "git does not track {string}")]
+fn git_does_not_track(w: &mut GddWorld, path: String) {
+    let tracked = git(&project_root(w), &["ls-files", "--", &path]);
+    assert!(tracked.is_empty(), "git tracks {path}: {tracked}");
+}
+
+/// `line` without its trailing `# comment` (a `#` inside a string stays).
+fn without_comment(line: &str) -> &str {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (at, c) in line.char_indices() {
+        match c {
+            '\\' if in_string => escaped = !escaped,
+            '"' if !escaped => in_string = !in_string,
+            '#' if !in_string => return line[..at].trim_end(),
+            _ => escaped = false,
+        }
+    }
+    line
+}
+
+/// The quoted strings of a TOML value: one for a string, one per item for a list.
+fn toml_items(value: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut current: Option<String> = None;
+    let mut escaped = false;
+    for c in value.chars() {
+        match current.take() {
+            None => current = (c == '"').then(String::new),
+            Some(text) if c == '"' && !escaped => items.push(text),
+            Some(mut text) => {
+                if c == '\\' && !escaped {
+                    escaped = true;
+                } else {
+                    text.push(c);
+                    escaped = false;
+                }
+                current = Some(text);
+            }
+        }
+    }
+    items
+}
+
+/// The value of the dotted key `wanted` in a TOML file (tables, `key = value` lines, lists that
+/// may span lines), lists as their items joined with ", ". Enough for the files gdd writes.
+fn toml_value(text: &str, wanted: &str) -> Option<String> {
+    let mut table = String::new();
+    let mut lines = text.lines().map(without_comment);
+    while let Some(line) = lines.next() {
+        let line = line.trim();
+        if let Some(header) = line.strip_prefix('[') {
+            table = header.trim_end_matches(']').trim().replace('"', "");
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().replace('"', "");
+        let mut value = value.trim().to_string();
+        while value.starts_with('[') && !value.ends_with(']') {
+            value.push_str(lines.next()?.trim());
+        }
+        let full = if table.is_empty() {
+            key
+        } else {
+            format!("{table}.{key}")
+        };
+        if full == wanted {
+            return Some(if value.contains('"') || value == "[]" {
+                toml_items(&value).join(", ")
+            } else {
+                value
+            });
+        }
+    }
+    None
+}
+
+#[then(expr = "the TOML file {string} has {string} = {string}")]
+fn toml_file_has(w: &mut GddWorld, path: String, key: String, expected: String) {
+    let content = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert_eq!(
+        toml_value(&content, &key).as_deref(),
+        Some(expected.as_str()),
+        "{path} has no {key} = {expected:?}:\n{content}"
+    );
 }
 
 fn repo_root() -> PathBuf {
