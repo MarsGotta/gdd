@@ -111,3 +111,4 @@ change, stop and review before adding more.
 - Token charts.
 - Semgrep (multi-language static analysis).
 - More stacks in the catalog.
+- Bare repositories and `--separate-git-dir`: today gdd refuses to run in a worktree of a bare repository (or of one whose main checkout git cannot name), because there is no main checkout to keep the shared `.gdd/` state in (state-root, 2026-10-27). Support them with a configurable state folder, so the "one bare repository + one worktree per branch" style works. No urgency.
