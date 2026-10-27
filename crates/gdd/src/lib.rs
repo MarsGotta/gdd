@@ -19,7 +19,7 @@ use gdd_core::classify::classify_with;
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
-use gdd_core::recipe::{self, Answer, Said, Snapshot};
+use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
@@ -80,6 +80,11 @@ impl Outcome {
             stdout: String::new(),
             stderr,
         }
+    }
+
+    /// A command that could not do its job, and why: an error.
+    fn error(message: &str) -> Outcome {
+        Outcome::failure(format!("error: {message}\n"))
     }
 
     /// What a command printed for the user, on a line of its own, with its exit code.
@@ -522,11 +527,10 @@ impl Command {
                 let message = change::park(state, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => {
-                return launch(root, state, &change, env).map(Outcome::said);
-            }
-            Command::Resume(args) => {
-                return resume(root, state, &args, role, env).map(Outcome::said);
+            Command::Launch { change } => return launch(root, state, &change, env),
+            Command::Resume(args) => return resume(root, state, &args, role, env),
+            Command::Merge { change } => {
+                return merge_queued(root, state, &change_id(change, env)?, env);
             }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
@@ -544,7 +548,6 @@ impl Command {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
             Command::Prepare { change } => prepare_change(root, state, &change_id(change, env)?)?,
-            Command::Merge { change } => merge_change(root, state, &change_id(change, env)?)?,
             Command::Release { step, change } => {
                 release_change(root, state, &step, &change_id(change, env)?)?
             }
@@ -613,10 +616,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
         let state = state::root(&root)?;
         command.run(&root, &state, role, env)
     });
-    match ran {
-        Ok(outcome) => outcome,
-        Err(message) => Outcome::failure(format!("error: {message}\n")),
-    }
+    ran.unwrap_or_else(|message| Outcome::error(&message))
 }
 
 /// The command `gdd` with `args`, the words after the program name, as clap reads it.
@@ -957,8 +957,30 @@ fn prepare_decided(
     prepare::prepare(&setup, id, &decided.decision(id))
 }
 
-/// `gdd merge`: merges change `id`, classified as it is now, into the main branch (see
-/// [`merge::merge`]). What follows the merge reads its configuration as the merge left it.
+/// `gdd merge`: the merge of change `id`, whose branch is checked out at the project root `root`,
+/// as the recipe merges (see [`recipe::merge`]): one merge at a time, on top of the latest main,
+/// with its steps there; the gates it runs again start in the environment `env`. What it says on
+/// its way goes to the standard error, before why it parked or failed: the standard output is
+/// the JSON of the merge.
+fn merge_queued(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcome, String> {
+    let main = load_settings(root)?.main_branch;
+    let limits = load_limits(root)?;
+    let settings = agent_settings(root)?;
+    let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env);
+    let at = recipe::Merging {
+        state,
+        work: root,
+        main: &main,
+        id,
+    };
+    let ran = recipe::merge(&at, &mut steps);
+    let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
+    outcome.stderr.insert_str(0, &steps.said);
+    Ok(outcome)
+}
+
+/// Merges change `id`, classified as it is now, into the main branch (see [`merge::merge`]).
+/// What follows the merge reads its configuration as the merge left it.
 fn merge_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     let decided = decide(root, state, id)?;
     let settings = load_settings(root)?;
@@ -987,7 +1009,7 @@ fn release_change(root: &Path, state: &Path, step: &str, id: &str) -> Result<Str
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
 /// environment `env`.
-fn launch(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Said, String> {
+fn launch(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcome, String> {
     in_worktree(root, state, id, env, |project, steps| {
         recipe::launch(project, id, steps)
     })
@@ -1001,7 +1023,7 @@ fn resume(
     args: &ResumeArgs,
     role: Option<&str>,
     env: &Env,
-) -> Result<Said, String> {
+) -> Result<Outcome, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
@@ -1012,19 +1034,21 @@ fn resume(
 
 /// Runs `run`, a run of the recipe, on change `id` of the project at `root`, whose state root is
 /// `state`, with its steps in the project's folder of the worktree of the change, in the folder
-/// of the worktrees the rules file names (see [`recipe::worktree`]); the agents start in the
-/// environment `env`.
+/// of the worktrees the rules file names (see [`recipe::worktree`]), and as many changes building
+/// at once as it allows (see [`queue::cap`]); the agents start in the environment `env`. What the
+/// run said on its way comes first in what it prints, however it ended.
 fn in_worktree(
     root: &Path,
     state: &Path,
     id: &str,
     env: &Env,
     run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
-) -> Result<Said, String> {
+) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let rules = read(root, RULES)?.unwrap_or_default();
     let folder = recipe::worktree::folder(root, &rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let max = queue::cap(&rules).map_err(|e| format!("{RULES}: {e}"))?;
     let worktree = recipe::worktree::path(&folder, id)?;
     let work = recipe::worktree::project_root(root, &worktree)?;
     let project = recipe::Project {
@@ -1034,10 +1058,14 @@ fn in_worktree(
         work: &work,
         main: &main,
         replans: limits.replans,
+        max,
     };
     let settings = agent_settings(root)?;
     let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env);
-    run(&project, &mut steps)
+    let ran = run(&project, &mut steps);
+    let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
+    outcome.stdout.insert_str(0, &steps.said);
+    Ok(outcome)
 }
 
 /// What `gdd/models.toml` of the project at `root` says of the agents besides the model of each
@@ -1111,6 +1139,8 @@ struct ProjectSteps<'a> {
     env: &'a Env,
     /// What `gdd/models.toml` says of the agents besides the model of each role.
     settings: invoke::Settings,
+    /// What the recipe said on its way, a line each.
+    said: String,
 }
 
 impl<'a> ProjectSteps<'a> {
@@ -1132,6 +1162,7 @@ impl<'a> ProjectSteps<'a> {
             timeout: Duration::from_secs(limits.agent_timeout_s),
             env,
             settings,
+            said: String::new(),
         }
     }
 }
@@ -1187,14 +1218,20 @@ impl recipe::Steps for ProjectSteps<'_> {
         record_gate(self.root, self.state, &args, None).map(drop)
     }
 
-    fn merge(&mut self) -> Result<(), String> {
-        merge_change(self.root, self.state, self.id).map(drop)
+    /// The recipe holds the merge lock already.
+    fn merge(&mut self) -> Result<String, String> {
+        merge_change(self.root, self.state, self.id)
     }
 
     /// After the merge the change is on the main branch: its release runs from the main checkout,
     /// the project root of the state root, as the main branch configures it.
     fn release(&mut self, step: &str) -> Result<(), String> {
         release_change(self.state, self.state, step, self.id).map(drop)
+    }
+
+    fn say(&mut self, line: &str) {
+        self.said.push_str(line);
+        self.said.push('\n');
     }
 }
 
@@ -3114,6 +3151,105 @@ mod tests {
             assert_eq!(record_of(&project, "c1")["state"], state, "{step}");
         }
         assert_eq!(record_of(&project, "c1")["gates"]["G4"]["by"], "machines");
+    }
+
+    #[test]
+    fn a_merge_waits_for_the_merge_of_another_change_and_says_so_apart_from_its_json() {
+        let project = launched_project();
+        assert_eq!(project.run("gate G3 ok c1 --by machines").code, 0);
+        let lock = project.0.join(queue::LOCK);
+        fs::write(&lock, "").unwrap();
+        let (taken, wait_taken) = std::sync::mpsc::channel();
+        let another = std::thread::spawn(move || {
+            let held = fs::File::open(&lock).unwrap();
+            held.lock().unwrap();
+            taken.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        wait_taken.recv().unwrap();
+        let out = project.run("merge c1");
+        another.join().unwrap();
+        assert_eq!(out.stderr, format!("{}\n", queue::WAITING));
+        assert_eq!(json(&out)["detail"]["name"], "deploy_pre");
+        assert_eq!(record_of(&project, "c1")["state"], "merged");
+    }
+
+    /// Gate commands whose G3 fails once main has `docs/breaking.md`.
+    const BREAKABLE: &str = "[g3]\nfresh = \"test ! -f docs/breaking.md\"\n\
+                             [release]\nsimulated = true\nbuild = \"true\"\n";
+
+    /// The launched project with [`BREAKABLE`] gates and G3 open on change `c1`, once main got
+    /// the file `path` after the branch of the change left it.
+    fn moved_under_c1(path: &str) -> Project {
+        let project = launched_with(BREAKABLE, MODELS);
+        assert_eq!(project.run("gate G3 ok c1 --by machines").code, 0);
+        git(&project, &["checkout", "-q", "main"]);
+        project.write(path, "x\n");
+        git(&project, &["add", path]);
+        git(&project, &["commit", "-q", "-m", path]);
+        git(&project, &["checkout", "-q", "change/c1"]);
+        project
+    }
+
+    const MOVED_UNDER_C1: &str = "main moved under c1: G3 again on top of it\n";
+
+    #[test]
+    fn a_merge_on_top_of_a_main_that_moved_passes_g3_again_there_first() {
+        let project = moved_under_c1("docs/news.md");
+        let out = project.run("merge c1");
+        assert_eq!(out.stderr, MOVED_UNDER_C1);
+        assert_eq!(json(&out)["detail"]["name"], "deploy_pre");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "merged");
+        let g3 = &record["gates"]["G3"];
+        assert_eq!(g3["decision"], "ok");
+        assert_eq!(g3["by"], "machines");
+        assert_eq!(g3["note"], "automatic chain on top of the latest main");
+        git(&project, &["cat-file", "-e", "main:docs/news.md"]);
+        let took = git(&project, &["log", "-1", "--format=%s", "main^2"]);
+        assert_eq!(took, "gdd(c1): take the latest main");
+    }
+
+    #[test]
+    fn g3_red_on_top_of_the_latest_main_parks_the_change_and_leaves_g3_closed() {
+        let project = moved_under_c1("docs/breaking.md");
+        let out = project.run("merge c1");
+        assert_eq!(out.code, 1, "{out:?}");
+        let parked = "\nChange c1 parked: G3 red on top of the latest main.";
+        assert!(out.stderr.starts_with(MOVED_UNDER_C1), "{out:?}");
+        assert!(out.stderr.contains(parked), "{out:?}");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["state"], "parked");
+        assert_eq!(record["gates"]["G3"]["decision"], "ko");
+        // Its branch has the latest main now, and still does not merge without G3.
+        let main = git(&project, &["rev-parse", "main"]);
+        let again = project.run("merge c1");
+        let closed = "error: G3 is not open.\n";
+        assert!(again.stderr.ends_with(closed), "{again:?}");
+        assert_eq!(git(&project, &["rev-parse", "main"]), main);
+    }
+
+    #[test]
+    fn what_the_recipe_says_on_its_way_comes_before_what_it_says_at_its_end() {
+        let project = Project::new();
+        let limits = Limits::default();
+        let settings = invoke::Settings::default();
+        let mut steps = ProjectSteps::new(&project.0, &project.0, "c1", &limits, settings, &[]);
+        recipe::Steps::say(&mut steps, "one");
+        recipe::Steps::say(&mut steps, "two");
+        assert_eq!(steps.said, "one\ntwo\n");
+    }
+
+    #[test]
+    fn a_cap_that_is_no_integer_from_one_on_is_an_error_that_names_the_rules_file() {
+        let project = launched_project();
+        git(&project, &["checkout", "-q", "main"]);
+        let rules = format!("{PROTECTED}\n[parallel]\nmax = 0\n");
+        project.write(RULES, &rules);
+        let out = project.run("launch c1");
+        let start = "error: gdd/rules.toml: invalid TOML: ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert!(out.stderr.contains("max = 0"), "{out:?}");
     }
 
     #[test]

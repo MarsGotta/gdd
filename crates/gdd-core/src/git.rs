@@ -267,6 +267,15 @@ impl Git {
         self.diff(&[&range])
     }
 
+    /// Whether the commits of `head` changed anything since it left `base`, anywhere in the
+    /// repository: also outside the project folder, which [`Git::committed_from`] leaves out,
+    /// whatever the repository's configuration says.
+    pub fn changed_anywhere(&self, base: &str, head: &str) -> Result<bool, Error> {
+        let range = format!("{}...{}", revision(base)?, revision(head)?);
+        let args = ["diff", "--name-only", "-z", "--no-relative", &range, "--"];
+        Ok(!self.paths(&args)?.is_empty())
+    }
+
     /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
     /// there was no file there.
     pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
@@ -306,6 +315,12 @@ impl Git {
     /// The commit where `branch` left `main`: their best common ancestor, as its full id.
     pub fn merge_base(&self, main: &str, branch: &str) -> Result<String, Error> {
         self.line(&["merge-base", revision(main)?, revision(branch)?])
+    }
+
+    /// The paths a merge in progress left in conflict, from the top of the working tree: git's
+    /// order, each once.
+    pub fn conflicts(&self) -> Result<Vec<String>, Error> {
+        self.paths(&["diff", "--name-only", "--diff-filter=U", "-z"])
     }
 
     /// Whether the working tree has something to commit: a file changed, deleted or added that
@@ -808,6 +823,30 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn what_a_branch_changed_outside_the_project_folder_is_a_change_anywhere() {
+        let repo = Repo::new();
+        repo.write("app/gdd/rules.toml", "a\n");
+        repo.commit();
+        repo.start("c1");
+        let git = Git::new(&repo.root().join("app"));
+        assert!(!git.changed_anywhere("main", "HEAD").unwrap());
+        repo.write("shared/lib.rs", "x\n");
+        repo.commit();
+        assert_eq!(git.committed_from("main", "HEAD").unwrap(), NOTHING);
+        assert!(git.changed_anywhere("main", "HEAD").unwrap());
+        assert!(!git.changed_anywhere("HEAD", "main").unwrap());
+        // A configuration that keeps diffs to the folder git runs in changes nothing.
+        repo.git(&["config", "--local", "diff.relative", "true"]);
+        assert!(git.changed_anywhere("main", "HEAD").unwrap());
+        for (base, head) in [("-x", "HEAD"), ("main", "--all")] {
+            let option = git.changed_anywhere(base, head);
+            assert!(matches!(option, Err(Error::Revision(_))), "{base} {head}");
+        }
+        let err = git.changed_anywhere("trunk", "HEAD").unwrap_err();
+        assert!(err.to_string().starts_with("git diff "), "{err}");
+    }
+
+    #[test]
     fn a_rename_counts_both_paths() {
         let repo = Repo::new();
         repo.write("gdd/rules.toml", "the rules of the project\n");
@@ -1158,6 +1197,33 @@ pub(crate) mod tests {
         repo.git(&["cat-file", "-e", "HEAD:b.txt"]);
         let wrong = git.merge_uncommitted("-x");
         assert!(matches!(wrong, Err(Error::Revision(_))));
+    }
+
+    #[test]
+    fn a_merge_in_conflict_names_its_paths() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.start("c1");
+        repo.write("src/a.txt", "change\n");
+        repo.write("same.txt", "same\n");
+        repo.write("only-change.txt", "c\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("src/a.txt", "main\n");
+        repo.write("same.txt", "same\n");
+        repo.write("README.md", "main\n");
+        repo.commit();
+        let git = repo.tool();
+        assert_eq!(git.conflicts().unwrap(), Vec::<String>::new());
+        assert!(git.merge("change/c1", "m").is_err());
+        assert_eq!(git.conflicts().unwrap(), ["src/a.txt"]);
+        // From the top of the working tree, wherever the project is.
+        let inside = Git::new(&repo.root().join("src"));
+        assert_eq!(inside.conflicts().unwrap(), ["src/a.txt"]);
+        git.abort_merge().unwrap();
+        assert_eq!(git.conflicts().unwrap(), Vec::<String>::new());
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).conflicts().is_err());
     }
 
     /// An environment with the `PATH` of the tests, an author of its own and no configuration of
