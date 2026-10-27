@@ -1,5 +1,5 @@
-//! The recipe of a change: what `gdd launch` and `gdd resume` run, in the order of the kit's
-//! workflow (`gdd-kit/workflows/gdd-change/workflow.yml`).
+//! The recipe of a change: what `gdd launch` and `gdd resume` run, in the order of the workflow
+//! of a change ported from the bootstrap kit (the pilot repository keeps it).
 //!
 //! 1. Prepare. Test mode, when the change needs tests first and its code does not pass G2
 //!    already: the Builder in test mode, Path Guard for it (a failure parks) and the build
@@ -38,7 +38,7 @@ use crate::agents::files;
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::Model;
 use crate::change::{self, Note};
-use crate::gates::{Gate, approve, verdict};
+use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
 use crate::{inbox, log};
@@ -58,6 +58,12 @@ const G3_RED: &str = "G3 still red after one fix";
 
 /// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix.
 const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
+
+/// What the note on a promotion that failed after the human's OK starts with.
+const PROMOTION_FAILED: &str = "Promotion failed: ";
+
+/// The state of a change in production (see [`release::promote`]).
+const IN_PRODUCTION: &str = "in-production";
 
 /// Local state of the tool, which the Reviewer's read-only check leaves out.
 const LOCAL_STATE: &str = ".gdd/";
@@ -248,9 +254,12 @@ fn to_branch(root: &Path, id: &str) -> Result<(), String> {
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
-/// it, with `note` (which `polish` needs). Builders and Reviewers cannot answer. `ok` promotes
-/// the change; `ko` rejects it, production untouched; `polish` checks out the branch of the
-/// change and runs a polish pass (see [`polish_pass`]).
+/// it, with `note` (which `polish` needs). Builders and Reviewers cannot answer. The answer
+/// resolves the request of G4 and the notes on promotions that failed. `ok` promotes the change
+/// (see [`ok_at_g4`]); `ko` rejects it, production untouched; `polish` checks out the branch of
+/// the change and runs a polish pass from the commit it is at (see [`polish_pass`]). A change
+/// that an earlier `ok` promoted takes only `ok`, which observes it; one whose promotion did not
+/// end parks, whatever the answer (see [`unsure`]).
 pub fn resume(
     project: &Project,
     id: &str,
@@ -261,7 +270,7 @@ pub fn resume(
 ) -> Result<Said, String> {
     let root = project.root;
     approve::may_record(role).map_err(|e| e.to_string())?;
-    let text = change::read_record(root, id)?;
+    let (text, record) = release::read(root, id)?;
     if answer == Answer::Polish && note.trim().is_empty() {
         return Err(format!(
             "polish needs your notes: gdd resume {id} --g4 polish --note ..."
@@ -270,42 +279,164 @@ pub fn resume(
     if !state::paused_at_g4(root, id)? {
         return Err(format!("Change {id} is not paused at G4."));
     }
-    if answer == Answer::Polish {
-        // First, so a checkout that fails leaves the change paused.
-        let (git, branch) = (Git::new(root), change::branch(id));
-        git.checkout(&branch).map_err(|e| e.to_string())?;
+    if record["state"] == release::PROMOTING {
+        answered(root, id, text, &record)?;
+        return unsure(root, id, "an earlier answer stopped while promoting it");
     }
-    state::clear(root, id)?;
-    let path = change::record_path(id);
-    let answered = change::with_request_resolved(&text, &g4_request(id), &log::now())
-        .map_err(|e| format!("{path}: {e}"))?;
-    change::write(root, &path, &answered)?;
+    let in_production = record["state"] == IN_PRODUCTION;
+    if in_production && answer != Answer::Ok {
+        return Err(format!(
+            "Change {id} was promoted already: production has it, so it can no longer be \
+             rejected or polished. To observe it: gdd resume {id} --g4 ok."
+        ));
+    }
     match answer {
         Answer::Ok => {
-            steps.decide("G4", "ok", "human", note)?;
-            finish(root, id, promoted(steps))
+            answered(root, id, text, &record)?;
+            ok_at_g4(root, id, note, in_production, steps)
         }
         Answer::Ko => {
+            answered(root, id, text, &record)?;
+            state::clear(root, id)?;
             steps.decide("G4", "ko", "human", note)?;
             saved_in_state(root, id, "rejected")?;
             let said = format!("Change {id} rejected at G4: production untouched.");
             Ok(Said::Done(said))
         }
-        Answer::Polish => polish_pass(project, id, note, steps),
+        Answer::Polish => {
+            // First, so a checkout that fails leaves the change paused.
+            let start = to_polish(root, id)?;
+            answered(root, id, text, &record)?;
+            state::clear(root, id)?;
+            polish_pass(project, id, note, &start, steps)
+        }
     }
 }
 
-/// A polish pass of change `id`, on its branch: `note`, the human's notes at G4, kept for the
-/// Builder; then the recipe again from build mode, the notes in its first round, until it
-/// pauses at G4 again.
+/// Writes `text`, the record of change `id` of the project at `root`, whose JSON is `record`,
+/// with the requests an answer to its G4 resolves resolved (see [`g4_requests`]).
+fn answered(root: &Path, id: &str, text: String, record: &Value) -> Result<(), String> {
+    let path = change::record_path(id);
+    let ts = log::now();
+    let answered = g4_requests(id, record)
+        .iter()
+        .try_fold(text, |text, request| {
+            change::with_request_resolved(&text, request, &ts)
+        })
+        .map_err(|e| format!("{path}: {e}"))?;
+    change::write(root, &path, &answered)
+}
+
+/// Checks out the branch of change `id` of the project at `root` for a polish pass: the commit
+/// it is at, where the pass starts.
+fn to_polish(root: &Path, id: &str) -> Result<String, String> {
+    let (git, branch) = (Git::new(root), change::branch(id));
+    let said = |e: git::Error| e.to_string();
+    git.checkout(&branch).map_err(said)?;
+    git.head().map_err(said)
+}
+
+/// The requests to the human that an answer to the G4 of change `id`, whose record is `record`,
+/// resolves: the request of G4, and the notes on promotions that failed.
+fn g4_requests(id: &str, record: &Value) -> Vec<String> {
+    let notes = record["inbox"].as_array().into_iter().flatten();
+    let failed = notes
+        .filter_map(|note| note["text"].as_str())
+        .filter(|text| text.starts_with(PROMOTION_FAILED));
+    let mut requests = vec![g4_request(id)];
+    requests.extend(failed.map(str::to_string));
+    requests
+}
+
+/// OK at G4 of change `id` of the project at `root`, by the human with `note`: the decision
+/// recorded, the change promoted unless it is `in_production` already (an earlier OK promoted it
+/// and stopped before observing it: never twice), then observed. Until the promotion passed, it
+/// stays paused at G4 unless production may have it (see [`not_promoted`]); a failed
+/// observation rolls it back, as it does without G4.
+fn ok_at_g4(
+    root: &Path,
+    id: &str,
+    note: &str,
+    in_production: bool,
+    steps: &mut impl Steps,
+) -> Result<Said, String> {
+    let mut promotion = steps.decide("G4", "ok", "human", note);
+    if promotion.is_ok() && !in_production {
+        promotion = steps.release("promote");
+    }
+    if let Err(failure) = promotion {
+        return not_promoted(root, id, &failure);
+    }
+    state::clear(root, id)?;
+    finish(root, id, observed(steps))
+}
+
+/// What the human reads when the OK at G4 of change `id` of the project at `root` failed with
+/// `failure` before the change was promoted and observed. Its record says what production has:
+/// nothing of the change, which stays paused at G4 (see [`promotion_failed`]); or maybe the
+/// change, promoted now or before, which parks it (see [`unsure`]). A record that cannot be read
+/// keeps the pause.
+fn not_promoted(root: &Path, id: &str, failure: &str) -> Result<Said, String> {
+    let unread = |e: String| {
+        format!(
+            "Promotion of {id} failed: {failure}. Its record cannot say whether production has \
+             it: {e}"
+        )
+    };
+    let (_, record) = release::read(root, id).map_err(unread)?;
+    let state = &record["state"];
+    if state == release::PROMOTING || state == IN_PRODUCTION {
+        return unsure(root, id, failure);
+    }
+    Err(promotion_failed(root, id, failure))
+}
+
+/// What the human reads when production may have change `id` of the project at `root` and the
+/// recipe cannot go on with it (`why`): the change parks, no longer paused at G4, so that no
+/// answer promotes it twice (see [`change::park`]). When it cannot park, it says why too.
+fn unsure(root: &Path, id: &str, why: &str) -> Result<Said, String> {
+    let reason = format!(
+        "production may have it, but gdd cannot go on with it ({why}). Check production \
+         before anything else: promoting it again could deploy it twice"
+    );
+    // The pause goes first: a parked change still paused could be promoted again.
+    let parked = state::clear(root, id).and_then(|()| change::park(root, id, &reason));
+    parked
+        .map(Said::Parked)
+        .map_err(|e| format!("Change {id} cannot park: {reason}.\n{e}"))
+}
+
+/// What the human reads when the promotion of change `id` of the project at `root` failed with
+/// `failure`, or could not run: production is untouched, so the change stays paused at G4, with a
+/// note on why and its request of G4 back in the Decision Inbox. When they cannot be left there,
+/// it says why too.
+fn promotion_failed(root: &Path, id: &str, failure: &str) -> String {
+    let why = format!(
+        "{PROMOTION_FAILED}{failure}. Fix the cause and answer again: gdd resume {id} --g4 ok, \
+         or --g4 ko."
+    );
+    let said = format!(
+        "Promotion of {id} failed: {failure}. Production untouched: the change is still paused \
+         at G4. To retry: gdd resume {id} --g4 ok (or --g4 ko to reject)."
+    );
+    match pause_at_g4(root, id, Some(&why)) {
+        Ok(()) => said,
+        Err(e) => format!("{said}\n{e}"),
+    }
+}
+
+/// A polish pass of change `id`, on its branch, from the commit `start` it is at: `note`, the
+/// human's notes at G4, kept for the Builder; then the recipe again from build mode, the notes
+/// in its first round, until it pauses at G4 again.
 fn polish_pass(
     project: &Project,
     id: &str,
     note: &str,
+    start: &str,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let root = project.root;
-    polish_noted(root, id, note)?;
+    polish_noted(root, id, note, start)?;
     let mut run = Run {
         project,
         id,
@@ -318,8 +449,9 @@ fn polish_pass(
 
 /// Keeps `note`, the human's notes at G4, in the record of change `id` of the project at `root`
 /// for the Builder (see [`change::POLISH`]); logs it as the answer to G4, which stays pending;
-/// and puts the change back in Build.
-fn polish_noted(root: &Path, id: &str, note: &str) -> Result<(), String> {
+/// and puts the change back in Build, its build starting at the commit `start`: what the change
+/// did before passed every gate and merged, so Path Guard judges what the pass touches.
+fn polish_noted(root: &Path, id: &str, note: &str, start: &str) -> Result<(), String> {
     let text = change::read_record(root, id)?;
     let path = change::record_path(id);
     let ts = log::now();
@@ -328,7 +460,10 @@ fn polish_noted(root: &Path, id: &str, note: &str) -> Result<(), String> {
         text: note,
         ts: &ts,
     };
-    let fields = vec![("state", Value::from("building"))];
+    let fields = vec![
+        ("state", Value::from("building")),
+        ("build_start", Value::from(start)),
+    ];
     let noted = change::with_note(&text, &polish)
         .and_then(|text| change::with_fields(&text, fields))
         .map_err(|e| format!("{path}: {e}"))?;
@@ -391,7 +526,7 @@ fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, Str
             Ok(Said::Done(said))
         }
         Ok(Ended::Paused) => {
-            pause_at_g4(root, id)?;
+            pause_at_g4(root, id, None)?;
             let next = format!("To continue: gdd resume {id} --g4 ok|ko|polish");
             Ok(Said::Done(format!("Paused at G4. {inbox} · {next}")))
         }
@@ -400,18 +535,21 @@ fn finish(root: &Path, id: &str, ended: Result<Ended, Stop>) -> Result<Said, Str
     }
 }
 
-/// Leaves the request of G4 in the Decision Inbox of change `id` of the project at `root`, and
-/// its run state paused at G4.
-fn pause_at_g4(root: &Path, id: &str) -> Result<(), String> {
-    let text = change::read_record(root, id)?;
+/// Leaves the request of G4 in the Decision Inbox of change `id` of the project at `root`, after
+/// `why` when there is one, and its run state paused at G4.
+fn pause_at_g4(root: &Path, id: &str, why: Option<&str>) -> Result<(), String> {
+    let mut noted = change::read_record(root, id)?;
     let path = change::record_path(id);
     let ts = log::now();
-    let request = Note {
-        kind: "needs",
-        text: &g4_request(id),
-        ts: &ts,
-    };
-    let noted = change::with_note(&text, &request).map_err(|e| format!("{path}: {e}"))?;
+    let request = g4_request(id);
+    for text in why.into_iter().chain([request.as_str()]) {
+        let note = Note {
+            kind: "needs",
+            text,
+            ts: &ts,
+        };
+        noted = change::with_note(&noted, &note).map_err(|e| format!("{path}: {e}"))?;
+    }
     change::write(root, &path, &noted)?;
     inbox::save(root, id, &noted)?;
     state::pause_at_g4(root, id)
@@ -420,6 +558,11 @@ fn pause_at_g4(root: &Path, id: &str) -> Result<(), String> {
 /// Promotes the change and observes it in production.
 fn promoted(steps: &mut impl Steps) -> Result<Ended, Stop> {
     steps.release("promote")?;
+    observed(steps)
+}
+
+/// Observes the change in production.
+fn observed(steps: &mut impl Steps) -> Result<Ended, Stop> {
     steps.release("observe")?;
     Ok(Ended::Closed)
 }
@@ -815,7 +958,9 @@ mod tests {
 
     /// The steps of the recipe, played: what ran, in order, with scripted answers. A gate
     /// passes once its answers run out; the Reviewer says OK, and the replan build mode. Each
-    /// call of an agent does what `acts` gives it to do, on the project root.
+    /// call of an agent does what `acts` gives it to do, on the project root, and a release step
+    /// what `released` gives it. A release step, or a decision on a gate, named in `fails` fails
+    /// with what it gives.
     struct Played<'a> {
         root: &'a Path,
         ran: Vec<String>,
@@ -827,6 +972,8 @@ mod tests {
         guard: Vec<String>,
         stuck: Option<Who>,
         acts: Vec<(Who, Act)>,
+        released: Vec<(&'static str, Act)>,
+        fails: Vec<(&'static str, &'static str)>,
     }
 
     /// What an agent does on the project root when it is called.
@@ -844,6 +991,8 @@ mod tests {
             guard: Vec::new(),
             stuck: None,
             acts: Vec::new(),
+            released: Vec::new(),
+            fails: Vec::new(),
         }
     }
 
@@ -866,6 +1015,14 @@ mod tests {
         /// Writes `text` as the answer of an agent in `path`.
         fn answer(&self, path: &str, text: &str) {
             change::write(self.root, path, &format!("{text}\n")).unwrap();
+        }
+
+        /// How the step `name` ends: with what `fails` gives it, if anything.
+        fn ended(&self, name: &str) -> Result<(), String> {
+            match self.fails.iter().find(|(step, _)| *step == name) {
+                Some((_, why)) => Err(why.to_string()),
+                None => Ok(()),
+            }
         }
     }
 
@@ -923,7 +1080,7 @@ mod tests {
             note: &str,
         ) -> Result<(), String> {
             self.ran.push(format!("{gate} {decision} {by}: {note}"));
-            Ok(())
+            self.ended(gate)
         }
 
         fn merge(&mut self) -> Result<(), String> {
@@ -933,10 +1090,9 @@ mod tests {
 
         fn release(&mut self, step: &str) -> Result<(), String> {
             self.ran.push(step.into());
-            if step == "observe" && self.root.join("observe-fails").exists() {
-                return Err("release.observe failed".into());
-            }
-            Ok(())
+            let acts = self.released.iter().filter(|(name, _)| *name == step);
+            acts.for_each(|(_, act)| act(self.root));
+            self.ended(step)
         }
     }
 
@@ -1217,9 +1373,9 @@ mod tests {
         let unknown = invoke::Error::Model(Who::Reviewer, "has no model".into());
         let failed = Stop::Fail("gdd/models.toml: the Reviewer has no model".into());
         assert_eq!(Stop::from(unknown), failed);
-        folder.write("observe-fails", "");
         let mut steps = played(&folder.0);
         steps.decided.resume_green = true;
+        steps.fails = vec![("observe", "release.observe failed")];
         let failed = Stop::Fail("release.observe failed".into());
         assert_eq!(launched(&mut steps, 1), Err(failed));
     }
@@ -1731,7 +1887,12 @@ mod tests {
 
     /// The repository with change `c1` paused at G4.
     fn paused() -> Repo {
-        let repo = repo_with_change(RECORD);
+        paused_in("in-pre")
+    }
+
+    /// The repository with change `c1` in state `state`, paused at G4.
+    fn paused_in(state: &str) -> Repo {
+        let repo = repo_with_change(&RECORD.replace("in-pre", state));
         finish(repo.root(), "c1", Ok(Ended::Paused)).unwrap();
         repo
     }
@@ -1749,6 +1910,267 @@ mod tests {
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         let request = &record(root)["inbox"][0];
         assert!(request["resolved"].is_string(), "{request}");
+    }
+
+    /// The texts of the requests to the human still open in the record of change `c1`.
+    fn open_requests(root: &Path) -> Vec<String> {
+        let record = record(root);
+        let mut open = Vec::new();
+        for note in record["inbox"].as_array().into_iter().flatten() {
+            if note["kind"] == "needs" && note["resolved"].is_null() {
+                open.extend(note["text"].as_str().map(str::to_string));
+            }
+        }
+        open
+    }
+
+    const PROMOTE_FAILED: &str = "release.promote failed (exit code 1):\nregistry down";
+
+    #[test]
+    fn a_failed_promotion_leaves_the_change_paused_and_the_same_answer_retries_it() {
+        let repo = paused();
+        let root = repo.root();
+        let here = project(root);
+        let mut steps = played(root);
+        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let failed = format!(
+            "Promotion of c1 failed: {PROMOTE_FAILED}. Production untouched: the change is \
+             still paused at G4. To retry: gdd resume c1 --g4 ok (or --g4 ko to reject)."
+        );
+        assert_eq!(said, Err(failed));
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        let why = format!(
+            "Promotion failed: {PROMOTE_FAILED}. Fix the cause and answer again: gdd resume c1 \
+             --g4 ok, or --g4 ko."
+        );
+        assert_eq!(open_requests(root), [why.clone(), g4_request("c1")]);
+        let inbox = inbox_of(root);
+        assert!(inbox.contains(&why), "{inbox}");
+        assert!(inbox.contains("G4 · Release Gate"), "{inbox}");
+        // Failed again: only the last failure is open.
+        let mut steps = played(root);
+        steps.fails = vec![("promote", "release.promote failed")];
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
+                   gdd resume c1 --g4 ok, or --g4 ko.";
+        assert_eq!(open_requests(root), [why.to_string(), g4_request("c1")]);
+        // Fixed, the same answer promotes it.
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+        assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
+    }
+
+    #[test]
+    fn after_a_failed_promotion_the_human_can_still_reject_the_change() {
+        let repo = paused();
+        let root = repo.root();
+        let here = project(root);
+        let mut steps = played(root);
+        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
+        assert!(done(said).starts_with("Change c1 rejected at G4"));
+        assert_eq!(steps.ran, ["G4 ko human: No"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+        assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
+        assert!(!inbox_of(root).contains("Promotion failed"));
+    }
+
+    #[test]
+    fn after_a_failed_promotion_the_human_can_still_polish_the_change() {
+        let repo = paused();
+        let root = repo.root();
+        let here = project(root);
+        let mut steps = played(root);
+        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Polish, "Shorter", None, &mut steps);
+        assert!(done(said).starts_with("Paused at G4."));
+        assert_eq!(steps.ran[0], "build b mode=build fix=polish");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(open_requests(root), [g4_request("c1")]);
+        assert!(!inbox_of(root).contains("Promotion failed"));
+    }
+
+    #[test]
+    fn a_change_promoted_already_is_only_observed() {
+        let repo = paused_in(IN_PRODUCTION);
+        let root = repo.root();
+        let mut steps = played(root);
+        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "observe"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+    }
+
+    #[test]
+    fn a_failed_observation_after_g4_does_not_leave_the_change_paused() {
+        let repo = paused();
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.fails = vec![("observe", "release.observe failed")];
+        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        assert_eq!(said, Err("release.observe failed".into()));
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+    }
+
+    /// What the release step `promote` does before it runs its command: the record of change
+    /// `c1` of the project at `root` says it is promoting.
+    fn promoting(root: &Path) {
+        let text = change::read_record(root, "c1").unwrap();
+        let fields = vec![("state", Value::from(release::PROMOTING))];
+        let promoting = change::with_fields(&text, fields).unwrap();
+        change::write(root, &change::record_path("c1"), &promoting).unwrap();
+    }
+
+    const UNLOGGED: &str = "cannot write .gdd/log.jsonl: Is a directory (os error 21)";
+
+    #[test]
+    fn a_promotion_that_may_have_reached_production_parks_the_change() {
+        let repo = paused();
+        let root = repo.root();
+        let here = project(root);
+        let mut steps = played(root);
+        steps.released = vec![("promote", promoting)];
+        steps.fails = vec![("promote", UNLOGGED)];
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let why = format!(
+            "Change c1 parked: production may have it, but gdd cannot go on with it \
+             ({UNLOGGED}). Check production before anything else: promoting it again could \
+             deploy it twice. Message in .gdd/changes/c1/inbox.md"
+        );
+        assert_eq!(parked(said), why);
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+        assert_eq!(record(root)["state"], "parked");
+        assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
+        // No answer promotes it again.
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
+        assert!(steps.ran.is_empty());
+    }
+
+    #[test]
+    fn a_change_left_promoting_parks_whatever_the_answer() {
+        for (answer, note) in [(Answer::Ok, ""), (Answer::Ko, "No"), (Answer::Polish, "x")] {
+            let repo = paused_in(release::PROMOTING);
+            let root = repo.root();
+            let mut steps = played(root);
+            let said = resume(&project(root), "c1", answer, note, None, &mut steps);
+            let why = "Change c1 parked: production may have it, but gdd cannot go on with it \
+                       (an earlier answer stopped while promoting it). Check production";
+            assert!(parked(said).starts_with(why), "{answer:?}");
+            assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
+            assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+            assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
+        }
+    }
+
+    #[test]
+    fn a_change_that_cannot_park_says_why_and_is_no_longer_paused() {
+        let repo = paused_in(release::PROMOTING);
+        let root = repo.root();
+        fs::create_dir_all(root.join(log::PATH)).unwrap();
+        let mut steps = played(root);
+        let err = resume(&project(root), "c1", Answer::Ok, "", None, &mut steps).unwrap_err();
+        let start = "Change c1 cannot park: production may have it, but gdd cannot go on with it";
+        assert!(err.starts_with(start), "{err}");
+        assert!(err.ends_with(&format!("twice.\n{UNLOGGED}")), "{err}");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+    }
+
+    #[test]
+    fn a_change_promoted_already_can_no_longer_be_rejected_or_polished() {
+        let repo = paused_in(IN_PRODUCTION);
+        let root = repo.root();
+        let refused = "Change c1 was promoted already: production has it, so it can no longer \
+                       be rejected or polished. To observe it: gdd resume c1 --g4 ok.";
+        for (answer, note) in [(Answer::Ko, "No"), (Answer::Polish, "x")] {
+            let mut steps = played(root);
+            let said = resume(&project(root), "c1", answer, note, None, &mut steps);
+            assert_eq!(said, Err(refused.into()), "{answer:?}");
+            assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
+        }
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(record(root)["state"], IN_PRODUCTION);
+        assert_eq!(open_requests(root), [g4_request("c1")]);
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
+    }
+
+    #[test]
+    fn a_change_promoted_already_whose_ok_cannot_be_recorded_parks() {
+        let repo = paused_in(IN_PRODUCTION);
+        let root = repo.root();
+        let mut steps = played(root);
+        let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
+        steps.fails = vec![("G4", unwritten)];
+        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let why = format!(
+            "Change c1 parked: production may have it, but gdd cannot go on with it \
+             ({unwritten})."
+        );
+        assert!(parked(said).starts_with(&why));
+        assert_eq!(steps.ran, ["G4 ok human: Fine"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+    }
+
+    #[test]
+    fn a_failed_promotion_whose_record_cannot_be_read_keeps_the_pause() {
+        let repo = paused();
+        let root = repo.root();
+        let mut steps = played(root);
+        let unreadable: Act = |root| {
+            let record = root.join(change::record_path("c1"));
+            fs::remove_file(&record).unwrap();
+            fs::create_dir(&record).unwrap();
+        };
+        steps.released = vec![("promote", unreadable)];
+        steps.fails = vec![("promote", "release.promote failed")];
+        let said = resume(&project(root), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
+                     whether production has it: cannot read .gdd/changes/c1/change.json: ";
+        let err = said.unwrap_err();
+        assert!(err.starts_with(start), "{err}");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+    }
+
+    #[test]
+    fn ok_at_g4_keeps_the_pause_when_the_record_cannot_be_written() {
+        let repo = paused();
+        let root = repo.root();
+        let here = project(root);
+        // The decision of G4 is not written: nothing is promoted.
+        let mut steps = played(root);
+        let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
+        steps.fails = vec![("G4", unwritten)];
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let start = format!("Promotion of c1 failed: {unwritten}. Production untouched");
+        let err = said.unwrap_err();
+        assert!(err.starts_with(&start), "{err}");
+        assert_eq!(steps.ran, ["G4 ok human: Fine"]);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(open_requests(root)[1], g4_request("c1"));
+        // The note on the failure cannot be left: the error says both.
+        let inbox = root.join(change::inbox_path("c1"));
+        fs::remove_file(&inbox).unwrap();
+        fs::create_dir(&inbox).unwrap();
+        let mut steps = played(root);
+        steps.fails = vec![("promote", "release.promote failed")];
+        let err = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).unwrap_err();
+        let start = "Promotion of c1 failed: release.promote failed. Production untouched";
+        assert!(err.starts_with(start), "{err}");
+        let unsaved = "\ncannot write .gdd/changes/c1/inbox.md: ";
+        assert!(err.contains(unsaved), "{err}");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
     }
 
     #[test]
@@ -1776,7 +2198,11 @@ mod tests {
         repo.git(&["checkout", "-q", "change/c1"]);
         repo.write("src/app.rs", "x\n");
         repo.commit();
+        let start = repo.git(&["rev-parse", "HEAD"]);
         repo.git(&["checkout", "-q", "main"]);
+        // What main got since is not the pass's: its build starts on the branch.
+        repo.write("gdd/commands.toml", "[release]\n");
+        repo.commit();
         let here = project(root);
         let mut steps = played(root);
         let note = "Shorter error messages";
@@ -1802,6 +2228,7 @@ mod tests {
         assert!(notes[0]["resolved"].is_string());
         assert!(notes[2].get("resolved").is_none());
         assert_eq!(record["state"], "building");
+        assert_eq!(record["build_start"], start.as_str());
         assert!(inbox_of(root).contains(&format!("## Polish\n- {note}")));
         let log = fs::read_to_string(root.join(log::PATH)).unwrap();
         let lines = log::parse(&log).unwrap();

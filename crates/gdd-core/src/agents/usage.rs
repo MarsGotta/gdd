@@ -1,7 +1,7 @@
-//! What an agent says when it ends, read from its JSON output as the kit's wrapper read it
-//! (`gdd-kit/scripts/agent_wrap.py`): the tokens, the cost and its final text. Each agent sheet
-//! names its reader (`usage`). An agent that reports no cost is priced with `[prices.<model>]` of
-//! `gdd/models.toml`.
+//! What an agent says when it ends, read from its JSON output as the agent wrapper read it
+//! (ported from the bootstrap kit; the pilot repository keeps it): the tokens, the cost and its
+//! final text. Each agent sheet names its reader (`usage`). An agent that reports no cost is
+//! priced with `[prices.<model>]` of `gdd/models.toml`.
 
 use serde::Deserialize;
 use serde_json::Value;
