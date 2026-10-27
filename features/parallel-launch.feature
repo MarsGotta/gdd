@@ -147,6 +147,7 @@ Feature: Each change runs in its own worktree
     When I run "gdd launch c1"
     Then it fails with a message that contains "changed GDD state"
     And the record of "c1" is in state "parked"
+    And the change "c1" has a worktree next to the project
     And the worktree of "c1" has no ".gdd"
 
   Scenario: An agent that changes its own change's record parks the change
