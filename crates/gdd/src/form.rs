@@ -493,24 +493,25 @@ pub fn finish(root: &Path, outcome: &Outcome, env: &[(String, String)]) -> Resul
     }
 }
 
-/// `gdd init` in a terminal: asks the form in raw mode on the alternate screen, which are put
-/// back as they were on every way out, a panic too; then does what the human answered in the
-/// folder `cwd` (see [`finish`]). It runs in the environment of the process, with the coding
-/// agents on its `PATH` checked.
+/// `gdd init` in a terminal: asks the form (see [`ask`]), with the coding agents on the `PATH`
+/// of the process checked, then does what the human answered in the folder `cwd` (see
+/// [`finish`]), in the environment of the process.
 pub fn in_terminal(cwd: &Path) -> crate::Outcome {
     let env = crate::process_env();
-    let mut form = Form::new(init::agents_on_path(&env).unwrap_or_default());
-    let asked = {
-        let _restore = Restore(ratatui::restore);
-        let cannot = |e: io::Error| format!("cannot use the terminal: {e}");
-        let read = || event::read().map(key_of);
-        let terminal = ratatui::try_init().map_err(cannot);
-        terminal.and_then(|mut terminal| drive(&mut form, &mut terminal, read))
-    };
+    let asked = init::agents_on_path(&env).and_then(|found| ask(Form::new(found)));
     match asked.and_then(|outcome| finish(cwd, &outcome, &env)) {
         Ok(said) => crate::Outcome::printed(said, 0),
         Err(why) => crate::Outcome::failure(format!("{why}\n")),
     }
+}
+
+/// Asks `form` in the terminal of the process, in raw mode on the alternate screen, which are
+/// put back as they were on every way out, a panic too: how the human finished it.
+fn ask(mut form: Form) -> Result<Outcome, String> {
+    let _restore = Restore(ratatui::restore);
+    let cannot = |e: io::Error| format!("cannot use the terminal: {e}");
+    let mut terminal = ratatui::try_init().map_err(cannot)?;
+    drive(&mut form, &mut terminal, || event::read().map(key_of))
 }
 
 /// Puts the terminal back as it was when it goes, on every way out of the form.
@@ -1003,7 +1004,9 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
         let keys = [None, Some(Key::Char('N')), None, Some(Key::CtrlC)];
         let mut keys = keys.into_iter();
-        let ended = drive(&mut form, &mut terminal, || Ok(keys.next().flatten()));
+        // Reading fails once the keys run out, so a form that never ends fails the test.
+        let no_more = || io::Error::other("no more keys");
+        let ended = drive(&mut form, &mut terminal, || keys.next().ok_or_else(no_more));
         assert_eq!(ended, Ok(Outcome::Quit));
         let shown = screen_text(terminal.backend().buffer());
         assert!(shown.contains("│> N█"), "{shown}");

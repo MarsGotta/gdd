@@ -389,6 +389,7 @@ fn it_fails(w: &mut GddWorld, text: String) {
         "the message {:?} does not contain {text:?}",
         ran.stderr
     );
+    w.exit_checked = true;
 }
 
 #[then("the output is:")]
@@ -407,10 +408,16 @@ fn output_contains(w: &mut GddWorld, text: String) {
         "gdd failed: {:?}",
         ran.stderr
     );
+    // A run that failed (and was checked) may say it on either stream: the self-test and CI
+    // print their report on stdout, a refusal goes to stderr.
+    let output = if ran.succeeded {
+        ran.stdout.clone()
+    } else {
+        format!("{}{}", ran.stdout, ran.stderr)
+    };
     assert!(
-        ran.stdout.contains(&text),
-        "the output {:?} does not contain {text:?}",
-        ran.stdout
+        output.contains(&text),
+        "the output {output:?} does not contain {text:?}"
     );
 }
 
