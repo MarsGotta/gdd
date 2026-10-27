@@ -66,7 +66,8 @@ change, stop and review before adding more.
 | Stack catalog: Rust, TypeScript, Python. One default and at most one alternative per gate need, only community-backed tools | done (data) | `docs/discover/2026-10-24-mvp.md` |
 | Per-stack sheets (Rust, TypeScript, Python): gate commands, scenario runner, self-test file, protected step paths, tool catalog, per-stack instructions for the agents (`gdd-stack-<name>`); one or more per project; `gdd stacks`, `show`, `compose` | done | stack-sheets (2026-10-27) |
 | Project skeleton per stack (Cargo.toml with the acceptance target, cucumber/vitest/stryker configs, pytest-bdd test module on GDD_FEATURES) and a first real run of the TypeScript and Python commands on an empty project | next | gdd init |
-| `gdd init`: the Setup form (name, platform, stack, agents found, sensitive areas), same flow with flags and no TTY, writes `gdd stacks compose` into `gdd/`, `/gdd-setup` finishes what the form left | next | gdd init |
+| `gdd init` from flags, without a screen: project basics, composed stack sheets, protected paths, first zone map (harness and supply chain red), roles per agent (Reviewer of another family, or one family accepted with its date), Brief skeleton, `bin/gdd`, CI, AGENTS.md/CLAUDE.md when absent, `gdd/generated.toml`; never overwrites, never writes through links or files with other names, commits only its own files | done | init (2026-10-27) |
+| `gdd init` form screen; `gdd status` notices a second model family to change the Reviewer | next | init-form |
 | `gdd upgrade`: a new gdd version proposes its changes to the files it wrote once (three-way merge against what it generated then; untouched files updated, edited ones merged, conflicts marked), as a change approved at a sitting; `init` records which version generated each file | next | gdd-upgrade (after the pilot) |
 | Adoption of a repository with code: `gdd init` runs every gate once, reports what fails, proposes Refactor changes ordered by risk; failing commands are known debt (warn, do not block) until a Refactor turns each green | next | init-adopt |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
@@ -90,7 +91,7 @@ change, stop and review before adding more.
 |---|---|
 | English in code, files and commands; MIT OR Apache-2.0 | done |
 | CI on GitHub | done |
-| Install: crates.io (name `gdd` free on 2026-10-24), GitHub releases, Homebrew | open |
+| Install: crates.io (name `gdd` free on 2026-10-24), GitHub releases, Homebrew. The CI written by `gdd init` installs gdd from its git tag `v<version>`: it works once the first version is tagged | open |
 | English user guide (the current guide is in Spanish) | open |
 
 ## Open questions
