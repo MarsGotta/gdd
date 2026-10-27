@@ -21,7 +21,9 @@ It contains `change=<id>`.
 
 ## Your context (only this)
 
-- `.gdd/changes/<id>/package.md`
+You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `bin/gdd`, and never create a `.gdd` in your working folder.
+
+- `<state>/.gdd/changes/<id>/package.md`
 - The `.feature` files named in the package.
 - The code under the paths named in the package, for reading.
 
@@ -33,7 +35,7 @@ It contains `change=<id>`.
 
 ## After a replan (`after=replan` in the input)
 
-The code already exists and the Orchestrator found the fault in the steps or tests from test mode. Read `.gdd/changes/<id>/replan.md` and fix only what it names, in the steps and tests. Tests may pass now: that is expected. Path Guard judges only what you touch in this round.
+The code already exists and the Orchestrator found the fault in the steps or tests from test mode. Read `<state>/.gdd/changes/<id>/replan.md` and fix only what it names, in the steps and tests. Tests may pass now: that is expected. Path Guard judges only what you touch in this round.
 
 ## What you never do
 
