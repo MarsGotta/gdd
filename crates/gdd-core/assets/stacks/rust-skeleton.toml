@@ -1,0 +1,155 @@
+# Skeleton of a new rust project, written by gdd init when the folder has no project of this
+# stack yet (none of its detect files). Checked for real on 2026-10-27: every gate command of the
+# sheet green, red on a surviving mutant and on a step without code. {package} is the project
+# name as an identifier.
+
+[[file]]
+path = "Cargo.toml"
+content = '''
+[package]
+name = "{package}"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+cucumber = "0.23"
+futures = "0.3"
+
+# The Gherkin scenarios (G2/G3): run with `cargo test --test acceptance`. `test = false` keeps
+# plain `cargo test` (the unit tests of G2) from running them a second time.
+[[test]]
+name = "acceptance"
+harness = false
+test = false
+'''
+
+[[file]]
+path = "deny.toml"
+content = '''
+# cargo-deny: G3 security (advisories, bans, sources) and dependencies (licenses).
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = ["MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0"]
+confidence-threshold = 0.9
+
+# The project's own crates are not published (publish = false): no license needed for them.
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+'''
+
+[[file]]
+path = "features/.gitkeep"
+content = '''
+'''
+
+[[file]]
+path = "src/lib.rs"
+content = '''
+//! The project's library: a placeholder for its first code.
+
+/// The greeting for `name`.
+pub fn greeting(name: &str) -> String {
+    if name.is_empty() {
+        "Hello!".to_string()
+    } else {
+        format!("Hello, {name}!")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::greeting;
+
+    #[test]
+    fn a_name_is_greeted_by_name() {
+        assert_eq!(greeting("Ada"), "Hello, Ada!");
+    }
+
+    #[test]
+    fn no_name_gets_a_plain_greeting() {
+        assert_eq!(greeting(""), "Hello!");
+    }
+}
+'''
+
+[[file]]
+path = "tests/acceptance.rs"
+content = '''
+//! The Gherkin scenarios of `features/`, run with cucumber-rs.
+//!
+//! - `GDD_FEATURES`: the features to run, one path per line from the project root; all when
+//!   empty (G2 runs the ones a change touches).
+//! - `GDD_HIDDEN=1`: also run `features/hidden/` (G3).
+//!
+//! Steps live in `tests/acceptance/`, one module per feature.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use cucumber::World as _;
+
+mod acceptance {
+    pub mod world;
+}
+
+use acceptance::world::AppWorld;
+
+fn main() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let listed: HashSet<PathBuf> = std::env::var("GDD_FEATURES")
+        .unwrap_or_default()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| root.join(line).canonicalize().ok())
+        .collect();
+    let hidden = std::env::var("GDD_HIDDEN").as_deref() == Ok("1");
+    let hidden_dir = root.join("features").join("hidden");
+    futures::executor::block_on(
+        AppWorld::cucumber()
+            .fail_on_skipped()
+            .with_default_cli()
+            .filter_run_and_exit(root.join("features"), move |feature, _, _| {
+                let Some(path) = feature.path.as_ref().and_then(|p| p.canonicalize().ok()) else {
+                    return false;
+                };
+                if path.starts_with(&hidden_dir) {
+                    return hidden;
+                }
+                listed.is_empty() || listed.contains(&path)
+            }),
+    );
+}
+'''
+
+[[file]]
+path = "tests/acceptance/world.rs"
+content = '''
+//! What a scenario remembers between its steps. Add one module per feature next to this one,
+//! with its `#[given]`, `#[when]` and `#[then]` steps, and name it in `tests/acceptance.rs`.
+
+#[derive(Debug, Default, cucumber::World)]
+pub struct AppWorld {
+    /// The last answer of the library.
+    pub heard: String,
+}
+'''

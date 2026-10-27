@@ -1,32 +1,49 @@
 # Stack sheet · Python. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands from
-# each tool's documentation (pytest-bdd, mutmut 3, OSV-Scanner license scanning).
+# each tool's documentation (uv, pytest-bdd, mutmut 3, OSV-Scanner); first real run 2026-10-27
+# (docs/discover/2026-10-27-gdd-init.md). Every tool runs inside the project's environment with uv.
 # Layout: code in src/<package>/, unit tests in tests/unit/, scenario steps in tests/acceptance/
 # (its test module calls scenarios() on GDD_FEATURES, and on features/hidden/ only with GDD_HIDDEN=1).
 name = "python"
 title = "Python"
 scenario_runner = "pytest-bdd"
 detect = ["pyproject.toml"]
-supply_chain = ["pyproject.toml", "requirements*.txt", "uv.lock", "poetry.lock"]   # red zone written by gdd init: dependencies and toolchain
-install = '''python -m pip install -e '.[dev]' '''
+supply_chain = ["pyproject.toml", "uv.lock", "osv-scanner.toml", "osv-scanner-licenses.toml"]   # red zone written by gdd init: dependencies and toolchain
+install = '''uv sync --locked'''
+bootstrap = '''uv lock && uv sync --locked'''   # the first install: writes the lock file
+ignore = [".venv/", "__pycache__/", ".mypy_cache/", ".pytest_cache/", ".ruff_cache/", "mutants/"]
 
 [g2]
-lint = '''ruff check . && ruff format --check .'''   # complexity: ruff C901
-types = '''mypy src'''
-unit = '''pytest -q tests/unit'''
-acceptance = '''pytest -q tests/acceptance'''   # pytest-bdd fails on a step without code; only GDD_FEATURES (all if empty)
-architecture = '''lint-imports'''   # import-linter contracts in .importlinter
+lint = '''uv run ruff check . && uv run ruff format --check .'''   # complexity: ruff C901
+types = '''uv run mypy src'''
+unit = '''uv run pytest -q tests/unit'''
+acceptance = '''uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # pytest-bdd fails on a step without code; only GDD_FEATURES (all if empty); 5 = no scenario yet
+architecture = '''uv run lint-imports'''   # import-linter contracts in pyproject.toml
 
 [g3]
-acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 pytest -q tests/acceptance'''
-lockfile = ""   # pip has no lock file of its own; a project with one (uv, pip-tools) adds its check
-security = '''bandit -q -r src && pip-audit'''
-dependencies = '''osv-scanner scan source -r --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" .'''
+acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # G3 counts the scenarios itself
+lockfile = '''uv lock --check'''
+security = '''uv run bandit -q -r src && osv-scanner scan source -L uv.lock'''   # exceptions: [[IgnoredVulns]] in osv-scanner.toml, with a reason
+dependencies = '''mkdir -p .gdd && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o .gdd/runtime-requirements.txt && { ! grep -q '^[A-Za-z0-9]' .gdd/runtime-requirements.txt || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L requirements.txt:.gdd/runtime-requirements.txt; }'''   # licenses of what ships: the runtime dependencies, none yet is a pass
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
-mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | tr / . | sed 's/$/*/'); [ -z "$P" ] || { mutmut run $P && ! mutmut results | grep -q survived; }'''   # set -f: the module patterns reach mutmut unexpanded; [tool.mutmut] source_paths in pyproject.toml
+mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | tr / . | sed 's/$/*/'); [ -z "$P" ] || { uv run mutmut run $P && ! uv run mutmut results | grep -q survived; }'''   # set -f: the module patterns reach mutmut unexpanded; [tool.mutmut] source_paths in pyproject.toml
 
 [learn]   # warnings for Learn, never a gate
 duplication = '''npx --yes jscpd --silent src'''
-unused = '''vulture src'''
+unused = '''uv run vulture src'''
+
+[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+setup = '''
+      - uses: astral-sh/setup-uv@v7
+      - name: Install the Python dependencies
+        run: uv sync --locked
+      - name: Install OSV-Scanner (checksum verified)
+        run: |
+          V=2.7.0; D=$(mktemp -d); cd "$D"
+          curl -sSfLO https://github.com/google/osv-scanner/releases/download/v$V/osv-scanner_linux_amd64
+          curl -sSfLO https://github.com/google/osv-scanner/releases/download/v$V/osv-scanner_SHA256SUMS
+          grep " osv-scanner_linux_amd64$" osv-scanner_SHA256SUMS | sha256sum -c -
+          sudo install -m 755 osv-scanner_linux_amd64 /usr/local/bin/osv-scanner
+'''
 
 [selftest]
 file = "tests/unit/test_gdd_selftest.py"

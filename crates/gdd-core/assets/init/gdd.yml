@@ -12,8 +12,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # The setup of each stack (toolchains and gate tools) comes with the project skeleton.
-      - name: Install gitleaks (checksum verified)
+{setup}      - name: Install gitleaks (checksum verified)
         run: |
           V=8.30.1; D=$(mktemp -d); cd "$D"
           curl -sSfLO https://github.com/gitleaks/gitleaks/releases/download/v$V/gitleaks_${V}_linux_x64.tar.gz

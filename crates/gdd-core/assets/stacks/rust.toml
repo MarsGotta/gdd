@@ -1,5 +1,6 @@
 # Stack sheet · Rust. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands as in
-# gdd's own repository, where they run every day. Layout: unit tests next to the code, the scenario
+# gdd's own repository, where they run every day; first real run on a new project 2026-10-27
+# (docs/discover/2026-10-27-gdd-init.md). Layout: unit tests next to the code, the scenario
 # steps in tests/acceptance/ (a cucumber-rs test target named acceptance, declared in Cargo.toml with
 # harness = false and test = false: plain cargo test skips it, cargo test --test acceptance runs it).
 name = "rust"
@@ -8,9 +9,11 @@ scenario_runner = "cucumber-rs"
 detect = ["Cargo.toml"]
 supply_chain = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]   # red zone written by gdd init: dependencies and toolchain
 install = '''cargo fetch --locked'''
+bootstrap = '''cargo generate-lockfile'''   # the first install: writes the lock file
+ignore = ["/target"]
 
 [g2]
-lint = '''cargo fmt --all --check && cargo clippy --all-targets -- -D warnings -W clippy::cognitive_complexity'''
+lint = '''cargo fmt --all --check && cargo clippy --all-targets --test acceptance -- -D warnings -W clippy::cognitive_complexity'''   # --all-targets skips a target with test = false
 types = ""   # clippy type-checks every target
 unit = '''cargo test --workspace'''   # lib, bins, doc tests and every target in tests/ (the self-test file too) but acceptance (test = false)
 acceptance = '''cargo test --test acceptance'''   # cucumber-rs, strict, only GDD_FEATURES (all if empty)
@@ -19,7 +22,7 @@ architecture = ""   # written per project: a cargo tree rule between its crates
 [g3]
 acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 cargo test --test acceptance --locked'''
 lockfile = '''cargo metadata --locked --format-version 1 > /dev/null'''
-security = '''cargo deny --locked check advisories bans sources'''
+security = '''cargo deny --locked check advisories bans sources'''   # exceptions: [advisories] ignore in deny.toml, with a reason
 dependencies = '''cargo deny --locked check licenses'''
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
 mutation = '''if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2'''
@@ -27,6 +30,16 @@ mutation = '''if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc
 [learn]   # warnings for Learn, never a gate
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''cargo machete'''
+
+[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+setup = '''
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-mutants
+'''
 
 [selftest]
 file = "tests/gdd_selftest_failing.rs"
