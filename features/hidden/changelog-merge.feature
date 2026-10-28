@@ -68,6 +68,7 @@ Feature: The changelog is the project's (hidden examples)
     And the Setup is done
     And the red zones are approved
     And the agents are fakes
+    And the versions are released by hand
 
   Scenario: A security line goes after Added in a version that is there
     Given I run "gdd new-change c4 --title App --paths src/app.txt"

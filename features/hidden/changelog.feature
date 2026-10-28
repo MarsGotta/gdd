@@ -68,6 +68,7 @@ Feature: The changelog from the changes (hidden examples)
     And the Setup is done
     And the red zones are approved
     And the agents are fakes
+    And the versions are released by hand
 
   Scenario: A migration goes under Changed
     Given I run "gdd new-change c4 --title Storage --type Migration --paths src/app.txt"
