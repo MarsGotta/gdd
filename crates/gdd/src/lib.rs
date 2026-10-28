@@ -310,8 +310,10 @@ enum Command {
     /// Runs the recipe of a change in its own git worktree, on its branch change/<id>, while
     /// this checkout goes to the main branch: Build, G2, G3, the Reviewer, merge and pre; then it
     /// waits for the human G4 when the change needs it, or goes to production. The worktree goes
-    /// when the change closes. Refuses uncommitted changes outside that branch. A change that
-    /// parks exits with 1.
+    /// when the change closes. Refuses uncommitted changes outside that branch, and a change past
+    /// [parallel] max of gdd/rules.toml changes building. Next to a change in flight whose planned
+    /// paths overlap its own, it warns first, also in its Decision Inbox: git settles the overlap
+    /// when the change merges. A change that parks exits with 1.
     Launch {
         /// Id of the change: its record is .gdd/changes/<id>/change.json.
         change: String,
