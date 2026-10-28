@@ -306,6 +306,13 @@ fn project_with_log(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
 }
 
+#[given("the log says:")]
+fn the_log_says(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let log = docstring(step, "a log docstring");
+    write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
+}
+
 #[given(regex = r#"^the log line (\d+) is replaced by "(.*)"$"#)]
 fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
     let path = project_root(w).join(".gdd/log.jsonl");

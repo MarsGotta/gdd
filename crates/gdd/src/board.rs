@@ -5,6 +5,8 @@
 use std::cell;
 use std::path::Path;
 
+use gdd_core::flow::{self, Flow};
+use gdd_core::log;
 use gdd_core::state;
 use gdd_core::status::{self, Card};
 use ratatui::Frame;
@@ -26,10 +28,25 @@ const WAITING: &str = "waiting for your G4";
 const NO_CHANGES: &str = "No changes yet · start one with gdd new-change <id> --title <what>";
 
 /// The keys of the list.
-const LIST_KEYS: &str = "↑↓ move · Enter details · d done · q quit";
+const LIST_KEYS: &str = "↑↓ move · Enter details · d done · t time · q quit";
 
 /// The keys of the details.
 const DETAIL_KEYS: &str = "Esc to go back · q quit";
+
+/// The keys of the time view.
+const TIME_KEYS: &str = "↑↓ scroll · Esc to go back · q quit";
+
+/// The title of the time view.
+const TIME_TITLE: &str = "Where the time goes";
+
+/// What the time view says when the log has no change.
+const NO_TIME: &str = "No time in the log yet";
+
+/// What the details say of a change with no time measured.
+const NOT_MEASURED: &str = "Time: nothing measured yet";
+
+/// The line where the report puts what the project adds up to, after the changes.
+const PROJECT_LINE: &str = "Project: ";
 
 /// A section of the Board, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,38 +95,58 @@ impl Phase {
     }
 }
 
+/// What is on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    List,
+    /// The details of the selected change.
+    Details,
+    /// Where the time of the project goes.
+    Time,
+}
+
+/// The lines of the log, or why they could not be read.
+type TimeLog = Result<Vec<flow::Line>, String>;
+
 /// The Board: the changes of a project, the one selected and what is on the screen.
 #[derive(Debug)]
 pub struct Board {
     project: String,
     cards: Vec<Card>,
+    /// The log, read once, when the Board loaded: the lines, or why they could not be read.
+    log: TimeLog,
     /// Whether the changes of Done show.
     done_shown: bool,
     /// The one selected, among the changes that show.
     selected: usize,
-    /// Whether the screen is the details of the selected change.
-    details: bool,
-    /// How many rows the details are scrolled up.
-    detail_scroll: u16,
-    /// The room the body had when it was last painted; the details scroll within it.
+    view: View,
+    /// How many rows the details or the time view are scrolled up.
+    scrolled: u16,
+    /// The room the body had when it was last painted; the details and the time scroll within it.
     body: cell::Cell<Rect>,
     closed: bool,
 }
 
 impl Board {
-    /// A Board of the project called `project` with its changes `cards`, the first one selected,
-    /// Done folded.
+    /// A Board of the project called `project` with its changes `cards` and no time in its log,
+    /// the first change selected, Done folded.
     pub fn new(project: &str, cards: Vec<Card>) -> Board {
         Board {
             project: project.to_string(),
             cards,
+            log: Ok(Vec::new()),
             done_shown: false,
             selected: 0,
-            details: false,
-            detail_scroll: 0,
+            view: View::List,
+            scrolled: 0,
             body: cell::Cell::new(Rect::new(0, 0, 80, 20)),
             closed: false,
         }
+    }
+
+    /// This Board with `log` as the log its time comes from.
+    fn with_log(self, log: TimeLog) -> Board {
+        Board { log, ..self }
     }
 
     /// The Board of the project that holds the folder `cwd`, with the changes under its state
@@ -120,37 +157,44 @@ impl Board {
         let project = crate::read(&root, crate::PROJECT)?.unwrap_or_default();
         let basics =
             status::Basics::from_toml(&project).map_err(|e| format!("{}: {e}", crate::PROJECT))?;
-        Ok(Board::new(&basics.name, status::cards(&root, &state)))
+        let board = Board::new(&basics.name, status::cards(&root, &state));
+        Ok(board.with_log(read_log(&state)))
     }
 
     /// The human presses `key`: q or Ctrl-C closes the Board; on the list, Up and Down move the
-    /// selection within the changes that show, Enter opens the details of the selected one and
-    /// `d` shows or folds Done; in the details, Up and Down scroll them and Esc goes back. Once
-    /// closed, keys do nothing.
+    /// selection within the changes that show, Enter opens the details of the selected one, `t`
+    /// the time of the project and `d` shows or folds Done; in the details and the time, Up and
+    /// Down scroll them and Esc goes back to the list. Once closed, keys do nothing.
     pub fn press(&mut self, key: Key) {
         if self.closed {
             return;
         }
         let last = self.shown().len().saturating_sub(1);
-        match (key, self.details) {
+        match (key, self.view) {
             (Key::CtrlC | Key::Char('q'), _) => self.closed = true,
-            (Key::Esc, true) => self.details = false,
-            (Key::Up, true) => self.detail_scroll = self.detail_scroll.saturating_sub(1),
-            (Key::Down, true) => {
-                self.detail_scroll = (self.detail_scroll + 1).min(self.detail_scroll_limit());
+            (Key::Esc, View::Details | View::Time) => self.view = View::List,
+            (Key::Up, View::Details | View::Time) => {
+                self.scrolled = self.scrolled.saturating_sub(1);
             }
-            (Key::Enter, false) => {
-                self.details = self.selected_card().is_some();
-                self.detail_scroll = 0;
+            (Key::Down, View::Details | View::Time) => {
+                self.scrolled = (self.scrolled + 1).min(self.scroll_limit());
             }
-            (Key::Up, false) => self.selected = self.selected.saturating_sub(1),
-            (Key::Down, false) => self.selected = (self.selected + 1).min(last),
-            (Key::Char('d'), false) => {
+            (Key::Enter, View::List) if self.selected_card().is_some() => self.open(View::Details),
+            (Key::Char('t'), View::List) => self.open(View::Time),
+            (Key::Up, View::List) => self.selected = self.selected.saturating_sub(1),
+            (Key::Down, View::List) => self.selected = (self.selected + 1).min(last),
+            (Key::Char('d'), View::List) => {
                 self.done_shown = !self.done_shown;
                 self.selected = self.selected.min(self.shown().len().saturating_sub(1));
             }
             _ => {}
         }
+    }
+
+    /// Shows `view`, scrolled to its top.
+    fn open(&mut self, view: View) {
+        self.view = view;
+        self.scrolled = 0;
     }
 
     /// The screen as text, `width` x `height` cells, its lines joined by `\n`.
@@ -175,16 +219,18 @@ impl Board {
         let [body, keys] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
         self.body.set(body);
-        let (lines, selected, keys_text) = if self.details {
-            (self.detail_lines(), None, DETAIL_KEYS)
-        } else {
-            let (lines, selected) = self.list_lines();
-            (lines, selected, LIST_KEYS)
+        let (lines, selected, keys_text) = match self.view {
+            View::Details => (self.detail_lines(), None, DETAIL_KEYS),
+            View::Time => (self.time_lines(), None, TIME_KEYS),
+            View::List => {
+                let (lines, selected) = self.list_lines();
+                (lines, selected, LIST_KEYS)
+            }
         };
-        let offset = if self.details {
-            self.detail_scroll.min(self.detail_scroll_limit())
-        } else {
+        let offset = if self.view == View::List {
             scroll(&lines, selected, body)
+        } else {
+            self.scrolled.min(self.scroll_limit())
         };
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -193,15 +239,16 @@ impl Board {
         Paragraph::new(Line::from(keys_text).dim()).render(keys, buffer);
     }
 
-    /// How many rows the details can scroll up before their last row is at the bottom of the
-    /// body as last painted.
-    fn detail_scroll_limit(&self) -> u16 {
+    /// How many rows the details or the time can scroll up before their last row is at the
+    /// bottom of the body as last painted.
+    fn scroll_limit(&self) -> u16 {
         let body = self.body.get();
-        let total: usize = self
-            .detail_lines()
-            .iter()
-            .map(|line| rows(line, body.width))
-            .sum();
+        let lines = if self.view == View::Time {
+            self.time_lines()
+        } else {
+            self.detail_lines()
+        };
+        let total: usize = lines.iter().map(|line| rows(line, body.width)).sum();
         let limit = total.saturating_sub(usize::from(body.height));
         u16::try_from(limit).unwrap_or(u16::MAX)
     }
@@ -288,7 +335,78 @@ impl Board {
         }
         let inbox = format!("Inbox: .gdd/changes/{}/inbox.md", card.id);
         lines.push(Line::from(inbox));
+        lines.push(Line::default());
+        lines.extend(self.change_time_lines(&card.id));
         lines
+    }
+
+    /// The time of the change `id` as `gdd report --time --change` writes it, without its first
+    /// line and its indent; or why there is none.
+    fn change_time_lines(&self, id: &str) -> Vec<Line<'static>> {
+        let log = match &self.log {
+            Ok(log) => log,
+            Err(why) => return vec![cannot_read(why)],
+        };
+        let flow = Flow::new(log, Some(id), None);
+        let entries = entries(&flow);
+        let flow_s = entries.first().and_then(|change| change["flow_s"].as_u64());
+        if flow_s.unwrap_or(0) == 0 {
+            return vec![Line::from(NOT_MEASURED)];
+        }
+        let text = flow.to_string();
+        let rows = text.lines().skip(1);
+        rows.map(|row| Line::from(row.strip_prefix("  ").unwrap_or(row).to_string()))
+            .collect()
+    }
+
+    /// The time of the project: what the changes add up to, then each change, as the report
+    /// writes them.
+    fn time_lines(&self) -> Vec<Line<'static>> {
+        let mut lines = vec![Line::from(TIME_TITLE).bold(), Line::default()];
+        let log = match &self.log {
+            Ok(log) => log,
+            Err(why) => {
+                lines.push(cannot_read(why));
+                return lines;
+            }
+        };
+        let flow = Flow::new(log, None, None);
+        if entries(&flow).is_empty() {
+            lines.push(Line::from(NO_TIME));
+            return lines;
+        }
+        let text = flow.to_string();
+        let rows: Vec<&str> = text.lines().collect();
+        let project = rows
+            .iter()
+            .rposition(|row| row.starts_with(PROJECT_LINE))
+            .unwrap_or(rows.len());
+        let (changes, totals) = rows.split_at(project);
+        lines.extend(totals.iter().map(|row| Line::from(row.to_string())));
+        lines.push(Line::default());
+        let blocks = changes.strip_suffix(&[""]).unwrap_or(changes);
+        lines.extend(blocks.iter().map(|row| Line::from(row.to_string())));
+        lines
+    }
+}
+
+/// The line that says the log could not be read, and why.
+fn cannot_read(why: &str) -> Line<'static> {
+    Line::from(format!("the log cannot be read: {why}"))
+}
+
+/// The log under the state root `state`: its lines, or why they could not be read. A missing log
+/// has no lines.
+fn read_log(state: &Path) -> TimeLog {
+    let text = crate::read(state, log::PATH)?.unwrap_or_default();
+    flow::read(&text).map_err(|e| e.to_string())
+}
+
+/// The changes of `flow` as its JSON gives them.
+fn entries(flow: &Flow) -> Vec<serde_json::Value> {
+    match serde_json::to_value(flow) {
+        Ok(serde_json::Value::Array(changes)) => changes,
+        _ => Vec::new(),
     }
 }
 
@@ -646,8 +764,9 @@ mod tests {
         }
         let end = board.render(80, 24);
         assert!(end.contains("Inbox: .gdd/changes/c1/inbox.md"), "{end}");
+        assert!(end.contains(NOT_MEASURED), "{end}");
         assert!(!end.contains("Type: Feature"), "{end}");
-        board.press(Key::Up);
+        press(&mut board, &[Key::Up, Key::Up, Key::Up]);
         let up = board.render(80, 24);
         assert!(up.contains("path119.rs") && !up.contains("Inbox:"), "{up}");
         for _ in 0..100 {
@@ -786,6 +905,209 @@ mod tests {
         project.write("gdd/project.toml", "name = ");
         let invalid = Board::load(&project.0).unwrap_err();
         assert!(invalid.starts_with("gdd/project.toml: "), "{invalid}");
+    }
+
+    /// A log line of `change` at `ts` (`2026-10-28T` and the rest), a run of the builder of
+    /// `secs` seconds when `secs` is not 0, else the creation of the change.
+    fn log_line(change: &str, ts: &str, secs: u32) -> String {
+        let what = if secs == 0 {
+            r#""role": "orchestrator", "result": "change-created", "note": "T""#.to_string()
+        } else {
+            format!(
+                r#""gate": "G2", "role": "builder-build", "agent": "claude", "model": "sonnet", "duration_s": {secs}, "result": "ok""#
+            )
+        };
+        format!(r#"{{"ts": "2026-10-28T{ts}+00:00", "change": "{change}", {what}}}"#)
+    }
+
+    /// A board of `cards` whose log is `lines`.
+    fn timed(cards: Vec<Card>, lines: &[String]) -> Board {
+        let log = flow::read(&lines.join("\n")).unwrap();
+        board(cards).with_log(Ok(log))
+    }
+
+    /// `count` changes `c00`... each created and then run by the builder an hour later.
+    fn busy_log(count: usize) -> Vec<String> {
+        let hour = |n: usize| format!("{:02}", 6 + n);
+        (0..count)
+            .flat_map(|n| {
+                let id = format!("c{n:02}");
+                let created = log_line(&id, &format!("{}:00:00", hour(n)), 0);
+                [created, log_line(&id, &format!("{}:30:00", hour(n)), 600)]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_details_end_with_the_time_of_the_change_as_the_report_writes_it() {
+        let log = [log_line("b", "08:00:00", 0), log_line("b", "08:30:00", 600)];
+        let mut board = timed(vec![card("a", "open"), card("b", "open")], &log);
+        press(&mut board, &[Key::Down, Key::Enter]);
+        let rows = lines(&board);
+        let at = rows
+            .iter()
+            .position(|row| row.starts_with("Inbox: "))
+            .unwrap();
+        assert!(rows[at + 1].starts_with("Flow time 30m"), "{rows:?}");
+        assert!(
+            rows[at + 2].starts_with("Agents: builder-build · sonnet"),
+            "{rows:?}"
+        );
+        assert_hides(&board, &["b · T · ", NOT_MEASURED]);
+    }
+
+    #[test]
+    fn a_change_without_time_in_the_log_says_nothing_is_measured_yet() {
+        let log = [log_line("only", "08:00:00", 0)];
+        let mut board = timed(vec![card("only", "open"), card("none", "open")], &log);
+        board.press(Key::Enter);
+        assert_shows(&board, &[NOT_MEASURED]);
+        assert_hides(&board, &["Flow time"]);
+        press(&mut board, &[Key::Esc, Key::Down, Key::Enter]);
+        assert_shows(&board, &[NOT_MEASURED]);
+    }
+
+    #[test]
+    fn the_time_view_scrolls_to_its_end_and_back() {
+        let mut board = timed(vec![card("c00", "open")], &busy_log(12));
+        board.press(Key::Char('t'));
+        let top = board.render(80, 24);
+        assert!(top.contains(TIME_TITLE) && top.contains(TIME_KEYS), "{top}");
+        assert!(top.contains("Project: 12 change(s) · flow time "), "{top}");
+        assert!(top.contains("c00 · T · "), "{top}");
+        assert!(!top.contains("c11 · "), "{top}");
+        press(&mut board, &[Key::Up]);
+        assert_eq!(board.render(80, 24), top);
+        for _ in 0..100 {
+            board.press(Key::Down);
+        }
+        let end = board.render(80, 24);
+        assert!(
+            end.contains("c11 · T · ") && !end.contains(TIME_TITLE),
+            "{end}"
+        );
+        assert!(end.contains(TIME_KEYS), "{end}");
+        board.press(Key::Up);
+        assert_ne!(board.render(80, 24), end);
+        for _ in 0..100 {
+            board.press(Key::Up);
+        }
+        assert_eq!(board.render(80, 24), top);
+    }
+
+    #[test]
+    fn the_time_view_puts_the_project_before_the_blocks_of_the_changes() {
+        let mut board = timed(vec![card("c00", "open")], &busy_log(2));
+        board.press(Key::Char('t'));
+        let rows = lines(&board);
+        let at = |start: &str| rows.iter().position(|row| row.starts_with(start)).unwrap();
+        assert_eq!(rows[0], TIME_TITLE);
+        assert_eq!(at("Project: 2 change(s)"), 1);
+        assert!(at("Project: ") < at("c00 · T · "), "{rows:?}");
+        assert!(at("c00 · T · ") < at("  Flow time "), "{rows:?}");
+        assert!(at("  Flow time ") < at("c01 · T · "), "{rows:?}");
+        let screen = board.render(100, 40);
+        let blank = screen.lines().nth(2).unwrap();
+        assert!(blank.trim_matches(['│', ' ']).is_empty(), "{screen}");
+    }
+
+    #[test]
+    fn a_log_without_changes_says_there_is_no_time_yet() {
+        let mut board = board(vec![card("a", "open")]);
+        board.press(Key::Char('t'));
+        assert_eq!(lines(&board)[..2], [TIME_TITLE, NO_TIME]);
+        let nameless = [r#"{"ts": "2026-10-28T08:00:00+00:00", "change": "-"}"#.to_string()];
+        let mut board = timed(vec![card("a", "open")], &nameless);
+        board.press(Key::Char('t'));
+        assert_shows(&board, &[NO_TIME]);
+    }
+
+    #[test]
+    fn a_missing_log_is_an_empty_one() {
+        let project = Project::new();
+        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        let mut board = Board::load(&project.0).unwrap();
+        board.press(Key::Enter);
+        assert_shows(&board, &[NOT_MEASURED]);
+        press(&mut board, &[Key::Esc, Key::Char('t')]);
+        assert_shows(&board, &[TIME_TITLE, NO_TIME]);
+    }
+
+    #[test]
+    fn a_board_loads_the_log_of_the_state_root_once() {
+        let project = Project::new();
+        project.write(".gdd/changes/b/change.json", r#"{"title": "B"}"#);
+        let log = [log_line("b", "08:00:00", 0), log_line("b", "08:30:00", 600)];
+        project.write(".gdd/log.jsonl", &format!("{}\n", log.join("\n")));
+        let mut board = Board::load(&project.0).unwrap();
+        project.write(".gdd/log.jsonl", "{not json\n");
+        board.press(Key::Enter);
+        assert_shows(&board, &["Flow time 30m"]);
+        press(&mut board, &[Key::Esc, Key::Char('t')]);
+        assert_shows(&board, &["Project: 1 change(s)"]);
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_read_shows_where_the_time_would_and_the_list_works() {
+        let project = Project::new();
+        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        project.write(".gdd/log.jsonl", "{not json\n");
+        let mut board = Board::load(&project.0).unwrap();
+        assert_shows(&board, &["Discover (1)", "› a ·"]);
+        let why = "the log cannot be read: line 1: ";
+        board.press(Key::Enter);
+        assert_shows(&board, &["a · A", why]);
+        assert_hides(&board, &[NOT_MEASURED]);
+        press(&mut board, &[Key::Esc, Key::Char('t')]);
+        assert_shows(&board, &[TIME_TITLE, why]);
+        assert_hides(&board, &[NO_TIME, "Project:"]);
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_opened_is_not_an_empty_one() {
+        let project = Project::new();
+        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
+        let mut board = Board::load(&project.0).unwrap();
+        board.press(Key::Char('t'));
+        assert_shows(
+            &board,
+            &["the log cannot be read: cannot read .gdd/log.jsonl: "],
+        );
+    }
+
+    #[test]
+    fn t_does_nothing_in_the_details() {
+        let mut board = timed(vec![card("a", "open")], &busy_log(1));
+        board.press(Key::Enter);
+        let details = board.render(100, 40);
+        board.press(Key::Char('t'));
+        assert_eq!(board.render(100, 40), details);
+        assert_shows(&board, &[DETAIL_KEYS]);
+        assert_hides(&board, &[TIME_TITLE]);
+    }
+
+    #[test]
+    fn esc_from_the_time_keeps_the_selection_and_done_as_they_were() {
+        let cards = vec![card("a", "open"), card("b", "open"), card("c", "closed")];
+        let mut board = timed(cards, &busy_log(1));
+        press(&mut board, &[Key::Char('d'), Key::Down, Key::Down]);
+        let before = board.render(100, 40);
+        press(&mut board, &[Key::Char('t'), Key::Esc]);
+        assert_eq!(board.render(100, 40), before);
+        assert_shows(&board, &["› c ·", "Done (1) · d to hide"]);
+        press(&mut board, &[Key::Char('d'), Key::Char('t'), Key::Esc]);
+        assert_shows(&board, &["Done (1) · d to show", "› b ·"]);
+        assert_hides(&board, &[TIME_TITLE]);
+    }
+
+    #[test]
+    fn q_and_ctrl_c_close_the_board_from_the_time() {
+        for key in [Key::Char('q'), Key::CtrlC] {
+            let mut board = board(vec![card("a", "open")]);
+            press(&mut board, &[Key::Char('t'), key]);
+            assert!(board.closed());
+        }
     }
 
     #[test]
