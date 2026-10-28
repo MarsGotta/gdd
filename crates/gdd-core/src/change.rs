@@ -17,7 +17,7 @@ use crate::config::Color;
 use crate::{inbox, log};
 
 /// The kind of work of a change whose record says none.
-const DEFAULT_KIND: &str = "Feature";
+pub const DEFAULT_KIND: &str = "Feature";
 
 /// The kinds of note a change keeps for its Decision Inbox: a decision the human must take, a
 /// decision taken without them, and work parked.

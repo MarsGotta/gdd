@@ -1366,6 +1366,15 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
     );
 }
 
+#[then(expr = "the last commit on {word} does not say {string}")]
+fn last_commit_does_not_say(w: &mut GddWorld, branch: String, text: String) {
+    let message = git(&project_root(w), &["log", "-1", "--format=%B", &branch]);
+    assert!(
+        !message.contains(&text),
+        "the last commit on {branch} says {message:?}, and it should not say {text:?}"
+    );
+}
+
 // ---- features/recipe.feature ---------------------------------------------------------------
 //
 // The agents are shell scripts named `claude`, `codex` and `opencode` in `.gdd/bin/` of the
