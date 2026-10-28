@@ -14,7 +14,7 @@ use serde::{Serialize, Serializer};
 use crate::log::{self, LineError, Record};
 
 /// Seconds in a day.
-const DAY: i64 = 86_400;
+pub(crate) const DAY: i64 = 86_400;
 
 /// The agents of the lines of the release steps.
 const RELEASE_STEPS: [&str; 7] = [
@@ -245,12 +245,12 @@ impl Change {
 }
 
 /// Whether `record` has `value` in `field` (see [`Record::text`]).
-fn is(record: &Record, field: &str, value: &str) -> bool {
+pub(crate) fn is(record: &Record, field: &str, value: &str) -> bool {
     record.text(field) == value
 }
 
 /// Whether `record` is a human's at `gate`.
-fn human_at(record: &Record, gate: &str) -> bool {
+pub(crate) fn human_at(record: &Record, gate: &str) -> bool {
     is(record, "role", "human") && is(record, "gate", gate)
 }
 
@@ -263,7 +263,7 @@ fn title(records: &[&Record]) -> String {
 /// The release step `record` is the line of, if any: a machine line of a step, outside the gates,
 /// as the release logs them. A command of a gate may have the name of a step: its line is the
 /// gate's.
-fn step(record: &Record) -> Option<String> {
+pub(crate) fn step(record: &Record) -> Option<String> {
     let step = record.text("agent");
     let released = is(record, "role", "machine")
         && is(record, "gate", "-")
@@ -391,13 +391,13 @@ fn total<K>(times: &[(K, f64)]) -> f64 {
 }
 
 /// Whole seconds, rounded half up; none below zero.
-fn whole(seconds: f64) -> u64 {
+pub(crate) fn whole(seconds: f64) -> u64 {
     (seconds + 0.5).floor() as u64
 }
 
 /// A duration as the report shows it: under a minute `Ns`; under an hour `Nm`; else `Hh MMm`;
 /// minutes rounded half up.
-fn duration(seconds: f64) -> String {
+pub(crate) fn duration(seconds: f64) -> String {
     let seconds = whole(seconds);
     let minutes = (seconds + 30) / 60;
     if seconds < 60 {

@@ -8,6 +8,7 @@ pub mod form;
 pub mod sitting;
 mod tui;
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, ErrorKind, IsTerminal, Write};
@@ -27,8 +28,8 @@ use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
-    Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, flow, inbox, init, log,
-    session, stacks, state, versions,
+    Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, delivery, flow, inbox,
+    init, log, session, stacks, state, versions,
 };
 
 /// File that marks the root of a GDD project.
@@ -506,15 +507,19 @@ struct ReportArgs {
     /// Count only the records of this change.
     #[arg(long)]
     change: Option<String>,
-    /// Print the groups, or the changes with --time, as a JSON list.
+    /// Print the groups, or the changes with --time, as a JSON list; with --dora, one object.
     #[arg(long)]
     json: bool,
     /// Where the time of each change goes, from its first line in the log to its last, instead
     /// of the agent calls; without --change, the project adds every change up.
-    #[arg(long, conflicts_with = "by")]
+    #[arg(long, conflicts_with = "by", group = "view")]
     time: bool,
-    /// With --time, only the changes created on or after this day, YYYY-MM-DD (UTC).
-    #[arg(long, requires = "time", value_parser = parse_day)]
+    /// DORA's five delivery metrics and GDD's signals, from the log and the records of the
+    /// changes, instead of the agent calls.
+    #[arg(long, conflicts_with_all = ["by", "change"], group = "view")]
+    dora: bool,
+    /// With --time or --dora, only the changes created on or after this day, YYYY-MM-DD (UTC).
+    #[arg(long, requires = "view", value_parser = parse_day)]
     since: Option<i64>,
 }
 
@@ -888,6 +893,9 @@ fn report(state: &Path, args: &ReportArgs) -> Result<String, String> {
     if args.time {
         return time_report(&text, args);
     }
+    if args.dora {
+        return dora_report(state, &text, args);
+    }
     let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
     let by: Vec<String> = args.by.split(',').map(str::to_string).collect();
     let report = Report::new(&records, &by, args.change.as_deref());
@@ -908,6 +916,67 @@ fn time_report(text: &str, args: &ReportArgs) -> Result<String, String> {
     } else {
         Ok(flow.to_string())
     }
+}
+
+/// `gdd report --dora`: DORA's five and GDD's signals from the log `text`, the records of its
+/// changes and their review files, since the day of `args` (see [`delivery::Delivery`]).
+fn dora_report(state: &Path, text: &str, args: &ReportArgs) -> Result<String, String> {
+    let lines = flow::read(text).map_err(|e| format!("{}, {e}", log::PATH))?;
+    let records = change_records(state, &lines)?;
+    let delivery = delivery::Delivery::new(&lines, &records, args.since);
+    if args.json {
+        serde_json::to_string_pretty(&delivery).map_err(|e| e.to_string())
+    } else {
+        Ok(delivery.to_string())
+    }
+}
+
+/// The type and the verdicts of the reviews of each change the log names.
+fn change_records(state: &Path, lines: &[flow::Line]) -> Result<delivery::Records, String> {
+    let ids: BTreeSet<String> = lines
+        .iter()
+        .map(|line| line.record.text("change"))
+        .collect();
+    let mut records = delivery::Records::default();
+    for id in ids.into_iter().filter(|id| id != "-") {
+        let folder = format!("{CHANGES}/{id}");
+        if let Some(kind) = change_type(state, &folder)? {
+            records.types.insert(id.clone(), kind);
+        }
+        records.reviews.insert(id, review_verdicts(state, &folder)?);
+    }
+    Ok(records)
+}
+
+/// The `type` of the change whose folder is `folder`; `None` when it has no record.
+fn change_type(state: &Path, folder: &str) -> Result<Option<String>, String> {
+    let path = format!("{folder}/change.json");
+    let Some(text) = read(state, &path)? else {
+        return Ok(None);
+    };
+    let record: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+    Ok(record["type"].as_str().map(str::to_string))
+}
+
+/// The verdicts of the review files `reviewer-*.md` in the outputs of the change whose folder is
+/// `folder`; a file without a verdict is not a review.
+fn review_verdicts(state: &Path, folder: &str) -> Result<Vec<delivery::Verdict>, String> {
+    let outputs = format!("{folder}/outputs");
+    let entries = match fs::read_dir(state.join(&outputs)) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot read {outputs}: {e}")),
+    };
+    let mut verdicts = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("reviewer-") && name.ends_with(".md") {
+            let text = read(state, &format!("{outputs}/{name}"))?.unwrap_or_default();
+            verdicts.extend(delivery::verdict(&text));
+        }
+    }
+    Ok(verdicts)
 }
 
 /// `gdd classify`: the decision for a change (see [`decide`]).
@@ -1981,6 +2050,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn review_outputs_that_cannot_be_listed_are_an_error() {
+        let project = Project::new();
+        project.write("changes/c/outputs", "not a folder");
+        let error = review_verdicts(&project.0, "changes/c").unwrap_err();
+        assert!(
+            error.starts_with("cannot read changes/c/outputs:"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_change_without_outputs_has_no_verdicts() {
+        let project = Project::new();
+        assert!(review_verdicts(&project.0, "changes/c").unwrap().is_empty());
+    }
+
     fn words(command: &str) -> Vec<String> {
         command.split_whitespace().map(str::to_string).collect()
     }
@@ -2489,6 +2575,43 @@ mod tests {
             let out = project.run(&format!("report --time --since {day}"));
             assert!(out.stderr.contains(NOT_A_DAY), "{day}: {out:?}");
         }
+    }
+
+    #[test]
+    fn report_dora_takes_a_day_and_neither_time_nor_fields() {
+        let project = Project::new();
+        project.write(log::PATH, TIMED);
+        for command in [
+            "report --dora --time",
+            "report --dora --by model",
+            "report --dora --change a",
+            "report --dora --since 28-10-2026",
+        ] {
+            let out = project.run(command);
+            assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command}");
+        }
+        let out = project.run("report --dora --since 2026-10-28");
+        assert_eq!(out.code, 0, "{out:?}");
+    }
+
+    #[test]
+    fn report_dora_reads_the_types_and_the_reviews_of_the_changes() {
+        const PROMOTED: &str = r#"{"ts": "2026-10-28T10:00:00+00:00", "change": "a", "gate": "-", "role": "machine", "agent": "promote", "result": "ok"}
+{"ts": "2026-10-28T11:00:00+00:00", "change": "b", "gate": "-", "role": "machine", "agent": "promote", "result": "ok"}"#;
+        let project = Project::new();
+        project.write(log::PATH, PROMOTED);
+        project.write(".gdd/changes/a/change.json", r#"{"type": "Hotfix"}"#);
+        project.write(".gdd/changes/b/change.json", r#"{"type": "Feature"}"#);
+        project.write(".gdd/changes/a/outputs/reviewer-1.md", "VERDICT: KO\n");
+        project.write(".gdd/changes/a/outputs/reviewer-2.md", "VERDICT: OK\n");
+        project.write(".gdd/changes/a/outputs/builder-1.md", "VERDICT: KO\n");
+        project.write(".gdd/changes/b/outputs/reviewer-1.md", "no verdict\n");
+        let out = json(&project.run("report --dora --json"));
+        assert_eq!(out["rework_rate"], 0.5);
+        assert_eq!(out["reviewer_ko_rate"], 0.5);
+        let text = project.run("report --dora");
+        assert!(text.stdout.contains("(1 of 2 are Hotfixes)"), "{text:?}");
+        assert!(text.stdout.contains("(1 of 2 reviews)"), "{text:?}");
     }
 
     #[test]
