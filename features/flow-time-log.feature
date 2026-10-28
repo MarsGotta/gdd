@@ -52,7 +52,8 @@ Feature: Each gate command in the log
 
   Scenario: An empty command leaves no line
     When I run "gdd g2 c1"
-    Then the log has no gate command "types" of "c1"
+    Then the log has the gate command "unit" of "c1" in "G2" with result "ok"
+    And the log has no gate command "types" of "c1"
 
   Scenario: The commands of G3 too
     When I run "gdd g3 c1"
