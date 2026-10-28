@@ -246,7 +246,7 @@ fn run_gdd(w: &mut GddWorld, command: &str, cwd: &Path) {
 }
 
 /// The environment gdd runs in for this scenario: the process one, minus the variables gdd's own
-/// agents set. Steps never change the process environment, scenarios run concurrently.
+/// agents set. Steps never change the process environment; each scenario carries its own.
 fn world_env(w: &mut GddWorld) -> &mut Vec<(String, String)> {
     w.env.get_or_insert_with(|| {
         std::env::vars()
@@ -1375,7 +1375,7 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
 // arguments as a line of `argv`, its working directory in `cwds`, the names of its environment
 // variables in `env/<call>` and `role|model|arguments` in `calls`. They print their agent's JSON output (100 input, 50 cached and 20 output
 // tokens, Codex and OpenCode 5 reasoning ones too) and act on what the steps left in
-// `.gdd/fake/`: `build` (`default`, `nothing`, `never` or `from <call>`), `build_path`, `replan`,
+// `.gdd/fake/`: `build` (`default`, `nothing <ids>`, `never` or `from <call>`), `build_path`, `replan`,
 // `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
 // (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
 // (`<change>|<build call>`: that call appends a line of the log for the change) and `main_gets`
@@ -1453,7 +1453,7 @@ case "$role" in
     fi
     write=yes
     case "$mode" in
-      nothing) write=no ;;
+      nothing\ *) case " ${mode#nothing } " in *" $GDD_CHANGE "*) write=no ;; esac ;;
       never)
         sleep 1000 &
         echo $! >> "$fake/pids"
@@ -1614,7 +1614,22 @@ fn log_line_of_call_has(w: &mut GddWorld, number: usize, field: String, value: i
 
 #[given("the Builder in build mode writes nothing")]
 fn builder_writes_nothing(w: &mut GddWorld) {
-    fake_file(w, "build", "nothing");
+    // Only for the changes that exist now: one that is created later builds as usual.
+    let folder = project_root(w).join(".gdd/changes");
+    let mut ids: Vec<String> = fs::read_dir(&folder)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !ids.is_empty(),
+        "the Builder writes nothing for the changes that exist: this step goes after gdd new-change"
+    );
+    ids.sort();
+    fake_file(w, "build", &format!("nothing {}", ids.join(" ")));
 }
 
 #[given("the Builder in build mode never answers")]
@@ -2521,8 +2536,12 @@ fn main() {
         .collect();
     let hidden = std::env::var("GDD_HIDDEN").as_deref() == Ok("1");
     let hidden_dir = root.join("features").join("hidden");
+    // One scenario at a time: the steps are synchronous on one thread, so running several only
+    // interleaves their steps, and the clock of a lock taken in a `Given` keeps running while
+    // another scenario runs a long step before the `When`.
     futures::executor::block_on(
         GddWorld::cucumber()
+            .max_concurrent_scenarios(1)
             .fail_on_skipped()
             .with_default_cli()
             .filter_run_and_exit(root.join("features"), move |feature, _, _| {

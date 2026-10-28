@@ -71,3 +71,14 @@ worktree that root is the worktree, so the state would split per worktree. Three
 two: **state-root** first (a Refactor: every `.gdd/` path goes through the main checkout, found
 through git's common dir; nothing changes in a single checkout), then parallel-launch, then
 merge-queue.
+
+## Learn from overlap-warns (2026-10-28)
+
+The rule that refused a launch when planned paths overlapped was stricter than the sector: GitHub's
+merge queue admits every pull request and removes it only when, on top of the latest base, it
+conflicts or a required check fails. In this repository every one of the 21 earlier changes touched
+the steps file, and 18 the CLI file, so no two changes could ever run together. The human's call:
+overlaps warn (in the output and the change's inbox) and git settles them at the merge; a conflict
+parks the change with the way out. The cap stays, because the agents' subscriptions are shared. The
+acceptance runner now runs one scenario at a time: cucumber interleaved up to 64 scenarios on one
+thread, so timed steps (a lock held for some seconds) raced each other.
