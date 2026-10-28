@@ -162,13 +162,16 @@ impl Board {
         block.render(area, buffer);
         let [body, keys] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
-        let (lines, keys_text) = if self.details {
-            (self.detail_lines(), DETAIL_KEYS)
+        let (lines, selected, keys_text) = if self.details {
+            (self.detail_lines(), None, DETAIL_KEYS)
         } else {
-            (self.list_lines(), LIST_KEYS)
+            let (lines, selected) = self.list_lines();
+            (lines, selected, LIST_KEYS)
         };
+        let offset = scroll(&lines, selected, body);
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
+            .scroll((offset, 0))
             .render(body, buffer);
         Paragraph::new(Line::from(keys_text).dim()).render(keys, buffer);
     }
@@ -193,11 +196,13 @@ impl Board {
         self.cards.get(at)
     }
 
-    /// The list: a heading per section and a line per change that shows.
-    fn list_lines(&self) -> Vec<Line<'static>> {
+    /// The list: a heading per section and a line per change that shows, and the position of
+    /// the line of the selected one.
+    fn list_lines(&self) -> (Vec<Line<'static>>, Option<usize>) {
         if self.cards.is_empty() {
-            return vec![Line::from(NO_CHANGES)];
+            return (vec![Line::from(NO_CHANGES)], None);
         }
+        let mut at_selected = None;
         let selected = self.shown().get(self.selected).copied();
         let mut lines = Vec::new();
         for phase in Phase::ALL {
@@ -210,11 +215,14 @@ impl Board {
             for at in members.into_iter().filter(|_| !folded) {
                 let current = selected == Some(at);
                 let line = Line::from(item(&self.cards[at], current));
+                if current {
+                    at_selected = Some(lines.len());
+                }
                 lines.push(if current { line.bold() } else { line });
             }
             lines.push(Line::default());
         }
-        lines
+        (lines, at_selected)
     }
 
     /// The heading of a section of `count` changes; Done says what `d` does.
@@ -252,6 +260,38 @@ impl Board {
         lines.push(Line::from(inbox));
         lines
     }
+}
+
+/// How many rows of the screen the list scrolls up so that the line `selected` shows whole in
+/// `area`, counting the rows the lines take once wrapped; none when it fits or nothing is selected.
+fn scroll(lines: &[Line], selected: Option<usize>, area: Rect) -> u16 {
+    let Some(at) = selected else {
+        return 0;
+    };
+    let height = |line: &Line| rows(line, area.width);
+    let top: usize = lines.iter().take(at).map(height).sum();
+    let bottom = top + lines.get(at).map_or(0, height);
+    let offset = bottom.saturating_sub(usize::from(area.height)).min(top);
+    u16::try_from(offset).unwrap_or(u16::MAX)
+}
+
+/// How many rows `line` takes in `width` cells once wrapped, at least one.
+fn rows(line: &Line, width: u16) -> usize {
+    if width == 0 {
+        return 1;
+    }
+    // Wrapping at words can take up to twice the rows of the plain division.
+    let room = (line.width() / usize::from(width)) * 2 + 2;
+    let area = Rect::new(0, 0, width, u16::try_from(room).unwrap_or(u16::MAX));
+    let mut buffer = Buffer::empty(area);
+    Paragraph::new(line.clone())
+        .wrap(Wrap { trim: false })
+        .render(area, &mut buffer);
+    let used = buffer
+        .content
+        .chunks(usize::from(width))
+        .rposition(|row| row.iter().any(|cell| cell.symbol() != " "));
+    used.map_or(1, |at| at + 1)
 }
 
 /// The line of a change in the list, `selected` or not.
@@ -534,6 +574,57 @@ mod tests {
     }
 
     #[test]
+    fn the_list_follows_the_selection_on_a_small_screen() {
+        let cards: Vec<Card> = (0..22).map(|n| card(&format!("c{n:02}"), "open")).collect();
+        let mut board = board(cards);
+        let top = board.render(80, 24);
+        assert!(
+            top.contains("Discover (22)") && top.contains("› c00 ·"),
+            "{top}"
+        );
+        assert!(!top.contains("c21 ·"), "{top}");
+        for _ in 0..21 {
+            board.press(Key::Down);
+        }
+        let bottom = board.render(80, 24);
+        assert!(bottom.contains("› c21 ·"), "{bottom}");
+        assert!(
+            !bottom.contains("c00 ·") && bottom.contains(LIST_KEYS),
+            "{bottom}"
+        );
+        for _ in 0..21 {
+            board.press(Key::Up);
+        }
+        assert!(board.render(80, 24).contains("› c00 ·"));
+    }
+
+    #[test]
+    fn the_list_follows_the_selection_into_done_and_through_wrapped_lines() {
+        let long = "word ".repeat(30);
+        let mut cards: Vec<Card> = (0..6)
+            .map(|n| Card {
+                title: long.clone(),
+                ..card(&format!("o{n}"), "open")
+            })
+            .collect();
+        cards.push(card("done1", "closed"));
+        let mut board = board(cards);
+        board.press(Key::Char('d'));
+        for _ in 0..6 {
+            board.press(Key::Down);
+        }
+        let screen = board.render(40, 14);
+        assert!(screen.contains("› done1 ·"), "{screen}");
+        assert!(screen.contains("Done (1) · d to hide"), "{screen}");
+        press(&mut board, &[Key::Up, Key::Up]);
+        let screen = board.render(40, 14);
+        assert!(screen.contains("› o4 ·"), "{screen}");
+        assert_eq!(rows(&Line::from("x".repeat(100)), 40), 3);
+        assert_eq!(rows(&Line::default(), 40), 1);
+        assert_eq!(rows(&Line::from("x"), 0), 1);
+    }
+
+    #[test]
     fn enter_shows_the_details_and_esc_goes_back() {
         let paths = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
         let first = Card {
@@ -692,6 +783,7 @@ mod tests {
         let (none, control) = (KeyModifiers::NONE, KeyModifiers::CONTROL);
         let pressed = |code, modifiers| key_of(press_of(code, modifiers, KeyEventKind::Press));
         assert_eq!(pressed(KeyCode::Char('c'), control), Some(Key::CtrlC));
+        assert_eq!(pressed(KeyCode::Char('c'), none), Some(Key::Char('c')));
         assert_eq!(pressed(KeyCode::Char('d'), control), None);
         assert_eq!(pressed(KeyCode::Enter, control), None);
         assert_eq!(pressed(KeyCode::Enter, none), Some(Key::Enter));
