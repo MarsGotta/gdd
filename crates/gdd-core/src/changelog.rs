@@ -681,6 +681,16 @@ fn block(version: &Version) -> Vec<String> {
     lines
 }
 
+/// The lines of `version` as a block without sections: `heading`, then its items.
+fn plain_block(version: &Version, heading: &str) -> Vec<String> {
+    let mut lines = vec![heading.to_string()];
+    if !version.lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines.extend(version.lines.iter().map(Carried::item));
+    lines
+}
+
 /// The text of a changelog that does not exist yet, with `versions`, newest first: the header,
 /// then each version, even one without lines.
 fn fresh(versions: &[Version]) -> String {
@@ -697,19 +707,132 @@ enum Key {
     Unreleased,
 }
 
-/// The version a heading `## ...` names: `[Unreleased]`, in any case, or `[<semver>]`, with or
-/// without a leading `v` and the brackets. `None` for any other heading.
+/// What a heading that is no version starts with when it is the Unreleased one, in any case.
+const UNRELEASED_WORD: &str = "unreleased";
+
+/// The version a heading `## ...` names: `Unreleased` or `[Unreleased]`, in any case, or
+/// `<semver>`, with or without a leading `v` and brackets, maybe followed by a link and then
+/// anything. `None` for any other heading.
 fn heading_key(heading: &str) -> Option<Key> {
     let title = heading.strip_prefix(VERSION_MARK)?.trim();
-    if title.to_lowercase().starts_with("[unreleased]") {
+    let lower = title.to_lowercase();
+    let closed = format!("[{UNRELEASED_WORD}]");
+    if lower.starts_with(&closed) || lower.starts_with(UNRELEASED_WORD) {
         return Some(Key::Unreleased);
     }
-    let title = title.strip_prefix('[').unwrap_or(title);
-    let title = title.strip_prefix('v').unwrap_or(title);
+    let bare = title.strip_prefix('[').unwrap_or(title);
+    let title = bare.strip_prefix('v').unwrap_or(bare);
     let name = title
-        .split(|c: char| c == ']' || c.is_whitespace())
+        .split(|c: char| c == ']' || c == '(' || c.is_whitespace())
         .next()?;
     Some(Key::Release(precedence(name)?, name.to_string()))
+}
+
+/// How a changelog writes its headings and whether it has sections (see [`Style::of`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Style {
+    brackets: bool,
+    v: bool,
+    /// The day goes ` (YYYY-MM-DD)` instead of ` - YYYY-MM-DD`.
+    parens: bool,
+    /// The Unreleased heading of the file, as it writes it.
+    unreleased: Option<String>,
+    sections: bool,
+}
+
+impl Style {
+    /// Keep a Changelog, with sections: the style of a file that tells nothing else.
+    fn keep() -> Style {
+        Style {
+            brackets: true,
+            v: false,
+            parens: false,
+            unreleased: None,
+            sections: true,
+        }
+    }
+
+    /// The style of `doc`: its newest version heading sets the headings; it is without sections
+    /// when it has a released version and no `### ` heading under any version.
+    fn of(doc: &Doc) -> Style {
+        let blocks = doc.blocks();
+        let mut style = Style::keep();
+        let released = |b: &&Block| matches!(b.key, Some(Key::Release(..)));
+        let unreleased = |b: &&Block| b.key == Some(Key::Unreleased);
+        if let Some(block) = blocks.iter().find(released) {
+            let title = doc.title(block);
+            style.brackets = title.starts_with('[');
+            style.v = title.trim_start_matches('[').starts_with('v');
+            style.parens = ends_with_day_in_parens(title);
+        }
+        style.sections = doc.has_sections(&blocks);
+        style.unreleased = blocks
+            .iter()
+            .find(unreleased)
+            .map(|block| unreleased_heading(doc.title(block)));
+        style
+    }
+
+    /// The Unreleased heading to write.
+    fn unreleased(&self) -> String {
+        match &self.unreleased {
+            Some(heading) => heading.clone(),
+            None if self.brackets => UNRELEASED.to_string(),
+            None => format!("{VERSION_MARK}Unreleased"),
+        }
+    }
+
+    /// `heading`, as gdd builds it (`## [<version>] - <day>` or `## [Unreleased]`), in this style.
+    fn heading(&self, heading: &str) -> String {
+        if heading == UNRELEASED {
+            return self.unreleased();
+        }
+        self.release(heading).unwrap_or_else(|| heading.to_string())
+    }
+
+    fn release(&self, heading: &str) -> Option<String> {
+        let rest = heading.strip_prefix(VERSION_MARK)?.strip_prefix('[')?;
+        let (name, after) = rest.split_once(']')?;
+        let day = after.trim().strip_prefix("- ")?;
+        let v = if self.v { "v" } else { "" };
+        let name = if self.brackets {
+            format!("[{v}{name}]")
+        } else {
+            format!("{v}{name}")
+        };
+        let day = if self.parens {
+            format!("({day})")
+        } else {
+            format!("- {day}")
+        };
+        Some(format!("{VERSION_MARK}{name} {day}"))
+    }
+}
+
+/// Whether `title` ends with a day in parentheses: `(YYYY-MM-DD)`.
+fn ends_with_day_in_parens(title: &str) -> bool {
+    let Some(inner) = title.strip_suffix(')') else {
+        return false;
+    };
+    let day = inner.rsplit('(').next().unwrap_or_default();
+    let shaped = |c: char| c.is_ascii_digit() || c == '-';
+    inner.len() > day.len() && day.len() == 10 && day.chars().all(shaped)
+}
+
+/// The Unreleased heading a file writes, from the title of its own: the word in the case it has
+/// it, in brackets when it has them.
+fn unreleased_heading(title: &str) -> String {
+    let brackets = title.starts_with('[');
+    let word: String = title
+        .trim_start_matches('[')
+        .chars()
+        .take(UNRELEASED_WORD.len())
+        .collect();
+    if brackets {
+        format!("{VERSION_MARK}[{word}]")
+    } else {
+        format!("{VERSION_MARK}{word}")
+    }
 }
 
 /// A version of a changelog text: the lines from its heading to the next `## `.
@@ -724,14 +847,25 @@ struct Doc {
     lines: Vec<String>,
     /// What ends the lines added: `\r` when the text ends its lines with `\r\n`.
     eol: &'static str,
+    /// How the text writes its headings.
+    style: Style,
 }
 
 impl Doc {
     fn new(text: &str) -> Doc {
-        Doc {
+        let mut doc = Doc {
             lines: text.split_terminator('\n').map(str::to_string).collect(),
             eol: if text.contains("\r\n") { "\r" } else { "" },
-        }
+            style: Style::keep(),
+        };
+        doc.style = Style::of(&doc);
+        doc
+    }
+
+    /// What the heading of `block` says after `## `, without the spaces around it.
+    fn title(&self, block: &Block) -> &str {
+        let line = &self.lines[block.start];
+        line.strip_prefix(VERSION_MARK).unwrap_or(line).trim()
     }
 
     fn text(&self) -> String {
@@ -772,6 +906,17 @@ impl Doc {
             .collect()
     }
 
+    /// Whether the text has sections: a `### ` heading under a version, or no released version
+    /// and no list item under any version (a new or an empty file).
+    fn has_sections(&self, blocks: &[Block]) -> bool {
+        let versions = || blocks.iter().filter(|b| b.key.is_some());
+        let plain = |b: &Block| (b.start..b.end).any(|at| bullet(&self.lines[at]).is_some());
+        let released = blocks
+            .iter()
+            .any(|b| matches!(b.key, Some(Key::Release(..))));
+        versions().any(|b| !self.headings(b).is_empty()) || !(released || versions().any(plain))
+    }
+
     /// Adds `new` before the line `at`.
     fn insert(&mut self, at: usize, new: Vec<String>) {
         let eol = self.eol;
@@ -795,12 +940,25 @@ impl Doc {
     fn add_version(&mut self, key: &Key, version: &Version) {
         let older = |block: &Block| block.key.as_ref().is_some_and(|other| other < key);
         let at = self.blocks().iter().find(|b| older(b)).map(|b| b.start);
-        self.insert_apart(at.unwrap_or(self.lines.len()), block(version));
+        let mut new = block(version);
+        new[0] = self.style.heading(&version.heading);
+        if !self.style.sections {
+            new = plain_block(version, &new[0]);
+        }
+        self.insert_apart(at.unwrap_or(self.lines.len()), new);
     }
 
     /// Adds the lines of `version` to the block of that version in the text, each under its
-    /// section.
+    /// section, or plain when the text has no sections.
     fn add_lines(&mut self, key: &Key, version: &Version) {
+        if !self.style.sections {
+            let Some(block) = self.block_of(key) else {
+                return;
+            };
+            let items = version.lines.iter().map(Carried::item).collect();
+            self.add_plain(&block, items);
+            return;
+        }
         for (section, items) in sections(version) {
             let Some(block) = self.block_of(key) else {
                 return;
@@ -834,6 +992,27 @@ impl Doc {
             }
             None => self.insert_apart(heading + 1, items),
         }
+    }
+
+    /// Adds `items` to a version without sections: after its last list item (and what continues
+    /// it), else after its first paragraph, else right under its heading.
+    fn add_plain(&mut self, block: &Block, items: Vec<String>) {
+        // The heading itself is no list item, so the search may start at it.
+        let last = (block.start..block.end)
+            .rev()
+            .find(|&at| bullet(&self.lines[at]).is_some());
+        if let Some(last) = last {
+            let at = self.item_end(last, block.end);
+            return self.insert(at, items);
+        }
+        let first = (block.start + 1..block.end).find(|&at| !self.blank(at));
+        let at = match first {
+            Some(first) => (first..block.end)
+                .find(|&at| self.blank(at))
+                .unwrap_or(block.end),
+            None => block.start + 1,
+        };
+        self.insert_apart(at, items);
     }
 
     /// Where the list item at `item` ends before `end`: it goes on while the lines are text.
@@ -916,10 +1095,12 @@ impl Doc {
         let Some(block) = self.block_of(&Key::Unreleased) else {
             return;
         };
+        let styled = self.style.heading(heading);
+        let unreleased = self.style.unreleased();
         let line = &mut self.lines[block.start];
         let eol = if line.ends_with('\r') { "\r" } else { "" };
-        *line = format!("{heading}{eol}");
-        self.insert(block.start, vec![UNRELEASED.to_string(), String::new()]);
+        *line = format!("{styled}{eol}");
+        self.insert(block.start, vec![unreleased, String::new()]);
     }
 }
 
@@ -1534,10 +1715,10 @@ mod tests {
                         ### Security\n\n- New <!-- gdd: 0123456789ab -->\n\n\
                         ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
         assert_eq!(end, expected);
-        let bare = "## [Unreleased]\n## [1.0.0]\n- A\n";
+        let bare = "## [Unreleased]\n## [1.0.0]\n### Added\n- A\n";
         let result = merged(bare, &one("Fixed"));
         let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n\
-                        ## [1.0.0]\n- A\n";
+                        ## [1.0.0]\n### Added\n- A\n";
         assert_eq!(result, expected);
         let empty = "## [Unreleased]\n\n### Fixed\n\n## [1.0.0]\n";
         let result = merged(empty, &one("Fixed"));
@@ -1818,6 +1999,116 @@ mod tests {
         assert!(err.starts_with("cannot write CHANGELOG.md: "), "{err}");
     }
 
+    #[test]
+    fn headings_are_read_in_the_common_styles() {
+        for (heading, unreleased) in [
+            ("## Unreleased", true),
+            ("## [Unreleased]", true),
+            ("## UNRELEASED - soon", true),
+            ("## [0.1.0]", false),
+            ("## 0.1.0 - 2026-10-23", false),
+            ("## v0.1.0", false),
+            ("## [v0.1.0](https://x.io/a...b) (2026-10-23)", false),
+            ("## 1.0.0-rc.1", false),
+        ] {
+            let key = heading_key(heading);
+            assert_eq!(key == Some(Key::Unreleased), unreleased, "{heading}");
+            assert!(key.is_some(), "{heading}");
+        }
+        for text in [
+            "## Notes",
+            "## vision",
+            "## 1.2",
+            "Unreleased",
+            "### 1.0.0",
+            "## [Unreleased notes](http://x.io)",
+        ] {
+            assert_eq!(heading_key(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_new_version_follows_the_style_of_the_newest_one() {
+        let new = version("## [0.3.0] - 2026-10-28", vec![added("Added", "New")]);
+        let item = "- New <!-- gdd: 0123456789ab -->";
+        for (text, heading) in [
+            ("## v0.2.0 - 2026-10-20\n\n- A\n", "## v0.3.0 - 2026-10-28"),
+            ("## 0.2.0 (2026-10-20)\n\n- A\n", "## 0.3.0 (2026-10-28)"),
+            (
+                "## [0.2.0](http://x.io/a) (2026-10-20)\n\n- A\n",
+                "## [0.3.0] (2026-10-28)",
+            ),
+            (
+                "## [v0.2.0] - 2026-10-20\n\n- A\n",
+                "## [v0.3.0] - 2026-10-28",
+            ),
+        ] {
+            let result = merged(text, std::slice::from_ref(&new));
+            let expected = format!("{heading}\n\n{item}\n\n{text}");
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn lines_go_plain_in_a_file_without_sections() {
+        let new = version(UNRELEASED, vec![added("Added", "New")]);
+        let item = "- New <!-- gdd: 0123456789ab -->";
+        let after_items = merged(
+            "## Unreleased\n\n- A\n\n## 0.1.0\n",
+            std::slice::from_ref(&new),
+        );
+        assert_eq!(
+            after_items,
+            format!("## Unreleased\n\n- A\n{item}\n\n## 0.1.0\n")
+        );
+        let after_text = merged(
+            "## Unreleased\n\nWords.\nMore.\n\n## 0.1.0\n",
+            std::slice::from_ref(&new),
+        );
+        let expected = format!("## Unreleased\n\nWords.\nMore.\n\n{item}\n\n## 0.1.0\n");
+        assert_eq!(after_text, expected);
+        let empty = merged("## Unreleased\n## 0.1.0\n", std::slice::from_ref(&new));
+        assert_eq!(empty, format!("## Unreleased\n\n{item}\n\n## 0.1.0\n"));
+        let only_unreleased = merged("## Unreleased\n\n- A\n", &[new]);
+        assert_eq!(only_unreleased, format!("## Unreleased\n\n- A\n{item}\n"));
+    }
+
+    #[test]
+    fn a_file_with_only_sectionless_items_or_nothing_at_all_decides_its_sections() {
+        let sections = |text: &str| Doc::new(text).style.sections;
+        assert!(!sections("## Unreleased\n\n- A\n"));
+        assert!(sections("## Unreleased\n"));
+        assert!(sections("# Notes\n"));
+        assert!(sections("## Unreleased\n\n- A\n\n### Fixed\n"));
+        assert!(!sections("## Unreleased\n\n## 0.1.0\n"));
+    }
+
+    #[test]
+    fn a_day_in_parentheses_closes_the_heading() {
+        for title in ["0.1.0 (2026-10-23)", "[0.1.0](http://x.io) (2026-10-23)"] {
+            assert!(ends_with_day_in_parens(title), "{title}");
+        }
+        for title in [
+            "2026-10-23)",
+            "0.1.0 (2026-10-23",
+            "0.1.0 (2026-10)",
+            "0.1.0 (2026-10-23-)",
+            "0.1.0 (abcdefghij)",
+            "0.1.0 - 2026-10-23",
+        ] {
+            assert!(!ends_with_day_in_parens(title), "{title}");
+        }
+    }
+
+    #[test]
+    fn the_unreleased_heading_of_a_file_without_brackets_has_none() {
+        let new = version(UNRELEASED, vec![added("Added", "New")]);
+        let text = "## 1.0.0 - 2026-10-20\n\n- A\n";
+        let result = merged(text, &[new]);
+        let item = "- New <!-- gdd: 0123456789ab -->";
+        assert_eq!(result, format!("## Unreleased\n\n{item}\n\n{text}"));
+    }
+
     const RELEASED: &str = "## [1.1.0] - 2026-10-28";
 
     #[test]
@@ -1825,7 +2116,7 @@ mod tests {
         let text = "# Notes\n\nOur words.\n\n## [unreleased] - soon\n\n### Fixed\n\n- Crash\n\n\
                     ## [1.0.0] - 2026-10-20\n\n- Old\n";
         let missing = [version(UNRELEASED, vec![added("Added", "Export")])];
-        let expected = "# Notes\n\nOur words.\n\n## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n\
+        let expected = "# Notes\n\nOur words.\n\n## [unreleased]\n\n## [1.1.0] - 2026-10-28\n\n\
                         ### Added\n\n- Export <!-- gdd: 0123456789ab -->\n\n\
                         ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n- Old\n";
         assert_eq!(with_release(text, &missing, RELEASED), expected);
@@ -1856,7 +2147,7 @@ mod tests {
             let others = others.join("\n");
             assert!(keeps(&others, &result), "{text:?} -> {result:?}");
             assert_eq!(result.matches(RELEASED).count(), 1, "{result:?}");
-            let new = result.find("## [Unreleased]").unwrap();
+            let new = result.to_lowercase().find("## [unreleased]").unwrap();
             assert!(new < result.find(RELEASED).unwrap(), "{result:?}");
             assert!(result.contains("- New <!-- gdd: "), "{result:?}");
         }
@@ -1864,6 +2155,9 @@ mod tests {
         let two = with_release(texts[4], &[], RELEASED);
         let expected = "## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n- A\n\n\
                         ## [unreleased]\n\n- B\n";
+        assert_eq!(two, expected);
+        let bare = with_release("## Unreleased\n\n- A\n", &[], "## [1.1.0] - 2026-10-28");
+        assert_eq!(bare, "## Unreleased\n\n## [1.1.0] - 2026-10-28\n\n- A\n");
         assert_eq!(two, expected);
         let crlf = with_release(texts[3], &missing, RELEASED);
         let turned = "## [Unreleased]\r\n\r\n## [1.1.0] - 2026-10-28\r\n";

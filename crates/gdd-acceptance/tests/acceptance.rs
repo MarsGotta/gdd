@@ -1315,6 +1315,19 @@ fn file_contains(w: &mut GddWorld, path: String, text: String) {
     assert!(content.contains(&text), "{path} lacks {text:?}: {content}");
 }
 
+#[then(expr = "the file {string} contains {string} exactly {int} times")]
+fn file_contains_times(w: &mut GddWorld, path: String, text: String, times: usize) {
+    // The step text escapes the quotes inside the text.
+    let text = text.replace("\\\"", "\"");
+    let content = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let found = content.matches(&text).count();
+    assert_eq!(
+        found, times,
+        "{path} has {text:?} {found} times, not {times}: {content}"
+    );
+}
+
 #[then(expr = "the file {string} does not contain {string}")]
 fn file_does_not_contain(w: &mut GddWorld, path: String, text: String) {
     // The step text escapes the quotes inside the text.
