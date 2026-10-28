@@ -408,17 +408,24 @@ impl Sitting {
         self.record(&steps, Some(next));
     }
 
+    /// The sitting as the project has it now; when it cannot be read, the result says why.
+    fn reload(&mut self) -> Option<Sitting> {
+        match Sitting::load(&self.root, &self.id) {
+            Ok(now) => Some(now),
+            Err(message) => {
+                self.go_to(Page::Done(refused_lines(Vec::new(), &message)));
+                None
+            }
+        }
+    }
+
     /// Whether what the human read is what the project has now: the same page and the same
     /// decisions to record. When not, nothing is recorded: the sitting shows what it has now,
     /// with a warning, and waits for the human to read it again; when it cannot be read, the
     /// result says why.
     fn is_as_shown(&mut self) -> bool {
-        let now = match Sitting::load(&self.root, &self.id) {
-            Ok(now) => now,
-            Err(message) => {
-                self.go_to(Page::Done(refused_lines(Vec::new(), &message)));
-                return false;
-            }
+        let Some(now) = self.reload() else {
+            return false;
         };
         if now.lines == self.lines && now.approval == self.approval {
             return true;
@@ -430,8 +437,28 @@ impl Sitting {
         false
     }
 
+    /// Whether the change is still in its sitting, as the human left it. When it is not, nothing
+    /// is recorded: the sitting shows that it is over, with a warning; when the project cannot
+    /// be read, the result says why.
+    fn is_still_open(&mut self) -> bool {
+        let Some(now) = self.reload() else {
+            return false;
+        };
+        if now.approval.is_some() {
+            return true;
+        }
+        self.lines = now.lines;
+        self.approval = None;
+        self.go_to(Page::Main);
+        self.stale = true;
+        false
+    }
+
     /// `y` on the confirmation of the words: records G1 KO with them.
     fn record_changes(&mut self) {
+        if !self.is_still_open() {
+            return;
+        }
         let Page::Confirm(words) = &self.page else {
             return;
         };
@@ -489,17 +516,20 @@ impl Sitting {
     /// Whether the scenario files in the project folder `work` of the worktree are the ones the
     /// human read, in case the branch moved after the page was checked.
     fn pinned(&self, work: &Path) -> Result<(), String> {
-        let git = Git::new(work);
-        for scenario in self.approval.iter().flat_map(|a| &a.sealing) {
-            let file = git
-                .file_at("HEAD", &scenario.path)
-                .map_err(|e| e.to_string())?;
-            let text = file.map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-            if text.as_deref() != Some(scenario.text.as_str()) {
+        let shown = self.approval.iter().flat_map(|a| &a.sealing);
+        let now = scenarios_at(work, "HEAD")?;
+        for scenario in shown.clone() {
+            if !now.contains(scenario) {
                 return Err(format!("{} changed after you read it", scenario.path));
             }
         }
-        Ok(())
+        match now
+            .iter()
+            .find(|file| !shown.clone().any(|s| s.path == file.path))
+        {
+            Some(file) => Err(format!("{} was added after you read it", file.path)),
+            None => Ok(()),
+        }
     }
 }
 
@@ -520,15 +550,22 @@ fn card_of(root: &Path, state: &Path, id: &str) -> Result<Card, String> {
 /// adds or changes against the main branch, read as its last commit has them. None while the
 /// branch does not exist.
 fn scenarios(root: &Path, id: &str) -> Result<Vec<Scenario>, String> {
+    let branch = change::branch(id);
+    let exists = Git::new(root).exists(&branch).map_err(|e| e.to_string())?;
+    if !exists {
+        return Ok(Vec::new());
+    }
+    scenarios_at(root, &branch)
+}
+
+/// The scenario files that the revision `rev` adds or changes against the main branch, visible
+/// ones first, by path, read as `rev` has them.
+fn scenarios_at(root: &Path, rev: &str) -> Result<Vec<Scenario>, String> {
     let acceptance = crate::load_table(root)?.acceptance;
     let main = crate::load_settings(root)?.main_branch;
     let git = Git::new(root);
-    let branch = change::branch(id);
     let cannot = |e: gdd_core::git::Error| e.to_string();
-    if !git.exists(&branch).map_err(cannot)? {
-        return Ok(Vec::new());
-    }
-    let changed = git.committed_from(&main, &branch).map_err(cannot)?;
+    let changed = git.committed_from(&main, rev).map_err(cannot)?;
     let hidden_dir = format!("{}/hidden/", acceptance.dir);
     let mut found = Vec::new();
     for path in changed {
@@ -536,7 +573,7 @@ fn scenarios(root: &Path, id: &str) -> Result<Vec<Scenario>, String> {
             continue;
         }
         // A file the branch deleted has nothing to read.
-        let Some(bytes) = git.file_at(&branch, &path).map_err(cannot)? else {
+        let Some(bytes) = git.file_at(rev, &path).map_err(cannot)? else {
             continue;
         };
         found.push(Scenario {
@@ -1367,6 +1404,20 @@ mod tests {
     }
 
     #[test]
+    fn a_scenario_file_added_after_the_page_was_checked_records_nothing() {
+        let project = repo();
+        change(&project, "add", "src/a.rs");
+        let sitting = open(&project, "add");
+        on_branch(&project, "add", "features/f.feature", "Feature: F\n");
+        let args = decision(&["gate", "G1", "ok", "add"], NOTE);
+        let said = sitting.run_on_branch(&args);
+        let added = "features/f.feature was added after you read it";
+        assert_eq!(said, Err(added.to_string()));
+        assert!(!log(&project).contains("\"G1\""));
+        assert_eq!(worktrees(&project), 1);
+    }
+
+    #[test]
     fn a_page_that_changed_before_y_is_shown_again_and_nothing_is_recorded() {
         let project = repo();
         change(&project, "chg", "src/storage/db.rs");
@@ -1405,6 +1456,23 @@ mod tests {
     }
 
     #[test]
+    fn a_plan_that_changed_before_y_is_shown_again_though_the_decisions_are_the_same() {
+        let project = repo();
+        change(&project, "pln", "src/storage/db.rs");
+        let mut sitting = open(&project, "pln");
+        sitting.press(Key::Char('a'));
+        let plan = "# Plan\n\nWritten while the confirmation was open.\n";
+        project.write(".gdd/changes/pln/plan.md", plan);
+        sitting.press(Key::Char('y'));
+        assert_eq!(sitting.page, Page::Main);
+        assert_shows(
+            &sitting,
+            &[CHANGED, "Written while the confirmation was open."],
+        );
+        assert!(!log(&project).contains("\"G1\""));
+    }
+
+    #[test]
     fn a_change_that_left_its_sitting_before_y_loses_the_keys_to_approve() {
         let project = repo();
         change(&project, "lft", "src/a.rs");
@@ -1415,6 +1483,36 @@ mod tests {
         sitting.press(Key::Char('y'));
         let over = "lft is building: its sitting is over";
         assert_shows(&sitting, &[CHANGED, over, SCROLL_KEYS]);
+        assert!(!log(&project).contains("\"G1\""));
+    }
+
+    #[test]
+    fn a_change_that_left_its_sitting_before_the_ko_records_nothing() {
+        let project = repo();
+        change(&project, "kol", "src/a.rs");
+        let mut sitting = open(&project, "kol");
+        press(&mut sitting, &[Key::Char('c')]);
+        type_in(&mut sitting, "Too vague");
+        press(&mut sitting, &[Key::Enter]);
+        let text = record(&project, "kol").replace("\"open\"", "\"building\"");
+        project.write(".gdd/changes/kol/change.json", &text);
+        sitting.press(Key::Char('y'));
+        let over = "kol is building: its sitting is over";
+        assert_shows(&sitting, &[CHANGED, over, SCROLL_KEYS]);
+        assert!(!log(&project).contains("\"G1\""));
+    }
+
+    #[test]
+    fn a_project_that_cannot_be_read_before_the_ko_says_why_and_records_nothing() {
+        let project = repo();
+        change(&project, "kob", "src/a.rs");
+        let mut sitting = open(&project, "kob");
+        press(&mut sitting, &[Key::Char('c')]);
+        type_in(&mut sitting, "Too vague");
+        press(&mut sitting, &[Key::Enter]);
+        project.write(crate::ZONES, "default = \n");
+        sitting.press(Key::Char('y'));
+        assert_shows(&sitting, &["Nothing recorded"]);
         assert!(!log(&project).contains("\"G1\""));
     }
 
