@@ -80,7 +80,7 @@ Feature: The changelog from the changes (hidden examples)
     Given I run "gdd new-change c4 --title App --paths src/app.txt"
     And I run "gdd changelog-line c4 Security Notes shared by link expire after a day"
     And I run "gdd launch c4"
-    When I run "gdd changelog"
+    When I run "gdd changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "### Security"
     And the file "CHANGELOG.md" contains "- Notes shared by link expire after a day"
