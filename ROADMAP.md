@@ -88,7 +88,7 @@ change, stop and review before adding more.
 | Secrets scanning (gitleaks) and the linter's complexity rule in the gates | done in this repository | stack sheets for every stack |
 | Duplication warning (jscpd) and unused code in Learn (knip, vulture, cargo-machete) | in the sheets (`[learn]`, stack-sheets); Learn running them: next | learn-tools |
 | `gdd report --dora`: DORA's five delivery metrics and GDD's signals (polish rate, parks, Reviewer findings) from the log | next | delivery-report |
-| Changelogs in the common heading styles, not only Keep a Changelog's brackets: `## Unreleased`, `## 0.1.0 - <day>`, `## v0.1.0`, `## [0.1.0](<compare link>) (<day>)`; gdd adds to the file's own Unreleased and writes new versions in the file's style (found on Jezero's CHANGELOG.md: gdd added a second Unreleased) | next | changelog-styles |
+| Changelogs in the common heading styles, not only Keep a Changelog's brackets: `## Unreleased`, `## 0.1.0 - <day>`, `## v0.1.0`, `## [0.1.0](<compare link>) (<day>)`; gdd adds to the file's own Unreleased and writes new versions in the file's style (found on Jezero's CHANGELOG.md: gdd added a second Unreleased) | done | changelog-styles (2026-10-28) |
 | Where the time goes: each change's flow time (from its creation to closed) split into active time (agent calls by role and model, gates by command) and waiting (for the human at the sitting and at G4, parked until relaunched, in the merge queue), flow efficiency (active / flow time, Flow Framework), totals per project and per period, to see whether GDD saves time and which step to polish; the log gains what it lacks (the pause at G4, each gate command's duration) | next | flow-time (the human's request, 2026-10-28) |
 | The same report as a TUI screen (from the Board: a change's time in its details, the project's in a report view) | next | report-screen |
 | Spikes with variants: N Builders build the same spike, the human picks one side by side | next | spike-variants |
@@ -119,3 +119,4 @@ change, stop and review before adding more.
 - More stacks in the catalog.
 - A Builder round that settles the merge conflicts of a parked change (agent tools do it; today the Orchestrator merges main into the branch by hand).
 - Bare repositories and `--separate-git-dir`: today gdd refuses to run in a worktree of a bare repository (or of one whose main checkout git cannot name), because there is no main checkout to keep the shared `.gdd/` state in (state-root, 2026-10-27). Support them with a configurable state folder, so the "one bare repository + one worktree per branch" style works. No urgency.
+- `gdd changelog-line` taking a line whose words start with `--` (today `gdd report --time: ...` needs a `--` before the words).
