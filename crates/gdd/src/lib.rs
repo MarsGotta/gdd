@@ -23,8 +23,8 @@ use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
-    Classification, Color, Report, RulesTable, ZoneMap, adopt, inbox, init, log, session, stacks,
-    state,
+    Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, inbox, init, log,
+    session, stacks, state,
 };
 
 /// File that marks the root of a GDD project.
@@ -241,6 +241,15 @@ enum Command {
     Gate(DecisionArgs),
     /// Leaves a note on a change for its Decision Inbox.
     Note(NoteArgs),
+    /// Sets the line of a change in the changelog, which its merge commit carries as trailers: a
+    /// section of Keep a Changelog and its words, or --none to leave the change out. Without one,
+    /// the title goes under the section of its type (Feature: Added, Hotfix: Fixed, Migration:
+    /// Changed), and the other types are left out. Builders and Reviewers cannot set it.
+    ChangelogLine(ChangelogLineArgs),
+    /// Writes CHANGELOG.md, in the Keep a Changelog format, from the lines the commits of the
+    /// main branch carry: what no v<semver> tag released yet goes under Unreleased. Never
+    /// overwrites a CHANGELOG.md it did not write, and commits nothing.
+    Changelog,
     /// The Decision Inbox of a change: what is open for the human. Also saved in
     /// .gdd/changes/<id>/inbox.md.
     Inbox {
@@ -552,6 +561,25 @@ struct NoteArgs {
     text: Vec<String>,
 }
 
+/// What `gdd changelog-line` takes.
+#[derive(Debug, Args)]
+struct ChangelogLineArgs {
+    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    change: String,
+    /// The section: Added, Changed, Deprecated, Removed, Fixed or Security.
+    #[arg(required_unless_present = "none")]
+    section: Option<String>,
+    /// The line, for the people who use the project; its words are joined with single spaces.
+    #[arg(num_args = 1.., required_unless_present = "none")]
+    line: Vec<String>,
+    /// The change breaks what worked before.
+    #[arg(long)]
+    breaking: bool,
+    /// Leave the change out of the changelog.
+    #[arg(long, conflicts_with_all = ["section", "line", "breaking"])]
+    none: bool,
+}
+
 /// What `gdd resume` takes.
 #[derive(Debug, Args)]
 struct ResumeArgs {
@@ -612,6 +640,8 @@ impl Command {
                 format!("{}{recorded}", voice.kept())
             }
             Command::Note(args) => note(state, &args)?,
+            Command::ChangelogLine(args) => changelog_line(state, args, role)?,
+            Command::Changelog => write_changelog(root)?,
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state, env)?,
             Command::Adopt => adopt_project(root, state)?,
@@ -1471,6 +1501,28 @@ fn note(state: &Path, args: &NoteArgs) -> Result<String, String> {
     Ok("noted".to_string())
 }
 
+/// `gdd changelog-line`: the line in the changelog of a change, under the state root `state`, or
+/// that it is left out, for the role `role` (see [`changelog::record`]).
+fn changelog_line(
+    state: &Path,
+    args: ChangelogLineArgs,
+    role: Option<&str>,
+) -> Result<String, String> {
+    let line = (!args.none).then(|| changelog::Line {
+        section: args.section.unwrap_or_default(),
+        text: args.line.join(" "),
+        breaking: args.breaking,
+    });
+    changelog::record(state, &args.change, line, role)
+}
+
+/// `gdd changelog`: CHANGELOG.md of the project at `root`, from the commits of its main branch
+/// (see [`changelog::write`]).
+fn write_changelog(root: &Path) -> Result<String, String> {
+    let main = load_settings(root)?.main_branch;
+    changelog::write(root, &main)
+}
+
 /// `gdd inbox`: the Decision Inbox of change `id`, also saved next to its record, under the state
 /// root `state`, exactly as it is printed.
 fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
@@ -1709,6 +1761,9 @@ mod tests {
         for command in ["new-change", "gate", "note", "inbox", "status"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
+        for command in ["changelog-line", "  changelog "] {
+            assert!(out.stdout.contains(command), "{command}: {out:?}");
+        }
         for command in ["prepare", "park", "merge", "release", "stacks"] {
             assert!(out.stdout.contains(command), "{command}: {out:?}");
         }
@@ -1742,6 +1797,13 @@ mod tests {
             "gate G1",
             "note c1 needs",
             "note c1 maybe x",
+            "changelog-line",
+            "changelog-line c1",
+            "changelog-line c1 Added",
+            "changelog-line c1 --breaking",
+            "changelog-line c1 --none Added",
+            "changelog-line c1 --none --breaking",
+            "changelog extra",
             "status extra",
             "adopt extra",
             "selftest extra",
@@ -3274,6 +3336,80 @@ mod tests {
         assert_eq!(record["inbox"][1]["kind"], "decided");
         let ts = record["inbox"][1]["ts"].as_str().unwrap();
         assert!(ts.ends_with("+00:00"), "{ts}");
+    }
+
+    #[test]
+    fn changelog_line_sets_the_line_of_a_change_or_leaves_it_out() {
+        let project = committed_project();
+        project.run("new-change c1 --title App");
+        let out = project.run("changelog-line c1 Added Export  notes as Markdown");
+        let said = "Changelog line of c1: Added · Export notes as Markdown\n";
+        assert_eq!(out, Outcome::success(said.into()));
+        let field = serde_json::json!({
+            "section": "Added", "line": "Export notes as Markdown", "breaking": false,
+        });
+        assert_eq!(record_of(&project, "c1")["changelog"], field);
+        for breaking in [
+            "changelog-line c1 Changed --breaking One file per folder",
+            "changelog-line c1 Changed One file per folder --breaking",
+        ] {
+            let out = project.run(breaking);
+            let said = "Changelog line of c1: Changed · One file per folder\n";
+            assert_eq!(out, Outcome::success(said.into()), "{breaking}");
+            let record = record_of(&project, "c1");
+            assert_eq!(record["changelog"]["breaking"], true, "{breaking}");
+        }
+        let out = project.run("changelog-line c1 --none");
+        let left_out = "Changelog line of c1: left out\n";
+        assert_eq!(out, Outcome::success(left_out.into()));
+        let none = serde_json::json!({"none": true});
+        assert_eq!(record_of(&project, "c1")["changelog"], none);
+        let records = log_records(&project);
+        let results: Vec<String> = records.iter().map(|r| r.text("result")).collect();
+        let (created, line) = ("change-created", "changelog-line");
+        assert_eq!(results, [created, line, line, line, line]);
+        let out = project.run("changelog-line c1 Improved Faster");
+        let sections = "Added, Changed, Deprecated, Removed, Fixed, Security";
+        let refused = format!("error: the section must be one of {sections}\n");
+        assert_eq!(out, Outcome::failure(refused));
+        let reviewer = words("changelog-line c1 Added x");
+        let out = run_as(&reviewer, &project.0, Some("reviewer"));
+        let start = "error: A Builder or Reviewer cannot";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_eq!(record_of(&project, "c1")["changelog"], none);
+        let broken = ["changelog-line", "c1", "Added", "Export notes\n"].map(str::to_string);
+        let out = run_as(&broken, &project.0, None);
+        let start = "error: the changelog line must be one line";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_eq!(record_of(&project, "c1")["changelog"], none);
+        let out = project.run("changelog-line c9 --none");
+        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        assert_eq!(out, Outcome::failure(missing.into()));
+    }
+
+    #[test]
+    fn changelog_writes_the_lines_of_main_and_never_a_file_it_did_not_write() {
+        let project = committed_project();
+        let merge = "Merge\n\nChangelog: Fixed · Crash\nBreaking: no";
+        git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
+        let out = project.run("changelog");
+        let said = "CHANGELOG.md written: 1 line(s) under Unreleased.\n";
+        assert_eq!(out, Outcome::success(said.into()));
+        let text = fs::read_to_string(project.0.join("CHANGELOG.md")).unwrap();
+        let end = "## [Unreleased]\n\n### Fixed\n\n- Crash\n";
+        assert!(text.ends_with(end), "{text}");
+        project.write("CHANGELOG.md", "# My own notes\n");
+        let out = project.run("changelog");
+        let refused = "error: CHANGELOG.md was not written by gdd: move it aside, then run gdd \
+                       changelog again\n";
+        assert_eq!(out, Outcome::failure(refused.into()));
+        project.write(RULES, "main_branch = \"trunk\"\n");
+        fs::remove_file(project.0.join("CHANGELOG.md")).unwrap();
+        let out = project.run("changelog");
+        assert!(out.stderr.starts_with("error: git log "), "{out:?}");
+        project.write(RULES, "main_branch = [\n");
+        let out = project.run("changelog");
+        assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
     }
 
     #[test]

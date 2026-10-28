@@ -1,11 +1,12 @@
 //! Merging a change (`gdd merge`): once G3 is open, the last work of the change is committed on
 //! its branch, where it is checked out, and the branch merges into the main branch, in the main
 //! checkout, with a merge commit that carries the record of the change: what a pull request
-//! description would hold. The full working files stay in `.gdd/changes/<id>/`, which git does
-//! not keep. The known debt the change paid goes off the list in that same merge commit. Then
-//! main is pushed when the rules ask for it and there is a remote, and the artifact is built and
-//! deployed to pre from the main checkout: as the main branch configures them once the change
-//! merged into it, not as the branch of the change had them.
+//! description would hold, and its line in the changelog as trailers (see [`changelog`]). The
+//! full working files stay in `.gdd/changes/<id>/`, which git does not keep. The known debt the
+//! change paid goes off the list in that same merge commit. Then main is pushed when the rules
+//! ask for it and there is a remote, and the artifact is built and deployed to pre from the main
+//! checkout: as the main branch configures them once the change merged into it, not as the
+//! branch of the change had them.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -15,6 +16,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::change;
+use crate::changelog;
 use crate::classify::Classification;
 use crate::config::{self, Color};
 use crate::gates::release::{self, Passed, Steps};
@@ -240,7 +242,9 @@ fn configuration(root: &Path, path: &str) -> Result<String, String> {
 /// whose record is `record` and whose classification is `classification`: the title, then the
 /// color, lane and kind of work; the approvals; the verdicts of the Reviewer and its points; the
 /// decisions taken without the human (the last ones); the tokens of its agent calls; the known
-/// debt it paid, `paid`, when there is; and where its record lives.
+/// debt it paid, `paid`, when there is; and where its record lives. Then, in a paragraph of their
+/// own, the trailers of its line in the changelog, when it has one (see
+/// [`changelog::of_change`]).
 pub fn message(
     state: &Path,
     id: &str,
@@ -281,6 +285,12 @@ pub fn message(
         lines.push(format!("Known debt paid: {}", paid.join(", ")));
     }
     lines.push(format!("Record: .gdd/changes/{id}/ (local)"));
+    let path = change::record_path(id);
+    let line = changelog::of_change(record).map_err(|e| format!("{path}: {e}"))?;
+    if let Some(line) = line {
+        lines.push(String::new());
+        lines.push(line.trailers());
+    }
     Ok(lines.join("\n"))
 }
 
@@ -515,7 +525,9 @@ mod tests {
         let expected = "gdd(c1): G3 Merge Gate · App\n\n\
                         Color: yellow · lane full · type Feature\n\
                         Approvals: none needed\n\
-                        Record: .gdd/changes/c1/ (local)";
+                        Record: .gdd/changes/c1/ (local)\n\n\
+                        Changelog: Added · App\n\
+                        Breaking: no";
         assert_eq!(text, expected);
         let paid = ["security", "lint"];
         let text = message(&folder.0, "c1", &record, &classified("src/app.rs"), &paid).unwrap();
@@ -586,11 +598,49 @@ mod tests {
         expected.extend((2..=9).map(|n| format!("  - Choice {n} with reason")));
         expected.push(tokens.to_string());
         expected.push("Record: .gdd/changes/c1/ (local)".to_string());
+        expected.push(String::new());
+        expected.push("Changelog: Added · Save\nBreaking: no".to_string());
         assert_eq!(text, expected.join("\n"));
         // Only a red change names the red zones.
         let yellow = message(&folder.0, "c1", &record, &classified("src/app.rs"), &[]).unwrap();
         let g1 = "\nApprovals: G1 ok (human, 2026-10-21, 2 scenario file(s) sealed); plan";
         assert!(yellow.contains(g1), "{yellow}");
+    }
+
+    #[test]
+    fn the_line_of_the_change_ends_the_message_as_trailers_git_reads() {
+        let repo = Repo::new();
+        let yellow = classified("src/app.rs");
+        let record = json(
+            r#"{"title": "App", "type": "Refactor", "changelog":
+                {"section": "Changed", "line": "Notes in one file", "breaking": true}}"#,
+        );
+        let text = message(repo.root(), "c1", &record, &yellow, &["lint"]).unwrap();
+        let end = "\nKnown debt paid: lint\nRecord: .gdd/changes/c1/ (local)\n\n\
+                   Changelog: Changed · Notes in one file\nBreaking: yes";
+        assert!(text.ends_with(end), "{text}");
+        repo.write("message.txt", &text);
+        let parsed = repo.git(&["interpret-trailers", "--parse", "message.txt"]);
+        assert_eq!(
+            parsed,
+            "Changelog: Changed · Notes in one file\nBreaking: yes"
+        );
+        // Left out: no paragraph, and no trailers.
+        for left_out in [
+            r#"{"title": "Tidy", "type": "Refactor"}"#,
+            r#"{"title": "App", "type": "Feature", "changelog": {"none": true}}"#,
+        ] {
+            let text = message(repo.root(), "c1", &json(left_out), &yellow, &[]).unwrap();
+            assert!(
+                text.ends_with("\nRecord: .gdd/changes/c1/ (local)"),
+                "{text}"
+            );
+            assert!(!text.contains("Changelog:"), "{text}");
+        }
+        let wrong = json(r#"{"changelog": {"section": "Improved", "line": "x"}}"#);
+        let err = message(repo.root(), "c1", &wrong, &yellow, &[]).unwrap_err();
+        let start = ".gdd/changes/c1/change.json: the section must be one of ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]
@@ -714,6 +764,8 @@ mod tests {
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         let expected = "gdd(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature";
         assert!(message.starts_with(expected), "{message}");
+        let line = repo.git(&["log", "-1", "--format=%(trailers:key=Changelog)", "main"]);
+        assert_eq!(line, "Changelog: Added · App");
         let parents = repo.git(&["log", "-1", "--format=%P", "main"]);
         assert_eq!(parents.split(' ').count(), 2, "a merge commit");
         let record = record(&repo);
