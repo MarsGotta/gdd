@@ -761,6 +761,15 @@ pub(crate) mod tests {
         assert!(freed(&state.0, TURN), "the turn goes with the refusal");
     }
 
+    #[test]
+    fn a_lock_that_cannot_be_taken_names_the_lock_and_the_reason() {
+        // flock on a file of its own fails only when the kernel runs out of locks or a signal
+        // cuts the wait: the reason is made up here.
+        let why = io::Error::other("no locks left");
+        let err = unlocked(AGENTS, why);
+        assert_eq!(err, "cannot lock .gdd/agents.lock: no locks left");
+    }
+
     /// A repository on `main` with the branch of change `c1`, which adds `app.txt`, checked out
     /// in a worktree, and main one commit ahead of where the branch left it, with `news.txt`.
     fn moved() -> (Repo, Folder) {
