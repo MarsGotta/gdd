@@ -2404,6 +2404,34 @@ fn the_sitting_is_closed(w: &mut GddWorld) {
     assert!(sitting_of(w).closed(), "the sitting is still open");
 }
 
+// ---- features/sitting-g4.feature -----------------------------------------------------------
+//
+// API of the `gdd` crate these steps expect: `Sitting::chosen(&self) -> Option<Vec<String>>`.
+
+#[when("the sitting runs what was chosen")]
+fn the_sitting_runs_what_was_chosen(w: &mut GddWorld) {
+    let chosen = sitting_of(w)
+        .chosen()
+        .unwrap_or_else(|| panic!("the sitting chose nothing"));
+    let root = project_root(w);
+    let mut env = world_env(w).clone();
+    env.retain(|(name, _)| name != "GDD_ROLE");
+    let out = gdd::run_with_env(&chosen, &root, &env);
+    w.exit_checked = false;
+    w.ran = Some(Ran {
+        code: out.code,
+        succeeded: out.code == 0,
+        stdout: out.stdout,
+        stderr: out.stderr,
+    });
+}
+
+#[then("the sitting chose nothing")]
+fn the_sitting_chose_nothing(w: &mut GddWorld) {
+    let chosen = sitting_of(w).chosen();
+    assert!(chosen.is_none(), "the sitting chose {chosen:?}");
+}
+
 #[then(expr = "the log has no {string} line for {string}")]
 fn log_has_no_line(w: &mut GddWorld, gate: String, change: String) {
     let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
