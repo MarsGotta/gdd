@@ -324,8 +324,9 @@ pub fn answered(
 /// Whether the main checkout at `root` can release `version` on the main branch `main` now:
 /// `true` when main tracks a CHANGELOG.md, which the release commits. An error when the tag of
 /// the version exists already, as gdd never moves or deletes one; and, with a CHANGELOG.md, when
-/// the checkout is not on main or its CHANGELOG.md is not the one main has, as the release commit
-/// would carry what nobody committed. The file is read with the rules of [`files`].
+/// the checkout is not on main or its CHANGELOG.md is not the one main has, in the working tree
+/// or in the index, as the release commit would carry what nobody committed, or overwrite what
+/// was added to the index. The file is read with the rules of [`files`].
 pub fn ready(root: &Path, main: &str, version: Version) -> Result<bool, String> {
     let git = Git::new(root);
     let said = |e: git::Error| e.to_string();
@@ -347,7 +348,8 @@ pub fn ready(root: &Path, main: &str, version: Version) -> Result<bool, String> 
         ));
     }
     let here = files::read(root, path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    if here.as_deref() != Some(committed.as_slice()) {
+    let staged = git.has_staged(path).map_err(said)?;
+    if staged || here.as_deref() != Some(committed.as_slice()) {
         return Err(format!(
             "{path} has changes {main} does not have: commit them, or put them aside, before the \
              release"
@@ -876,6 +878,33 @@ mod tests {
         assert_eq!(head(&repo), main);
         let err = release(repo.root(), "trunk", next, false).unwrap_err();
         assert!(err.starts_with("git ls-tree "), "{err}");
+    }
+
+    #[test]
+    fn a_release_never_overwrites_what_the_index_holds_of_the_changelog() {
+        let repo = with_change("");
+        let ours = "# Changelog\n\n## [Unreleased]\n";
+        repo.write(changelog::PATH, ours);
+        repo.commit();
+        merge(&repo, FIXED);
+        let main = head(&repo);
+        // An edit added to the index, then the file put back as main has it.
+        let edited = "# Changelog\n\nAn edit in the index\n";
+        repo.write(changelog::PATH, edited);
+        repo.git(&["add", "--", changelog::PATH]);
+        repo.write(changelog::PATH, ours);
+        let err = release(repo.root(), "main", FIRST, false).unwrap_err();
+        let said = "CHANGELOG.md has changes main does not have: commit them, or put them aside, \
+                    before the release";
+        assert_eq!(err, said);
+        assert!(!has_tag(&repo, "v0.1.0"));
+        assert_eq!(head(&repo), main);
+        let index = repo.git(&["show", &format!(":{}", changelog::PATH)]);
+        assert_eq!(index, edited.trim_end());
+        // Once the index holds what main has again, it is released.
+        repo.git(&["reset", "-q", "--", changelog::PATH]);
+        release(repo.root(), "main", FIRST, false).unwrap();
+        assert_eq!(named(&repo, "v0.1.0"), head(&repo));
     }
 
     #[test]

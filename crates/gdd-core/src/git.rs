@@ -348,6 +348,14 @@ impl Git {
         Ok(!status.is_empty())
     }
 
+    /// Whether the index holds the file `path`, from the project root, otherwise than the commit
+    /// checked out: what was added to it, or taken out of it, and not committed yet. The working
+    /// tree does not count.
+    pub fn has_staged(&self, path: &str) -> Result<bool, Error> {
+        let args = ["diff", "--cached", "--name-only", "-z", "--", path];
+        Ok(!self.paths(&args)?.is_empty())
+    }
+
     /// Commits, on the current branch, everything the working tree changed except what git
     /// ignores, with `message`.
     pub fn commit_all(&self, message: &str) -> Result<(), Error> {
@@ -1192,6 +1200,28 @@ pub(crate) mod tests {
         assert!(git.has_tracked_changes().unwrap());
         let plain = Folder::new();
         assert!(Git::new(&plain.0).has_tracked_changes().is_err());
+    }
+
+    #[test]
+    fn only_what_the_index_holds_of_a_file_is_staged() {
+        let repo = Repo::new();
+        repo.write("app/notes.md", "a\n");
+        repo.write("app/other.md", "a\n");
+        repo.commit();
+        let git = Git::new(&repo.root().join("app"));
+        assert!(!git.has_staged("notes.md").unwrap());
+        repo.write("app/notes.md", "b\n");
+        assert!(!git.has_staged("notes.md").unwrap());
+        repo.git(&["add", "app/notes.md"]);
+        repo.write("app/notes.md", "a\n");
+        assert!(git.has_staged("notes.md").unwrap());
+        assert!(!git.has_staged("other.md").unwrap());
+        repo.git(&["reset", "-q", "--", "app/notes.md"]);
+        assert!(!git.has_staged("notes.md").unwrap());
+        repo.git(&["rm", "-q", "--cached", "app/notes.md"]);
+        assert!(git.has_staged("notes.md").unwrap());
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).has_staged("notes.md").is_err());
     }
 
     #[test]
