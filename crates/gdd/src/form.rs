@@ -3,19 +3,20 @@
 //! asks it in the terminal of the process; [`finish`] does what the human answered, exactly as
 //! the flags would.
 
-use std::io;
 use std::path::Path;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use gdd_core::agents::sheets;
 use gdd_core::init;
-use ratatui::Terminal;
-use ratatui::backend::Backend;
-use ratatui::buffer::{Buffer, Cell};
+use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
+
+use crate::tui::{self, Screen};
+
+pub use crate::tui::Key;
 
 /// The stacks of the catalog, in its order; `Not sure` comes after them.
 const STACKS: [&str; 3] = ["rust", "typescript", "python"];
@@ -50,21 +51,6 @@ const TEXT_KEYS: &str = "Enter: next · Esc: back · Ctrl-C: quit";
 
 /// The keys of the steps with a checklist.
 const CHECK_KEYS: &str = "Up/Down: move · Space: check · Enter: next · Esc: back · Ctrl-C: quit";
-
-/// A key the human presses in the form.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Key {
-    /// A letter, a digit or a sign: typed in a text, `y` on the summary.
-    Char(char),
-    Enter,
-    Esc,
-    Up,
-    Down,
-    /// Checks or unchecks in a checklist; in a text, a space.
-    Space,
-    Backspace,
-    CtrlC,
-}
 
 /// How the human finished the form.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -300,7 +286,7 @@ impl Form {
         let area = Rect::new(0, 0, width, height);
         let mut buffer = Buffer::empty(area);
         self.screen().render(area, &mut buffer);
-        screen_text(&buffer)
+        tui::screen_text(&buffer)
     }
 
     /// How the human finished the form: Enter on the summary (`y` when every coding agent is of
@@ -523,88 +509,27 @@ pub fn in_terminal(cwd: &Path, given: &init::Options) -> crate::Outcome {
     }
 }
 
-/// Asks `form` in the terminal of the process, in raw mode on the alternate screen, which are
-/// put back as they were on every way out, a panic too: how the human finished it.
-fn ask(mut form: Form) -> Result<Outcome, String> {
-    let _restore = Restore(ratatui::restore);
-    let cannot = |e: io::Error| format!("cannot use the terminal: {e}");
-    let mut terminal = ratatui::try_init().map_err(cannot)?;
-    drive(&mut form, &mut terminal, || event::read().map(key_of))
+/// Asks `form` in the terminal of the process (see [`tui::in_terminal`]): how the human finished
+/// it.
+fn ask(form: Form) -> Result<Outcome, String> {
+    let mut form = tui::in_terminal(form)?;
+    Ok(form.outcome.take().unwrap_or(Outcome::Quit))
 }
 
-/// Puts the terminal back as it was when it goes, on every way out of the form.
-struct Restore(fn());
+impl Screen for Form {
+    const NAME: &'static str = "the form";
 
-impl Drop for Restore {
-    fn drop(&mut self) {
-        (self.0)();
+    fn draw(&self, frame: &mut Frame) {
+        frame.render_widget(self.screen(), frame.area());
     }
-}
 
-/// Shows `form` on `terminal` and gives it each key `next_key` reads (`None` for one the form
-/// does not take) until the human finishes it: how they did.
-fn drive<B: Backend>(
-    form: &mut Form,
-    terminal: &mut Terminal<B>,
-    mut next_key: impl FnMut() -> io::Result<Option<Key>>,
-) -> Result<Outcome, String> {
-    loop {
-        if let Some(outcome) = form.outcome() {
-            return Ok(outcome.clone());
-        }
-        let drawn = terminal.draw(|frame| frame.render_widget(form.screen(), frame.area()));
-        drawn.map_err(|e| format!("cannot draw the form: {e}"))?;
-        let key = next_key().map_err(|e| format!("cannot read a key: {e}"))?;
-        if let Some(key) = key {
-            form.press(key);
-        }
+    fn press(&mut self, key: Key) {
+        Form::press(self, key);
     }
-}
 
-/// The key of the form a terminal `event` is: a key pressed, if the form takes it.
-fn key_of(event: Event) -> Option<Key> {
-    match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press => key_pressed(key),
-        _ => None,
+    fn done(&self) -> bool {
+        self.outcome.is_some()
     }
-}
-
-/// The key of the form `key` is; with Ctrl, only Ctrl-C.
-fn key_pressed(key: KeyEvent) -> Option<Key> {
-    let control = key.modifiers.contains(KeyModifiers::CONTROL);
-    match key.code {
-        KeyCode::Char('c') if control => Some(Key::CtrlC),
-        _ if control => None,
-        KeyCode::Enter => Some(Key::Enter),
-        KeyCode::Esc => Some(Key::Esc),
-        KeyCode::Up => Some(Key::Up),
-        KeyCode::Down => Some(Key::Down),
-        KeyCode::Backspace => Some(Key::Backspace),
-        KeyCode::Char(' ') => Some(Key::Space),
-        KeyCode::Char(letter) => Some(Key::Char(letter)),
-        _ => None,
-    }
-}
-
-/// The text of `buffer`, a line per row; a symbol wider than one cell hides the cells it covers.
-fn screen_text(buffer: &Buffer) -> String {
-    let width = usize::from(buffer.area.width).max(1);
-    let lines: Vec<String> = buffer.content.chunks(width).map(row_text).collect();
-    lines.join("\n")
-}
-
-/// The text of a row of `cells` (see [`screen_text`]).
-fn row_text(cells: &[Cell]) -> String {
-    let mut text = String::new();
-    let mut hidden = 0;
-    for cell in cells {
-        if hidden == 0 {
-            text.push_str(cell.symbol());
-        }
-        let width = Span::raw(cell.symbol()).width();
-        hidden = width.max(hidden).saturating_sub(1);
-    }
-    text
 }
 
 /// A key on a step that takes text: a letter or Space types, Backspace deletes the last one.
@@ -663,8 +588,9 @@ fn shell_word(word: &str) -> String {
 mod tests {
     use super::*;
     use crate::tests::{init_env, plain_folder};
+    use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::io;
 
     fn names(named: &[&str]) -> Vec<String> {
         named.iter().map(|name| name.to_string()).collect()
@@ -1129,62 +1055,17 @@ mod tests {
     }
 
     #[test]
-    fn drive_shows_the_form_and_gives_it_each_key_until_it_ends() {
+    fn the_form_is_a_screen_that_is_done_with_its_outcome() {
         let mut form = Form::new(Vec::new());
         let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
         let keys = [None, Some(Key::Char('N')), None, Some(Key::CtrlC)];
         let mut keys = keys.into_iter();
         // Reading fails once the keys run out, so a form that never ends fails the test.
         let no_more = || io::Error::other("no more keys");
-        let ended = drive(&mut form, &mut terminal, || keys.next().ok_or_else(no_more));
-        assert_eq!(ended, Ok(Outcome::Quit));
-        let shown = screen_text(terminal.backend().buffer());
+        let ended = tui::run(&mut form, &mut terminal, || keys.next().ok_or_else(no_more));
+        assert_eq!(ended, Ok(()));
+        assert_eq!(form.outcome(), Some(&Outcome::Quit));
+        let shown = tui::screen_text(terminal.backend().buffer());
         assert!(shown.contains("│> N█"), "{shown}");
-        let mut form = Form::new(Vec::new());
-        let gone = || Err(io::Error::other("gone"));
-        let failed = drive(&mut form, &mut terminal, gone);
-        assert_eq!(failed, Err("cannot read a key: gone".to_string()));
-    }
-
-    #[test]
-    fn a_key_pressed_in_the_terminal_is_a_key_of_the_form() {
-        let none = KeyModifiers::NONE;
-        let pressed = |code, modifiers| key_of(Event::Key(KeyEvent::new(code, modifiers)));
-        for (code, key) in [
-            (KeyCode::Enter, Some(Key::Enter)),
-            (KeyCode::Esc, Some(Key::Esc)),
-            (KeyCode::Up, Some(Key::Up)),
-            (KeyCode::Down, Some(Key::Down)),
-            (KeyCode::Backspace, Some(Key::Backspace)),
-            (KeyCode::Char(' '), Some(Key::Space)),
-            (KeyCode::Char('c'), Some(Key::Char('c'))),
-            (KeyCode::Char('ñ'), Some(Key::Char('ñ'))),
-            (KeyCode::Tab, None),
-        ] {
-            assert_eq!(pressed(code, none), key, "{code:?}");
-        }
-        let control = KeyModifiers::CONTROL;
-        assert_eq!(pressed(KeyCode::Char('c'), control), Some(Key::CtrlC));
-        assert_eq!(pressed(KeyCode::Char('a'), control), None);
-        let shift = KeyModifiers::SHIFT;
-        assert_eq!(pressed(KeyCode::Char('N'), shift), Some(Key::Char('N')));
-        let kind = KeyEventKind::Release;
-        let released = KeyEvent::new_with_kind(KeyCode::Enter, none, kind);
-        assert_eq!(key_of(Event::Key(released)), None);
-        assert_eq!(key_of(Event::FocusGained), None);
-    }
-
-    static RESTORED: AtomicBool = AtomicBool::new(false);
-
-    fn restored() {
-        RESTORED.store(true, Ordering::SeqCst);
-    }
-
-    #[test]
-    fn the_terminal_is_put_back_when_the_guard_goes() {
-        let guard = Restore(restored);
-        assert!(!RESTORED.load(Ordering::SeqCst));
-        drop(guard);
-        assert!(RESTORED.load(Ordering::SeqCst));
     }
 }
