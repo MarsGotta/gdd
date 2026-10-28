@@ -26,7 +26,7 @@ use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
     Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, inbox, init, log,
-    session, stacks, state,
+    session, stacks, state, versions,
 };
 
 /// File that marks the root of a GDD project.
@@ -322,14 +322,13 @@ enum Command {
         change: Option<String>,
     },
     /// A release step of gdd/commands.toml: pre (tests and demo), promote (to production, after
-    /// G4) or observe (rolls the change back when production gets worse). Prints it as JSON.
-    Release {
-        /// The step.
-        #[arg(value_parser = release::STEPS)]
-        step: String,
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
-        change: Option<String>,
-    },
+    /// G4) or observe (rolls the change back when production gets worse). Prints it as JSON. In
+    /// [versions] mode = "auto" of gdd/rules.toml (the default), promote gives a change with a
+    /// changelog line the next v<x.y.z> version, in GDD_VERSION, and releases it once it passed.
+    /// Without a step: the next version of what main merged since its newest tag, and its lines;
+    /// --yes releases it, in any mode (CHANGELOG.md, when main tracks one, in a commit of its
+    /// own, and the tag), and --version chooses it. Builders and Reviewers cannot release.
+    Release(ReleaseArgs),
     /// Runs the recipe of a change in its own git worktree, on its branch change/<id>, while
     /// this checkout goes to the main branch: Build, G2, G3, the Reviewer, merge and pre; then it
     /// waits for the human G4 when the change needs it, or goes to production. The worktree goes
@@ -608,6 +607,22 @@ struct ChangelogArgs {
     check: bool,
 }
 
+/// What `gdd release` takes.
+#[derive(Debug, Args)]
+struct ReleaseArgs {
+    /// The step; without one, the next version of what is merged.
+    #[arg(value_parser = release::STEPS)]
+    step: Option<String>,
+    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    change: Option<String>,
+    /// Release the next version, without asking.
+    #[arg(long, conflicts_with = "step")]
+    yes: bool,
+    /// The version to release instead of the next one, after the newest: x.y.z.
+    #[arg(long = "version", value_name = "X.Y.Z", conflicts_with = "step")]
+    chosen: Option<String>,
+}
+
 /// What `gdd resume` takes.
 #[derive(Debug, Args)]
 struct ResumeArgs {
@@ -655,6 +670,9 @@ impl Command {
                 let id = change_id(change, env)?;
                 return merge_queued(root, state, &id, env, streams.err());
             }
+            Command::Release(args) => {
+                return release_command(root, state, args, role, env, streams);
+            }
             Command::Board => return Ok(Outcome::needs_terminal()),
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
@@ -678,9 +696,6 @@ impl Command {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
             Command::Prepare { change } => prepare_change(root, state, &change_id(change, env)?)?,
-            Command::Release { step, change } => {
-                release_change(root, state, &step, &change_id(change, env)?)?
-            }
         };
         Ok(Outcome::printed(text, 0))
     }
@@ -1157,19 +1172,125 @@ fn merge_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     merge::merge(&project, id, &decided.classification)
 }
 
-/// `gdd release`: the release step `step` of change `id` (see [`release`]). Promoting asks
-/// whether the change needs the human G4 as it is classified now.
-fn release_change(root: &Path, state: &Path, step: &str, id: &str) -> Result<String, String> {
+/// `gdd release`: with a step, the release step of a change (see [`release_change`]); what it
+/// says on its way goes on the standard error, before why it failed, as the standard output is
+/// its JSON. Without one, the version of what is merged, for the role `role` (see
+/// [`release_version`]).
+fn release_command(
+    root: &Path,
+    state: &Path,
+    args: ReleaseArgs,
+    role: Option<&str>,
+    env: &Env,
+    streams: Streams,
+) -> Result<Outcome, String> {
+    let ReleaseArgs {
+        step,
+        change,
+        yes,
+        chosen,
+    } = args;
+    let Some(step) = step else {
+        return release_version(root, state, yes, chosen.as_deref(), role, streams);
+    };
+    let id = change_id(change, env)?;
+    let mut voice = streams.err();
+    let ran = release_change(root, state, &step, &id, &mut voice);
+    Ok(after_voice(ran, voice))
+}
+
+/// What a command that `ran` prints: what it printed or why it failed, after what it said on its
+/// way with `voice`, on the standard error.
+fn after_voice(ran: Result<String, String>, voice: Voice) -> Outcome {
+    let mut outcome = ran.map_or_else(|e| Outcome::error(&e), |text| Outcome::printed(text, 0));
+    outcome.stderr.insert_str(0, &voice.kept());
+    outcome
+}
+
+/// The release step `step` of change `id` (see [`release`]). Promoting asks whether the change
+/// needs the human G4 as it is classified now, and gives it its version as the rules of the main
+/// checkout ask (see [`versions::promote`]); what it says on its way, it says with `voice`.
+fn release_change(
+    root: &Path,
+    state: &Path,
+    step: &str,
+    id: &str,
+    voice: &mut Voice,
+) -> Result<String, String> {
     let steps = load_steps(root)?;
     match step {
         "pre" => release::pre(root, state, id, &steps),
         "promote" => {
             let decided = decide(root, state, id)?;
-            release::promote(root, state, id, &steps, decided.classification.g4)
+            let main = load_settings(root)?.main_branch;
+            let promotion = versions::Promotion {
+                root,
+                state,
+                main: &main,
+                id,
+                steps: &steps,
+                needs_g4: decided.classification.g4,
+                rules: load_versions(state)?,
+            };
+            versions::promote(&promotion, |line| voice.say(line))
         }
         "observe" => release::observe(root, state, id, &steps),
         other => Err(format!("unknown release step {other:?}")),
     }
+}
+
+/// `gdd release` without a step, for the role `role`: Builders and Reviewers are refused. The
+/// next version of what the main branch of the main checkout, under the state root `state`,
+/// merged since its newest one, or the version `chosen` (see [`versions::Since::version`]). With
+/// `yes` it is released (see [`versions::by_hand`]), saying on `streams` that it waits for the
+/// merge lock; without, it is shown, and in a terminal asked (see [`ask_release`]).
+fn release_version(
+    root: &Path,
+    state: &Path,
+    yes: bool,
+    chosen: Option<&str>,
+    role: Option<&str>,
+    streams: Streams,
+) -> Result<Outcome, String> {
+    approve::may_record(role).map_err(|e| e.to_string())?;
+    let main = load_settings(root)?.main_branch;
+    let push = load_versions(state)?.push;
+    if yes {
+        let mut voice = streams.err();
+        let waiting = || voice.say(queue::WAITING);
+        let ran = versions::by_hand(state, &main, chosen, push, waiting);
+        return Ok(after_voice(ran, voice));
+    }
+    let since = versions::Since::read(state, &main)?;
+    let Some(version) = since.version(chosen)? else {
+        return Ok(Outcome::printed(since.nothing(), 0));
+    };
+    let (input, output) = (io::stdin().is_terminal(), io::stdout().is_terminal());
+    if asks(streams, input, output) {
+        return ask_release(state, &main, &since, version, push);
+    }
+    Ok(Outcome::printed(since.shown(version), 0))
+}
+
+/// Shows `version`, the next of what `since` has, and asks whether to release it from the main
+/// checkout at `state` (see [`versions::answered`]).
+fn ask_release(
+    state: &Path,
+    main: &str,
+    since: &versions::Since,
+    version: versions::Version,
+    push: bool,
+) -> Result<Outcome, String> {
+    let mut out = io::stdout();
+    write!(out, "{}", since.offered(version))
+        .and_then(|()| out.flush())
+        .map_err(|e| format!("cannot ask: {e}"))?;
+    let mut answer = String::new();
+    let read = io::stdin().read_line(&mut answer);
+    read.map_err(|e| format!("cannot read the answer: {e}"))?;
+    let waiting = || Streams::Process.err().say(queue::WAITING);
+    let said = versions::answered(state, main, version, push, &answer, waiting)?;
+    Ok(Outcome::printed(said, 0))
 }
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
@@ -1396,7 +1517,8 @@ impl recipe::Steps for ProjectSteps<'_> {
     /// After the merge the change is on the main branch: its release runs from the main checkout,
     /// the project root of the state root, as the main branch configures it.
     fn release(&mut self, step: &str) -> Result<(), String> {
-        release_change(self.state, self.state, step, self.id).map(drop)
+        let (state, id) = (self.state, self.id);
+        release_change(state, state, step, id, &mut self.voice).map(drop)
     }
 
     fn say(&mut self, line: &str) {
@@ -1720,6 +1842,13 @@ fn load_steps(root: &Path) -> Result<release::Steps, String> {
     release::Steps::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))
 }
 
+/// What the rules file of the main checkout, under the state root `state`, says of releases (see
+/// [`versions::Rules`]): as the main branch has it, as the merge reads `push_main`.
+fn load_versions(state: &Path) -> Result<versions::Rules, String> {
+    let text = read(state, RULES)?.unwrap_or_default();
+    versions::Rules::from_toml(&text)
+}
+
 /// What the rules file says to Path Guard: the main branch and the protected paths.
 fn load_settings(root: &Path) -> Result<Settings, String> {
     let text = read(root, RULES)?.unwrap_or_default();
@@ -1892,8 +2021,10 @@ mod tests {
             "session --phase 2-build --change",
             "park",
             "park c1",
-            "release",
             "release deploy c1",
+            "release pre c1 --yes",
+            "release promote --version 1.0.0",
+            "release --version",
             "launch",
             "resume c1",
             "resume --g4 ok",
@@ -3586,6 +3717,7 @@ mod tests {
             ("user.name", "GDD Test"),
             ("user.email", "test@example.com"),
             ("commit.gpgsign", "false"),
+            ("tag.gpgsign", "false"),
             ("core.hooksPath", "/dev/null"),
         ] {
             git(project, &["config", "--local", key, value]);
@@ -3663,17 +3795,86 @@ mod tests {
         let start = "gdd(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature\n";
         assert!(message.starts_with(start), "{message}");
         assert_eq!(record_of(&project, "c1")["state"], "merged");
-        for (step, state) in [
-            ("pre", "in-pre"),
-            ("promote", "in-production"),
-            ("observe", "closed"),
+        for (step, state, said) in [
+            ("pre", "in-pre", ""),
+            ("promote", "in-production", "Released v0.1.0\n"),
+            ("observe", "closed", ""),
         ] {
             let out = project.run(&format!("release {step} c1"));
             assert_eq!(out.code, 0, "{step}: {out:?}");
             assert_eq!(json(&out)["ok"], true, "{step}");
+            assert_eq!(out.stderr, said, "{step}");
             assert_eq!(record_of(&project, "c1")["state"], state, "{step}");
         }
-        assert_eq!(record_of(&project, "c1")["gates"]["G4"]["by"], "machines");
+        let record = record_of(&project, "c1");
+        assert_eq!(record["gates"]["G4"]["by"], "machines");
+        assert_eq!(record["version"], "0.1.0");
+        assert_eq!(git(&project, &["tag", "--list"]), "v0.1.0");
+        let tagged = git(&project, &["rev-parse", "v0.1.0^{commit}"]);
+        assert_eq!(tagged, git(&project, &["rev-parse", "main"]));
+    }
+
+    #[test]
+    fn gdd_release_shows_the_next_version_and_releases_it_only_with_a_yes() {
+        let project = committed_project();
+        identify(&project);
+        let builder = run_as(&words("release --yes"), &project.0, Some("builder-build"));
+        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
+        assert_eq!(builder, Outcome::failure(refused.into()));
+        let nothing = "Nothing to release: no change on main carries a changelog line\n";
+        assert_eq!(project.run("release"), Outcome::success(nothing.into()));
+        let merge = "gdd(c1): G3 Merge Gate · App\n\nChangelog: Fixed · Crash\nBreaking: no";
+        git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
+        let shown = "Next version: v0.1.0 (first version)\n\n### Fixed\n\n- Crash\n\n\
+                     Nothing released: gdd release --yes releases it.\n";
+        assert_eq!(project.run("release"), Outcome::success(shown.into()));
+        let chosen = project.run("release --version v1.0.0");
+        let start = "Next version: v1.0.0 (first version)\n";
+        assert!(chosen.stdout.starts_with(start), "{chosen:?}");
+        assert_eq!(git(&project, &["tag", "--list"]), "");
+        let released = Outcome::success("Released v0.1.0\n".into());
+        assert_eq!(project.run("release --yes"), released);
+        assert_eq!(git(&project, &["tag", "--list"]), "v0.1.0");
+        let early = "error: the version must come after v0.1.0\n";
+        let out = project.run("release --yes --version 0.1.0");
+        assert_eq!(out, Outcome::failure(early.into()));
+        assert_eq!(project.run("release --version 0.0.9").stderr, early);
+        let nothing = Outcome::success("Nothing to release since v0.1.0\n".into());
+        assert_eq!(project.run("release --yes"), nothing);
+        assert_eq!(project.run("release"), nothing);
+        let weekly = format!("{PROTECTED}\n[versions]\nmode = \"weekly\"\n");
+        project.write(RULES, &weekly);
+        for command in ["release", "release --yes"] {
+            let out = project.run(command);
+            assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn gdd_release_by_hand_says_apart_that_it_waits_for_the_merge_lock() {
+        let project = committed_project();
+        identify(&project);
+        let merge = "gdd(c1): G3 Merge Gate · App\n\nChangelog: Added · Export\nBreaking: no";
+        git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
+        let lock = project.0.join(queue::LOCK);
+        fs::create_dir_all(lock.parent().unwrap()).unwrap();
+        fs::write(&lock, "").unwrap();
+        let (taken, wait_taken) = std::sync::mpsc::channel();
+        let another = std::thread::spawn(move || {
+            let held = fs::File::open(&lock).unwrap();
+            held.lock().unwrap();
+            taken.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        wait_taken.recv().unwrap();
+        let out = project.run("release --yes");
+        another.join().unwrap();
+        let waited = Outcome {
+            code: 0,
+            stdout: "Released v0.1.0\n".into(),
+            stderr: format!("{}\n", queue::WAITING),
+        };
+        assert_eq!(out, waited);
     }
 
     #[test]
@@ -3970,8 +4171,8 @@ esac
         let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
         let out = launch_with_fakes(&project, "tests/t.txt");
-        let closed = "Change c1 closed. Message: .gdd/changes/c1/inbox.md · Tokens: gdd report \
-                      --change c1\n";
+        let closed = "Released v0.1.0\nChange c1 closed. Message: .gdd/changes/c1/inbox.md · \
+                      Tokens: gdd report --change c1\n";
         assert_eq!(out, Outcome::success(closed.into()));
         let calls = fs::read_to_string(project.0.join(".gdd/fake/calls")).unwrap();
         assert_eq!(calls, "builder-test\nbuilder-build\nreviewer\n");
@@ -3993,6 +4194,9 @@ esac
         }
         let merged = git(&project, &["log", "-1", "--format=%s", "main"]);
         assert_eq!(merged, "gdd(c1): G3 Merge Gate · App");
+        assert_eq!(record["version"], "0.1.0");
+        let tagged = git(&project, &["rev-parse", "v0.1.0^{commit}"]);
+        assert_eq!(tagged, git(&project, &["rev-parse", "main"]));
     }
 
     #[test]

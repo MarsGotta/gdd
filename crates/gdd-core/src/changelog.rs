@@ -37,7 +37,7 @@ const FIELD: &str = "changelog";
 
 /// The trailers a merge commit carries the line of its change in: the line, then whether it
 /// breaks what worked before.
-const KEYS: [&str; 2] = ["Changelog", "Breaking"];
+pub(crate) const KEYS: [&str; 2] = ["Changelog", "Breaking"];
 
 /// What separates the section of a line from its words.
 const SEPARATOR: &str = " · ";
@@ -143,7 +143,7 @@ impl Line {
     }
 
     /// The line as the changelog lists it: `- <text>`, with `**Breaking:**` first when it is.
-    fn item(&self) -> String {
+    pub(crate) fn item(&self) -> String {
         let mark = if self.breaking { "**Breaking:** " } else { "" };
         format!("- {mark}{}", self.text)
     }
@@ -396,6 +396,24 @@ pub fn answered(root: &Path, missing: &Missing, answer: &str) -> Result<String, 
     }
 }
 
+/// Releases `version` on `day` (`YYYY-MM-DD`) in the changelog of the project at `root`, which
+/// must have one: what it lacks of the commits of the main branch `main` is added first, as
+/// [`add`] adds it, then its Unreleased heading becomes the heading of the version, under a new
+/// Unreleased heading (see [`with_release`]). Every other line stays, as it is and in order; the
+/// file keeps its permissions and is never written through a link. Commits nothing.
+pub fn release(root: &Path, main: &str, version: &str, day: &str) -> Result<(), String> {
+    let missing = missing(root, main)?;
+    let Some((text, permissions)) = &missing.existing else {
+        return Err(format!("there is no {PATH} to release {version} in"));
+    };
+    let heading = format!("## [{version}] - {day}");
+    let found = files::Found {
+        bytes: with_release(text, &missing.versions, &heading).into_bytes(),
+        permissions: permissions.clone(),
+    };
+    files::put_back(root, PATH, &found).map_err(|e| format!("cannot write {PATH}: {e}"))
+}
+
 /// The lines a commit carries that a file has, as its list items say.
 #[derive(Debug, Default)]
 struct Items {
@@ -514,7 +532,7 @@ fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
 /// The line the commit `logged`, read with the trailers [`KEYS`], carries: its first `Changelog`
 /// trailer, when it is a section and words (see [`Line::check`]); breaking when its first
 /// `Breaking` trailer says `yes`.
-fn carried(logged: &Logged) -> Option<Line> {
+pub(crate) fn carried(logged: &Logged) -> Option<Line> {
     let [lines, breaking] = logged.trailers.as_slice() else {
         return None;
     };
@@ -550,7 +568,7 @@ fn released(tags: &[(String, String)]) -> BTreeMap<&str, &str> {
 /// `MAJOR.MINOR.PATCH`, then maybe `-<pre-release>` and `+<build>`. Its numbers, then whether it
 /// is a release, which comes after its pre-releases, or its pre-release identifiers. `None` for
 /// anything else.
-fn precedence(version: &str) -> Option<Rank> {
+pub(crate) fn precedence(version: &str) -> Option<Rank> {
     let (version, build) = split(version, '+');
     let (core, pre) = split(version, '-');
     let mut numbers = core.split('.').map(number);
@@ -570,14 +588,14 @@ fn precedence(version: &str) -> Option<Rank> {
 
 /// Where a semantic version stands among others, as semver.org orders them.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct Rank {
-    numbers: (u64, u64, u64),
-    pre: Pre,
+pub(crate) struct Rank {
+    pub(crate) numbers: (u64, u64, u64),
+    pub(crate) pre: Pre,
 }
 
 /// The pre-release of a version: a release comes after every pre-release of its numbers.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Pre {
+pub(crate) enum Pre {
     /// Its identifiers; a shorter list comes first when the rest is equal.
     Of(Vec<Identifier>),
     Release,
@@ -586,7 +604,7 @@ enum Pre {
 /// An identifier of a pre-release: digits only are numbers, which come before the rest, which are
 /// compared as text.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Identifier {
+pub(crate) enum Identifier {
     /// Its digits, no leading zero: more digits is a bigger number.
     Number(usize, String),
     Text(String),
@@ -611,7 +629,7 @@ fn split(text: &str, at: char) -> (&str, Option<&str>) {
 }
 
 /// The number `text` is, in digits, without a leading zero: `None` for anything else, a sign too.
-fn number(text: &str) -> Option<u64> {
+pub(crate) fn number(text: &str) -> Option<u64> {
     let digits = text.bytes().all(|byte| byte.is_ascii_digit());
     let leading_zero = text.len() > 1 && text.starts_with('0');
     if digits && !leading_zero {
@@ -860,6 +878,49 @@ fn merged(text: &str, missing: &[Version]) -> String {
         }
     }
     doc.text()
+}
+
+/// `text` with the release whose heading is `heading`: the lines `missing` lacks added (see
+/// [`merged`]), then its Unreleased heading turned into `heading` (see [`Doc::turn`]). A text
+/// without an Unreleased heading gets none: what `missing` lacks of Unreleased goes in a version
+/// block of its own under `heading`, where [`merged`] puts a version, even when it lacks nothing.
+fn with_release(text: &str, missing: &[Version], heading: &str) -> String {
+    if Doc::new(text).block_of(&Key::Unreleased).is_none() {
+        return merged(text, &under(missing, heading));
+    }
+    let mut doc = Doc::new(&merged(text, missing));
+    doc.turn(heading);
+    doc.text()
+}
+
+/// `missing` with the lines it lacks of Unreleased in the version whose heading is `heading`,
+/// first, which it has even without lines.
+fn under(missing: &[Version], heading: &str) -> Vec<Version> {
+    let mut released = Version::new(heading.to_string());
+    let mut versions = Vec::new();
+    for version in missing {
+        if version.heading == UNRELEASED {
+            released.lines.extend(version.lines.iter().cloned());
+        } else {
+            versions.push(version.clone());
+        }
+    }
+    versions.insert(0, released);
+    versions
+}
+
+impl Doc {
+    /// Turns the first Unreleased heading into `heading`, and adds a new Unreleased heading and a
+    /// blank line above it; nothing else changes.
+    fn turn(&mut self, heading: &str) {
+        let Some(block) = self.block_of(&Key::Unreleased) else {
+            return;
+        };
+        let line = &mut self.lines[block.start];
+        let eol = if line.ends_with('\r') { "\r" } else { "" };
+        *line = format!("{heading}{eol}");
+        self.insert(block.start, vec![UNRELEASED.to_string(), String::new()]);
+    }
 }
 
 #[cfg(test)]
@@ -1755,6 +1816,107 @@ mod tests {
         fs::write(&file, "x\n").unwrap();
         let err = add(&file, &ready).unwrap_err();
         assert!(err.starts_with("cannot write CHANGELOG.md: "), "{err}");
+    }
+
+    const RELEASED: &str = "## [1.1.0] - 2026-10-28";
+
+    #[test]
+    fn a_release_turns_the_unreleased_heading_into_its_version_under_a_new_one() {
+        let text = "# Notes\n\nOur words.\n\n## [unreleased] - soon\n\n### Fixed\n\n- Crash\n\n\
+                    ## [1.0.0] - 2026-10-20\n\n- Old\n";
+        let missing = [version(UNRELEASED, vec![added("Added", "Export")])];
+        let expected = "# Notes\n\nOur words.\n\n## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n\
+                        ### Added\n\n- Export <!-- gdd: 0123456789ab -->\n\n\
+                        ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n- Old\n";
+        assert_eq!(with_release(text, &missing, RELEASED), expected);
+        let nothing_missing = with_release("## [Unreleased]\n\n- A\n", &[], RELEASED);
+        let expected = "## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n- A\n";
+        assert_eq!(nothing_missing, expected);
+    }
+
+    #[test]
+    fn a_release_keeps_every_line_in_order_but_the_unreleased_heading() {
+        let missing = [
+            version(UNRELEASED, vec![added("Fixed", "New")]),
+            version("## [1.0.0] - 2026-10-20", vec![added("Added", "Old")]),
+        ];
+        let texts = [
+            "## [Unreleased]",
+            "## [Unreleased]\n",
+            "# C\n\n## [UNRELEASED]\n### Added\n- A\n## [1.0.0]\n- B\n",
+            "# C\r\n\r\n## [Unreleased]\r\n\r\n### Fixed\r\n\r\n- A\r\n\r\n## [1.0.0]\r\n",
+            "## [Unreleased]\n\n- A\n\n## [unreleased]\n\n- B\n",
+        ];
+        for text in texts {
+            let result = with_release(text, &missing, RELEASED);
+            let mut others = lines_of(text);
+            let unreleased = |line: &&str| heading_key(line) == Some(Key::Unreleased);
+            let heading = others.iter().position(unreleased).unwrap();
+            others.remove(heading);
+            let others = others.join("\n");
+            assert!(keeps(&others, &result), "{text:?} -> {result:?}");
+            assert_eq!(result.matches(RELEASED).count(), 1, "{result:?}");
+            let new = result.find("## [Unreleased]").unwrap();
+            assert!(new < result.find(RELEASED).unwrap(), "{result:?}");
+            assert!(result.contains("- New <!-- gdd: "), "{result:?}");
+        }
+        // Only the first Unreleased heading turns; the second stays as it was.
+        let two = with_release(texts[4], &[], RELEASED);
+        let expected = "## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n- A\n\n\
+                        ## [unreleased]\n\n- B\n";
+        assert_eq!(two, expected);
+        let crlf = with_release(texts[3], &missing, RELEASED);
+        let turned = "## [Unreleased]\r\n\r\n## [1.1.0] - 2026-10-28\r\n";
+        assert!(crlf.contains(turned), "{crlf:?}");
+        assert!(!crlf.replace("\r\n", "").contains('\n'), "{crlf:?}");
+    }
+
+    #[test]
+    fn without_an_unreleased_heading_the_release_gets_a_version_block_of_its_own() {
+        let text = "# Notes\n\n## [1.0.0] - 2026-10-20\n\n### Added\n\n- Old\n";
+        let missing = [
+            version(UNRELEASED, vec![added("Fixed", "Crash")]),
+            version("## [1.0.0] - 2026-10-20", vec![added("Added", "Older")]),
+        ];
+        let expected = "# Notes\n\n## [1.1.0] - 2026-10-28\n\n### Fixed\n\n\
+                        - Crash <!-- gdd: 0123456789ab -->\n\n## [1.0.0] - 2026-10-20\n\n\
+                        ### Added\n\n- Old\n- Older <!-- gdd: 0123456789ab -->\n";
+        let result = with_release(text, &missing, RELEASED);
+        assert_eq!(result, expected);
+        assert!(keeps(text, &result));
+        // Nothing missing: the version still gets its heading.
+        let bare = with_release("# Notes\n", &[], RELEASED);
+        assert_eq!(bare, "# Notes\n\n## [1.1.0] - 2026-10-28\n");
+    }
+
+    #[test]
+    fn a_release_writes_the_file_of_the_project_and_commits_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let repo = repository();
+        repo.write(PATH, "# Mine\n\n## [Unreleased]\n");
+        let path = repo.root().join(PATH);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap();
+        let text = read(&repo);
+        let start = "# Mine\n\n## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n### Changed\n\n\
+                     - **Breaking:** One file per folder <!-- gdd: ";
+        assert!(text.starts_with(start), "{text}");
+        // The version the file lacked comes after it.
+        assert!(text.contains("\n\n## [1.0.0] - "), "{text}");
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(repo.git(&["status", "--porcelain"]), "?? CHANGELOG.md");
+        fs::remove_file(&path).unwrap();
+        let err = release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap_err();
+        assert_eq!(err, "there is no CHANGELOG.md to release 1.1.0 in");
+        let outside = Folder::new();
+        outside.write("notes.md", "# Outside\n\n## [Unreleased]\n");
+        symlink(outside.0.join("notes.md"), &path).unwrap();
+        let err = release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap_err();
+        let start = "cannot read CHANGELOG.md: not a file of its own";
+        assert!(err.starts_with(start), "{err}");
+        let notes = fs::read_to_string(outside.0.join("notes.md")).unwrap();
+        assert_eq!(notes, "# Outside\n\n## [Unreleased]\n");
     }
 
     #[test]

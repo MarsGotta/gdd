@@ -2563,6 +2563,66 @@ fn docstring(step: &cucumber::gherkin::Step, what: &str) -> String {
     text.strip_prefix('\n').unwrap_or(text).to_string()
 }
 
+// ---- features/versions.feature -------------------------------------------------------------
+
+/// Whether the project has a tag with this exact name.
+fn tag_exists(root: &Path, tag: &str) -> bool {
+    git(root, &["tag", "--list", tag]) == tag
+}
+
+#[given("the versions are released by hand")]
+fn versions_released_by_hand(w: &mut GddWorld) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    write_file(&path, &format!("{rules}\n[versions]\nmode = \"manual\"\n"));
+    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["commit", "-q", "-m", "versions by hand"]);
+}
+
+#[then(expr = "main has the tag {string}")]
+fn main_has_the_tag(w: &mut GddWorld, tag: String) {
+    let root = project_root(w);
+    assert!(tag_exists(&root, &tag), "no tag {tag}");
+    // `merge-base` fails the step when the tag is not reachable from main.
+    git(&root, &["merge-base", "--is-ancestor", &tag, "main"]);
+}
+
+#[then(expr = "main does not have the tag {string}")]
+fn main_does_not_have_the_tag(w: &mut GddWorld, tag: String) {
+    assert!(
+        !tag_exists(&project_root(w), &tag),
+        "the tag {tag} exists, and it should not"
+    );
+}
+
+#[then("main has no version tag")]
+fn main_has_no_version_tag(w: &mut GddWorld) {
+    let tags = git(&project_root(w), &["tag", "--list", "v*"]);
+    assert!(tags.is_empty(), "there are version tags: {tags}");
+}
+
+#[then(expr = "the tag {string} names the last commit on main")]
+fn tag_names_last_commit(w: &mut GddWorld, tag: String) {
+    let root = project_root(w);
+    let named = git(&root, &["rev-parse", &format!("{tag}^{{commit}}")]);
+    let last = git(&root, &["rev-parse", "main"]);
+    assert_eq!(named, last, "the tag {tag} does not name main's head");
+}
+
+#[given(expr = "main has the file {string} with:")]
+fn main_has_the_file(w: &mut GddWorld, step: &cucumber::gherkin::Step, path: String) {
+    let root = project_root(w);
+    let text = docstring(step, "the file's text");
+    write_file(&root.join(&path), &format!("{text}\n"));
+    // Only this file: files the Background left aside are not swept in.
+    git(&root, &["add", "--", &path]);
+    git(
+        &root,
+        &["commit", "-q", "-m", &format!("add {path}"), "--", &path],
+    );
+}
+
 fn main() {
     let root = repo_root();
     let listed: HashSet<PathBuf> = std::env::var("GDD_FEATURES")

@@ -409,9 +409,17 @@ impl Git {
         Ok(!self.read(&["remote"])?.trim_ascii().is_empty())
     }
 
-    /// Pushes the branch `name` to the remote `origin`.
+    /// Pushes `name`, a branch or a full ref such as `refs/tags/v1.0.0`, to the remote `origin`.
     pub fn push(&self, name: &str) -> Result<(), Error> {
         self.read(&["push", "-q", "origin", revision(name)?])?;
+        Ok(())
+    }
+
+    /// Makes the annotated tag `name`, whose message is `message`, on the commit `at`. A tag of
+    /// that name that exists already is an error: it is never moved.
+    pub fn tag(&self, name: &str, message: &str, at: &str) -> Result<(), Error> {
+        let args = ["tag", "-a", "-m", message, revision(name)?, revision(at)?];
+        self.read(&args)?;
         Ok(())
     }
 
@@ -642,6 +650,7 @@ pub(crate) mod tests {
                 ("user.name", "GDD Test"),
                 ("user.email", "test@example.com"),
                 ("commit.gpgsign", "false"),
+                ("tag.gpgsign", "false"),
                 ("core.hooksPath", "/dev/null"),
             ] {
                 self.git(&["config", "--local", key, value]);
@@ -1399,6 +1408,35 @@ pub(crate) mod tests {
         assert_eq!(git.tags().unwrap(), expected);
         let plain = Folder::new();
         assert!(Git::new(&plain.0).tags().is_err());
+    }
+
+    #[test]
+    fn an_annotated_tag_names_its_commit_is_never_moved_and_is_pushed_as_a_ref() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        let first = git.head().unwrap();
+        repo.commit();
+        git.tag("v1.0.0", "Release v1.0.0", &first).unwrap();
+        assert_eq!(repo.git(&["cat-file", "-t", "v1.0.0"]), "tag");
+        assert_eq!(repo.git(&["rev-parse", "v1.0.0^{commit}"]), first);
+        let subject = ["tag", "-l", "--format=%(contents:subject)", "v1.0.0"];
+        assert_eq!(repo.git(&subject), "Release v1.0.0");
+        let err = git.tag("v1.0.0", "Again", "HEAD").unwrap_err().to_string();
+        let start = "git tag -a -m Again v1.0.0 HEAD failed";
+        assert!(err.starts_with(start), "{err}");
+        assert_eq!(repo.git(&["rev-parse", "v1.0.0^{commit}"]), first);
+        for (name, at) in [("-f", "HEAD"), ("v2.0.0", "--all"), ("", "HEAD")] {
+            let err = git.tag(name, "Release", at).unwrap_err();
+            assert!(matches!(err, Error::Revision(_)), "{name:?} {at:?}: {err}");
+        }
+        let remote = Folder::new();
+        let path = remote.0.to_string_lossy().into_owned();
+        repo.git(&["init", "-q", "--bare", &path]);
+        repo.git(&["remote", "add", "origin", &path]);
+        git.push("refs/tags/v1.0.0").unwrap();
+        let pushed = Git::new(&remote.0).line(&["rev-parse", "v1.0.0^{commit}"]);
+        assert_eq!(pushed.unwrap(), first);
     }
 
     #[test]

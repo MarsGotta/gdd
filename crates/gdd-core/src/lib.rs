@@ -24,6 +24,7 @@ pub mod session;
 pub mod stacks;
 pub mod state;
 pub mod status;
+pub mod versions;
 pub mod zones;
 
 pub use classify::{Change, Classification, classify};
