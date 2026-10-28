@@ -45,8 +45,8 @@ Feature: The sitting (hidden examples)
     When I press y at the sitting
     Then the record of "c4" has the gate "G1" with decision "ko" by "human"
 
-  Scenario: A change waiting for its G4 has nothing to approve here
+  Scenario: A change waiting for its G4 shows its G4 page
     Given I run "gdd new-change c5 --title Guide --paths docs/guide.md features/guide.feature"
     And the change "c5" is in state "in-pre"
     When I open the sitting of "c5"
-    Then the sitting shows "c5 is in-pre: its sitting is over"
+    Then the sitting shows "c5 · Guide · waiting for your G4"
