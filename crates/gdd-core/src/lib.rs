@@ -6,6 +6,7 @@
 pub mod adopt;
 pub mod agents;
 pub mod change;
+pub mod changelog;
 pub mod classify;
 pub mod config;
 pub mod exec;

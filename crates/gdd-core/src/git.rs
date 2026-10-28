@@ -1,6 +1,6 @@
 //! The project's git repository: which paths a change touched, what its branch holds, the
-//! branch a new change gets, the commits and merge that close it, and the repository and first
-//! commit of a new project.
+//! branch a new change gets, the commits and merge that close it, the history and tags of the
+//! main branch, and the repository and first commit of a new project.
 //!
 //! Git always runs as `git` with a fixed list of arguments, in the project root, never through
 //! a shell. A name read from a file never reaches git as an option, and a failure of git is an
@@ -72,6 +72,18 @@ pub struct MainWorktree {
     pub path: PathBuf,
     /// Whether the repository is bare: then `path` is the repository, not a checkout.
     pub bare: bool,
+}
+
+/// A commit as [`Git::first_parents`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Logged {
+    /// Its full id.
+    pub commit: String,
+    /// The day it was committed: `YYYY-MM-DD`.
+    pub day: String,
+    /// The values of each trailer asked for, in the order asked: each in the order of the
+    /// message.
+    pub trailers: Vec<Vec<String>>,
 }
 
 /// The git repository of a project, read from the project root.
@@ -401,6 +413,49 @@ impl Git {
     pub fn push(&self, name: &str) -> Result<(), Error> {
         self.read(&["push", "-q", "origin", revision(name)?])?;
         Ok(())
+    }
+
+    /// The commits of `branch` along its first parents, newest first: on a main branch, the merge
+    /// commits of the changes and what was committed on it directly. Each with the values of its
+    /// trailers `keys` (names of letters, digits and hyphens), unfolded.
+    pub fn first_parents(&self, branch: &str, keys: &[&str]) -> Result<Vec<Logged>, Error> {
+        let trailers: String = keys
+            .iter()
+            .map(|key| format!("%x00%(trailers:key={key},valueonly,unfold,separator=%x1f)"))
+            .collect();
+        let format = format!("--format=%H%x00%cs{trailers}");
+        let at = revision(branch)?;
+        let out = self.read(&["log", "-z", "--first-parent", &format, at, "--"])?;
+        let text = String::from_utf8_lossy(&out);
+        // One field per NUL byte, each commit's in the order asked; each trailer's values, one
+        // per unit separator.
+        let fields: Vec<&str> = text.split('\0').collect();
+        let values = |field: &str| -> Vec<String> {
+            let values = field.split('\u{1f}').filter(|value| !value.is_empty());
+            values.map(str::to_string).collect()
+        };
+        let logged = |commit: &[&str]| Logged {
+            commit: commit[0].to_string(),
+            day: commit[1].to_string(),
+            trailers: commit[2..].iter().copied().map(&values).collect(),
+        };
+        Ok(fields.chunks_exact(2 + keys.len()).map(logged).collect())
+    }
+
+    /// The tags of the repository, by name, each with the commit it names: for an annotated tag,
+    /// the commit the tag points to.
+    pub fn tags(&self) -> Result<Vec<(String, String)>, Error> {
+        let format = "--format=%(refname:strip=2)%00%(objectname)%00%(*objectname)";
+        let out = self.read(&["for-each-ref", format, "refs/tags"])?;
+        let text = String::from_utf8_lossy(&out);
+        // One tag per line: its name, its object and, for an annotated tag, what it points to.
+        let tag = |line: &str| {
+            let mut fields = line.split('\0');
+            let (name, object) = (fields.next()?, fields.next()?);
+            let commit = fields.next().filter(|peeled| !peeled.is_empty());
+            Some((name.to_string(), commit.unwrap_or(object).to_string()))
+        };
+        Ok(text.lines().filter_map(tag).collect())
     }
 
     /// The one line `git args` printed, without the line break.
@@ -1272,6 +1327,78 @@ pub(crate) mod tests {
         let nowhere = [("PATH".to_string(), "/nonexistent".to_string())];
         let lost = Git::in_env(&folder.0, &nowhere);
         assert!(matches!(lost.checked_out(), Err(Error::Start(_))));
+    }
+
+    #[test]
+    fn the_first_parents_of_a_branch_come_newest_first_with_their_trailers() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        let keys = ["Changelog", "Breaking"];
+        let first = git.head().unwrap();
+        repo.start("c1");
+        let inside = "c1\n\nChangelog: Inside\nBreaking: no";
+        repo.git(&["commit", "-q", "--allow-empty", "-m", inside]);
+        repo.git(&["checkout", "-q", "main"]);
+        let merge = "Merge\n\nRecord: x\n\nchangelog: Added · One\nBreaking: no\n\
+                     Changelog: Fixed · Folded\n  over two lines\nOther: z";
+        repo.git(&["merge", "-q", "--no-ff", "-m", merge, "change/c1"]);
+        let merged = git.head().unwrap();
+        let logged = git.first_parents("main", &keys).unwrap();
+        let day = repo.git(&["log", "-1", "--format=%cs"]);
+        let lines = ["Added · One", "Fixed · Folded over two lines"].map(String::from);
+        let expected = [
+            Logged {
+                commit: merged,
+                day: day.clone(),
+                trailers: vec![lines.to_vec(), vec!["no".to_string()]],
+            },
+            Logged {
+                commit: first.clone(),
+                day: day.clone(),
+                trailers: vec![vec![], vec![]],
+            },
+        ];
+        assert_eq!(logged, expected);
+        let plain = git.first_parents("main", &[]).unwrap();
+        let bare: Vec<Vec<String>> = Vec::new();
+        assert_eq!(plain[1].commit, first);
+        assert_eq!((plain.len(), &plain[0].trailers), (2, &bare));
+        assert_eq!(git.first_parents("change/c1", &keys).unwrap().len(), 2);
+        assert!(matches!(
+            git.first_parents("-x", &keys),
+            Err(Error::Revision(_))
+        ));
+        let err = git.first_parents("trunk", &keys).unwrap_err().to_string();
+        assert!(err.starts_with("git log -z --first-parent "), "{err}");
+    }
+
+    #[test]
+    fn tags_name_their_commits_annotated_or_not() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        assert_eq!(git.tags().unwrap(), Vec::<(String, String)>::new());
+        let first = git.head().unwrap();
+        repo.git(&["tag", "v0.1.0"]);
+        repo.commit();
+        let second = git.head().unwrap();
+        let annotated = [
+            "-c",
+            "tag.gpgsign=false",
+            "tag",
+            "-a",
+            "-m",
+            "Release",
+            "v1.0.0",
+        ];
+        repo.git(&annotated);
+        repo.git(&["tag", "rc/two", "HEAD~1"]);
+        let tags = [("rc/two", &first), ("v0.1.0", &first), ("v1.0.0", &second)];
+        let expected = tags.map(|(name, commit)| (name.to_string(), commit.clone()));
+        assert_eq!(git.tags().unwrap(), expected);
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).tags().is_err());
     }
 
     #[test]
