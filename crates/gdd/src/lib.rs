@@ -5,6 +5,7 @@
 
 pub mod board;
 pub mod form;
+mod tui;
 
 use std::ffi::OsString;
 use std::fs;
