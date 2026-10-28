@@ -124,7 +124,7 @@ Feature: Versions from the changes
     And the tag "v0.1.0" names the last commit on main
 
   Scenario: The Unreleased section of the changelog becomes the version
-    Given the file "CHANGELOG.md" says:
+    Given main has the file "CHANGELOG.md" with:
       """
       # Changelog
 
@@ -132,7 +132,6 @@ Feature: Versions from the changes
 
       ## [Unreleased]
       """
-    And everything is committed on main
     And I run "gdd new-change c1 --title App --paths src/app.txt"
     And I run "gdd changelog-line c1 Added Export notes as Markdown"
     When I run "gdd launch c1"
