@@ -8,7 +8,7 @@ pub mod form;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, ErrorKind, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -256,10 +256,11 @@ enum Command {
     /// the title goes under the section of its type (Feature: Added, Hotfix: Fixed, Migration:
     /// Changed), and the other types are left out. Builders and Reviewers cannot set it.
     ChangelogLine(ChangelogLineArgs),
-    /// Writes CHANGELOG.md, in the Keep a Changelog format, from the lines the commits of the
-    /// main branch carry: what no v<semver> tag released yet goes under Unreleased. Never
-    /// overwrites a CHANGELOG.md it did not write, and commits nothing.
-    Changelog,
+    /// Shows what CHANGELOG.md lacks of the lines the commits of the main branch carry (what no
+    /// v<semver> tag released yet goes under Unreleased), and with --write adds only that, each
+    /// line with a comment naming its commit. Every word of the file stays; nothing is committed.
+    /// In a terminal it asks before it writes.
+    Changelog(ChangelogArgs),
     /// The Decision Inbox of a change: what is open for the human. Also saved in
     /// .gdd/changes/<id>/inbox.md.
     Inbox {
@@ -596,6 +597,17 @@ struct ChangelogLineArgs {
     none: bool,
 }
 
+/// What `gdd changelog` takes.
+#[derive(Debug, Args)]
+struct ChangelogArgs {
+    /// Add what is missing to CHANGELOG.md, without asking.
+    #[arg(long, conflicts_with = "check")]
+    write: bool,
+    /// Fail when something is missing, for CI; writes nothing.
+    #[arg(long)]
+    check: bool,
+}
+
 /// What `gdd resume` takes.
 #[derive(Debug, Args)]
 struct ResumeArgs {
@@ -658,7 +670,7 @@ impl Command {
             }
             Command::Note(args) => note(state, &args)?,
             Command::ChangelogLine(args) => changelog_line(state, args, role)?,
-            Command::Changelog => write_changelog(root)?,
+            Command::Changelog(args) => return changelog_command(root, &args, streams),
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state, env)?,
             Command::Adopt => adopt_project(root, state)?,
@@ -1540,11 +1552,54 @@ fn changelog_line(
     changelog::record(state, &args.change, line, role)
 }
 
-/// `gdd changelog`: CHANGELOG.md of the project at `root`, from the commits of its main branch
-/// (see [`changelog::write`]).
-fn write_changelog(root: &Path) -> Result<String, String> {
+/// `gdd changelog`: what CHANGELOG.md of the project at `root` lacks of the commits of its main
+/// branch (see [`changelog::missing`]). Nothing missing, it says so. Else `--write` adds it,
+/// `--check` fails, and plain it asks in a terminal and shows it otherwise.
+fn changelog_command(
+    root: &Path,
+    args: &ChangelogArgs,
+    streams: Streams,
+) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
-    changelog::write(root, &main)
+    let missing = changelog::missing(root, &main)?;
+    if missing.count() == 0 {
+        return Ok(Outcome::printed(changelog::COVERED.to_string(), 0));
+    }
+    if args.write {
+        return Ok(Outcome::printed(changelog::add(root, &missing)?, 0));
+    }
+    if args.check {
+        return Ok(Outcome {
+            code: 1,
+            stdout: format!("{}\n", missing.list()),
+            stderr: format!("error: {}\n", missing.failure()),
+        });
+    }
+    let (input, output) = (io::stdin().is_terminal(), io::stdout().is_terminal());
+    if asks(streams, input, output) {
+        return ask_changelog(root, &missing);
+    }
+    Ok(Outcome::printed(missing.shown(), 0))
+}
+
+/// Whether `gdd changelog` asks before writing: only the process itself, with a person at both
+/// ends of it (`input` and `output` are terminals).
+fn asks(streams: Streams, input: bool, output: bool) -> bool {
+    streams == Streams::Process && input && output
+}
+
+/// Shows what is missing from the changelog and asks whether to add it (see
+/// [`changelog::answered`]).
+fn ask_changelog(root: &Path, missing: &changelog::Missing) -> Result<Outcome, String> {
+    let mut out = io::stdout();
+    write!(out, "{}", missing.offered())
+        .and_then(|()| out.flush())
+        .map_err(|e| format!("cannot ask: {e}"))?;
+    let mut answer = String::new();
+    let read = io::stdin().read_line(&mut answer);
+    read.map_err(|e| format!("cannot read the answer: {e}"))?;
+    let said = changelog::answered(root, missing, &answer)?;
+    Ok(Outcome::printed(said, 0))
 }
 
 /// `gdd inbox`: the Decision Inbox of change `id`, also saved next to its record, under the state
@@ -3015,6 +3070,23 @@ mod tests {
     }
 
     #[test]
+    fn the_changelog_asks_only_the_process_with_a_terminal_on_both_ends() {
+        for (streams, input, output, expected) in [
+            (Streams::Process, true, true, true),
+            (Streams::Process, true, false, false),
+            (Streams::Process, false, true, false),
+            (Streams::Process, false, false, false),
+            (Streams::Outcome, true, true, false),
+            (Streams::Outcome, true, false, false),
+            (Streams::Outcome, false, true, false),
+            (Streams::Outcome, false, false, false),
+        ] {
+            let asked = asks(streams, input, output);
+            assert_eq!(asked, expected, "{streams:?} {input} {output}");
+        }
+    }
+
+    #[test]
     fn ci_checks_the_branch_github_names_else_the_current_one() {
         let project = committed_project();
         project.write(COMMANDS, "[g2]\nunit = \"true\"\n[g3]\nunit = \"true\"\n");
@@ -3428,21 +3500,40 @@ mod tests {
     }
 
     #[test]
-    fn changelog_writes_the_lines_of_main_and_never_a_file_it_did_not_write() {
+    fn changelog_shows_what_is_missing_and_adds_only_that() {
         let project = committed_project();
         let merge = "Merge\n\nChangelog: Fixed · Crash\nBreaking: no";
         git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
         let out = project.run("changelog");
-        let said = "CHANGELOG.md written: 1 line(s) under Unreleased.\n";
+        assert_eq!(out.code, 0, "{out:?}");
+        let start =
+            "Missing from CHANGELOG.md:\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- gdd: ";
+        assert!(out.stdout.starts_with(start), "{out:?}");
+        let end = "\n\nNothing written: gdd changelog --write adds them.\n";
+        assert!(out.stdout.ends_with(end), "{out:?}");
+        assert!(!project.0.join("CHANGELOG.md").exists());
+        let out = project.run("changelog --check");
+        assert_eq!(out.code, 1, "{out:?}");
+        let failed = "error: CHANGELOG.md misses 1 line(s): gdd changelog shows them, gdd \
+                      changelog --write adds them\n";
+        assert_eq!(out.stderr, failed);
+        assert!(out.stdout.contains("- Crash <!-- gdd: "), "{out:?}");
+        assert!(!project.0.join("CHANGELOG.md").exists());
+        let out = project.run("changelog --write --check");
+        assert_ne!(out.code, 0, "{out:?}");
+        assert!(out.stderr.contains("cannot be used with"), "{out:?}");
+        project.write("CHANGELOG.md", "# My own notes\n");
+        let out = project.run("changelog --write");
+        let said = "CHANGELOG.md: 1 line(s) added, nothing else changed.\n";
         assert_eq!(out, Outcome::success(said.into()));
         let text = fs::read_to_string(project.0.join("CHANGELOG.md")).unwrap();
-        let end = "## [Unreleased]\n\n### Fixed\n\n- Crash\n";
-        assert!(text.ends_with(end), "{text}");
-        project.write("CHANGELOG.md", "# My own notes\n");
-        let out = project.run("changelog");
-        let refused = "error: CHANGELOG.md was not written by gdd: move it aside, then run gdd \
-                       changelog again\n";
-        assert_eq!(out, Outcome::failure(refused.into()));
+        let end = "# My own notes\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- gdd: ";
+        assert!(text.starts_with(end), "{text}");
+        for command in ["changelog", "changelog --check", "changelog --write"] {
+            let out = project.run(command);
+            let covered = "CHANGELOG.md covers every change on main.\n";
+            assert_eq!(out, Outcome::success(covered.into()), "{command}");
+        }
         project.write(RULES, "main_branch = \"trunk\"\n");
         fs::remove_file(project.0.join("CHANGELOG.md")).unwrap();
         let out = project.run("changelog");

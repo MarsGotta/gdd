@@ -122,7 +122,7 @@ Feature: The changelog from the changes
     And I run "gdd launch c1"
     And I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.txt"
     And I run "gdd launch c2"
-    When I run "gdd changelog"
+    When I run "gdd changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## [Unreleased]"
     And the file "CHANGELOG.md" contains "### Added"
@@ -135,15 +135,20 @@ Feature: The changelog from the changes
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
     And I run "gdd changelog-line c1 Changed --breaking Notes are stored in one file per folder"
     And I run "gdd launch c1"
-    When I run "gdd changelog"
+    When I run "gdd changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "- **Breaking:** Notes are stored in one file per folder"
 
-  Scenario: A changelog written by hand is left alone
-    Given the file "CHANGELOG.md" says "# My own notes"
-    When I run "gdd changelog"
-    Then it fails with a message that contains "CHANGELOG.md was not written by gdd"
+  Scenario: A changelog written by hand keeps its words
+    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    And I run "gdd changelog-line c1 Added Export notes as Markdown"
+    And I run "gdd launch c1"
+    And the file "CHANGELOG.md" says "# My own notes"
+    When I run "gdd changelog --write"
+    Then it succeeds
     And the file "CHANGELOG.md" contains "# My own notes"
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And in the file "CHANGELOG.md", "# My own notes" comes before "## [Unreleased]"
 
   Scenario: A Builder cannot write the line of its change
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
