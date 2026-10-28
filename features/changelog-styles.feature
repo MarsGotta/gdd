@@ -186,11 +186,15 @@ Feature: Changelogs in the common heading styles
 
       ## [0.2.0](https://example.com/compare/v0.1.0...v0.2.0) (2026-10-25)
 
-      - Export notes as Markdown
+      ### Added
+
+      - Dark theme
       """
-    When I run "gdd changelog --check"
+    When I run "gdd changelog --write"
     Then it succeeds
-    And the output contains "CHANGELOG.md covers every change on main"
+    And the file "CHANGELOG.md" contains "## [0.2.0](https://example.com/compare/v0.1.0...v0.2.0) (2026-10-25)" exactly 1 times
+    And the file "CHANGELOG.md" does not contain "## [0.2.0] - "
+    And in the file "CHANGELOG.md", "- Dark theme" comes before "- Export notes as Markdown"
 
   Scenario: A release by hand turns Unreleased in the style of the file
     Given main has the file "CHANGELOG.md" with:
