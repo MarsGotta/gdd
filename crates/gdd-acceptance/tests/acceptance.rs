@@ -915,6 +915,40 @@ fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) 
     );
 }
 
+fn log_lines_of_command(w: &mut GddWorld, command: &str, change: &str) -> Vec<serde_json::Value> {
+    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|r| r["role"] == "machine" && r["agent"] == command && r["change"] == change)
+        .collect()
+}
+
+#[then(expr = "the log has the gate command {string} of {string} in {string} with result {string}")]
+fn log_has_gate_command(
+    w: &mut GddWorld,
+    command: String,
+    change: String,
+    gate: String,
+    result: String,
+) {
+    let lines = log_lines_of_command(w, &command, &change);
+    assert!(
+        lines
+            .iter()
+            .any(|r| r["gate"] == gate.as_str() && r["result"] == result.as_str()),
+        "no {gate} line of the command {command} for {change} with result {result} in: {lines:?}"
+    );
+}
+
+#[then(expr = "the log has no gate command {string} of {string}")]
+fn log_has_no_gate_command(w: &mut GddWorld, command: String, change: String) {
+    let lines = log_lines_of_command(w, &command, &change);
+    assert!(
+        lines.is_empty(),
+        "the log has lines of the command {command} for {change}: {lines:?}"
+    );
+}
+
 // ---- features/changes.feature and features/approvals.feature -------------------------------
 //
 // API of the `gdd` crate these steps expect (the Builder in build mode implements it):

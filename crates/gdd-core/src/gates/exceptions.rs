@@ -529,6 +529,7 @@ ignore = [
             known_debt: vec![],
             paid_debt: vec![],
             duration_s: 0.0,
+            timed: vec![],
         };
         judge(&mut report, &Ok(vec![]));
         judge(&mut report, &Ok(vec![found(OSV, "A", None, Some("r"))]));

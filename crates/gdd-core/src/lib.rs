@@ -10,6 +10,7 @@ pub mod changelog;
 pub mod classify;
 pub mod config;
 pub mod exec;
+pub mod flow;
 pub mod gates;
 pub mod git;
 pub mod guard;

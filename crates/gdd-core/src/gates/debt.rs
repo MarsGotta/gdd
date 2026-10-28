@@ -254,6 +254,7 @@ mod tests {
             known_debt: vec![],
             paid_debt: vec![],
             duration_s: 0.0,
+            timed: vec![],
         }
     }
 
