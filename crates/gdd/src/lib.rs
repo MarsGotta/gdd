@@ -1,10 +1,11 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
 //! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` without the
-//! flags of the project asks the Setup form (see [`form`]), and `gdd board` shows the Board (see
-//! [`board`]).
+//! flags of the project asks the Setup form (see [`form`]), `gdd board` shows the Board (see
+//! [`board`]) and `gdd sitting` the sitting of a change (see [`sitting`]).
 
 pub mod board;
 pub mod form;
+pub mod sitting;
 mod tui;
 
 use std::ffi::OsString;
@@ -92,11 +93,11 @@ impl Outcome {
         Outcome::failure(format!("error: {message}\n"))
     }
 
-    /// `gdd board` without a terminal: what to use instead, with exit code 2.
-    fn needs_terminal() -> Outcome {
+    /// A screen without a terminal: `message` says what to use instead, with exit code 2.
+    fn needs_terminal(message: &str) -> Outcome {
         Outcome {
             code: 2,
-            ..Outcome::error(BOARD_NO_TERMINAL)
+            ..Outcome::error(message)
         }
     }
 
@@ -266,6 +267,13 @@ enum Command {
     /// The changes of the project by phase on a screen (Discover, Build, Release, Done), in a
     /// terminal. Read-only: nothing on it writes anything.
     Board,
+    /// The sitting of a change on a screen, in a terminal: the scenarios of its branch, the red
+    /// zones and the plan, to approve (G1, the red zones, the plan) or to ask for changes (G1 KO).
+    /// Nothing is written before the human confirms.
+    Sitting {
+        /// Id of the change (its record is .gdd/changes/<id>/change.json).
+        change: String,
+    },
     /// The first install of each stack of gdd/project.toml, in order, which writes its lock file:
     /// stops at the first that fails, then commits the files of the stacks' supply chain the run
     /// created or changed, and nothing else. Run it once, after gdd init.
@@ -693,7 +701,10 @@ impl Command {
             Command::Release(args) => {
                 return release_command(root, state, args, role, env, streams);
             }
-            Command::Board => return Ok(Outcome::needs_terminal()),
+            Command::Board => return Ok(Outcome::needs_terminal(BOARD_NO_TERMINAL)),
+            Command::Sitting { change } => {
+                return Ok(Outcome::needs_terminal(&sitting::no_terminal(&change)));
+            }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
             Command::Report(args) => report(state, &args)?,
@@ -843,6 +854,18 @@ pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Opt
 pub fn asks_board(args: &[String], stdin: bool, stdout: bool) -> bool {
     let command = parse(args).ok().and_then(|cli| cli.command);
     stdin && stdout && matches!(command, Some(Run::InProject(Command::Board)))
+}
+
+/// The change whose sitting `gdd` with `args` shows (see [`sitting::in_terminal`]): it is
+/// `gdd sitting <change>`, and its standard input and output are terminals (`stdin` and `stdout`).
+pub fn asks_sitting(args: &[String], stdin: bool, stdout: bool) -> Option<String> {
+    if !(stdin && stdout) {
+        return None;
+    }
+    match parse(args).ok()?.command? {
+        Run::InProject(Command::Sitting { change }) => Some(change),
+        _ => None,
+    }
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -2111,6 +2134,22 @@ mod tests {
         assert!(!asks("status", true, true));
         assert!(!asks("board --nope", true, true));
         assert!(!asks("", true, true));
+    }
+
+    #[test]
+    fn the_sitting_needs_a_terminal_and_the_command_says_what_to_use_instead() {
+        let project = Project::new();
+        let out = project.run("sitting c1");
+        assert_eq!((out.code, out.stdout.as_str()), (2, ""));
+        let said = format!("error: {}\n", sitting::no_terminal("c1"));
+        assert_eq!(out.stderr, said);
+        let asks = |command: &str, stdin, stdout| asks_sitting(&words(command), stdin, stdout);
+        assert_eq!(asks("sitting c1", true, true), Some("c1".to_string()));
+        assert_eq!(asks("sitting c1", false, true), None);
+        assert_eq!(asks("sitting c1", true, false), None);
+        assert_eq!(asks("board", true, true), None);
+        assert_eq!(asks("sitting", true, true), None);
+        assert_eq!(asks("", true, true), None);
     }
 
     #[test]

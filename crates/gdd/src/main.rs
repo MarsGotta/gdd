@@ -13,6 +13,8 @@ fn main() -> ExitCode {
         gdd::form::in_terminal(&cwd, &given)
     } else if gdd::asks_board(&args, input, output) {
         gdd::board::in_terminal(&cwd)
+    } else if let Some(change) = gdd::asks_sitting(&args, input, output) {
+        gdd::sitting::in_terminal(&cwd, &change)
     } else {
         gdd::run(&args, &cwd)
     };

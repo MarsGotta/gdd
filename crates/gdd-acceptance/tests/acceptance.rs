@@ -35,6 +35,8 @@ pub struct GddWorld {
     form_finished: bool,
     /// The Board the scenario opened.
     board: Option<OpenBoard>,
+    /// The sitting the scenario opened.
+    sitting: Option<OpenSitting>,
     /// The G0 opened during the Builder call: whether it succeeded, and its output.
     g0_during_call: Option<std::thread::JoinHandle<(bool, String)>>,
 }
@@ -2325,6 +2327,98 @@ fn board_does_not_show(w: &mut GddWorld, text: String) {
 #[then("the board is closed")]
 fn the_board_is_closed(w: &mut GddWorld) {
     assert!(board_of(w).closed(), "the board is still open");
+}
+
+// ---- features/sitting.feature --------------------------------------------------------------
+//
+// API of the `gdd` crate these steps expect (the Builder in build mode implements it):
+// `gdd::sitting::Sitting::{load(&Path, &str) -> Result<Sitting, String>, press(Key),
+// render(w, h) -> String, closed() -> bool}`, with the form's `Key`.
+
+/// The sitting of the scenario, which has no `Debug` of its own.
+struct OpenSitting(gdd::sitting::Sitting);
+
+impl std::fmt::Debug for OpenSitting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OpenSitting")
+    }
+}
+
+fn sitting_of(w: &mut GddWorld) -> &mut gdd::sitting::Sitting {
+    &mut w.sitting.as_mut().expect("the sitting is open").0
+}
+
+#[when(expr = "I open the sitting of {string}")]
+fn i_open_the_sitting(w: &mut GddWorld, change: String) {
+    let root = project_root(w);
+    let sitting = gdd::sitting::Sitting::load(&root, &change)
+        .unwrap_or_else(|e| panic!("cannot open the sitting: {e}"));
+    w.sitting = Some(OpenSitting(sitting));
+}
+
+#[when(expr = "I press {word} at the sitting")]
+fn i_press_at_the_sitting(w: &mut GddWorld, key: String) {
+    sitting_of(w).press(key_named(&key));
+}
+
+#[when(expr = "I type {string} at the sitting")]
+fn i_type_at_the_sitting(w: &mut GddWorld, text: String) {
+    use gdd::form::Key;
+    for letter in text.chars() {
+        let key = if letter == ' ' {
+            Key::Space
+        } else {
+            Key::Char(letter)
+        };
+        sitting_of(w).press(key);
+    }
+}
+
+#[then(expr = "the sitting shows {string}")]
+fn sitting_shows(w: &mut GddWorld, text: String) {
+    let screen = sitting_of(w).render(100, 40);
+    assert!(
+        screen.contains(&text),
+        "the sitting lacks {text:?}:\n{screen}"
+    );
+}
+
+#[then(expr = "the sitting does not show {string}")]
+fn sitting_does_not_show(w: &mut GddWorld, text: String) {
+    let screen = sitting_of(w).render(100, 40);
+    assert!(
+        !screen.contains(&text),
+        "the sitting shows {text:?}:\n{screen}"
+    );
+}
+
+#[then("the sitting is closed")]
+fn the_sitting_is_closed(w: &mut GddWorld) {
+    assert!(sitting_of(w).closed(), "the sitting is still open");
+}
+
+#[then(expr = "the log has no {string} line for {string}")]
+fn log_has_no_line(w: &mut GddWorld, gate: String, change: String) {
+    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let found: Vec<_> = text
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|r| r["gate"] == gate.as_str() && r["change"] == change.as_str())
+        .collect();
+    assert!(
+        found.is_empty(),
+        "the log has {gate} lines for {change}: {found:?}"
+    );
+}
+
+#[then("the project has no worktree besides the main checkout")]
+fn project_has_no_other_worktree(w: &mut GddWorld) {
+    let listed = listed_worktrees(&project_root(w));
+    assert_eq!(
+        listed.len(),
+        1,
+        "git lists more than the main checkout: {listed:?}"
+    );
 }
 
 // ---- features/init-form.feature ------------------------------------------------------------
