@@ -3377,6 +3377,11 @@ mod tests {
         let start = "error: A Builder or Reviewer cannot";
         assert!(out.stderr.starts_with(start), "{out:?}");
         assert_eq!(record_of(&project, "c1")["changelog"], none);
+        let broken = ["changelog-line", "c1", "Added", "Export notes\n"].map(str::to_string);
+        let out = run_as(&broken, &project.0, None);
+        let start = "error: the changelog line must be one line";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_eq!(record_of(&project, "c1")["changelog"], none);
         let out = project.run("changelog-line c9 --none");
         let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
         assert_eq!(out, Outcome::failure(missing.into()));

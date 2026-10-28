@@ -63,6 +63,10 @@ const NOT_OURS: &str =
 /// Why a line without words is refused.
 const EMPTY: &str = "the changelog line is empty: give it its words";
 
+/// The characters that break a line without being control characters: the line and paragraph
+/// separators of Unicode.
+const BREAKS: [char; 2] = ['\u{2028}', '\u{2029}'];
+
 /// Why a line on more than one line is refused.
 const NOT_ONE_LINE: &str = "the changelog line must be one line, without line breaks or other \
                             control characters";
@@ -85,7 +89,8 @@ pub struct Line {
 
 impl Line {
     /// `Ok` when the line can go in a merge commit and in the changelog: its section is one of
-    /// [`SECTIONS`], and it has words, on one line, without control characters. Else why not.
+    /// [`SECTIONS`], and it has words, on one line, without control characters nor [`BREAKS`].
+    /// Else why not.
     pub fn check(&self) -> Result<(), String> {
         if !SECTIONS.contains(&self.section.as_str()) {
             let sections = SECTIONS.join(", ");
@@ -94,7 +99,8 @@ impl Line {
         if self.text.trim().is_empty() {
             return Err(EMPTY.to_string());
         }
-        if self.text.chars().any(char::is_control) {
+        let breaks = |c: char| c.is_control() || BREAKS.contains(&c);
+        if self.text.chars().any(breaks) {
             return Err(NOT_ONE_LINE.to_string());
         }
         Ok(())
@@ -181,8 +187,8 @@ fn one_line(text: &str) -> String {
 /// Records on change `id` of the project whose state root is `state` its line in the changelog,
 /// `line`, without the spaces around its words; with `None`, that it is left out. For the role
 /// `role` (`None` for a person or the Orchestrator), and logged. A Builder or a Reviewer is
-/// refused before anything else (see [`approve::may_record`]), then a line that cannot be one
-/// (see [`Line::check`]). What it says, in one line.
+/// refused before anything else (see [`approve::may_record`]), then a line that cannot be one as
+/// it was given, a line break at either end too (see [`Line::check`]). What it says, in one line.
 pub fn record(
     state: &Path,
     id: &str,
@@ -190,13 +196,14 @@ pub fn record(
     role: Option<&str>,
 ) -> Result<String, String> {
     approve::may_record(role).map_err(|e| e.to_string())?;
+    // Checked before the spaces go: trimming first would take away a line break at either end.
+    if let Some(line) = &line {
+        line.check()?;
+    }
     let line = line.map(|line| Line {
         text: line.text.trim().to_string(),
         ..line
     });
-    if let Some(line) = &line {
-        line.check()?;
-    }
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     let (field, said) = match &line {
@@ -419,7 +426,17 @@ mod tests {
             let checked = line("Added", empty, false).check();
             assert_eq!(checked, Err(EMPTY.to_string()), "{empty:?}");
         }
-        for broken in ["two\nlines", "a\rb", "a\tb", "a\u{1f}b"] {
+        for broken in [
+            "two\nlines",
+            "Export\n",
+            "\nExport",
+            "a\rb",
+            "a\tb",
+            "a\u{1f}b",
+            "a\u{85}b",
+            "a\u{2028}b",
+            "a\u{2029}b",
+        ] {
             let checked = line("Fixed", broken, true).check();
             assert_eq!(checked, Err(NOT_ONE_LINE.to_string()), "{broken:?}");
         }
@@ -441,7 +458,8 @@ mod tests {
     #[test]
     fn without_a_line_the_title_goes_under_the_section_of_its_kind() {
         let by = |kind: &str| {
-            let record = serde_json::json!({"title": " Crash \n on\tstart\u{1f}", "type": kind});
+            let title = " Crash \n on\tstart\u{1f}\u{2028}";
+            let record = serde_json::json!({"title": title, "type": kind});
             of_change(&record).unwrap()
         };
         let title = "Crash on start";
@@ -566,6 +584,18 @@ mod tests {
         let blank = line("Added", "  ", false);
         let err = record(&folder.0, "c1", Some(blank), None).unwrap_err();
         assert_eq!(err, EMPTY);
+        // The spaces around the words go, but only after the check: a break at either end stays.
+        for broken in [
+            "Export notes\n",
+            "\nExport notes",
+            "Export notes\r\n",
+            " \tExport notes ",
+            "Export notes\u{2028}",
+        ] {
+            let given = line("Added", broken, false);
+            let err = record(&folder.0, "c1", Some(given), None).unwrap_err();
+            assert_eq!(err, NOT_ONE_LINE, "{broken:?}");
+        }
         assert_eq!(record_of(&folder), before);
         assert!(logged(&folder).is_empty());
         let err = record(&folder.0, "c9", None, None).unwrap_err();
