@@ -74,6 +74,7 @@ Feature: The changelog from the changes
     And the Setup is done
     And the red zones are approved
     And the agents are fakes
+    And the versions are released by hand
 
   Scenario: The merge commit carries the line of the change
     Given I run "gdd new-change c1 --title App --paths src/app.txt"

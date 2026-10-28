@@ -183,9 +183,23 @@ pub fn step(
     steps: &Steps,
     name: &str,
 ) -> Result<Step, String> {
+    versioned(root, state, id, steps, name, None)
+}
+
+/// The release step `name` (see [`step`]), with `GDD_VERSION` next to `GDD_CHANGE` when the
+/// change has a `version`, without its `v`.
+fn versioned(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    steps: &Steps,
+    name: &str,
+    version: Option<&str>,
+) -> Result<Step, String> {
     let step = match steps.commands.get(name) {
         Some(command) => {
-            let env = [("GDD_CHANGE", id)];
+            let mut env = vec![("GDD_CHANGE", id)];
+            env.extend(version.map(|version| ("GDD_VERSION", version)));
             Step::ran(name, exec::run(command, root, &env, exec::TIMEOUT))
         }
         None if steps.simulated => Step {
@@ -238,8 +252,9 @@ pub fn pre(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<String,
 /// `gdd release promote`: change `id` of the project at `root`, whose state root is `state`, to
 /// production. A change that needs the human G4 waits for it: `needs_g4` says whether it needs it
 /// as it is classified now, and the decision stored when it was prepared counts too. Otherwise
-/// the machines approve G4, logged. The change is [`PROMOTING`] while the step runs, then goes to
-/// `in-production`, or back to `in-pre` when the step fails. The step as JSON, or why it was
+/// the machines approve G4, logged. The change is [`PROMOTING`] while the step runs, which gets
+/// `GDD_VERSION` when the change gets a `version` (see [`crate::versions::promote`]), then goes
+/// to `in-production`, or back to `in-pre` when the step fails. The step as JSON, or why it was
 /// refused or failed.
 pub fn promote(
     root: &Path,
@@ -247,6 +262,7 @@ pub fn promote(
     id: &str,
     steps: &Steps,
     needs_g4: bool,
+    version: Option<&str>,
 ) -> Result<String, String> {
     let (mut text, record) = read(state, id)?;
     if needs_g4 || record["decision"]["g4"] == true {
@@ -278,7 +294,7 @@ pub fn promote(
         change::logged(state, &entry)?;
     }
     saved_in_state(state, id, &text, PROMOTING)?;
-    let promoted = step(root, state, id, steps, "promote")?;
+    let promoted = versioned(root, state, id, steps, "promote", version)?;
     let after = if promoted.ok {
         "in-production"
     } else {
@@ -295,15 +311,17 @@ pub fn promote(
 /// `state`, in production. When the step passes, the change is `closed`. When it fails, the
 /// rollback runs and the change goes to `rolled-back` with a request for a hotfix; the error says
 /// so, with what the rollback did. Either way its Decision Inbox is saved (see [`inbox::save`]).
+/// Both steps get the `version` of its record, when it has one, in `GDD_VERSION`.
 pub fn observe(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<String, String> {
-    let (text, _) = read(state, id)?;
-    let observed = step(root, state, id, steps, "observe")?;
+    let (text, record) = read(state, id)?;
+    let version = record["version"].as_str();
+    let observed = versioned(root, state, id, steps, "observe", version)?;
     if observed.ok {
         let closed = saved_in_state(state, id, &text, "closed")?;
         inbox::save(state, id, &closed)?;
         return Passed::detail(&observed, None).json();
     }
-    let rollback = step(root, state, id, steps, "rollback")?;
+    let rollback = versioned(root, state, id, steps, "rollback", version)?;
     let path = change::record_path(id);
     let ts = log::now();
     let note = Note {
@@ -553,7 +571,7 @@ flag = false
         assert!(root.0.join("ran").is_file());
         assert_eq!(record(&state)["state"], "in-pre");
         assert_eq!(log(&state).len(), 2);
-        assert!(promote(&root.0, &state.0, "c1", &ran, false).is_ok());
+        assert!(promote(&root.0, &state.0, "c1", &ran, false, None).is_ok());
         assert!(observe(&root.0, &state.0, "c1", &ran).is_ok());
         assert_eq!(record(&state)["state"], "closed");
         assert!(state.0.join(".gdd/changes/c1/inbox.md").is_file());
@@ -579,7 +597,7 @@ flag = false
     #[test]
     fn a_change_that_does_not_need_g4_is_promoted_by_the_machines() {
         let folder = project(RECORD);
-        let out = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), false).unwrap();
+        let out = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), false, None).unwrap();
         let out = json(&out);
         assert_eq!(out["ok"], true);
         assert_eq!(out["detail"]["name"], "promote");
@@ -603,7 +621,8 @@ flag = false
     #[test]
     fn a_change_that_needs_g4_waits_for_the_human() {
         let folder = project(RECORD);
-        let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
+        let release = steps(COMMANDS);
+        let err = promote(&folder.0, &folder.0, "c1", &release, true, None).unwrap_err();
         assert_eq!(err, NEEDS_G4);
         assert_eq!(NEEDS_G4, "This change needs a human G4 before promotion.");
         assert_eq!(record(&folder)["state"], "merged");
@@ -612,18 +631,17 @@ flag = false
         // The decision stored when it was prepared counts too.
         let prepared = r#"{"id": "c1", "decision": {"g4": true}, "gates": {}}"#;
         let folder = project(prepared);
-        let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), false).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &release, false, None).unwrap_err();
         assert_eq!(err, NEEDS_G4);
         for refused in [r#"{"decision": "ko"}"#, r#"{"by": "human"}"#] {
             let text = format!(r#"{{"id": "c1", "gates": {{"G4": {refused}}}}}"#);
             let folder = project(&text);
-            let err = promote(&folder.0, &folder.0, "c1", &steps(COMMANDS), true).unwrap_err();
+            let err = promote(&folder.0, &folder.0, "c1", &release, true, None).unwrap_err();
             assert_eq!(err, NEEDS_G4, "{refused}");
         }
         let approved = r#"{"id": "c1", "gates": {"G4": {"decision": "ok", "by": "human"}}}"#;
         let folder = project(approved);
-        let release = steps(COMMANDS);
-        assert!(promote(&folder.0, &folder.0, "c1", &release, true).is_ok());
+        assert!(promote(&folder.0, &folder.0, "c1", &release, true, None).is_ok());
         let record = record(&folder);
         assert_eq!(record["state"], "in-production");
         assert_eq!(record["gates"]["G4"]["by"], "human");
@@ -635,11 +653,35 @@ flag = false
     fn a_failed_promotion_leaves_the_change_in_pre() {
         let folder = project(RECORD);
         let failing = with("promote", "exit 5");
-        let err = promote(&folder.0, &folder.0, "c1", &failing, false).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &failing, false, None).unwrap_err();
         assert_eq!(err, "release.promote failed (exit code 5)");
         let record = record(&folder);
         assert_eq!(record["state"], "in-pre");
         assert_eq!(record["gates"]["G4"]["by"], "machines");
+    }
+
+    #[test]
+    fn the_promotion_and_the_steps_after_it_get_the_version_of_the_change() {
+        let seen = "printf '%s\\n' \"${GDD_VERSION-none}\" >> versions";
+        let mut every = with("promote", seen);
+        every.commands.insert("tests_pre".into(), seen.into());
+        let failing = format!("{seen}; exit 1");
+        every.commands.insert("observe".into(), failing);
+        every.commands.insert("rollback".into(), seen.into());
+        let versions = |folder: &Folder| fs::read_to_string(folder.0.join("versions")).unwrap();
+        let folder = project(RECORD);
+        let promoted = promote(&folder.0, &folder.0, "c1", &every, false, Some("1.2.0"));
+        assert!(promoted.is_ok());
+        assert_eq!(versions(&folder), "1.2.0\n");
+        promote(&folder.0, &folder.0, "c1", &every, false, None).unwrap();
+        // A record without a version: the steps after the promotion get none.
+        assert!(observe(&folder.0, &folder.0, "c1", &every).is_err());
+        assert!(pre(&folder.0, &folder.0, "c1", &every).is_ok());
+        assert_eq!(versions(&folder), "1.2.0\nnone\nnone\nnone\nnone\n");
+        let released = r#"{"id": "c1", "state": "in-production", "version": "0.4.0", "inbox": []}"#;
+        let folder = project(released);
+        assert!(observe(&folder.0, &folder.0, "c1", &every).is_err());
+        assert_eq!(versions(&folder), "0.4.0\n0.4.0\n");
     }
 
     #[test]
@@ -648,13 +690,13 @@ flag = false
         let folder = project(RECORD);
         let seen = "grep -q '\"promoting\"' .gdd/changes/c1/change.json";
         let watched = with("promote", seen);
-        let promoted = promote(&folder.0, &folder.0, "c1", &watched, false);
+        let promoted = promote(&folder.0, &folder.0, "c1", &watched, false, None);
         assert!(promoted.is_ok());
         assert_eq!(record(&folder)["state"], "in-production");
         // A command that ran, then a log that cannot be written.
         let folder = project(RECORD);
         let unlogged = with("promote", "rm .gdd/log.jsonl && mkdir .gdd/log.jsonl");
-        let err = promote(&folder.0, &folder.0, "c1", &unlogged, false).unwrap_err();
+        let err = promote(&folder.0, &folder.0, "c1", &unlogged, false, None).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
         assert_eq!(record(&folder)["state"], PROMOTING);
         assert_eq!(PROMOTING, "promoting");
@@ -714,7 +756,7 @@ flag = false
         let missing: Result<String, String> = Err(missing.into());
         assert_eq!(pre(&folder.0, &folder.0, "c9", &release), missing);
         assert_eq!(
-            promote(&folder.0, &folder.0, "c9", &release, false),
+            promote(&folder.0, &folder.0, "c9", &release, false, None),
             missing
         );
         assert_eq!(observe(&folder.0, &folder.0, "c9", &release), missing);
@@ -723,7 +765,7 @@ flag = false
             let broken = project(wrong);
             for err in [
                 pre(&broken.0, &broken.0, "c1", &release).unwrap_err(),
-                promote(&broken.0, &broken.0, "c1", &release, false).unwrap_err(),
+                promote(&broken.0, &broken.0, "c1", &release, false, None).unwrap_err(),
                 observe(&broken.0, &broken.0, "c1", &release).unwrap_err(),
             ] {
                 assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
@@ -734,7 +776,7 @@ flag = false
         fs::create_dir_all(unlogged.0.join(log::PATH)).unwrap();
         let err = pre(&unlogged.0, &unlogged.0, "c1", &release).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
-        let err = promote(&unlogged.0, &unlogged.0, "c1", &release, false).unwrap_err();
+        let err = promote(&unlogged.0, &unlogged.0, "c1", &release, false, None).unwrap_err();
         assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
         assert_eq!(record(&unlogged)["state"], "merged");
     }

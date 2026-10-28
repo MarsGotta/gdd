@@ -73,6 +73,7 @@ Feature: The changelog is the project's
     And the Setup is done
     And the red zones are approved
     And the agents are fakes
+    And the versions are released by hand
 
   Scenario: Without a changelog, gdd shows the whole of it and writes nothing
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
