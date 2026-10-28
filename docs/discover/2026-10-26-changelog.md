@@ -22,3 +22,19 @@ The human wants gdd to keep a changelog through the publication of changes and v
 6. The version tag is the deployment event of the DORA report.
 
 Where it lands: the block «what the human sees», change `changelog`.
+
+## The changelog is the project's (2026-10-28)
+
+The first version wrote CHANGELOG.md whole and refused a file without its marker line. The human
+asked how gdd could tell a changelog written by hand from one it wrote and someone edited: it
+cannot. With the marker, a gdd-written file edited by hand lost the edits on the next run, and a
+project with its own changelog was refused forever. The sector does not rewrite either: git-cliff
+`--prepend`, release-please and Changesets add the new section on top and leave the rest alone.
+
+Decision (change `changelog-merge`): the file is the project's. `gdd changelog` compares it with
+the lines the merge commits carry, version by version, and shows what is missing (a whole
+version, or single lines of a version that is there); `--write` adds only that, `--check` fails
+for CI, and in a terminal it asks first. Each line gdd adds carries an invisible comment with its
+commit, so a line reworded later still counts; a line with the same words counts too. Known cost:
+a line reworded AND stripped of its comment is proposed again, never written without a yes.
+Moving Unreleased into a version at release time stays with `versions`.
