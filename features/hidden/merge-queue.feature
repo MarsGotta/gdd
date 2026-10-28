@@ -69,14 +69,16 @@ Feature: Hidden examples for several changes at once
     And the red zones are approved
     And the agents are fakes
 
-  Scenario: A file inside a parked change's folder pattern is refused
+  Scenario: A file inside a parked change's folder pattern starts with a warning
     Given I run "gdd new-change c1 --title App --paths src/core/**"
     And the Builder in build mode writes nothing
     And I run "gdd launch c1"
     And I run "gdd new-change c2 --title Other --paths src/core/rules.txt"
     When I run "gdd launch c2"
-    Then it fails with a message that contains "overlaps c1"
+    Then it succeeds
+    And the output contains "overlaps c1 (parked)"
     And the output contains "src/core/rules.txt"
+    And the output contains "git settles it when c2 merges"
 
   Scenario: A cap of 3 lets a third change start
     Given the cap of changes building at once is 3
@@ -97,3 +99,4 @@ Feature: Hidden examples for several changes at once
     And I run "gdd new-change c2 --title Other --paths src/library.txt"
     When I run "gdd launch c2"
     Then it succeeds
+    And the output does not contain "overlaps"

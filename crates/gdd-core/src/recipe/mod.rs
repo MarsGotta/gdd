@@ -21,7 +21,8 @@
 //! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
 //! main branch and takes the merge: the worktree is kept while the change is parked or waits at
 //! G4, and goes when the change closes or is rejected. Several changes run at once, each in its
-//! worktree, as long as they plan no overlapping paths and the cap allows it (see [`queue`]).
+//! worktree, as many as the cap allows; one that plans a path that overlaps one of a change in
+//! flight runs with a warning, and git settles the overlap when it merges (see [`queue`]).
 //!
 //! Around every agent call, its own checks: no agent changes the GDD state of its change or the
 //! shared one, links included (see [`State`]), or leaves a state folder in its worktree (see
@@ -72,7 +73,8 @@ const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
 /// Why a change parks when G3 is red once it took the latest main.
 const G3_RED_ON_MAIN: &str = "G3 red on top of the latest main";
 
-/// Why a change parks when the latest main does not merge into it: the paths in conflict follow.
+/// Why a change parks when the latest main does not merge into it: the paths in conflict follow,
+/// then the way out (see [`conflicts`]).
 const CONFLICTS: &str = "main moved under it and the merge has conflicts in";
 
 /// The note on G3 closed when main moved under the change.
@@ -274,20 +276,22 @@ enum Ended {
 
 /// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
 /// worktree of change `id` or reuses it (see [`worktree::open`]), prepares the change and runs
-/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only next to
-/// the changes in flight (see [`queue::may_launch`]): a refusal touches nothing. From that
-/// judgement until prepare makes the change building, it holds the launch lock (see
-/// [`queue::admission`]): two launches at once never both pass it.
+/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only while
+/// the cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that judgement
+/// until prepare makes the change building, it holds the launch lock (see [`queue::admission`]):
+/// two launches at once never both pass it. Once prepared, it warns of the changes in flight the
+/// change overlaps (see [`warned`]).
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
     let record = change::read_record(project.state, id)?;
     let admitted = queue::admission(project.state)?;
-    queue::may_launch(project.state, id, &record, project.max)?;
+    let warnings = queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
     worktree::open(project.root, project.worktree, id)?;
     state::clear(project.state, id)?;
     let decided = steps.prepare()?;
     drop(admitted);
+    warned(project.state, id, &warnings, steps)?;
     let mut run = Run {
         project,
         id,
@@ -296,6 +300,41 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
     };
     let ended = run.launched();
     finish(project, id, ended)
+}
+
+/// Says each of `warnings`, one for each change in flight change `id` overlaps (see
+/// [`queue::may_launch`]), and keeps it in the record of the change, under the state root
+/// `state`, as a decision taken without the human, which G4 shows: once, however often the change
+/// launches.
+fn warned(
+    state: &Path,
+    id: &str,
+    warnings: &[String],
+    steps: &mut impl Steps,
+) -> Result<(), String> {
+    for warning in warnings {
+        steps.say(warning);
+    }
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let invalid = |e: serde_json::Error| format!("{path}: {e}");
+    let record: Value = serde_json::from_str(&text).map_err(invalid)?;
+    let notes = record["inbox"].as_array();
+    let kept = |warning: &str| {
+        let same = |note: &Value| note["kind"] == "decided" && note["text"] == warning;
+        notes.is_some_and(|notes| notes.iter().any(same))
+    };
+    let ts = log::now();
+    let mut noted = text;
+    for warning in warnings.iter().filter(|warning| !kept(warning)) {
+        let note = Note {
+            kind: "decided",
+            text: warning,
+            ts: &ts,
+        };
+        noted = change::with_note(&noted, &note).map_err(invalid)?;
+    }
+    change::write(state, &path, &noted)
 }
 
 /// `Ok` when `gdd <command>` runs in a project whose state is its own; else, before anything
@@ -365,9 +404,9 @@ pub fn merge(at: &Merging, steps: &mut impl Steps) -> Result<Said, String> {
 
 /// When the main branch moved since the change `at` was built (see [`queue::main_moved`]): G3
 /// closes, as what passed it is no longer what would merge, and the change takes the latest main
-/// (see [`queue::take_main`]), where a conflict parks it. Its build starts again there (see
-/// [`queue::restarted`]), and it passes G3 again on top of it: green opens G3 again, red parks
-/// it, G3 still closed.
+/// (see [`queue::take_main`]), where a conflict parks it (see [`conflicts`]). Its build starts
+/// again there (see [`queue::restarted`]), and it passes G3 again on top of it: green opens G3
+/// again, red parks it, G3 still closed.
 fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
     let (work, main, id) = (at.work, at.main, at.id);
     let said = |e: git::Error| Stop::Fail(e.to_string());
@@ -375,10 +414,9 @@ fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
         return Ok(());
     }
     steps.decide("G3", "ko", "machines", MAIN_MOVED)?;
-    let conflicts = queue::take_main(work, main, id).map_err(said)?;
-    if !conflicts.is_empty() {
-        let paths = conflicts.join(", ");
-        return Err(Stop::Park(format!("{CONFLICTS} {paths}")));
+    let paths = queue::take_main(work, main, id).map_err(said)?;
+    if !paths.is_empty() {
+        return Err(Stop::Park(conflicts(at, &paths)));
     }
     let start = Git::new(work).head().map_err(said)?;
     queue::restarted(at.state, id, &start)?;
@@ -387,6 +425,18 @@ fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
         return Err(Stop::Park(G3_RED_ON_MAIN.to_string()));
     }
     Ok(steps.decide("G3", "ok", "machines", ON_LATEST_MAIN)?)
+}
+
+/// Why change `at` parks when the latest main does not merge into it, with `paths` in conflict:
+/// them, then the way out, by hand in its worktree. The launch after it takes the change on top
+/// of the latest main, as its branch then holds it.
+fn conflicts(at: &Merging, paths: &[String]) -> String {
+    let (main, id, work) = (at.main, at.id, at.work.display());
+    let (paths, branch) = (paths.join(", "), change::branch(id));
+    format!(
+        "{CONFLICTS} {paths}: merge {main} into {branch} in its worktree ({work}), settle the \
+         conflicts, commit, then gdd launch {id}"
+    )
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
@@ -2487,26 +2537,57 @@ mod tests {
         RECORD.replace("\"title\"", "\"paths\": [\"src/a.rs\"], \"title\"")
     }
 
+    /// The warning of change `c1`, which plans `src/a.rs`, next to change `c2`, parked, which
+    /// plans `src/**`.
+    const OVERLAPS_C2: &str =
+        "c1 overlaps c2 (parked): src/a.rs with src/**; git settles it when c1 merges.";
+
     #[test]
-    fn a_launch_next_to_a_change_it_overlaps_or_past_the_cap_touches_nothing() {
-        let repo = repo_with_change(&planning_a());
+    fn a_launch_next_to_a_change_it_overlaps_warns_first_and_keeps_the_warning_once() {
+        let other = r#""inbox": [{"kind": "decided", "text": "Other"}]"#;
+        let repo = repo_with_change(&planning_a().replace(r#""inbox": []"#, other));
         let root = repo.root();
         let parked = r#"{"state": "parked", "paths": ["src/**"]}"#;
         repo.write(".gdd/changes/c2/change.json", parked);
-        repo.git(&["checkout", "-q", "change/c1"]);
+        let line = format!("say {OVERLAPS_C2}");
+        let warned = line.as_str();
         let mut steps = played(root);
-        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
-        let overlaps = "c1 overlaps c2 (parked): src/a.rs with src/**\n";
-        assert!(refused.starts_with(overlaps), "{refused}");
-        repo.write(".gdd/changes/c2/change.json", r#"{"state": "building"}"#);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        assert_eq!(steps.ran[..3], ["prepare", warned, "test t mode=test"]);
+        // Launched again, it warns again; the Decision Inbox G4 shows keeps the warning once.
+        let mut steps = played(root);
+        steps.decided.g4 = true;
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(done(said).starts_with("Paused at G4."));
+        assert_eq!(steps.ran[..2], ["prepare", warned]);
+        let mut decided = record(root)["inbox"].as_array().cloned().unwrap();
+        decided.retain(|note| note["kind"] == "decided");
+        assert_eq!(decided.len(), 2, "{decided:?}");
+        assert_eq!(decided[1]["text"], OVERLAPS_C2);
+        let inbox = inbox_of(root);
+        let shown = format!("## Decided without you\n- Other\n- {OVERLAPS_C2}\n");
+        assert!(inbox.contains(&shown), "{inbox}");
+    }
+
+    #[test]
+    fn a_launch_past_the_cap_touches_nothing_and_warns_of_nothing() {
+        let repo = repo_with_change(&planning_a());
+        let root = repo.root();
+        let building = r#"{"state": "building", "paths": ["src/**"]}"#;
+        repo.write(".gdd/changes/c2/change.json", building);
+        repo.git(&["checkout", "-q", "change/c1"]);
         let capped = Project {
             max: 1,
             ..repo.project()
         };
+        let mut steps = played(root);
         let refused = launch(&capped, "c1", &mut steps).unwrap_err();
         let cap = "1 change(s) building, the cap is 1: c2\n";
         assert!(refused.starts_with(cap), "{refused}");
+        assert!(!refused.contains("overlaps"), "{refused}");
         assert!(steps.ran.is_empty());
+        assert_eq!(record(root)["inbox"], serde_json::json!([]));
         assert_eq!(repo.tool().current_branch().unwrap(), "change/c1");
         assert!(worktree_branch(&repo).is_err());
     }
@@ -2600,14 +2681,31 @@ mod tests {
         };
         steps.acts = vec![(Who::Reviewer, conflicting)];
         let said = launch(&repo.project(), "c1", &mut steps);
-        let why = "Change c1 parked: main moved under it and the merge has conflicts in app.txt.";
-        assert!(parked(said).starts_with(why));
+        let why = format!(
+            "Change c1 parked: main moved under it and the merge has conflicts in app.txt: merge \
+             main into change/c1 in its worktree ({}), settle the conflicts, commit, then gdd \
+             launch c1.",
+            repo.work.display()
+        );
+        assert!(parked(said).starts_with(&why));
         assert_eq!(steps.ran[TO_OPENED.len()..], [OPENED, UNOPENED]);
         assert_eq!(record(root)["state"], "parked");
         let work = Git::new(&repo.work);
         assert_eq!(work.head().unwrap(), branch);
         assert!(work.conflicts().unwrap().is_empty());
         assert!(!work.has_changes().unwrap());
+        // Settled as the message says, the next launch merges the change on top of main.
+        assert!(work.merge("main", "settled").is_err());
+        fs::write(repo.work.join("app.txt"), "settled\n").unwrap();
+        let tree = repo.work.to_string_lossy().into_owned();
+        repo.git(&["-C", &tree, "add", "app.txt"]);
+        repo.git(&["-C", &tree, "commit", "-q", "--no-edit"]);
+        let mut steps = played(root);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        let mut expected = TO_OPENED.to_vec();
+        expected.extend([OPENED, "merge", "pre", "promote", "observe"]);
+        assert_eq!(steps.ran, expected);
     }
 
     #[test]
@@ -2685,21 +2783,24 @@ mod tests {
         let repo = repo_with_change(&planning_a());
         let root = repo.root();
         let c2 = ".gdd/changes/c2/change.json";
-        repo.write(c2, r#"{"state": "open", "paths": ["src/**"]}"#);
+        repo.write(c2, r#"{"state": "open"}"#);
         // Another launch holds the launch lock, and its change builds before it lets go.
         let held = queue::admission(root).unwrap();
         let state = root.to_path_buf();
         let other = thread::spawn(move || {
             thread::sleep(Duration::from_millis(300));
-            let building = r#"{"state": "building", "paths": ["src/**"]}"#;
-            change::write(&state, c2, building).unwrap();
+            change::write(&state, c2, r#"{"state": "building"}"#).unwrap();
             drop(held);
         });
+        let capped = Project {
+            max: 1,
+            ..repo.project()
+        };
         let mut steps = played(root);
-        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
+        let refused = launch(&capped, "c1", &mut steps).unwrap_err();
         other.join().unwrap();
-        let overlaps = "c1 overlaps c2 (building): src/a.rs with src/**\n";
-        assert!(refused.starts_with(overlaps), "{refused}");
+        let cap = "1 change(s) building, the cap is 1: c2\n";
+        assert!(refused.starts_with(cap), "{refused}");
         assert!(steps.ran.is_empty());
         assert!(worktree_branch(&repo).is_err());
     }
