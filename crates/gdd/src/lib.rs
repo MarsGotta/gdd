@@ -3992,15 +3992,21 @@ mod tests {
         let start = "Next version: v1.0.0 (first version)\n";
         assert!(chosen.stdout.starts_with(start), "{chosen:?}");
         assert_eq!(git(&project, &["tag", "--list"]), "");
+        // A process another test starts meanwhile may keep the merge lock a moment (a lock
+        // belongs to the open file), so the run may say it waited: not what is checked here.
+        let unwaited = |out: Outcome| Outcome {
+            stderr: out.stderr.replace(&format!("{}\n", queue::WAITING), ""),
+            ..out
+        };
         let released = Outcome::success("Released v0.1.0\n".into());
-        assert_eq!(project.run("release --yes"), released);
+        assert_eq!(unwaited(project.run("release --yes")), released);
         assert_eq!(git(&project, &["tag", "--list"]), "v0.1.0");
         let early = "error: the version must come after v0.1.0\n";
-        let out = project.run("release --yes --version 0.1.0");
+        let out = unwaited(project.run("release --yes --version 0.1.0"));
         assert_eq!(out, Outcome::failure(early.into()));
         assert_eq!(project.run("release --version 0.0.9").stderr, early);
         let nothing = Outcome::success("Nothing to release since v0.1.0\n".into());
-        assert_eq!(project.run("release --yes"), nothing);
+        assert_eq!(unwaited(project.run("release --yes")), nothing);
         assert_eq!(project.run("release"), nothing);
         let weekly = format!("{PROTECTED}\n[versions]\nmode = \"weekly\"\n");
         project.write(RULES, &weekly);

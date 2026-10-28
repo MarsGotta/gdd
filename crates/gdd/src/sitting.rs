@@ -37,6 +37,9 @@ const CONFIRM: &str = "y to record · n to go back";
 /// The question of the text line.
 const QUESTION: &str = "What should change?";
 
+/// What the page says when it changed after the human read it.
+const CHANGED: &str = "This changed after you read it: read it again before approving";
+
 /// The note of every decision the sitting records, but the words of a KO.
 const NOTE: &str = "sitting";
 
@@ -58,8 +61,8 @@ struct Scenario {
 /// What approving records, as the confirmation shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Approval {
-    /// The scenario files G1 seals; none, no G1.
-    sealing: Vec<String>,
+    /// The scenario files G1 seals, as they were shown; none, no G1.
+    sealing: Vec<Scenario>,
     /// How many red zones wait for approval, when any do.
     zones: Option<usize>,
     /// Whether the plan of a red change waits for approval.
@@ -102,6 +105,8 @@ pub struct Sitting {
     /// What `a` records; `None` once the sitting is over.
     approval: Option<Approval>,
     page: Page,
+    /// Whether what was shown changed before `y`, so the human reads the page again.
+    stale: bool,
     /// How many rows the main page or the result is scrolled up.
     scroll: u16,
     /// The room the body had when it was last painted; the pages scroll within it.
@@ -127,6 +132,7 @@ impl Sitting {
             lines,
             approval,
             page: Page::Main,
+            stale: false,
             scroll: 0,
             body: Cell::new(Rect::new(0, 0, 80, 20)),
             closed: false,
@@ -156,9 +162,8 @@ impl Sitting {
         lines.extend(zone_lines);
         lines.push(Line::default());
         lines.extend(plan_lines(&state, &card, red)?);
-        let sealing = scenarios.into_iter().map(|s| s.path).collect();
         let approval = Approval {
-            sealing,
+            sealing: scenarios,
             zones,
             plan: red,
         };
@@ -273,6 +278,7 @@ impl Sitting {
     fn go_to(&mut self, page: Page) {
         self.page = page;
         self.scroll = 0;
+        self.stale = false;
     }
 
     fn scroll_up(&mut self) {
@@ -299,8 +305,8 @@ impl Sitting {
     /// The lines of the page the human is on, and its keys.
     fn page_lines(&self) -> (Vec<Line<'static>>, &'static str) {
         match &self.page {
-            Page::Main if self.approval.is_some() => (self.lines.clone(), KEYS),
-            Page::Main => (self.lines.clone(), SCROLL_KEYS),
+            Page::Main if self.approval.is_some() => (self.main_lines(), KEYS),
+            Page::Main => (self.main_lines(), SCROLL_KEYS),
             Page::Approve => (plain(&self.approval_text()), SCROLL_KEYS),
             Page::Ask(text) => {
                 let typed = Line::from(format!("> {text}_"));
@@ -314,6 +320,17 @@ impl Sitting {
         }
     }
 
+    /// The lines of the main page, with a warning above them when they changed under the human.
+    fn main_lines(&self) -> Vec<Line<'static>> {
+        if !self.stale {
+            return self.lines.clone();
+        }
+        let warning = Line::from(CHANGED).bold();
+        let mut lines = vec![warning, Line::default()];
+        lines.extend(self.lines.iter().cloned());
+        lines
+    }
+
     /// What the confirmation of `a` says it records.
     fn approval_text(&self) -> Vec<String> {
         let Some(approval) = &self.approval else {
@@ -322,7 +339,8 @@ impl Sitting {
         let id = &self.id;
         let mut text = vec!["This records, as you:".to_string()];
         if !approval.sealing.is_empty() {
-            let sealing = approval.sealing.join(", ");
+            let paths: Vec<&str> = approval.sealing.iter().map(|s| s.path.as_str()).collect();
+            let sealing = paths.join(", ");
             text.push(format!("- G1 ok on {id}, sealing {sealing}"));
         }
         if let Some(zones) = approval.zones {
@@ -360,6 +378,9 @@ impl Sitting {
     /// `y` on the confirmation of `a`: records G1 from the branch of the change, the red zones
     /// when they wait and the plan of a red change.
     fn record_approval(&mut self) {
+        if !self.is_as_shown() {
+            return;
+        }
         let Some(approval) = &self.approval else {
             return;
         };
@@ -385,6 +406,28 @@ impl Sitting {
         }
         let next = format!("Next: gdd launch {id}");
         self.record(&steps, Some(next));
+    }
+
+    /// Whether what the human read is what the project has now: the same page and the same
+    /// decisions to record. When not, nothing is recorded: the sitting shows what it has now,
+    /// with a warning, and waits for the human to read it again; when it cannot be read, the
+    /// result says why.
+    fn is_as_shown(&mut self) -> bool {
+        let now = match Sitting::load(&self.root, &self.id) {
+            Ok(now) => now,
+            Err(message) => {
+                self.go_to(Page::Done(refused_lines(Vec::new(), &message)));
+                return false;
+            }
+        };
+        if now.lines == self.lines && now.approval == self.approval {
+            return true;
+        }
+        self.lines = now.lines;
+        self.approval = now.approval;
+        self.go_to(Page::Main);
+        self.stale = true;
+        false
     }
 
     /// `y` on the confirmation of the words: records G1 KO with them.
@@ -438,8 +481,25 @@ impl Sitting {
         let added = git.add_worktree(&dir, &branch).map_err(|e| e.to_string());
         // The project may be a folder of the repository: the command runs in the same folder.
         let work = added.and_then(|()| recipe::worktree::project_root(&self.root, &dir));
+        let work = work.and_then(|work| self.pinned(&work).map(|()| work));
         let said = work.and_then(|work| gate(args, &work, &self.env));
         with_cleanup(said, remove_worktree(&git, &dir))
+    }
+
+    /// Whether the scenario files in the project folder `work` of the worktree are the ones the
+    /// human read, in case the branch moved after the page was checked.
+    fn pinned(&self, work: &Path) -> Result<(), String> {
+        let git = Git::new(work);
+        for scenario in self.approval.iter().flat_map(|a| &a.sealing) {
+            let file = git
+                .file_at("HEAD", &scenario.path)
+                .map_err(|e| e.to_string())?;
+            let text = file.map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+            if text.as_deref() != Some(scenario.text.as_str()) {
+                return Err(format!("{} changed after you read it", scenario.path));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -718,9 +778,17 @@ mod tests {
         Sitting::new("demo", "c1", Path::new("/nowhere"), lines, approval)
     }
 
+    fn scenario(path: &str) -> Scenario {
+        Scenario {
+            path: path.to_string(),
+            hidden: false,
+            text: String::new(),
+        }
+    }
+
     fn approval() -> Approval {
         Approval {
-            sealing: vec!["features/a.feature".to_string()],
+            sealing: vec![scenario("features/a.feature")],
             zones: Some(2),
             plan: true,
         }
@@ -1275,10 +1343,92 @@ mod tests {
         let mut sitting = open(&project, "gone");
         sitting.approval = Some(approval());
         git(&project.0, &["branch", "-D", "change/gone"]);
-        approve(&mut sitting);
-        assert_shows(&sitting, &["Nothing recorded"]);
+        // The branch goes after the page was checked: the worktree cannot be made.
+        let args = decision(&["gate", "G1", "ok", "gone"], NOTE);
+        let said = sitting.run_on_branch(&args);
+        assert!(said.is_err(), "{said:?}");
+        assert!(!log(&project).contains("\"G1\""));
+        assert_eq!(worktrees(&project), 1);
+    }
+
+    #[test]
+    fn a_branch_that_moved_after_the_page_was_checked_records_nothing() {
+        let project = repo();
+        change(&project, "mov", "src/a.rs");
+        let sitting = open(&project, "mov");
+        let moved = "Feature: D\n  Scenario: Two\n";
+        on_branch(&project, "mov", "features/d.feature", moved);
+        let args = decision(&["gate", "G1", "ok", "mov"], NOTE);
+        let said = sitting.run_on_branch(&args);
+        let changed = "features/d.feature changed after you read it";
+        assert_eq!(said, Err(changed.to_string()));
+        assert!(!log(&project).contains("\"G1\""));
+        assert_eq!(worktrees(&project), 1);
+    }
+
+    #[test]
+    fn a_page_that_changed_before_y_is_shown_again_and_nothing_is_recorded() {
+        let project = repo();
+        change(&project, "chg", "src/storage/db.rs");
+        let mut sitting = open(&project, "chg");
+        sitting.press(Key::Char('a'));
+        assert_shows(&sitting, &["red zones ok: 1 red zone(s)"]);
+        // A second red zone arrives while the confirmation is on the screen.
+        let zones = "default = \"yellow\"\n\n[[zone]]\ncolor = \"red\"\n\
+                     paths = [\"src/storage/**\"]\nreason = \"Losing drafts\"\n\n\
+                     [[zone]]\ncolor = \"red\"\npaths = [\"src/auth/**\"]\nreason = \"Logins\"\n";
+        project.write(crate::ZONES, zones);
+        sitting.press(Key::Char('y'));
+        assert_eq!(sitting.page, Page::Main);
+        assert_shows(&sitting, &[CHANGED, "src/auth/** · Logins", KEYS]);
+        assert!(!log(&project).contains("\"G1\""));
         assert!(!log(&project).contains("\"zones\""));
         assert_eq!(worktrees(&project), 1);
+        // Read again, the confirmation shows both zones and `y` records them.
+        sitting.press(Key::Char('a'));
+        assert_shows(&sitting, &["red zones ok: 2 red zone(s)"]);
+        assert_hides(&sitting, &[CHANGED]);
+        sitting.press(Key::Char('y'));
+        assert_shows(&sitting, &["Recorded", "Next: gdd launch chg"]);
+    }
+
+    #[test]
+    fn a_scenario_that_changed_before_y_is_shown_again() {
+        let project = repo();
+        change(&project, "scn", "src/a.rs");
+        let mut sitting = open(&project, "scn");
+        sitting.press(Key::Char('a'));
+        on_branch(&project, "scn", "features/e.feature", "Feature: E\n");
+        sitting.press(Key::Char('y'));
+        assert_shows(&sitting, &[CHANGED, "features/e.feature"]);
+        assert!(!log(&project).contains("\"G1\""));
+    }
+
+    #[test]
+    fn a_change_that_left_its_sitting_before_y_loses_the_keys_to_approve() {
+        let project = repo();
+        change(&project, "lft", "src/a.rs");
+        let mut sitting = open(&project, "lft");
+        sitting.press(Key::Char('a'));
+        let text = record(&project, "lft").replace("\"open\"", "\"building\"");
+        project.write(".gdd/changes/lft/change.json", &text);
+        sitting.press(Key::Char('y'));
+        let over = "lft is building: its sitting is over";
+        assert_shows(&sitting, &[CHANGED, over, SCROLL_KEYS]);
+        assert!(!log(&project).contains("\"G1\""));
+    }
+
+    #[test]
+    fn a_project_that_cannot_be_read_before_y_says_why_and_records_nothing() {
+        let project = repo();
+        change(&project, "bad", "src/a.rs");
+        let mut sitting = open(&project, "bad");
+        sitting.press(Key::Char('a'));
+        project.write(crate::ZONES, "default = \n");
+        sitting.press(Key::Char('y'));
+        assert_shows(&sitting, &["Nothing recorded"]);
+        assert_hides(&sitting, &["Recorded\n", "Next:"]);
+        assert!(!log(&project).contains("\"G1\""));
     }
 
     #[test]
@@ -1286,9 +1436,13 @@ mod tests {
         let project = repo();
         change(&project, "part", "src/storage/db.rs");
         let mut sitting = open(&project, "part");
-        // The zones cannot be approved: the map cannot be read.
+        // The zones cannot be approved: the map cannot be read, after the page was checked.
         project.write(crate::ZONES, "default = \n");
-        approve(&mut sitting);
+        let g1 = decision(&["gate", "G1", "ok", "part"], NOTE);
+        let zones = decision(&["gate", "zones", "ok"], NOTE);
+        let on_branch = |args, on_branch| Step { args, on_branch };
+        let steps = [on_branch(g1, true), on_branch(zones, false)];
+        sitting.record(&steps, None);
         assert_shows(&sitting, &["Recorded", "G1 ok on part"]);
         assert_shows(&sitting, &["Nothing more recorded"]);
         assert_hides(&sitting, &["Next:"]);
@@ -1376,7 +1530,9 @@ mod tests {
 
     #[test]
     fn a_confirmation_longer_than_the_screen_scrolls() {
-        let sealing = (0..60).map(|n| format!("features/f{n}.feature")).collect();
+        let sealing = (0..60)
+            .map(|n| scenario(&format!("features/f{n}.feature")))
+            .collect();
         let long = Approval {
             sealing,
             zones: Some(1),
@@ -1397,11 +1553,22 @@ mod tests {
             let end = sitting.render(40, 8);
             assert!(end.contains("y to record"), "{end}");
             assert!(end.contains(SCROLL_KEYS), "{end}");
+            let bottom = sitting.scroll;
             sitting.press(Key::Up);
-            assert_ne!(sitting.scroll, 0);
+            assert_eq!(sitting.scroll, bottom - 1, "{page:?}");
             sitting.press(Key::Char('n'));
             assert_eq!(sitting.scroll, 0);
         }
+    }
+
+    #[test]
+    fn the_text_line_never_scrolls() {
+        let mut sitting = approving();
+        sitting.press(Key::Char('c'));
+        type_in(&mut sitting, &"word ".repeat(40));
+        sitting.scroll = 3;
+        let screen = sitting.render(20, 6);
+        assert!(screen.contains("What should"), "{screen}");
     }
 
     #[test]
