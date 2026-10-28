@@ -69,11 +69,11 @@ Feature: A person's writes to shared state wait for the agents at work (hidden e
     And the red zones are approved
     And the agents are fakes
 
-  Scenario: A third sitting with the red zones as they are
-    When I run "gdd gate zones ok c7 --by human --note third sitting"
+  Scenario: A third-sitting with the red zones as they are
+    When I run "gdd gate zones ok c7 --by human --note third-sitting"
     Then it succeeds
     And the output contains "already approved"
-    And the file ".gdd/zones.json" does not contain "third sitting"
+    And the file ".gdd/zones.json" does not contain "third-sitting"
     And the log has a "zones" line for "c7" with result "ok"
 
   Scenario: A new red zone for exports waits for a short call

@@ -76,19 +76,20 @@ Feature: A person's writes to shared state wait for the agents at work
     And the agents are fakes
 
   Scenario: Approving the red zones as they are already approved writes nothing
-    When I run "gdd gate zones ok c2 --by human --note second sitting"
+    When I run "gdd gate zones ok c2 --by human --note second-sitting"
     Then it succeeds
     And the output contains "already approved"
-    And the file ".gdd/zones.json" does not contain "second sitting"
+    And the file ".gdd/zones.json" does not contain "second-sitting"
     And the log has a "zones" line for "c2" with result "ok"
 
   Scenario: A new red zone map is approved and written
     Given the red zone paths become "src/storage/**" and "src/sync/**"
-    When I run "gdd gate zones ok c2 --by human --note second sitting"
+    When I run "gdd gate zones ok c2 --by human --note second-sitting"
     Then it succeeds
     And the output does not contain "already approved"
     And the file ".gdd/zones.json" contains "src/sync/**"
-    And the file ".gdd/zones.json" contains "second sitting"
+    And the file ".gdd/zones.json" contains "second-sitting"
+    And the output does not contain "waiting for the agents at work"
 
   Scenario: Approving a new red zone map waits for the agents at work
     Given the red zone paths become "src/storage/**" and "src/sync/**"
@@ -110,12 +111,6 @@ Feature: A person's writes to shared state wait for the agents at work
     When I run "gdd gate G0 ok --by machines"
     Then it succeeds
     And the output contains "waiting for the agents at work to end their call"
-
-  Scenario: Nothing to wait for, nothing said
-    Given the red zone paths become "src/storage/**" and "src/sync/**"
-    When I run "gdd gate zones ok c2 --by human"
-    Then it succeeds
-    And the output does not contain "waiting for the agents at work"
 
   Scenario: A change's own approval does not wait
     Given I run "gdd new-change c2 --title Other --paths src/other.txt"
