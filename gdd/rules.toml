@@ -53,3 +53,7 @@ all = ["gdd/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/
 builder_build = ["features/**", "crates/gdd-acceptance/tests/**"]   # approved scenarios and the steps written in test mode
 builder_test = ["crates/*/src/**"]   # production code: test mode only writes tests and steps
 reviewer = ["**"]
+
+# Versions: this repository releases by hand (gdd release); v0.1.0 closes the MVP.
+[versions]
+mode = "manual"
