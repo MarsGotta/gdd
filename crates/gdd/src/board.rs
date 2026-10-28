@@ -2,6 +2,7 @@
 //! Board is a state machine, keys in and a screen out ([`Board`]), drawn with Ratatui.
 //! [`in_terminal`] shows it in the terminal of the process. Nothing on it writes anything.
 
+use std::cell;
 use std::io;
 use std::path::Path;
 
@@ -91,6 +92,10 @@ pub struct Board {
     selected: usize,
     /// Whether the screen is the details of the selected change.
     details: bool,
+    /// How many rows the details are scrolled up.
+    detail_scroll: u16,
+    /// The room the body had when it was last painted; the details scroll within it.
+    body: cell::Cell<Rect>,
     closed: bool,
 }
 
@@ -104,6 +109,8 @@ impl Board {
             done_shown: false,
             selected: 0,
             details: false,
+            detail_scroll: 0,
+            body: cell::Cell::new(Rect::new(0, 0, 80, 20)),
             closed: false,
         }
     }
@@ -121,7 +128,8 @@ impl Board {
 
     /// The human presses `key`: q or Ctrl-C closes the Board; on the list, Up and Down move the
     /// selection within the changes that show, Enter opens the details of the selected one and
-    /// `d` shows or folds Done; in the details, Esc goes back. Once closed, keys do nothing.
+    /// `d` shows or folds Done; in the details, Up and Down scroll them and Esc goes back. Once
+    /// closed, keys do nothing.
     pub fn press(&mut self, key: Key) {
         if self.closed {
             return;
@@ -130,7 +138,14 @@ impl Board {
         match (key, self.details) {
             (Key::CtrlC | Key::Char('q'), _) => self.closed = true,
             (Key::Esc, true) => self.details = false,
-            (Key::Enter, false) => self.details = self.selected_card().is_some(),
+            (Key::Up, true) => self.detail_scroll = self.detail_scroll.saturating_sub(1),
+            (Key::Down, true) => {
+                self.detail_scroll = (self.detail_scroll + 1).min(self.detail_scroll_limit());
+            }
+            (Key::Enter, false) => {
+                self.details = self.selected_card().is_some();
+                self.detail_scroll = 0;
+            }
             (Key::Up, false) => self.selected = self.selected.saturating_sub(1),
             (Key::Down, false) => self.selected = (self.selected + 1).min(last),
             (Key::Char('d'), false) => {
@@ -162,18 +177,36 @@ impl Board {
         block.render(area, buffer);
         let [body, keys] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+        self.body.set(body);
         let (lines, selected, keys_text) = if self.details {
             (self.detail_lines(), None, DETAIL_KEYS)
         } else {
             let (lines, selected) = self.list_lines();
             (lines, selected, LIST_KEYS)
         };
-        let offset = scroll(&lines, selected, body);
+        let offset = if self.details {
+            self.detail_scroll.min(self.detail_scroll_limit())
+        } else {
+            scroll(&lines, selected, body)
+        };
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .scroll((offset, 0))
             .render(body, buffer);
         Paragraph::new(Line::from(keys_text).dim()).render(keys, buffer);
+    }
+
+    /// How many rows the details can scroll up before their last row is at the bottom of the
+    /// body as last painted.
+    fn detail_scroll_limit(&self) -> u16 {
+        let body = self.body.get();
+        let total: usize = self
+            .detail_lines()
+            .iter()
+            .map(|line| rows(line, body.width))
+            .sum();
+        let limit = total.saturating_sub(usize::from(body.height));
+        u16::try_from(limit).unwrap_or(u16::MAX)
     }
 
     /// The changes of a section, as positions among the cards.
@@ -280,8 +313,8 @@ fn rows(line: &Line, width: u16) -> usize {
     if width == 0 {
         return 1;
     }
-    // Wrapping at words can take up to twice the rows of the plain division.
-    let room = (line.width() / usize::from(width)) * 2 + 2;
+    // A row holds at least one cell of the line, so the line never takes more rows than cells.
+    let room = line.width().max(1);
     let area = Rect::new(0, 0, width, u16::try_from(room).unwrap_or(u16::MAX));
     let mut buffer = Buffer::empty(area);
     Paragraph::new(line.clone())
@@ -655,6 +688,54 @@ mod tests {
         press(&mut board, &[Key::Esc, Key::Down, Key::Enter]);
         assert_shows(&board, &["c2 · Title of c2", "Paths: none planned"]);
         assert_shows(&board, &["State: open", "Inbox: .gdd/changes/c2/inbox.md"]);
+    }
+
+    #[test]
+    fn long_details_scroll_with_up_and_down_within_their_ends() {
+        let paths: Vec<String> = (0..120)
+            .map(|n| format!("crates/gdd/src/path{n:03}.rs"))
+            .collect();
+        let long = Card {
+            paths,
+            ..card("c1", "open")
+        };
+        let mut board = board(vec![long]);
+        board.press(Key::Enter);
+        let top = board.render(80, 24);
+        assert!(
+            top.contains("Type: Feature") && !top.contains("Inbox:"),
+            "{top}"
+        );
+        for _ in 0..100 {
+            board.press(Key::Down);
+        }
+        let end = board.render(80, 24);
+        assert!(end.contains("Inbox: .gdd/changes/c1/inbox.md"), "{end}");
+        assert!(!end.contains("Type: Feature"), "{end}");
+        board.press(Key::Up);
+        let up = board.render(80, 24);
+        assert!(up.contains("path119.rs") && !up.contains("Inbox:"), "{up}");
+        for _ in 0..100 {
+            board.press(Key::Up);
+        }
+        let back = board.render(80, 24);
+        assert!(
+            back.contains("Type: Feature") && !back.contains("Inbox:"),
+            "{back}"
+        );
+        board.press(Key::Down);
+        board.press(Key::Esc);
+        board.press(Key::Enter);
+        assert!(board.render(80, 24).contains("Type: Feature"));
+    }
+
+    #[test]
+    fn short_details_do_not_scroll() {
+        let mut board = board(vec![card("c1", "open")]);
+        board.press(Key::Enter);
+        board.render(80, 24);
+        press(&mut board, &[Key::Down, Key::Down]);
+        assert_shows(&board, &["c1 · Title of c1", "Type: Feature"]);
     }
 
     #[test]
