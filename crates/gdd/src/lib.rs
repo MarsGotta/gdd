@@ -6,7 +6,7 @@ pub mod form;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -102,6 +102,69 @@ impl Outcome {
         match said {
             Said::Done(text) => Outcome::printed(text, 0),
             Said::Parked(message) => Outcome::failure(format!("{message}\n")),
+        }
+    }
+}
+
+/// Where a run says what it says on its way, before it ends (see [`Voice`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Streams {
+    /// The standard output and error of the process, each line at once: a person at a terminal
+    /// reads it as it is said, and never again at the end.
+    Process,
+    /// None: each line is kept, first in what the run prints at its end, for whoever runs gdd
+    /// in-process and reads its [`Outcome`].
+    Outcome,
+}
+
+impl Streams {
+    /// How a run says on the standard output what it says on its way.
+    fn out(self) -> Voice {
+        match self {
+            Streams::Process => Voice::Shown(Box::new(io::stdout())),
+            Streams::Outcome => Voice::Kept(String::new()),
+        }
+    }
+
+    /// How a run says on the standard error what it says on its way.
+    fn err(self) -> Voice {
+        match self {
+            Streams::Process => Voice::Shown(Box::new(io::stderr())),
+            Streams::Outcome => Voice::Kept(String::new()),
+        }
+    }
+}
+
+/// What a run says on its way, before it ends, a line each: what it waits for, what it does next.
+enum Voice {
+    /// Shown at once on a stream, flushed.
+    Shown(Box<dyn Write>),
+    /// Kept, the lines so far, to come first in what the run prints at its end.
+    Kept(String),
+}
+
+impl Voice {
+    /// Says `line`.
+    fn say(&mut self, line: &str) {
+        match self {
+            Voice::Shown(stream) => {
+                // A closed output (`gdd selftest | head -1`) is not worth stopping the run.
+                let _ = stream
+                    .write_all(format!("{line}\n").as_bytes())
+                    .and_then(|()| stream.flush());
+            }
+            Voice::Kept(said) => {
+                said.push_str(line);
+                said.push('\n');
+            }
+        }
+    }
+
+    /// What was kept, to come first in what the run prints at its end: nothing once shown.
+    fn kept(self) -> String {
+        match self {
+            Voice::Shown(_) => String::new(),
+            Voice::Kept(said) => said,
         }
     }
 }
@@ -508,29 +571,31 @@ fn parse_color(name: &str) -> Result<Color, String> {
 impl Command {
     /// Runs the command on the project at `root`, whose state root is `state` (see
     /// [`state::root`]), for the role `role`, in the environment `env`: what it prints and its
-    /// exit code.
+    /// exit code. What it says on its way, it says on `streams`.
     fn run(
         self,
         root: &Path,
         state: &Path,
         role: Option<&str>,
         env: &Env,
+        streams: Streams,
     ) -> Result<Outcome, String> {
         let text = match self {
             Command::G2(args) => return run_gate(root, state, Gate::G2, args, role, env),
             Command::G3(args) => return run_gate(root, state, Gate::G3, args, role, env),
             Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
-            Command::Selftest => return run_selftest(root, state, role),
+            Command::Selftest => return run_selftest(root, state, role, streams.out()),
             Command::Ci => return run_ci(root, state, env),
             Command::Park { change, reason } => {
                 let message = change::park(state, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => return launch(root, state, &change, env),
-            Command::Resume(args) => return resume(root, state, &args, role, env),
+            Command::Launch { change } => return launch(root, state, &change, env, streams.out()),
+            Command::Resume(args) => return resume(root, state, &args, role, env, streams.out()),
             Command::Merge { change } => {
-                return merge_queued(root, state, &change_id(change, env)?, env);
+                let id = change_id(change, env)?;
+                return merge_queued(root, state, &id, env, streams.err());
             }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
@@ -539,7 +604,11 @@ impl Command {
             Command::Snapshot { change } => snapshot(root, state, &change_id(change, env)?)?,
             Command::Scope { change } => scope(root, state, &change)?,
             Command::NewChange(args) => new_change(root, state, &args)?,
-            Command::Gate(args) => record_gate(root, state, &args, role)?,
+            Command::Gate(args) => {
+                let mut voice = streams.out();
+                let recorded = record_gate(root, state, &args, role, |line| voice.say(line))?;
+                format!("{}{recorded}", voice.kept())
+            }
             Command::Note(args) => note(state, &args)?,
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state, env)?,
@@ -572,18 +641,27 @@ fn variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
 /// An environment: its variables, with their values.
 type Env = [(String, String)];
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, in the
-/// environment of the process (see [`run_with_env`]).
+/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, as the
+/// process itself, in its environment (see [`run_with_env`]). What it says on its way, such as
+/// what it waits for, goes at once to its standard output or error, flushed, as it is said: it is
+/// not in what it returns, which comes after it.
 pub fn run(args: &[String], cwd: &Path) -> Outcome {
-    run_with_env(args, cwd, &process_env())
+    let env = process_env();
+    run_in(args, cwd, role_in(&env), &env, Streams::Process)
 }
 
 /// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, with `env`
 /// as the whole environment it runs in: the agents it starts get it (see [`invoke`]), and its
-/// `GDD_ROLE` is the role it runs for (see [`run_as`]).
+/// `GDD_ROLE` is the role it runs for (see [`run_as`]). What it says on its way comes first in
+/// what it returns.
 pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Outcome {
+    run_in(args, cwd, role_in(env), env, Streams::Outcome)
+}
+
+/// The role a run in the environment `env` runs for: its last `GDD_ROLE`.
+fn role_in(env: &Env) -> Option<&str> {
     let role = env.iter().rev().find(|(name, _)| name == "GDD_ROLE");
-    run_in(args, cwd, role.map(|(_, role)| role.as_str()), env)
+    role.map(|(_, role)| role.as_str())
 }
 
 /// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
@@ -593,14 +671,15 @@ pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Ou
 /// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
 /// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
 /// when it finds a problem. `gdd selftest` and `gdd ci` exit with 1 when they fail, what they
-/// found on the standard output. `gdd init` without the flags of the project exits with 2.
+/// found on the standard output. `gdd init` without the flags of the project exits with 2. What
+/// it says on its way comes first in what it returns.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
-    run_in(args, cwd, role, &process_env())
+    run_in(args, cwd, role, &process_env(), Streams::Outcome)
 }
 
 /// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
-/// (see [`run_as`]).
-fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome {
+/// (see [`run_as`]), saying what it says on its way on `streams`.
+fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: Streams) -> Outcome {
     let cli = match parse(args) {
         Ok(cli) => cli,
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
@@ -614,7 +693,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env) -> Outcome
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
         let state = state::root(&root)?;
-        command.run(&root, &state, role, env)
+        command.run(&root, &state, role, env, streams)
     });
     ran.unwrap_or_else(|message| Outcome::error(&message))
 }
@@ -836,22 +915,25 @@ fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
 /// `gdd selftest`: the harness self-test of the project (see [`selftest::run`]), saved and
 /// logged under the state root `state`. It fails the run unless every check passed. From the
 /// files it plants and the copies it keeps to its result, it writes state every change shares:
-/// it runs as a person's write (see [`queue::shared_write`]), and says first when it waited for
-/// the agent calls under way. A Builder or a Reviewer, the role `role`, is refused before: its own
-/// self-test would wait for its own call.
-fn run_selftest(root: &Path, state: &Path, role: Option<&str>) -> Result<Outcome, String> {
+/// it runs as a person's write (see [`queue::shared_write`]): when it waits for the agent calls
+/// under way, it says so with `voice` as the wait starts. A Builder or a Reviewer, the role
+/// `role`, is refused before: its own self-test would wait for its own call.
+fn run_selftest(
+    root: &Path,
+    state: &Path,
+    role: Option<&str>,
+    mut voice: Voice,
+) -> Result<Outcome, String> {
     approve::may_record(role).map_err(|e| e.to_string())?;
     let gates = GateConfig::load(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
     let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
-    let mut said = String::new();
-    let waited = || said = format!("{}\n", queue::WAITING_AGENTS);
-    let write = queue::shared_write(state, waited)?;
+    let write = queue::shared_write(state, || voice.say(queue::WAITING_AGENTS))?;
     let checked = selftest::run(&gates.project(root, state), &config)?;
     selftest::save(state, &checked)?;
     drop(write);
     let code = u8::from(!checked.ok());
-    Ok(Outcome::printed(format!("{said}{checked}"), code))
+    Ok(Outcome::printed(format!("{}{checked}", voice.kept()), code))
 }
 
 /// `gdd ci`: what CI runs on the branch `GITHUB_HEAD_REF` of the environment `env` names, else
@@ -969,13 +1051,19 @@ fn prepare_decided(
 /// `gdd merge`: the merge of change `id`, whose branch is checked out at the project root `root`,
 /// as the recipe merges (see [`recipe::merge`]): one merge at a time, on top of the latest main,
 /// with its steps there; the gates it runs again start in the environment `env`. What it says on
-/// its way goes to the standard error, before why it parked or failed: the standard output is
-/// the JSON of the merge.
-fn merge_queued(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcome, String> {
+/// its way it says with `voice`, on the standard error, before why it parked or failed: the
+/// standard output is the JSON of the merge.
+fn merge_queued(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    env: &Env,
+    voice: Voice,
+) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let settings = agent_settings(root)?;
-    let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env);
+    let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env, voice);
     let at = recipe::Merging {
         state,
         work: root,
@@ -984,7 +1072,7 @@ fn merge_queued(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcom
     };
     let ran = recipe::merge(&at, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
-    outcome.stderr.insert_str(0, &steps.said);
+    outcome.stderr.insert_str(0, &steps.voice.kept());
     Ok(outcome)
 }
 
@@ -1017,26 +1105,27 @@ fn release_change(root: &Path, state: &Path, step: &str, id: &str) -> Result<Str
 }
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
-/// environment `env`.
-fn launch(root: &Path, state: &Path, id: &str, env: &Env) -> Result<Outcome, String> {
-    in_worktree(root, state, id, env, |project, steps| {
+/// environment `env`, saying what it says on its way with `voice`.
+fn launch(root: &Path, state: &Path, id: &str, env: &Env, voice: Voice) -> Result<Outcome, String> {
+    in_worktree(root, state, id, env, voice, |project, steps| {
         recipe::launch(project, id, steps)
     })
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
-/// whose agents start in the environment `env`.
+/// whose agents start in the environment `env`, saying what it says on its way with `voice`.
 fn resume(
     root: &Path,
     state: &Path,
     args: &ResumeArgs,
     role: Option<&str>,
     env: &Env,
+    voice: Voice,
 ) -> Result<Outcome, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
-    in_worktree(root, state, id, env, |project, steps| {
+    in_worktree(root, state, id, env, voice, |project, steps| {
         recipe::resume(project, id, answer, &note, role, steps)
     })
 }
@@ -1045,12 +1134,14 @@ fn resume(
 /// `state`, with its steps in the project's folder of the worktree of the change, in the folder
 /// of the worktrees the rules file names (see [`recipe::worktree`]), and as many changes building
 /// at once as it allows (see [`queue::cap`]); the agents start in the environment `env`. What the
-/// run said on its way comes first in what it prints, however it ended.
+/// run says on its way it says with `voice`: kept, it comes first in what it prints, however it
+/// ended.
 fn in_worktree(
     root: &Path,
     state: &Path,
     id: &str,
     env: &Env,
+    voice: Voice,
     run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
 ) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
@@ -1070,10 +1161,10 @@ fn in_worktree(
         max,
     };
     let settings = agent_settings(root)?;
-    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env);
+    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, voice);
     let ran = run(&project, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
-    outcome.stdout.insert_str(0, &steps.said);
+    outcome.stdout.insert_str(0, &steps.voice.kept());
     Ok(outcome)
 }
 
@@ -1148,14 +1239,14 @@ struct ProjectSteps<'a> {
     env: &'a Env,
     /// What `gdd/models.toml` says of the agents besides the model of each role.
     settings: invoke::Settings,
-    /// What the recipe said on its way, a line each.
-    said: String,
+    /// How the recipe says what it says on its way, a line each.
+    voice: Voice,
 }
 
 impl<'a> ProjectSteps<'a> {
     /// The steps on change `id` of the project at `root`, whose state root is `state` and whose
     /// rules file sets `limits`, with the agents starting in the environment `env` with
-    /// `settings`.
+    /// `settings`, saying what the recipe says on its way with `voice`.
     fn new(
         root: &'a Path,
         state: &'a Path,
@@ -1163,6 +1254,7 @@ impl<'a> ProjectSteps<'a> {
         limits: &Limits,
         settings: invoke::Settings,
         env: &'a Env,
+        voice: Voice,
     ) -> ProjectSteps<'a> {
         ProjectSteps {
             root,
@@ -1171,7 +1263,7 @@ impl<'a> ProjectSteps<'a> {
             timeout: Duration::from_secs(limits.agent_timeout_s),
             env,
             settings,
-            said: String::new(),
+            voice,
         }
     }
 }
@@ -1224,7 +1316,8 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        record_gate(self.root, self.state, &args, None).map(drop)
+        let (root, state, voice) = (self.root, self.state, &mut self.voice);
+        record_gate(root, state, &args, None, |line| voice.say(line)).map(drop)
     }
 
     /// The recipe holds the merge lock already.
@@ -1239,8 +1332,7 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     fn say(&mut self, line: &str) {
-        self.said.push_str(line);
-        self.said.push('\n');
+        self.voice.say(line);
     }
 }
 
@@ -1326,12 +1418,14 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
     classify(root, state, id)
 }
 
-/// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]).
+/// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]); what it
+/// waits for, it says with `say` as the wait starts.
 fn record_gate(
     root: &Path,
     state: &Path,
     args: &DecisionArgs,
     role: Option<&str>,
+    say: impl FnOnce(&str),
 ) -> Result<String, String> {
     let gate = match args.gate.parse::<approve::Gate>() {
         Ok(gate) => gate,
@@ -1354,7 +1448,7 @@ fn record_gate(
         by: &args.by,
         note: &args.note,
     };
-    approve::record(&project, &request, role).map_err(|e| e.to_string())
+    approve::record(&project, &request, role, say).map_err(|e| e.to_string())
 }
 
 /// `gdd note`: adds a note to the record of a change, under the state root `state`, for its
@@ -2729,6 +2823,93 @@ mod tests {
         assert_eq!(orchestrator.code, 0, "{orchestrator:?}");
     }
 
+    /// A standard stream as a test watches it: each write, and each flush, as they happen.
+    struct Watched(std::sync::mpsc::Sender<String>);
+
+    /// What [`Watched`] sends for a flush.
+    const FLUSHED: &str = "(flushed)";
+
+    impl Write for Watched {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let text = String::from_utf8_lossy(bytes).into_owned();
+            self.0.send(text).unwrap();
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.0.send(FLUSHED.to_string()).unwrap();
+            Ok(())
+        }
+    }
+
+    /// Runs `write`, a person's write to the state every change shares, in the project at `root`
+    /// while an agent call is under way there, with a voice shown on a watched stream: what it
+    /// showed before the call ended, which keeps the write from taking its lock, and what it
+    /// returned once the call ended. It shows nothing more.
+    fn shown_during_a_call<T: Send>(
+        root: &Path,
+        write: impl FnOnce(Voice) -> T + Send,
+    ) -> (Vec<String>, T) {
+        let call = queue::calling(root).unwrap();
+        let (seen, watch) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let person = scope.spawn(move || write(Voice::Shown(Box::new(Watched(seen)))));
+            let wait = Duration::from_secs(10);
+            let line = watch.recv_timeout(wait).unwrap();
+            let flushed = watch.recv_timeout(wait).unwrap();
+            assert!(!person.is_finished(), "{line:?}");
+            drop(call);
+            let done = person.join().unwrap();
+            assert_eq!(watch.try_iter().count(), 0, "shown again");
+            (vec![line, flushed], done)
+        })
+    }
+
+    #[test]
+    fn a_person_at_a_terminal_reads_that_gdd_waits_for_the_agents_at_work_as_the_wait_starts() {
+        let project = selftest_project("test ! -f t.txt");
+        project.write(approve::BRIEF, "# Brief\n");
+        let root = project.0.as_path();
+        let waiting = [format!("{}\n", queue::WAITING_AGENTS), FLUSHED.into()];
+        let self_test = |voice| run_selftest(root, root, None, voice);
+        let (shown, out) = shown_during_a_call(root, self_test);
+        assert_eq!(shown, waiting);
+        // Once: what it printed at its end does not say it again.
+        let out = out.unwrap();
+        let first = "OK a failing test turns G2 red\n";
+        assert!(out.stdout.starts_with(first), "{out:?}");
+        let gates = [
+            ("G0", "machines", "G0 ok (machines)."),
+            ("zones", "human", "Red zones ok (0 red zone(s))."),
+        ];
+        for (gate, by, recorded) in gates {
+            let args = DecisionArgs {
+                gate: gate.to_string(),
+                decision: "ok".to_string(),
+                change: None,
+                by: by.to_string(),
+                note: String::new(),
+            };
+            let (shown, (done, kept)) = shown_during_a_call(root, |mut voice| {
+                let done = record_gate(root, root, &args, None, |line| voice.say(line));
+                (done, voice.kept())
+            });
+            assert_eq!(shown, waiting, "{gate}");
+            assert_eq!(done.unwrap(), recorded, "{gate}");
+            assert_eq!(kept, "", "{gate}");
+        }
+    }
+
+    #[test]
+    fn a_run_as_the_process_shows_what_it_says_on_its_way_and_one_in_process_keeps_it() {
+        for voice in [Streams::Process.out(), Streams::Process.err()] {
+            assert!(matches!(voice, Voice::Shown(_)));
+        }
+        for voice in [Streams::Outcome.out(), Streams::Outcome.err()] {
+            assert!(matches!(voice, Voice::Kept(said) if said.is_empty()));
+        }
+    }
+
     #[test]
     fn ci_checks_the_branch_github_names_else_the_current_one() {
         let project = committed_project();
@@ -3303,14 +3484,26 @@ mod tests {
     }
 
     #[test]
-    fn what_the_recipe_says_on_its_way_comes_before_what_it_says_at_its_end() {
+    fn what_the_recipe_says_on_its_way_is_shown_at_once_or_kept_for_its_end() {
         let project = Project::new();
-        let limits = Limits::default();
-        let settings = invoke::Settings::default();
-        let mut steps = ProjectSteps::new(&project.0, &project.0, "c1", &limits, settings, &[]);
-        recipe::Steps::say(&mut steps, "one");
-        recipe::Steps::say(&mut steps, "two");
-        assert_eq!(steps.said, "one\ntwo\n");
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let steps = |voice| {
+            let settings = invoke::Settings::default();
+            ProjectSteps::new(root, root, "c1", &limits, settings, &[], voice)
+        };
+        let mut kept = steps(Streams::Outcome.out());
+        recipe::Steps::say(&mut kept, "one");
+        recipe::Steps::say(&mut kept, "two");
+        assert_eq!(kept.voice.kept(), "one\ntwo\n");
+        let (seen, watch) = std::sync::mpsc::channel();
+        let mut shown = steps(Voice::Shown(Box::new(Watched(seen))));
+        recipe::Steps::say(&mut shown, "one");
+        let said: Vec<String> = watch.try_iter().collect();
+        assert_eq!(said, ["one\n", FLUSHED]);
+        recipe::Steps::say(&mut shown, "two");
+        let said: Vec<String> = watch.try_iter().collect();
+        assert_eq!(said, ["two\n", FLUSHED]);
+        assert_eq!(shown.voice.kept(), "");
     }
 
     #[test]

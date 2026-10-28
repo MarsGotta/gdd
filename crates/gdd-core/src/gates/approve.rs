@@ -4,11 +4,11 @@
 //! The machines open G0, once the Project Brief is written and the harness self-test passed. A
 //! human approves the red zones, and the approval keeps their hash: changing them asks for a new
 //! one, and approving them as they are already approved writes nothing. G0 and the red zones are
-//! state every change shares: their writes wait for the agent calls under way (see
-//! [`queue::shared_write`]). The plan, G1, G2, G3 and G4 are recorded on a change. Approving G1
-//! seals the scenario files of the change, as its branch has them, with their SHA-256, and
-//! refuses hidden examples with sentences no visible scenario has. A Builder or a Reviewer can
-//! never record anything.
+//! state every change shares: their writes wait for the agent calls under way, saying so as the
+//! wait starts (see [`queue::shared_write`]). The plan, G1, G2, G3 and G4 are recorded on a
+//! change. Approving G1 seals the scenario files of the change, as its branch has them, with their
+//! SHA-256, and refuses hidden examples with sentences no visible scenario has. A Builder or a
+//! Reviewer can never record anything.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -253,14 +253,21 @@ fn unwritable(path: &str, e: io::Error) -> Error {
 
 /// Records the decision `request` asks for, by the role `role` (`None` for a person or the
 /// Orchestrator), and logs it. A Builder or a Reviewer is refused before anything else; then a
-/// decision other than `ok` or `ko`. What it returns says what was recorded, in one line.
-pub fn record(project: &Project, request: &Request, role: Option<&str>) -> Result<String, Error> {
+/// decision other than `ok` or `ko`. A write that waits for the agent calls under way says
+/// [`queue::WAITING_AGENTS`] with `say` as the wait starts, before it blocks. What it returns
+/// says what was recorded, in one line.
+pub fn record(
+    project: &Project,
+    request: &Request,
+    role: Option<&str>,
+    say: impl FnOnce(&str),
+) -> Result<String, Error> {
     may_record(role)?;
     let decision = Decision::parse(request.decision)?;
     let ts = log::now();
     match request.gate {
-        Gate::G0 => open_g0(project, request, decision, &ts),
-        Gate::Zones => approve_zones(project, request, decision, &ts),
+        Gate::G0 => open_g0(project, request, decision, &ts, say),
+        Gate::Zones => approve_zones(project, request, decision, &ts, say),
         _ => record_on_change(project, request, decision, &ts),
     }
 }
@@ -276,12 +283,13 @@ pub fn may_record(role: Option<&str>) -> Result<(), Error> {
 }
 
 /// G0: only the machines open it, and only with the Project Brief and a passing self-test. Its
-/// write waits for the agent calls under way (see [`shared_write`]).
+/// write waits for the agent calls under way, saying so with `say` (see [`shared_write`]).
 fn open_g0(
     project: &Project,
     request: &Request,
     decision: Decision,
     ts: &str,
+    say: impl FnOnce(&str),
 ) -> Result<String, Error> {
     let state = project.state;
     if request.by != "machines" {
@@ -301,10 +309,10 @@ fn open_g0(
         note: request.note,
         hashes: None,
     };
-    let (_write, said) = shared_write(state)?;
+    let _write = shared_write(state, say)?;
     write_json(state, G0_PATH, &approval)?;
     logged(state, ts, "-", "machine", request, decision)?;
-    Ok(format!("{said}G0 {decision} ({}).", request.by))
+    Ok(format!("G0 {decision} ({}).", request.by))
 }
 
 /// What the approval of the red zones keeps.
@@ -319,13 +327,15 @@ struct ZonesApproval<'a> {
 }
 
 /// The red zones: only a human approves them; the approval keeps them and their hash, and its
-/// write waits for the agent calls under way (see [`shared_write`]). Approving them as they are
-/// already approved writes nothing and waits for nothing: the decision is only logged.
+/// write waits for the agent calls under way, saying so with `say` (see [`shared_write`]).
+/// Approving them as they are already approved writes nothing and waits for nothing: the decision
+/// is only logged.
 fn approve_zones(
     project: &Project,
     request: &Request,
     decision: Decision,
     ts: &str,
+    say: impl FnOnce(&str),
 ) -> Result<String, Error> {
     if request.by != "human" {
         return Err(refused(ZONES_BY_HUMAN));
@@ -351,20 +361,18 @@ fn approve_zones(
         red: &reds,
         note: request.note,
     };
-    let (_write, said) = shared_write(state)?;
+    let _write = shared_write(state, say)?;
     write_json(state, ZONES_PATH, &approval)?;
     logged(state, ts, change, "human", request, decision)?;
-    Ok(format!("{said}Red zones {decision} ({count} red zone(s))."))
+    Ok(format!("Red zones {decision} ({count} red zone(s))."))
 }
 
 /// Takes the lock of a person's write to the state every change shares, under the state root
-/// `state` (see [`queue::shared_write`]), and what to say before what was recorded: a line when
-/// it waited for the agent calls under way, else nothing.
-fn shared_write(state: &Path) -> Result<(SharedWrite, String), Error> {
-    let mut said = String::new();
-    let waited = || said = format!("{}\n", queue::WAITING_AGENTS);
-    let write = queue::shared_write(state, waited).map_err(Error::Project)?;
-    Ok((write, said))
+/// `state` (see [`queue::shared_write`]). When it waits for the agent calls under way, it says
+/// [`queue::WAITING_AGENTS`] with `say` first, as the wait starts.
+fn shared_write(state: &Path, say: impl FnOnce(&str)) -> Result<SharedWrite, Error> {
+    let waiting = || say(queue::WAITING_AGENTS);
+    queue::shared_write(state, waiting).map_err(Error::Project)
 }
 
 /// The plan, G1, G2, G3 and G4: recorded on the change. Approving G1 also seals its scenario
@@ -771,6 +779,9 @@ mod tests {
     use super::*;
     use crate::git::tests::{Folder, Repo};
     use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::Duration;
 
     const ZONES: &str = "default = \"yellow\"\n\
                          [[zone]]\ncolor = \"green\"\npaths = [\"docs/**\"]\n\
@@ -874,7 +885,7 @@ mod tests {
                 by,
                 note: "Looks fine",
             };
-            record(&self.project(), &request, role)
+            record(&self.project(), &request, role, |_| {})
         }
 
         fn run(
@@ -1019,9 +1030,9 @@ mod tests {
             by,
             note: "",
         };
-        record(&at, &request(Gate::G0, "machines", None), None).unwrap();
-        record(&at, &request(Gate::Zones, "human", None), None).unwrap();
-        record(&at, &request(Gate::G4, "human", Some("c1")), None).unwrap();
+        record(&at, &request(Gate::G0, "machines", None), None, |_| {}).unwrap();
+        record(&at, &request(Gate::Zones, "human", None), None, |_| {}).unwrap();
+        record(&at, &request(Gate::G4, "human", Some("c1")), None, |_| {}).unwrap();
         assert!(g0_open(&state.0).unwrap());
         assert!(zones_state(&state.0, ZONES).unwrap().approved());
         let saved = fs::read_to_string(state.0.join(change::record_path("c1"))).unwrap();
@@ -1162,7 +1173,7 @@ mod tests {
             by: "human",
             note: "second sitting",
         };
-        let again = record(&project.project(), &request, None).unwrap();
+        let again = record(&project.project(), &request, None, |_| {}).unwrap();
         let said = "Red zones ok (1 red zone(s)): already approved, nothing changed.";
         assert_eq!(again, said);
         assert_eq!(fs::read_to_string(&path).unwrap(), approved);
@@ -1191,31 +1202,56 @@ mod tests {
     }
 
     #[test]
-    fn writing_g0_or_the_red_zones_waits_for_the_agents_at_work_and_says_so_first() {
+    fn g0_and_the_red_zones_say_once_they_wait_for_the_agents_at_work_before_waiting() {
         let project = fixture();
         project.write(SELFTEST_PATH, r#"{"ok": true}"#);
         project.write(BRIEF, "# Brief\n");
-        let waiting = queue::WAITING_AGENTS;
-        let during_a_call = |gate, by| {
-            let call = queue::calling(project.root()).unwrap();
-            let ends = std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(300));
-                drop(call);
-            });
-            let done = project.run(gate, "ok", None, by);
-            ends.join().unwrap();
-            done.unwrap()
+        let at = project.project();
+        let request = |gate, by| Request {
+            gate,
+            decision: "ok",
+            change: None,
+            by,
+            note: "",
         };
-        let opened = during_a_call(Gate::G0, "machines");
-        assert_eq!(opened, format!("{waiting}\nG0 ok (machines)."));
+        let zones_ok = "Red zones ok (1 red zone(s)).";
+        let writes = [
+            (Gate::G0, "machines", G0_PATH, "G0 ok (machines)."),
+            (Gate::Zones, "human", ZONES_PATH, zones_ok),
+        ];
+        for (gate, by, path, recorded) in writes {
+            let call = queue::calling(project.root()).unwrap();
+            let (said, wait_said) = mpsc::channel();
+            thread::scope(|scope| {
+                let person = scope.spawn(move || {
+                    let say = |line: &str| said.send(line.to_string()).unwrap();
+                    record(&at, &request(gate, by), None, say)
+                });
+                // Said while the call holds the lock of the calls: before the write takes it.
+                let line = wait_said.recv_timeout(Duration::from_secs(10)).unwrap();
+                assert_eq!(line, queue::WAITING_AGENTS, "{gate}");
+                assert!(!person.is_finished(), "{gate}");
+                assert!(!project.root().join(path).exists(), "{gate}");
+                drop(call);
+                // Once: what was recorded does not say it again.
+                assert_eq!(person.join().unwrap().unwrap(), recorded);
+            });
+            assert!(wait_said.try_recv().is_err(), "{gate}");
+        }
         assert!(g0_open(project.root()).unwrap());
-        let zones = during_a_call(Gate::Zones, "human");
-        assert_eq!(zones, format!("{waiting}\nRed zones ok (1 red zone(s))."));
         assert!(zones_state(project.root(), ZONES).unwrap().approved());
-        // As they are already approved, nothing waits.
-        let again = during_a_call(Gate::Zones, "human");
+        // As they are already approved, nothing waits for a call under way, nor says it does.
+        let call = queue::calling(project.root()).unwrap();
+        let ends = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(300));
+            drop(call);
+        });
+        let mut said = Vec::new();
+        let say = |line: &str| said.push(line.to_string());
+        let again = record(&at, &request(Gate::Zones, "human"), None, say).unwrap();
+        ends.join().unwrap();
         assert!(again.ends_with(ALREADY_APPROVED), "{again}");
-        assert!(!again.contains(waiting), "{again}");
+        assert!(said.is_empty(), "{said:?}");
     }
 
     #[test]
