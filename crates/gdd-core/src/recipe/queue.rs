@@ -1,7 +1,7 @@
 //! Several changes at once, merged one at a time. Each change runs in its own worktree, so
-//! several can run at once, and two rules keep them from stepping on each other. A change does
-//! not launch while a change in flight plans a path that overlaps one of its own, nor while
-//! `[parallel] max` changes build already: the agents' subscriptions are shared (see
+//! several can run at once. A change does not launch while `[parallel] max` changes build
+//! already: the agents' subscriptions are shared. One that plans a path that overlaps one of a
+//! change in flight launches with a warning: git settles the overlap when it merges (see
 //! [`may_launch`]). Launches are judged one at a time, under the launch lock (see
 //! [`admission`]). And merges go one at a time, under the merge lock (see [`lock`]): a change
 //! whose main branch moved since it was built takes the latest main first (see [`main_moved`]
@@ -35,8 +35,8 @@ const WILDCARDS: [char; 3] = ['*', '?', '['];
 /// The changes that build at once at most when the rules file says nothing.
 const DEFAULT_MAX: usize = 2;
 
-/// What lets a change launch, after its id, when it overlaps changes in flight.
-const AFTER_OVERLAPS: &str = "can launch once the changes it overlaps close or are rejected.";
+/// Who settles an overlap, before the id of the change that launches: the merge follows.
+const SETTLED: &str = "git settles it when";
 
 /// What lets a change launch, after its id, when the cap is reached: the rules file follows.
 const AFTER_CAP: &str = "can launch once one of those building reaches G4 or is parked, or with \
@@ -88,20 +88,15 @@ pub fn cap(rules: &str) -> Result<usize, config::Error> {
     Ok(raw.parallel.max.map_or(DEFAULT_MAX, NonZeroUsize::get))
 }
 
-/// `Ok` when change `id`, whose record is `record`, may launch in the project whose state root
-/// is `state`, where `max` changes build at once at most: no other change in flight plans a path
-/// that overlaps one of its own (see [`overlaps`]), and fewer than `max` others build. Else why
-/// not: a line for each change in flight it overlaps, then one for the cap; then what lets it
-/// launch. A record that cannot be read is an error that names it, never a change out of flight.
-pub fn may_launch(state: &Path, id: &str, record: &str, max: usize) -> Result<(), String> {
+/// The warnings of change `id`, whose record is `record`, when it may launch in the project
+/// whose state root is `state`, where `max` changes build at once at most: fewer than `max`
+/// others build. A warning for each change in flight that plans a path that overlaps one of its
+/// own (see [`overlaps`]), none without. Else why not, with no warning: the changes building and
+/// the cap, then what lets it launch. A record that cannot be read is an error that names it,
+/// never a change out of flight.
+pub fn may_launch(state: &Path, id: &str, record: &str, max: usize) -> Result<Vec<String>, String> {
     let own = Flight::read(id, record.as_bytes())?;
     let others = in_flight(state, id)?;
-    let overlapping = others.iter().filter_map(|other| overlap(&own, other));
-    let mut refused: Vec<String> = overlapping.collect();
-    let mut next = Vec::new();
-    if !refused.is_empty() {
-        next.push(format!("{id} {AFTER_OVERLAPS}"));
-    }
     let building: Vec<&str> = others
         .iter()
         .filter(|other| BUILDING.contains(&other.state.as_str()))
@@ -110,15 +105,10 @@ pub fn may_launch(state: &Path, id: &str, record: &str, max: usize) -> Result<()
     if building.len() >= max {
         let (count, ids) = (building.len(), building.join(", "));
         let cap = format!("{count} change(s) building, the cap is {max}: {ids}");
-        refused.push(cap);
-        next.push(format!("{id} {AFTER_CAP} {RULES}."));
+        return Err(format!("{cap}\n{id} {AFTER_CAP} {RULES}."));
     }
-    if refused.is_empty() {
-        return Ok(());
-    }
-    // gdd prints the first line as an error: so is each of the others. What to do comes last.
-    let (refused, next) = (refused.join("\nerror: "), next.join("\n"));
-    Err(format!("{refused}\n{next}"))
+    let overlapping = others.iter().filter_map(|other| overlap(&own, other));
+    Ok(overlapping.collect())
 }
 
 /// A change as the launch of another one reads it from its record.
@@ -180,8 +170,8 @@ fn others(state: &Path, id: &str) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
-/// Why change `own` cannot launch next to `other`, when a path each plans overlaps: every such
-/// pair, its own path first.
+/// The warning of change `own`, which launches next to `other`, when a path each plans overlaps:
+/// every such pair, its own path first, then who settles it.
 fn overlap(own: &Flight, other: &Flight) -> Option<String> {
     let mut pairs = Vec::new();
     for path in &own.paths {
@@ -194,7 +184,8 @@ fn overlap(own: &Flight, other: &Flight) -> Option<String> {
     }
     let (id, other_id, state) = (&own.id, &other.id, &other.state);
     let pairs = pairs.join(", ");
-    Some(format!("{id} overlaps {other_id} ({state}): {pairs}"))
+    let warning = format!("{id} overlaps {other_id} ({state}): {pairs}");
+    Some(format!("{warning}; {SETTLED} {id} merges."))
 }
 
 /// Whether the planned paths `a` and `b` overlap: compared segment by segment, split on `/`, one
@@ -475,9 +466,8 @@ pub(crate) mod tests {
         serde_json::json!({"state": "open", "paths": paths}).to_string()
     }
 
-    /// What lets change `c9` launch when it overlaps changes in flight.
-    const C9_AFTER_OVERLAPS: &str =
-        "c9 can launch once the changes it overlaps close or are rejected.";
+    /// What follows the warning of change `c9` for each change in flight it overlaps.
+    const C9_SETTLED: &str = "; git settles it when c9 merges.";
 
     /// What lets change `id` launch when the cap is reached.
     fn after_cap(id: &str) -> String {
@@ -488,23 +478,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_change_that_overlaps_one_in_flight_does_not_launch() {
+    fn a_change_that_overlaps_changes_in_flight_launches_with_a_warning_for_each() {
         let state = state_with(&[
             ("c1", "parked", &["src/app.txt", "src/lib/**"]),
             ("c2", "in-pre", &["docs/a.md"]),
             ("c3", "building", &["src/other.txt"]),
+            ("c4", "building", &["docs/**"]),
         ]);
         let mine = planning(&["src/lib/parse.txt", "src/app.txt", "docs/a.md"]);
-        let err = may_launch(&state.0, "c9", &mine, 9).unwrap_err();
+        let warnings = may_launch(&state.0, "c9", &mine, 9).unwrap();
         let c1 = "c9 overlaps c1 (parked): src/lib/parse.txt with src/lib/**, \
                   src/app.txt with src/app.txt";
         let c2 = "c9 overlaps c2 (in-pre): docs/a.md with docs/a.md";
-        assert_eq!(err, format!("{c1}\nerror: {c2}\n{C9_AFTER_OVERLAPS}"));
+        let c4 = "c9 overlaps c4 (building): docs/a.md with docs/**";
+        let expected = [c1, c2, c4].map(|line| format!("{line}{C9_SETTLED}"));
+        assert_eq!(warnings, expected);
         let elsewhere = planning(&["src/x.txt"]);
-        assert_eq!(may_launch(&state.0, "c9", &elsewhere, 9), Ok(()));
-        // A change never overlaps itself: relaunching a parked one is fine.
+        assert_eq!(may_launch(&state.0, "c9", &elsewhere, 9), Ok(Vec::new()));
+        // A change never overlaps itself: relaunching a parked one warns of nothing of its own.
         let own = planning(&["src/app.txt"]);
-        assert_eq!(may_launch(&state.0, "c1", &own, 9), Ok(()));
+        assert_eq!(may_launch(&state.0, "c1", &own, 9), Ok(Vec::new()));
     }
 
     #[test]
@@ -521,13 +514,13 @@ pub(crate) mod tests {
         ];
         for at in out_of_flight {
             let state = state_with(&[("c1", at, &["src/app.txt"])]);
-            assert_eq!(may_launch(&state.0, "c9", &mine, 1), Ok(()), "{at}");
+            assert_eq!(may_launch(&state.0, "c9", &mine, 1), Ok(Vec::new()), "{at}");
         }
         for at in IN_FLIGHT {
             let state = state_with(&[("c1", at, &["src/app.txt"])]);
-            let err = may_launch(&state.0, "c9", &mine, 9).unwrap_err();
-            let start = format!("c9 overlaps c1 ({at}): ");
-            assert!(err.starts_with(&start), "{err}");
+            let warnings = may_launch(&state.0, "c9", &mine, 9).unwrap();
+            let warning = format!("c9 overlaps c1 ({at}): src/app.txt with src/app.txt");
+            assert_eq!(warnings, [format!("{warning}{C9_SETTLED}")]);
         }
     }
 
@@ -544,18 +537,21 @@ pub(crate) mod tests {
         let err = may_launch(&state.0, "c9", &mine, 3).unwrap_err();
         let cap = "3 change(s) building, the cap is 3: c1, c2, c3";
         assert_eq!(err, format!("{cap}\n{}", after_cap("c9")));
-        assert_eq!(may_launch(&state.0, "c9", &mine, 4), Ok(()));
+        assert_eq!(may_launch(&state.0, "c9", &mine, 4), Ok(Vec::new()));
         // The change that launches is not one of the others.
         let err = may_launch(&state.0, "c1", &mine, 2).unwrap_err();
         let cap = "2 change(s) building, the cap is 2: c2, c3";
         assert_eq!(err, format!("{cap}\n{}", after_cap("c1")));
-        assert_eq!(may_launch(&state.0, "c1", &mine, 3), Ok(()));
-        let overlapped = state_with(&[("c1", "building", &["src/new.txt"])]);
+        assert_eq!(may_launch(&state.0, "c1", &mine, 3), Ok(Vec::new()));
+        // Overlaps do not refuse, nor are they said when the cap refuses.
+        let overlapped = state_with(&[
+            ("c1", "building", &["src/new.txt"]),
+            ("c2", "parked", &["src/new.txt"]),
+        ]);
         let err = may_launch(&overlapped.0, "c9", &mine, 1).unwrap_err();
-        let overlap = "c9 overlaps c1 (building): src/new.txt with src/new.txt";
         let cap = "1 change(s) building, the cap is 1: c1";
-        let next = format!("{C9_AFTER_OVERLAPS}\n{}", after_cap("c9"));
-        assert_eq!(err, format!("{overlap}\nerror: {cap}\n{next}"));
+        assert_eq!(err, format!("{cap}\n{}", after_cap("c9")));
+        assert_eq!(may_launch(&overlapped.0, "c9", &mine, 2).unwrap().len(), 2);
     }
 
     #[test]
@@ -566,8 +562,8 @@ pub(crate) mod tests {
         fs::create_dir_all(state.0.join(".gdd/changes/c2")).unwrap();
         state.write(".gdd/changes/.DS_Store", "");
         state.write(".gdd/changes/Notes/change.json", "{");
-        assert!(may_launch(&state.0, "c9", &mine, 9).is_err());
-        assert_eq!(may_launch(&state.0, "c1", &mine, 9), Ok(()));
+        assert_eq!(may_launch(&state.0, "c9", &mine, 9).unwrap().len(), 1);
+        assert_eq!(may_launch(&state.0, "c1", &mine, 9), Ok(Vec::new()));
         state.write(".gdd/changes/c3/change.json", "{");
         let err = may_launch(&state.0, "c1", &mine, 9).unwrap_err();
         assert!(err.starts_with(".gdd/changes/c3/change.json: "), "{err}");

@@ -78,7 +78,7 @@ Feature: A person's writes to shared state wait for the agents at work (hidden e
 
   Scenario: A new red zone for exports waits for a short call
     Given the red zone paths become "src/storage/**" and "src/export/**"
-    And an agent of another change is at work for 1 seconds
+    And an agent of another change is at work for 4 seconds
     When I run "gdd gate zones ok c7 --by human --note exports"
     Then it succeeds
     And the output contains "waiting for the agents at work to end their call"

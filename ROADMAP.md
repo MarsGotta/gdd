@@ -72,8 +72,9 @@ change, stop and review before adding more.
 | `gdd upgrade`: a new gdd version proposes its changes to the files it wrote once (three-way merge against what it generated then; untouched files updated, edited ones merged, conflicts marked), as a change approved at a sitting; `init` records which version generated each file | next | gdd-upgrade (after the pilot) |
 | One state for every worktree: all `.gdd/` paths resolve to the main checkout (git common dir), so status, records, log and gates agree from any worktree | done | state-root (2026-10-27) |
 | Each change runs in its own git worktree (sibling folder `<repo>.worktrees/<id>`, configurable); the main checkout stays on main; the agents-state check is per change; log appends under a lock | done | parallel-launch (2026-10-27) |
-| Several changes at once: changes whose planned paths overlap cannot run together, `[parallel] max` (default 2) caps changes building at once; merges one at a time, each change takes the latest main and passes G3 again before merging | done | merge-queue (2026-10-27): first Change built in its own worktree, alongside init-form |
+| Several changes at once: `[parallel] max` (default 2) caps changes building at once (overlapping planned paths only warn since overlap-warns); merges one at a time, each change takes the latest main and passes G3 again before merging | done | merge-queue (2026-10-27): first Change built in its own worktree, alongside init-form |
 | A person's writes to shared state (red zones, G0, self-test) wait for the agent calls under way instead of parking them; approving the red zones as they are writes nothing | done | shared-writes (2026-10-28) |
+| Overlapping planned paths warn instead of refusing a launch (as GitHub's merge queue admits every pull request); git settles the overlap at the merge, and a conflict parks the change with the way out | done | overlap-warns (2026-10-28): all 21 earlier changes touched the steps file |
 | Adoption of a repository with code: `gdd init` runs every gate once, reports what fails, proposes Refactor changes ordered by risk; failing commands are known debt (warn, do not block) until a Refactor turns each green | done | init-adopt (2026-10-27): `gdd adopt`, `gdd/debt.toml` |
 | TUI Board: changes by phase, color and gate status (read-only) | next | human block |
 | TUI Sitting inbox: scenarios, red zones, red plan and G4 demo; approve or ask for changes, always through a confirmation | next | human block |
@@ -112,4 +113,5 @@ change, stop and review before adding more.
 - Token charts.
 - Semgrep (multi-language static analysis).
 - More stacks in the catalog.
+- A Builder round that settles the merge conflicts of a parked change (agent tools do it; today the Orchestrator merges main into the branch by hand).
 - Bare repositories and `--separate-git-dir`: today gdd refuses to run in a worktree of a bare repository (or of one whose main checkout git cannot name), because there is no main checkout to keep the shared `.gdd/` state in (state-root, 2026-10-27). Support them with a configurable state folder, so the "one bare repository + one worktree per branch" style works. No urgency.

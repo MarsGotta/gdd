@@ -93,7 +93,7 @@ Feature: A person's writes to shared state wait for the agents at work
 
   Scenario: Approving a new red zone map waits for the agents at work
     Given the red zone paths become "src/storage/**" and "src/sync/**"
-    And an agent of another change is at work for 2 seconds
+    And an agent of another change is at work for 5 seconds
     When I run "gdd gate zones ok c2 --by human"
     Then it succeeds
     And the output contains "waiting for the agents at work to end their call"
@@ -107,7 +107,7 @@ Feature: A person's writes to shared state wait for the agents at work
     And the output does not contain "waiting for the agents at work"
 
   Scenario: Opening G0 waits for the agents at work
-    Given an agent of another change is at work for 2 seconds
+    Given an agent of another change is at work for 5 seconds
     When I run "gdd gate G0 ok --by machines"
     Then it succeeds
     And the output contains "waiting for the agents at work to end their call"
