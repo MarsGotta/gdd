@@ -1,7 +1,9 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
 //! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` without the
-//! flags of the project asks the Setup form (see [`form`]).
+//! flags of the project asks the Setup form (see [`form`]), and `gdd board` shows the Board (see
+//! [`board`]).
 
+pub mod board;
 pub mod form;
 
 use std::ffi::OsString;
@@ -85,6 +87,14 @@ impl Outcome {
     /// A command that could not do its job, and why: an error.
     fn error(message: &str) -> Outcome {
         Outcome::failure(format!("error: {message}\n"))
+    }
+
+    /// `gdd board` without a terminal: what to use instead, with exit code 2.
+    fn needs_terminal() -> Outcome {
+        Outcome {
+            code: 2,
+            ..Outcome::error(BOARD_NO_TERMINAL)
+        }
     }
 
     /// What a command printed for the user, on a line of its own, with its exit code.
@@ -258,6 +268,9 @@ enum Command {
     },
     /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
     Status,
+    /// The changes of the project by phase on a screen (Discover, Build, Release, Done), in a
+    /// terminal. Read-only: nothing on it writes anything.
+    Board,
     /// The first install of each stack of gdd/project.toml, in order, which writes its lock file:
     /// stops at the first that fails, then commits the files of the stacks' supply chain the run
     /// created or changed, and nothing else. Run it once, after gdd init.
@@ -429,6 +442,9 @@ impl InitArgs {
 /// Why `gdd init` without the flags of the project did nothing.
 const NO_TERMINAL: &str = "error: gdd init opens its Setup form only in a terminal; else give it \
                            the flags --name, --platform and --stack";
+
+/// Why `gdd board` without a terminal did nothing, and what lists the same changes.
+const BOARD_NO_TERMINAL: &str = "gdd board needs a terminal; gdd status lists the same changes";
 
 /// The option of the sensitive areas of `gdd init`.
 const SENSITIVE: &str = "sensitive";
@@ -627,6 +643,7 @@ impl Command {
                 let id = change_id(change, env)?;
                 return merge_queued(root, state, &id, env, streams.err());
             }
+            Command::Board => return Ok(Outcome::needs_terminal()),
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
             Command::Report { by, change, json } => report(state, &by, change.as_deref(), json)?,
@@ -772,6 +789,13 @@ pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Opt
         Run::Init(args) if !args.name_the_project() => Some(args.options()),
         _ => None,
     }
+}
+
+/// Whether `gdd` with `args` shows the Board (see [`board::in_terminal`]): it is `gdd board`, and
+/// its standard input and output are terminals (`stdin` and `stdout`).
+pub fn asks_board(args: &[String], stdin: bool, stdout: bool) -> bool {
+    let command = parse(args).ok().and_then(|cli| cli.command);
+    stdin && stdout && matches!(command, Some(Run::InProject(Command::Board)))
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -1675,7 +1699,7 @@ mod tests {
     pub(super) struct Project(pub(super) PathBuf);
 
     impl Project {
-        fn new() -> Project {
+        pub(super) fn new() -> Project {
             static COUNTER: AtomicUsize = AtomicUsize::new(0);
             let path = std::env::temp_dir().join(format!(
                 "gdd-cli-test-{}-{}",
@@ -1688,7 +1712,7 @@ mod tests {
             project
         }
 
-        fn write(&self, path: &str, text: &str) {
+        pub(super) fn write(&self, path: &str, text: &str) {
             let path = self.0.join(path);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, text).unwrap();
@@ -1850,6 +1874,22 @@ mod tests {
         let said = "error: gdd init opens its Setup form only in a terminal; else give it the \
                     flags --name, --platform and --stack";
         assert_eq!(NO_TERMINAL, said);
+    }
+
+    #[test]
+    fn the_board_needs_a_terminal_and_the_command_says_what_to_use_instead() {
+        let project = Project::new();
+        let out = project.run("board");
+        let said = "error: gdd board needs a terminal; gdd status lists the same changes\n";
+        assert_eq!((out.code, out.stdout.as_str()), (2, ""));
+        assert_eq!(out.stderr, said);
+        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout);
+        assert!(asks("board", true, true));
+        assert!(!asks("board", false, true));
+        assert!(!asks("board", true, false));
+        assert!(!asks("status", true, true));
+        assert!(!asks("board --nope", true, true));
+        assert!(!asks("", true, true));
     }
 
     #[test]
