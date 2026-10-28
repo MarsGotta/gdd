@@ -33,6 +33,8 @@ pub struct GddWorld {
     form: Option<OpenForm>,
     /// `form::finish` already ran on the form's outcome.
     form_finished: bool,
+    /// The Board the scenario opened.
+    board: Option<OpenBoard>,
     /// The G0 opened during the Builder call: whether it succeeded, and its output.
     g0_during_call: Option<std::thread::JoinHandle<(bool, String)>>,
 }
@@ -2161,6 +2163,68 @@ fn g0_during_the_call_succeeded(w: &mut GddWorld) {
         text.contains("waiting for the agents at work to end their call"),
         "the G0 did not wait for the call; it said {text:?}"
     );
+}
+
+// ---- features/board.feature ----------------------------------------------------------------
+//
+// API of the `gdd` crate these steps expect (the Builder in build mode implements it):
+// `gdd::board::Board::{load(&Path) -> Result<Board, String>, press(Key), render(w, h) -> String,
+// closed() -> bool}`, with the form's `Key`.
+
+/// The Board of the scenario, which has no `Debug` of its own.
+struct OpenBoard(gdd::board::Board);
+
+impl std::fmt::Debug for OpenBoard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OpenBoard")
+    }
+}
+
+fn board_of(w: &mut GddWorld) -> &mut gdd::board::Board {
+    &mut w.board.as_mut().expect("the Board is open").0
+}
+
+#[given(expr = "the change {string} is in state {string}")]
+fn change_is_in_state(w: &mut GddWorld, id: String, state: String) {
+    let root = project_root(w);
+    let mut record = read_record(&root, &id);
+    record["state"] = state.into();
+    write_record(&root, &id, &record);
+}
+
+#[when("I open the board")]
+fn i_open_the_board(w: &mut GddWorld) {
+    let root = project_root(w);
+    let board = gdd::board::Board::load(&root).unwrap_or_else(|e| panic!("cannot open: {e}"));
+    w.board = Some(OpenBoard(board));
+}
+
+#[when(expr = "I press {word} on the board")]
+fn i_press_on_the_board(w: &mut GddWorld, key: String) {
+    board_of(w).press(key_named(&key));
+}
+
+#[then(expr = "the board shows {string}")]
+fn board_shows(w: &mut GddWorld, text: String) {
+    let screen = board_of(w).render(100, 40);
+    assert!(
+        screen.contains(&text),
+        "the board lacks {text:?}:\n{screen}"
+    );
+}
+
+#[then(expr = "the board does not show {string}")]
+fn board_does_not_show(w: &mut GddWorld, text: String) {
+    let screen = board_of(w).render(100, 40);
+    assert!(
+        !screen.contains(&text),
+        "the board shows {text:?}:\n{screen}"
+    );
+}
+
+#[then("the board is closed")]
+fn the_board_is_closed(w: &mut GddWorld) {
+    assert!(board_of(w).closed(), "the board is still open");
 }
 
 // ---- features/init-form.feature ------------------------------------------------------------

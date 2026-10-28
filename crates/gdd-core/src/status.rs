@@ -3,14 +3,30 @@
 //! family on the machine.
 
 use std::fmt;
+use std::fs;
+use std::io::{self, ErrorKind};
+use std::path::Path;
 
 use serde_json::{Map, Value};
 
 use crate::agents::models::{self, Models};
+use crate::change::Record;
+use crate::classify::{Change, classify};
 use crate::config::{self, Color};
 use crate::gates::approve::{BRIEF, ZonesState};
 use crate::gates::debt::{self, Debt};
-use crate::{init, log};
+use crate::rules::RulesTable;
+use crate::zones::ZoneMap;
+use crate::{guard, init, log};
+
+/// Where the changes keep their records, from the state root.
+const CHANGES: &str = ".gdd/changes";
+
+/// The record of a change, from its folder.
+const RECORD: &str = "change.json";
+
+/// The zone map of the project, from its root.
+const ZONES: &str = "gdd/zones.toml";
 
 /// What the status says of a missing Project Brief.
 const NO_BRIEF: &str = "missing (Setup writes it)";
@@ -176,24 +192,174 @@ impl Basics {
 pub fn change_line(folder: &str, record: &str) -> String {
     let record: Map<String, Value> = match serde_json::from_str(record) {
         Ok(record) => record,
-        Err(e) => return format!("  - {folder} · change.json is not valid: {e}"),
+        Err(e) => return format!("  - {folder} · {}", not_valid(&e)),
     };
-    let text = |key: &str, default: &str| {
-        let value = record.get(key).and_then(Value::as_str);
-        value.unwrap_or(default).to_string()
-    };
+    let id = text_field(&record, "id", folder);
+    let title = text_field(&record, "title", "");
+    let state = text_field(&record, "state", "open");
+    let gates = gates_text(&record);
+    format!("  - {id} · {title} · {state} · {gates}")
+}
+
+/// Why a record that cannot be read is shown as it is.
+fn not_valid(why: &dyn fmt::Display) -> String {
+    format!("change.json is not valid: {why}")
+}
+
+/// The text field `key` of a record; `default` when it is missing or not text.
+fn text_field(record: &Map<String, Value>, key: &str, default: &str) -> String {
+    let value = record.get(key).and_then(Value::as_str);
+    value.unwrap_or(default).to_string()
+}
+
+/// The gates of a record as the status shows them, `G1:ok, plan:ok`; `no gates yet` without any.
+fn gates_text(record: &Map<String, Value>) -> String {
     let gates: Vec<String> = match record.get("gates").and_then(Value::as_object) {
         Some(gates) => gates.iter().map(gate_text).collect(),
         None => Vec::new(),
     };
-    let gates = if gates.is_empty() {
+    if gates.is_empty() {
         "no gates yet".to_string()
     } else {
         gates.join(", ")
+    }
+}
+
+/// A change as the Board shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Card {
+    /// Its id; the name of its folder when its record cannot be read.
+    pub id: String,
+    /// What it is about.
+    pub title: String,
+    /// Its kind of work: `Feature`, `Spike`...
+    pub kind: String,
+    /// Where it stands: `open`, `building`, `in-pre`, `closed`...
+    pub state: String,
+    /// Its risk color: the one prepare stored, else the one its planned paths give; `?` when the
+    /// project's zones cannot be read.
+    pub color: String,
+    /// Its gates and their decisions, like the status shows them.
+    pub gates: String,
+    /// The paths it plans to touch.
+    pub paths: Vec<String>,
+    /// Why its record cannot be read; `None` when it can.
+    pub problem: Option<String>,
+}
+
+impl Card {
+    /// The card of a record that cannot be read, known by the name of its folder.
+    fn unreadable(folder: &str, problem: String) -> Card {
+        Card {
+            id: folder.to_string(),
+            title: String::new(),
+            kind: String::new(),
+            state: String::new(),
+            color: String::new(),
+            gates: String::new(),
+            paths: Vec::new(),
+            problem: Some(problem),
+        }
+    }
+}
+
+/// The zone map and the rules table that give a change its color.
+struct Colors {
+    zones: ZoneMap,
+    table: RulesTable,
+}
+
+impl Colors {
+    /// Those of the project at `root`; a missing file says nothing, one that cannot be read gives
+    /// none.
+    fn load(root: &Path) -> Option<Colors> {
+        let zones = fs::read_to_string(root.join(ZONES));
+        let zones = ZoneMap::from_toml(&optional(zones)?).ok()?;
+        let rules = fs::read_to_string(root.join(guard::RULES));
+        let table = RulesTable::of_project(&optional(rules)?).ok()?;
+        Some(Colors { zones, table })
+    }
+
+    /// The color of the plan `change`, as `gdd classify` gives it.
+    fn of(&self, change: &Change) -> String {
+        let classified = classify(&self.zones, &self.table, change);
+        classified.map(|c| c.color.to_string()).unwrap_or_default()
+    }
+}
+
+/// The text of a file read, or `None` when it could not be read for another reason than its
+/// absence, which is empty text.
+fn optional(read: io::Result<String>) -> Option<String> {
+    match read {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == ErrorKind::NotFound => Some(String::new()),
+        Err(_) => None,
+    }
+}
+
+/// One card per folder of `.gdd/changes/` under the state root `state`, sorted by when the change
+/// was created, then by id. Its color is the one prepare stored, else the one the zone map of the
+/// project at `root` gives its planned paths. It reads, and writes nothing. A folder without a
+/// record is not a change; one whose record cannot be read has a card with its `problem`.
+pub fn cards(root: &Path, state: &Path) -> Vec<Card> {
+    let dir = state.join(CHANGES);
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Vec::new(),
+        Err(e) => {
+            let problem = format!("cannot read {CHANGES}: {e}");
+            return vec![Card::unreadable(CHANGES, problem)];
+        }
     };
-    let (id, title) = (text("id", folder), text("title", ""));
-    let state = text("state", "open");
-    format!("  - {id} · {title} · {state} · {gates}")
+    let folders = entries.flatten().filter(|entry| entry.path().is_dir());
+    let colors = Colors::load(root);
+    let mut found: Vec<(String, Card)> = Vec::new();
+    for folder in folders {
+        let name = folder.file_name().to_string_lossy().into_owned();
+        match fs::read_to_string(folder.path().join(RECORD)) {
+            Ok(record) => found.push(card_of(&name, &record, colors.as_ref())),
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => {
+                let problem = format!("cannot read {RECORD}: {e}");
+                found.push((String::new(), Card::unreadable(&name, problem)));
+            }
+        }
+    }
+    found.sort_by(|(a, card), (b, other)| (a, &card.id).cmp(&(b, &other.id)));
+    found.into_iter().map(|(_, card)| card).collect()
+}
+
+/// The card of the record `text` in the folder `folder`, with when it was created.
+fn card_of(folder: &str, text: &str, colors: Option<&Colors>) -> (String, Card) {
+    let record: Map<String, Value> = match serde_json::from_str(text) {
+        Ok(record) => record,
+        Err(e) => return unreadable(folder, &e),
+    };
+    let plan = match Record::from_json(text) {
+        Ok(plan) => plan,
+        Err(e) => return unreadable(folder, &e),
+    };
+    let color = match (plan.decided_color, colors) {
+        (Some(color), _) => color.to_string(),
+        (None, Some(colors)) => colors.of(&plan.plan),
+        (None, None) => "?".to_string(),
+    };
+    let card = Card {
+        id: text_field(&record, "id", folder),
+        title: text_field(&record, "title", ""),
+        kind: text_field(&record, "type", "Feature"),
+        state: text_field(&record, "state", "open"),
+        color,
+        gates: gates_text(&record),
+        paths: plan.plan.paths,
+        problem: None,
+    };
+    (text_field(&record, "created", ""), card)
+}
+
+/// The card of the record in `folder` that `why` makes unreadable, with no creation time.
+fn unreadable(folder: &str, why: &dyn fmt::Display) -> (String, Card) {
+    (String::new(), Card::unreadable(folder, not_valid(why)))
 }
 
 /// A gate of a record as the status shows it: its name and its decision.
@@ -385,6 +551,118 @@ mod tests {
         let broken = change_line("x", "{not json");
         let start = "  - x · change.json is not valid: ";
         assert!(broken.starts_with(start), "{broken}");
+    }
+
+    /// A folder in the temporary directory, removed when dropped.
+    struct Folder(std::path::PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Folder {
+            let unique = format!("gdd-cards-{}-{name}", std::process::id());
+            let path = std::env::temp_dir().join(unique);
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir_all(&path).unwrap();
+            Folder(path)
+        }
+
+        fn write(&self, path: &str, text: &str) {
+            let file = self.0.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, text).unwrap();
+        }
+
+        fn change(&self, id: &str, record: &str) {
+            self.write(&format!("{CHANGES}/{id}/{RECORD}"), record);
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const ZONE_MAP: &str = "default = \"yellow\"\n[[zone]]\ncolor = \"red\"\npaths = [\"db/**\"]\n";
+
+    #[test]
+    fn the_cards_come_by_creation_then_id_with_their_color_and_gates() {
+        let folder = Folder::new("sorted");
+        folder.write(ZONES, ZONE_MAP);
+        let plan = r#""paths": ["db/a.rs", "b.rs"], "gates": {"plan": {"decision": "ok"}}"#;
+        let two = format!(r#"{{"created": "2", "title": "Two", {plan}}}"#);
+        folder.change("b", &two);
+        let spike = r#"{"created": "2", "type": "Spike", "state": "building"}"#;
+        folder.change("a", spike);
+        let prepared = r#"{"created": "1", "id": "z", "decision": {"color": "green"}}"#;
+        folder.change("z", prepared);
+        let all = cards(&folder.0, &folder.0);
+        let ids: Vec<&str> = all.iter().map(|card| card.id.as_str()).collect();
+        assert_eq!(ids, ["z", "a", "b"]);
+        let (z, a, b) = (&all[0], &all[1], &all[2]);
+        assert_eq!((z.color.as_str(), z.kind.as_str()), ("green", "Feature"));
+        assert_eq!((a.color.as_str(), a.kind.as_str()), ("yellow", "Spike"));
+        let (state, gates) = (a.state.as_str(), a.gates.as_str());
+        assert_eq!((state, gates), ("building", "no gates yet"));
+        assert_eq!((b.color.as_str(), b.title.as_str()), ("red", "Two"));
+        assert_eq!((b.state.as_str(), b.gates.as_str()), ("open", "plan:ok"));
+        assert_eq!(b.paths, ["db/a.rs", "b.rs"]);
+        assert!(all.iter().all(|card| card.problem.is_none()));
+    }
+
+    #[test]
+    fn a_project_without_changes_has_no_cards() {
+        let folder = Folder::new("none");
+        assert_eq!(cards(&folder.0, &folder.0), Vec::new());
+        folder.write(".gdd/changes/x/inbox.md", "no record here");
+        assert_eq!(cards(&folder.0, &folder.0), Vec::new());
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_read_has_a_card_with_its_problem() {
+        let folder = Folder::new("unreadable");
+        folder.change("bad", "{not json");
+        folder.change("blue", r#"{"decision": {"color": "blue"}}"#);
+        fs::create_dir_all(folder.0.join(".gdd/changes/dir/change.json")).unwrap();
+        folder.change("ok", r#"{"title": "Fine"}"#);
+        let all = cards(&folder.0, &folder.0);
+        let ids: Vec<&str> = all.iter().map(|card| card.id.as_str()).collect();
+        assert_eq!(ids, ["bad", "blue", "dir", "ok"]);
+        let problem = |card: &Card| card.problem.clone().unwrap_or_default();
+        assert!(problem(&all[0]).starts_with("change.json is not valid: "));
+        let blue = problem(&all[1]);
+        assert!(blue.contains("unknown color"), "{blue}");
+        assert!(problem(&all[2]).starts_with("cannot read change.json: "));
+        assert_eq!(all[3].problem, None);
+    }
+
+    #[test]
+    fn a_changes_folder_that_cannot_be_read_is_a_card_with_its_problem() {
+        let folder = Folder::new("file");
+        folder.write(CHANGES, "not a folder");
+        let all = cards(&folder.0, &folder.0);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, CHANGES);
+        let problem = all[0].problem.clone().unwrap_or_default();
+        let start = "cannot read .gdd/changes: ";
+        assert!(problem.starts_with(start), "{problem}");
+    }
+
+    #[test]
+    fn the_color_needs_the_zone_map_but_not_that_it_exists() {
+        let folder = Folder::new("colors");
+        folder.change("a", r#"{"paths": ["db/a.rs"]}"#);
+        let color = |folder: &Folder| cards(&folder.0, &folder.0)[0].color.clone();
+        assert_eq!(color(&folder), "yellow");
+        folder.write(ZONES, ZONE_MAP);
+        assert_eq!(color(&folder), "red");
+        folder.write(ZONES, "default = \"blue\"");
+        assert_eq!(color(&folder), "?");
+        fs::remove_file(folder.0.join(ZONES)).unwrap();
+        folder.write("gdd/rules.toml", "not = [toml");
+        assert_eq!(color(&folder), "?");
+        fs::remove_file(folder.0.join("gdd/rules.toml")).unwrap();
+        fs::create_dir_all(folder.0.join(ZONES)).unwrap();
+        assert_eq!(color(&folder), "?");
     }
 
     #[test]
