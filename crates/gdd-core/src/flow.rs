@@ -273,17 +273,17 @@ fn step(record: &Record) -> Option<String> {
 
 /// The state of a change after the last of its lines that decides one: `closed` after an
 /// `observe` step that passed, `rejected` after a human G4 `ko`, `rolled back` after a
-/// `rollback` step; else `in progress`.
+/// `rollback` step that passed; else `in progress`. A step passes `ok`, or `simulated` when the
+/// release has no command for it.
 fn state(records: &[&Record]) -> &'static str {
     let mut state = "in progress";
     for record in records {
-        let step = step(record);
-        if step.as_deref() == Some("observe") && is(record, "result", "ok") {
-            state = "closed";
-        } else if step.as_deref() == Some("rollback") {
-            state = "rolled back";
-        } else if human_at(record, "G4") && is(record, "result", "ko") {
-            state = "rejected";
+        let passed = is(record, "result", "ok") || is(record, "result", "simulated");
+        match step(record).as_deref() {
+            Some("observe") if passed => state = "closed",
+            Some("rollback") if passed => state = "rolled back",
+            _ if human_at(record, "G4") && is(record, "result", "ko") => state = "rejected",
+            _ => {}
         }
     }
     state
@@ -1059,7 +1059,8 @@ mod tests {
         };
         let observed = r#"{"role": "machine", "agent": "observe", "result": "ok"}"#;
         let worse = r#"{"role": "machine", "agent": "observe", "result": "ko"}"#;
-        let rolled = r#"{"role": "machine", "agent": "rollback", "result": "ko"}"#;
+        let rolled = r#"{"role": "machine", "agent": "rollback", "result": "ok"}"#;
+        let stuck = r#"{"role": "machine", "agent": "rollback", "result": "ko"}"#;
         let refused = r#"{"role": "human", "gate": "G4", "result": "ko"}"#;
         let accepted = r#"{"role": "human", "gate": "G4", "result": "ok"}"#;
         let by_machine = r#"{"role": "machine", "gate": "G4", "result": "ko"}"#;
@@ -1071,6 +1072,7 @@ mod tests {
         assert_eq!(state_of(""), "in progress");
         assert_eq!(state_of(observed), "closed");
         assert_eq!(state_of(worse), "in progress");
+        assert_eq!(state_of(stuck), "in progress");
         assert_eq!(state_of(rolled), "rolled back");
         assert_eq!(state_of(refused), "rejected");
         for undecided in [accepted, by_machine, at_g3, in_g2, in_g3, human_observe] {
@@ -1082,6 +1084,19 @@ mod tests {
         assert_eq!(state_of(&rolled_back), "rolled back");
         let rejected = format!("{worse}\n{rolled}\n{refused}");
         assert_eq!(state_of(&rejected), "rejected");
+        let still_rejected = format!("{refused}\n{worse}\n{stuck}");
+        assert_eq!(state_of(&still_rejected), "rejected");
+    }
+
+    #[test]
+    fn a_simulated_observe_closes_the_change_and_a_simulated_rollback_rolls_it_back() {
+        // As a release with `simulated = true` logs its steps without a command.
+        const OBSERVED: &str = r#"{"ts": "2026-10-28T10:00:00+00:00", "change": "c", "phase": "4-release", "gate": "-", "role": "machine", "agent": "promote", "model": "-", "duration_s": 0, "result": "simulated"}
+{"ts": "2026-10-28T10:00:01+00:00", "change": "c", "phase": "4-release", "gate": "-", "role": "machine", "agent": "observe", "model": "-", "duration_s": 0, "result": "simulated"}"#;
+        assert_eq!(change(OBSERVED).state, "closed");
+        const ROLLED: &str = r#"{"ts": "2026-10-28T10:00:00+00:00", "change": "c", "phase": "4-release", "gate": "-", "role": "machine", "agent": "observe", "model": "-", "duration_s": 4, "result": "ko"}
+{"ts": "2026-10-28T10:00:01+00:00", "change": "c", "phase": "4-release", "gate": "-", "role": "machine", "agent": "rollback", "model": "-", "duration_s": 0, "result": "simulated"}"#;
+        assert_eq!(change(ROLLED).state, "rolled back");
     }
 
     #[test]
