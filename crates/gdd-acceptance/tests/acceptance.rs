@@ -33,6 +33,8 @@ pub struct GddWorld {
     form: Option<OpenForm>,
     /// `form::finish` already ran on the form's outcome.
     form_finished: bool,
+    /// The G0 opened during the Builder call: whether it succeeded, and its output.
+    g0_during_call: Option<std::thread::JoinHandle<(bool, String)>>,
 }
 
 #[given("the gdd tool")]
@@ -1311,6 +1313,18 @@ fn file_contains(w: &mut GddWorld, path: String, text: String) {
     assert!(content.contains(&text), "{path} lacks {text:?}: {content}");
 }
 
+#[then(expr = "the file {string} does not contain {string}")]
+fn file_does_not_contain(w: &mut GddWorld, path: String, text: String) {
+    // The step text escapes the quotes inside the text.
+    let text = text.replace("\\\"", "\"");
+    let content = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert!(
+        !content.contains(&text),
+        "{path} contains {text:?}: {content}"
+    );
+}
+
 #[given(expr = "the file {string} says {string}")]
 fn file_says(w: &mut GddWorld, path: String, text: String) {
     let root = project_root(w);
@@ -1363,7 +1377,8 @@ fn last_commit_says(w: &mut GddWorld, branch: String, text: String) {
 // `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
 // (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
 // (`<change>|<build call>`: that call appends a line of the log for the change) and `main_gets`
-// (a path the first Reviewer call commits on main in the main checkout).
+// (a path the first Reviewer call commits on main in the main checkout). `linger` (seconds): the
+// first build-mode Builder call touches `in-call`, sleeps that long and removes `linger`.
 
 const FAKE_AGENT: &str = r##"#!/bin/sh
 integration=${0##*/}
@@ -1428,6 +1443,12 @@ case "$role" in
     [ -f "$fake/build" ] && mode=$(cat "$fake/build")
     path=src/app.txt
     [ -f "$fake/build_path" ] && path=$(cat "$fake/build_path")
+    if [ -f "$fake/linger" ]; then
+      seconds=$(cat "$fake/linger")
+      touch "$fake/in-call"
+      sleep "$seconds"
+      rm -f "$fake/linger"
+    fi
     write=yes
     case "$mode" in
       nothing) write=no ;;
@@ -2073,6 +2094,72 @@ fn another_gdd_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
         wait_taken.recv(),
         Ok(true),
         "the lock holder could not take .gdd/merge.lock"
+    );
+}
+
+// ---- features/shared-writes.feature --------------------------------------------------------
+
+#[given(expr = "an agent of another change is at work for {int} seconds")]
+fn agent_of_another_change_at_work(w: &mut GddWorld, seconds: u64) {
+    let file = project_root(w).join(".gdd/agents.lock");
+    if !file.exists() {
+        write_file(&file, "");
+    }
+    let (taken, wait_taken) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let held = fs::OpenOptions::new().write(true).open(&file);
+        let held = held.and_then(|f| f.lock_shared().map(|()| f));
+        let ok = held.is_ok();
+        // The sender may be gone when the step already failed; nothing to tell then.
+        let _ = taken.send(ok);
+        std::thread::sleep(std::time::Duration::from_secs(seconds));
+        drop(held);
+    });
+    assert_eq!(
+        wait_taken.recv(),
+        Ok(true),
+        "the agent could not take .gdd/agents.lock shared"
+    );
+}
+
+#[given("the machines open G0 again during the Builder call")]
+fn machines_open_g0_during_the_call(w: &mut GddWorld) {
+    let root = project_root(w);
+    fake_file(w, "linger", "3");
+    let in_call = root.join(".gdd/fake/in-call");
+    let mut env = world_env(w).clone();
+    env.retain(|(name, _)| name != "GDD_ROLE");
+    w.g0_during_call = Some(std::thread::spawn(move || {
+        for _ in 0..600 {
+            if in_call.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if !in_call.exists() {
+            return (false, "the Builder call never started".to_string());
+        }
+        let args: Vec<String> = ["gate", "G0", "ok", "--by", "machines"]
+            .iter()
+            .map(|word| word.to_string())
+            .collect();
+        let out = gdd::run_with_env(&args, &root, &env);
+        let text = format!("{}{}", out.stdout, out.stderr);
+        (out.code == 0, text)
+    }));
+}
+
+#[then("the G0 opened during the Builder call succeeded")]
+fn g0_during_the_call_succeeded(w: &mut GddWorld) {
+    let handle = w
+        .g0_during_call
+        .take()
+        .expect("a G0 opened during the call");
+    let (succeeded, text) = handle.join().expect("the G0 thread did not panic");
+    assert!(succeeded, "the G0 opened during the call failed: {text:?}");
+    assert!(
+        text.contains("waiting for the agents at work to end their call"),
+        "the G0 did not wait for the call; it said {text:?}"
     );
 }
 

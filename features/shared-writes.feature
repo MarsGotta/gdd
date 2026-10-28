@@ -124,5 +124,5 @@ Feature: A person's writes to shared state wait for the agents at work
     And the machines open G0 again during the Builder call
     When I run "gdd launch c1"
     Then it succeeds
-    And the record of "c1" is in state "in-pre"
+    And the record of "c1" is in state "closed"
     And the G0 opened during the Builder call succeeded

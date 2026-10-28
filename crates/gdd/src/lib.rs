@@ -521,7 +521,7 @@ impl Command {
             Command::G3(args) => return run_gate(root, state, Gate::G3, args, role, env),
             Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
-            Command::Selftest => return run_selftest(root, state),
+            Command::Selftest => return run_selftest(root, state, role),
             Command::Ci => return run_ci(root, state, env),
             Command::Park { change, reason } => {
                 let message = change::park(state, &change, &reason.join(" "))?;
@@ -834,15 +834,24 @@ fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
 }
 
 /// `gdd selftest`: the harness self-test of the project (see [`selftest::run`]), saved and
-/// logged under the state root `state`. It fails the run unless every check passed.
-fn run_selftest(root: &Path, state: &Path) -> Result<Outcome, String> {
+/// logged under the state root `state`. It fails the run unless every check passed. From the
+/// files it plants and the copies it keeps to its result, it writes state every change shares:
+/// it runs as a person's write (see [`queue::shared_write`]), and says first when it waited for
+/// the agent calls under way. A Builder or a Reviewer, the role `role`, is refused before: its own
+/// self-test would wait for its own call.
+fn run_selftest(root: &Path, state: &Path, role: Option<&str>) -> Result<Outcome, String> {
+    approve::may_record(role).map_err(|e| e.to_string())?;
     let gates = GateConfig::load(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
     let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let mut said = String::new();
+    let waited = || said = format!("{}\n", queue::WAITING_AGENTS);
+    let write = queue::shared_write(state, waited)?;
     let checked = selftest::run(&gates.project(root, state), &config)?;
     selftest::save(state, &checked)?;
+    drop(write);
     let code = u8::from(!checked.ok());
-    Ok(Outcome::printed(checked.to_string(), code))
+    Ok(Outcome::printed(format!("{said}{checked}"), code))
 }
 
 /// `gdd ci`: what CI runs on the branch `GITHUB_HEAD_REF` of the environment `env` names, else
@@ -2654,6 +2663,70 @@ mod tests {
         let out = project.run("selftest");
         let start = "error: gdd/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    /// A project whose self-test passes, its G2 command `unit`.
+    fn selftest_project(unit: &str) -> Project {
+        let project = Project::new();
+        project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
+        project.write(".github/workflows/gdd.yml", "run: bin/gdd ci\n");
+        let unit = format!("unit = \"{unit}\"");
+        project.write(COMMANDS, &SELFTEST_COMMANDS.replace(SELFTEST_UNIT, &unit));
+        project
+    }
+
+    /// The G2 command of [`SELFTEST_COMMANDS`].
+    const SELFTEST_UNIT: &str = "unit = \"test ! -f t.txt\"";
+
+    #[test]
+    fn selftest_holds_the_lock_of_a_shared_write_for_its_whole_run() {
+        let project = selftest_project("touch running; sleep 0.2; test ! -f t.txt");
+        let root = project.0.clone();
+        let probe = std::thread::spawn(move || {
+            let running = (0..500).any(|_| {
+                std::thread::sleep(Duration::from_millis(10));
+                root.join("running").exists()
+            });
+            let agents = fs::File::open(root.join(queue::AGENTS)).unwrap();
+            let shared = agents.try_lock_shared();
+            running && matches!(shared, Err(fs::TryLockError::WouldBlock))
+        });
+        let out = project.run("selftest");
+        assert!(probe.join().unwrap(), "a call started during it");
+        assert!(out.stdout.ends_with("\nharness 4/4\n"), "{out:?}");
+        assert!(!out.stdout.contains(queue::WAITING_AGENTS), "{out:?}");
+    }
+
+    #[test]
+    fn selftest_waits_for_the_agents_at_work_and_says_so_first() {
+        let project = selftest_project("test ! -f t.txt");
+        let call = queue::calling(&project.0).unwrap();
+        let ends = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            drop(call);
+        });
+        let out = project.run("selftest");
+        ends.join().unwrap();
+        let waiting = queue::WAITING_AGENTS;
+        let first = format!("{waiting}\nOK a failing test turns G2 red\n");
+        assert!(out.stdout.starts_with(&first), "{out:?}");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(project.0.join(approve::SELFTEST_PATH).is_file());
+    }
+
+    #[test]
+    fn selftest_is_refused_to_builders_and_reviewers_before_any_lock() {
+        let project = selftest_project("test ! -f t.txt");
+        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
+        for role in ["builder-build", "builder-test", "reviewer"] {
+            let out = run_as(&words("selftest"), &project.0, Some(role));
+            assert_eq!(out, Outcome::failure(refused.into()), "{role}");
+        }
+        for path in [queue::AGENTS, queue::TURN, approve::SELFTEST_PATH] {
+            assert!(!project.0.join(path).exists(), "{path}");
+        }
+        let orchestrator = run_as(&words("selftest"), &project.0, Some("orchestrator"));
+        assert_eq!(orchestrator.code, 0, "{orchestrator:?}");
     }
 
     #[test]

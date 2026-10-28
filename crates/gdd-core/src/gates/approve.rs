@@ -3,9 +3,12 @@
 //!
 //! The machines open G0, once the Project Brief is written and the harness self-test passed. A
 //! human approves the red zones, and the approval keeps their hash: changing them asks for a new
-//! one. The plan, G1, G2, G3 and G4 are recorded on a change. Approving G1 seals the scenario
-//! files of the change, as its branch has them, with their SHA-256, and refuses hidden examples
-//! with sentences no visible scenario has. A Builder or a Reviewer can never record anything.
+//! one, and approving them as they are already approved writes nothing. G0 and the red zones are
+//! state every change shares: their writes wait for the agent calls under way (see
+//! [`queue::shared_write`]). The plan, G1, G2, G3 and G4 are recorded on a change. Approving G1
+//! seals the scenario files of the change, as its branch has them, with their SHA-256, and
+//! refuses hidden examples with sentences no visible scenario has. A Builder or a Reviewer can
+//! never record anything.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -23,6 +26,7 @@ use crate::gates::phrasing;
 use crate::git::{self, Git};
 use crate::guard::{self, Settings};
 use crate::log;
+use crate::recipe::queue::{self, SharedWrite};
 use crate::rules::Acceptance;
 use crate::zones::ZoneMap;
 
@@ -59,6 +63,9 @@ const G0_NO_BRIEF: &str = "G0 cannot open: docs/brief.md (Project Brief) is miss
 
 /// Why the red zones are only approved by a human.
 const ZONES_BY_HUMAN: &str = "Red zones are approved by a human (--by human).";
+
+/// What approving the red zones as they are already approved says, after their count.
+const ALREADY_APPROVED: &str = "already approved, nothing changed.";
 
 /// Why G1 refuses hidden examples with sentences no visible scenario has.
 const UNKNOWN_SENTENCES: &str = "G1 refused: hidden examples use step phrasings that no visible \
@@ -268,7 +275,8 @@ pub fn may_record(role: Option<&str>) -> Result<(), Error> {
     Ok(())
 }
 
-/// G0: only the machines open it, and only with the Project Brief and a passing self-test.
+/// G0: only the machines open it, and only with the Project Brief and a passing self-test. Its
+/// write waits for the agent calls under way (see [`shared_write`]).
 fn open_g0(
     project: &Project,
     request: &Request,
@@ -293,9 +301,10 @@ fn open_g0(
         note: request.note,
         hashes: None,
     };
+    let (_write, said) = shared_write(state)?;
     write_json(state, G0_PATH, &approval)?;
     logged(state, ts, "-", "machine", request, decision)?;
-    Ok(format!("G0 {decision} ({}).", request.by))
+    Ok(format!("{said}G0 {decision} ({}).", request.by))
 }
 
 /// What the approval of the red zones keeps.
@@ -309,7 +318,9 @@ struct ZonesApproval<'a> {
     note: &'a str,
 }
 
-/// The red zones: only a human approves them; the approval keeps them and their hash.
+/// The red zones: only a human approves them; the approval keeps them and their hash, and its
+/// write waits for the agent calls under way (see [`shared_write`]). Approving them as they are
+/// already approved writes nothing and waits for nothing: the decision is only logged.
 fn approve_zones(
     project: &Project,
     request: &Request,
@@ -323,6 +334,14 @@ fn approve_zones(
         change::check_id(id).map_err(Error::Refused)?;
     }
     let reds = red_zones(project.zones)?;
+    let (state, count) = (project.state, reds.len());
+    let change = request.change.unwrap_or("-");
+    if decision == Decision::Ok && zones_state(state, project.zones)?.approved() {
+        logged(state, ts, change, "human", request, decision)?;
+        return Ok(format!(
+            "Red zones ok ({count} red zone(s)): {ALREADY_APPROVED}"
+        ));
+    }
     let decided = decision.to_string();
     let approval = ZonesApproval {
         decision: &decided,
@@ -332,11 +351,20 @@ fn approve_zones(
         red: &reds,
         note: request.note,
     };
-    write_json(project.state, ZONES_PATH, &approval)?;
-    let change = request.change.unwrap_or("-");
-    logged(project.state, ts, change, "human", request, decision)?;
-    let count = reds.len();
-    Ok(format!("Red zones {decision} ({count} red zone(s))."))
+    let (_write, said) = shared_write(state)?;
+    write_json(state, ZONES_PATH, &approval)?;
+    logged(state, ts, change, "human", request, decision)?;
+    Ok(format!("{said}Red zones {decision} ({count} red zone(s))."))
+}
+
+/// Takes the lock of a person's write to the state every change shares, under the state root
+/// `state` (see [`queue::shared_write`]), and what to say before what was recorded: a line when
+/// it waited for the agent calls under way, else nothing.
+fn shared_write(state: &Path) -> Result<(SharedWrite, String), Error> {
+    let mut said = String::new();
+    let waited = || said = format!("{}\n", queue::WAITING_AGENTS);
+    let write = queue::shared_write(state, waited).map_err(Error::Project)?;
+    Ok((write, said))
 }
 
 /// The plan, G1, G2, G3 and G4: recorded on the change. Approving G1 also seals its scenario
@@ -1116,6 +1144,109 @@ mod tests {
         assert_eq!(line.text("result"), "ko");
         let invalid = project.refused(Gate::Zones, "ok", Some("../c1"), "human");
         assert_eq!(invalid, change::check_id("../c1").unwrap_err());
+    }
+
+    #[test]
+    fn approving_the_red_zones_as_they_are_writes_nothing_and_takes_no_lock() {
+        let mut project = fixture();
+        project.ok(Gate::Zones, None);
+        let path = project.root().join(ZONES_PATH);
+        let approved = fs::read_to_string(&path).unwrap();
+        for lock in [queue::AGENTS, queue::TURN] {
+            fs::remove_file(project.root().join(lock)).unwrap();
+        }
+        let request = Request {
+            gate: Gate::Zones,
+            decision: "approve",
+            change: Some("c1"),
+            by: "human",
+            note: "second sitting",
+        };
+        let again = record(&project.project(), &request, None).unwrap();
+        let said = "Red zones ok (1 red zone(s)): already approved, nothing changed.";
+        assert_eq!(again, said);
+        assert_eq!(fs::read_to_string(&path).unwrap(), approved);
+        for lock in [queue::AGENTS, queue::TURN] {
+            assert!(!project.root().join(lock).exists(), "{lock}");
+        }
+        let line = project.log().pop().unwrap();
+        assert_eq!(line.text("gate"), "zones");
+        assert_eq!(line.text("change"), "c1");
+        assert_eq!(line.text("result"), "ok");
+        assert_eq!(line.text("note"), "second sitting");
+        assert_eq!(project.log().len(), 2);
+        // A new map is written, and so is a rejection of the map approved.
+        project.zones = ZONES.replace("src/storage/**", "src/storage/**\", \"src/sync/**");
+        let wider = project.run(Gate::Zones, "ok", None, "human").unwrap();
+        assert!(wider.ends_with("Red zones ok (1 red zone(s))."), "{wider}");
+        let saved = project.json(ZONES_PATH);
+        assert_eq!(saved["red"][0]["paths"][1], "src/sync/**");
+        let rejected = project.run(Gate::Zones, "ko", None, "human").unwrap();
+        assert!(rejected.ends_with(" ko (1 red zone(s))."), "{rejected}");
+        assert_eq!(project.json(ZONES_PATH)["decision"], "ko");
+        // Rejected, the same map is approved again with a write.
+        let approved = project.run(Gate::Zones, "ok", None, "human").unwrap();
+        assert!(!approved.contains(ALREADY_APPROVED), "{approved}");
+        assert_eq!(project.json(ZONES_PATH)["decision"], "ok");
+    }
+
+    #[test]
+    fn writing_g0_or_the_red_zones_waits_for_the_agents_at_work_and_says_so_first() {
+        let project = fixture();
+        project.write(SELFTEST_PATH, r#"{"ok": true}"#);
+        project.write(BRIEF, "# Brief\n");
+        let waiting = queue::WAITING_AGENTS;
+        let during_a_call = |gate, by| {
+            let call = queue::calling(project.root()).unwrap();
+            let ends = std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                drop(call);
+            });
+            let done = project.run(gate, "ok", None, by);
+            ends.join().unwrap();
+            done.unwrap()
+        };
+        let opened = during_a_call(Gate::G0, "machines");
+        assert_eq!(opened, format!("{waiting}\nG0 ok (machines)."));
+        assert!(g0_open(project.root()).unwrap());
+        let zones = during_a_call(Gate::Zones, "human");
+        assert_eq!(zones, format!("{waiting}\nRed zones ok (1 red zone(s))."));
+        assert!(zones_state(project.root(), ZONES).unwrap().approved());
+        // As they are already approved, nothing waits.
+        let again = during_a_call(Gate::Zones, "human");
+        assert!(again.ends_with(ALREADY_APPROVED), "{again}");
+        assert!(!again.contains(waiting), "{again}");
+    }
+
+    #[test]
+    fn a_builder_or_a_reviewer_is_refused_before_any_lock() {
+        let project = fixture();
+        project.write(SELFTEST_PATH, r#"{"ok": true}"#);
+        project.write(BRIEF, "# Brief\n");
+        for role in ["builder-build", "builder-test", "reviewer"] {
+            let zones = project.run_as(Gate::Zones, "ok", None, "human", Some(role));
+            assert_eq!(zones.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role}");
+            let g0 = project.run_as(Gate::G0, "ok", None, "machines", Some(role));
+            assert_eq!(g0.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role}");
+        }
+        for lock in [queue::AGENTS, queue::TURN] {
+            assert!(!project.root().join(lock).exists(), "{lock}");
+        }
+        assert!(!project.root().join(ZONES_PATH).exists());
+        assert!(!project.root().join(G0_PATH).exists());
+    }
+
+    #[test]
+    fn a_lock_that_cannot_be_taken_records_nothing() {
+        let project = without_git();
+        project.write(".gdd/state.lock/x", "");
+        let err = project.refused(Gate::G0, "ko", None, "machines");
+        assert!(err.starts_with("cannot open .gdd/state.lock: "), "{err}");
+        let err = project.refused(Gate::Zones, "ok", None, "human");
+        assert!(err.starts_with("cannot open .gdd/state.lock: "), "{err}");
+        assert!(!project.root().join(G0_PATH).exists());
+        assert!(!project.root().join(ZONES_PATH).exists());
+        assert_eq!(project.log().len(), 0);
     }
 
     #[test]

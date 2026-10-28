@@ -760,7 +760,10 @@ impl<S: Steps> Run<'_, S> {
 
     /// Calls `who` with `args`, then checks what it did: GDD state it changed goes back as it was
     /// (see [`State`]), and a state folder it left in the worktree goes (see [`state_left`]);
-    /// either parks the change, as a Reviewer that changed the working tree does.
+    /// either parks the change, as a Reviewer that changed the working tree does. From the state
+    /// as it was until it is checked, the call holds the lock of the agent calls (see
+    /// [`queue::calling`]): what a person writes to the state every change shares lands before
+    /// or after it, never during it.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
         let Project { state, work, .. } = *self.project;
         let call = Call {
@@ -768,6 +771,7 @@ impl<S: Steps> Run<'_, S> {
             model: self.decided.model(who),
             args,
         };
+        let calling = queue::calling(state)?;
         let before = State::of(state, self.id, who)?;
         let tree = match who {
             Who::Reviewer => Some(working_tree(work)?),
@@ -776,6 +780,7 @@ impl<S: Steps> Run<'_, S> {
         let called = self.steps.agent(&call);
         let mut changed = before.put_back(state)?;
         changed.extend(state_left(work, state)?);
+        drop(calling);
         if !changed.is_empty() {
             let files = changed.join(", ");
             return Err(Stop::Park(format!("the {who} changed GDD state: {files}")));
@@ -1027,9 +1032,9 @@ impl<'a> State<'a> {
 /// from it: the ones gdd keeps for every change ([`SHARED`]), whatever is at their path, the
 /// others right in `.gdd/`, and every one in the folders of [`HARNESS`] and in the folder of
 /// change `id`, at any depth. The other folders of `.gdd/`, other changes' or ones gdd decides
-/// nothing from, are left out, and so are the locks, which the launches and merges of other
-/// changes make and take while the call runs (see [`queue::LOCKS`]). Links are never followed:
-/// one where a folder was is a file here.
+/// nothing from, are left out, and so are the locks, which the launches, merges and calls of
+/// other changes, and people, make and take while the call runs (see [`queue::LOCKS`]). Links
+/// are never followed: one where a folder was is a file here.
 fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
     let mut paths = BTreeSet::from(SHARED.map(String::from));
     listed(root, STATE_FOLDER, false, &mut paths)?;
@@ -1192,6 +1197,7 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
+    use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
@@ -1994,6 +2000,8 @@ mod tests {
             "adoption/x",
             "merge.lock",
             "launch.lock",
+            "agents.lock",
+            "state.lock",
         ] {
             folder.write(&format!(".gdd/{path}"), "x");
         }
@@ -2623,6 +2631,53 @@ mod tests {
         let waited = format!("say {}", queue::WAITING);
         assert_eq!(steps.ran[5..7], [OPENED, waited.as_str()]);
         assert_eq!(steps.ran[7..], ["merge", "pre", "promote", "observe"]);
+    }
+
+    #[test]
+    fn every_kind_of_call_holds_the_lock_of_the_agent_calls_and_lets_its_turn_go() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.retries = 1;
+        steps.g2 = VecDeque::from([false]);
+        let at_work: Act = |root| {
+            assert!(queue::tests::taken(root, queue::AGENTS), "no one writes");
+            assert!(queue::tests::freed(root, queue::TURN), "a person may wait");
+        };
+        let everyone = [
+            Who::BuilderTest,
+            Who::BuilderBuild,
+            Who::Reviewer,
+            Who::Orchestrator,
+        ];
+        steps.acts = everyone.map(|who| (who, at_work)).to_vec();
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        for who in everyone {
+            let called = steps.ran.iter().any(|step| step.starts_with(short(who)));
+            assert!(called, "{who}: {:?}", steps.ran);
+        }
+        assert!(queue::tests::freed(&folder.0, queue::AGENTS));
+    }
+
+    #[test]
+    fn a_person_who_writes_shared_state_during_a_call_writes_before_the_next_one_starts() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        // During test mode a person opens G0, and waits for the call to end.
+        let person: Act = |root| {
+            let (state, (waiting, wait_waiting)) = (root.to_path_buf(), mpsc::channel());
+            thread::spawn(move || {
+                let write = queue::shared_write(&state, || waiting.send(()).unwrap()).unwrap();
+                change::write(&state, approve::G0_PATH, "{}\n").unwrap();
+                thread::sleep(Duration::from_millis(100));
+                drop(write);
+            });
+            wait_waiting.recv().unwrap();
+            assert!(!root.join(approve::G0_PATH).exists());
+        };
+        let next: Act = |root| assert!(root.join(approve::G0_PATH).is_file(), "written");
+        steps.acts = vec![(Who::BuilderTest, person), (Who::BuilderBuild, next)];
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        assert_eq!(text(&folder, approve::G0_PATH), "{}\n");
     }
 
     #[test]

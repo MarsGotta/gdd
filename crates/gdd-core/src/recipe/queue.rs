@@ -5,7 +5,9 @@
 //! [`may_launch`]). Launches are judged one at a time, under the launch lock (see
 //! [`admission`]). And merges go one at a time, under the merge lock (see [`lock`]): a change
 //! whose main branch moved since it was built takes the latest main first (see [`main_moved`]
-//! and [`take_main`]), and its build starts again there (see [`restarted`]).
+//! and [`take_main`]), and its build starts again there (see [`restarted`]). A person's write to
+//! the GDD state every change shares waits for the agent calls under way, and no call starts
+//! while it waits (see [`calling`] and [`shared_write`]).
 
 use std::fs::{self, File, TryLockError};
 use std::io;
@@ -49,11 +51,25 @@ pub const LOCK: &str = ".gdd/merge.lock";
 /// The launch lock, from the state root: a file of its own, made when it is missing.
 pub const ADMISSION: &str = ".gdd/launch.lock";
 
-/// The locks, which gdd runs of other changes make and take at any time.
-pub const LOCKS: [&str; 2] = [LOCK, ADMISSION];
+/// The lock of the agent calls, from the state root: every call holds it shared, and a person's
+/// write to the GDD state every change shares holds it alone. A file of its own, made when it is
+/// missing.
+pub const AGENTS: &str = ".gdd/agents.lock";
+
+/// The turn to take the lock of the agent calls, from the state root: a person who waits for the
+/// calls under way holds it, so no other call starts meanwhile. A file of its own, made when it
+/// is missing.
+pub const TURN: &str = ".gdd/state.lock";
+
+/// The locks, which gdd runs of other changes, and people, make and take at any time.
+pub const LOCKS: [&str; 4] = [LOCK, ADMISSION, AGENTS, TURN];
 
 /// What a merge that waits for the merge of another change says.
 pub const WAITING: &str = "waiting for the merge of another change";
+
+/// What a person's write to the GDD state every change shares says when it waits for the agent
+/// calls under way.
+pub const WAITING_AGENTS: &str = "waiting for the agents at work to end their call";
 
 /// How many changes build at once at most, from the text of the rules file `rules`: `[parallel]
 /// max`, an integer from 1 on; 2 when it says nothing. The rest of the file is ignored.
@@ -234,21 +250,70 @@ pub fn admission(state: &Path) -> Result<Lock, String> {
     held(state, ADMISSION, || {})
 }
 
-/// Takes the lock `path` of the project whose state root is `state`, never through a link or
-/// another name of the file (see [`files::open`]). While someone else holds it, calls `waiting`
-/// once, then waits until it is free.
+/// An agent call under way, which holds the lock of the agent calls shared (see [`calling`]):
+/// until it is dropped, no person writes the GDD state every change shares.
+#[derive(Debug)]
+pub struct Calling {
+    _agents: File,
+}
+
+/// A person's write to the GDD state every change shares, which holds the lock of the agent
+/// calls and its turn (see [`shared_write`]): until it is dropped, no agent call starts.
+#[derive(Debug)]
+pub struct SharedWrite {
+    _agents: Lock,
+    _turn: Lock,
+}
+
+/// Takes the lock of the agent calls of the project whose state root is `state` shared, for an
+/// agent call (see [`AGENTS`]): the calls of several changes hold it at once. Its turn comes
+/// first (see [`TURN`]), and goes once the lock is held: a call never starts while a person waits
+/// to write.
+pub fn calling(state: &Path) -> Result<Calling, String> {
+    let turn = held(state, TURN, || {})?;
+    let agents = opened(state, AGENTS)?;
+    agents.lock_shared().map_err(|e| unlocked(AGENTS, e))?;
+    drop(turn);
+    Ok(Calling { _agents: agents })
+}
+
+/// Takes the lock of the agent calls of the project whose state root is `state` alone, for a
+/// person's write to the GDD state every change shares, once its turn is taken (see [`TURN`]).
+/// While agent calls are under way, calls `say` once, then waits until they end; meanwhile no
+/// other call starts.
+pub fn shared_write(state: &Path, say: impl FnOnce()) -> Result<SharedWrite, String> {
+    let turn = held(state, TURN, || {})?;
+    let agents = held(state, AGENTS, say)?;
+    Ok(SharedWrite {
+        _agents: agents,
+        _turn: turn,
+    })
+}
+
+/// Takes the lock `path` of the project whose state root is `state` alone (see [`opened`]).
+/// While someone else holds it, calls `waiting` once, then waits until it is free.
 fn held(state: &Path, path: &str, waiting: impl FnOnce()) -> Result<Lock, String> {
-    let file = files::open(state, path).map_err(|e| format!("cannot open {path}: {e}"))?;
-    let failed = |e: io::Error| format!("cannot lock {path}: {e}");
+    let file = opened(state, path)?;
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             waiting();
-            file.lock().map_err(failed)?;
+            file.lock().map_err(|e| unlocked(path, e))?;
         }
-        Err(TryLockError::Error(e)) => return Err(failed(e)),
+        Err(TryLockError::Error(e)) => return Err(unlocked(path, e)),
     }
     Ok(Lock { _file: file })
+}
+
+/// The lock `path` of the project whose state root is `state`, open, never through a link or
+/// another name of the file (see [`files::open`]).
+fn opened(state: &Path, path: &str) -> Result<File, String> {
+    files::open(state, path).map_err(|e| format!("cannot open {path}: {e}"))
+}
+
+/// Why the lock `path` could not be taken.
+fn unlocked(path: &str, e: io::Error) -> String {
+    format!("cannot lock {path}: {e}")
 }
 
 /// Whether the main branch `main` moved since the change checked out at `work` was last built:
@@ -296,13 +361,35 @@ pub fn restarted(state: &Path, id: &str, start: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::git::tests::{Folder, Repo};
     use std::os::unix::fs::symlink;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
+
+    /// Whether someone holds the lock `path` of the state root `state` now.
+    pub(crate) fn taken(state: &Path, path: &str) -> bool {
+        let file = files::open(state, path).unwrap();
+        match file.try_lock() {
+            Ok(()) => false,
+            Err(TryLockError::WouldBlock) => true,
+            Err(TryLockError::Error(e)) => panic!("cannot lock {path}: {e}"),
+        }
+    }
+
+    /// Whether the lock `path` of the state root `state` is free within a second: a process
+    /// another test starts keeps a lock let go until it starts its program (see `File::lock`).
+    pub(crate) fn freed(state: &Path, path: &str) -> bool {
+        (0..100).any(|_| {
+            let free = !taken(state, path);
+            if !free {
+                thread::sleep(Duration::from_millis(10));
+            }
+            free
+        })
+    }
 
     #[test]
     fn the_cap_is_parallel_max_and_two_without_it() {
@@ -585,6 +672,93 @@ mod tests {
         let fresh = Folder::new();
         assert!(lock(&fresh.0, || {}).is_ok());
         assert!(fresh.0.join(LOCK).is_file());
+    }
+
+    #[test]
+    fn the_calls_of_several_changes_hold_the_lock_of_the_calls_at_once_and_let_their_turn_go() {
+        let state = Folder::new();
+        let first = calling(&state.0).unwrap();
+        let second = calling(&state.0).unwrap();
+        assert!(state.0.join(AGENTS).is_file());
+        assert!(taken(&state.0, AGENTS));
+        assert!(freed(&state.0, TURN));
+        drop(first);
+        assert!(taken(&state.0, AGENTS));
+        drop(second);
+        assert!(freed(&state.0, AGENTS));
+    }
+
+    #[test]
+    fn a_shared_write_waits_for_the_calls_under_way_and_says_so() {
+        let state = Folder::new();
+        let mut said = 0;
+        let alone = shared_write(&state.0, || said += 1).unwrap();
+        assert_eq!(said, 0);
+        assert!(taken(&state.0, AGENTS));
+        assert!(taken(&state.0, TURN));
+        drop(alone);
+        let call = calling(&state.0).unwrap();
+        let (waiting, wait_waiting) = mpsc::channel();
+        let (written, wait_written) = mpsc::channel();
+        let root = state.0.clone();
+        let person = thread::spawn(move || {
+            let write = shared_write(&root, || waiting.send(()).unwrap()).unwrap();
+            written.send(()).unwrap();
+            drop(write);
+        });
+        wait_waiting.recv().unwrap();
+        thread::sleep(Duration::from_millis(100));
+        assert!(wait_written.try_recv().is_err(), "the call is under way");
+        drop(call);
+        wait_written.recv().unwrap();
+        person.join().unwrap();
+    }
+
+    #[test]
+    fn a_person_waiting_to_write_keeps_the_next_call_from_starting() {
+        let state = Folder::new();
+        let call = calling(&state.0).unwrap();
+        let (said, wait_said) = mpsc::channel();
+        let (events, wait_events) = mpsc::channel();
+        let (root, person_events) = (state.0.clone(), events.clone());
+        let person = thread::spawn(move || {
+            let write = shared_write(&root, || said.send(()).unwrap()).unwrap();
+            person_events.send("written").unwrap();
+            thread::sleep(Duration::from_millis(100));
+            drop(write);
+        });
+        wait_said.recv().unwrap();
+        let root = state.0.clone();
+        let next = thread::spawn(move || {
+            let call = calling(&root).unwrap();
+            events.send("next call").unwrap();
+            drop(call);
+        });
+        thread::sleep(Duration::from_millis(200));
+        assert!(wait_events.try_recv().is_err(), "the next call waits");
+        drop(call);
+        let order: Vec<&str> = wait_events.iter().take(2).collect();
+        assert_eq!(order, ["written", "next call"]);
+        person.join().unwrap();
+        next.join().unwrap();
+    }
+
+    #[test]
+    fn the_locks_of_the_calls_that_are_not_files_of_their_own_are_refused() {
+        let file = Folder::new();
+        file.write(".gdd", "");
+        let not_a_folder = "cannot open .gdd/state.lock: .gdd is not a folder";
+        assert_eq!(calling(&file.0).unwrap_err(), not_a_folder);
+        assert_eq!(shared_write(&file.0, || {}).unwrap_err(), not_a_folder);
+        let (state, outside) = (Folder::new(), Folder::new());
+        outside.write("f", "");
+        state.write(TURN, "");
+        symlink(outside.0.join("f"), state.0.join(AGENTS)).unwrap();
+        let refused = "cannot open .gdd/agents.lock: not a file of its own";
+        assert!(calling(&state.0).unwrap_err().starts_with(refused));
+        let err = shared_write(&state.0, || {}).unwrap_err();
+        assert!(err.starts_with(refused), "{err}");
+        assert!(freed(&state.0, TURN), "the turn goes with the refusal");
     }
 
     /// A repository on `main` with the branch of change `c1`, which adds `app.txt`, checked out
