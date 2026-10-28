@@ -2,7 +2,8 @@
 //! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
 //! Path Guard again, the scope check in build mode and, in G3, the scenario count and the
 //! security exceptions ([`exceptions`]). It passes only if all of them pass, but a command with
-//! known debt ([`debt`]) only warns.
+//! known debt ([`debt`]) only warns. Each command and Path Guard keep their own time, which the
+//! log gets a line of before the gate's own.
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
@@ -25,6 +26,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize, Serializer};
 
@@ -311,6 +313,21 @@ pub struct Report {
     /// Seconds the commands took, added up.
     #[serde(skip)]
     pub duration_s: f64,
+    /// The checks that ran with their own time, in the order they ended: each command that ran,
+    /// then Path Guard.
+    #[serde(skip)]
+    pub timed: Vec<Timed>,
+}
+
+/// A check of a gate that ran with its own time: a command, or Path Guard.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Timed {
+    /// Its name: the command's, or `path-guard`.
+    pub name: String,
+    /// Whether it passed.
+    pub ok: bool,
+    /// Seconds it took, to a tenth.
+    pub duration_s: f64,
 }
 
 /// A check of a gate that failed.
@@ -377,11 +394,13 @@ impl Report {
     }
 
     /// How the command `name` failed, from what it did; `None` when it passed. The time it ran
-    /// is added to the report's.
+    /// is added to the report's and kept as its own (see [`Report::took`]); one that could not
+    /// start took none.
     fn failure(&mut self, name: &str, ran: io::Result<exec::Ran>) -> Option<Failure> {
         let ran = match ran {
             Ok(ran) => ran,
             Err(e) => {
+                self.took(name, false, 0.0);
                 return Some(Failure {
                     name: name.to_string(),
                     exit: None,
@@ -391,6 +410,7 @@ impl Report {
         };
         let duration_s = tenths(ran.duration.as_secs_f64());
         self.duration_s += duration_s;
+        self.took(name, ran.ok(), duration_s);
         (!ran.ok()).then(|| Failure {
             name: name.to_string(),
             exit: Some(Exit {
@@ -402,19 +422,46 @@ impl Report {
         })
     }
 
+    /// Keeps that the check `name` ran with its own time: whether it passed (`ok`) and the
+    /// seconds it took.
+    fn took(&mut self, name: &str, ok: bool, duration_s: f64) {
+        self.timed.push(Timed {
+            name: name.to_string(),
+            ok,
+            duration_s,
+        });
+    }
+
+    /// The lines of the log for this run on change `id`, in order: one per check that ran with
+    /// its own time, with no note, then the gate's own (see [`Report::log_entry`]).
+    pub fn log_entries(&self, id: &str) -> Vec<log::Entry> {
+        let timed = self.timed.iter();
+        let mut entries: Vec<log::Entry> = timed
+            .map(|t| self.entry(id, &t.name, t.ok, t.duration_s, String::new()))
+            .collect();
+        entries.push(self.log_entry(id));
+        entries
+    }
+
     /// The line of the log for this run on change `id`: a machine step, `ok` or `ko`, with the
     /// time of the commands and a note that names what failed.
     pub fn log_entry(&self, id: &str) -> log::Entry {
         let failed: Vec<&str> = self.failures.iter().map(|f| f.name.as_str()).collect();
+        let note = failed.join(", ").chars().take(NOTE_LENGTH).collect();
+        self.entry(id, "checks", self.ok, tenths(self.duration_s), note)
+    }
+
+    /// A machine line of the log for this run on change `id`, of the gate's phase and gate.
+    fn entry(&self, id: &str, agent: &str, ok: bool, duration_s: f64, note: String) -> log::Entry {
         log::Entry {
             change: id.to_string(),
             phase: self.gate.phase().to_string(),
             gate: self.gate.to_string(),
             role: "machine".to_string(),
-            agent: "checks".to_string(),
-            result: if self.ok { "ok" } else { "ko" }.to_string(),
-            duration_s: tenths(self.duration_s),
-            note: failed.join(", ").chars().take(NOTE_LENGTH).collect(),
+            agent: agent.to_string(),
+            result: if ok { "ok" } else { "ko" }.to_string(),
+            duration_s,
+            note,
         }
     }
 }
@@ -425,10 +472,14 @@ pub(crate) fn tenths(seconds: f64) -> f64 {
 }
 
 /// Saves `report`, of a run on change `id`, next to the record of the change under the state root
-/// `state` (see [`keep`]), and logs the run.
+/// `state` (see [`keep`]), and logs the run: a line per check with its own time, then the gate's
+/// (see [`Report::log_entries`]).
 pub fn save(state: &Path, id: &str, report: &Report) -> Result<(), String> {
     keep(state, id, report)?;
-    change::logged(state, &report.log_entry(id))
+    for entry in report.log_entries(id) {
+        change::logged(state, &entry)?;
+    }
+    Ok(())
 }
 
 /// Saves `report`, of a run on change `id`, next to the record of the change under the state root
@@ -453,7 +504,7 @@ pub fn keep(state: &Path, id: &str, report: &Report) -> Result<(), String> {
 /// [`exceptions`]). A command with known debt in `gdd/debt.toml` that fails does not fail the
 /// gate, and one that passes is named as paid (see [`debt`]); a debt file that cannot be read
 /// fails the check `debt`. A gate without commands fails. A check that cannot judge fails with
-/// the reason.
+/// the reason. Each command that runs, then Path Guard, keeps its own time (see [`Timed`]).
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -485,8 +536,11 @@ pub fn run(
     let commands = project.commands.of(gate);
     let mut report = judged.report(gate, commands);
     let owed = debt::owed(&mut report, root, gate);
-    let guard = || {
+    let mut guarding = Duration::ZERO;
+    let mut guard = || {
+        let started = Instant::now();
         let verdict = guard::path_guard(root, id, record, project.settings, role, snapshot);
+        guarding += started.elapsed();
         verdict.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures)
     };
     let mut guarded = guard();
@@ -496,6 +550,8 @@ pub fn run(
     } else {
         guarded.push(NOT_RUN.to_string());
     }
+    let guarding = tenths(guarding.as_secs_f64());
+    report.took(PATH_GUARD, guarded.is_empty(), guarding);
     report.judge(PATH_GUARD, guarded);
     if role == BUILD_ROLE {
         let failures = match guard::scope(root, id, record, project.zones, &project.rules.table) {
@@ -549,6 +605,7 @@ impl Judged<'_> {
             known_debt: Vec::new(),
             paid_debt: Vec::new(),
             duration_s: 0.0,
+            timed: Vec::new(),
         };
         if commands.is_empty() {
             let name = format!("{gate} not configured");
@@ -751,6 +808,12 @@ paths = ["src/storage/**"]
         report.failures.iter().map(|f| f.name.as_str()).collect()
     }
 
+    /// The checks of `report` that ran with their own time, and whether each passed.
+    fn timed(report: &Report) -> Vec<(&str, bool)> {
+        let timed = report.timed.iter();
+        timed.map(|t| (t.name.as_str(), t.ok)).collect()
+    }
+
     fn failure(name: &str, tail: &str) -> Failure {
         Failure {
             name: name.to_string(),
@@ -837,8 +900,11 @@ paths = ["src/storage/**"]
             known_debt: vec![],
             paid_debt: vec![],
             duration_s: report.duration_s,
+            timed: report.timed.clone(),
         };
         assert_eq!(report, expected);
+        let ran = [("lint", true), ("unit", true), ("path-guard", true)];
+        assert_eq!(timed(&report), ran);
     }
 
     /// The known debt of `lint` in G2 and `security` in G3, committed on `main` with the rules,
@@ -944,16 +1010,28 @@ paths = ["src/storage/**"]
         assert_eq!((exit.ok, exit.code), (false, 3));
         assert!((0.2..10.0).contains(&exit.duration_s), "{exit:?}");
         assert!(report.duration_s >= exit.duration_s, "{report:?}");
+        let ran = [("lint", true), ("unit", false), ("path-guard", true)];
+        assert_eq!(timed(&report), ran);
+        assert_eq!(report.timed[1].duration_s, exit.duration_s);
+        let commands = report.timed[0].duration_s + report.timed[1].duration_s;
+        assert_eq!(tenths(commands), tenths(report.duration_s));
     }
 
     #[test]
     fn a_command_that_cannot_start_fails_with_the_reason() {
         let mut report = started(&[], "").run(Gate::G2, "builder");
         report.failures.clear();
+        report.timed.clear();
         report.command("unit", Err(io::Error::other("no shell")), false);
         let expected = failure("unit", "cannot run sh: no shell");
         assert_eq!(report.failures, [expected]);
         assert_eq!(report.duration_s, 0.0);
+        let unit = Timed {
+            name: "unit".into(),
+            ok: false,
+            duration_s: 0.0,
+        };
+        assert_eq!(report.timed, [unit]);
         report.command("lint", Err(io::Error::other("no shell")), true);
         let owing = owed("lint", "cannot run sh: no shell");
         assert_eq!(report.known_debt, [owing]);
@@ -1119,6 +1197,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let report = project.run(Gate::G2, "builder");
         let guarded = format!("gdd/rules.toml: protected path for builder\n{NOT_RUN}");
         assert_eq!(report.failures, [failure("path-guard", &guarded)]);
+        assert_eq!(timed(&report), [("path-guard", false)]);
         project.repo.write("features/a.feature", "Feature: a\n");
         let report = project.run(Gate::G2, BUILD_ROLE);
         let guarded = format!(
@@ -1151,6 +1230,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(report.passed, ["unit"]);
         let guarded = "gdd/rules.toml: protected path for builder";
         assert_eq!(report.failures, [failure("path-guard", guarded)]);
+        assert_eq!(timed(&report), [("unit", true), ("path-guard", false)]);
     }
 
     #[test]
@@ -1241,6 +1321,11 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             known_debt: vec![],
             paid_debt: vec![],
             duration_s: 9.0,
+            timed: vec![Timed {
+                name: "unit".into(),
+                ok: false,
+                duration_s: 1.5,
+            }],
         };
         assert_eq!(
             serde_json::to_string(&report).unwrap(),
@@ -1289,6 +1374,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             known_debt: vec![],
             paid_debt: vec![],
             duration_s: 0.1 + 0.2,
+            timed: vec![],
         };
         let entry = log::Entry {
             change: "c1".into(),
@@ -1301,6 +1387,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             note: String::new(),
         };
         assert_eq!(report.log_entry("c1"), entry);
+        assert_eq!(report.log_entries("c1"), [entry]);
         report.ok = false;
         report.gate = Gate::G3;
         report.failures = vec![failure("unit", "x"), failure("path-guard", "y")];
@@ -1315,6 +1402,34 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
     }
 
     #[test]
+    fn each_check_with_its_own_time_has_a_line_before_the_gate() {
+        let commands = "[g3]\nacceptance = \"true\"\nmutation = \"exit 1\"\nlint = \"\"\n";
+        let project = started(&["src/app.rs"], commands);
+        project.repo.write("features/a.feature", "Scenario: a\n");
+        let mut report = project.run(Gate::G3, "builder");
+        report.timed[0].duration_s = 1.5;
+        let entries = report.log_entries("c1");
+        let agents: Vec<&str> = entries.iter().map(|e| e.agent.as_str()).collect();
+        assert_eq!(agents, ["acceptance", "mutation", "path-guard", "checks"]);
+        let acceptance = log::Entry {
+            change: "c1".into(),
+            phase: "3-integrate".into(),
+            gate: "G3".into(),
+            role: "machine".into(),
+            agent: "acceptance".into(),
+            result: "ok".into(),
+            duration_s: 1.5,
+            note: String::new(),
+        };
+        assert_eq!(entries[0], acceptance);
+        assert_eq!(entries[1].result, "ko");
+        assert_eq!(entries[1].note, "");
+        assert_eq!(entries[2].result, "ok");
+        assert_eq!(entries[3], report.log_entry("c1"));
+        assert_eq!(entries[3].note, "mutation");
+    }
+
+    #[test]
     fn a_report_is_saved_next_to_the_record_and_logged() {
         let project = started(&["src/app.rs"], "[g2]\nlint = \"true\"\n");
         let root = project.repo.root();
@@ -1325,12 +1440,18 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(saved, format!("{pretty}\n"));
         let text = fs::read_to_string(root.join(log::PATH)).unwrap();
         let records = log::parse(&text).unwrap();
-        let [line] = records.as_slice() else {
-            panic!("one log line: {records:?}");
+        let [lint, guard, line] = records.as_slice() else {
+            panic!("three log lines: {records:?}");
         };
         assert_eq!(line.text("gate"), "G2");
         assert_eq!(line.text("agent"), "checks");
         assert_eq!(line.text("result"), "ok");
+        for (command, name) in [(lint, "lint"), (guard, "path-guard")] {
+            assert_eq!(command.text("agent"), name);
+            assert_eq!(command.text("gate"), "G2");
+            assert_eq!(command.text("role"), "machine");
+            assert_eq!(command.text("result"), "ok");
+        }
         // Kept, it is saved and the log stays as it was.
         fs::remove_file(root.join(".gdd/changes/c1/g2.json")).unwrap();
         keep(root, "c1", &report).unwrap();
@@ -1342,7 +1463,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let start = "cannot write .gdd/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
         let text = fs::read_to_string(root.join(log::PATH)).unwrap();
-        assert_eq!(log::parse(&text).unwrap().len(), 1);
+        assert_eq!(log::parse(&text).unwrap().len(), 3);
     }
 
     #[test]

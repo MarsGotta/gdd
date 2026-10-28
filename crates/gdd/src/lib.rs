@@ -26,7 +26,7 @@ use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
-    Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, inbox, init, log,
+    Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, flow, inbox, init, log,
     session, stacks, state, versions,
 };
 
@@ -46,6 +46,8 @@ const TEST_ROLE: &str = "builder-test";
 const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
 const NO_HOME: &str = "HOME is not set: the Claude Code transcripts are under it";
+/// Why `gdd report --since` does not take a day.
+const NOT_A_DAY: &str = "a day is YYYY-MM-DD, such as 2026-10-28";
 /// The kinds of work a change can be.
 const TYPES: [&str; 6] = [
     "Feature",
@@ -203,18 +205,9 @@ enum Run {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Tokens, cost and time of the agent calls in the log.
-    Report {
-        /// Fields to group the calls by, separated by commas (change, phase, model, role, agent...).
-        #[arg(long, default_value = "role")]
-        by: String,
-        /// Count only the records of this change.
-        #[arg(long)]
-        change: Option<String>,
-        /// Print the groups as a JSON list.
-        #[arg(long)]
-        json: bool,
-    },
+    /// Tokens, cost and time of the agent calls in the log; with --time, where the time of each
+    /// change goes: active (agents, gates, release), waiting and between steps.
+    Report(ReportArgs),
     /// Color, lane and gates of a change, from its plan and what it touched, as JSON.
     Classify {
         /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
@@ -496,6 +489,27 @@ struct AgentArgs {
     agents: Vec<String>,
 }
 
+/// What `gdd report` takes.
+#[derive(Debug, Args)]
+struct ReportArgs {
+    /// Fields to group the calls by, separated by commas (change, phase, model, role, agent...).
+    #[arg(long, default_value = "role")]
+    by: String,
+    /// Count only the records of this change.
+    #[arg(long)]
+    change: Option<String>,
+    /// Print the groups, or the changes with --time, as a JSON list.
+    #[arg(long)]
+    json: bool,
+    /// Where the time of each change goes, from its first line in the log to its last, instead
+    /// of the agent calls; without --change, the project adds every change up.
+    #[arg(long, conflicts_with = "by")]
+    time: bool,
+    /// With --time, only the changes created on or after this day, YYYY-MM-DD (UTC).
+    #[arg(long, requires = "time", value_parser = parse_day)]
+    since: Option<i64>,
+}
+
 /// What `gdd guard` takes.
 #[derive(Debug, Args)]
 struct GuardArgs {
@@ -642,6 +656,11 @@ fn parse_color(name: &str) -> Result<Color, String> {
     name.parse().map_err(|e: gdd_core::Error| e.to_string())
 }
 
+/// A day named on the command line as `YYYY-MM-DD`: days since 1970-01-01 (see [`flow::day`]).
+fn parse_day(text: &str) -> Result<i64, String> {
+    flow::day(text).ok_or_else(|| NOT_A_DAY.to_string())
+}
+
 impl Command {
     /// Runs the command on the project at `root`, whose state root is `state` (see
     /// [`state::root`]), for the role `role`, in the environment `env`: what it prints and its
@@ -677,7 +696,7 @@ impl Command {
             Command::Board => return Ok(Outcome::needs_terminal()),
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
-            Command::Report { by, change, json } => report(state, &by, change.as_deref(), json)?,
+            Command::Report(args) => report(state, &args)?,
             Command::Classify { change } => classify(root, state, &change_id(change, env)?)?,
             Command::Snapshot { change } => snapshot(root, state, &change_id(change, env)?)?,
             Command::Scope { change } => scope(root, state, &change)?,
@@ -840,16 +859,31 @@ fn project_root(cwd: &Path) -> Result<PathBuf, String> {
 }
 
 /// `gdd report`: the agent calls of the log under the state root `state`, added up by the fields
-/// `by`.
-fn report(state: &Path, by: &str, change: Option<&str>, json: bool) -> Result<String, String> {
+/// `by` of `args`; with `--time`, where the time of each change goes (see [`time_report`]).
+fn report(state: &Path, args: &ReportArgs) -> Result<String, String> {
     let text = read(state, log::PATH)?.unwrap_or_default();
+    if args.time {
+        return time_report(&text, args);
+    }
     let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
-    let by: Vec<String> = by.split(',').map(str::to_string).collect();
-    let report = Report::new(&records, &by, change);
-    if json {
+    let by: Vec<String> = args.by.split(',').map(str::to_string).collect();
+    let report = Report::new(&records, &by, args.change.as_deref());
+    if args.json {
         serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
     } else {
         Ok(report.to_string())
+    }
+}
+
+/// `gdd report --time`: where the time of each change of the log `text` goes, for the change and
+/// since the day of `args` (see [`flow::Flow`]).
+fn time_report(text: &str, args: &ReportArgs) -> Result<String, String> {
+    let lines = flow::read(text).map_err(|e| format!("{}, {e}", log::PATH))?;
+    let flow = flow::Flow::new(&lines, args.change.as_deref(), args.since);
+    if args.json {
+        serde_json::to_string_pretty(&flow).map_err(|e| e.to_string())
+    } else {
+        Ok(flow.to_string())
     }
 }
 
@@ -2358,6 +2392,79 @@ mod tests {
         );
     }
 
+    /// Two changes in time: `a` still at its sitting, `b` built the next day.
+    const TIMED: &str = concat!(
+        r#"{"ts": "2026-10-28T10:00:00+00:00", "change": "a", "result": "change-created", "note": "Drafts"}"#,
+        "\n",
+        r#"{"ts": "2026-10-28T10:20:00+00:00", "change": "a", "gate": "G1", "role": "human"}"#,
+        "\n",
+        r#"{"ts": "2026-10-29T09:00:00+00:00", "change": "b", "result": "change-created", "note": "Export"}"#,
+        "\n",
+        r#"{"ts": "2026-10-29T09:10:00+00:00", "change": "b", "role": "machine", "result": "prepared"}"#,
+        "\n",
+        r#"{"ts": "2026-10-29T09:30:00+00:00", "change": "b", "role": "builder-build", "model": "opus", "duration_s": 1200}"#,
+        "\n"
+    );
+
+    #[test]
+    fn report_time_shows_where_the_time_of_each_change_goes() {
+        let project = Project::new();
+        project.write(log::PATH, TIMED);
+        let out = project.run("report --time --change a");
+        let a = "a · Drafts · in progress\n  \
+                 Flow time 20m · active 0s (0%) · waiting 20m · between steps 0s\n  \
+                 Waiting: at the sitting 20m\n";
+        assert_eq!(out, Outcome::success(a.into()));
+        let out = project.run("report --time --since 2026-10-29");
+        let b = "b · Export · in progress\n  \
+                 Flow time 30m · active 20m (67%) · waiting 10m · between steps 0s\n  \
+                 Agents: builder-build · opus 20m\n  \
+                 Waiting: to start 10m\n\n\
+                 Project: 1 change(s) · flow time 30m · active 20m (67%) · waiting 10m · \
+                 between steps 0s\n\
+                 Biggest waits: to start 10m\n";
+        assert_eq!(out, Outcome::success(b.into()));
+        let changes = json(&project.run("report --time --json"));
+        let sitting = serde_json::json!({"at the sitting": 1200});
+        assert_eq!(changes[0]["waiting"], sitting);
+        assert_eq!(changes[1]["change"], "b");
+        assert_eq!(changes[1]["active_s"], 1200);
+        let missing = project.run("report --time --change zzz");
+        let none = "No change zzz in the log.\n";
+        assert_eq!(missing, Outcome::success(none.into()));
+    }
+
+    #[test]
+    fn report_time_takes_a_day_and_no_fields() {
+        let project = Project::new();
+        project.write(log::PATH, TIMED);
+        for command in [
+            "report --time --since 28-10-2026",
+            "report --since 2026-10-28",
+            "report --time --by model",
+        ] {
+            let out = project.run(command);
+            assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command}");
+        }
+        for day in ["2026-02-30x", "2026-02-30", "9223372036854775807-01-01"] {
+            let out = project.run(&format!("report --time --since {day}"));
+            assert!(out.stderr.contains(NOT_A_DAY), "{day}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn report_time_names_a_line_it_cannot_place_in_time() {
+        let project = Project::new();
+        project.write(log::PATH, &format!("{TIMED}\n{{\"change\": \"a\"}}\n"));
+        let out = project.run("report --time");
+        let said = "error: .gdd/log.jsonl, line 7: ts \"-\" is not a time like ";
+        assert!(out.stderr.starts_with(said), "{out:?}");
+        project.write(log::PATH, &format!("{TIMED}{{x\n"));
+        let out = project.run("report --time");
+        let broken = "error: .gdd/log.jsonl, line 6: ";
+        assert!(out.stderr.starts_with(broken), "{out:?}");
+    }
+
     #[test]
     fn a_log_that_cannot_be_read_is_an_error() {
         let project = Project::new();
@@ -2802,9 +2909,22 @@ mod tests {
         let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved, printed);
         let records = log_records(&project);
-        let [line] = records.as_slice() else {
-            panic!("one log line: {records:?}");
-        };
+        let agents: Vec<String> = records.iter().map(|r| r.text("agent")).collect();
+        assert_eq!(agents, ["lint", "unit", "path-guard", "checks"]);
+        let unit = &records[1];
+        for (field, value) in [
+            ("change", "save"),
+            ("phase", "2-build"),
+            ("gate", "G2"),
+            ("role", "machine"),
+            ("model", "-"),
+            ("result", "ko"),
+            ("note", ""),
+        ] {
+            assert_eq!(unit.text(field), value, "{field}");
+        }
+        assert_eq!(records[0].text("result"), "ok");
+        let line = &records[3];
         for (field, value) in [
             ("change", "save"),
             ("phase", "2-build"),
@@ -2822,7 +2942,7 @@ mod tests {
         assert_eq!((strict.code, strict.stderr.as_str()), (1, ""));
         let printed: serde_json::Value = serde_json::from_str(&strict.stdout).unwrap();
         assert_eq!(printed["ok"], false);
-        assert_eq!(log_records(&project).len(), 2);
+        assert_eq!(log_records(&project).len(), 8);
     }
 
     #[test]
