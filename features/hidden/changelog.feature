@@ -70,10 +70,10 @@ Feature: The changelog from the changes (hidden examples)
     And the agents are fakes
 
   Scenario: A migration goes under Changed
-    Given I run "gdd new-change c4 --title New storage format --type Migration --paths src/app.txt"
+    Given I run "gdd new-change c4 --title Storage --type Migration --paths src/app.txt"
     When I run "gdd launch c4"
     Then it succeeds
-    And the last commit on main says "Changelog: Changed · New storage format"
+    And the last commit on main says "Changelog: Changed · Storage"
     And the last commit on main says "Breaking: no"
 
   Scenario: A security line

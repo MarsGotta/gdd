@@ -84,10 +84,10 @@ Feature: The changelog from the changes
     And the last commit on main says "Breaking: no"
 
   Scenario: Without a line, the title goes under the section of its type
-    Given I run "gdd new-change c1 --title Faster search --type Hotfix --paths src/app.txt"
+    Given I run "gdd new-change c1 --title Crash --type Hotfix --paths src/app.txt"
     When I run "gdd launch c1"
     Then it succeeds
-    And the last commit on main says "Changelog: Fixed · Faster search"
+    And the last commit on main says "Changelog: Fixed · Crash"
 
   Scenario: A refactor is left out
     Given I run "gdd new-change c1 --title Tidy --type Refactor --paths src/app.txt"
@@ -120,7 +120,7 @@ Feature: The changelog from the changes
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
     And I run "gdd changelog-line c1 Added Export notes as Markdown"
     And I run "gdd launch c1"
-    And I run "gdd new-change c2 --title Crash on empty notes --type Hotfix --paths src/app.txt"
+    And I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.txt"
     And I run "gdd launch c2"
     When I run "gdd changelog"
     Then it succeeds
@@ -128,7 +128,7 @@ Feature: The changelog from the changes
     And the file "CHANGELOG.md" contains "### Added"
     And the file "CHANGELOG.md" contains "- Export notes as Markdown"
     And the file "CHANGELOG.md" contains "### Fixed"
-    And the file "CHANGELOG.md" contains "- Crash on empty notes"
+    And the file "CHANGELOG.md" contains "- Crash"
     And the file "CHANGELOG.md" contains "keepachangelog.com"
 
   Scenario: A breaking line stands out in the changelog
