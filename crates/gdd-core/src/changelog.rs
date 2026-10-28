@@ -1,11 +1,14 @@
 //! The changelog, for the people who use the project: each change carries one line in its merge
-//! commit as git trailers, `Changelog: <section> · <line>` and `Breaking: yes|no`, and
-//! `gdd changelog` writes `CHANGELOG.md` from those commits on the main branch, in the Keep a
-//! Changelog 1.1.0 format. The line of a change is set with `gdd changelog-line` and kept in its
+//! commit as git trailers, `Changelog: <section> · <line>` and `Breaking: yes|no`. `CHANGELOG.md`
+//! is the project's, in the Keep a Changelog 1.1.0 format: `gdd changelog` compares it with
+//! those commits on the main branch and adds only what is missing, each line with a comment that
+//! names its commit (see [`missing`] and [`add`]); every word of the file stays. The line of a
+//! change is set with `gdd changelog-line` and kept in its
 //! record (see [`record`]); without one, its title goes under the section of its kind of work,
 //! and Refactors, Spikes and No-code changes are left out (see [`of_change`]).
 
 use std::collections::BTreeMap;
+use std::fs::Permissions;
 use std::path::Path;
 
 use serde_json::Value;
@@ -49,16 +52,36 @@ const HEADER: &str = "# Changelog\n\n\
                       and this project adheres to \
                       [Semantic Versioning](https://semver.org/spec/v2.0.0.html).";
 
-/// The line that marks a changelog gdd wrote, which it may write again.
-const MARKER: &str = "<!-- Written by gdd changelog from the merge commits: change a line with \
-                      gdd changelog-line, not here. -->";
-
 /// The heading of what no version released yet.
 const UNRELEASED: &str = "## [Unreleased]";
 
-/// Why a changelog gdd did not write stays as it is.
-const NOT_OURS: &str =
-    "CHANGELOG.md was not written by gdd: move it aside, then run gdd changelog again";
+/// What starts the heading of a version, and of a section.
+const VERSION_MARK: &str = "## ";
+const SECTION_MARK: &str = "### ";
+
+/// What starts a list item, after the spaces.
+const BULLETS: [&str; 2] = ["- ", "* "];
+
+/// What starts the comment of a line gdd added: `<!-- gdd: <commit> -->`.
+const COMMENT: &str = "gdd:";
+
+/// What a breaking line starts with.
+const BREAKING: &str = "**Breaking:**";
+
+/// How many characters of its commit a line gdd adds names, and how few of them are enough to
+/// count when a person wrote the comment.
+const ID_LEN: usize = 12;
+const MIN_ID: usize = 7;
+
+/// What `gdd changelog` says before the list of what is missing, after it, and before and after
+/// asking.
+const SHOWN: &str = "Missing from CHANGELOG.md:";
+const NOT_WRITTEN: &str = "Nothing written: gdd changelog --write adds them.";
+const ASK: &str = "Add them to CHANGELOG.md? [y/N] ";
+const NOT_WRITTEN_ASKED: &str = "Nothing written.";
+
+/// What `gdd changelog` says when nothing is missing.
+pub const COVERED: &str = "CHANGELOG.md covers every change on main.";
 
 /// Why a line without words is refused.
 const EMPTY: &str = "the changelog line is empty: give it its words";
@@ -232,34 +255,227 @@ pub fn record(
     Ok(format!("Changelog line of {id}: {said}"))
 }
 
-/// Writes the changelog of the project at `root`, [`PATH`], from the commits of its main branch
-/// `main` (see [`versions`]), and commits nothing. A changelog without [`MARKER`] was not written
-/// by gdd: it stays as it is, and that is an error. It is never read or written through a link,
-/// nor over a file with other names (see [`files`]). What it says, in one line.
-pub fn write(root: &Path, main: &str) -> Result<String, String> {
+/// What the changelog of the project lacks, from the commits of its main branch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Missing {
+    /// The file as it is, as text, and its permissions; `None` when there is none.
+    existing: Option<(String, Permissions)>,
+    /// Every version of git, for a file that does not exist yet.
+    all: Vec<Version>,
+    /// The versions of git with only the lines the file does not cover; none is empty.
+    versions: Vec<Version>,
+}
+
+/// What the changelog of the project at `root`, [`PATH`], lacks from the commits of its main
+/// branch `main` (see [`versions`]). Nothing is written. It is never read through a link, nor a
+/// file with other names (see [`files`]); a file that is not UTF-8 text is an error.
+pub fn missing(root: &Path, main: &str) -> Result<Missing, String> {
     let found = files::found(root, PATH).map_err(|e| format!("cannot read {PATH}: {e}"))?;
-    let ours = |found: &files::Found| String::from_utf8_lossy(&found.bytes).contains(MARKER);
-    if found.as_ref().is_some_and(|found| !ours(found)) {
-        return Err(NOT_OURS.to_string());
-    }
     let git = Git::new(root);
     let said = |e: git::Error| e.to_string();
     let history = git.first_parents(main, &KEYS).map_err(said)?;
     let tags = git.tags().map_err(said)?;
-    let versions = versions(&history, &tags);
-    let unreleased = versions.first().map_or(0, |version| version.lines.len());
-    let text = render(&versions);
-    files::replace(root, PATH, text.as_bytes()).map_err(|e| format!("cannot write {PATH}: {e}"))?;
+    let all = versions(&history, &tags);
+    let Some(found) = found else {
+        let versions = lacking(&all, &Items::default());
+        return Ok(Missing {
+            existing: None,
+            all,
+            versions,
+        });
+    };
+    let text = String::from_utf8(found.bytes).map_err(|_| format!("{PATH} is not UTF-8 text"))?;
+    let versions = lacking(&all, &Items::of(&text));
+    Ok(Missing {
+        existing: Some((text, found.permissions)),
+        all,
+        versions,
+    })
+}
+
+/// The versions of `all` with only the lines `items` do not cover; those left empty go.
+fn lacking(all: &[Version], items: &Items) -> Vec<Version> {
+    let uncovered = |version: &Version| Version {
+        heading: version.heading.clone(),
+        lines: version
+            .lines
+            .iter()
+            .filter(|carried| !items.cover(carried))
+            .cloned()
+            .collect(),
+    };
+    all.iter()
+        .map(uncovered)
+        .filter(|version| !version.lines.is_empty())
+        .collect()
+}
+
+impl Missing {
+    /// How many lines are missing.
+    pub fn count(&self) -> usize {
+        self.versions
+            .iter()
+            .map(|version| version.lines.len())
+            .sum()
+    }
+
+    /// The blocks to add: each version with its sections and its items, with their comments.
+    /// What `gdd changelog --check` prints with its failure too.
+    pub fn list(&self) -> String {
+        let blocks: Vec<String> = self
+            .versions
+            .iter()
+            .map(|version| block(version).join("\n"))
+            .collect();
+        blocks.join("\n\n")
+    }
+
+    /// What `gdd changelog` shows when it does not ask: the list, and that nothing was written.
+    pub fn shown(&self) -> String {
+        format!("{SHOWN}\n\n{}\n\n{NOT_WRITTEN}", self.list())
+    }
+
+    /// What `gdd changelog` shows before it asks (see [`answered`]), without a line break at the
+    /// end.
+    pub fn offered(&self) -> String {
+        format!("{SHOWN}\n\n{}\n\n{ASK}", self.list())
+    }
+
+    /// Why `gdd changelog --check` fails.
+    pub fn failure(&self) -> String {
+        let count = self.count();
+        format!(
+            "{PATH} misses {count} line(s): gdd changelog shows them, \
+             gdd changelog --write adds them"
+        )
+    }
+}
+
+/// Adds what `missing` lacks to the changelog of the project at `root`, and nothing else; commits
+/// nothing. A file that exists is written new with the same permissions, and one that does not is
+/// created, never through a link. What it says, in one line.
+pub fn add(root: &Path, missing: &Missing) -> Result<String, String> {
+    unchanged(root, missing)?;
+    let written = match &missing.existing {
+        Some((text, permissions)) => {
+            let found = files::Found {
+                bytes: merged(text, &missing.versions).into_bytes(),
+                permissions: permissions.clone(),
+            };
+            files::put_back(root, PATH, &found)
+        }
+        None => files::replace(root, PATH, fresh(&missing.all).as_bytes()),
+    };
+    written.map_err(|e| format!("cannot write {PATH}: {e}"))?;
+    let count = missing.count();
     Ok(format!(
-        "{PATH} written: {unreleased} line(s) under Unreleased."
+        "{PATH}: {count} line(s) added, nothing else changed."
     ))
+}
+
+/// Fails when the file is not as [`missing`] read it (or there is one now, where there was none):
+/// someone saved it while gdd waited, and writing the old text over it would lose that.
+fn unchanged(root: &Path, missing: &Missing) -> Result<(), String> {
+    let now = files::read(root, PATH).map_err(|e| format!("cannot write {PATH}: {e}"))?;
+    let before = missing.existing.as_ref().map(|(text, _)| text.as_bytes());
+    if now.as_deref() == before {
+        Ok(())
+    } else {
+        Err(format!(
+            "{PATH} changed since gdd read it: nothing written, run gdd changelog again"
+        ))
+    }
+}
+
+/// What a person's `answer` to [`Missing::offered`] does: `y` or `yes` adds the lines (see
+/// [`add`]), anything else writes nothing.
+pub fn answered(root: &Path, missing: &Missing, answer: &str) -> Result<String, String> {
+    match answer.trim().to_lowercase().as_str() {
+        "y" | "yes" => add(root, missing),
+        _ => Ok(NOT_WRITTEN_ASKED.to_string()),
+    }
+}
+
+/// The lines a commit carries that a file has, as its list items say.
+#[derive(Debug, Default)]
+struct Items {
+    /// The commit ids its `<!-- gdd: <id> -->` comments name.
+    ids: Vec<String>,
+    /// The words of its items, without bullet, comments nor `**Breaking:**`.
+    texts: Vec<String>,
+}
+
+impl Items {
+    /// The list items of `text`: lines that start with `- ` or `* `, after leading spaces.
+    fn of(text: &str) -> Items {
+        let mut items = Items::default();
+        for item in text.lines().filter_map(bullet) {
+            let (outside, comments) = split_comments(item);
+            let ids = comments.iter().filter_map(|c| c.strip_prefix(COMMENT));
+            items.ids.extend(ids.map(|id| id.trim().to_string()));
+            let words = outside.trim();
+            let words = words.strip_prefix(BREAKING).unwrap_or(words);
+            items.texts.push(words.trim().to_string());
+        }
+        items
+    }
+
+    /// Whether `carried` is in the file: a comment names a prefix of its commit of at least
+    /// [`MIN_ID`] characters, or an item has its words.
+    fn cover(&self, carried: &Carried) -> bool {
+        let named = |id: &String| id.len() >= MIN_ID && carried.commit.starts_with(id.as_str());
+        self.ids.iter().any(named) || self.texts.contains(&carried.line.text)
+    }
+}
+
+/// What follows the bullet of the list item `line`, when it is one.
+fn bullet(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    BULLETS.iter().find_map(|bullet| line.strip_prefix(bullet))
+}
+
+/// `item` without its HTML comments, and what each said, without the spaces around it.
+fn split_comments(item: &str) -> (String, Vec<&str>) {
+    let mut outside = String::new();
+    let mut comments = Vec::new();
+    let mut rest = item;
+    while let Some(start) = rest.find("<!--") {
+        outside.push_str(&rest[..start]);
+        let after = &rest[start + "<!--".len()..];
+        let Some(end) = after.find("-->") else {
+            // Never closed: it is words, not a comment.
+            outside.push_str(&rest[start..]);
+            return (outside, comments);
+        };
+        comments.push(after[..end].trim());
+        rest = &after[end + "-->".len()..];
+    }
+    outside.push_str(rest);
+    (outside, comments)
+}
+
+/// A line a commit carries, and the commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Carried {
+    line: Line,
+    /// Its full id.
+    commit: String,
+}
+
+impl Carried {
+    /// The item as gdd adds it: the line and a comment with the first [`ID_LEN`] characters of
+    /// the commit.
+    fn item(&self) -> String {
+        let id: String = self.commit.chars().take(ID_LEN).collect();
+        format!("{} <!-- gdd: {id} -->", self.line.item())
+    }
 }
 
 /// A version in the changelog: its heading, and its lines, newest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Version {
     heading: String,
-    lines: Vec<Line>,
+    lines: Vec<Carried>,
 }
 
 impl Version {
@@ -284,7 +500,12 @@ fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
             let heading = format!("## [{version}] - {}", logged.day);
             versions.push(std::mem::replace(&mut current, Version::new(heading)));
         }
-        current.lines.extend(carried(logged));
+        let commit = &logged.commit;
+        let carry = |line| Carried {
+            line,
+            commit: commit.clone(),
+        };
+        current.lines.extend(carried(logged).map(carry));
     }
     versions.push(current);
     versions
@@ -327,8 +548,9 @@ fn released(tags: &[(String, String)]) -> BTreeMap<&str, &str> {
 
 /// Where `version` stands among versions, when it is a semantic version 2.0.0:
 /// `MAJOR.MINOR.PATCH`, then maybe `-<pre-release>` and `+<build>`. Its numbers, then whether it
-/// is a release, which comes after its pre-releases. `None` for anything else.
-fn precedence(version: &str) -> Option<(u64, u64, u64, bool)> {
+/// is a release, which comes after its pre-releases, or its pre-release identifiers. `None` for
+/// anything else.
+fn precedence(version: &str) -> Option<Rank> {
     let (version, build) = split(version, '+');
     let (core, pre) = split(version, '-');
     let mut numbers = core.split('.').map(number);
@@ -336,7 +558,48 @@ fn precedence(version: &str) -> Option<(u64, u64, u64, bool)> {
     let pre_ok = pre.is_none_or(|pre| identifiers(pre, true));
     let build_ok = build.is_none_or(|build| identifiers(build, false));
     let valid = numbers.next().is_none() && pre_ok && build_ok;
-    valid.then_some((known.0, known.1, known.2, pre.is_none()))
+    let pre = match pre {
+        Some(pre) => Pre::Of(pre.split('.').map(Identifier::of).collect()),
+        None => Pre::Release,
+    };
+    valid.then_some(Rank {
+        numbers: known,
+        pre,
+    })
+}
+
+/// Where a semantic version stands among others, as semver.org orders them.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct Rank {
+    numbers: (u64, u64, u64),
+    pre: Pre,
+}
+
+/// The pre-release of a version: a release comes after every pre-release of its numbers.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Pre {
+    /// Its identifiers; a shorter list comes first when the rest is equal.
+    Of(Vec<Identifier>),
+    Release,
+}
+
+/// An identifier of a pre-release: digits only are numbers, which come before the rest, which are
+/// compared as text.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Identifier {
+    /// Its digits, no leading zero: more digits is a bigger number.
+    Number(usize, String),
+    Text(String),
+}
+
+impl Identifier {
+    fn of(text: &str) -> Identifier {
+        if text.bytes().all(|byte| byte.is_ascii_digit()) {
+            Identifier::Number(text.len(), text.to_string())
+        } else {
+            Identifier::Text(text.to_string())
+        }
+    }
 }
 
 /// `text` before the first `at`, and what follows it, if it has one.
@@ -370,26 +633,233 @@ fn identifiers(text: &str, pre_release: bool) -> bool {
     })
 }
 
-/// The text of the changelog with `versions`, newest first: the header and the marker, then each
-/// version with each section of [`SECTIONS`] it has lines in, in that order.
-fn render(versions: &[Version]) -> String {
-    let mut blocks = vec![HEADER.to_string(), MARKER.to_string()];
-    for version in versions {
-        blocks.push(version.heading.clone());
-        for section in SECTIONS {
-            let items: Vec<String> = version
-                .lines
-                .iter()
-                .filter(|line| line.section == section)
-                .map(Line::item)
-                .collect();
-            if !items.is_empty() {
-                blocks.push(format!("### {section}"));
-                blocks.push(items.join("\n"));
+/// The sections of `version` that have lines, in the order of [`SECTIONS`], with their items.
+fn sections(version: &Version) -> Vec<(&'static str, Vec<String>)> {
+    let mut sections = Vec::new();
+    for section in SECTIONS {
+        let items: Vec<String> = version
+            .lines
+            .iter()
+            .filter(|carried| carried.line.section == section)
+            .map(Carried::item)
+            .collect();
+        if !items.is_empty() {
+            sections.push((section, items));
+        }
+    }
+    sections
+}
+
+/// The lines of `version` as a block of the changelog: its heading, then each section with its
+/// items, one blank line between each two parts.
+fn block(version: &Version) -> Vec<String> {
+    let mut lines = vec![version.heading.clone()];
+    for (section, items) in sections(version) {
+        lines.push(String::new());
+        lines.push(format!("{SECTION_MARK}{section}"));
+        lines.push(String::new());
+        lines.extend(items);
+    }
+    lines
+}
+
+/// The text of a changelog that does not exist yet, with `versions`, newest first: the header,
+/// then each version, even one without lines.
+fn fresh(versions: &[Version]) -> String {
+    let mut blocks = vec![HEADER.to_string()];
+    blocks.extend(versions.iter().map(|version| block(version).join("\n")));
+    format!("{}\n", blocks.join("\n\n"))
+}
+
+/// Where a version stands among the headings of a changelog: a release by its precedence (see
+/// [`precedence`]) and its name, and Unreleased after every release, as the newest.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Key {
+    Release(Rank, String),
+    Unreleased,
+}
+
+/// The version a heading `## ...` names: `[Unreleased]`, in any case, or `[<semver>]`, with or
+/// without a leading `v` and the brackets. `None` for any other heading.
+fn heading_key(heading: &str) -> Option<Key> {
+    let title = heading.strip_prefix(VERSION_MARK)?.trim();
+    if title.to_lowercase().starts_with("[unreleased]") {
+        return Some(Key::Unreleased);
+    }
+    let title = title.strip_prefix('[').unwrap_or(title);
+    let title = title.strip_prefix('v').unwrap_or(title);
+    let name = title
+        .split(|c: char| c == ']' || c.is_whitespace())
+        .next()?;
+    Some(Key::Release(precedence(name)?, name.to_string()))
+}
+
+/// A version of a changelog text: the lines from its heading to the next `## `.
+struct Block {
+    key: Option<Key>,
+    start: usize,
+    end: usize,
+}
+
+/// The lines of a changelog text, as they are, to add lines to.
+struct Doc {
+    lines: Vec<String>,
+    /// What ends the lines added: `\r` when the text ends its lines with `\r\n`.
+    eol: &'static str,
+}
+
+impl Doc {
+    fn new(text: &str) -> Doc {
+        Doc {
+            lines: text.split_terminator('\n').map(str::to_string).collect(),
+            eol: if text.contains("\r\n") { "\r" } else { "" },
+        }
+    }
+
+    fn text(&self) -> String {
+        format!("{}\n", self.lines.join("\n"))
+    }
+
+    fn blank(&self, at: usize) -> bool {
+        self.lines[at].trim().is_empty()
+    }
+
+    /// The versions of the text, in order: each `## ` heading and what follows it.
+    fn blocks(&self) -> Vec<Block> {
+        let heads: Vec<usize> = (0..self.lines.len())
+            .filter(|&at| self.lines[at].starts_with(VERSION_MARK))
+            .collect();
+        let ends = heads.iter().skip(1).copied().chain([self.lines.len()]);
+        let blocks = heads.iter().zip(ends);
+        blocks
+            .map(|(&start, end)| Block {
+                key: heading_key(&self.lines[start]),
+                start,
+                end,
+            })
+            .collect()
+    }
+
+    /// The block of the version `key`, if the text has it.
+    fn block_of(&self, key: &Key) -> Option<Block> {
+        let named = |block: &Block| block.key.as_ref() == Some(key);
+        self.blocks().into_iter().find(named)
+    }
+
+    /// The `### ` headings in `block`, with their position and name (its own `## ` heading is
+    /// not one).
+    fn headings(&self, block: &Block) -> Vec<(usize, &str)> {
+        (block.start..block.end)
+            .filter_map(|at| Some((at, self.lines[at].strip_prefix(SECTION_MARK)?.trim())))
+            .collect()
+    }
+
+    /// Adds `new` before the line `at`.
+    fn insert(&mut self, at: usize, new: Vec<String>) {
+        let eol = self.eol;
+        let new = new.into_iter().map(|line| line + eol);
+        self.lines.splice(at..at, new);
+    }
+
+    /// Adds `new` before the line `at`, a blank line apart from what is on each side.
+    fn insert_apart(&mut self, at: usize, mut new: Vec<String>) {
+        if at < self.lines.len() && !self.blank(at) {
+            new.push(String::new());
+        }
+        if at > 0 && !self.blank(at - 1) {
+            new.insert(0, String::new());
+        }
+        self.insert(at, new);
+    }
+
+    /// Adds the version `version` where its place is: before the first version of the text that
+    /// is older, else at the end.
+    fn add_version(&mut self, key: &Key, version: &Version) {
+        let older = |block: &Block| block.key.as_ref().is_some_and(|other| other < key);
+        let at = self.blocks().iter().find(|b| older(b)).map(|b| b.start);
+        self.insert_apart(at.unwrap_or(self.lines.len()), block(version));
+    }
+
+    /// Adds the lines of `version` to the block of that version in the text, each under its
+    /// section.
+    fn add_lines(&mut self, key: &Key, version: &Version) {
+        for (section, items) in sections(version) {
+            let Some(block) = self.block_of(key) else {
+                return;
+            };
+            let named = |h: &(usize, &str)| h.1 == section;
+            let heading = self.headings(&block).into_iter().find(named).map(|h| h.0);
+            match heading {
+                Some(at) => self.add_items(&block, at, items),
+                None => self.add_section(&block, section, items),
             }
         }
     }
-    format!("{}\n", blocks.join("\n\n"))
+
+    /// Adds `items` to the section whose heading is at `heading`: after its last list item (and
+    /// what continues it), or under the heading when it has none.
+    fn add_items(&mut self, block: &Block, heading: usize, items: Vec<String>) {
+        let headings = self.headings(block);
+        let end = headings
+            .iter()
+            .map(|h| h.0)
+            .find(|&at| at > heading)
+            .unwrap_or(block.end);
+        // The heading itself is no list item, so the search may start at it.
+        let last = (heading..end)
+            .rev()
+            .find(|&at| bullet(&self.lines[at]).is_some());
+        match last {
+            Some(last) => {
+                let at = self.item_end(last, end);
+                self.insert(at, items);
+            }
+            None => self.insert_apart(heading + 1, items),
+        }
+    }
+
+    /// Where the list item at `item` ends before `end`: it goes on while the lines are text.
+    fn item_end(&self, item: usize, end: usize) -> usize {
+        let text = |at: usize| {
+            let line = &self.lines[at];
+            !self.blank(at) && bullet(line).is_none() && !line.starts_with('#')
+        };
+        (item + 1..end).find(|&at| !text(at)).unwrap_or(end)
+    }
+
+    /// Adds the new section `section`, with `items`, to `block`: before the first section of the
+    /// version that comes later in [`SECTIONS`], else at the end of the version.
+    fn add_section(&mut self, block: &Block, section: &str, items: Vec<String>) {
+        let order = |name: &str| SECTIONS.iter().position(|known| *known == name);
+        // A name that is no section has no place (`None` is before every place).
+        let later = |name: &str| order(name) > order(section);
+        let before = self.headings(block).into_iter().find(|h| later(h.1));
+        let at = match before {
+            Some((at, _)) => at,
+            None => (block.start..block.end)
+                .rev()
+                .find(|&at| !self.blank(at))
+                .map_or(block.end, |last| last + 1),
+        };
+        let mut new = vec![format!("{SECTION_MARK}{section}"), String::new()];
+        new.extend(items);
+        self.insert_apart(at, new);
+    }
+}
+
+/// `text` with the lines `missing` lacks added, each in its place (see [`Doc`]); every line of
+/// `text` stays, as it is and in order. A version the text has gets its lines under their
+/// sections, one it lacks a block of its own.
+fn merged(text: &str, missing: &[Version]) -> String {
+    let mut doc = Doc::new(text);
+    for version in missing {
+        match heading_key(&version.heading) {
+            Some(key) if doc.block_of(&key).is_some() => doc.add_lines(&key, version),
+            Some(key) => doc.add_version(&key, version),
+            None => {}
+        }
+    }
+    doc.text()
 }
 
 #[cfg(test)]
@@ -620,7 +1090,10 @@ mod tests {
             ("1.0.0+001", (1, 0, 0, true)),
             ("1.0.0-alpha+build.5", (1, 0, 0, false)),
         ] {
-            assert_eq!(precedence(version), Some(expected), "{version}");
+            let rank = precedence(version).unwrap();
+            let shown = (rank.numbers.0, rank.numbers.1, rank.numbers.2);
+            let release = rank.pre == Pre::Release;
+            assert_eq!((shown.0, shown.1, shown.2, release), expected, "{version}");
         }
         for wrong in [
             "",
@@ -645,6 +1118,67 @@ mod tests {
         ] {
             assert_eq!(precedence(wrong), None, "{wrong:?}");
         }
+    }
+
+    #[test]
+    fn versions_are_ordered_as_semver_orders_them() {
+        // The example list of semver.org, lowest first, and numbers by value.
+        let ordered = [
+            "1.0.0-alpha",
+            "1.0.0-alpha.1",
+            "1.0.0-alpha.beta",
+            "1.0.0-beta",
+            "1.0.0-beta.2",
+            "1.0.0-beta.11",
+            "1.0.0-rc.1",
+            "1.0.0-rc.2",
+            "1.0.0-rc.10",
+            "1.0.0",
+            "1.0.1",
+            "1.10.0",
+            "2.0.0",
+        ];
+        for pair in ordered.windows(2) {
+            let (low, high) = (precedence(pair[0]), precedence(pair[1]));
+            assert!(low < high, "{} < {}", pair[0], pair[1]);
+        }
+        // A build does not count.
+        assert_eq!(precedence("1.0.0+a"), precedence("1.0.0+b"));
+    }
+
+    #[test]
+    fn a_pre_release_goes_in_its_place_among_the_headings() {
+        let text = "## [1.0.0-rc.2]\n\n- a\n\n## [0.9.0]\n\n- b\n";
+        let version = Version {
+            heading: "## [1.0.0-rc.10] - 2026-10-20".to_string(),
+            lines: vec![added("Added", "New")],
+        };
+        let result = merged(text, &[version]);
+        let before = result.find("1.0.0-rc.10").unwrap();
+        assert!(before < result.find("1.0.0-rc.2").unwrap(), "{result}");
+    }
+
+    #[test]
+    fn a_file_that_changed_while_gdd_waited_is_not_written_over() {
+        let repo = repository();
+        repo.write(PATH, "# Mine\n");
+        let missing = missing(repo.root(), "main").unwrap();
+        repo.write(PATH, "# Mine\n\nAn edit made meanwhile\n");
+        let err = add(repo.root(), &missing).unwrap_err();
+        assert!(err.starts_with("CHANGELOG.md changed since"), "{err}");
+        assert_eq!(read(&repo), "# Mine\n\nAn edit made meanwhile\n");
+        // A file that did not exist and does now.
+        fs::remove_file(repo.root().join(PATH)).unwrap();
+        let missing = super::missing(repo.root(), "main").unwrap();
+        repo.write(PATH, "# Theirs\n");
+        assert!(add(repo.root(), &missing).is_err());
+        assert_eq!(read(&repo), "# Theirs\n");
+        // A file that went away.
+        repo.write(PATH, "# Mine\n");
+        let missing = super::missing(repo.root(), "main").unwrap();
+        fs::remove_file(repo.root().join(PATH)).unwrap();
+        assert!(add(repo.root(), &missing).is_err());
+        assert!(!repo.root().join(PATH).exists());
     }
 
     #[test]
@@ -726,15 +1260,18 @@ mod tests {
         let expected = [
             Version {
                 heading: UNRELEASED.to_string(),
-                lines: vec![line("Added", "Five", false)],
+                lines: vec![by("e", line("Added", "Five", false))],
             },
             Version {
                 heading: "## [1.1.0] - 2026-10-27".to_string(),
-                lines: vec![line("Fixed", "Three", false)],
+                lines: vec![by("c", line("Fixed", "Three", false))],
             },
             Version {
                 heading: "## [1.0.0] - 2026-10-25".to_string(),
-                lines: vec![line("Changed", "Two", true), line("Added", "One", false)],
+                lines: vec![
+                    by("b", line("Changed", "Two", true)),
+                    by("a", line("Added", "One", false)),
+                ],
             },
         ];
         assert_eq!(split, expected);
@@ -745,36 +1282,312 @@ mod tests {
         assert_eq!(versions(&[], &[]), [empty]);
     }
 
+    const ID: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn by(commit: &str, line: Line) -> Carried {
+        Carried {
+            line,
+            commit: commit.to_string(),
+        }
+    }
+
+    fn version(heading: &str, lines: Vec<Carried>) -> Version {
+        Version {
+            heading: heading.to_string(),
+            lines,
+        }
+    }
+
     #[test]
-    fn the_changelog_lists_each_version_by_sections_in_their_order() {
+    fn a_new_changelog_lists_each_version_by_sections_in_their_order() {
         let versions = [
-            Version {
-                heading: UNRELEASED.to_string(),
-                lines: vec![
-                    line("Security", "Locks", false),
-                    line("Added", "Export", false),
-                    line("Fixed", "Crash", false),
-                    line("Added", "Import", true),
+            version(
+                UNRELEASED,
+                vec![
+                    by(ID, line("Security", "Locks", false)),
+                    by(ID, line("Added", "Export", false)),
+                    by(ID, line("Fixed", "Crash", false)),
+                    by(ID, line("Added", "Import", true)),
                 ],
-            },
+            ),
             Version::new("## [1.0.0] - 2026-10-20".to_string()),
         ];
         let expected = format!(
-            "{HEADER}\n\n{MARKER}\n\n## [Unreleased]\n\n\
-             ### Added\n\n- Export\n- **Breaking:** Import\n\n\
-             ### Fixed\n\n- Crash\n\n\
-             ### Security\n\n- Locks\n\n\
+            "{HEADER}\n\n## [Unreleased]\n\n\
+             ### Added\n\n- Export <!-- gdd: 0123456789ab -->\n\
+             - **Breaking:** Import <!-- gdd: 0123456789ab -->\n\n\
+             ### Fixed\n\n- Crash <!-- gdd: 0123456789ab -->\n\n\
+             ### Security\n\n- Locks <!-- gdd: 0123456789ab -->\n\n\
              ## [1.0.0] - 2026-10-20\n"
         );
-        assert_eq!(render(&versions), expected);
+        assert_eq!(fresh(&versions), expected);
         let header = "# Changelog\n\nAll notable changes to this project are documented in this \
                       file. The format is based on \
                       [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project \
                       adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).";
         assert_eq!(HEADER, header);
-        let marker = "<!-- Written by gdd changelog from the merge commits: change a line with \
-                      gdd changelog-line, not here. -->";
-        assert_eq!(MARKER, marker);
+    }
+
+    #[test]
+    fn a_line_is_covered_by_the_commit_a_comment_names_or_by_its_words() {
+        let text = "# Notes\n\n\
+                    ## [Unreleased]\n\n\
+                    - Reworded <!-- gdd: 0123456 -->\n\
+                    \x20 * **Breaking:** Same words <!-- a note --> <!-- other -->\n\
+                    - Short <!-- gdd: 012345 -->\n\
+                    Export is not a list item\n\
+                    - <!-- gdd: 9999999 -->\n";
+        let items = Items::of(text);
+        let covers =
+            |commit: &str, said: &str| items.cover(&by(commit, line("Added", said, false)));
+        // Seven characters of the commit name it, whatever the words.
+        assert!(covers(ID, "Nobody"));
+        assert!(covers("0123456", "Nobody"));
+        assert!(covers("9999999a", "Nobody"));
+        // Not a prefix of the commit, or too short.
+        assert!(!covers("012345a", "Nobody"));
+        assert!(!covers("0123450", "Nobody"));
+        // The words count in any item, all of them.
+        assert!(covers("ffffff0", "Same words"));
+        assert!(!covers("ffffff0", "Same"));
+        assert!(!covers("ffffff0", "Export is not a list item"));
+        let short = Items::of("- Short <!-- gdd: 012345 -->\n");
+        assert!(!short.cover(&by(ID, line("Added", "Other", false))));
+        let bare = "- A <!-- never closed\n";
+        assert_eq!(Items::of(bare).texts, ["A <!-- never closed"]);
+    }
+
+    #[test]
+    fn only_the_lines_a_file_does_not_cover_are_missing() {
+        let all = [
+            version(
+                UNRELEASED,
+                vec![by("aaaaaaaaaaaa1", line("Added", "One", false))],
+            ),
+            version(
+                "## [1.0.0] - 2026-10-20",
+                vec![
+                    by("bbbbbbbbbbbb2", line("Fixed", "Two", false)),
+                    by("cccccccccccc3", line("Fixed", "Three", false)),
+                ],
+            ),
+        ];
+        let items = Items::of("- Two\n- Zero <!-- gdd: cccccccccccc -->\n");
+        let missing = lacking(&all, &items);
+        assert_eq!(missing, [all[0].clone()]);
+        let items = Items::of("- One\n- Two\n- Three\n");
+        assert!(lacking(&all, &items).is_empty());
+        assert_eq!(lacking(&all, &Items::default()), all);
+    }
+
+    #[test]
+    fn headings_name_their_version_in_any_of_the_ways_people_write_it() {
+        let release = |name: &str| Some(Key::Release(precedence(name)?, name.to_string()));
+        for heading in [
+            "## [1.0.0] - 2026-10-20",
+            "## 1.0.0",
+            "## v1.0.0 (2026-10-20)",
+            "## [v1.0.0]",
+            "##   [1.0.0]  ",
+        ] {
+            assert_eq!(heading_key(heading), release("1.0.0"), "{heading}");
+        }
+        for heading in [
+            "## [Unreleased]",
+            "## [unreleased] - soon",
+            "## [UNRELEASED]",
+        ] {
+            assert_eq!(heading_key(heading), Some(Key::Unreleased), "{heading}");
+        }
+        let pre = release("1.0.0-rc.1");
+        assert_eq!(heading_key("## [1.0.0-rc.1]"), pre);
+        for heading in [
+            "## Notes",
+            "# [1.0.0]",
+            "### [1.0.0]",
+            "##[1.0.0]",
+            "## [1.0]",
+            "## ",
+        ] {
+            assert_eq!(heading_key(heading), None, "{heading:?}");
+        }
+        let mut keys = [
+            Key::Unreleased,
+            release("1.0.0").unwrap(),
+            release("0.9.0").unwrap(),
+        ];
+        keys.sort();
+        assert_eq!(keys[0], release("0.9.0").unwrap());
+        assert_eq!(keys[2], Key::Unreleased);
+    }
+
+    /// The lines of `text`, as `merged` keeps them.
+    fn lines_of(text: &str) -> Vec<&str> {
+        text.split_terminator('\n').collect()
+    }
+
+    /// Whether the lines of `original` are in `result`, in order.
+    fn keeps(original: &str, result: &str) -> bool {
+        let mut rest = lines_of(result).into_iter();
+        lines_of(original)
+            .iter()
+            .all(|line| rest.any(|l| l == *line))
+    }
+
+    fn added(section: &str, text: &str) -> Carried {
+        by(ID, line(section, text, false))
+    }
+
+    #[test]
+    fn a_missing_line_goes_after_the_last_item_of_its_section() {
+        let text = "# Notes\n\n## [Unreleased]\n\n### Added\n\n- Dark theme\n  more words\n\n\
+                    ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n### Added\n\n- Old\n";
+        let missing = [version(UNRELEASED, vec![added("Added", "Export")])];
+        let expected = "# Notes\n\n## [Unreleased]\n\n### Added\n\n- Dark theme\n  more words\n\
+                        - Export <!-- gdd: 0123456789ab -->\n\n\
+                        ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n### Added\n\n- Old\n";
+        assert_eq!(merged(text, &missing), expected);
+        let two = [version(
+            "## [1.0.0] - 2026-10-20",
+            vec![added("Added", "A"), added("Added", "B")],
+        )];
+        let result = merged(text, &two);
+        let tail = "### Added\n\n- Old\n- A <!-- gdd: 0123456789ab -->\n\
+                    - B <!-- gdd: 0123456789ab -->\n";
+        assert!(result.ends_with(tail), "{result}");
+        assert!(keeps(text, &result));
+    }
+
+    #[test]
+    fn a_missing_section_goes_before_the_first_later_one_else_at_the_end_of_its_version() {
+        let text = "## [Unreleased]\n\n### Removed\n\n- Old\n\n### Notes\n\n- x\n\n\
+                    ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
+        let one = |section| [version(UNRELEASED, vec![added(section, "New")])];
+        let before = merged(text, &one("Added"));
+        let expected = "## [Unreleased]\n\n### Added\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+                        ### Removed\n\n- Old\n\n### Notes\n\n- x\n\n\
+                        ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
+        assert_eq!(before, expected);
+        let end = merged(text, &one("Security"));
+        let expected = "## [Unreleased]\n\n### Removed\n\n- Old\n\n### Notes\n\n- x\n\n\
+                        ### Security\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+                        ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
+        assert_eq!(end, expected);
+        let bare = "## [Unreleased]\n## [1.0.0]\n- A\n";
+        let result = merged(bare, &one("Fixed"));
+        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+                        ## [1.0.0]\n- A\n";
+        assert_eq!(result, expected);
+        let empty = "## [Unreleased]\n\n### Fixed\n\n## [1.0.0]\n";
+        let result = merged(empty, &one("Fixed"));
+        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+                        ## [1.0.0]\n";
+        assert_eq!(result, expected);
+        let tight = "## [Unreleased]\n### Fixed\n## [1.0.0]\n";
+        let result = merged(tight, &one("Fixed"));
+        assert!(keeps(tight, &result), "{result}");
+        assert!(result.contains("### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n## [1.0.0]\n"));
+    }
+
+    #[test]
+    fn a_missing_version_goes_before_the_first_older_one_else_at_the_end() {
+        let old = "## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
+        let both = [
+            version(UNRELEASED, vec![added("Fixed", "Now")]),
+            version("## [1.5.0] - 2026-10-25", vec![added("Added", "Mid")]),
+        ];
+        let text = format!("# Notes\n\nSome words.\n\n## Upcoming\n\n{old}\n## [0.1.0] - 2026\n");
+        let result = merged(&text, &both);
+        let expected = format!(
+            "# Notes\n\nSome words.\n\n## Upcoming\n\n\
+             ## [Unreleased]\n\n### Fixed\n\n- Now <!-- gdd: 0123456789ab -->\n\n\
+             ## [1.5.0] - 2026-10-25\n\n### Added\n\n- Mid <!-- gdd: 0123456789ab -->\n\n\
+             {old}\n## [0.1.0] - 2026\n"
+        );
+        assert_eq!(result, expected);
+        assert!(keeps(&text, &result));
+        let oldest = [version(
+            "## [0.0.1] - 2026-01-01",
+            vec![added("Added", "First")],
+        )];
+        let result = merged(&text, &oldest);
+        let tail = "## [0.1.0] - 2026\n\n## [0.0.1] - 2026-01-01\n\n### Added\n\n\
+                    - First <!-- gdd: 0123456789ab -->\n";
+        assert!(result.ends_with(tail), "{result}");
+        let no_heading = merged("Words\n", &oldest);
+        let expected = "Words\n\n## [0.0.1] - 2026-01-01\n\n### Added\n\n\
+                        - First <!-- gdd: 0123456789ab -->\n";
+        assert_eq!(no_heading, expected);
+        let from_nothing = merged("", &oldest);
+        assert!(
+            from_nothing.starts_with("## [0.0.1] - 2026-01-01\n"),
+            "{from_nothing}"
+        );
+    }
+
+    #[test]
+    fn a_new_section_goes_after_the_last_line_of_the_version_whatever_blank_lines_end_it() {
+        let text = "## [Unreleased]\n\n### Added\n\n- A\n\n\n## [1.0.0]\n";
+        let missing = [version(UNRELEASED, vec![added("Security", "New")])];
+        let expected = "## [Unreleased]\n\n### Added\n\n- A\n\n\
+                        ### Security\n\n- New <!-- gdd: 0123456789ab -->\n\n\n## [1.0.0]\n";
+        assert_eq!(merged(text, &missing), expected);
+    }
+
+    #[test]
+    fn a_section_the_version_has_is_never_a_later_one_and_nor_is_a_version_an_older_one() {
+        let mut doc = Doc::new("## [Unreleased]\n\n### Added\n\n- A\n");
+        let block = doc.block_of(&Key::Unreleased).unwrap();
+        doc.add_section(&block, "Added", vec!["- B".to_string()]);
+        let twice = "## [Unreleased]\n\n### Added\n\n- A\n\n### Added\n\n- B\n";
+        assert_eq!(doc.text(), twice);
+        let mut doc = Doc::new("## [1.0.0]\n\n- A\n");
+        let key = heading_key("## [1.0.0]").unwrap();
+        doc.add_version(&key, &Version::new("## [1.0.0] - 2026-10-20".to_string()));
+        assert_eq!(doc.text(), "## [1.0.0]\n\n- A\n\n## [1.0.0] - 2026-10-20\n");
+    }
+
+    #[test]
+    fn the_original_lines_stay_in_order_on_every_shape_of_file() {
+        let missing = [
+            version(
+                UNRELEASED,
+                vec![added("Added", "New"), added("Security", "Safe")],
+            ),
+            version("## [1.0.0] - 2026-10-20", vec![added("Fixed", "Old")]),
+            version("## [0.5.0] - 2026-10-10", vec![added("Changed", "Older")]),
+        ];
+        let texts = [
+            "",
+            "\n",
+            "Just words",
+            "# Changelog\n",
+            "# Changelog\n\n\n\n",
+            "## [Unreleased]\n",
+            "## [Unreleased]\n### Added\n- A\n",
+            "# C\n\n## [1.0.0] - 2026-10-20\n\n### Fixed\n\n- X\n\n\n## [0.1.0]\n\n- Y\n",
+            "# C\r\n\r\n## [Unreleased]\r\n\r\n### Added\r\n\r\n- A\r\n\r\n## [1.0.0]\r\n",
+            "## [Unreleased]\n\n```\n## [1.0.0]\n```\n\n* star item\n   - indented\n",
+            "## v0.5.0\n\n### Changed\n\n- Older\n\n## Notes\n\nSome words\n",
+        ];
+        for text in texts {
+            let result = merged(text, &missing);
+            assert!(keeps(text, &result), "{text:?} -> {result:?}");
+            assert!(
+                result.ends_with('\n') && !result.ends_with("\n\n\n"),
+                "{result:?}"
+            );
+            for item in ["- New", "- Safe", "- Old", "- Older"] {
+                let count = result.matches(item).count();
+                assert!(count >= 1, "{item} in {result:?}");
+            }
+        }
+        let crlf = merged(texts[8], &missing);
+        assert!(crlf.lines().all(|l| !l.contains('\r')), "{crlf:?}");
+        assert!(
+            !crlf.contains("\n\n") && !crlf.replace("\r\n", "").contains('\n'),
+            "{crlf:?}"
+        );
     }
 
     /// A repository whose `main` has, along its first parents: a commit without a line, the
@@ -811,68 +1624,154 @@ mod tests {
         repo
     }
 
-    #[test]
-    fn the_changelog_is_written_from_the_commits_of_main() {
-        let repo = repository();
-        let said = write(repo.root(), "main").unwrap();
-        assert_eq!(said, "CHANGELOG.md written: 1 line(s) under Unreleased.");
-        let text = fs::read_to_string(repo.root().join(PATH)).unwrap();
-        let day = repo.git(&["log", "-1", "--format=%cs", "v1.0.0"]);
-        let versions = format!(
-            "{MARKER}\n\n## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file per folder\n\n\
-             ## [1.0.0] - {day}\n\n### Added\n\n- Export\n"
-        );
-        assert!(text.starts_with(HEADER), "{text}");
-        assert!(text.ends_with(&versions), "{text}");
-        assert!(!text.contains("Inside the branch"), "{text}");
-        assert_eq!(repo.git(&["status", "--porcelain"]), "?? CHANGELOG.md");
-        // Written by gdd, it is written again.
-        let fix = "Fix\n\nChangelog: Fixed · Crash";
-        repo.git(&["commit", "-q", "--allow-empty", "-m", fix]);
-        let said = write(repo.root(), "main").unwrap();
-        assert_eq!(said, "CHANGELOG.md written: 2 line(s) under Unreleased.");
-        let text = fs::read_to_string(repo.root().join(PATH)).unwrap();
-        assert!(text.contains("### Fixed\n\n- Crash\n"), "{text}");
+    fn read(repo: &Repo) -> String {
+        fs::read_to_string(repo.root().join(PATH)).unwrap()
     }
 
     #[test]
-    fn a_changelog_gdd_did_not_write_is_left_alone() {
+    fn without_a_file_everything_is_missing_and_adding_creates_it() {
+        let repo = repository();
+        let missing = missing(repo.root(), "main").unwrap();
+        assert_eq!(missing.count(), 2);
+        let day = repo.git(&["log", "-1", "--format=%cs", "v1.0.0"]);
+        let list = missing.list();
+        assert!(list.starts_with("## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file"));
+        assert!(list.contains(&format!(
+            "\n\n## [1.0.0] - {day}\n\n### Added\n\n- Export <!-- gdd: "
+        )));
+        assert!(
+            missing
+                .shown()
+                .starts_with("Missing from CHANGELOG.md:\n\n## [Unreleased]")
+        );
+        assert!(
+            missing
+                .shown()
+                .ends_with("\n\nNothing written: gdd changelog --write adds them.")
+        );
+        assert!(
+            missing
+                .offered()
+                .ends_with("\n\nAdd them to CHANGELOG.md? [y/N] ")
+        );
+        let failure = "CHANGELOG.md misses 2 line(s): gdd changelog shows them, \
+                       gdd changelog --write adds them";
+        assert_eq!(missing.failure(), failure);
+        assert!(!repo.root().join(PATH).exists());
+        let said = add(repo.root(), &missing).unwrap();
+        assert_eq!(said, "CHANGELOG.md: 2 line(s) added, nothing else changed.");
+        let text = read(&repo);
+        assert!(text.starts_with(HEADER), "{text}");
+        assert!(text.contains(
+            "## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file per folder <!-- gdd: "
+        ));
+        assert!(!text.contains("Inside the branch"), "{text}");
+        assert_eq!(repo.git(&["status", "--porcelain"]), "?? CHANGELOG.md");
+        // What it wrote covers everything.
+        let again = super::missing(repo.root(), "main").unwrap();
+        assert_eq!(again.count(), 0);
+    }
+
+    #[test]
+    fn a_file_of_the_project_keeps_its_words_and_gets_only_what_is_missing() {
+        let repo = repository();
+        let mine = "# Release notes\n\n## [Unreleased]\n\n### Changed\n\n- One file per folder\n";
+        repo.write(PATH, mine);
+        let missing = missing(repo.root(), "main").unwrap();
+        assert_eq!(missing.count(), 1);
+        add(repo.root(), &missing).unwrap();
+        let text = read(&repo);
+        assert!(text.starts_with(mine), "{text}");
+        assert!(text.contains("## [1.0.0] - "), "{text}");
+        assert!(keeps(mine, &text));
+        assert_eq!(super::missing(repo.root(), "main").unwrap().count(), 0);
+    }
+
+    #[test]
+    fn adding_keeps_the_permissions_of_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let repo = repository();
+        repo.write(PATH, "# Mine\n");
+        let path = repo.root().join(PATH);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let missing = missing(repo.root(), "main").unwrap();
+        add(repo.root(), &missing).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn only_a_yes_adds_the_lines() {
+        let repo = repository();
+        let missing = missing(repo.root(), "main").unwrap();
+        for no in ["", "n", "no", "N", "yep", "yes please", "\n"] {
+            let said = answered(repo.root(), &missing, no).unwrap();
+            assert_eq!(said, "Nothing written.", "{no:?}");
+            assert!(!repo.root().join(PATH).exists());
+        }
+        for yes in ["y\n", "Y", "yes", " YES \n"] {
+            let said = answered(repo.root(), &missing, yes).unwrap();
+            assert!(
+                said.starts_with("CHANGELOG.md: 2 line(s) added"),
+                "{yes:?}: {said}"
+            );
+            fs::remove_file(repo.root().join(PATH)).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_file_gdd_cannot_read_or_write_is_an_error_and_stays() {
         let repo = repository();
         repo.write(PATH, "# My own notes\n");
-        let err = write(repo.root(), "main").unwrap_err();
-        assert_eq!(err, NOT_OURS);
-        let text = fs::read_to_string(repo.root().join(PATH)).unwrap();
-        assert_eq!(text, "# My own notes\n");
         // Never through a link, nor over a file with other names.
         fs::remove_file(repo.root().join(PATH)).unwrap();
         let outside = Folder::new();
-        outside.write("notes.md", &format!("{MARKER}\n"));
+        outside.write("notes.md", "# Outside\n");
         symlink(outside.0.join("notes.md"), repo.root().join(PATH)).unwrap();
-        let err = write(repo.root(), "main").unwrap_err();
+        let err = missing(repo.root(), "main").unwrap_err();
         let start = "cannot read CHANGELOG.md: not a file of its own";
         assert!(err.starts_with(start), "{err}");
         fs::remove_file(repo.root().join(PATH)).unwrap();
         fs::hard_link(outside.0.join("notes.md"), repo.root().join(PATH)).unwrap();
-        assert!(write(repo.root(), "main").is_err());
+        assert!(missing(repo.root(), "main").is_err());
         let notes = fs::read_to_string(outside.0.join("notes.md")).unwrap();
-        assert_eq!(notes, format!("{MARKER}\n"));
+        assert_eq!(notes, "# Outside\n");
+        fs::remove_file(repo.root().join(PATH)).unwrap();
+        fs::write(repo.root().join(PATH), [0xff, 0xfe, b'\n']).unwrap();
+        let err = missing(repo.root(), "main").unwrap_err();
+        assert_eq!(err, "CHANGELOG.md is not UTF-8 text");
+        // A link that appears after reading: nothing is written, through it or over it.
+        fs::remove_file(repo.root().join(PATH)).unwrap();
+        let ready = missing(repo.root(), "main").unwrap();
+        symlink(outside.0.join("notes.md"), repo.root().join(PATH)).unwrap();
+        let err = add(repo.root(), &ready).unwrap_err();
+        let start = "cannot write CHANGELOG.md: not a file of its own";
+        assert!(err.starts_with(start), "{err}");
+        let notes = fs::read_to_string(outside.0.join("notes.md")).unwrap();
+        assert_eq!(notes, "# Outside\n");
+        fs::remove_file(repo.root().join(PATH)).unwrap();
+        // A project root that is a file cannot be written to either.
+        let file = repo.root().join("a-file");
+        fs::write(&file, "x\n").unwrap();
+        let err = add(&file, &ready).unwrap_err();
+        assert!(err.starts_with("cannot write CHANGELOG.md: "), "{err}");
     }
 
     #[test]
     fn what_the_changelog_cannot_read_is_an_error() {
         let repo = repository();
-        let err = write(repo.root(), "trunk").unwrap_err();
+        let err = missing(repo.root(), "trunk").unwrap_err();
         assert!(err.starts_with("git log "), "{err}");
         assert!(!repo.root().join(PATH).exists());
-        let err = write(repo.root(), "-x").unwrap_err();
+        let err = missing(repo.root(), "-x").unwrap_err();
         assert_eq!(err, "\"-x\" is not a revision git can take");
         // A project root that is a file: not a folder to read from.
         let file = repo.root().join("a-file");
         fs::write(&file, "x\n").unwrap();
-        let err = write(&file, "main").unwrap_err();
+        let err = missing(&file, "main").unwrap_err();
         assert!(err.starts_with("cannot read CHANGELOG.md: "), "{err}");
         let plain = Folder::new();
-        let err = write(&plain.0, "main").unwrap_err();
+        let err = missing(&plain.0, "main").unwrap_err();
         assert!(err.starts_with("git log "), "{err}");
     }
 }

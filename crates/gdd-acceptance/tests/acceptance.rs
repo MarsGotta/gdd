@@ -1341,6 +1341,35 @@ fn file_does_not_exist(w: &mut GddWorld, path: String) {
     );
 }
 
+#[given(expr = "the tag {string} is on main")]
+fn tag_is_on_main(w: &mut GddWorld, tag: String) {
+    git(&project_root(w), &["tag", &tag, "main"]);
+}
+
+#[then(expr = "in the file {string}, {string} comes before {string}")]
+fn file_text_comes_before(w: &mut GddWorld, path: String, first: String, second: String) {
+    let content = fs::read_to_string(project_root(w).join(&path))
+        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let at_first = content
+        .find(&first)
+        .unwrap_or_else(|| panic!("{path} lacks {first:?}: {content}"));
+    let at_second = content
+        .find(&second)
+        .unwrap_or_else(|| panic!("{path} lacks {second:?}: {content}"));
+    assert!(
+        at_first < at_second,
+        "in {path}, {first:?} is not before {second:?}: {content}"
+    );
+}
+
+#[given(expr = "in the file {string}, {string} is replaced by {string}")]
+fn file_text_is_replaced(w: &mut GddWorld, path: String, old: String, new: String) {
+    let file = project_root(w).join(&path);
+    let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert!(content.contains(&old), "{path} lacks {old:?}: {content}");
+    write_file(&file, &content.replacen(&old, &new, 1));
+}
+
 #[then(expr = "agent call {int} was {string}")]
 fn agent_call_was(w: &mut GddWorld, number: usize, arguments: String) {
     let calls = fs::read_to_string(project_root(w).join(".gdd/fake/argv")).unwrap_or_default();
