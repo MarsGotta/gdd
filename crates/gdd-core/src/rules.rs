@@ -113,7 +113,8 @@ impl RulesTable {
         })
     }
 
-    /// The table a rules file writes, and whether it has a `[color]` section.
+    /// The table a rules file writes, and whether it has a `[color]` section. A file that
+    /// switches off the core for red changes is refused (see [`core_switched_off`]).
     fn read(text: &str) -> Result<(RulesTable, bool), Error> {
         let raw: RawTable = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
         let has_colors = raw.color.is_some();
@@ -123,6 +124,9 @@ impl RulesTable {
             .into_iter()
             .map(|(name, rules)| Ok((name.parse()?, rules)))
             .collect::<Result<_, Error>>()?;
+        if let Some(key) = core_switched_off(text)? {
+            return Err(Error::CoreSwitchedOff(key));
+        }
         let table = RulesTable {
             colors,
             acceptance: raw.acceptance,
@@ -141,6 +145,27 @@ impl RulesTable {
             .unwrap_or(c.rule)
         })
     }
+}
+
+/// What a red change always gets, the core of GDD, as keys of a lane, in the order they are
+/// reported: no rules file can set them to `false` for red.
+const CORE: [&str; 3] = ["mutation", "reviewer", "g4_if_g1"];
+
+/// The first key of the [`CORE`] the rules file `text` sets to `false` in a red lane, as
+/// `color.red.<lane>.<key>`: lane `fast` before `full`. A key left out is not `false`.
+fn core_switched_off(text: &str) -> Result<Option<String>, Error> {
+    let file: toml::Table = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
+    let red = file.get("color").and_then(|colors| colors.get("red"));
+    let switched_off = |&(lane, key): &(Lane, &str)| {
+        let rule = red.and_then(|red| red.get(lane.to_string().as_str()));
+        let value = rule.and_then(|rule| rule.get(key));
+        value.and_then(toml::Value::as_bool) == Some(false)
+    };
+    let mut keys = [Lane::Fast, Lane::Full]
+        .into_iter()
+        .flat_map(|lane| CORE.map(|key| (lane, key)));
+    let found = keys.find(switched_off);
+    Ok(found.map(|(lane, key)| format!("color.red.{lane}.{key}")))
 }
 
 /// The table that ships with the tool; it equals the `[color.*]` and `[acceptance]` sections
@@ -305,6 +330,74 @@ mod tests {
         );
         let wrong = RulesTable::of_project("color = 1\n");
         assert!(matches!(wrong, Err(Error::Toml(_))), "{wrong:?}");
+    }
+
+    /// The error of a rules file that switches `key` off for red changes.
+    fn core_off(key: &str) -> Result<RulesTable, Error> {
+        Err(Error::CoreSwitchedOff(key.into()))
+    }
+
+    #[test]
+    fn no_red_lane_can_switch_off_the_core() {
+        for lane in ["fast", "full"] {
+            for key in ["mutation", "reviewer", "g4_if_g1"] {
+                let text = format!("[color.red.{lane}]\n{key} = false\n");
+                let expected = core_off(&format!("color.red.{lane}.{key}"));
+                assert_eq!(RulesTable::from_toml(&text), expected, "{text}");
+                assert_eq!(RulesTable::of_project(&text), expected, "{text}");
+            }
+        }
+        let said = Error::CoreSwitchedOff("color.red.full.mutation".into()).to_string();
+        let expected = "red changes always get mutation testing, the Reviewer and the human G4 \
+                        (the core of GDD): remove color.red.full.mutation = false from \
+                        gdd/rules.toml";
+        assert_eq!(said, expected);
+    }
+
+    #[test]
+    fn the_first_key_switched_off_is_named_lane_fast_first_then_by_key() {
+        let read = RulesTable::from_toml;
+        let both = "[color.red.full]\nmutation = false\n[color.red.fast]\ng4_if_g1 = false\n";
+        assert_eq!(read(both), core_off("color.red.fast.g4_if_g1"));
+        let keys = "[color.red.full]\ng4_if_g1 = false\nreviewer = false\nmutation = false\n";
+        assert_eq!(read(keys), core_off("color.red.full.mutation"));
+        let last = "[color.red.full]\ng4_if_g1 = false\nreviewer = false\nmutation = true\n";
+        assert_eq!(read(last), core_off("color.red.full.reviewer"));
+    }
+
+    #[test]
+    fn a_red_lane_that_leaves_the_core_out_keeps_the_defaults() {
+        let t = table("[color.red.full]\ntests_first = false\n");
+        let expected = Rule {
+            tests_first: Some(false),
+            ..UNSET
+        };
+        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
+        let on = "[color.red.full]\nmutation = true\nreviewer = true\ng4_if_g1 = true\n";
+        let expected = Rule {
+            mutation: true,
+            ..UNSET
+        };
+        assert_eq!(table(on).rule(Color::Red, Lane::Full), expected);
+    }
+
+    #[test]
+    fn false_stays_allowed_outside_red() {
+        let off = "mutation = false\nreviewer = false\ng4_if_g1 = false\n";
+        let text = format!(
+            "[color.green.fast]\n{off}[color.yellow]\n{off}[color.yellow.full]\n{off}\
+             [color.red.slow]\n{off}"
+        );
+        let t = table(&text);
+        let none = Rule {
+            mutation: false,
+            reviewer: false,
+            g4_if_g1: false,
+            ..UNSET
+        };
+        assert_eq!(t.rule(Color::Green, Lane::Fast), none);
+        assert_eq!(t.rule(Color::Yellow, Lane::Fast), none);
+        assert_eq!(t.rule(Color::Yellow, Lane::Full), none);
     }
 
     #[test]

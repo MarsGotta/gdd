@@ -1901,6 +1901,7 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
         scenarios,
         exceptions: found.map(|found| found.iter().map(|e| e.line(today)).collect()),
         debt: debt::read(root).map(|known| known.map(|known| known.debt).unwrap_or_default()),
+        without_mutation: status::without_mutation(root),
         changes: change_lines(state)?,
         log_lines,
         second_family: status::second_family(&models, &init::agents_on_path(env)?),
@@ -2687,7 +2688,7 @@ mod tests {
         let project = project_with_change(
             r#"{"id": "save", "paths": ["src/storage/a.rs", "docs/x.md"], "resumable": true, "min_color": null}"#,
         );
-        project.write(RULES, "[color.red.full]\nmutation = false\n");
+        project.write(RULES, "[color.red.full]\ntests_first = false\n");
         let out = project.run("classify save");
         assert_eq!(out.code, 0, "{out:?}");
         assert!(

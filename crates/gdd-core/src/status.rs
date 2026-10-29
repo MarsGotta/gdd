@@ -15,6 +15,7 @@ use crate::classify::{Change, classify};
 use crate::config::{self, Color};
 use crate::gates::approve::{BRIEF, ZonesState};
 use crate::gates::debt::{self, Debt};
+use crate::gates::{COMMANDS, Commands, Gate};
 use crate::rules::RulesTable;
 use crate::zones::ZoneMap;
 use crate::{guard, init, log};
@@ -41,6 +42,10 @@ const G0_PENDING: &str = "pending · G0 pending: run the Setup (the gdd-setup co
 /// accepted one family only.
 const SECOND_FAMILY: &str = "A second model family is on this machine";
 
+/// What the status says when the gate commands have no mutation testing for red changes.
+const NO_MUTATION: &str =
+    "no mutation testing command in [g3] of gdd/commands.toml: red changes go without it";
+
 /// What `gdd status` says of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -65,6 +70,8 @@ pub struct Status {
     pub exceptions: Result<Vec<String>, String>,
     /// Its known debt (see [`debt`]), or why it could not be read.
     pub debt: Result<Vec<Debt>, String>,
+    /// Whether its red changes go without mutation testing (see [`without_mutation`]).
+    pub without_mutation: bool,
     /// One line per change (see [`change_line`]).
     pub changes: Vec<String>,
     /// How many lines its log has; `None` when there is no log.
@@ -108,6 +115,9 @@ impl fmt::Display for Status {
             Err(why) => writeln!(f, "Security exceptions: {why}")?,
         }
         known_debt(f, &self.debt)?;
+        if self.without_mutation {
+            writeln!(f, "{NO_MUTATION}")?;
+        }
         write!(f, "Changes:")?;
         for line in &self.changes {
             write!(f, "\n{line}")?;
@@ -139,6 +149,20 @@ pub fn second_family(models: &Models, found: &[String]) -> Vec<String> {
         model.is_some_and(|model| models.family(&model) != builder)
     };
     found.iter().filter(other).cloned().collect()
+}
+
+/// Whether the red changes of the project at `root` go without mutation testing: `[g3]` of its
+/// gate commands has no command whose name starts with `mutation`. A commands file that is not
+/// there or cannot be read says nothing.
+pub fn without_mutation(root: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(root.join(COMMANDS)) else {
+        return false;
+    };
+    let Ok(commands) = Commands::from_toml(&text) else {
+        return false;
+    };
+    let mut names = commands.of(Gate::G3).keys();
+    !names.any(|name| name.starts_with("mutation"))
 }
 
 /// The lines of the known debt `known` in the status: `Known debt: ` and the names of its
@@ -387,7 +411,6 @@ pub fn selftest_summary(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gates::Gate;
 
     fn debt(command: &str, gate: Gate, since: &str) -> Debt {
         Debt {
@@ -419,6 +442,7 @@ mod tests {
                 debt("security", Gate::G3, "2026-10-27"),
                 debt("lint", Gate::G3, "2026-10-27"),
             ]),
+            without_mutation: false,
             changes: vec!["  - c1 · Drafts · open · no gates yet".into()],
             log_lines: Some(3),
             second_family: vec![],
@@ -489,6 +513,18 @@ mod tests {
         let line = "Red zones: pending · Red zones changed after their approval: a human must \
                     approve them again.\n";
         assert!(changed.to_string().contains(line), "{changed}");
+    }
+
+    #[test]
+    fn the_status_warns_with_the_other_lists_when_red_changes_go_without_mutation_testing() {
+        let without = Status {
+            without_mutation: true,
+            ..status()
+        };
+        let lines = "\n  - lint · since 2026-10-26 · Refactor debt-lint\nno mutation testing command \
+                     in [g3] of gdd/commands.toml: red changes go without it\nChanges:\n";
+        assert!(without.to_string().contains(lines), "{without}");
+        assert!(!status().to_string().contains(NO_MUTATION));
     }
 
     #[test]
@@ -663,6 +699,33 @@ mod tests {
         fs::remove_file(folder.0.join("gdd/rules.toml")).unwrap();
         fs::create_dir_all(folder.0.join(ZONES)).unwrap();
         assert_eq!(color(&folder), "?");
+    }
+
+    #[test]
+    fn red_changes_go_without_mutation_testing_when_g3_has_no_mutation_command() {
+        let folder = Folder::new("mutation");
+        let without = |commands: &str| {
+            folder.write(COMMANDS, commands);
+            without_mutation(&folder.0)
+        };
+        assert!(without("[g2]\nunit = \"true\"\n"));
+        let in_g2 = "[g2]\nmutation = \"cargo mutants\"\n[g3]\nacceptance = \"true\"\n";
+        assert!(without(in_g2));
+        assert!(without("[g3]\nmutation = \"\"\nmutation-rust = \"  \"\n"));
+        assert!(without("[g3]\nrun-mutation = \"cargo mutants\"\n"));
+        assert!(!without("[g3]\nmutation-rust = \"cargo mutants\"\n"));
+        assert!(!without("[g3]\nmutation = \"cargo mutants\"\n"));
+    }
+
+    #[test]
+    fn a_commands_file_that_is_not_there_or_cannot_be_read_says_nothing_of_mutation() {
+        let folder = Folder::new("no-commands");
+        assert!(!without_mutation(&folder.0));
+        folder.write(COMMANDS, "[g3");
+        assert!(!without_mutation(&folder.0));
+        fs::remove_file(folder.0.join(COMMANDS)).unwrap();
+        fs::create_dir_all(folder.0.join(COMMANDS)).unwrap();
+        assert!(!without_mutation(&folder.0));
     }
 
     #[test]
