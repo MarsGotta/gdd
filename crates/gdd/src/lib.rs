@@ -29,7 +29,7 @@ use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
     Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, delivery, flow, inbox,
-    init, log, session, stacks, state, upgrade, versions,
+    init, learn, log, session, stacks, state, upgrade, versions,
 };
 
 /// File that marks the root of a GDD project.
@@ -44,6 +44,8 @@ const COMMANDS: &str = gates::COMMANDS;
 const CHANGES: &str = ".gdd/changes";
 /// The role of test mode, which Path Guard judges after it.
 const TEST_ROLE: &str = "builder-test";
+/// Why a Builder or a Reviewer cannot run `gdd learn`.
+const LEARN_REFUSED: &str = "Builders and Reviewers cannot run gdd learn: it writes under .gdd/.";
 /// Why a command that works on a change cannot run.
 const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
@@ -284,6 +286,14 @@ enum Command {
     /// .gdd/adoption/, records them as known debt in gdd/debt.toml, which it commits alone, and
     /// proposes a Refactor per command, riskiest first. Refused once gdd/debt.toml exists.
     Adopt,
+    /// Learn: runs the Learn tools of gdd/commands.toml ([learn]: warnings, never a gate), keeps
+    /// what each one said in .gdd/learn/ and lists the polish notes the human gave at G4, to spot
+    /// the ones that repeat. Exits with 0 whatever the tools found.
+    Learn {
+        /// Only the polish notes of the changes created on or after this day, YYYY-MM-DD (UTC).
+        #[arg(long, value_parser = parse_day)]
+        since: Option<i64>,
+    },
     /// Harness self-test: a failing test turns a green G2 red, the harness is protected and CI
     /// runs the gates, rollback works in pre, and zero scenarios fail G3. Saved in
     /// .gdd/selftest.json and logged; exits with 1 unless all four pass.
@@ -734,6 +744,7 @@ impl Command {
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state, env)?,
             Command::Adopt => adopt_project(root, state)?,
+            Command::Learn { since } => learn_project(root, state, role, since)?,
             Command::Session { phase, change } => {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
@@ -1903,6 +1914,20 @@ fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
     let commands = read(root, COMMANDS)?.unwrap_or_default();
     let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
     adopt::adopt(root, state, &commands).map(|adopted| adopted.to_string())
+}
+
+/// `gdd learn`: the Learn tools of the project at `root`, whose state root is `state`, and the
+/// polish notes at G4 since the day `since` (see [`learn::learn`]). It writes under `.gdd/`, so a
+/// Builder or a Reviewer, the role `role`, is refused.
+fn learn_project(
+    root: &Path,
+    state: &Path,
+    role: Option<&str>,
+    since: Option<i64>,
+) -> Result<String, String> {
+    approve::may_record(role).map_err(|_| LEARN_REFUSED.to_string())?;
+    let commands = read(root, COMMANDS)?.unwrap_or_default();
+    learn::learn(root, state, &commands, since).map(|learned| learned.to_string())
 }
 
 /// The line of each change in the status, in the order of their folders under the state root
@@ -3402,6 +3427,23 @@ mod tests {
         }
         let orchestrator = run_as(&words("selftest"), &project.0, Some("orchestrator"));
         assert_eq!(orchestrator.code, 0, "{orchestrator:?}");
+    }
+
+    #[test]
+    fn learn_runs_the_tools_for_a_person_and_is_refused_to_builders_and_reviewers() {
+        let project = Project::new();
+        project.write(COMMANDS, "[learn]\nt = \"echo hi\"\n");
+        let out = project.run("learn");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(
+            out.stdout.starts_with("t: nothing found\n  hi\n"),
+            "{out:?}"
+        );
+        let refused = format!("error: {LEARN_REFUSED}\n");
+        for role in ["builder-build", "builder-test", "reviewer"] {
+            let out = run_as(&words("learn"), &project.0, Some(role));
+            assert_eq!(out, Outcome::failure(refused.clone()), "{role}");
+        }
     }
 
     /// A standard stream as a test watches it: each write, and each flush, as they happen.
