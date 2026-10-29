@@ -288,9 +288,10 @@ enum Command {
     Adopt,
     /// Learn: runs the Learn tools of gdd/commands.toml ([learn]: warnings, never a gate), keeps
     /// what each one said in .gdd/learn/ and lists the polish notes the human gave at G4, to spot
-    /// the ones that repeat. Exits with 0 whatever the tools found.
+    /// the ones that repeat, and the classes of finding that repeat in the Reviewer's reviews.
+    /// Exits with 0 whatever the tools found.
     Learn {
-        /// Only the polish notes of the changes created on or after this day, YYYY-MM-DD (UTC).
+        /// Only the notes and reviews of the changes created on or after this day, YYYY-MM-DD (UTC).
         #[arg(long, value_parser = parse_day)]
         since: Option<i64>,
     },

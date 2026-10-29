@@ -4,7 +4,8 @@
 //! the human gave at G4, so the Orchestrator can spot the ones that repeat. A tool that finds
 //! something is a warning, never a failure.
 
-use std::collections::BTreeMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::io::ErrorKind;
@@ -26,6 +27,9 @@ pub const FOLDER: &str = ".gdd/learn";
 /// What `gdd learn` says when the project has no Learn tools.
 pub const NO_TOOLS: &str = "No Learn tools in gdd/commands.toml: add a [learn] section (gdd stacks \
                             lists the stack sheets, whose [learn] has them).";
+
+/// Where the changes keep their files, from the state root.
+const CHANGES: &str = ".gdd/changes";
 
 /// Lines of what a tool said that are shown; the file keeps all of it.
 const SHOWN: usize = 10;
@@ -132,6 +136,53 @@ pub struct Note {
     pub text: String,
 }
 
+/// A class of finding named by the Reviewer in two changes or more.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Repeated {
+    /// The class, as first written, in lower case.
+    pub class: String,
+    /// The changes that have it, in alphabetical order.
+    pub changes: Vec<String>,
+}
+
+/// What the reviews of the Reviewer say.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reviews {
+    /// The classes found in two changes or more: most changes first, then by class.
+    pub repeated: Vec<Repeated>,
+    /// The reviews with verdict KO.
+    pub ko: usize,
+    /// The reviews with verdict KO that have no finding line.
+    pub unclassed_reviews: usize,
+    /// The changes of those reviews, each once, in alphabetical order.
+    pub unclassed: Vec<String>,
+}
+
+impl fmt::Display for Reviews {
+    /// The two lists, without a line break at the end.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.repeated.is_empty() {
+            f.write_str("Reviewer findings that repeat: none")?;
+        } else {
+            write!(f, "Reviewer findings that repeat ({})", self.repeated.len())?;
+        }
+        for repeated in &self.repeated {
+            let ids = repeated.changes.join(", ");
+            let k = repeated.changes.len();
+            write!(f, "\n  {} · {k} changes ({ids})", repeated.class)?;
+        }
+        if self.unclassed_reviews == 0 {
+            return f.write_str("\nReviews whose findings name no class: none");
+        }
+        let (x, y) = (self.unclassed_reviews, self.ko);
+        let ids = self.unclassed.join(", ");
+        write!(
+            f,
+            "\nReviews whose findings name no class: {x} of {y} ({ids})"
+        )
+    }
+}
+
 /// What `gdd learn` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Learned {
@@ -139,6 +190,8 @@ pub struct Learned {
     pub tools: Vec<Tool>,
     /// The polish notes at G4, in the order of the log.
     pub notes: Vec<Note>,
+    /// What the reviews of the Reviewer say.
+    pub reviews: Reviews,
 }
 
 impl fmt::Display for Learned {
@@ -155,7 +208,7 @@ impl fmt::Display for Learned {
         for note in &self.notes {
             write!(f, "\n- {}: {}", note.change, note.text)?;
         }
-        Ok(())
+        write!(f, "\n\n{}", self.reviews)
     }
 }
 
@@ -221,12 +274,23 @@ fn learn_within(
             crate::gates::COMMANDS
         ));
     }
-    let notes = polish_notes(state, since)?;
+    let lines = log_lines(state)?;
+    let starts = starts_of(&lines);
+    let from = since.map(|day| day * DAY);
+    let wanted = |change: &str| {
+        from.is_none_or(|from| starts.get(change).is_some_and(|start| *start >= from))
+    };
+    let notes = polish_notes(&lines, &wanted);
+    let reviews = summarize(&review_texts(state, &wanted)?);
     let mut tools = Vec::new();
     for (name, command) in found {
         tools.push(run_tool(root, state, name, &command, timeout)?);
     }
-    Ok(Learned { tools, notes })
+    Ok(Learned {
+        tools,
+        notes,
+        reviews,
+    })
 }
 
 /// Runs one tool and keeps all it said.
@@ -275,30 +339,138 @@ fn without_colors(text: &str) -> String {
     plain
 }
 
-/// The polish notes the human gave at G4 in the log under `state`, in log order: only the ones
-/// of the changes whose first line is on or after the day `since`. No log is no notes.
-fn polish_notes(state: &Path, since: Option<i64>) -> Result<Vec<Note>, String> {
+/// The lines of the log under `state`. No log is no lines.
+fn log_lines(state: &Path) -> Result<Vec<flow::Line>, String> {
     let text = match fs::read_to_string(state.join(log::PATH)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
     };
-    let lines = flow::read(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
-    let from = since.map(|day| day * DAY);
-    let mut first = BTreeMap::new();
+    flow::read(&text).map_err(|e| format!("{}, {e}", log::PATH))
+}
+
+/// When each change of the log started: the time of its first line.
+fn starts_of(lines: &[flow::Line]) -> BTreeMap<String, i64> {
+    let mut starts = BTreeMap::new();
+    for line in lines {
+        starts.entry(line.record.text("change")).or_insert(line.at);
+    }
+    starts
+}
+
+/// The polish notes the human gave at G4 in the log, in log order: only the ones of the changes
+/// that are `wanted`.
+fn polish_notes(lines: &[flow::Line], wanted: &dyn Fn(&str) -> bool) -> Vec<Note> {
     let mut notes = Vec::new();
-    for line in &lines {
-        let change = line.record.text("change");
-        let start = *first.entry(change.clone()).or_insert(line.at);
-        let wanted = from.is_none_or(|from| start >= from);
+    for line in lines {
         let record = &line.record;
+        let change = record.text("change");
         let polish = record.text("gate") == "G4" && record.text("result") == "polish";
-        if wanted && polish && record.text("role") == "human" {
-            let text = line.record.text("note");
-            notes.push(Note { change, text });
+        if polish && record.text("role") == "human" && wanted(&change) {
+            notes.push(Note {
+                change,
+                text: record.text("note"),
+            });
         }
     }
-    Ok(notes)
+    notes
+}
+
+/// The text of each review file `reviewer-*.md` in the outputs of the changes under `state` that
+/// are `wanted`, with the id of its change. No changes folder, or a change without outputs, has
+/// none; a file that cannot be read as text is skipped.
+fn review_texts(
+    state: &Path,
+    wanted: &dyn Fn(&str) -> bool,
+) -> Result<Vec<(String, String)>, String> {
+    let changes = state.join(CHANGES);
+    let entries = match fs::read_dir(&changes) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("cannot read {CHANGES}: {e}")),
+    };
+    let mut texts = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("cannot read {CHANGES}: {e}"))?;
+        let id = entry.file_name().to_string_lossy().into_owned();
+        if !entry.path().is_dir() || !wanted(&id) {
+            continue;
+        }
+        let outputs = format!("{CHANGES}/{id}/outputs");
+        let files = match fs::read_dir(state.join(&outputs)) {
+            Ok(files) => files,
+            Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            Err(e) => return Err(format!("cannot read {outputs}: {e}")),
+        };
+        for file in files {
+            let file = file.map_err(|e| format!("cannot read {outputs}: {e}"))?;
+            let name = file.file_name().to_string_lossy().into_owned();
+            if name.starts_with("reviewer-")
+                && name.ends_with(".md")
+                && let Ok(text) = fs::read_to_string(file.path())
+            {
+                texts.push((id.clone(), text));
+            }
+        }
+    }
+    Ok(texts)
+}
+
+/// The class of the finding a line names, in lower case: `F<digits> · <class> · ...`, once
+/// trimmed and without the leading `-` and `*`. `None` when the line is not a finding or its
+/// class is blank.
+fn finding_class(line: &str) -> Option<String> {
+    let line = line.trim_start_matches(|c: char| c == '-' || c == '*' || c.is_whitespace());
+    let rest = line.strip_prefix('F')?;
+    let after = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    if after.len() == rest.len() {
+        return None;
+    }
+    let (class, _) = after.strip_prefix(" · ")?.split_once(" · ")?;
+    let class = class.trim().to_lowercase();
+    (!class.is_empty()).then_some(class)
+}
+
+/// Whether the review `text` ends KO: its last line that is `VERDICT: OK` or `VERDICT: KO`
+/// decides; `None` when it has neither.
+fn is_ko(text: &str) -> Option<bool> {
+    text.lines().rev().find_map(|line| match line.trim() {
+        "VERDICT: OK" => Some(false),
+        "VERDICT: KO" => Some(true),
+        _ => None,
+    })
+}
+
+/// What the reviews, each with the id of its change, say: the classes found in two changes or
+/// more and the KO reviews with no finding line.
+fn summarize(reviews: &[(String, String)]) -> Reviews {
+    let mut classes: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+    let mut summary = Reviews::default();
+    let mut unclassed = BTreeSet::new();
+    for (change, text) in reviews {
+        let found: Vec<String> = text.lines().filter_map(finding_class).collect();
+        for class in &found {
+            classes.entry(class.clone()).or_default().insert(change);
+        }
+        if is_ko(text) == Some(true) {
+            summary.ko += 1;
+            if found.is_empty() {
+                summary.unclassed_reviews += 1;
+                unclassed.insert(change.clone());
+            }
+        }
+    }
+    summary.unclassed = unclassed.into_iter().collect();
+    for (class, changes) in classes {
+        if changes.len() >= 2 {
+            let changes = changes.into_iter().map(str::to_string).collect();
+            summary.repeated.push(Repeated { class, changes });
+        }
+    }
+    summary
+        .repeated
+        .sort_by_key(|repeated| Reverse(repeated.changes.len()));
+    summary
 }
 
 #[cfg(test)]
@@ -477,7 +649,7 @@ mod tests {
             assert!(learned.tools.is_empty(), "{text}");
             let said = learned.to_string();
             assert!(said.starts_with(NO_TOOLS), "{said}");
-            assert!(said.ends_with("Polish notes at G4 (0)"), "{said}");
+            assert!(said.contains("\nPolish notes at G4 (0)\n"), "{said}");
         }
         assert!(!state.0.join(FOLDER).exists());
     }
@@ -617,7 +789,7 @@ mod tests {
         let said = learn(&root.0, &state.0, "", None).unwrap().to_string();
         let tail = "Polish notes at G4 (3)\n- a: Shorter error messages\n- b: Shorter, again\n- \
                     a: Later note of a";
-        assert!(said.ends_with(tail), "{said}");
+        assert!(said.contains(tail), "{said}");
     }
 
     #[test]
@@ -671,7 +843,200 @@ mod tests {
         let (root, state) = project();
         let learned = learn(&root.0, &state.0, &commands(&[("t", "true")]), None).unwrap();
         assert!(learned.notes.is_empty());
-        assert!(learned.to_string().ends_with("\n\nPolish notes at G4 (0)"));
+        let said = learned.to_string();
+        assert!(
+            said.contains("\n\nPolish notes at G4 (0)\n\nReviewer findings"),
+            "{said}"
+        );
+    }
+
+    fn review(change: &str, text: &str) -> (String, String) {
+        (change.to_string(), text.to_string())
+    }
+
+    #[test]
+    fn a_finding_is_a_line_with_a_number_a_class_and_a_closing_separator() {
+        let class = finding_class;
+        let plain = "F1 · Unchecked input · src/a.rs:1 · why · none";
+        assert_eq!(class(plain).as_deref(), Some("unchecked input"));
+        assert_eq!(
+            class(&format!("- {plain}")).as_deref(),
+            Some("unchecked input")
+        );
+        assert_eq!(
+            class(&format!("  * {plain}  ")).as_deref(),
+            Some("unchecked input")
+        );
+        assert_eq!(
+            class(&format!("**{plain}**")).as_deref(),
+            Some("unchecked input")
+        );
+        assert_eq!(
+            class(&format!("- **{plain}**")).as_deref(),
+            Some("unchecked input")
+        );
+        assert_eq!(
+            class(&format!("* **{plain}**")).as_deref(),
+            Some("unchecked input")
+        );
+        assert_eq!(class("F12 ·  Spaced  · x").as_deref(), Some("spaced"));
+        assert_eq!(class("F1 fixed."), None);
+        assert_eq!(class("F1"), None);
+        assert_eq!(class("F · class · x"), None);
+        assert_eq!(class("F1 · class"), None);
+        assert_eq!(class("F1 ·  · x"), None);
+        assert_eq!(class("G1 · class · x"), None);
+        assert_eq!(class("- [P2] src/a.rs:8: not checked."), None);
+    }
+
+    #[test]
+    fn the_last_verdict_line_decides() {
+        assert_eq!(is_ko("x\nVERDICT: KO\n"), Some(true));
+        assert_eq!(is_ko("VERDICT: KO\nmore\n  VERDICT: OK  \n"), Some(false));
+        assert_eq!(is_ko("VERDICT: OK\nVERDICT: KO"), Some(true));
+        assert_eq!(is_ko("VERDICT: MAYBE\nVERDICT: OK"), Some(false));
+        assert_eq!(is_ko("VERDICT: MAYBE\n"), None);
+        assert_eq!(is_ko("VERDICT: KO because\n"), None);
+        assert_eq!(is_ko(""), None);
+    }
+
+    #[test]
+    fn a_class_counts_once_for_a_change_and_ignores_case() {
+        let one = "F1 · Same · x · y · z\nF2 · same · x · y · z\nVERDICT: KO\n";
+        let two = "F1 · SAME · x · y · z\nVERDICT: KO\n";
+        let reviews = [review("b", one), review("b", one), review("a", two)];
+        let summary = summarize(&reviews);
+        assert_eq!(summary.repeated.len(), 1);
+        assert_eq!(summary.repeated[0].class, "same");
+        assert_eq!(summary.repeated[0].changes, ["a", "b"]);
+        let alone = [review("b", one), review("b", one)];
+        assert!(summarize(&alone).repeated.is_empty());
+    }
+
+    #[test]
+    fn the_classes_that_repeat_come_most_changes_first_then_by_class() {
+        let one = |class: &str| format!("F1 · {class} · x · y · z\nVERDICT: KO\n");
+        let reviews = [
+            review("a", &one("beta")),
+            review("b", &one("beta")),
+            review("a", &one("alpha")),
+            review("b", &one("alpha")),
+            review("c", &one("zeta")),
+            review("a", &one("zeta")),
+            review("b", &one("zeta")),
+        ];
+        let said = summarize(&reviews).to_string();
+        let expected = "Reviewer findings that repeat (3)\n  zeta · 3 changes (a, b, c)\n  \
+                        alpha · 2 changes (a, b)\n  beta · 2 changes (a, b)\n";
+        assert!(said.starts_with(expected), "{said}");
+    }
+
+    #[test]
+    fn kos_without_a_finding_are_counted_by_review_and_named_by_change() {
+        let finding = "F1 · c · x · y · z\nVERDICT: KO\n";
+        let bare = "- [P2] x\nVERDICT: KO\n";
+        let reviews = [
+            review("z", bare),
+            review("z", bare),
+            review("m", finding),
+            review("b", bare),
+            review("a", "F1 fixed.\nVERDICT: OK\n"),
+            review("q", "no verdict\n"),
+        ];
+        let summary = summarize(&reviews);
+        assert_eq!((summary.unclassed_reviews, summary.ko), (3, 4));
+        assert_eq!(summary.unclassed, ["b", "z"]);
+        let said = summary.to_string();
+        let last = "Reviews whose findings name no class: 3 of 4 (b, z)";
+        assert!(said.ends_with(last), "{said}");
+    }
+
+    #[test]
+    fn without_reviews_both_lists_say_none() {
+        let said = summarize(&[]).to_string();
+        let none =
+            "Reviewer findings that repeat: none\nReviews whose findings name no class: none";
+        assert_eq!(said, none);
+    }
+
+    fn write_review(state: &Folder, change: &str, n: u32, text: &str) {
+        state.write(
+            &format!(".gdd/changes/{change}/outputs/reviewer-{n}.md"),
+            text,
+        );
+    }
+
+    fn reviewed(since: Option<i64>) -> String {
+        let (root, state) = project();
+        state.write(".gdd/log.jsonl", &log_text());
+        let ko = |class: &str| format!("F1 · {class} · x · y · z\n\nVERDICT: KO\n");
+        write_review(&state, "a", 1, &ko("shared"));
+        write_review(&state, "b", 1, &ko("Shared"));
+        write_review(&state, "b", 2, "- [P2] bare\nVERDICT: KO\n");
+        state.write(".gdd/changes/b/outputs/builder-1.md", "VERDICT: KO\n");
+        state.write(".gdd/changes/b/outputs/reviewer-3.raw", "VERDICT: KO\n");
+        state.write(".gdd/changes/c/outputs/reviewer-1.md", &ko("shared"));
+        learn(&root.0, &state.0, "", since)
+            .unwrap()
+            .reviews
+            .to_string()
+    }
+
+    #[test]
+    fn the_reviews_of_the_changes_in_the_state_are_read_from_their_outputs() {
+        let said = reviewed(None);
+        assert!(said.contains("  shared · 3 changes (a, b, c)\n"), "{said}");
+        assert!(said.ends_with("name no class: 1 of 4 (b)"), "{said}");
+    }
+
+    #[test]
+    fn since_keeps_the_reviews_of_the_changes_created_on_or_after_the_day() {
+        let said = reviewed(flow::day("2026-10-21"));
+        assert!(
+            said.starts_with("Reviewer findings that repeat: none\n"),
+            "{said}"
+        );
+        assert!(said.ends_with("name no class: 1 of 2 (b)"), "{said}");
+        let said = reviewed(flow::day("2026-10-20"));
+        assert!(said.contains("shared · 2 changes (a, b)"), "{said}");
+        assert!(said.ends_with("name no class: 1 of 3 (b)"), "{said}");
+        let said = reviewed(flow::day("2026-10-22"));
+        assert!(said.ends_with("name no class: none"), "{said}");
+    }
+
+    #[test]
+    fn a_review_file_that_is_not_text_is_skipped() {
+        let (root, state) = project();
+        let path = state.0.join(".gdd/changes/a/outputs/reviewer-1.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
+        fs::create_dir_all(state.0.join(".gdd/changes/a/outputs/reviewer-2.md")).unwrap();
+        let reviews = learn(&root.0, &state.0, "", None).unwrap().reviews;
+        assert_eq!(reviews, Reviews::default());
+    }
+
+    #[test]
+    fn a_folder_of_changes_or_outputs_that_cannot_be_read_is_an_error_naming_it() {
+        let (root, state) = project();
+        state.write(".gdd/changes", "not a folder");
+        let err = learn(&root.0, &state.0, "", None).unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/changes: "), "{err}");
+        let (root, state) = project();
+        state.write(".gdd/changes/a/outputs", "not a folder");
+        let err = learn(&root.0, &state.0, "", None).unwrap_err();
+        assert!(
+            err.starts_with("cannot read .gdd/changes/a/outputs: "),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_file_among_the_changes_and_a_change_without_outputs_are_not_reviews() {
+        let (root, state) = project();
+        state.write(".gdd/changes/stray", "a file, not a change");
+        fs::create_dir_all(state.0.join(".gdd/changes/empty")).unwrap();
+        let reviews = learn(&root.0, &state.0, "", None).unwrap().reviews;
+        assert_eq!(reviews, Reviews::default());
     }
 
     #[test]
