@@ -29,7 +29,7 @@ use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
 use gdd_core::{
     Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, delivery, flow, inbox,
-    init, learn, log, session, stacks, state, versions,
+    init, learn, log, session, stacks, state, upgrade, versions,
 };
 
 /// File that marks the root of a GDD project.
@@ -368,6 +368,12 @@ enum Command {
         #[command(subcommand)]
         action: Option<StacksAction>,
     },
+    /// Proposes what this gdd writes of the files gdd init wrote once (gdd/generated.toml lists
+    /// them) on the branch gdd-upgrade, merged three ways with what the project made of them:
+    /// first what this gdd writes, then the merge, with the lines both changed marked as
+    /// conflicts. Runs on the main branch with everything committed; nothing on it changes and
+    /// nothing is pushed. Builders and Reviewers cannot run it.
+    Upgrade,
 }
 
 /// What `gdd agents` does.
@@ -743,6 +749,8 @@ impl Command {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
             Command::Prepare { change } => prepare_change(root, state, &change_id(change, env)?)?,
+            // The files of the main checkout, whose folder is the state root.
+            Command::Upgrade => upgrade::upgrade(state, role, env)?,
         };
         Ok(Outcome::printed(text, 0))
     }

@@ -8,7 +8,9 @@
 //! the skeleton of each stack the folder has no project of, the lines of every stack and `.gdd/`
 //! in `.gitignore` and the agents' commands as `gdd agents install` does, and commits what it
 //! wrote, and only that, in a new repository when the folder is in none. It stays offline:
-//! [`bootstrap()`] runs the first install of each stack.
+//! [`bootstrap()`] runs the first install of each stack. What it was asked goes with the files it
+//! writes once ([`Answers`]), so a later gdd renders them again for the same project (see
+//! [`render_once`]).
 //!
 //! Git runs in the environment gdd runs in, which says who commits (git's own rules).
 
@@ -22,6 +24,8 @@ use std::fs::{self, OpenOptions, Permissions};
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use crate::agents::models;
 use crate::agents::render;
@@ -40,8 +44,8 @@ pub const PLATFORMS: [&str; 5] = ["mobile", "desktop", "web", "cli", "other"];
 const PROJECT: &str = "gdd/project.toml";
 /// The zone map.
 const ZONES: &str = "gdd/zones.toml";
-/// Which gdd wrote the files written once.
-const GENERATED: &str = "gdd/generated.toml";
+/// Which gdd wrote the files written once, and what gdd init was asked.
+pub(crate) const GENERATED: &str = "gdd/generated.toml";
 /// The entry point of the agents and CI.
 const BIN: &str = "bin/gdd";
 /// The CI workflow.
@@ -98,6 +102,49 @@ pub struct Options {
     pub accept_same_family: bool,
 }
 
+/// What gdd init was asked, as `gdd/generated.toml` records it under `[answers]`: what the files
+/// it writes once are rendered from (see [`render_once`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answers {
+    /// The name of the project.
+    pub name: String,
+    /// What it is, in words; empty when the command line did not say.
+    pub description: String,
+    /// Where it runs: one of [`PLATFORMS`].
+    pub platform: String,
+    /// Its stacks, each once.
+    pub stacks: Vec<String>,
+    /// The agents of the cast, in order, the first builds: the ones named, or those gdd init
+    /// found on the `PATH`.
+    pub agents: Vec<String>,
+    /// The language the agents use with the human.
+    pub language: String,
+    /// What would be serious if it failed, one area each.
+    pub sensitive: Vec<String>,
+    /// The human accepted a Reviewer of the Builder's model family when every agent is of one.
+    pub accept_same_family: bool,
+    /// The day gdd init ran: `YYYY-MM-DD`.
+    pub day: String,
+    /// The main branch it wrote into the files.
+    pub main: String,
+}
+
+impl Answers {
+    /// What the command line said of the project, for the texts that read it.
+    fn options(&self) -> Options {
+        Options {
+            name: self.name.clone(),
+            platform: self.platform.clone(),
+            stacks: self.stacks.clone(),
+            agents: self.agents.clone(),
+            language: self.language.clone(),
+            description: self.description.clone(),
+            sensitive: self.sensitive.clone(),
+            accept_same_family: self.accept_same_family,
+        }
+    }
+}
+
 /// Why gdd init wrote nothing, or stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -146,6 +193,40 @@ pub fn init(root: &Path, options: &Options, env: &Env) -> Result<String, Error> 
     plan.carry_out(root)
 }
 
+/// The texts of the files gdd init writes once ([`ONCE`]) and of `gdd/generated.toml`, which
+/// keeps the `answers`, in the order gdd init writes them: what it writes for the `answers`, with
+/// the `PATH` of `env` when they name no agent. Nothing is read from or written to the disk.
+pub(crate) fn render_once(answers: &Answers, env: &Env) -> Result<Vec<(String, String)>, Error> {
+    let stacks = stacks::once(&answers.stacks);
+    let sheets = stack_sheets(&stacks)?;
+    let accept = answers.accept_same_family;
+    let cast = roles::Cast::new(&answers.agents, env, accept, &answers.day)?;
+    let options = answers.options();
+    let values = files::Values::new(&options, &sheets, &answers.main);
+    let texts = [
+        (PROJECT, files::project(&options, &stacks, &sheets)),
+        (gates::COMMANDS, files::commands(&stacks)?),
+        (guard::RULES, values.fill(files::RULES)),
+        (ZONES, values.fill(files::ZONES)),
+        (models::PATH, cast.models(VERSION)),
+        (GENERATED, files::generated(&ONCE, answers)?),
+        (approve::BRIEF, values.fill(files::BRIEF)),
+        (WORKFLOW, values.fill(files::WORKFLOW)),
+    ];
+    let texts = texts.map(|(path, text)| (path.to_string(), text));
+    Ok(Vec::from(texts))
+}
+
+/// The agents of a new project, in order: the ones `named`, each once; when none is, those whose
+/// program is on the `PATH` of `env`.
+fn agents_of(named: &[String], env: &Env) -> Result<Vec<String>, String> {
+    if named.is_empty() {
+        agents_on_path(env)
+    } else {
+        Ok(stacks::once(named))
+    }
+}
+
 /// The `gdd/project.toml` of the GDD project the folder `folder` is in: in it or in a folder
 /// above it.
 fn project_above(folder: &Path) -> Option<PathBuf> {
@@ -180,7 +261,8 @@ impl Plan {
         let stacks = stacks::once(&options.stacks);
         let sheets = stack_sheets(&stacks)?;
         let accept = options.accept_same_family;
-        let cast = roles::Cast::new(&options.agents, env, accept, today)?;
+        let named = agents_of(&options.agents, env)?;
+        let cast = roles::Cast::new(&named, env, accept, today)?;
         let agents = cast.sheets();
         let commands = render::paths(&agents, &stacks)?;
         let package = skeletons::package(&options.name);
@@ -206,19 +288,23 @@ impl Plan {
             MAIN.to_string()
         };
         let values = files::Values::new(options, &sheets, &main);
-        let harness = [
-            (PROJECT, files::project(options, &stacks, &sheets)),
-            (gates::COMMANDS, files::commands(&stacks)?),
-            (guard::RULES, values.fill(files::RULES)),
-            (ZONES, values.fill(files::ZONES)),
-            (models::PATH, cast.models(VERSION)),
-            (GENERATED, files::generated(&ONCE)),
-            (approve::BRIEF, values.fill(files::BRIEF)),
-            (BIN, values.fill(files::BIN)),
-            (WORKFLOW, values.fill(files::WORKFLOW)),
-        ];
-        let harness = harness.map(|(path, text)| (path.to_string(), text));
-        let mut texts = Vec::from(harness);
+        let answers = Answers {
+            name: options.name.clone(),
+            description: options.description.clone(),
+            platform: options.platform.clone(),
+            stacks: stacks.clone(),
+            agents: named,
+            language: options.language.clone(),
+            sensitive: options.sensitive.clone(),
+            accept_same_family: accept,
+            day: today.to_string(),
+            main,
+        };
+        // The harness: the files written once, with bin/gdd before the CI workflow.
+        let mut texts = render_once(&answers, env)?;
+        let workflow = texts.iter().position(|(path, _)| path == WORKFLOW);
+        let bin = (BIN.to_string(), values.fill(files::BIN));
+        texts.insert(workflow.unwrap_or(texts.len()), bin);
         texts.extend(instructions);
         texts.extend(skeleton);
         let appended = ignore.as_ref().map(|_| GITIGNORE);
@@ -822,6 +908,98 @@ mod tests {
         let failed = "error: git symbolic-ref --short HEAD failed";
         assert!(said.starts_with(failed), "{said}");
         assert!(!folder.0.join("gdd").exists());
+    }
+
+    /// What `gdd/generated.toml` of `folder` says gdd init was asked.
+    fn recorded(folder: &Folder) -> Answers {
+        let generated: toml::Table = toml::from_str(&read(folder, GENERATED)).unwrap();
+        generated["answers"].clone().try_into().unwrap()
+    }
+
+    #[test]
+    fn what_init_was_asked_renders_what_it_wrote_byte_for_byte() {
+        let folder = Folder::new();
+        git(&folder, &["init", "-q", "-b", "trunk"]);
+        let stacks = ["rust", "typescript", "rust"];
+        let mut options = options(&stacks, &["codex", "claude", "codex"]);
+        options.description = "Say \"hi\"".to_string();
+        options.sensitive = vec!["Losing notes".to_string()];
+        init(&folder.0, &options, &env()).unwrap();
+        let answers = recorded(&folder);
+        let today = &log::now()[..10];
+        let expected = Answers {
+            name: "Notes".to_string(),
+            description: "Say \"hi\"".to_string(),
+            platform: "cli".to_string(),
+            stacks: names(&["rust", "typescript"]),
+            agents: names(&["codex", "claude"]),
+            language: "en".to_string(),
+            sensitive: names(&["Losing notes"]),
+            accept_same_family: false,
+            day: today.to_string(),
+            main: "trunk".to_string(),
+        };
+        assert_eq!(answers, expected);
+        let rendered = render_once(&answers, &env()).unwrap();
+        let paths: Vec<&str> = rendered.iter().map(|(path, _)| path.as_str()).collect();
+        let mut once = ONCE.to_vec();
+        once.insert(5, GENERATED);
+        assert_eq!(paths, once);
+        for (path, text) in &rendered {
+            assert_eq!(&read(&folder, path), text, "{path}");
+        }
+    }
+
+    #[test]
+    fn the_answers_name_the_agents_found_on_the_path_and_the_day_one_family_was_accepted() {
+        // A PATH with Claude Code and git only, whatever agents the machine has.
+        let found = Folder::new();
+        found.write("claude", "#!/bin/sh\n");
+        let runnable = Permissions::from_mode(0o755);
+        fs::set_permissions(found.0.join("claude"), runnable).unwrap();
+        let path = std::env::var_os("PATH").unwrap();
+        let mut programs = std::env::split_paths(&path).map(|folder| folder.join("git"));
+        let program = programs.find(|git| git.is_file()).unwrap();
+        std::os::unix::fs::symlink(program, found.0.join("git")).unwrap();
+        let mut env = env();
+        env.retain(|(name, _)| name != "PATH");
+        env.push(("PATH".to_string(), found.0.display().to_string()));
+        let folder = Folder::new();
+        let mut options = options(&["rust"], &[]);
+        options.accept_same_family = true;
+        init(&folder.0, &options, &env).unwrap();
+        let answers = recorded(&folder);
+        assert_eq!(answers.agents, ["claude"]);
+        assert!(answers.accept_same_family);
+        // Rendered on another day, with another PATH, the models file keeps the day it was set up.
+        let mut later = answers.clone();
+        later.day = "2030-01-01".to_string();
+        let rendered = render_once(&answers, &[]).unwrap();
+        let models = &rendered[4];
+        assert_eq!(models.0, models::PATH);
+        assert_eq!(models.1, read(&folder, models::PATH));
+        let other = render_once(&later, &[]).unwrap();
+        assert!(other[4].1.contains("\"2030-01-01\""), "{}", other[4].1);
+        // Answers that cannot be rendered say why.
+        later.stacks = names(&["cobol"]);
+        let said = render_once(&later, &[]).unwrap_err().to_string();
+        assert!(said.starts_with("error: unknown stack cobol"), "{said}");
+    }
+
+    #[test]
+    fn named_agents_count_once_in_their_order_and_none_named_are_those_on_the_path() {
+        let named = agents_of(&names(&["codex", "claude", "codex"]), &[]).unwrap();
+        assert_eq!(named, ["codex", "claude"]);
+        let found = Folder::new();
+        for program in ["opencode", "claude"] {
+            found.write(program, "#!/bin/sh\n");
+            let runnable = Permissions::from_mode(0o755);
+            fs::set_permissions(found.0.join(program), runnable).unwrap();
+        }
+        let path = [("PATH".to_string(), found.0.display().to_string())];
+        assert_eq!(agents_of(&[], &path).unwrap(), ["claude", "opencode"]);
+        let nowhere = [("PATH".to_string(), "/nonexistent".to_string())];
+        assert_eq!(agents_of(&[], &nowhere).unwrap(), Vec::<String>::new());
     }
 
     #[test]

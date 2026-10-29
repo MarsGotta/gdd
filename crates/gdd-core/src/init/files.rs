@@ -4,7 +4,7 @@
 
 use toml::Value;
 
-use super::{Options, PLATFORMS};
+use super::{Answers, Options, PLATFORMS};
 use crate::VERSION;
 use crate::agents::sheets::fill;
 use crate::stacks::{self, Sheet, once};
@@ -167,11 +167,16 @@ pub(super) fn commands(stacks: &[String]) -> Result<String, String> {
     Ok(format!("{composed}\n{RELEASE}"))
 }
 
-/// `gdd/generated.toml`: the version of gdd and the `files` it writes once.
-pub(super) fn generated(files: &[&str]) -> String {
-    let comment = "# Written by gdd init: the files it writes once, for gdd upgrade.";
+/// `gdd/generated.toml`: the version of gdd, the `files` it writes once and, in the table
+/// `[answers]`, what gdd init was asked.
+pub(super) fn generated(files: &[&str], answers: &Answers) -> Result<String, String> {
+    let comment = "# Written by gdd init: the files it writes once and what it was asked, for gdd \
+                   upgrade.";
     let version = entry("version", VERSION);
-    format!("{comment}\n{version}\nfiles = {}\n", list(files))
+    let answers = toml::to_string(answers);
+    let answers = answers.map_err(|e| format!("cannot write the answers: {e}"))?;
+    let head = format!("{comment}\n{version}\nfiles = {}\n", list(files));
+    Ok(format!("{head}\n[answers]\n{answers}"))
 }
 
 /// `<key> = <value>`, the value written as TOML text.
@@ -342,14 +347,40 @@ mod tests {
         assert_eq!(unknown, said);
     }
 
+    fn answers() -> Answers {
+        Answers {
+            name: "Say \"hi\" {main}".to_string(),
+            description: "It's 'quoted'\nover two lines".to_string(),
+            platform: "cli".to_string(),
+            stacks: vec!["rust".to_string()],
+            agents: vec!["claude".to_string(), "codex".to_string()],
+            language: "en".to_string(),
+            sensitive: Vec::new(),
+            accept_same_family: false,
+            day: "2026-10-28".to_string(),
+            main: "main".to_string(),
+        }
+    }
+
     #[test]
-    fn the_generated_file_names_the_version_and_the_files_written_once() {
-        let text = generated(&["gdd/a.toml", "docs/b.md"]);
+    fn the_generated_file_names_the_version_the_files_written_once_and_the_answers() {
+        let text = generated(&["gdd/a.toml", "docs/b.md"], &answers()).unwrap();
         let table: toml::Table = toml::from_str(&text).unwrap();
         assert_eq!(table["version"].as_str(), Some(VERSION));
         let files = Value::Array(vec!["gdd/a.toml".into(), "docs/b.md".into()]);
         assert_eq!(table["files"], files);
-        assert!(text.starts_with("# Written by gdd init: "), "{text}");
+        let comment = "# Written by gdd init: the files it writes once and what it was asked, \
+                       for gdd upgrade.\nversion = ";
+        assert!(text.starts_with(comment), "{text}");
+        let after = "\"docs/b.md\"]\n\n[answers]\n";
+        assert!(text.contains(after), "{text}");
+        // Read back, the answers are what was written, quotes and all.
+        let read: Answers = table["answers"].clone().try_into().unwrap();
+        assert_eq!(read, answers());
+        let agents = Value::Array(vec!["claude".into(), "codex".into()]);
+        let written = &table["answers"];
+        assert_eq!(written["agents"], agents);
+        assert_eq!(written["accept_same_family"], Value::Boolean(false));
     }
 
     #[test]

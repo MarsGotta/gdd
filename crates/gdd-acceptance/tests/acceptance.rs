@@ -2829,3 +2829,125 @@ fn main() {
             }),
     );
 }
+
+// ---- features/upgrade.feature --------------------------------------------------------------
+//
+// An older gdd is played by editing what `gdd init` wrote and committing it as `gdd init
+// <version>`. Git runs in the scenario's project with the scenario's environment.
+
+/// Runs git in the project of the scenario, with its environment and the author on the command
+/// line; any failure is a failed step.
+fn scenario_git(w: &mut GddWorld, args: &[&str]) -> String {
+    let root = project_root(w);
+    let env = world_env(w).clone();
+    let out = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=GDD Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .env_clear()
+        .envs(env)
+        .current_dir(&root)
+        .output()
+        .expect("git can run");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// The text of `gdd/generated.toml` with its `version` line set to `version`.
+fn generated_with_version(text: &str, version: &str) -> String {
+    let mut found = false;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if line.starts_with("version = ") {
+                found = true;
+                format!("version = \"{version}\"")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    assert!(found, "gdd/generated.toml has no version line: {text}");
+    format!("{}\n", lines.join("\n"))
+}
+
+/// The text of `gdd/generated.toml` with `path` taken out of its `files` list.
+fn generated_without_file(text: &str, path: &str) -> String {
+    let quoted = format!("\"{path}\"");
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if line.starts_with("files = ") {
+                assert!(line.contains(&quoted), "files lacks {path}: {line}");
+                line.replacen(&format!("{quoted}, "), "", 1)
+                    .replacen(&format!(", {quoted}"), "", 1)
+                    .replacen(&quoted, "", 1)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+    format!("{}\n", lines.join("\n"))
+}
+
+fn commit_older_gdd(w: &mut GddWorld, version: &str) {
+    scenario_git(w, &["add", "-A"]);
+    let message = format!("gdd init {version}");
+    scenario_git(w, &["commit", "-q", "--allow-empty", "-m", &message]);
+}
+
+#[given(expr = "an older gdd {string} wrote {string} with {string} where this one writes {string}")]
+fn an_older_gdd_wrote(w: &mut GddWorld, version: String, path: String, old: String, new: String) {
+    let root = project_root(w);
+    let file = root.join(&path);
+    let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    assert!(content.contains(&new), "{path} lacks {new:?}: {content}");
+    write_file(&file, &content.replacen(&new, &old, 1));
+    let generated = root.join("gdd/generated.toml");
+    let text = fs::read_to_string(&generated).expect("gdd/generated.toml");
+    write_file(&generated, &generated_with_version(&text, &version));
+    commit_older_gdd(w, &version);
+}
+
+#[given(expr = "an older gdd {string} did not write {string}")]
+fn an_older_gdd_did_not_write(w: &mut GddWorld, version: String, path: String) {
+    let root = project_root(w);
+    fs::remove_file(root.join(&path)).unwrap_or_else(|e| panic!("cannot delete {path}: {e}"));
+    if path != "gdd/generated.toml" {
+        let generated = root.join("gdd/generated.toml");
+        let text = fs::read_to_string(&generated).expect("gdd/generated.toml");
+        let text = generated_without_file(&text, &path);
+        write_file(&generated, &generated_with_version(&text, &version));
+    }
+    commit_older_gdd(w, &version);
+}
+
+#[then(expr = "the file {string} on the branch {string} contains {string}")]
+fn file_on_branch_contains(w: &mut GddWorld, path: String, branch: String, text: String) {
+    let text = text.replace("\\\"", "\"");
+    let content = scenario_git(w, &["show", &format!("{branch}:{path}")]);
+    assert!(
+        content.contains(&text),
+        "{path} on {branch} lacks {text:?}: {content}"
+    );
+}
+
+#[then(expr = "the file {string} on the branch {string} does not contain {string}")]
+fn file_on_branch_lacks(w: &mut GddWorld, path: String, branch: String, text: String) {
+    let text = text.replace("\\\"", "\"");
+    let content = scenario_git(w, &["show", &format!("{branch}:{path}")]);
+    assert!(
+        !content.contains(&text),
+        "{path} on {branch} contains {text:?}: {content}"
+    );
+}

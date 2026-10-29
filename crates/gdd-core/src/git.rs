@@ -306,6 +306,39 @@ impl Git {
         }
     }
 
+    /// The last commit of the one checked out that touched the file `path`, from the project
+    /// root, as its full id: `None` when none did.
+    pub fn last_commit_of(&self, path: &str) -> Result<Option<String>, Error> {
+        let commit = self.line(&["log", "-1", "--format=%H", "HEAD", "--", path])?;
+        Ok(Some(commit).filter(|commit| !commit.is_empty()))
+    }
+
+    /// Merges into the file `ours` what changed from the file `base` to the file `theirs`, each
+    /// from the project root or absolute, as `git merge-file` does, the three named in the
+    /// conflict marks by `labels` in that order: the number of conflicts, each marked in `ours`.
+    /// A failure of git is an error.
+    pub fn merge_file(
+        &self,
+        ours: &Path,
+        base: &Path,
+        theirs: &Path,
+        labels: [&str; 3],
+    ) -> Result<usize, Error> {
+        let [yours, old, new] = labels.map(OsStr::new);
+        let label = OsStr::new("-L");
+        let (merge, files) = (OsStr::new("merge-file"), OsStr::new("--"));
+        let paths = [ours, base, theirs].map(Path::as_os_str);
+        let options = [merge, label, yours, label, old, label, new, files];
+        let args = [&options[..], &paths[..]].concat();
+        let out = self.run(&args)?;
+        // Git exits with the number of conflicts, 127 at most; on a failure, with a negative
+        // code (255) or 128.
+        match out.status.code().map(usize::try_from) {
+            Some(Ok(conflicts)) if conflicts <= 127 => Ok(conflicts),
+            _ => Err(failed(&args, &out)),
+        }
+    }
+
     /// The files inside `folder`, from the project root, at the commit `commit`: their paths
     /// from the project root, in git's order.
     pub fn files_at(&self, commit: &str, folder: &str) -> Result<Vec<String>, Error> {
@@ -361,6 +394,15 @@ impl Git {
     pub fn commit_all(&self, message: &str) -> Result<(), Error> {
         self.read(&["add", "-A"])?;
         self.read(&["commit", "-q", "-m", message])?;
+        Ok(())
+    }
+
+    /// Commits, on the current branch, everything the working tree changed except what git
+    /// ignores, with `message`, as [`Git::commit_all`] does; with nothing changed, the commit is
+    /// empty.
+    pub fn commit_all_even_empty(&self, message: &str) -> Result<(), Error> {
+        self.read(&["add", "-A"])?;
+        self.read(&["commit", "-q", "--allow-empty", "-m", message])?;
         Ok(())
     }
 
@@ -999,6 +1041,89 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_last_commit_that_touched_a_file_on_the_branch_checked_out() {
+        let repo = Repo::new();
+        repo.write("app/gdd/generated.toml", "a\n");
+        repo.commit();
+        let first = repo.git(&["rev-parse", "HEAD"]);
+        repo.write("app/other.txt", "x\n");
+        repo.commit();
+        let git = Git::new(&repo.root().join("app"));
+        let generated = "gdd/generated.toml";
+        assert_eq!(git.last_commit_of(generated).unwrap(), Some(first.clone()));
+        assert_eq!(git.last_commit_of("gdd/none.toml").unwrap(), None);
+        // What is not committed, or committed on another branch, does not count.
+        repo.git(&["checkout", "-q", "-b", "other"]);
+        repo.write("app/gdd/generated.toml", "b\n");
+        repo.commit();
+        let other = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["checkout", "-q", "main"]);
+        repo.write("app/gdd/generated.toml", "c\n");
+        assert_eq!(git.last_commit_of(generated).unwrap(), Some(first));
+        repo.git(&["checkout", "-q", "-f", "other"]);
+        assert_eq!(git.last_commit_of(generated).unwrap(), Some(other));
+        let plain = Folder::new();
+        let err = Git::new(&plain.0).last_commit_of(generated).unwrap_err();
+        assert!(err.to_string().starts_with("git log -1 "), "{err}");
+    }
+
+    /// Merges the files `ours`, `base` and `theirs` of `folder`, without the user's configuration:
+    /// the conflicts, and what `ours` holds then.
+    fn merged(folder: &Folder, texts: [&str; 3]) -> (usize, String) {
+        let names = ["ours", "base", "theirs"];
+        for (name, text) in names.iter().zip(texts) {
+            folder.write(name, text);
+        }
+        let [ours, base, theirs] = names.map(|name| folder.0.join(name));
+        let git = Git::in_env(&folder.0, &env());
+        let labels = ["yours", "gdd 0.0.0", "gdd 0.0.1"];
+        let conflicts = git.merge_file(&ours, &base, &theirs, labels).unwrap();
+        (conflicts, fs::read_to_string(&ours).unwrap())
+    }
+
+    #[test]
+    fn three_files_merge_into_ours_with_their_conflicts_marked_and_counted() {
+        let folder = Folder::new();
+        let base = "a\nb\nc\nd\ne\n";
+        let apart = merged(&folder, ["A\nb\nc\nd\ne\n", base, "a\nb\nc\nd\nE\n"]);
+        assert_eq!(apart, (0, "A\nb\nc\nd\nE\n".to_string()));
+        let one = merged(&folder, ["A\nb\nc\nd\ne\n", base, "Z\nb\nc\nd\ne\n"]);
+        let marked = "<<<<<<< yours\nA\n=======\nZ\n>>>>>>> gdd 0.0.1\nb\nc\nd\ne\n";
+        assert_eq!(one, (1, marked.to_string()));
+        // Git joins conflicts three lines or fewer apart: these are four.
+        let apart = "a\nb\nc\nd\ne\nf\n";
+        let texts = ["A\nb\nc\nd\ne\nF\n", apart, "Z\nb\nc\nd\ne\nY\n"];
+        let two = merged(&folder, texts);
+        assert_eq!(two.0, 2);
+        let last = "=======\nY\n>>>>>>> gdd 0.0.1\n";
+        assert!(two.1.ends_with(last), "{}", two.1);
+        // Against an empty base, whatever both have differently is in conflict.
+        let empty = merged(&folder, ["mine\n", "", "gdd's\n"]);
+        let all = "<<<<<<< yours\nmine\n=======\ngdd's\n>>>>>>> gdd 0.0.1\n";
+        assert_eq!(empty, (1, all.to_string()));
+    }
+
+    #[test]
+    fn a_merge_of_a_file_that_is_not_there_is_an_error() {
+        let folder = Folder::new();
+        folder.write("base", "a\n");
+        folder.write("theirs", "b\n");
+        let at = |name: &str| folder.0.join(name);
+        let git = Git::in_env(&folder.0, &env());
+        let labels = ["yours", "gdd 0.0.0", "gdd 0.0.1"];
+        let err = git.merge_file(&at("none"), &at("base"), &at("theirs"), labels);
+        let err = err.unwrap_err();
+        assert!(matches!(err, Error::Failed(_)), "{err}");
+        let start = "git merge-file -L yours -L gdd 0.0.0 -L gdd 0.0.1 -- ";
+        assert!(err.to_string().starts_with(start), "{err}");
+        assert!(!at("none").exists());
+        let nowhere = [("PATH".to_string(), "/nonexistent".to_string())];
+        let lost = Git::in_env(&folder.0, &nowhere);
+        let err = lost.merge_file(&at("base"), &at("base"), &at("theirs"), labels);
+        assert!(matches!(err, Err(Error::Start(_))));
+    }
+
+    #[test]
     fn the_files_of_a_folder_at_a_commit() {
         let repo = Repo::new();
         repo.write("app/features/a.feature", "a\n");
@@ -1149,6 +1274,24 @@ pub(crate) mod tests {
         assert!(repo.root().join("src/a.rs").is_file());
         assert!(repo.root().join("ignored/x").is_file());
         assert!(!git.has_changes().unwrap());
+    }
+
+    #[test]
+    fn a_commit_of_everything_is_made_even_when_nothing_changed() {
+        let repo = Repo::new();
+        repo.identify();
+        let git = repo.tool();
+        repo.write("src/a.rs", "a\n");
+        git.commit_all_even_empty("work").unwrap();
+        let committed = repo.git(&["show", "--name-only", "--format=%s", "HEAD"]);
+        assert_eq!(committed, "work\n\nsrc/a.rs");
+        let before = git.head().unwrap();
+        git.commit_all_even_empty("nothing").unwrap();
+        assert_eq!(repo.git(&["rev-parse", "HEAD~1"]), before);
+        let empty = repo.git(&["show", "--name-only", "--format=%s", "HEAD"]);
+        assert_eq!(empty, "nothing");
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).commit_all_even_empty("x").is_err());
     }
 
     #[test]
