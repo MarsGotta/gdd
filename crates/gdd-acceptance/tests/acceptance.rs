@@ -1510,6 +1510,7 @@ fn last_commit_does_not_say(w: &mut GddWorld, branch: String, text: String) {
 // variables in `env/<call>` and `role|model|arguments` in `calls`. They print their agent's JSON output (100 input, 50 cached and 20 output
 // tokens, Codex and OpenCode 5 reasoning ones too) and act on what the steps left in
 // `.gdd/fake/`: `build` (`default`, `nothing <ids>`, `never` or `from <call>`), `build_path`, `replan`,
+// `build_also` and `build_also_content` (a path and its text, written by every build call),
 // `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
 // (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
 // (`<change>|<build call>`: that call appends a line of the log for the change) and `main_gets`
@@ -1600,6 +1601,11 @@ case "$role" in
     if [ "$write" = yes ]; then
       mkdir -p "$(dirname "$path")"
       echo "$n" > "$path"
+    fi
+    if [ -f "$fake/build_also" ]; then
+      also=$(cat "$fake/build_also")
+      mkdir -p "$(dirname "$also")"
+      cp "$fake/build_also_content" "$also"
     fi
     if [ -f "$fake/record" ]; then
       record=$(cat "$fake/record")
@@ -1775,6 +1781,40 @@ fn builder_never_answers(w: &mut GddWorld) {
 fn builder_writes_from(w: &mut GddWorld, path: String, call: usize) {
     fake_file(w, "build_path", &path);
     fake_file(w, "build", &format!("from {call}"));
+}
+
+#[given(expr = "the Builder in build mode also writes {string} with:")]
+fn builder_also_writes(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Step) {
+    let text = docstring(step, "the text of the file");
+    fake_file(w, "build_also", &path);
+    fake_file(w, "build_also_content", &format!("{text}\n"));
+}
+
+#[given(expr = "the spike budget is {string} USD")]
+fn spike_budget(w: &mut GddWorld, max_usd: String) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    assert!(
+        !rules.contains("[spike]"),
+        "the rules already have a spike budget"
+    );
+    write_file(&path, &format!("{rules}\n[spike]\nmax_usd = {max_usd}\n"));
+    // Harness state from before the change: committed, so the working tree stays clean.
+    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["commit", "-q", "-m", "spike budget"]);
+}
+
+#[then(expr = "the branch {string} does not hold {string}")]
+fn branch_does_not_hold(w: &mut GddWorld, branch: String, path: String) {
+    let held = std::process::Command::new("git")
+        .args(["cat-file", "-e", &format!("{branch}:{path}")])
+        .current_dir(project_root(w))
+        .output()
+        .expect("git can run")
+        .status
+        .success();
+    assert!(!held, "the branch {branch} holds {path}");
 }
 
 #[given(expr = "the replan answers {string}")]

@@ -1,10 +1,46 @@
-//! The rules table: which gates each color and lane asks for, and where the scenarios live.
+//! The rules table: which gates each color and lane asks for, and where the scenarios live; and
+//! the budget of a spike.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Color, Error, Lane};
+
+/// What the agent calls of a spike may cost, in USD, when the rules file says nothing.
+pub const SPIKE_USD: f64 = 5.0;
+
+/// The budget of a spike: what its agent calls may cost, in USD, before it parks; `[spike]
+/// max_usd` of a rules file, [`SPIKE_USD`] when it says nothing. The rest of the file is ignored.
+/// A value that is not a positive number is an error that names `spike.max_usd`.
+pub fn spike_budget(text: &str) -> Result<f64, Error> {
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct Raw {
+        spike: RawSpike,
+    }
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct RawSpike {
+        max_usd: Option<toml::Value>,
+    }
+    let raw: Raw = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
+    let Some(value) = raw.spike.max_usd else {
+        return Ok(SPIKE_USD);
+    };
+    let usd = match value {
+        toml::Value::Integer(whole) => whole as f64,
+        toml::Value::Float(usd) => usd,
+        _ => f64::NAN,
+    };
+    if usd > 0.0 && usd.is_finite() {
+        Ok(usd)
+    } else {
+        Err(Error::Toml(format!(
+            "spike.max_usd must be a positive number of USD, not {value}"
+        )))
+    }
+}
 
 /// What one color in one lane asks for. A field the rules file leaves out takes the value of
 /// [`Rule::default`], except `mutation` and `review` for red (see [`RulesTable::rule`]).
@@ -599,6 +635,46 @@ mod tests {
             RulesTable::from_toml("[color.red.full]\nmutation = \"yes\"\n"),
             Err(Error::Toml(_))
         ));
+    }
+
+    #[test]
+    fn a_spike_has_the_budget_of_the_rules_file_or_five_usd() {
+        assert_eq!(spike_budget(""), Ok(5.0));
+        assert_eq!(SPIKE_USD, 5.0);
+        let other = "[limits]\nreplans = 1\n[spike]\nnote = \"x\"\n";
+        assert_eq!(spike_budget(other), Ok(5.0));
+        assert_eq!(spike_budget("[spike]\nmax_usd = 0.02\n"), Ok(0.02));
+        assert_eq!(spike_budget("[spike]\nmax_usd = 7\n"), Ok(7.0));
+        let tiny = "[spike]\nmax_usd = 1e-300\n";
+        assert_eq!(spike_budget(tiny), Ok(1e-300));
+    }
+
+    #[test]
+    fn a_spike_budget_that_is_not_a_positive_number_names_its_key() {
+        for (value, shown) in [
+            ("0", "0"),
+            ("0.0", "0.0"),
+            ("-1", "-1"),
+            ("-0.5", "-0.5"),
+            ("\"5\"", "\"5\""),
+            ("true", "true"),
+            ("nan", "nan"),
+            ("inf", "inf"),
+            ("[5]", "[5]"),
+        ] {
+            let text = format!("[spike]\nmax_usd = {value}\n");
+            let said = format!("spike.max_usd must be a positive number of USD, not {shown}");
+            assert_eq!(spike_budget(&text), Err(Error::Toml(said)), "{value}");
+        }
+        let said = spike_budget("[spike]\nmax_usd = 0\n").unwrap_err();
+        assert_eq!(
+            said.to_string(),
+            "invalid TOML: spike.max_usd must be a positive number of USD, not 0"
+        );
+        for wrong in ["spike = 3\n", "[spike", "spike.max_usd = "] {
+            let result = spike_budget(wrong);
+            assert!(matches!(result, Err(Error::Toml(_))), "{wrong:?}");
+        }
     }
 
     #[test]

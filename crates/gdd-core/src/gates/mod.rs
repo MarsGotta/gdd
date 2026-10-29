@@ -3,7 +3,8 @@
 //! Path Guard again, the scope check in build mode and, in G3, the scenario count and the
 //! security exceptions ([`exceptions`]). It passes only if all of them pass, but a command with
 //! known debt ([`debt`]) only warns, while it reports no more than its count. Each command and
-//! Path Guard keep their own time, which the log gets a line of before the gate's own.
+//! Path Guard keep their own time, which the log gets a line of before the gate's own. A spike
+//! has a G2 of its own, without commands ([`spike`]).
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
@@ -19,6 +20,7 @@ pub mod phrasing;
 pub mod prepare;
 pub mod release;
 pub mod selftest;
+pub mod spike;
 pub mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,7 +33,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::change::{self, Record};
-use crate::classify::{Classification, classify};
+use crate::classify::{Classification, SPIKE, classify};
 use crate::config::{self, Color};
 use crate::exec;
 use crate::git;
@@ -392,6 +394,25 @@ fn as_text<T: fmt::Display, S: Serializer>(value: &T, serializer: S) -> Result<S
 }
 
 impl Report {
+    /// The report of `gate` on a change of `color` before any check ran: nothing passed or failed
+    /// yet.
+    fn new(gate: Gate, color: Color) -> Report {
+        Report {
+            ok: false,
+            gate,
+            color,
+            passed: Vec::new(),
+            skipped: Vec::new(),
+            failures: Vec::new(),
+            out_of_scope: Vec::new(),
+            added_exceptions: Vec::new(),
+            known_debt: Vec::new(),
+            paid_debt: Vec::new(),
+            duration_s: 0.0,
+            timed: Vec::new(),
+        }
+    }
+
     fn fail(&mut self, name: &str, tail: String) {
         self.failures.push(Failure {
             name: name.to_string(),
@@ -536,6 +557,25 @@ pub fn keep(state: &Path, id: &str, report: &Report) -> Result<(), String> {
     change::write(state, &report.gate.report_path(id), &format!("{saved}\n"))
 }
 
+/// Runs `gate` on change `id`, whose record is `record` and whose kind of work is `kind`, for
+/// `role`, from the snapshot `snapshot` when there is one: the G2 of a spike is its own (see
+/// [`spike::run`]), any other run is [`run`].
+pub fn run_of_kind(
+    project: &Project,
+    gate: Gate,
+    id: &str,
+    record: &Record,
+    kind: &str,
+    role: &str,
+    snapshot: Option<&Hashes>,
+) -> Result<Report, Error> {
+    if gate == Gate::G2 && kind == SPIKE {
+        spike::run(project, id, record, role, snapshot)
+    } else {
+        run(project, gate, id, record, role, snapshot)
+    }
+}
+
 /// Runs `gate` on change `id`, whose record is `record`, for `role`. The change is classified
 /// from what it plans and what it touched against the main branch; its scenario files are the
 /// ones it plans or touched and the ones its record names. First Path Guard judges `role`, from
@@ -641,20 +681,7 @@ impl Judged<'_> {
     /// The report of `gate`, whose commands are `commands`, before anything runs: a gate
     /// without commands fails already.
     pub(crate) fn report(&self, gate: Gate, commands: &BTreeMap<String, String>) -> Report {
-        let mut report = Report {
-            ok: false,
-            gate,
-            color: self.decision.color,
-            passed: Vec::new(),
-            skipped: Vec::new(),
-            failures: Vec::new(),
-            out_of_scope: Vec::new(),
-            added_exceptions: Vec::new(),
-            known_debt: Vec::new(),
-            paid_debt: Vec::new(),
-            duration_s: 0.0,
-            timed: Vec::new(),
-        };
+        let mut report = Report::new(gate, self.decision.color);
         if commands.is_empty() {
             let name = format!("{gate} not configured");
             report.fail(&name, NOT_CONFIGURED.to_string());
@@ -1224,6 +1251,30 @@ paths = ["src/storage/**"]
         let cannot = "types failed and gdd cannot count what it reported (its [count] texts \
                       match nothing)\ncannot run sh: no shell";
         assert_eq!(report.failures[1], failure("types", cannot));
+    }
+
+    #[test]
+    fn only_the_g2_of_a_spike_is_its_own() {
+        let commands = "[g2]\nunit = \"echo unit-ran; exit 1\"\n[g3]\nacceptance = \"true\"\n";
+        let project = started(&["src/app.rs"], commands);
+        let ran = |gate: Gate, kind: &str| {
+            let read = project.project();
+            run_of_kind(&read, gate, "c1", &project.record, kind, BUILD_ROLE, None).unwrap()
+        };
+        let spike = ran(Gate::G2, SPIKE);
+        assert_eq!(spike.passed, [PATH_GUARD]);
+        assert_eq!(names(&spike), ["adr"]);
+        for kind in ["Feature", "Refactor"] {
+            let report = ran(Gate::G2, kind);
+            assert_eq!(report.passed, [PATH_GUARD, "scope"], "{kind}");
+            assert_eq!(names(&report), ["unit"], "{kind}");
+        }
+        // G3 is the same for every kind.
+        for kind in [SPIKE, "Feature"] {
+            let report = ran(Gate::G3, kind);
+            assert_eq!(report.passed[0], "acceptance", "{kind}");
+            assert_eq!(names(&report), ["scenarios"], "{kind}");
+        }
     }
 
     #[test]

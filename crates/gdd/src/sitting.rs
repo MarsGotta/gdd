@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use gdd_core::change;
 use gdd_core::changelog;
+use gdd_core::classify::SPIKE;
 use gdd_core::flow::{self, Flow};
 use gdd_core::gates::approve;
 use gdd_core::git::Git;
@@ -52,6 +53,11 @@ const NO_DEMO: &str = "Demo: none, the project has no demo command";
 
 /// What the G4 page says when the record has no changelog line.
 const NO_CHANGELOG: &str = "Changelog: none set";
+
+/// What the G4 page of a spike says where another change has its review, its demo and its
+/// changelog line.
+const SPIKE_PAGE: &str = "Spike: no Reviewer, demo or changelog line. OK brings only its ADR \
+                          files under docs/adr/ to main; its code stays on its branch.";
 
 /// The keys of a page that only scrolls.
 const SCROLL_KEYS: &str = "↑↓ scroll · q quit";
@@ -134,13 +140,22 @@ impl Answer {
         }
     }
 
-    /// What follows the answer, as the confirmation says it.
-    fn follows(self) -> &'static [&'static str] {
-        match self {
-            Answer::Ok => &["The change is promoted."],
-            Answer::Ko => &["The change is rejected and stays out of production."],
-            Answer::Polish => &[
+    /// What follows the answer, as the confirmation says it; to a spike, which is never promoted
+    /// and has no demo, when it is not the same.
+    fn follows(self, spike: bool) -> &'static [&'static str] {
+        match (self, spike) {
+            (Answer::Ok, false) => &["The change is promoted."],
+            (Answer::Ok, true) => &[
+                "Only its ADR files reach main, in a commit of their own.",
+                "Its code stays on its branch.",
+            ],
+            (Answer::Ko, _) => &["The change is rejected and stays out of production."],
+            (Answer::Polish, false) => &[
                 "One more Builder round with your words, then the gates and the demo again.",
+                "The agents run now: it takes minutes.",
+            ],
+            (Answer::Polish, true) => &[
+                "One more Builder round with your words, then its G2 again.",
                 "The agents run now: it takes minutes.",
             ],
         }
@@ -177,6 +192,8 @@ pub struct Sitting {
     closed: bool,
     /// Whether the change waits for its G4: the page answers it instead of approving.
     g4: bool,
+    /// Whether the change is a spike, whose G4 brings only its ADR files to main.
+    spike: bool,
     /// The `gdd` arguments the human chose with `y` at G4.
     chosen: Option<Vec<String>>,
 }
@@ -204,6 +221,7 @@ impl Sitting {
             body: Cell::new(Rect::new(0, 0, 80, 20)),
             closed: false,
             g4: false,
+            spike: false,
             chosen: None,
         }
     }
@@ -221,6 +239,7 @@ impl Sitting {
             let lines = g4_lines(&state, &card)?;
             let mut sitting = Sitting::new(&basics.name, &card.id, &root, lines, None);
             sitting.g4 = true;
+            sitting.spike = card.kind == SPIKE;
             return Ok(sitting);
         }
         let title = format!("{} · {} · {}", card.id, card.title, card.color);
@@ -447,7 +466,10 @@ impl Sitting {
                 let typed = Line::from(format!("> {text}_"));
                 (vec![Line::from(QUESTION), typed], ASK_KEYS)
             }
-            Page::Run(answer, words) => (plain(&run_text(&self.id, *answer, words)), SCROLL_KEYS),
+            Page::Run(answer, words) => {
+                let text = run_text(&self.id, *answer, words, self.spike);
+                (plain(&text), SCROLL_KEYS)
+            }
             Page::Main => (self.main_lines(), SCROLL_KEYS),
             Page::Approve => (plain(&self.approval_text()), SCROLL_KEYS),
             Page::Ask(text) => {
@@ -699,36 +721,46 @@ fn resume_args(id: &str, answer: Answer, words: &str) -> Vec<String> {
     args
 }
 
-/// What the confirmation of a G4 answer says: the command that runs, what follows and the keys.
-fn run_text(id: &str, answer: Answer, words: &str) -> Vec<String> {
+/// What the confirmation of a G4 answer says: the command that runs, what follows, to a `spike`
+/// or not, and the keys.
+fn run_text(id: &str, answer: Answer, words: &str, spike: bool) -> Vec<String> {
     let mut command = format!("gdd resume {id} --g4 {}", answer.word());
     if answer != Answer::Ok {
         command.push_str(&format!(" --note \"{words}\""));
     }
     let mut text = vec!["This runs, as you:".to_string(), command];
-    text.extend(answer.follows().iter().map(ToString::to_string));
+    text.extend(answer.follows(spike).iter().map(ToString::to_string));
     text.push(RUN.to_string());
     text
 }
 
 /// The G4 page of the change `card`, whose state root is `state`: how the change works and what
 /// else the Reviewer said, the demo, what was decided without the human, the changelog line and
-/// the time of the change.
+/// the time of the change. A spike has no review, demo or changelog line: what OK brings
+/// instead (see [`SPIKE_PAGE`]).
 fn g4_lines(state: &Path, card: &Card) -> Result<Vec<Line<'static>>, String> {
     let id = card.id.as_str();
     let title = format!("{id} · {} · waiting for your G4", card.title);
     let record = record_of(state, id)?;
+    let spike = card.kind == SPIKE;
     let mut lines = vec![Line::from(title).bold(), Line::default()];
-    lines.extend(review_lines(state, id)?);
-    lines.push(Line::default());
-    lines.push(Line::from(demo_line(state, id)));
-    lines.push(Line::default());
+    if !spike {
+        lines.extend(review_lines(state, id)?);
+        lines.push(Line::default());
+        lines.push(Line::from(demo_line(state, id)));
+        lines.push(Line::default());
+    }
     let decided = decided_lines(&record);
     if !decided.is_empty() {
         lines.extend(decided);
         lines.push(Line::default());
     }
-    lines.push(Line::from(changelog_line(&record)));
+    let last = if spike {
+        SPIKE_PAGE.to_string()
+    } else {
+        changelog_line(&record)
+    };
+    lines.push(Line::from(last));
     let time = time_lines(state, id);
     if !time.is_empty() {
         lines.push(Line::default());
@@ -2367,6 +2399,33 @@ mod tests {
             let words = ["resume", "c1", "--g4", answer, "--note", "Not what I asked"];
             assert_eq!(sitting.chosen(), Some(args(&words)));
         }
+    }
+
+    #[test]
+    fn the_g4_of_a_spike_says_what_ok_brings_and_promises_no_promotion_or_demo() {
+        let (project, _) = waiting(Value::Null);
+        set_record(&project, |record| record["type"] = Value::from(SPIKE));
+        let mut sitting = open(&project, "c1");
+        assert!(sitting.lines.contains(&Line::from(SPIKE_PAGE)));
+        assert_hides(&sitting, &[NO_DEMO, NO_REVIEW, NO_CHANGELOG, UNEXPLAINED]);
+        assert_shows(&sitting, &["c1 · App · waiting for your G4", G4_KEYS]);
+        sitting.press(Key::Char('o'));
+        let ok = ["Only its ADR files reach main, in a commit of their own."];
+        assert_shows(&sitting, &ok);
+        assert_shows(&sitting, &["Its code stays on its branch."]);
+        assert_shows(&sitting, &["gdd resume c1 --g4 ok"]);
+        assert_hides(&sitting, &["promoted"]);
+        sitting.press(Key::Esc);
+        press(&mut sitting, &[Key::Char('p'), Key::Char('x'), Key::Enter]);
+        let polish = ["One more Builder round with your words, then its G2 again."];
+        assert_shows(&sitting, &polish);
+        assert_hides(&sitting, &["the demo"]);
+        // Other kinds keep their page and their answers.
+        let (_, mut feature) = waiting(Value::Null);
+        assert_shows(&feature, &[NO_DEMO, NO_CHANGELOG]);
+        assert_hides(&feature, &["Spike:"]);
+        feature.press(Key::Char('o'));
+        assert_hides(&feature, &ok);
     }
 
     #[test]

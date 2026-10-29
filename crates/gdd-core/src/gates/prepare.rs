@@ -105,7 +105,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
     }
     let (resume_green, start) = if built_before(state, id)? {
         let record = Record::from_json(&text).map_err(invalid)?;
-        relaunched(setup.project, id, &record, &git)?
+        relaunched(setup.project, id, &record, decision.kind, &git)?
     } else {
         (false, git.head().map_err(|e| e.to_string())?)
     };
@@ -211,26 +211,29 @@ fn built_before(state: &Path, id: &str) -> Result<bool, String> {
     Ok(records.iter().any(built))
 }
 
-/// How the relaunch of change `id`, whose record is `record`, starts: whether its code already
-/// passes G2, and the commit its build starts at. Path Guard judges the code as a Builder's from
-/// where its branch left the main branch, before anything runs: gate commands a Builder rewrote
-/// never run. The run is saved and logged like any G2. The build starts at the commit checked
-/// out, unless Path Guard failed: then it starts where the branch left the main branch, so the
-/// next G2 still sees the protected paths the code touched, even the ones committed.
+/// How the relaunch of change `id`, whose record is `record` and whose kind of work is `kind`,
+/// starts: whether its code already passes G2, the one of its kind (see
+/// [`gates::run_of_kind`]), and the commit its build starts at. Path Guard judges the code as a
+/// Builder's from where its branch left the main branch, before anything runs: gate commands a
+/// Builder rewrote never run. The run is saved and logged like any G2. The build starts at the
+/// commit checked out, unless Path Guard failed: then it starts where the branch left the main
+/// branch, so the next G2 still sees the protected paths the code touched, even the ones
+/// committed.
 fn relaunched(
     project: &gates::Project,
     id: &str,
     record: &Record,
+    kind: &str,
     git: &Git,
 ) -> Result<(bool, String), String> {
     let (main, branch) = (&project.settings.main_branch, change::branch(id));
     let left = git.merge_base(main, &branch).map_err(|e| e.to_string())?;
-    let from_main = Record {
+    let judged = Record {
         build_start: Some(left.clone()),
         ..record.clone()
     };
-    let report = gates::run(project, Gate::G2, id, &from_main, RELAUNCH_ROLE, None)
-        .map_err(|e| e.to_string())?;
+    let ran = gates::run_of_kind(project, Gate::G2, id, &judged, kind, RELAUNCH_ROLE, None);
+    let report = ran.map_err(|e| e.to_string())?;
     gates::save(project.state, id, &report)?;
     let guarded = report.failures.iter().any(|f| f.name == gates::PATH_GUARD);
     let start = if guarded {
@@ -629,6 +632,22 @@ mod tests {
         assert_eq!(gates[gates.len() - 2..], ["G2", "-"]);
         let note = log[log.len() - 1].text("note");
         assert_eq!(note, "yellow · full · G2 already green: Builder skipped");
+    }
+
+    #[test]
+    fn a_relaunched_spike_is_judged_by_the_g2_of_a_spike() {
+        let spike = RECORD.replace("\"Feature\"", "\"Spike\"");
+        let project = fixture_with(&spike, "[g2]\nlint = \"touch ran\"\n", MODELS);
+        project.ready();
+        project.builder_called("c1");
+        project.repo.write("src/app.rs", "fn main() {}\n");
+        assert_eq!(project.prepared()["resume_green"], false);
+        project.repo.write("docs/adr/0002-x.md", "## Decision\n");
+        assert_eq!(project.prepared()["resume_green"], true);
+        assert!(!project.root().join("ran").exists(), "a G2 command ran");
+        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved["passed"], serde_json::json!(["path-guard", "adr"]));
     }
 
     #[test]
