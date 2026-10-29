@@ -2,12 +2,12 @@
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{Color, Error, Lane};
 
 /// What one color in one lane asks for. A field the rules file leaves out takes the value of
-/// [`Rule::default`], except `mutation` for red (see [`RulesTable::rule`]).
+/// [`Rule::default`], except `mutation` and `review` for red (see [`RulesTable::rule`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Rule {
@@ -19,6 +19,8 @@ pub struct Rule {
     pub reviewer: bool,
     /// New scenarios also need the human release gate (G4). Unset: yes.
     pub g4_if_g1: bool,
+    /// How deep the Reviewer looks. Unset: quick, except for red.
+    pub review: Depth,
 }
 
 impl Default for Rule {
@@ -29,8 +31,19 @@ impl Default for Rule {
             mutation: false,
             reviewer: true,
             g4_if_g1: true,
+            review: Depth::Quick,
         }
     }
+}
+
+/// How deep the Reviewer looks at a change. As TOML and JSON, its name: `"quick"`, `"deep"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Depth {
+    /// The files the change touched, its package and its scenarios.
+    Quick,
+    /// The quick review, plus the code around the change and what can go badly wrong there.
+    Deep,
 }
 
 /// The rules of one color: the fields of `[color.<color>]` and an optional table per lane.
@@ -113,10 +126,17 @@ impl RulesTable {
         })
     }
 
-    /// The table a rules file writes, and whether it has a `[color]` section. A file that
-    /// switches off the core for red changes is refused (see [`core_switched_off`]).
+    /// The table a rules file writes, and whether it has a `[color]` section. A review depth
+    /// other than quick or deep is refused (see [`unknown_depth`]), and so is a file that
+    /// switches off the core for red changes (see [`core_switched_off`]).
     fn read(text: &str) -> Result<(RulesTable, bool), Error> {
-        let raw: RawTable = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
+        let toml_error = |e: toml::de::Error| Error::Toml(e.to_string());
+        let file: toml::Table = toml::from_str(text).map_err(toml_error)?;
+        if let Some((key, value)) = unknown_depth(&file) {
+            let value = value.to_string();
+            return Err(Error::UnknownDepth { key, value });
+        }
+        let raw: RawTable = toml::from_str(text).map_err(toml_error)?;
         let has_colors = raw.color.is_some();
         let colors = raw
             .color
@@ -124,8 +144,9 @@ impl RulesTable {
             .into_iter()
             .map(|(name, rules)| Ok((name.parse()?, rules)))
             .collect::<Result<_, Error>>()?;
-        if let Some(key) = core_switched_off(text)? {
-            return Err(Error::CoreSwitchedOff(key));
+        if let Some((key, value)) = core_switched_off(&file) {
+            let value = value.to_string();
+            return Err(Error::CoreSwitchedOff { key, value });
         }
         let table = RulesTable {
             colors,
@@ -136,8 +157,8 @@ impl RulesTable {
 
     /// The rule for a color in a lane: the lane's own table, else the color's table, else
     /// [`Rule::default`] when the table does not mention the color. Red always has the core of
-    /// GDD on: a `false` is refused when reading, and a key left out counts as `true` (only
-    /// `mutation` has another default).
+    /// GDD on: a `false` or a quick review is refused when reading, and a key left out counts
+    /// as on (`mutation` and `review`, whose defaults are off and quick, get `true` and deep).
     pub fn rule(&self, color: Color, lane: Lane) -> Rule {
         let rule = self.colors.get(&color).map_or_else(Rule::default, |c| {
             match lane {
@@ -149,6 +170,7 @@ impl RulesTable {
         if color == Color::Red {
             Rule {
                 mutation: true,
+                review: Depth::Deep,
                 ..rule
             }
         } else {
@@ -157,42 +179,75 @@ impl RulesTable {
     }
 }
 
-/// What a red change always gets, the core of GDD, as keys of a lane, in the order they are
-/// reported: no rules file can set them to `false` for red.
-const CORE: [&str; 3] = ["mutation", "reviewer", "g4_if_g1"];
+/// The rules a color's table `rules` writes, each with its lane: the table without a lane
+/// first, then lane `fast` and lane `full` when it has them.
+fn lanes_of(rules: &toml::Value) -> impl Iterator<Item = (Option<Lane>, &toml::Value)> {
+    let own = move |lane: Lane| {
+        let rule = rules.get(lane.to_string().as_str())?;
+        Some((Some(lane), rule))
+    };
+    let lanes = [Lane::Fast, Lane::Full].into_iter().filter_map(own);
+    std::iter::once((None, rules)).chain(lanes)
+}
 
-/// The first key of the [`CORE`] the rules file `text` sets to `false` in a red table, as
-/// `color.red.<key>` or `color.red.<lane>.<key>`: the table without a lane first, then lane
-/// `fast` and lane `full`. A key left out is not `false`.
-fn core_switched_off(text: &str) -> Result<Option<String>, Error> {
-    let file: toml::Table = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
-    let red = file.get("color").and_then(|colors| colors.get("red"));
-    let table = |lane: Option<Lane>| match lane {
-        None => red,
-        Some(lane) => red.and_then(|red| red.get(lane.to_string().as_str())),
-    };
-    let switched_off = |&(lane, key): &(Option<Lane>, &str)| {
-        let value = table(lane).and_then(|table| table.get(key));
-        value.and_then(toml::Value::as_bool) == Some(false)
-    };
-    let mut keys = [None, Some(Lane::Fast), Some(Lane::Full)]
-        .into_iter()
-        .flat_map(|lane| CORE.map(|key| (lane, key)));
-    let found = keys.find(switched_off);
-    Ok(found.map(|(lane, key)| match lane {
-        None => format!("color.red.{key}"),
-        Some(lane) => format!("color.red.{lane}.{key}"),
-    }))
+/// The key `key` of the rule of `color` in `lane` as the rules file names it:
+/// `color.<color>.<key>` without a lane, `color.<color>.<lane>.<key>` with one.
+fn key_name(color: &str, lane: Option<Lane>, key: &str) -> String {
+    match lane {
+        None => format!("color.{color}.{key}"),
+        Some(lane) => format!("color.{color}.{lane}.{key}"),
+    }
+}
+
+/// The first review depth other than `"quick"` or `"deep"` the rules file `file` writes, with
+/// its key, `color.<color>.review` or `color.<color>.<lane>.review`.
+fn unknown_depth(file: &toml::Table) -> Option<(String, &toml::Value)> {
+    let colors = file.get("color").and_then(toml::Value::as_table)?;
+    colors.iter().find_map(|(color, rules)| {
+        lanes_of(rules).find_map(|(lane, rule)| {
+            let value = rule.get("review")?;
+            let known = matches!(value.as_str(), Some("quick" | "deep"));
+            (!known).then(|| (key_name(color, lane, "review"), value))
+        })
+    })
+}
+
+/// What a red change always gets, the core of GDD, as keys of a lane, in the order they are
+/// reported: no rules file can switch them off for red (see [`switches_off`]).
+const CORE: [&str; 4] = ["mutation", "reviewer", "g4_if_g1", "review"];
+
+/// Whether `value`, written for the [`CORE`] key `key`, switches it off: `"quick"` for the
+/// review, `false` for the rest.
+fn switches_off(key: &str, value: &toml::Value) -> bool {
+    match key {
+        "review" => value.as_str() == Some("quick"),
+        _ => value.as_bool() == Some(false),
+    }
+}
+
+/// The first key of the [`CORE`] the rules file `file` switches off in a red table, with its
+/// value, as `color.red.<key>` or `color.red.<lane>.<key>`: the table without a lane first,
+/// then lane `fast` and lane `full`. A key left out does not switch anything off.
+fn core_switched_off(file: &toml::Table) -> Option<(String, &toml::Value)> {
+    let red = file.get("color")?.get("red")?;
+    lanes_of(red).find_map(|(lane, rule)| {
+        CORE.iter().find_map(|&key| {
+            let value = rule.get(key).filter(|value| switches_off(key, value))?;
+            Some((key_name("red", lane, key), value))
+        })
+    })
 }
 
 /// The table that ships with the tool; it equals the `[color.*]` and `[acceptance]` sections
-/// of `gdd/rules.toml`. Red has no fast lane: it always travels the full one.
+/// of `gdd/rules.toml`, which leave the review unset: quick, and deep for red. Red has no fast
+/// lane: it always travels the full one.
 pub fn default_table() -> RulesTable {
     let rule = |tests_first, mutation, reviewer, g4_if_g1| Rule {
         tests_first: Some(tests_first),
         mutation,
         reviewer,
         g4_if_g1,
+        ..Rule::default()
     };
     let lanes = |fast, full| ColorRules {
         rule: Rule::default(),
@@ -231,11 +286,13 @@ mod tests {
         mutation: false,
         reviewer: true,
         g4_if_g1: true,
+        review: Depth::Quick,
     };
 
     /// The same for red, which always has the core of GDD on.
     const RED_UNSET: Rule = Rule {
         mutation: true,
+        review: Depth::Deep,
         ..UNSET
     };
 
@@ -260,6 +317,7 @@ mod tests {
                 mutation: false,
                 reviewer: false,
                 g4_if_g1: false,
+                review: Depth::Quick,
             }
         );
         assert_eq!(
@@ -269,8 +327,68 @@ mod tests {
                 mutation: true,
                 reviewer: true,
                 g4_if_g1: true,
+                review: Depth::Deep,
             }
         );
+    }
+
+    #[test]
+    fn the_review_is_quick_unless_the_change_is_red() {
+        let own = table("[color.yellow.full]\nmutation = true\n");
+        for t in [default_table(), table(""), own] {
+            for lane in [Lane::Fast, Lane::Full] {
+                assert_eq!(t.rule(Color::Green, lane).review, Depth::Quick);
+                assert_eq!(t.rule(Color::Yellow, lane).review, Depth::Quick);
+                assert_eq!(t.rule(Color::Red, lane).review, Depth::Deep);
+            }
+        }
+    }
+
+    #[test]
+    fn a_rules_file_can_ask_for_either_depth() {
+        let text = "[color.green.fast]\nreview = \"deep\"\n[color.green.full]\nreview = \"quick\"\n\
+                    [color.yellow]\nreview = \"deep\"\n[color.red.full]\nreview = \"deep\"\n";
+        let t = table(text);
+        assert_eq!(t.rule(Color::Green, Lane::Fast).review, Depth::Deep);
+        assert_eq!(t.rule(Color::Green, Lane::Full).review, Depth::Quick);
+        assert_eq!(t.rule(Color::Yellow, Lane::Fast).review, Depth::Deep);
+        assert_eq!(t.rule(Color::Yellow, Lane::Full).review, Depth::Deep);
+        assert_eq!(t.rule(Color::Red, Lane::Full), RED_UNSET);
+        // A lane's own table replaces the color's, its depth too.
+        let t = table("[color.yellow]\nreview = \"deep\"\n[color.yellow.full]\nmutation = true\n");
+        assert_eq!(t.rule(Color::Yellow, Lane::Full).review, Depth::Quick);
+    }
+
+    /// The error of a rules file whose `key` sets the review depth to `value`, as TOML.
+    fn depth_refused(key: &str, value: &str) -> Result<RulesTable, Error> {
+        let (key, value) = (key.into(), value.into());
+        Err(Error::UnknownDepth { key, value })
+    }
+
+    #[test]
+    fn a_depth_that_is_neither_quick_nor_deep_is_refused_naming_its_key() {
+        let yellow = ["color.yellow.fast", "color.yellow.full"];
+        for table in ["color.green", "color.red"].into_iter().chain(yellow) {
+            for value in ["\"medium\"", "\"Deep\"", "\"\"", "true", "1"] {
+                let text = format!("[{table}]\nreview = {value}\n");
+                let expected = depth_refused(&format!("{table}.review"), value);
+                assert_eq!(RulesTable::from_toml(&text), expected, "{text}");
+                assert_eq!(RulesTable::of_project(&text), expected, "{text}");
+            }
+        }
+        let said = Error::UnknownDepth {
+            key: "color.yellow.full.review".into(),
+            value: "\"medium\"".into(),
+        };
+        let expected = "review must be quick or deep: color.yellow.full.review = \"medium\" in \
+                        gdd/rules.toml";
+        assert_eq!(said.to_string(), expected);
+        // Only the rules the table reads are checked, and a valid depth beside a bad one passes.
+        let ignored = "[color.yellow.slow]\nreview = \"x\"\n[color.yellow.full]\nnote = \"x\"\n";
+        assert_eq!(table(ignored).rule(Color::Yellow, Lane::Full), UNSET);
+        let both = "[color.green]\nreview = \"deep\"\n[color.yellow.fast]\nreview = \"x\"\n";
+        let expected = depth_refused("color.yellow.fast.review", "\"x\"");
+        assert_eq!(RulesTable::from_toml(both), expected);
     }
 
     #[test]
@@ -355,9 +473,16 @@ mod tests {
         assert!(matches!(wrong, Err(Error::Toml(_))), "{wrong:?}");
     }
 
-    /// The error of a rules file that switches `key` off for red changes.
+    /// The error of a rules file whose `key` switches off the core for red changes with
+    /// `value`, as TOML.
+    fn switched_off(key: &str, value: &str) -> Result<RulesTable, Error> {
+        let (key, value) = (key.into(), value.into());
+        Err(Error::CoreSwitchedOff { key, value })
+    }
+
+    /// The error of a rules file that sets `key` to `false` for red changes.
     fn core_off(key: &str) -> Result<RulesTable, Error> {
-        Err(Error::CoreSwitchedOff(key.into()))
+        switched_off(key, "false")
     }
 
     #[test]
@@ -369,10 +494,20 @@ mod tests {
                 assert_eq!(RulesTable::from_toml(&text), expected, "{text}");
                 assert_eq!(RulesTable::of_project(&text), expected, "{text}");
             }
+            let text = format!("[{table}]\nreview = \"quick\"\n");
+            let expected = switched_off(&format!("{table}.review"), "\"quick\"");
+            assert_eq!(RulesTable::from_toml(&text), expected, "{text}");
+            assert_eq!(RulesTable::of_project(&text), expected, "{text}");
         }
-        let said = Error::CoreSwitchedOff("color.red.full.mutation".into()).to_string();
+        let said = core_off("color.red.full.mutation").unwrap_err().to_string();
         let expected = "red changes always get mutation testing, the Reviewer and the human G4 \
                         (the core of GDD): remove color.red.full.mutation = false from \
+                        gdd/rules.toml";
+        assert_eq!(said, expected);
+        let quick = switched_off("color.red.review", "\"quick\"");
+        let said = quick.unwrap_err().to_string();
+        let expected = "red changes always get mutation testing, the Reviewer and the human G4 \
+                        (the core of GDD): remove color.red.review = \"quick\" from \
                         gdd/rules.toml";
         assert_eq!(said, expected);
     }
@@ -389,6 +524,25 @@ mod tests {
         assert_eq!(read(keys), core_off("color.red.full.mutation"));
         let last = "[color.red.full]\ng4_if_g1 = false\nreviewer = false\nmutation = true\n";
         assert_eq!(read(last), core_off("color.red.full.reviewer"));
+        // The review comes after g4_if_g1.
+        let review = "[color.red.full]\nreview = \"quick\"\ng4_if_g1 = false\n";
+        assert_eq!(read(review), core_off("color.red.full.g4_if_g1"));
+        let lanes = "[color.red.full]\nmutation = false\n[color.red]\nreview = \"quick\"\n";
+        let expected = switched_off("color.red.review", "\"quick\"");
+        assert_eq!(read(lanes), expected);
+    }
+
+    #[test]
+    fn a_red_table_can_ask_for_the_deep_review_it_gets() {
+        for name in ["color.red", "color.red.fast", "color.red.full"] {
+            let text = format!("[{name}]\nreview = \"deep\"\n");
+            let t = table(&text);
+            assert_eq!(t.rule(Color::Red, Lane::Fast), RED_UNSET, "{text}");
+            assert_eq!(t.rule(Color::Red, Lane::Full), RED_UNSET, "{text}");
+        }
+        // Quick stays allowed outside red.
+        let text = "[color.green]\nreview = \"quick\"\n[color.yellow.full]\nreview = \"quick\"\n";
+        assert_eq!(table(text).rule(Color::Yellow, Lane::Full), UNSET);
     }
 
     #[test]
