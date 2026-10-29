@@ -864,7 +864,7 @@ paths = ["src/storage/**"]
         assert_eq!(rules.harness, Vec::<String>::new());
         let shipped = rules::default_table().rule(Color::Yellow, Lane::Full);
         assert_eq!(rules.table.rule(Color::Yellow, Lane::Full), shipped);
-        let text = "[color.red.full]\nmutation = false\n[acceptance]\nrequired = true\n";
+        let text = "[color.red.full]\ntests_first = false\n[acceptance]\nrequired = true\n";
         let rules = Rules::from_toml(text).unwrap();
         assert_eq!(rules.table, RulesTable::from_toml(text).unwrap());
         assert!(rules.scenarios_required);
