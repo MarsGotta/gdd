@@ -66,6 +66,7 @@ Feature: A ratchet for known debt (hidden examples)
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
     When the change writes "src/app.rs"
+    And I run "gdd g2 c1"
     And I run "gdd g3 c1"
     Then the gate fails on "security"
     And the output contains "security reports 3, the known debt is 2: 1 more"
