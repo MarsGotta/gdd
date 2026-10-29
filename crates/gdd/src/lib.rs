@@ -2778,6 +2778,7 @@ mod tests {
                 "tests_first": false,
                 "mutation": true,
                 "reviewer": true,
+                "review": "deep",
                 "g4": true,
                 "human_plan": true,
                 "type": "Feature",
@@ -2853,6 +2854,7 @@ mod tests {
         assert_eq!(decision["tests_first"], true);
         assert_eq!(decision["mutation"], true);
         assert_eq!(decision["reviewer"], true);
+        assert_eq!(decision["review"], "quick");
         assert_eq!(decision["g4"], false);
         // Rules without colors say nothing about them either.
         project.write(RULES, PROTECTED);

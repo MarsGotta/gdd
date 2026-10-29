@@ -62,9 +62,23 @@ pub enum Error {
     Toml(String),
     /// A color other than green, yellow or red.
     UnknownColor(String),
-    /// The rules table switches off part of the core of GDD for red changes: the key it sets to
-    /// `false`, `color.red.<key>` or `color.red.<lane>.<key>`.
-    CoreSwitchedOff(String),
+    /// The rules table switches off part of the core of GDD for red changes: the key that does
+    /// it, `color.red.<key>` or `color.red.<lane>.<key>`, and its value as TOML (`false` for a
+    /// gate, `"quick"` for the review).
+    CoreSwitchedOff {
+        /// The key that switches it off.
+        key: String,
+        /// Its value as TOML.
+        value: String,
+    },
+    /// A review depth other than `quick` or `deep`: the key that sets it,
+    /// `color.<color>.review` or `color.<color>.<lane>.review`, and its value as TOML.
+    UnknownDepth {
+        /// The key that sets it.
+        key: String,
+        /// Its value as TOML.
+        value: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -74,10 +88,14 @@ impl fmt::Display for Error {
             Error::UnknownColor(name) => {
                 write!(f, "unknown color \"{name}\" (use green, yellow or red)")
             }
-            Error::CoreSwitchedOff(key) => write!(
+            Error::CoreSwitchedOff { key, value } => write!(
                 f,
                 "red changes always get mutation testing, the Reviewer and the human G4 \
-                 (the core of GDD): remove {key} = false from gdd/rules.toml"
+                 (the core of GDD): remove {key} = {value} from gdd/rules.toml"
+            ),
+            Error::UnknownDepth { key, value } => write!(
+                f,
+                "review must be quick or deep: {key} = {value} in gdd/rules.toml"
             ),
         }
     }
