@@ -63,7 +63,7 @@ pub enum Error {
     /// A color other than green, yellow or red.
     UnknownColor(String),
     /// The rules table switches off part of the core of GDD for red changes: the key it sets to
-    /// `false`, `color.red.<lane>.<key>`.
+    /// `false`, `color.red.<key>` or `color.red.<lane>.<key>`.
     CoreSwitchedOff(String),
 }
 

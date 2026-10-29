@@ -7,13 +7,13 @@ use serde::Deserialize;
 use crate::config::{Color, Error, Lane};
 
 /// What one color in one lane asks for. A field the rules file leaves out takes the value of
-/// [`Rule::default`].
+/// [`Rule::default`], except `mutation` for red (see [`RulesTable::rule`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Rule {
     /// Tests are written before the code. Unset: only when the change has new scenarios (G1).
     pub tests_first: Option<bool>,
-    /// Mutation testing runs. Unset: no.
+    /// Mutation testing runs. Unset: no, except for red.
     pub mutation: bool,
     /// The Reviewer checks the change. Unset: yes.
     pub reviewer: bool,
@@ -135,15 +135,25 @@ impl RulesTable {
     }
 
     /// The rule for a color in a lane: the lane's own table, else the color's table, else
-    /// [`Rule::default`] when the table does not mention the color.
+    /// [`Rule::default`] when the table does not mention the color. Red always has the core of
+    /// GDD on: a `false` is refused when reading, and a key left out counts as `true` (only
+    /// `mutation` has another default).
     pub fn rule(&self, color: Color, lane: Lane) -> Rule {
-        self.colors.get(&color).map_or_else(Rule::default, |c| {
+        let rule = self.colors.get(&color).map_or_else(Rule::default, |c| {
             match lane {
                 Lane::Fast => c.fast,
                 Lane::Full => c.full,
             }
             .unwrap_or(c.rule)
-        })
+        });
+        if color == Color::Red {
+            Rule {
+                mutation: true,
+                ..rule
+            }
+        } else {
+            rule
+        }
     }
 }
 
@@ -151,21 +161,28 @@ impl RulesTable {
 /// reported: no rules file can set them to `false` for red.
 const CORE: [&str; 3] = ["mutation", "reviewer", "g4_if_g1"];
 
-/// The first key of the [`CORE`] the rules file `text` sets to `false` in a red lane, as
-/// `color.red.<lane>.<key>`: lane `fast` before `full`. A key left out is not `false`.
+/// The first key of the [`CORE`] the rules file `text` sets to `false` in a red table, as
+/// `color.red.<key>` or `color.red.<lane>.<key>`: the table without a lane first, then lane
+/// `fast` and lane `full`. A key left out is not `false`.
 fn core_switched_off(text: &str) -> Result<Option<String>, Error> {
     let file: toml::Table = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
     let red = file.get("color").and_then(|colors| colors.get("red"));
-    let switched_off = |&(lane, key): &(Lane, &str)| {
-        let rule = red.and_then(|red| red.get(lane.to_string().as_str()));
-        let value = rule.and_then(|rule| rule.get(key));
+    let table = |lane: Option<Lane>| match lane {
+        None => red,
+        Some(lane) => red.and_then(|red| red.get(lane.to_string().as_str())),
+    };
+    let switched_off = |&(lane, key): &(Option<Lane>, &str)| {
+        let value = table(lane).and_then(|table| table.get(key));
         value.and_then(toml::Value::as_bool) == Some(false)
     };
-    let mut keys = [Lane::Fast, Lane::Full]
+    let mut keys = [None, Some(Lane::Fast), Some(Lane::Full)]
         .into_iter()
         .flat_map(|lane| CORE.map(|key| (lane, key)));
     let found = keys.find(switched_off);
-    Ok(found.map(|(lane, key)| format!("color.red.{lane}.{key}")))
+    Ok(found.map(|(lane, key)| match lane {
+        None => format!("color.red.{key}"),
+        Some(lane) => format!("color.red.{lane}.{key}"),
+    }))
 }
 
 /// The table that ships with the tool; it equals the `[color.*]` and `[acceptance]` sections
@@ -214,6 +231,12 @@ mod tests {
         mutation: false,
         reviewer: true,
         g4_if_g1: true,
+    };
+
+    /// The same for red, which always has the core of GDD on.
+    const RED_UNSET: Rule = Rule {
+        mutation: true,
+        ..UNSET
     };
 
     fn table(text: &str) -> RulesTable {
@@ -286,18 +309,18 @@ mod tests {
     #[test]
     fn a_color_left_out_takes_the_defaults() {
         let t = table("");
-        for color in [Color::Green, Color::Yellow, Color::Red] {
-            for lane in [Lane::Fast, Lane::Full] {
-                assert_eq!(t.rule(color, lane), UNSET);
-            }
+        for lane in [Lane::Fast, Lane::Full] {
+            assert_eq!(t.rule(Color::Green, lane), UNSET);
+            assert_eq!(t.rule(Color::Yellow, lane), UNSET);
+            assert_eq!(t.rule(Color::Red, lane), RED_UNSET);
         }
     }
 
     #[test]
     fn other_lanes_and_keys_are_ignored() {
-        let t = table("[color.red.slow]\nmutation = true\n[color.red.full]\nnote = \"x\"\n");
-        assert_eq!(t.rule(Color::Red, Lane::Full), UNSET);
-        assert_eq!(t.rule(Color::Red, Lane::Fast), UNSET);
+        let t = table("[color.yellow.slow]\nmutation = true\n[color.yellow.full]\nnote = \"x\"\n");
+        assert_eq!(t.rule(Color::Yellow, Lane::Full), UNSET);
+        assert_eq!(t.rule(Color::Yellow, Lane::Fast), UNSET);
     }
 
     #[test]
@@ -338,11 +361,11 @@ mod tests {
     }
 
     #[test]
-    fn no_red_lane_can_switch_off_the_core() {
-        for lane in ["fast", "full"] {
+    fn no_red_table_can_switch_off_the_core() {
+        for table in ["color.red", "color.red.fast", "color.red.full"] {
             for key in ["mutation", "reviewer", "g4_if_g1"] {
-                let text = format!("[color.red.{lane}]\n{key} = false\n");
-                let expected = core_off(&format!("color.red.{lane}.{key}"));
+                let text = format!("[{table}]\n{key} = false\n");
+                let expected = core_off(&format!("{table}.{key}"));
                 assert_eq!(RulesTable::from_toml(&text), expected, "{text}");
                 assert_eq!(RulesTable::of_project(&text), expected, "{text}");
             }
@@ -355,8 +378,11 @@ mod tests {
     }
 
     #[test]
-    fn the_first_key_switched_off_is_named_lane_fast_first_then_by_key() {
+    fn the_first_key_switched_off_is_named_table_without_lane_first_then_by_key() {
         let read = RulesTable::from_toml;
+        let all = "[color.red]\nreviewer = false\n[color.red.fast]\nmutation = false\n\
+                   [color.red.full]\nmutation = false\n";
+        assert_eq!(read(all), core_off("color.red.reviewer"));
         let both = "[color.red.full]\nmutation = false\n[color.red.fast]\ng4_if_g1 = false\n";
         assert_eq!(read(both), core_off("color.red.fast.g4_if_g1"));
         let keys = "[color.red.full]\ng4_if_g1 = false\nreviewer = false\nmutation = false\n";
@@ -366,19 +392,32 @@ mod tests {
     }
 
     #[test]
-    fn a_red_lane_that_leaves_the_core_out_keeps_the_defaults() {
+    fn a_red_table_that_leaves_the_core_out_gets_it() {
         let t = table("[color.red.full]\ntests_first = false\n");
+        let expected = Rule {
+            tests_first: Some(false),
+            ..RED_UNSET
+        };
+        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
+        let t = table("[color.red.fast]\nmutation = true\n");
+        assert_eq!(t.rule(Color::Red, Lane::Fast), RED_UNSET);
+        // The table without a lane, and so both lanes, gets it too.
+        let t = table("[color.red]\ntests_first = true\n");
+        let expected = Rule {
+            tests_first: Some(true),
+            ..RED_UNSET
+        };
+        assert_eq!(t.rule(Color::Red, Lane::Fast), expected);
+        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
+        let on = "[color.red.full]\nmutation = true\nreviewer = true\ng4_if_g1 = true\n";
+        assert_eq!(table(on).rule(Color::Red, Lane::Full), RED_UNSET);
+        // Other colors keep the defaults.
+        let t = table("[color.yellow.full]\ntests_first = false\n");
         let expected = Rule {
             tests_first: Some(false),
             ..UNSET
         };
-        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
-        let on = "[color.red.full]\nmutation = true\nreviewer = true\ng4_if_g1 = true\n";
-        let expected = Rule {
-            mutation: true,
-            ..UNSET
-        };
-        assert_eq!(table(on).rule(Color::Red, Lane::Full), expected);
+        assert_eq!(t.rule(Color::Yellow, Lane::Full), expected);
     }
 
     #[test]
