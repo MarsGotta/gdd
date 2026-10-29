@@ -23,6 +23,9 @@ const STATE_FOLDER: &str = ".gdd";
 /// A pathspec for everything but the tool's local state.
 const WITHOUT_STATE: &str = ":(exclude).gdd";
 
+/// The mode git gives a symbolic link in a tree.
+const LINK_MODE: &str = "120000";
+
 /// What can go wrong when reading the repository.
 #[derive(Debug)]
 pub enum Error {
@@ -291,14 +294,27 @@ impl Git {
     /// The file `path`, from the project root, as it was at the commit `commit`: `None` when
     /// there was no file there.
     pub fn file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
+        self.blob_at(commit, path, true)
+    }
+
+    /// The file `path`, from the project root, as it was at the commit `commit`, when it was a
+    /// file of its own there: `None` when there was none, or a symbolic link.
+    pub fn regular_file_at(&self, commit: &str, path: &str) -> Result<Option<Vec<u8>>, Error> {
+        self.blob_at(commit, path, false)
+    }
+
+    /// What git keeps of the file `path`, from the project root, at the commit `commit`: `None`
+    /// when there was no file there, or a symbolic link and not `links`.
+    fn blob_at(&self, commit: &str, path: &str, links: bool) -> Result<Option<Vec<u8>>, Error> {
         let listing = self.read(&["ls-tree", "-z", revision(commit)?, "--", path])?;
         let listing = String::from_utf8_lossy(&listing);
         // One entry per NUL byte: "<mode> <type> <object>\t<path>".
         let object = listing.split('\0').find_map(|entry| {
             let (meta, name) = entry.split_once('\t')?;
             let mut fields = meta.split(' ');
-            let (_, kind, object) = (fields.next()?, fields.next()?, fields.next()?);
-            (name == path && kind == "blob").then_some(object)
+            let (mode, kind, object) = (fields.next()?, fields.next()?, fields.next()?);
+            let kept = links || mode != LINK_MODE;
+            (name == path && kind == "blob" && kept).then_some(object)
         });
         match object {
             Some(object) => self.read(&["cat-file", "blob", object]).map(Some),
@@ -387,6 +403,16 @@ impl Git {
     pub fn has_staged(&self, path: &str) -> Result<bool, Error> {
         let args = ["diff", "--cached", "--name-only", "-z", "--", path];
         Ok(!self.paths(&args)?.is_empty())
+    }
+
+    /// Takes the files `paths`, from the project root, back out of the index: it holds them again
+    /// as the commit checked out does, or not at all when it has none. The working tree does not
+    /// change.
+    pub fn unstage(&self, paths: &[String]) -> Result<(), Error> {
+        let mut args = vec!["reset", "-q", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        self.read(&args)?;
+        Ok(())
     }
 
     /// Commits, on the current branch, everything the working tree changed except what git
@@ -1038,6 +1064,42 @@ pub(crate) mod tests {
         assert!(err.to_string().starts_with("git ls-tree "), "{err}");
         let option = git.file_at("-x", "gdd/rules.toml");
         assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+    }
+
+    #[test]
+    fn a_file_of_its_own_at_a_commit_is_not_a_link() {
+        let repo = Repo::new();
+        repo.write("docs/a.md", "x\n");
+        std::os::unix::fs::symlink("a.md", repo.root().join("docs/link.md")).unwrap();
+        repo.commit();
+        let git = repo.tool();
+        let own = git.regular_file_at("HEAD", "docs/a.md").unwrap();
+        assert_eq!(own, Some(b"x\n".to_vec()));
+        assert_eq!(git.regular_file_at("HEAD", "docs/link.md").unwrap(), None);
+        assert_eq!(git.regular_file_at("HEAD", "docs").unwrap(), None);
+        // The link itself is what git keeps of it.
+        let link = git.file_at("HEAD", "docs/link.md").unwrap();
+        assert_eq!(link, Some(b"a.md".to_vec()));
+        assert_eq!(LINK_MODE, "120000");
+    }
+
+    #[test]
+    fn unstaged_files_go_back_out_of_the_index_and_stay_in_the_working_tree() {
+        let repo = Repo::new();
+        repo.write("README.md", "changed\n");
+        repo.write("docs/new.md", "new\n");
+        repo.git(&["add", "README.md", "docs/new.md"]);
+        let git = repo.tool();
+        let paths = ["README.md", "docs/new.md", "docs/never.md"].map(String::from);
+        git.unstage(&paths).unwrap();
+        assert!(!git.has_staged("README.md").unwrap());
+        assert!(!git.has_staged("docs/new.md").unwrap());
+        let status = repo.git(&["status", "--porcelain"]);
+        assert_eq!(status, "M README.md\n?? docs/");
+        let new = fs::read_to_string(repo.root().join("docs/new.md")).unwrap();
+        assert_eq!(new, "new\n");
+        let plain = Folder::new();
+        assert!(Git::new(&plain.0).unstage(&paths).is_err());
     }
 
     #[test]

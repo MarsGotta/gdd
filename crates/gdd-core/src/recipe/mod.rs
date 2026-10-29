@@ -17,6 +17,11 @@
 //! 6. A change that needs the human G4 waits for `gdd resume`. Any other is promoted and
 //!    observed: closed.
 //!
+//! A spike has a recipe of its own (see [`Run::spiked`]): rounds of build mode in `mode=spike`
+//! against its own G2 (see [`crate::gates::spike`]), within a budget checked after each of its
+//! agent calls (see [`Run::within_budget`]); green, it pauses at G4 without G3, Reviewer, merge
+//! or pre, and OK brings only its ADR to main (see [`spike_ok`]).
+//!
 //! The recipe decides which steps run, in what order, and when the change stops; the steps that
 //! read the configuration of the project are [`Steps`]. Its agents and gates run in the
 //! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
@@ -49,6 +54,8 @@ use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::Model;
 use crate::change::{self, Note};
+use crate::classify::SPIKE;
+use crate::gates::spike::ADR_FOLDER;
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
@@ -57,6 +64,16 @@ use crate::{inbox, log};
 
 /// The arguments of a round of build mode.
 const BUILD: &str = "mode=build";
+
+/// The arguments of a round of build mode on a spike.
+const SPIKE_BUILD: &str = "mode=spike";
+
+/// The state of a change in pre, where it waits for the human G4.
+const IN_PRE: &str = "in-pre";
+
+/// What a spike may have spent below its budget and still count as having reached it: what is
+/// left of adding up costs that binary numbers cannot hold exactly (0.7 + 0.1 is not 0.8).
+const SPENT_ERROR: f64 = 1e-9;
 
 /// The answers to G4, by name.
 pub const ANSWERS: [&str; 3] = ["ok", "ko", "polish"];
@@ -137,9 +154,17 @@ pub struct Decided {
     pub reviewer_model: Model,
     /// The model of the Orchestrator.
     pub orchestrator: Model,
+    /// The kind of work of the change (`Feature`, `Spike`...): a spike has a recipe of its own.
+    #[serde(rename = "type")]
+    pub kind: String,
 }
 
 impl Decided {
+    /// Whether the change is a spike.
+    fn spike(&self) -> bool {
+        self.kind == SPIKE
+    }
+
     /// The model of `who`.
     fn model(&self, who: Who) -> &Model {
         match who {
@@ -196,7 +221,7 @@ pub trait Steps {
 }
 
 /// What the recipe reads from the project itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Project<'a> {
     /// The project root, where gdd runs: the recipe only runs from the main checkout.
     pub root: &'a Path,
@@ -214,6 +239,9 @@ pub struct Project<'a> {
     pub replans: u32,
     /// Changes that build at once at most (see [`queue::cap`]).
     pub max: usize,
+    /// What the agent calls of a spike may cost, in USD, before it parks (see
+    /// [`crate::rules::spike_budget`]).
+    pub spike_usd: f64,
 }
 
 /// What a run of the recipe tells the person who ran it.
@@ -382,10 +410,16 @@ fn to_main(project: &Project, id: &str) -> Result<(), String> {
 /// relaunch judges it as it judges committed work, and its build starts after it, so what test
 /// mode wrote before is not build mode's doing.
 fn earlier_run(root: &Path, id: &str) -> Result<(), git::Error> {
+    let message = format!("gdd({id}): work of the earlier run, before relaunch");
+    work_committed(root, &message)
+}
+
+/// Commits the work left in the project at `root`, on the branch checked out, with `message`,
+/// when there is any, without the state (see [`Git::commit_work`]).
+fn work_committed(root: &Path, message: &str) -> Result<(), git::Error> {
     let git = Git::new(root);
     if git.has_work()? {
-        let message = format!("gdd({id}): work of the earlier run, before relaunch");
-        git.commit_work(&message)?;
+        git.commit_work(message)?;
     }
     Ok(())
 }
@@ -479,9 +513,10 @@ fn conflicts(at: &Merging, paths: &[String]) -> String {
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
 /// it, with `note` (which `polish` needs). Builders and Reviewers cannot answer. The answer
 /// resolves the request of G4 and the notes on promotions that failed. `ok` promotes the change
-/// (see [`ok_at_g4`]); `ko` rejects it, production untouched; either way its worktree goes once
-/// it ends. `polish` runs a polish pass in its worktree from the commit it is at, made again from
-/// the branch of the change when it went away (see [`polish_pass`]). A change that an earlier
+/// (see [`ok_at_g4`]), or brings only the ADR of a spike to main (see [`spike_ok`]); `ko` rejects
+/// it, production untouched; either way its worktree goes once it ends. `polish` runs a polish
+/// pass in its worktree from the commit it is at, made again from the branch of the change when
+/// it went away (see [`polish_pass`]). A change that an earlier
 /// `ok` promoted takes only `ok`, which observes it; one whose promotion did not end parks,
 /// whatever the answer (see [`unsure`]). Only from the main checkout (see
 /// [`from_main_checkout`]).
@@ -521,6 +556,7 @@ pub fn resume(
         ));
     }
     match answer {
+        Answer::Ok if record["type"] == SPIKE => spike_ok(project, id, note, text, &record, steps),
         Answer::Ok => {
             answered(state_root, id, text, &record)?;
             ok_at_g4(project, id, note, in_production, steps)
@@ -571,7 +607,8 @@ fn g4_requests(id: &str, record: &Value) -> Vec<String> {
     let failed = notes
         .filter_map(|note| note["text"].as_str())
         .filter(|text| text.starts_with(PROMOTION_FAILED));
-    let mut requests = vec![g4_request(id)];
+    let kind = record["type"].as_str().unwrap_or_default();
+    let mut requests = vec![g4_request(id, kind)];
     requests.extend(failed.map(str::to_string));
     requests
 }
@@ -598,6 +635,32 @@ fn ok_at_g4(
     }
     state::clear(root, id)?;
     finish(project, id, observed(steps))
+}
+
+/// OK at G4 of spike `id` of `project`, by the human with `note`; its record is `record`, whose
+/// text is `text`. Under the merge lock, which the merge of another change makes it wait for,
+/// saying so (see [`queue::lock`]), its ADR reaches main from the main checkout, alone (see
+/// [`merge::adr_only`]); then the answer resolves the requests of G4, the decision is recorded
+/// and the change is closed: its worktree goes, its branch stays. No promotion, no observation.
+/// When its ADR cannot reach main, nothing changed: the change stays paused at G4.
+fn spike_ok(
+    project: &Project,
+    id: &str,
+    note: &str,
+    text: String,
+    record: &Value,
+    steps: &mut impl Steps,
+) -> Result<Said, String> {
+    let state_root = project.state;
+    let title = record["title"].as_str().unwrap_or_default();
+    let lock = queue::lock(state_root, || steps.say(queue::WAITING))?;
+    merge::adr_only(project.root, project.main, id, title)?;
+    drop(lock);
+    answered(state_root, id, text, record)?;
+    steps.decide("G4", "ok", "human", note)?;
+    state::clear(state_root, id)?;
+    saved_in_state(state_root, id, "closed")?;
+    finish(project, id, Ok(Ended::Closed))
 }
 
 /// What the human reads when the OK at G4 of change `id`, under the state root `root`, failed
@@ -734,8 +797,18 @@ fn saved_in_state(root: &Path, id: &str, state: &str) -> Result<(), String> {
     inbox::save(root, id, &saved).map(drop)
 }
 
-/// The request to the human at G4 of change `id`, in its Decision Inbox.
-fn g4_request(id: &str) -> String {
+/// The request to the human at G4 of change `id`, whose kind of work is `kind`, in its Decision
+/// Inbox. A spike has no demo and is never promoted: its request is for its ADR files.
+fn g4_request(id: &str, kind: &str) -> String {
+    if kind == SPIKE {
+        let branch = change::branch(id);
+        return format!(
+            "G4 · Release Gate: read the ADR files the spike left under {ADR_FOLDER} on its \
+             branch {branch}, then answer with gdd resume {id} --g4 ok (bring only those files \
+             to main, in a commit of their own: its code stays on its branch), --g4 ko (reject: \
+             main untouched) or --g4 polish --note <what to polish> (one more Builder round)."
+        );
+    }
     format!(
         "G4 · Release Gate: check the pre demo and the change message, then answer with \
          gdd resume {id} --g4 ok (promote to production), --g4 ko (reject: production \
@@ -782,7 +855,8 @@ fn pause_at_g4(root: &Path, id: &str, why: Option<&str>) -> Result<(), String> {
     let mut noted = change::read_record(root, id)?;
     let path = change::record_path(id);
     let ts = log::now();
-    let request = g4_request(id);
+    let kind = change::kind(&noted).map_err(|e| format!("{path}: {e}"))?;
+    let request = g4_request(id, &kind);
     for text in why.into_iter().chain([request.as_str()]) {
         let note = Note {
             kind: "needs",
@@ -827,22 +901,53 @@ struct Run<'a, S> {
 }
 
 impl<S: Steps> Run<'_, S> {
-    /// The recipe of a launch, once prepared.
+    /// The recipe of a launch, once prepared; a spike's has no test mode and ends at
+    /// [`Run::spiked`].
     fn launched(&mut self) -> Result<Ended, Stop> {
         let green = self.decided.resume_green;
+        if self.decided.spike() {
+            if !green {
+                self.build(SPIKE_BUILD, SPIKE_BUILD)?;
+            }
+            return self.spiked();
+        }
         if self.decided.tests_first && !green {
             self.test_mode("mode=test", false)?;
         }
         if !green {
-            self.build(BUILD)?;
+            self.build(BUILD, BUILD)?;
         }
         self.integrate(false)
     }
 
-    /// The recipe of a polish pass: from build mode, the human's notes first.
+    /// The recipe of a polish pass: from build mode, the human's notes first. A spike's is one
+    /// round, with no retry or replan, then G2: green, it ends at [`Run::spiked`], never merging;
+    /// still red, the change parks.
     fn polished(&mut self) -> Result<Ended, Stop> {
-        self.build("mode=build fix=polish")?;
+        if self.decided.spike() {
+            self.call(Who::BuilderBuild, "mode=spike fix=polish")?;
+            if !self.steps.gate(Gate::G2)? {
+                return Err(self.still_red("the polish round"));
+            }
+            return self.spiked();
+        }
+        self.build("mode=build fix=polish", BUILD)?;
         self.integrate(true)
+    }
+
+    /// The end of a spike, green: its work committed on its branch, which keeps it whatever the
+    /// human answers (see [`work_committed`]); the ADR files OK would bring to main said (see
+    /// [`merge::adr_files`]); and the change in pre, waiting at G4. No G3, no Reviewer, no merge
+    /// and no deploy to pre: its code never reaches main.
+    fn spiked(&mut self) -> Result<Ended, Stop> {
+        let Project { state, work, .. } = *self.project;
+        let (main, id) = (self.project.main, self.id);
+        let said = |e: git::Error| Stop::Fail(e.to_string());
+        work_committed(work, &format!("gdd({id}): spike work")).map_err(said)?;
+        let adrs = merge::adr_files(work, main, id).map_err(said)?;
+        self.steps.say(&format!("ADR: {}", adrs.join(", ")));
+        saved_in_state(state, id, IN_PRE)?;
+        Ok(Ended::Paused)
     }
 
     /// Calls `who` with `args`, then checks what it did: GDD state it changed goes back as it was
@@ -850,7 +955,8 @@ impl<S: Steps> Run<'_, S> {
     /// either parks the change, as a Reviewer that changed the working tree does. From the state
     /// as it was until it is checked, the call holds the lock of the agent calls (see
     /// [`queue::calling`]): what a person writes to the state every change shares lands before
-    /// or after it, never during it.
+    /// or after it, never during it. After a call of a spike that ended, its budget (see
+    /// [`Run::within_budget`]): a call is never cut.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
         let Project { state, work, .. } = *self.project;
         let call = Call {
@@ -880,7 +986,23 @@ impl<S: Steps> Run<'_, S> {
                 return Err(Stop::Park(why));
             }
         }
-        Ok(called?)
+        called?;
+        if self.decided.spike() {
+            self.within_budget()?;
+        }
+        Ok(())
+    }
+
+    /// What the agent calls of the change spent so far (see [`spent`]), against the budget of a
+    /// spike: once it reaches it, the change parks, saying both to the cent.
+    fn within_budget(&self) -> Result<(), Stop> {
+        let max = self.project.spike_usd;
+        let spent = spent(self.project.state, self.id)?;
+        if spent + SPENT_ERROR < max {
+            return Ok(());
+        }
+        let why = format!("the spike spent {spent:.2} USD of its budget of {max:.2} USD");
+        Err(Stop::Park(why))
     }
 
     /// The Builder in test mode with `args`, then Path Guard for it, since the round snapshot
@@ -896,39 +1018,54 @@ impl<S: Steps> Run<'_, S> {
         Ok(self.steps.snapshot(Snapshot::Build)?)
     }
 
-    /// Build mode until G2 passes: the rounds, the first with `first`, then the replans. Still
-    /// red, the change parks.
-    fn build(&mut self, first: &str) -> Result<(), Stop> {
-        if self.rounds(first)? {
+    /// Build mode until G2 passes: the rounds in `mode`, the first with `first`, then the
+    /// replans, test mode again when one says so, but on a spike. Still red, the change parks
+    /// (see [`Run::still_red`]).
+    fn build(&mut self, first: &str, mode: &str) -> Result<(), Stop> {
+        if self.rounds(first, mode)? {
             return Ok(());
         }
         let replans = self.project.replans;
+        let (state, id) = (self.project.state, self.id);
         for _ in 0..replans {
             self.call(Who::Orchestrator, "reason=g2")?;
-            if verdict::replanned_to_test(self.project.state, self.id)? {
+            if !self.decided.spike() && verdict::replanned_to_test(state, id)? {
                 self.steps.snapshot(Snapshot::Round)?;
                 self.test_mode("mode=test after=replan", true)?;
             }
-            self.call(Who::BuilderBuild, "mode=build after=replan")?;
+            self.call(Who::BuilderBuild, &format!("{mode} after=replan"))?;
             if self.steps.gate(Gate::G2)? {
                 return Ok(());
             }
         }
         let retries = self.decided.retries;
-        let why = format!("G2 still red after {retries} retries and {replans} replan");
-        Err(Stop::Park(why))
+        Err(self.still_red(&format!("{retries} retries and {replans} replan")))
     }
 
-    /// The rounds of build mode and G2, at least one, the first with `first`: whether G2
-    /// passed.
-    fn rounds(&mut self, first: &str) -> Result<bool, Stop> {
+    /// Why the change parks with G2 still red after `after`; a spike says what its last G2 failed
+    /// on too (see [`g2_failures`]), and stops when that cannot be read.
+    fn still_red(&self, after: &str) -> Stop {
+        let why = format!("G2 still red after {after}");
+        if !self.decided.spike() {
+            return Stop::Park(why);
+        }
+        match g2_failures(self.project.state, self.id) {
+            Ok(failed) if failed.is_empty() => Stop::Park(why),
+            Ok(failed) => Stop::Park(format!("{why}: {failed}")),
+            Err(e) => Stop::Fail(e),
+        }
+    }
+
+    /// The rounds of build mode in `mode` and G2, at least one, the first with `first`: whether
+    /// G2 passed.
+    fn rounds(&mut self, first: &str, mode: &str) -> Result<bool, Stop> {
         let mut args = first;
         for _ in 0..self.decided.retries.max(1) {
             self.call(Who::BuilderBuild, args)?;
             if self.steps.gate(Gate::G2)? {
                 return Ok(true);
             }
-            args = BUILD;
+            args = mode;
         }
         Ok(false)
     }
@@ -1058,17 +1195,48 @@ fn review_ended(state: &Path, id: &str, ok: bool) -> Result<(), String> {
 
 /// The output the next call of the Reviewer on change `id` keeps, from the folder of the change:
 /// `outputs/reviewer-<n>.md`, `n` after the lines of the Reviewer on the change in the log under
-/// the state root `state`, as the call numbers it (see [`invoke::run`]). Lines that are not JSON
-/// objects are left out; a log that is not a file of its own is an error.
+/// the state root `state` (see [`log_lines`]), as the call numbers it (see [`invoke::run`]).
 fn review_output(state: &Path, id: &str) -> Result<String, String> {
+    let role = Who::Reviewer.role();
+    let theirs = |line: &&Value| line["change"] == id && line["role"] == role;
+    let earlier = log_lines(state)?.iter().filter(theirs).count();
+    Ok(format!("outputs/{role}-{}.md", earlier + 1))
+}
+
+/// What the agent calls of change `id` cost so far, in USD: the `cost_usd` of its lines in the
+/// log under the state root `state` (see [`log_lines`]), 0 where a line has none.
+fn spent(state: &Path, id: &str) -> Result<f64, String> {
+    let lines = log_lines(state)?;
+    let theirs = lines.iter().filter(|line| line["change"] == id);
+    let costs = theirs.map(|line| line["cost_usd"].as_f64().unwrap_or(0.0));
+    Ok(costs.sum())
+}
+
+/// The lines of the log under the state root `state`, in order: no log, none. Lines that are not
+/// JSON are left out; a log that is not a file of its own is an error.
+fn log_lines(state: &Path) -> Result<Vec<Value>, String> {
     let unread = |e: io::Error| format!("cannot read {}: {e}", log::PATH);
     let bytes = files::read(state, log::PATH).map_err(unread)?;
     let text = String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned();
-    let role = Who::Reviewer.role();
     let parsed = |line: &str| serde_json::from_str::<Value>(line).ok();
-    let theirs = |line: &Value| line["change"] == id && line["role"] == role;
-    let earlier = text.lines().filter_map(parsed).filter(theirs).count();
-    Ok(format!("outputs/{role}-{}.md", earlier + 1))
+    Ok(text.lines().filter_map(parsed).collect())
+}
+
+/// What the last G2 of change `id` failed on, from its report under the state root `state`: the
+/// lines of the text of each failure that are not blank, `; ` between them. Nothing without a
+/// report; one that cannot be read, or is not JSON, is an error.
+fn g2_failures(state: &Path, id: &str) -> Result<String, String> {
+    let path = Gate::G2.report_path(id);
+    let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let Some(bytes) = bytes else {
+        return Ok(String::new());
+    };
+    let report: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    let failures = report["failures"].as_array().into_iter().flatten();
+    let tails = failures.filter_map(|failure| failure["tail"].as_str());
+    let lines = tails.flat_map(str::lines);
+    let kept: Vec<&str> = lines.filter(|line| !line.trim().is_empty()).collect();
+    Ok(kept.join("; "))
 }
 
 /// What a file of GDD state is during an agent call, which says how it may change.
@@ -1374,6 +1542,7 @@ mod tests {
             builder_test: model("t"),
             reviewer_model: model("r"),
             orchestrator: model("o"),
+            kind: "Feature".to_string(),
         }
     }
 
@@ -1548,6 +1717,12 @@ mod tests {
     /// Runs the recipe of a launch on change `c1`, once prepared, with `replans` replans, all in
     /// one folder: the main checkout is the worktree of the change.
     fn launched(steps: &mut Played, replans: u32) -> Result<Ended, Stop> {
+        launched_within(steps, replans, 5.0)
+    }
+
+    /// Runs the recipe of a launch as [`launched`] does, with `spike_usd` as the budget of a
+    /// spike.
+    fn launched_within(steps: &mut Played, replans: u32, spike_usd: f64) -> Result<Ended, Stop> {
         let project = Project {
             root: steps.root,
             state: steps.root,
@@ -1556,6 +1731,7 @@ mod tests {
             main: "main",
             replans,
             max: 2,
+            spike_usd,
         };
         let decided = steps.decided.clone();
         let mut run = Run {
@@ -2542,7 +2718,8 @@ mod tests {
     const RECORD: &str = r#"{"id": "c1", "title": "App", "state": "in-pre", "inbox": [],
         "decision": {"tests_first": true, "resume_green": true, "reviewer": true, "g4": true,
                      "retries": 2, "builder": {"model": "b"}, "builder_test": {"model": "t"},
-                     "reviewer_model": {"model": "r"}, "orchestrator": {"model": "o"}}}"#;
+                     "reviewer_model": {"model": "r"}, "orchestrator": {"model": "o"},
+                     "type": "Feature"}}"#;
 
     fn record(root: &Path) -> Value {
         let text = change::read_record(root, "c1").unwrap();
@@ -2586,7 +2763,7 @@ mod tests {
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let request = &record(root)["inbox"][0];
         assert_eq!(request["kind"], "needs");
-        assert_eq!(request["text"], g4_request("c1"));
+        assert_eq!(request["text"], g4_request("c1", "Feature"));
         let inbox = inbox_of(root);
         assert!(inbox.contains("G4 · Release Gate"), "{inbox}");
         for answer in ["--g4 ok", "--g4 ko", "--g4 polish --note"] {
@@ -2630,6 +2807,7 @@ mod tests {
                 main: "main",
                 replans: 1,
                 max: 2,
+                spike_usd: 5.0,
             }
         }
     }
@@ -3243,6 +3421,7 @@ mod tests {
             main: "main",
             replans: 1,
             max: 2,
+            spike_usd: 5.0,
         };
         // The agents act in the project's folder of the worktree.
         let mut steps = played(&work);
@@ -3370,7 +3549,8 @@ mod tests {
             "Promotion failed: {PROMOTE_FAILED}. Fix the cause and answer again: gdd resume c1 \
              --g4 ok, or --g4 ko."
         );
-        assert_eq!(open_requests(root), [why.clone(), g4_request("c1")]);
+        let request = g4_request("c1", "Feature");
+        assert_eq!(open_requests(root), [why.clone(), request.clone()]);
         let inbox = inbox_of(root);
         assert!(inbox.contains(&why), "{inbox}");
         assert!(inbox.contains("G4 · Release Gate"), "{inbox}");
@@ -3380,7 +3560,7 @@ mod tests {
         assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
         let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
                    gdd resume c1 --g4 ok, or --g4 ko.";
-        assert_eq!(open_requests(root), [why.to_string(), g4_request("c1")]);
+        assert_eq!(open_requests(root), [why.to_string(), request]);
         // Fixed, the same answer promotes it.
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
@@ -3420,7 +3600,7 @@ mod tests {
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(steps.ran[0], "build b mode=build fix=polish");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
-        assert_eq!(open_requests(root), [g4_request("c1")]);
+        assert_eq!(open_requests(root), [g4_request("c1", "Feature")]);
         assert!(!inbox_of(root).contains("Promotion failed"));
     }
 
@@ -3527,7 +3707,7 @@ mod tests {
         }
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], IN_PRODUCTION);
-        assert_eq!(open_requests(root), [g4_request("c1")]);
+        assert_eq!(open_requests(root), [g4_request("c1", "Feature")]);
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
     }
 
@@ -3583,7 +3763,7 @@ mod tests {
         assert!(err.starts_with(&start), "{err}");
         assert_eq!(steps.ran, ["G4 ok human: Fine"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
-        assert_eq!(open_requests(root)[1], g4_request("c1"));
+        assert_eq!(open_requests(root)[1], g4_request("c1", "Feature"));
         // The note on the failure cannot be left: the error says both.
         let inbox = root.join(change::inbox_path("c1"));
         fs::remove_file(&inbox).unwrap();
@@ -3741,6 +3921,370 @@ mod tests {
         let start = ".gdd/changes/c1/change.json: missing field";
         assert!(said.unwrap_err().starts_with(start));
         assert!(steps.ran.is_empty());
+    }
+
+    /// A repository with an author that ignores `.gdd/`, with spike `c1` started on its branch,
+    /// checked out, and its record.
+    fn spike_folder() -> Repo {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write(".gitignore", ".gdd/\n");
+        repo.commit();
+        repo.start("c1");
+        let record = r#"{"id": "c1", "type": "Spike", "state": "building", "inbox": []}"#;
+        repo.write(&change::record_path("c1"), record);
+        repo
+    }
+
+    /// The steps of spike `c1` (see [`played`]).
+    fn spike_played(root: &Path) -> Played<'_> {
+        let mut steps = played(root);
+        steps.decided.kind = SPIKE.to_string();
+        steps
+    }
+
+    /// What the Builder of a spike leaves: its code and its ADR.
+    fn decides(root: &Path) {
+        change::write(root, "src/app.txt", "spike code\n").unwrap();
+        let adr = "# 0002 · Where the notes live\n## Decision\nSQLite.\n";
+        change::write(root, "docs/adr/0002-storage.md", adr).unwrap();
+    }
+
+    /// What an agent call costs, in the log of change `c1`.
+    fn costs(root: &Path) {
+        log::append(root, r#"{"change": "c1", "cost_usd": 0.01}"#).unwrap();
+    }
+
+    const ADR_SAID: &str = "say ADR: docs/adr/0002-storage.md";
+
+    #[test]
+    fn a_spike_builds_in_spike_mode_and_waits_at_g4_with_its_work_on_its_branch() {
+        let repo = spike_folder();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Paused));
+        // No test mode, G3, Reviewer, merge or pre, whatever its decision says of them.
+        assert_eq!(steps.ran, ["build b mode=spike", "G2", ADR_SAID]);
+        assert_eq!(record(root)["state"], "in-pre");
+        let last = repo.git(&["log", "-1", "--format=%s"]);
+        assert_eq!(last, "gdd(c1): spike work");
+        repo.git(&["cat-file", "-e", "change/c1:src/app.txt"]);
+        assert_eq!(repo.git(&["status", "--porcelain"]), "");
+        assert_eq!(repo.git(&["rev-list", "--count", "main"]), "2");
+        // A relaunch whose code passes G2 already skips the Builder, and has nothing to commit.
+        let head = repo.git(&["rev-parse", "HEAD"]);
+        let mut steps = spike_played(root);
+        steps.decided.resume_green = true;
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Paused));
+        assert_eq!(steps.ran, [ADR_SAID]);
+        assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    }
+
+    #[test]
+    fn a_spike_still_red_replans_without_test_mode_then_parks_saying_why() {
+        let repo = spike_folder();
+        let root = repo.root();
+        let path_guard = "src/a: protected\n\n  gdd/b: protected\n";
+        let failures = serde_json::json!({"gate": "G2", "failures": [
+            {"name": "path-guard", "tail": path_guard},
+            {"name": "adr", "tail": crate::gates::spike::NO_ADR},
+            {"name": "other"},
+        ]});
+        change::write(root, &Gate::G2.report_path("c1"), &failures.to_string()).unwrap();
+        let mut steps = spike_played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        steps.replan = "NEXT: test";
+        let why = "G2 still red after 3 retries and 1 replan: src/a: protected;   gdd/b: \
+                   protected; a Spike leaves its decision in a new file under docs/adr/ with a \
+                   ## Decision section";
+        assert_eq!(launched(&mut steps, 1), park(why));
+        let round = ["build b mode=spike", "G2"];
+        let replan = [
+            "replan o reason=g2",
+            "build b mode=spike after=replan",
+            "G2",
+        ];
+        assert_eq!(steps.ran, [&round[..], &round, &round, &replan].concat());
+        // Other kinds park as they always did.
+        let mut steps = played(root);
+        steps.decided.tests_first = false;
+        steps.g2 = VecDeque::from([false; 9]);
+        let plain = "G2 still red after 3 retries and 1 replan";
+        assert_eq!(launched(&mut steps, 1), park(plain));
+        // Without a report, a spike has nothing more to say.
+        fs::remove_file(root.join(Gate::G2.report_path("c1"))).unwrap();
+        let mut steps = spike_played(root);
+        steps.decided.retries = 1;
+        steps.g2 = VecDeque::from([false]);
+        let alone = "G2 still red after 1 retries and 0 replan";
+        assert_eq!(launched(&mut steps, 0), park(alone));
+        // A report that is not JSON cannot say why.
+        change::write(root, &Gate::G2.report_path("c1"), "{not json").unwrap();
+        let mut steps = spike_played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        let Err(Stop::Fail(e)) = launched(&mut steps, 0) else {
+            panic!("a report that cannot be read stops the recipe");
+        };
+        assert!(e.starts_with(".gdd/changes/c1/g2.json: "), "{e}");
+    }
+
+    #[test]
+    fn a_spike_parks_once_its_agent_calls_reach_its_budget() {
+        let repo = spike_folder();
+        let root = repo.root();
+        // Other changes, and lines that are not JSON, do not count; a line without a cost is free.
+        for line in [
+            r#"{"change": "c2", "cost_usd": 3}"#,
+            r#"{"change": "c1"}"#,
+            "x",
+        ] {
+            log::append(root, line).unwrap();
+        }
+        let mut steps = spike_played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        steps.acts = vec![(Who::BuilderBuild, costs)];
+        let why = "the spike spent 0.02 USD of its budget of 0.02 USD";
+        assert_eq!(launched_within(&mut steps, 1, 0.02), park(why));
+        let calls = ["build b mode=spike", "G2", "build b mode=spike"];
+        assert_eq!(steps.ran, calls);
+        // The calls of the Orchestrator count too, and so do those of the earlier runs.
+        let mut steps = spike_played(root);
+        steps.decided.retries = 1;
+        steps.g2 = VecDeque::from([false; 9]);
+        steps.acts = vec![(Who::BuilderBuild, costs), (Who::Orchestrator, costs)];
+        let why = "the spike spent 0.04 USD of its budget of 0.04 USD";
+        assert_eq!(launched_within(&mut steps, 1, 0.04), park(why));
+        let calls = ["build b mode=spike", "G2", "replan o reason=g2"];
+        assert_eq!(steps.ran, calls);
+        // Other kinds have no budget.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.reviewer = false;
+        steps.acts = vec![(Who::BuilderTest, costs), (Who::BuilderBuild, costs)];
+        assert_eq!(launched_within(&mut steps, 1, 0.01), Ok(Ended::Closed));
+        assert_eq!(spent(&folder.0, "c1"), Ok(0.02));
+    }
+
+    /// Whether spike `c1`, whose state root is `root`, is still within the budget `spike_usd`
+    /// (see [`Run::within_budget`]).
+    fn within(root: &Path, spike_usd: f64) -> Result<(), Stop> {
+        let project = Project {
+            root,
+            state: root,
+            worktree: root,
+            work: root,
+            main: "main",
+            replans: 0,
+            max: 1,
+            spike_usd,
+        };
+        let mut steps = spike_played(root);
+        let decided = steps.decided.clone();
+        let run = Run {
+            project: &project,
+            id: "c1",
+            steps: &mut steps,
+            decided,
+        };
+        run.within_budget()
+    }
+
+    /// A folder whose log says change `c1` spent each of `costs`, in USD.
+    fn spending(costs: &[&str]) -> Folder {
+        let folder = Folder::new();
+        for cost in costs {
+            let line = format!(r#"{{"change": "c1", "cost_usd": {cost}}}"#);
+            log::append(&folder.0, &line).unwrap();
+        }
+        folder
+    }
+
+    #[test]
+    fn a_budget_reached_but_for_what_adding_up_costs_loses_is_reached() {
+        let folder = spending(&["0.7", "0.1"]);
+        assert!(spent(&folder.0, "c1").unwrap() < 0.8);
+        let why = "the spike spent 0.80 USD of its budget of 0.80 USD";
+        assert_eq!(within(&folder.0, 0.8), Err(Stop::Park(why.into())));
+        assert_eq!(within(&folder.0, 0.81), Ok(()));
+        // What it loses is far below a cent, never more than SPENT_ERROR.
+        let folder = spending(&["0.5"]);
+        let why = "the spike spent 0.50 USD of its budget of 0.50 USD";
+        assert_eq!(within(&folder.0, 0.5), Err(Stop::Park(why.into())));
+        let reached = within(&folder.0, 0.5 + SPENT_ERROR);
+        assert!(matches!(reached, Err(Stop::Park(_))), "{reached:?}");
+        assert_eq!(within(&folder.0, 0.5 + 2.0 * SPENT_ERROR), Ok(()));
+        // Above it, the change has spent more than its budget, and says so.
+        let why = "the spike spent 0.50 USD of its budget of 0.30 USD";
+        assert_eq!(within(&folder.0, 0.3), Err(Stop::Park(why.into())));
+    }
+
+    #[test]
+    fn what_a_change_spent_adds_up_the_cost_of_its_lines_in_the_log() {
+        let folder = Folder::new();
+        assert_eq!(spent(&folder.0, "c1"), Ok(0.0));
+        for line in [
+            r#"{"change": "c1", "cost_usd": 0.5}"#,
+            r#"{"change": "c2", "cost_usd": 7}"#,
+            r#"{"change": "c1"}"#,
+            r#"{"change": "c1", "cost_usd": null}"#,
+            r#"{"change": "c1", "cost_usd": "1"}"#,
+            "not json",
+            r#"[{"change": "c1", "cost_usd": 9}]"#,
+            r#"{"change": "c1", "cost_usd": 0.25}"#,
+        ] {
+            log::append(&folder.0, line).unwrap();
+        }
+        assert_eq!(spent(&folder.0, "c1"), Ok(0.75));
+        assert_eq!(spent(&folder.0, "c2"), Ok(7.0));
+        assert_eq!(spent(&folder.0, "c3"), Ok(0.0));
+        // A log that is not a file of its own cannot be read.
+        fs::remove_file(folder.0.join(log::PATH)).unwrap();
+        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
+        let err = spent(&folder.0, "c1").unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+    }
+
+    #[test]
+    fn what_the_last_g2_failed_on_is_each_line_of_its_failures() {
+        let folder = Folder::new();
+        assert_eq!(g2_failures(&folder.0, "c1"), Ok(String::new()));
+        let report = r#"{"failures": [{"tail": "a\n \nb"}, {"tail": 3}, {"tail": "c"}]}"#;
+        folder.write(&Gate::G2.report_path("c1"), report);
+        assert_eq!(g2_failures(&folder.0, "c1"), Ok("a; b; c".to_string()));
+        folder.write(&Gate::G2.report_path("c1"), r#"{"failures": "x"}"#);
+        assert_eq!(g2_failures(&folder.0, "c1"), Ok(String::new()));
+        fs::remove_file(folder.0.join(Gate::G2.report_path("c1"))).unwrap();
+        fs::create_dir_all(folder.0.join(Gate::G2.report_path("c1"))).unwrap();
+        let err = g2_failures(&folder.0, "c1").unwrap_err();
+        let start = "cannot read .gdd/changes/c1/g2.json: ";
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    /// The record of spike `c1`, titled `Storage`, in pre.
+    fn spike_record() -> String {
+        let titled = r#""title": "Storage", "type": "Spike""#;
+        let record = RECORD.replace(r#""title": "App""#, titled);
+        record.replace(r#""type": "Feature""#, r#""type": "Spike""#)
+    }
+
+    /// The repository with spike `c1` paused at G4, whose branch holds its code and its ADR.
+    fn spike_paused() -> Checkout {
+        let repo = repo_with_change(&spike_record());
+        repo.git(&["checkout", "-q", "change/c1"]);
+        decides(repo.root());
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        finish(&repo.project(), "c1", Ok(Ended::Paused)).unwrap();
+        repo
+    }
+
+    #[test]
+    fn ok_at_g4_brings_only_the_adr_of_a_spike_to_main_and_closes_it() {
+        let repo = spike_paused();
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let here = repo.project();
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ok, "Go", None, &mut steps);
+        assert_eq!(done(said), CLOSED);
+        // No promotion, no observation.
+        assert_eq!(unwaited(&steps), ["G4 ok human: Go"]);
+        let message = repo.git(&["log", "-1", "--format=%s", "main"]);
+        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        repo.git(&["cat-file", "-e", "main:docs/adr/0002-storage.md"]);
+        assert_eq!(repo.tool().file_at("main", "src/app.txt").unwrap(), None);
+        repo.git(&["cat-file", "-e", "change/c1:src/app.txt"]);
+        assert_eq!(record(root)["state"], "closed");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+        assert!(open_requests(root).is_empty());
+        assert!(!repo.work.exists(), "the worktree stays");
+    }
+
+    #[test]
+    fn ok_at_g4_to_a_spike_main_cannot_take_leaves_it_paused() {
+        let repo = spike_paused();
+        let root = repo.root();
+        repo.write("README.md", "uncommitted\n");
+        let before = repo.git(&["rev-parse", "main"]);
+        let here = repo.project();
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ok, "Go", None, &mut steps);
+        let err = said.unwrap_err();
+        assert!(err.contains("without uncommitted changes"), "{err}");
+        assert!(unwaited(&steps).is_empty());
+        assert_eq!(repo.git(&["rev-parse", "main"]), before);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(record(root)["state"], "in-pre");
+        assert_eq!(open_requests(root), [g4_request("c1", SPIKE)]);
+    }
+
+    #[test]
+    fn the_g4_of_a_spike_asks_for_its_adr_and_promises_no_demo_or_promotion() {
+        let repo = spike_paused();
+        assert_eq!(open_requests(repo.root()), [g4_request("c1", SPIKE)]);
+        let request = g4_request("c1", SPIKE);
+        let start = "G4 · Release Gate: read the ADR files the spike left under docs/adr/ on its \
+                     branch change/c1, then answer with gdd resume c1 --g4 ok (bring only those \
+                     files to main, in a commit of their own: its code stays on its branch), ";
+        assert!(request.starts_with(start), "{request}");
+        for promised in ["demo", " pre", "production", "promot"] {
+            assert!(!request.contains(promised), "{promised}: {request}");
+        }
+        let inbox = inbox_of(repo.root());
+        assert!(inbox.contains("the ADR files the spike left"), "{inbox}");
+        // Any other kind keeps the request of a release.
+        let feature = g4_request("c1", "Feature");
+        assert!(feature.contains("check the pre demo"), "{feature}");
+        assert_eq!(g4_request("c1", ""), feature);
+    }
+
+    #[test]
+    fn polishing_a_spike_still_red_parks_after_one_round() {
+        use crate::gates::spike::NO_ADR;
+        let repo = spike_paused();
+        let root = repo.root();
+        let before = repo.git(&["rev-parse", "main"]);
+        let failures = serde_json::json!({"failures": [{"tail": NO_ADR}]});
+        change::write(root, &Gate::G2.report_path("c1"), &failures.to_string()).unwrap();
+        let here = repo.project();
+        let mut steps = played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        let said = resume(&here, "c1", Answer::Polish, "More", None, &mut steps);
+        let Ok(Said::Parked(parked)) = &said else {
+            panic!("a red polish round parks: {said:?}");
+        };
+        let why = format!("G2 still red after the polish round: {NO_ADR}");
+        assert!(parked.contains(&why), "{parked}");
+        // No retry, no replan: one agent call.
+        assert_eq!(steps.ran, ["build b mode=spike fix=polish", "G2"]);
+        assert_eq!(repo.git(&["rev-parse", "main"]), before);
+        assert_eq!(record(root)["state"], "parked");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+    }
+
+    #[test]
+    fn polishing_a_spike_builds_it_again_and_waits_at_g4_without_a_merge() {
+        let repo = spike_paused();
+        let root = repo.root();
+        let before = repo.git(&["rev-parse", "main"]);
+        // What prepare decided comes from the record of the spike.
+        let here = repo.project();
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Polish, "More", None, &mut steps);
+        assert!(done(said).starts_with("Paused at G4."));
+        let polished = ["build b mode=spike fix=polish", "G2", ADR_SAID];
+        assert_eq!(steps.ran, polished);
+        assert_eq!(repo.git(&["rev-parse", "main"]), before);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(record(root)["state"], "in-pre");
+        // KO then leaves main as it was, and the branch keeps the spike.
+        let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
+        let rejected = "Change c1 rejected at G4: production untouched.";
+        assert_eq!(said, Ok(Said::Done(rejected.into())));
+        assert_eq!(repo.git(&["rev-parse", "main"]), before);
+        repo.git(&["cat-file", "-e", "change/c1:docs/adr/0002-storage.md"]);
+        assert_eq!(record(root)["state"], "rejected");
     }
 
     #[test]

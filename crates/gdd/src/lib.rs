@@ -20,7 +20,7 @@ use gdd_core::agents::{
     self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet,
 };
 use gdd_core::change::{self, Decision, Record};
-use gdd_core::classify::classify_with;
+use gdd_core::classify::{classify_with, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
@@ -1039,8 +1039,9 @@ impl Decided {
 
 /// The decision for change `id`, from its record under the state root `state`, and the zone
 /// map, the rules table and the models of the project at `root`. Its planned paths count, the
-/// ones it touched in git (see [`guard::touched`]) and the scenario files its record names. A
-/// missing zone map, rules table or models file says nothing.
+/// ones it touched in git (see [`guard::touched`]) and the scenario files its record names; then
+/// its kind of work (see [`of_kind`]). A missing zone map, rules table or models file says
+/// nothing.
 fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
@@ -1054,6 +1055,7 @@ fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
     plan.paths.extend(touched);
     let classification =
         classify_with(&zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
+    let classification = of_kind(classification, &kind);
     let models = load_models(root)?;
     let roles = models.roles(classification.color);
     let retries = load_limits(root)?.builder_retries;
@@ -1198,9 +1200,9 @@ fn import_session(
     session::import(root, state, Path::new(home), phase, change)
 }
 
-/// Runs `gate` on change `id` for `role`, writes in its record the paths the scope check
-/// accepted and saves the report next to it, under the state root `state`; `logged`, it logs the
-/// run too.
+/// Runs `gate` on change `id` for `role`, as its kind of work has it (see
+/// [`gates::run_of_kind`]), writes in its record the paths the scope check accepted and saves the
+/// report next to it, under the state root `state`; `logged`, it logs the run too.
 fn gate_report(
     root: &Path,
     state: &Path,
@@ -1210,11 +1212,12 @@ fn gate_report(
     logged: bool,
 ) -> Result<gates::Report, String> {
     let record = load_record(state, id)?;
+    let kind = change_kind(state, id)?;
     let config = GateConfig::load(root)?;
-    let snapshot = guard_snapshot(state, id, role, false)?;
+    let before = guard_snapshot(state, id, role, false)?;
     let project = config.project(root, state);
-    let report = gates::run(&project, gate, id, &record, role, snapshot.as_ref())
-        .map_err(|e| e.to_string())?;
+    let ran = gates::run_of_kind(&project, gate, id, &record, &kind, role, before.as_ref());
+    let report = ran.map_err(|e| e.to_string())?;
     save_out_of_scope(state, id, &report.out_of_scope)?;
     if logged {
         gates::save(state, id, &report)?;
@@ -1477,9 +1480,10 @@ fn resume(
 
 /// Runs `run`, a run of the recipe, on change `id` of the project at `root`, whose state root is
 /// `state`, with its steps in the project's folder of the worktree of the change, in the folder
-/// of the worktrees the rules file names (see [`recipe::worktree`]), and as many changes building
-/// at once as it allows (see [`queue::cap`]); the agents start in the environment `env`. What the
-/// run says on its way it says with `voice`: kept, it comes first in what it prints, however it
+/// of the worktrees the rules file names (see [`recipe::worktree`]), as many changes building at
+/// once as it allows (see [`queue::cap`]) and the budget of a spike it sets (see
+/// [`gdd_core::rules::spike_budget`]); the agents start in the environment `env`. What the run
+/// says on its way it says with `voice`: kept, it comes first in what it prints, however it
 /// ended.
 fn in_worktree(
     root: &Path,
@@ -1494,6 +1498,7 @@ fn in_worktree(
     let rules = read(root, RULES)?.unwrap_or_default();
     let folder = recipe::worktree::folder(root, &rules).map_err(|e| format!("{RULES}: {e}"))?;
     let max = queue::cap(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let spike_usd = gdd_core::rules::spike_budget(&rules).map_err(|e| format!("{RULES}: {e}"))?;
     let worktree = recipe::worktree::path(&folder, id)?;
     let work = recipe::worktree::project_root(root, &worktree)?;
     let project = recipe::Project {
@@ -1504,6 +1509,7 @@ fn in_worktree(
         main: &main,
         replans: limits.replans,
         max,
+        spike_usd,
     };
     let settings = agent_settings(root)?;
     let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, voice);
@@ -2008,6 +2014,14 @@ fn load_record(state: &Path, id: &str) -> Result<Record, String> {
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+/// The kind of work of change `id`, from its record under the state root `state` (see
+/// [`change::kind`]).
+fn change_kind(state: &Path, id: &str) -> Result<String, String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    change::kind(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// The hashes of the snapshot at `path` under the state root `state`; `None` when there is none.
@@ -2801,12 +2815,12 @@ mod tests {
     #[test]
     fn classify_names_the_model_of_each_role_and_the_retries() {
         let project = project_with_change(
-            r#"{"type": "Spike", "paths": ["src/storage/a.rs"], "features": ["features/x.feature"]}"#,
+            r#"{"type": "Refactor", "paths": ["src/storage/a.rs"], "features": ["features/x.feature"]}"#,
         );
         project.write("gdd/models.toml", MODELS);
         project.write(RULES, "[limits]\nbuilder_retries = 5\n");
         let decision = json(&project.run("classify save"));
-        assert_eq!(decision["type"], "Spike");
+        assert_eq!(decision["type"], "Refactor");
         let opus = serde_json::json!({"integration": "claude", "model": "opus"});
         assert_eq!(decision["builder"], opus);
         assert_eq!(decision["reviewer_model"]["model"], "gpt-6");
@@ -2830,6 +2844,30 @@ mod tests {
         let out = project.run("classify save");
         let start = "error: .gdd/changes/save/change.json: invalid type";
         assert!(out.stderr.starts_with(start), "{out:?}");
+    }
+
+    #[test]
+    fn a_spike_keeps_its_color_and_builder_but_skips_tests_mutation_reviewer_g1_and_plan() {
+        let record = r#"{"type": "Spike", "paths": ["src/storage/a.rs"],
+                         "features": ["features/x.feature"]}"#;
+        let project = project_with_change(record);
+        project.write("gdd/models.toml", MODELS);
+        let decision = json(&project.run("classify save"));
+        assert_eq!(decision["type"], "Spike");
+        assert_eq!(decision["color"], "red");
+        assert_eq!(decision["lane"], "full");
+        let opus = serde_json::json!({"integration": "claude", "model": "opus"});
+        assert_eq!(decision["builder"], opus);
+        for (gate, needed) in [
+            ("tests_first", false),
+            ("mutation", false),
+            ("reviewer", false),
+            ("g1", false),
+            ("g4", true),
+            ("human_plan", false),
+        ] {
+            assert_eq!(decision[gate], needed, "{gate}");
+        }
     }
 
     #[test]
@@ -3294,6 +3332,23 @@ mod tests {
         let printed = json(&project.run("g2 save"));
         assert_eq!(printed["out_of_scope"], serde_json::json!([]));
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn the_g2_of_a_spike_runs_no_command_and_wants_its_adr() {
+        let project = started_with_commands("[g2]\nlint = \"touch ran\"\n");
+        let path = ".gdd/changes/save/change.json";
+        let text = fs::read_to_string(project.0.join(path)).unwrap();
+        project.write(path, &text.replacen('{', r#"{"type": "Spike", "#, 1));
+        let printed = json(&project.run("g2 save --role builder-build"));
+        assert_eq!(printed["passed"], serde_json::json!(["path-guard"]));
+        assert_eq!(printed["failures"][0]["name"], "adr");
+        assert_eq!(printed["failures"][0]["tail"], gates::spike::NO_ADR);
+        project.write("docs/adr/0002-x.md", "## Decision\n");
+        let printed = json(&project.run("g2 save --role builder-build"));
+        assert_eq!(printed["ok"], true, "{printed}");
+        assert_eq!(printed["passed"], serde_json::json!(["path-guard", "adr"]));
+        assert!(!project.0.join("ran").exists(), "a G2 command ran");
     }
 
     #[test]

@@ -8,6 +8,9 @@ use crate::config::{Color, Error, Lane};
 use crate::rules::{Depth, RulesTable};
 use crate::zones::ZoneMap;
 
+/// The kind of work of a spike: it answers one question, and only its ADR reaches main.
+pub const SPIKE: &str = "Spike";
+
 /// A change to classify.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
@@ -128,6 +131,25 @@ pub fn classify_with(
         g4: color == Color::Red || (g1 && rule.g4_if_g1),
         human_plan: color == Color::Red,
     })
+}
+
+/// `classification` for a change of the kind of work `kind`. A [`SPIKE`] keeps its color (and so
+/// its Builder), but no test mode, no mutation testing, no Reviewer, no G1 and no plan for the
+/// human to approve: nothing but its ADR reaches main, so neither its rules nor the core of red
+/// apply; and the human G4 always. Any other kind keeps it as it is.
+pub fn of_kind(classification: Classification, kind: &str) -> Classification {
+    if kind != SPIKE {
+        return classification;
+    }
+    Classification {
+        g1: false,
+        tests_first: false,
+        mutation: false,
+        reviewer: false,
+        g4: true,
+        human_plan: false,
+        ..classification
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +350,32 @@ mod tests {
         assert_eq!(c, classify(&zones(), &table, &plain).unwrap());
         assert_eq!(c.lane, Lane::Fast);
         assert!(!c.g1 && !c.g4);
+    }
+
+    #[test]
+    fn a_spike_keeps_its_color_and_waits_at_g4_without_tests_mutation_reviewer_g1_or_plan() {
+        let table = rules::default_table();
+        let mut red = change(&["x.rs", "features/a.feature"], false);
+        red.min_color = Some(Color::Red);
+        let c = classify(&zones(), &table, &red).unwrap();
+        assert!(c.tests_first && c.mutation && c.reviewer && c.g1 && c.human_plan);
+        let s = of_kind(c.clone(), SPIKE);
+        assert_eq!((s.color, s.lane), (Color::Red, Lane::Full));
+        assert!(!s.tests_first && !s.mutation && !s.reviewer && !s.g1);
+        assert!(s.g4 && !s.human_plan);
+        assert_eq!((&s.reasons, &s.features), (&c.reasons, &c.features));
+        assert_eq!(s.review, c.review);
+        // Green fast has no G4 of its own: a spike has it.
+        let green = classify(&zones(), &table, &change(&["docs/a.md"], true)).unwrap();
+        assert!(!green.g4);
+        let s = of_kind(green, SPIKE);
+        assert_eq!((s.color, s.lane), (Color::Green, Lane::Fast));
+        assert!(s.g4 && !s.human_plan);
+        // Other kinds keep their classification.
+        for kind in ["Feature", "Refactor", "spike", ""] {
+            assert_eq!(of_kind(c.clone(), kind), c, "{kind}");
+        }
+        assert_eq!(SPIKE, "Spike");
     }
 
     #[test]

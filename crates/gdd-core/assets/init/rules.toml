@@ -14,6 +14,9 @@ builder_retries = 3   # Builder rounds against G2
 replans = 1           # Orchestrator replans per stuck change
 reviewer_fixes = 1
 
+[spike]
+max_usd = 5   # a spike parks when its agent calls cost this much (USD)
+
 # What each color gets. "fast" only exists when the color is not red, no .feature changes
 # and the Orchestrator marks the change as resumable.
 # Red changes always get mutation testing, the Reviewer and the human G4: the core of GDD.
