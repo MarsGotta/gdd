@@ -979,7 +979,8 @@ fn change_type(state: &Path, folder: &str) -> Result<Option<String>, String> {
 }
 
 /// The verdicts of the review files `reviewer-*.md` in the outputs of the change whose folder is
-/// `folder`; a file without a verdict is not a review.
+/// `folder`, in the order of their numbers (`reviewer-<n>.md`; a file without one goes last); a
+/// file without a verdict is not a review.
 fn review_verdicts(state: &Path, folder: &str) -> Result<Vec<delivery::Verdict>, String> {
     let outputs = format!("{folder}/outputs");
     let entries = match fs::read_dir(state.join(&outputs)) {
@@ -990,12 +991,20 @@ fn review_verdicts(state: &Path, folder: &str) -> Result<Vec<delivery::Verdict>,
     let mut verdicts = Vec::new();
     for entry in entries.filter_map(Result::ok) {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with("reviewer-") && name.ends_with(".md") {
-            let text = read(state, &format!("{outputs}/{name}"))?.unwrap_or_default();
-            verdicts.extend(delivery::verdict(&text));
+        let Some(number) = name.strip_prefix("reviewer-") else {
+            continue;
+        };
+        let Some(number) = number.strip_suffix(".md") else {
+            continue;
+        };
+        let text = read(state, &format!("{outputs}/{name}"))?.unwrap_or_default();
+        if let Some(verdict) = delivery::verdict(&text) {
+            let order = number.parse().unwrap_or(u64::MAX);
+            verdicts.push((order, name, verdict));
         }
     }
-    Ok(verdicts)
+    verdicts.sort_by(|(a, x, _), (b, y, _)| (a, x).cmp(&(b, y)));
+    Ok(verdicts.into_iter().map(|(.., verdict)| verdict).collect())
 }
 
 /// `gdd classify`: the decision for a change (see [`decide`]).
@@ -1637,6 +1646,14 @@ impl recipe::Steps for ProjectSteps<'_> {
         save_snapshot(self.root, self.state, self.id, &path)
     }
 
+    fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String> {
+        earlier_failures(self.root, self.state, self.id)
+    }
+
+    fn hashes(&mut self) -> Result<guard::Hashes, String> {
+        touched_hashes(self.root, self.state, self.id)
+    }
+
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
         let (root, state, id) = (self.root, self.state, self.id);
         let report = gate_report(root, state, gate, id, gates::BUILD_ROLE, true)?;
@@ -1693,10 +1710,41 @@ fn snapshot(root: &Path, state: &Path, id: &str) -> Result<String, String> {
 /// Records in the file `path`, under the state root `state`, the hashes of what change `id` of
 /// the project at `root` touched since its build started.
 fn save_snapshot(root: &Path, state: &Path, id: &str, path: &str) -> Result<(), String> {
-    let record = load_record(state, id)?;
-    let hashes = guard::snapshot(root, id, &record).map_err(|e| e.to_string())?;
+    let hashes = touched_hashes(root, state, id)?;
     let text = serde_json::to_string_pretty(&hashes).map_err(|e| e.to_string())?;
     write(state, path, &format!("{text}\n"))
+}
+
+/// The failures of Path Guard for build mode, judged from the build snapshot, and of the scope
+/// check on change `id` of the project at `root` since its build started, with its record and
+/// that snapshot under the state root `state`: what the gates of its run would find now. A check
+/// that cannot judge fails with the reason. `None` without a build snapshot.
+fn earlier_failures(root: &Path, state: &Path, id: &str) -> Result<Option<Vec<String>>, String> {
+    let Some(before) = read_snapshot(state, &change::build_snapshot_path(id))? else {
+        return Ok(None);
+    };
+    let record = load_record(state, id)?;
+    let said = |e: guard::Error| e.to_string();
+    let guarded = load_settings(root).and_then(|settings| {
+        let role = gates::BUILD_ROLE;
+        let verdict = guard::path_guard(root, id, &record, &settings, role, Some(&before));
+        Ok(verdict.map_err(said)?.failures)
+    });
+    let scoped = load_zones(root).and_then(|zones| {
+        let table = load_table(root)?;
+        let scope = guard::scope(root, id, &record, &zones, &table);
+        Ok(scope.map_err(said)?.failures)
+    });
+    let failed = |checked: Result<Vec<String>, String>| checked.unwrap_or_else(|e| vec![e]);
+    let failures = [guarded, scoped].into_iter().flat_map(failed);
+    Ok(Some(failures.collect()))
+}
+
+/// The hashes of what change `id` of the project at `root` touched since its build started, as
+/// they are now (see [`guard::snapshot`]): its record is under the state root `state`.
+fn touched_hashes(root: &Path, state: &Path, id: &str) -> Result<guard::Hashes, String> {
+    let record = load_record(state, id)?;
+    guard::snapshot(root, id, &record).map_err(|e| e.to_string())
 }
 
 /// `gdd scope`: the scope check of change `id`, with the zone map and the rules table.
@@ -2099,6 +2147,25 @@ mod tests {
     fn a_change_without_outputs_has_no_verdicts() {
         let project = Project::new();
         assert!(review_verdicts(&project.0, "changes/c").unwrap().is_empty());
+    }
+
+    #[test]
+    fn review_verdicts_follow_the_numbers_of_their_files() {
+        let project = Project::new();
+        for (name, text) in [
+            ("reviewer-10", "VERDICT: KO\n"),
+            ("reviewer-x", "VERDICT: OK\n"),
+            ("reviewer-2", "VERDICT: OK\n"),
+            ("reviewer-3", "no verdict\n"),
+            ("reviewer-1", "VERDICT: KO\n"),
+            ("builder-build-4", "VERDICT: OK\n"),
+        ] {
+            project.write(&format!("changes/c/outputs/{name}.md"), text);
+        }
+        project.write("changes/c/outputs/reviewer-5.raw", "VERDICT: OK\n");
+        let (ok, ko) = (delivery::Verdict::Ok, delivery::Verdict::Ko);
+        let verdicts = review_verdicts(&project.0, "changes/c").unwrap();
+        assert_eq!(verdicts, [ko, ok, ko, ok]);
     }
 
     fn words(command: &str) -> Vec<String> {
@@ -4314,6 +4381,68 @@ mod tests {
         let said: Vec<String> = watch.try_iter().collect();
         assert_eq!(said, ["two\n", FLUSHED]);
         assert_eq!(shown.voice.kept(), "");
+    }
+
+    #[test]
+    fn the_hashes_before_a_review_are_those_a_snapshot_records() {
+        let project = started_project();
+        project.write("src/a.rs", "a\n");
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
+        let hashes = recipe::Steps::hashes(&mut steps).unwrap();
+        assert_eq!(hashes.keys().collect::<Vec<_>>(), ["src/a.rs"]);
+        let record = load_record(root, "save").unwrap();
+        assert_eq!(hashes, guard::snapshot(root, "save", &record).unwrap());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut missing = ProjectSteps::new(root, root, "none", &limits, settings, &[], voice);
+        assert!(recipe::Steps::hashes(&mut missing).is_err());
+    }
+
+    #[test]
+    fn the_earlier_work_is_judged_as_build_mode_from_the_build_snapshot_and_by_the_scope() {
+        let project = started_project();
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
+        // Without a build snapshot, test mode never passed its Path Guard.
+        project.write("tests/a.rs", "test mode\n");
+        assert_eq!(recipe::Steps::guard_earlier(&mut steps), Ok(None));
+        recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap();
+        project.write("src/a.rs", "build mode\n");
+        let none = Vec::new();
+        assert_eq!(recipe::Steps::guard_earlier(&mut steps), Ok(Some(none)));
+        project.write(COMMANDS, "[g2]\nunit = \"true\"\n");
+        project.write("src/storage/db.rs", "x\n");
+        let failures = earlier_failures(root, root, "save").unwrap().unwrap();
+        let [guarded, scoped] = failures.as_slice() else {
+            panic!("two failures: {failures:?}");
+        };
+        let protected = "gdd/commands.toml: protected path for builder-build";
+        assert_eq!(guarded, protected);
+        let outside = "src/storage/db.rs: outside the package and red";
+        assert!(scoped.starts_with(outside), "{scoped}");
+        // A check that cannot read what it judges with fails with the reason.
+        project.write(RULES, "[protected\n");
+        let failures = earlier_failures(root, root, "save").unwrap().unwrap();
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        let unread = |failure: &String| failure.starts_with("gdd/rules.toml: ");
+        assert!(failures.iter().all(unread), "{failures:?}");
+        project.write(RULES, PROTECTED);
+        project.write(ZONES, "default = 1\n");
+        let failures = earlier_failures(root, root, "save").unwrap().unwrap();
+        let [_, guarded, scoped] = failures.as_slice() else {
+            panic!("three failures: {failures:?}");
+        };
+        assert_eq!(guarded, "gdd/zones.toml: protected path for builder-build");
+        assert!(scoped.starts_with("gdd/zones.toml: "), "{scoped}");
+        assert_ne!(scoped, guarded);
+        assert!(earlier_failures(root, root, "none").is_ok_and(|none| none.is_none()));
+        project.write(&change::build_snapshot_path("none"), "{}");
+        assert!(earlier_failures(root, root, "none").is_err());
     }
 
     #[test]
