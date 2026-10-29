@@ -1,10 +1,19 @@
 //! What several stack sheets give together, as `gdd stacks compose` prints it: the shape of
 //! `gdd/commands.toml` plus a `[protected]` table. Every gate runs the commands of every sheet;
-//! a command that is the same in all of them runs once; the protected paths add up.
+//! a command that is the same in all of them runs once; the protected paths add up. How to
+//! count what each command reports, `[count]`, goes with its command.
 
 use toml::Value;
 
 use super::{Commands, Error, SECTIONS, Sheet, once, sheet};
+
+/// What `gdd/commands.toml` says above `[count]`.
+const COUNT: &str = concat!(
+    "# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)\n",
+    "# to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at\n",
+    "# each place it matches; a text without it counts the lines that contain it. A change that\n",
+    "# reports more than the count recorded fails the gate; one that reports less lowers it.",
+);
 
 /// What the sheets of the stacks `names` give together, as TOML (see [`composed`]). A name
 /// given twice counts once, where it comes first.
@@ -14,8 +23,9 @@ pub fn compose(names: &[String]) -> Result<String, Error> {
 }
 
 /// What `sheets` give together, as TOML without a line break at the end: their installs one
-/// after the other, the commands of each section (see [`combined`]), the self-test of the first
-/// and the protected paths of all, each once. No sheet is an error.
+/// after the other, the commands of each section (see [`combined`]), how to count what they
+/// report (see [`counts`]), the self-test of the first and the protected paths of all, each
+/// once. No sheet is an error.
 fn composed(sheets: &[Sheet]) -> Result<String, Error> {
     let [first, ..] = sheets else {
         return Err(Error::NoName);
@@ -28,6 +38,9 @@ fn composed(sheets: &[Sheet]) -> Result<String, Error> {
         let commands = combined(sheets, at).into_iter();
         lines.extend(commands.map(|(name, command)| entry(&name, command)));
     }
+    lines.extend([String::new(), COUNT.to_string(), "[count]".to_string()]);
+    let counts = counts(sheets).into_iter();
+    lines.extend(counts.map(|(name, texts)| entry(&name, texts)));
     let selftest = &first.selftest;
     lines.extend([String::new(), "[selftest]".to_string()]);
     lines.push(entry("file", selftest.file.clone()));
@@ -73,6 +86,35 @@ fn combined(sheets: &[Sheet], at: usize) -> Commands {
     commands
 }
 
+/// How to count what the commands `sheets` give together report: the texts of `[count]` of
+/// each sheet under the name its command runs as in the gates (see [`combined`]), `<name>-<stack>`
+/// when the command of that stack runs on its own, else its name, with the texts of every sheet
+/// that gives them, each once.
+fn counts(sheets: &[Sheet]) -> Vec<(String, Vec<String>)> {
+    // The gates are the first two sections.
+    let gates = (0..2).flat_map(|at| combined(sheets, at));
+    let run: Vec<String> = gates.map(|(name, _)| name).collect();
+    let mut keyed: Vec<(String, &String)> = Vec::new();
+    for sheet in sheets {
+        for (name, texts) in &sheet.count {
+            let own = format!("{name}-{}", sheet.name);
+            let key = if run.contains(&own) {
+                own
+            } else {
+                name.clone()
+            };
+            keyed.extend(texts.iter().map(|text| (key.clone(), text)));
+        }
+    }
+    let mut counts = Vec::new();
+    for key in once(keyed.iter().map(|(key, _)| key)) {
+        let texts = keyed.iter().filter(|(of, _)| *of == key);
+        let texts = once(texts.map(|(_, text)| *text));
+        counts.push((key, texts));
+    }
+    counts
+}
+
 /// The command `name` of the section `at` of `sheet`, when it has it and it is not empty.
 fn command(sheet: &Sheet, at: usize, name: &str) -> Option<String> {
     let commands = &sheet.sections[at];
@@ -114,11 +156,50 @@ mod tests {
         let one = demo("a", "lint = \"l\"\ntypes = \"\"");
         let both = [("lint", "l"), ("types", "")];
         assert_eq!(combined(std::slice::from_ref(&one), 0), pairs(&both));
-        let expected = "install = \"i-a\"\n\n[g2]\nlint = \"l\"\ntypes = \"\"\n\n\
-                        [g3]\nmutation = \"m-a\"\n\n[learn]\n\n\
-                        [selftest]\nfile = \"a.test\"\ncontent = \"fail\"\n\n[protected]\n\
-                        builder_build = [\"f/**\", \"a/**\"]\nbuilder_test = [\"src/**\"]";
+        let expected = format!(
+            "install = \"i-a\"\n\n[g2]\nlint = \"l\"\ntypes = \"\"\n\n\
+             [g3]\nmutation = \"m-a\"\n\n[learn]\n\n{COUNT}\n[count]\n\n\
+             [selftest]\nfile = \"a.test\"\ncontent = \"fail\"\n\n[protected]\n\
+             builder_build = [\"f/**\", \"a/**\"]\nbuilder_test = [\"src/**\"]"
+        );
         assert_eq!(composed(&[one]).unwrap(), expected);
+    }
+
+    /// `counts`, each with its texts split on `|`, as a sheet keeps them.
+    fn texts_of(counts: &[(&str, &str)]) -> Vec<(String, Vec<String>)> {
+        let owned = |(name, texts): &(&str, &str)| {
+            let texts: Vec<String> = texts.split('|').map(str::to_string).collect();
+            (name.to_string(), texts)
+        };
+        counts.iter().map(owned).collect()
+    }
+
+    #[test]
+    fn each_count_goes_with_the_command_it_counts() {
+        let mut a = demo("a", "lint = \"la\"\nsame = \"s\"");
+        let mut b = demo("b", "lint = \"lb\"\nsame = \"s\"");
+        a.count = texts_of(&[
+            ("lint", "A {n}"),
+            ("same", "S {n}|T"),
+            ("mutation", "M"),
+            ("other", "P"),
+        ]);
+        b.count = texts_of(&[("same", "S {n}|U"), ("lint", "B {n}"), ("other", "O")]);
+        // A command that runs once per stack gets the count of each stack under its own name.
+        let expected = texts_of(&[
+            ("lint-a", "A {n}"),
+            ("same", "S {n}|T|U"),
+            ("mutation-a", "M"),
+            ("other", "P|O"),
+            ("lint-b", "B {n}"),
+        ]);
+        assert_eq!(counts(&[a.clone(), b]), expected);
+        assert_eq!(counts(std::slice::from_ref(&a)), a.count);
+        let text = composed(&[a]).unwrap();
+        let count = "\n[count]\nlint = [\"A {n}\"]\nsame = [\"S {n}\", \"T\"]\n\
+                     mutation = [\"M\"]\nother = [\"P\"]\n";
+        let section = format!("\n{COUNT}{count}\n[selftest]");
+        assert!(text.contains(&section), "{text}");
     }
 
     #[test]
@@ -197,7 +278,17 @@ mod tests {
         ] {
             let named: Vec<String> = combo.split(' ').map(str::to_string).collect();
             let sheets: Vec<Sheet> = named.iter().map(|name| sheet(name).unwrap()).collect();
-            let table: toml::Table = toml::from_str(&compose(&named).unwrap()).unwrap();
+            let written = compose(&named).unwrap();
+            let table: toml::Table = toml::from_str(&written).unwrap();
+            // Each count goes with a command of a gate, and the gates can read it.
+            let commands = crate::gates::Commands::from_toml(&written).unwrap();
+            let counted = table["count"].as_table().unwrap();
+            assert!(!counted.is_empty(), "{combo}");
+            for name in counted.keys() {
+                let runs = |gate: &&str| table[*gate].get(name).is_some();
+                assert!(["g2", "g3"].iter().any(runs), "{combo}: {name}");
+                assert!(commands.count(name).is_some(), "{combo}: {name}");
+            }
             let installs: Vec<&str> = sheets.iter().map(|s| s.install.as_str()).collect();
             let install = text(&table["install"]);
             assert_eq!(install, installs.join(" && "), "{combo}");

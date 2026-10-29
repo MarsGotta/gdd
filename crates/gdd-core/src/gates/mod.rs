@@ -2,8 +2,8 @@
 //! Gate. A gate runs its commands from `gdd/commands.toml` once Path Guard clears them, then
 //! Path Guard again, the scope check in build mode and, in G3, the scenario count and the
 //! security exceptions ([`exceptions`]). It passes only if all of them pass, but a command with
-//! known debt ([`debt`]) only warns. Each command and Path Guard keep their own time, which the
-//! log gets a line of before the gate's own.
+//! known debt ([`debt`]) only warns, while it reports no more than its count. Each command and
+//! Path Guard keep their own time, which the log gets a line of before the gate's own.
 //!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
@@ -48,6 +48,9 @@ pub const COMMANDS: &str = "gdd/commands.toml";
 
 /// The name of the Path Guard check in a report.
 pub(crate) const PATH_GUARD: &str = "path-guard";
+
+/// What a command of `[count]` must have.
+const COUNT_SHAPE: &str = "give a list of texts that are not empty, each with {n} once at most";
 
 /// Why a gate without commands fails.
 const NOT_CONFIGURED: &str =
@@ -130,11 +133,13 @@ impl fmt::Display for Gate {
     }
 }
 
-/// The gate commands of a project, `gdd/commands.toml`: lines of shell, by name.
+/// The gate commands of a project, `gdd/commands.toml`: lines of shell, by name; and how to
+/// count what each reports, `[count]` (see [`debt::count`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Commands {
     g2: BTreeMap<String, String>,
     g3: BTreeMap<String, String>,
+    count: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -143,18 +148,28 @@ struct RawCommands {
     g2: BTreeMap<String, toml::Value>,
     #[serde(default)]
     g3: BTreeMap<String, toml::Value>,
+    #[serde(default)]
+    count: BTreeMap<String, toml::Value>,
 }
 
 impl Commands {
-    /// Reads the `[g2]` and `[g3]` sections of a commands file; the rest is ignored. A command is
-    /// text that is not blank: an empty one is not configured, and a value that is not text is
-    /// not a command.
+    /// Reads the `[g2]`, `[g3]` and `[count]` sections of a commands file; the rest is ignored.
+    /// A command is text that is not blank: an empty one is not configured, and a value that is
+    /// not text is not a command. In `[count]`, each command has a list of texts that are not
+    /// empty, each with `{n}` once at most: anything else is an error that names it.
     pub fn from_toml(text: &str) -> Result<Commands, config::Error> {
         let raw: RawCommands =
             toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
+        let mut count = BTreeMap::new();
+        for (name, value) in raw.count {
+            let wrong = || config::Error::Toml(format!("[count] {name}: {COUNT_SHAPE}"));
+            let texts = texts(value).ok_or_else(wrong)?;
+            count.insert(name, texts);
+        }
         Ok(Commands {
             g2: configured(raw.g2),
             g3: configured(raw.g3),
+            count,
         })
     }
 
@@ -165,6 +180,25 @@ impl Commands {
             Gate::G3 => &self.g3,
         }
     }
+
+    /// The texts of `[count]` for the command `name`, when it has them.
+    pub fn count(&self, name: &str) -> Option<&[String]> {
+        self.count.get(name).map(Vec::as_slice)
+    }
+}
+
+/// The texts of a value of `[count]`: a list of texts that are not empty, each with `{n}` once
+/// at most; `None` for anything else.
+fn texts(value: toml::Value) -> Option<Vec<String>> {
+    let toml::Value::Array(list) = value else {
+        return None;
+    };
+    let text = |value: toml::Value| {
+        let text = value.as_str()?;
+        let fits = !text.is_empty() && text.matches(debt::NUMBER).count() < 2;
+        fits.then(|| text.to_string())
+    };
+    list.into_iter().map(text).collect()
 }
 
 /// The values of a section that are commands: text that is not blank.
@@ -375,28 +409,41 @@ impl Report {
         }
     }
 
-    /// Records what the command `name` did. When it has known debt (`owed`), a failure goes to
-    /// the known debt instead of the failures, and a pass pays it.
-    fn command(&mut self, name: &str, ran: io::Result<exec::Ran>, owed: bool) {
-        match self.failure(name, ran) {
-            None => {
-                self.passed.push(name.to_string());
-                if owed {
-                    self.paid_debt.push(name.to_string());
-                }
+    /// Records what the command `name` did. When it has known debt, held to `owed`, a pass pays
+    /// it, and a failure goes to the known debt instead of the failures, with the count it
+    /// reported when its debt has one; unless it reports more than that count, or gdd cannot
+    /// count what it reported: then it fails, and says why first (see [`debt::held`]).
+    fn command(&mut self, name: &str, ran: io::Result<exec::Ran>, owed: Option<debt::Ceiling>) {
+        let Some(mut failure) = self.failure(name, &ran) else {
+            self.passed.push(name.to_string());
+            if owed.is_some() {
+                self.paid_debt.push(name.to_string());
             }
-            Some(failure) if owed => self.known_debt.push(debt::Owed {
+            return;
+        };
+        let Some(ceiling) = owed else {
+            self.failures.push(failure);
+            return;
+        };
+        let output = ran.as_ref().map_or("", |ran| ran.output.as_str());
+        match debt::held(name, ceiling, output) {
+            Ok(count) => self.known_debt.push(debt::Owed {
                 name: failure.name,
                 tail: failure.tail,
+                count,
+                known: ceiling.known,
             }),
-            Some(failure) => self.failures.push(failure),
+            Err(why) => {
+                failure.tail = format!("{why}\n{}", failure.tail);
+                self.failures.push(failure);
+            }
         }
     }
 
     /// How the command `name` failed, from what it did; `None` when it passed. The time it ran
     /// is added to the report's and kept as its own (see [`Report::took`]); one that could not
     /// start took none.
-    fn failure(&mut self, name: &str, ran: io::Result<exec::Ran>) -> Option<Failure> {
+    fn failure(&mut self, name: &str, ran: &io::Result<exec::Ran>) -> Option<Failure> {
         let ran = match ran {
             Ok(ran) => ran,
             Err(e) => {
@@ -502,7 +549,8 @@ pub fn keep(state: &Path, id: &str, report: &Report) -> Result<(), String> {
 /// fails it when they are required or the change has its own. G3 also refuses a security
 /// exception without a reason and names the ones the change adds against the main branch (see
 /// [`exceptions`]). A command with known debt in `gdd/debt.toml` that fails does not fail the
-/// gate, and one that passes is named as paid (see [`debt`]); a debt file that cannot be read
+/// gate, unless it reports more than the count recorded for its debt or gdd cannot count what it
+/// reported, and one that passes is named as paid (see [`debt`]); a debt file that cannot be read
 /// fails the check `debt`. A gate without commands fails. A check that cannot judge fails with
 /// the reason. Each command that runs, then Path Guard, keeps its own time (see [`Timed`]).
 pub fn run(
@@ -545,7 +593,7 @@ pub fn run(
     };
     let mut guarded = guard();
     if guarded.is_empty() {
-        judged.run_commands(&mut report, root, commands, &owed);
+        judged.run_commands(&mut report, root, project.commands, &owed);
         guarded = guard();
     } else {
         guarded.push(NOT_RUN.to_string());
@@ -614,16 +662,18 @@ impl Judged<'_> {
         report
     }
 
-    /// Runs each of `commands` from `root` (see [`exec::run`]) into `report`, except the
-    /// `mutation*` ones when the change does not need mutation testing; the ones named in `owed`
-    /// have known debt, and only warn (see [`debt`]). Each gets `GDD_CHANGE`, `GDD_COLOR`,
-    /// `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
+    /// Runs each of the `commands` of the gate of `report` from `root` (see [`exec::run`]) into
+    /// `report`, except the `mutation*` ones when the change does not need mutation testing; the
+    /// ones named in `owed` have known debt, each with the count recorded for it when there is
+    /// one, and only warn while what they report stays within that count (see
+    /// [`Report::command`]). Each gets `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` and
+    /// `GDD_FEATURES`, one path per line.
     pub(crate) fn run_commands(
         &self,
         report: &mut Report,
         root: &Path,
-        commands: &BTreeMap<String, String>,
-        owed: &BTreeSet<String>,
+        commands: &Commands,
+        owed: &BTreeMap<String, Option<u64>>,
     ) {
         let color = self.decision.color.to_string();
         let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
@@ -633,12 +683,16 @@ impl Judged<'_> {
             ("GDD_DIFF_FILES", diff.as_str()),
             ("GDD_FEATURES", features.as_str()),
         ];
-        for (name, command) in commands {
+        for (name, command) in commands.of(report.gate) {
             if name.starts_with("mutation") && !self.decision.mutation {
                 report.skipped.push(name.clone());
             } else {
                 let ran = exec::run(command, root, &env, exec::TIMEOUT);
-                report.command(name, ran, owed.contains(name));
+                let held = owed.get(name).map(|&known| debt::Ceiling {
+                    known,
+                    texts: commands.count(name),
+                });
+                report.command(name, ran, held);
             }
         }
     }
@@ -850,6 +904,43 @@ paths = ["src/storage/**"]
     }
 
     #[test]
+    fn the_count_of_each_command_is_a_list_of_texts() {
+        let text = "[g2]\nlint = \"x\"\n[count]\nlint = [\"Found {n} error\", \"Diff in \"]\n\
+                    unit = []\n";
+        let commands = Commands::from_toml(text).unwrap();
+        let lint = ["Found {n} error".to_string(), "Diff in ".to_string()];
+        assert_eq!(commands.count("lint"), Some(lint.as_slice()));
+        assert_eq!(commands.count("unit"), Some([].as_slice()));
+        assert_eq!(commands.count("types"), None);
+        // Without the section, no counts.
+        let without = Commands::from_toml("[g2]\nlint = \"x\"\n").unwrap();
+        assert_eq!(without.count("lint"), None);
+    }
+
+    #[test]
+    fn a_count_that_is_not_a_list_of_texts_names_its_command() {
+        for (value, name) in [
+            ("lint = \"Found {n} error\"", "lint"),
+            ("unit = [\"{n} failed\", 3]", "unit"),
+            ("types = [\"\"]", "types"),
+            ("lint = [\"{n} of {n}\"]", "lint"),
+            ("lint = [[\"{n}\"]]", "lint"),
+            ("lint = 5", "lint"),
+        ] {
+            let text = format!("[g2]\nlint = \"x\"\n[count]\nok = [\"{{n}}\"]\n{value}\n");
+            let said = format!("invalid TOML: [count] {name}: {COUNT_SHAPE}");
+            let err = Commands::from_toml(&text).unwrap_err().to_string();
+            assert_eq!(err, said, "{value}");
+        }
+        assert_eq!(
+            COUNT_SHAPE,
+            "give a list of texts that are not empty, each with {n} once at most"
+        );
+        let wrong = Commands::from_toml("count = 3\n");
+        assert!(matches!(wrong, Err(config::Error::Toml(_))), "{wrong:?}");
+    }
+
+    #[test]
     fn rules_without_colors_take_the_colors_of_the_tool() {
         let rules = Rules::from_toml(PROTECTED).unwrap();
         let expected = Rules {
@@ -931,6 +1022,90 @@ paths = ["src/storage/**"]
         debt::Owed {
             name: name.to_string(),
             tail: tail.to_string(),
+            count: None,
+            known: None,
+        }
+    }
+
+    /// The known debt of `lint` in G2, with the count 5, and of `security` in G3, with the
+    /// count 2.
+    const COUNTED: &str = concat!(
+        "adopted = \"2026-10-27\"\n",
+        "[[debt]]\ncommand = \"lint\"\ngate = \"g2\"\nsince = \"2026-10-27\"\ncount = 5\n",
+        "[[debt]]\ncommand = \"security\"\ngate = \"g3\"\nsince = \"2026-10-27\"\ncount = 2\n",
+    );
+
+    /// Gate commands whose `lint` in G2 says `said` and fails, and whose `[count]` is `count`.
+    fn counting(said: &str, count: &str) -> Commands {
+        let g2 = format!("[g2]\nlint = \"echo {said}; exit 1\"\nunit = \"true\"\n");
+        let text = format!("{g2}[count]\n{count}\n");
+        Commands::from_toml(&text).unwrap()
+    }
+
+    #[test]
+    fn a_command_that_reports_more_than_its_known_debt_fails_the_gate() {
+        let mut project = in_debt("", COUNTED);
+        project.commands = counting("Found 7 errors.", "lint = [\"Found {n} error\"]");
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(names(&report), ["lint"]);
+        let tail = "lint reports 7, the known debt is 5: 2 more\nFound 7 errors.\n";
+        assert_eq!(report.failures[0].tail, tail);
+        assert_eq!(report.failures[0].exit.map(|exit| exit.code), Some(1));
+        assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
+        // In G3, against the count of its own debt, on what it wrote on its errors too.
+        let g3 = "[g3]\nsecurity = \"echo 3 found >&2; exit 1\"\n\
+                  [count]\nsecurity = [\"{n} found\"]\n";
+        project.commands = Commands::from_toml(g3).unwrap();
+        project.repo.write("features/a.feature", "Scenario: a\n");
+        let report = project.run(Gate::G3, "builder");
+        assert_eq!(names(&report), ["security"]);
+        let start = "security reports 3, the known debt is 2: 1 more\n";
+        assert!(report.failures[0].tail.starts_with(start), "{report:?}");
+    }
+
+    #[test]
+    fn a_command_that_reports_no_more_than_its_known_debt_warns_with_both_counts() {
+        let mut project = in_debt("", COUNTED);
+        for now in [5, 3] {
+            let said = format!("Found {now} errors.");
+            project.commands = counting(&said, "lint = [\"Found {n} error\"]");
+            let report = project.run(Gate::G2, "builder");
+            assert!(report.ok, "{report:?}");
+            let owing = debt::Owed {
+                count: Some(now),
+                known: Some(5),
+                ..owed("lint", &format!("{said}\n"))
+            };
+            assert_eq!(report.known_debt, [owing]);
+        }
+        // Once it passes, it is paid.
+        project.commands = Commands::from_toml("[g2]\nlint = \"true\"\n").unwrap();
+        assert_eq!(project.run(Gate::G2, "builder").paid_debt, ["lint"]);
+    }
+
+    #[test]
+    fn a_command_whose_count_cannot_be_read_fails_the_gate() {
+        let mut project = in_debt("", COUNTED);
+        let cannot = "lint failed and gdd cannot count what it reported (its [count] texts match \
+                      nothing)\npanicked\n--- end of output ---\npanicked\n";
+        // No text matches, or it has no [count] any more.
+        for count in ["lint = [\"Found {n} error\"]", "unit = [\"{n} failed\"]"] {
+            project.commands = counting("panicked", count);
+            let report = project.run(Gate::G2, "builder");
+            assert_eq!(names(&report), ["lint"], "{count}");
+            assert_eq!(report.failures[0].tail, cannot, "{count}");
+            assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
+        }
+    }
+
+    #[test]
+    fn known_debt_without_a_count_warns_as_before_whatever_it_reports() {
+        let mut project = in_debt("", DEBT);
+        for count in ["lint = [\"Found {n} error\"]", "unit = []"] {
+            project.commands = counting("Found 9 errors.", count);
+            let report = project.run(Gate::G2, "builder");
+            assert!(report.ok, "{report:?}");
+            assert_eq!(report.known_debt, [owed("lint", "Found 9 errors.\n")]);
         }
     }
 
@@ -1022,7 +1197,7 @@ paths = ["src/storage/**"]
         let mut report = started(&[], "").run(Gate::G2, "builder");
         report.failures.clear();
         report.timed.clear();
-        report.command("unit", Err(io::Error::other("no shell")), false);
+        report.command("unit", Err(io::Error::other("no shell")), None);
         let expected = failure("unit", "cannot run sh: no shell");
         assert_eq!(report.failures, [expected]);
         assert_eq!(report.duration_s, 0.0);
@@ -1032,10 +1207,23 @@ paths = ["src/storage/**"]
             duration_s: 0.0,
         };
         assert_eq!(report.timed, [unit]);
-        report.command("lint", Err(io::Error::other("no shell")), true);
+        let uncounted = debt::Ceiling {
+            known: None,
+            texts: None,
+        };
+        report.command("lint", Err(io::Error::other("no shell")), Some(uncounted));
         let owing = owed("lint", "cannot run sh: no shell");
         assert_eq!(report.known_debt, [owing]);
         assert_eq!(report.failures.len(), 1);
+        // With a count recorded, what it said cannot be counted.
+        let counted = debt::Ceiling {
+            known: Some(5),
+            texts: None,
+        };
+        report.command("types", Err(io::Error::other("no shell")), Some(counted));
+        let cannot = "types failed and gdd cannot count what it reported (its [count] texts \
+                      match nothing)\ncannot run sh: no shell";
+        assert_eq!(report.failures[1], failure("types", cannot));
     }
 
     #[test]
@@ -1347,14 +1535,20 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             r#""added_exceptions":["exception added: A · deny.toml"]}"#
         );
         assert!(json.ends_with(end), "{json}");
+        let counted = debt::Owed {
+            count: Some(3),
+            known: Some(5),
+            ..owed("types", "x")
+        };
         let in_debt = Report {
-            known_debt: vec![owed("lint", "unused")],
+            known_debt: vec![owed("lint", "unused"), counted],
             paid_debt: vec!["unit".into()],
             ..added
         };
         let json = serde_json::to_string(&in_debt).unwrap();
         let end = concat!(
-            r#""known_debt":[{"name":"lint","tail":"unused"}],"#,
+            r#""known_debt":[{"name":"lint","tail":"unused"},"#,
+            r#"{"name":"types","tail":"x","count":3,"known":5}],"#,
             r#""paid_debt":["unit"]}"#
         );
         assert!(json.ends_with(end), "{json}");

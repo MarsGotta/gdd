@@ -14,7 +14,7 @@ use crate::change::Record;
 use crate::classify::{Change, classify};
 use crate::config::{self, Color};
 use crate::gates::approve::{BRIEF, ZonesState};
-use crate::gates::debt::{self, Debt};
+use crate::gates::debt::{self, Debt, Listed};
 use crate::gates::{COMMANDS, Commands, Gate};
 use crate::rules::RulesTable;
 use crate::zones::ZoneMap;
@@ -41,6 +41,9 @@ const G0_PENDING: &str = "pending · G0 pending: run the Setup (the gdd-setup co
 /// What the status says when an agent of another model family could review a project that
 /// accepted one family only.
 const SECOND_FAMILY: &str = "A second model family is on this machine";
+
+/// What the status says of known debt without a count in some gate, after its counts.
+const UNSEEN: &str = "a change can add to it unseen";
 
 /// What the status says when the gate commands have no mutation testing for red changes.
 const NO_MUTATION: &str =
@@ -166,7 +169,8 @@ pub fn without_mutation(root: &Path) -> bool {
 }
 
 /// The lines of the known debt `known` in the status: `Known debt: ` and the names of its
-/// commands, riskiest first, then a line per command with the day it was recorded and the
+/// commands, riskiest first, each with its counts (see [`Listed::said`]) and, when a gate holds
+/// it to no count, [`UNSEEN`]; then a line per command with the day it was recorded and the
 /// Refactor that pays it; `none` without debt, or why it could not be read.
 fn known_debt(f: &mut fmt::Formatter<'_>, known: &Result<Vec<Debt>, String>) -> fmt::Result {
     let debts = match known {
@@ -174,9 +178,17 @@ fn known_debt(f: &mut fmt::Formatter<'_>, known: &Result<Vec<Debt>, String>) -> 
         Ok(debts) => debt::listed(debts),
         Err(why) => return writeln!(f, "Known debt: {why}"),
     };
-    let names: Vec<&str> = debts.iter().map(|debt| debt.command.as_str()).collect();
+    let counted = |listed: &Listed| {
+        let (command, said) = (listed.command, listed.said());
+        if listed.uncounted() {
+            format!("{command} ({said}: {UNSEEN})")
+        } else {
+            format!("{command} ({said})")
+        }
+    };
+    let names: Vec<String> = debts.iter().map(counted).collect();
     writeln!(f, "Known debt: {}", names.join(", "))?;
-    for Debt { command, since, .. } in debts {
+    for Listed { command, since, .. } in debts {
         writeln!(f, "  - {command} · since {since} · Refactor debt-{command}")?;
     }
     Ok(())
@@ -417,6 +429,7 @@ mod tests {
             command: command.into(),
             gate,
             since: since.into(),
+            count: None,
         }
     }
 
@@ -438,7 +451,10 @@ mod tests {
                 "B · deny.toml · no end date · no reason".into(),
             ]),
             debt: Ok(vec![
-                debt("lint", Gate::G2, "2026-10-26"),
+                Debt {
+                    count: Some(5),
+                    ..debt("lint", Gate::G2, "2026-10-26")
+                },
                 debt("security", Gate::G3, "2026-10-27"),
                 debt("lint", Gate::G3, "2026-10-27"),
             ]),
@@ -461,7 +477,8 @@ mod tests {
             "Security exceptions: 2\n",
             "  - A · deny.toml · no end date · r\n",
             "  - B · deny.toml · no end date · no reason\n",
-            "Known debt: security, lint\n",
+            "Known debt: security (no count: a change can add to it unseen), ",
+            "lint (5 in G2, no count in G3: a change can add to it unseen)\n",
             "  - security · since 2026-10-27 · Refactor debt-security\n",
             "  - lint · since 2026-10-26 · Refactor debt-lint\n",
             "Changes:\n",
@@ -469,6 +486,31 @@ mod tests {
             "Log: 3 lines in .gdd/log.jsonl (gdd report)"
         );
         assert_eq!(status().to_string(), expected);
+    }
+
+    #[test]
+    fn known_debt_counted_in_every_gate_shows_its_counts_without_the_warning() {
+        let counted = |command: &str, gate: Gate, count: u64| Debt {
+            count: Some(count),
+            ..debt(command, gate, "2026-10-26")
+        };
+        let lines = |debts: Vec<Debt>| {
+            let status = Status {
+                debt: Ok(debts),
+                ..status()
+            };
+            let (shown, start) = (status.to_string(), "Known debt: ");
+            let line = shown.lines().find(|line| line.starts_with(start));
+            line.unwrap_or_default().to_string()
+        };
+        let both = vec![
+            counted("types", Gate::G2, 9),
+            counted("lint", Gate::G3, 5),
+            counted("lint", Gate::G2, 5),
+        ];
+        assert_eq!(lines(both), "Known debt: types (9), lint (5)");
+        let apart = vec![counted("lint", Gate::G3, 3), counted("lint", Gate::G2, 5)];
+        assert_eq!(lines(apart), "Known debt: lint (5 in G2, 3 in G3)");
     }
 
     #[test]

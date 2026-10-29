@@ -142,12 +142,18 @@ pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
     Ok(rendered)
 }
 
-/// The entry of a command with known debt still failing in its gate: its name and gate, then
-/// what its output keeps, as a block of code inside the entry.
+/// The entry of a command with known debt still failing in its gate: its name and gate, what it
+/// reported against the count of its debt when it has one, then what its output keeps, as a
+/// block of code inside the entry.
 fn still_failing((gate, owed): &(Gate, debt::Owed)) -> String {
     let lines = owed.tail.lines().map(|line| format!("\n  {line}"));
     let tail: String = lines.collect();
-    format!("{} ({gate}), still failing:\n  ```{tail}\n  ```", owed.name)
+    let counted = match (owed.count, owed.known) {
+        (Some(count), Some(known)) => format!(", reports {count} (the known debt is {known})"),
+        _ => String::new(),
+    };
+    let (name, code) = (&owed.name, format!("  ```{tail}\n  ```"));
+    format!("{name} ({gate}){counted}, still failing:\n{code}")
 }
 
 /// The entry of a command with known debt paid in its gate: its name and gate.
@@ -279,7 +285,9 @@ mod tests {
     #[test]
     fn the_saved_inbox_shows_the_known_debt_still_failing_and_paid() {
         let folder = Folder::new();
-        let g2 = r#"{"known_debt": [{"name": "lint", "tail": "unused import\nin a.rs\n"}],
+        let g2 = r#"{"known_debt": [{"name": "lint", "tail": "unused import\nin a.rs\n"},
+                     {"name": "types", "tail": "x", "count": 3, "known": 5},
+                     {"name": "quality", "tail": "y", "count": 3}],
                      "paid_debt": ["unit"]}"#;
         folder.write(".gdd/changes/c1/g2.json", g2);
         let g3 = r#"{"added_exceptions": ["exception added: A"], "paid_debt": ["security"]}"#;
@@ -289,7 +297,9 @@ mod tests {
             "## Parked\n- Nothing.\n\n",
             "## Security exceptions this change adds\n- exception added: A\n\n",
             "## Known debt\n- lint (G2), still failing:\n",
-            "  ```\n  unused import\n  in a.rs\n  ```\n\n",
+            "  ```\n  unused import\n  in a.rs\n  ```\n",
+            "- types (G2), reports 3 (the known debt is 5), still failing:\n  ```\n  x\n  ```\n",
+            "- quality (G2), still failing:\n  ```\n  y\n  ```\n\n",
             "## Known debt paid\n- unit (G2)\n- security (G3)"
         );
         assert!(saved.ends_with(end), "{saved}");

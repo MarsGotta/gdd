@@ -31,6 +31,16 @@ mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''uv run vulture src'''
 
+# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)
+# to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at
+# each place it matches; a text without it counts the lines that contain it. A change that
+# reports more than the count recorded fails the gate; one that reports less lowers it.
+# Measured on real runs (2026-10-29): ruff 0.17.3, mypy, pytest.
+[count]
+lint = ["Found {n} error", "{n} file would be reformatted", "{n} files would be reformatted"]
+types = ["Found {n} error"]
+unit = ["{n} failed", "{n} error"]
+
 [ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
 setup = '''
       - uses: astral-sh/setup-uv@v7

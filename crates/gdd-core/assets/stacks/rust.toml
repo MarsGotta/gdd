@@ -31,6 +31,16 @@ mutation = '''if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''cargo machete'''
 
+# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)
+# to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at
+# each place it matches; a text without it counts the lines that contain it. A change that
+# reports more than the count recorded fails the gate; one that reports less lowers it.
+# Measured on real runs (2026-10-29): cargo fmt --check (one "Diff in" per hunk), clippy (once
+# per target), cargo test.
+[count]
+lint = ["Diff in ", "due to {n} previous error"]
+unit = ["{n} failed;"]
+
 [ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
 setup = '''
       - uses: dtolnay/rust-toolchain@stable

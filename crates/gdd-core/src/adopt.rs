@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::agents::files;
 use crate::exec;
-use crate::gates::debt::{self, Debt, Known, PATH};
+use crate::gates::debt::{self, Debt, Known, Listed, PATH};
 use crate::gates::{self, Commands, Gate, exceptions};
 use crate::git::Git;
 
@@ -39,8 +39,9 @@ pub struct Adopted {
 
 impl fmt::Display for Adopted {
     /// What `gdd adopt` prints, without a line break at the end: the commands that passed and
-    /// the known debt; when there is, a Refactor per command, riskiest first, with where what it
-    /// said is kept, and how to create one.
+    /// the known debt, each with its counts when a gate has one (see [`Listed::said`]); when
+    /// there is, a Refactor per command, riskiest first, with where what it said is kept, and how
+    /// to create one.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let passed = if self.passed.is_empty() {
             "none".to_string()
@@ -52,8 +53,16 @@ impl fmt::Display for Adopted {
         if listed.is_empty() {
             return write!(f, "Known debt: none");
         }
-        let names: Vec<&str> = listed.iter().map(|debt| debt.command.as_str()).collect();
-        writeln!(f, "Known debt: {}", names.join(", "))?;
+        let counted = |listed: &Listed| {
+            if listed.counts.iter().all(|(_, count)| count.is_none()) {
+                listed.command.to_string()
+            } else {
+                format!("{} ({})", listed.command, listed.said())
+            }
+        };
+        let counted: Vec<String> = listed.iter().map(counted).collect();
+        writeln!(f, "Known debt: {}", counted.join(", "))?;
+        let names: Vec<&str> = listed.iter().map(|listed| listed.command).collect();
         writeln!(f, "Proposed Refactors, riskiest first:")?;
         for (n, name) in names.iter().enumerate() {
             let refactor = format!("debt-{name} · Pay the known debt of {name}");
@@ -73,9 +82,10 @@ fn kept(name: &str) -> String {
 /// command that can become debt has a name that cannot name a file. Each command of G2, then of
 /// G3, that can become debt (see [`debt::can_owe`]) runs once from `root`, with the variables of
 /// the gates and no change; it passes when it exits with 0. What each one that failed said, as a
-/// gate keeps it (see [`gates::kept`]), goes to `.gdd/adoption/<name>.txt` under the state root.
-/// Then, when one failed, the known debt goes to `gdd/debt.toml`, committed alone on the current
-/// branch (see [`record`]); when none did, nothing is written.
+/// gate keeps it (see [`gates::kept`]), goes to `.gdd/adoption/<name>.txt` under the state root;
+/// its debt gets the count of what it said when `[count]` has texts for it and they count more
+/// than 0 (see [`debt::count`]). Then, when one failed, the known debt goes to `gdd/debt.toml`,
+/// committed alone on the current branch (see [`record`]); when none did, nothing is written.
 pub fn adopt(root: &Path, state: &Path, commands: &Commands) -> Result<Adopted, String> {
     if let Some(known) = debt::read(root)? {
         let day = known.adopted;
@@ -92,11 +102,14 @@ pub fn adopt(root: &Path, state: &Path, commands: &Commands) -> Result<Adopted, 
             Ok(ran) if ran.ok() => passed.push(name.to_string()),
             ran => {
                 let output = ran.map_or_else(|e| format!("cannot run sh: {e}"), |ran| ran.output);
+                let texts = commands.count(name);
+                let counted = texts.map(|texts| debt::count(&output, texts));
                 said.entry(name).or_default().push(gates::kept(&output));
                 owed.push(Debt {
                     command: name.to_string(),
                     gate,
                     since: today.clone(),
+                    count: counted.filter(|&count| count > 0),
                 });
             }
         }
@@ -195,6 +208,7 @@ mutation = "touch ran; exit 1"
             command: command.to_string(),
             gate,
             since: since.to_string(),
+            count: None,
         }
     }
 
@@ -253,6 +267,39 @@ mutation = "touch ran; exit 1"
     }
 
     #[test]
+    fn the_known_debt_gets_the_count_of_what_each_command_said_when_it_has_one() {
+        let (repo, state) = project();
+        let text = "[g2]\nlint = \"echo Found 5 errors.; exit 1\"\n\
+                    unit = \"echo 2 failed; exit 1\"\ntypes = \"echo Found 1 error >&2; exit 1\"\n\
+                    [g3]\nsecurity = \"echo vulnerable; exit 1\"\n\
+                    [count]\nlint = [\"Found {n} error\"]\ntypes = [\"Found {n} error\"]\n\
+                    security = [\"{n} found\"]\n";
+        let adopted = adopted(&repo, &state, text).unwrap();
+        let today = exceptions::today().to_string();
+        let counted = |command: &str, gate: Gate, count: u64| Debt {
+            count: Some(count),
+            ..debt(command, gate, &today)
+        };
+        // Without [count] for it, or when its texts count nothing, a debt has no count.
+        let expected = [
+            debt("security", Gate::G3, &today),
+            counted("types", Gate::G2, 1),
+            debt("unit", Gate::G2, &today),
+            counted("lint", Gate::G2, 5),
+        ];
+        assert_eq!(adopted.debt, expected);
+        let printed = adopted.to_string();
+        let line = "\nKnown debt: security, types (1), unit, lint (5)\n";
+        assert!(printed.contains(line), "{printed}");
+        let refactor = "\n  4. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n";
+        assert!(printed.contains(refactor), "{printed}");
+        let written = fs::read_to_string(repo.root().join(PATH)).unwrap();
+        let since = format!("since = \"{today}\"\ncount = 5\n");
+        assert!(written.ends_with(&since), "{written}");
+        assert_eq!(debt::read(repo.root()).unwrap().unwrap().debt, expected);
+    }
+
+    #[test]
     fn a_project_is_adopted_only_once() {
         let (repo, state) = project();
         let known = "adopted = \"2026-10-01\"\n";
@@ -279,6 +326,28 @@ mutation = "touch ran; exit 1"
         assert!(!repo.root().join(PATH).exists());
         assert!(!state.0.join(ADOPTION).exists());
         assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    }
+
+    #[test]
+    fn a_name_in_both_gates_shows_the_count_of_each_when_they_differ() {
+        let lint = |gate: Gate, count: Option<u64>| Debt {
+            count,
+            ..debt("lint", gate, "2026-10-27")
+        };
+        let shown = |g2: Option<u64>, g3: Option<u64>| {
+            let debt = vec![lint(Gate::G2, g2), lint(Gate::G3, g3)];
+            let printed = Adopted {
+                passed: vec![],
+                debt,
+            };
+            let (printed, start) = (printed.to_string(), "Known debt: ");
+            let line = printed.lines().find_map(|line| line.strip_prefix(start));
+            line.unwrap_or_default().to_string()
+        };
+        assert_eq!(shown(Some(5), None), "lint (5 in G2, no count in G3)");
+        assert_eq!(shown(Some(5), Some(3)), "lint (5 in G2, 3 in G3)");
+        assert_eq!(shown(Some(5), Some(5)), "lint (5)");
+        assert_eq!(shown(None, None), "lint");
     }
 
     #[test]
