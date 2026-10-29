@@ -30,6 +30,17 @@ mutation = '''F=$(printf '%s\n' "$GDD_DIFF_FILES" | grep -E '^src/.*\.ts$' | pas
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''npx knip'''
 
+# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)
+# to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at
+# each place it matches; a text without it counts the lines that contain it. A change that
+# reports more than the count recorded fails the gate; one that reports less lowers it.
+# Measured on real runs (2026-10-29): eslint, tsc without a terminal (one "error TS" line
+# each, no summary), vitest (two spaces after Tests).
+[count]
+lint = ["✖ {n} problem"]
+types = ["error TS"]
+unit = ["Tests  {n} failed"]
+
 [ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
 setup = '''
       - uses: actions/setup-node@v6

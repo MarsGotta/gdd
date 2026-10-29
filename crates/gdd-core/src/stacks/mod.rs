@@ -92,6 +92,8 @@ pub struct Sheet {
     ci_setup: String,
     /// The commands of each of [`SECTIONS`], in that order.
     sections: [Commands; 3],
+    /// How to count what each command reports, `[count]`, in the order of the sheet.
+    count: Vec<(String, Vec<String>)>,
     selftest: Selftest,
     protected: Protected,
     tools: Vec<Tool>,
@@ -113,6 +115,8 @@ struct Raw {
     g2: BTreeMap<String, Spanned<String>>,
     g3: BTreeMap<String, Spanned<String>>,
     learn: BTreeMap<String, Spanned<String>>,
+    #[serde(default)]
+    count: BTreeMap<String, Spanned<Vec<String>>>,
     ci: Ci,
     selftest: Selftest,
     protected: Protected,
@@ -259,17 +263,18 @@ fn parse(text: &str) -> Result<Sheet, String> {
         ignore: raw.ignore,
         ci_setup: raw.ci.setup,
         sections: [ordered(raw.g2), ordered(raw.g3), ordered(raw.learn)],
+        count: ordered(raw.count),
         selftest: raw.selftest,
         protected: raw.protected,
         tools: raw.tool,
     })
 }
 
-/// The commands of a section in the order they are written.
-fn ordered(section: BTreeMap<String, Spanned<String>>) -> Commands {
-    let mut commands: Vec<(String, Spanned<String>)> = section.into_iter().collect();
+/// The values of a section, by name, in the order they are written.
+fn ordered<T>(section: BTreeMap<String, Spanned<T>>) -> Vec<(String, T)> {
+    let mut commands: Vec<(String, Spanned<T>)> = section.into_iter().collect();
     commands.sort_by_key(|(_, command)| command.span().start);
-    let text = |(name, command): (String, Spanned<String>)| (name, command.into_inner());
+    let text = |(name, command): (String, Spanned<T>)| (name, command.into_inner());
     commands.into_iter().map(text).collect()
 }
 
@@ -553,6 +558,38 @@ alternative = "other lint"
         assert!(rust.ci_setup().starts_with(setup), "{}", rust.ci_setup());
     }
 
+    /// The `[count]` of the sheet of `name`: a line per command, its texts joined by `|`.
+    fn counts(name: &str) -> Vec<String> {
+        let mut lines = Vec::new();
+        for (command, texts) in of(name).count {
+            lines.push(format!("{command} = {}", texts.join("|")));
+        }
+        lines
+    }
+
+    #[test]
+    fn each_sheet_counts_what_its_commands_report_as_measured() {
+        let python = [
+            "lint = Found {n} error|{n} file would be reformatted|{n} files would be reformatted",
+            "types = Found {n} error",
+            "unit = {n} failed|{n} error",
+        ];
+        assert_eq!(counts("python"), python);
+        let rust = [
+            "lint = Diff in |due to {n} previous error",
+            "unit = {n} failed;",
+        ];
+        assert_eq!(counts("rust"), rust);
+        let typescript = [
+            "lint = ✖ {n} problem",
+            "types = error TS",
+            "unit = Tests  {n} failed",
+        ];
+        assert_eq!(counts("typescript"), typescript);
+        // A sheet without [count] counts nothing.
+        assert!(parse(SHEET).unwrap().count.is_empty());
+    }
+
     #[test]
     fn a_sheet_keeps_the_order_of_its_commands() {
         let sheet = parse(SHEET).unwrap();
@@ -604,6 +641,7 @@ alternative = "other lint"
             SHEET.replace("setup = ", "steps = "),
             SHEET.replace("[ci]\nsetup = \"      - run: make tools\\n\"\n", ""),
             format!("{SHEET}extra = 1\n"),
+            format!("{SHEET}[count]\nlint = \"Found {{n}} error\"\n"),
             "[g2".to_string(),
         ] {
             let why = parse(&wrong).unwrap_err();

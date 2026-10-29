@@ -3879,8 +3879,8 @@ mod tests {
         let status = project.run("status").stdout;
         let since = exceptions::today();
         let line = format!("  - lint · since {since} · Refactor debt-lint\n");
-        let listed = format!("\nKnown debt: lint\n{line}");
-        assert!(status.contains(&listed), "{status}");
+        let listed = "\nKnown debt: lint (no count: a change can add to it unseen)\n";
+        assert!(status.contains(&format!("{listed}{line}")), "{status}");
         let again = project.run("adopt");
         let refused = format!("error: this project was already adopted on {since}");
         let refused = format!("{refused} (gdd/debt.toml)\n");
