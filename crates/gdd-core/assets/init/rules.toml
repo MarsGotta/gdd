@@ -16,6 +16,7 @@ reviewer_fixes = 1
 
 # What each color gets. "fast" only exists when the color is not red, no .feature changes
 # and the Orchestrator marks the change as resumable.
+# Red changes always get mutation testing, the Reviewer and the human G4: the core of GDD.
 [color.green.fast]
 tests_first = false
 mutation = false
@@ -30,13 +31,13 @@ g4_if_g1 = true
 
 [color.yellow.fast]
 tests_first = true    # characterization tests before touching
-mutation = true
+mutation = false      # mutation = true here runs it on yellow changes too
 reviewer = true
 g4_if_g1 = false
 
 [color.yellow.full]
 tests_first = true
-mutation = true
+mutation = false      # mutation = true here runs it on yellow changes too
 reviewer = true
 g4_if_g1 = true
 

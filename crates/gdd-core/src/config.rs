@@ -62,6 +62,9 @@ pub enum Error {
     Toml(String),
     /// A color other than green, yellow or red.
     UnknownColor(String),
+    /// The rules table switches off part of the core of GDD for red changes: the key it sets to
+    /// `false`, `color.red.<lane>.<key>`.
+    CoreSwitchedOff(String),
 }
 
 impl fmt::Display for Error {
@@ -71,6 +74,11 @@ impl fmt::Display for Error {
             Error::UnknownColor(name) => {
                 write!(f, "unknown color \"{name}\" (use green, yellow or red)")
             }
+            Error::CoreSwitchedOff(key) => write!(
+                f,
+                "red changes always get mutation testing, the Reviewer and the human G4 \
+                 (the core of GDD): remove {key} = false from gdd/rules.toml"
+            ),
         }
     }
 }
