@@ -42,13 +42,18 @@ const ENV: [(&str, &str); 4] = [
     ("GDD_FEATURES", ""),
 ];
 
+/// The exit code of cargo when it fails, also when it has no such subcommand.
+const CARGO_FAILED: i32 = 101;
+
 /// How a Learn tool ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
     /// Exit code 0.
     Nothing,
     /// It could not run: the shell did not find it, could not execute it or could not start.
     CouldNotRun(i32),
+    /// Cargo has no such subcommand (the word kept): the tool is not installed.
+    NoCargoCommand(String),
     /// It ran out of time.
     TimedOut,
     /// Any other exit code.
@@ -56,14 +61,24 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    fn of(code: i32) -> Verdict {
+    fn of(code: i32, command: &str, output: &str) -> Verdict {
         match code {
             0 => Verdict::Nothing,
             NOT_EXECUTABLE | NOT_FOUND => Verdict::CouldNotRun(code),
             exec::TIMED_OUT => Verdict::TimedOut,
+            CARGO_FAILED => match missing_cargo_command(command, output) {
+                Some(sub) => Verdict::NoCargoCommand(sub),
+                None => Verdict::Found(code),
+            },
             _ => Verdict::Found(code),
         }
     }
+}
+
+/// The subcommand of a `cargo <sub>` command whose output says cargo has no such command.
+fn missing_cargo_command(command: &str, output: &str) -> Option<String> {
+    let sub = command.strip_prefix("cargo ")?.split_whitespace().next()?;
+    output.contains("no such command").then(|| sub.to_string())
 }
 
 impl fmt::Display for Verdict {
@@ -71,6 +86,11 @@ impl fmt::Display for Verdict {
         match self {
             Verdict::Nothing => f.write_str("nothing found"),
             Verdict::CouldNotRun(code) => write!(f, "could not run (exit code {code})"),
+            Verdict::NoCargoCommand(sub) => write!(
+                f,
+                "could not run (cargo has no such command: install it, e.g. cargo install \
+                 cargo-{sub})"
+            ),
             Verdict::TimedOut => f.write_str("timed out"),
             Verdict::Found(code) => write!(f, "found something (exit code {code})"),
         }
@@ -225,7 +245,7 @@ fn run_tool(
     files::replace(state, &path, output.as_bytes())
         .map_err(|e| format!("cannot write {path}: {e}"))?;
     Ok(Tool {
-        verdict: Verdict::of(code),
+        verdict: Verdict::of(code, command, &output),
         shown: first_lines(&output),
         name,
     })
@@ -333,7 +353,59 @@ mod tests {
     }
 
     fn verdict_of(command: &str) -> Verdict {
-        run(&[("t", command)]).tools[0].verdict
+        run(&[("t", command)]).tools[0].verdict.clone()
+    }
+
+    const NO_SUCH: &str = "error: no such command: `machete`\n";
+
+    #[test]
+    fn a_cargo_command_that_does_not_exist_could_not_run_and_says_how_to_install_it() {
+        let verdict = Verdict::of(101, "cargo machete --path .", NO_SUCH);
+        assert_eq!(verdict, Verdict::NoCargoCommand("machete".into()));
+        let hint = "could not run (cargo has no such command: install it, e.g. cargo install \
+                    cargo-machete)";
+        assert_eq!(verdict.to_string(), hint);
+        let verdict = Verdict::of(101, "cargo   deny check", NO_SUCH);
+        assert_eq!(verdict, Verdict::NoCargoCommand("deny".into()));
+    }
+
+    #[test]
+    fn a_cargo_command_that_fails_for_another_reason_found_something() {
+        let found = Verdict::Found(101);
+        assert_eq!(Verdict::of(101, "cargo machete", "error: broken\n"), found);
+        assert_eq!(Verdict::of(101, "cargo machete", ""), found);
+        assert_eq!(Verdict::of(101, "cargo ", NO_SUCH), found);
+    }
+
+    #[test]
+    fn a_command_that_is_not_cargo_with_no_such_command_found_something() {
+        let found = Verdict::Found(101);
+        assert_eq!(Verdict::of(101, "machete .", NO_SUCH), found);
+        assert_eq!(Verdict::of(101, "mycargo machete", NO_SUCH), found);
+        assert_eq!(Verdict::of(101, "cargo-machete", NO_SUCH), found);
+    }
+
+    #[test]
+    fn no_such_command_with_another_exit_code_keeps_its_wording() {
+        assert_eq!(Verdict::of(2, "cargo x", NO_SUCH), Verdict::Found(2));
+        assert_eq!(Verdict::of(0, "cargo x", NO_SUCH), Verdict::Nothing);
+        assert_eq!(
+            Verdict::of(127, "cargo x", NO_SUCH),
+            Verdict::CouldNotRun(127)
+        );
+    }
+
+    #[test]
+    fn a_missing_cargo_command_shows_in_the_line_of_the_tool() {
+        let tool = Tool {
+            name: "unused".into(),
+            verdict: Verdict::of(101, "cargo machete", NO_SUCH),
+            shown: first_lines(NO_SUCH),
+        };
+        let said = "unused: could not run (cargo has no such command: install it, e.g. cargo \
+                    install cargo-machete)\n  error: no such command: `machete`\n  All it said: \
+                    .gdd/learn/unused.txt";
+        assert_eq!(tool.to_string(), said);
     }
 
     #[test]
