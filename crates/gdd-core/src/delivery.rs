@@ -43,7 +43,7 @@ pub fn verdict(text: &str) -> Option<Verdict> {
 pub struct Records {
     /// The type of the change, from its record: `Feature`, `Hotfix`...
     pub types: BTreeMap<String, String>,
-    /// The verdicts of its review files.
+    /// The verdicts of its review files, in the order of their numbers.
     pub reviews: BTreeMap<String, Vec<Verdict>>,
 }
 
@@ -168,6 +168,9 @@ struct Signals {
     /// Verdicts of reviews, and how many were KO.
     reviews: usize,
     ko: usize,
+    /// The reviews of each change with one, and how many of those changes passed their first.
+    passes: Vec<f64>,
+    first_ok: usize,
     /// Runs of mutation testing in G3, and how many were red.
     runs: usize,
     red: usize,
@@ -188,6 +191,10 @@ impl Signals {
         self.parks += count(&records, |r| is(r, "result", "parked"));
         self.reviews += reviews.len();
         self.ko += reviews.iter().filter(|v| **v == Verdict::Ko).count();
+        if let Some(first) = reviews.first() {
+            self.passes.push(reviews.len() as f64);
+            self.first_ok += usize::from(*first == Verdict::Ok);
+        }
         self.runs += count(&records, mutation);
         self.red += count(&records, |r| mutation(r) && is(r, "result", "ko"));
         self.stops += decisions + usize::from(sat(&records));
@@ -226,6 +233,15 @@ fn percent(n: usize, d: usize) -> usize {
 fn tenths(n: usize, d: usize) -> String {
     let tenths = (n * 20 + d) / (2 * d);
     format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// `value` with one decimal, or none when it is whole: `2.5`, `2`.
+fn decimal(value: f64) -> String {
+    let text = format!("{value:.1}");
+    match text.strip_suffix(".0") {
+        Some(whole) => whole.to_string(),
+        None => text,
+    }
 }
 
 /// `n` of `d` as a whole percent and the counts, with `noun` after them; `no data yet` without
@@ -445,6 +461,15 @@ impl Delivery {
         let polish = share(s.polish, s.decisions, " decisions");
         let parks = per_change(s.parks, s.changes);
         let reviews = share(s.ko, s.reviews, " reviews");
+        let passes = match median(s.passes.clone()) {
+            Some(m) => format!(
+                "median {} per change · first review OK in {} of {} changes",
+                decimal(m),
+                s.first_ok,
+                s.passes.len()
+            ),
+            None => NO_DATA.to_string(),
+        };
         let mutation = match s.runs {
             0 => NO_DATA.to_string(),
             runs => format!("{} of {runs} runs", s.red),
@@ -459,6 +484,7 @@ impl Delivery {
             format!("  Polish at G4: {polish}"),
             format!("  Parks: {parks}"),
             format!("  Reviewer KO: {reviews}"),
+            format!("  Reviews to pass: {passes}"),
             format!("  Mutation testing red in G3: {mutation}"),
             format!("  Human stops: {stops}"),
             format!("  Tokens out: {tokens}"),
@@ -491,6 +517,9 @@ struct Numbers {
     polish_rate: Option<f64>,
     parks_per_change: Option<f64>,
     reviewer_ko_rate: Option<f64>,
+    reviews_to_pass_median: Option<f64>,
+    first_review_ok: usize,
+    reviewed_changes: usize,
     mutation_red: Option<usize>,
     mutation_runs: usize,
     stops_per_change: Option<f64>,
@@ -514,6 +543,9 @@ impl Serialize for Delivery {
             polish_rate: ratio(s.polish, s.decisions),
             parks_per_change: ratio(s.parks, s.changes),
             reviewer_ko_rate: ratio(s.ko, s.reviews),
+            reviews_to_pass_median: median(s.passes.clone()),
+            first_review_ok: s.first_ok,
+            reviewed_changes: s.passes.len(),
             mutation_red: (s.runs > 0).then_some(s.red),
             mutation_runs: s.runs,
             stops_per_change: ratio(s.stops, s.changes),
@@ -620,7 +652,7 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], "No deployment in the log yet.");
         assert_eq!(lines[1], "GDD signals (signs to read, never targets)");
-        assert_eq!(lines.len(), 8);
+        assert_eq!(lines.len(), 9);
         assert_eq!(
             shown(&[]).lines().next(),
             Some("No deployment in the log yet.")
@@ -892,6 +924,77 @@ mod tests {
         assert_eq!(json["reviewer_ko_rate"], 1.0 / 3.0);
     }
 
+    /// For each of `changes`, its id, a day `DD` of October 2026 and its verdicts: a line of it
+    /// on that day, and the verdicts of its reviews in the records.
+    fn reviewed(changes: &[(&str, &str, Vec<Verdict>)]) -> (Vec<String>, Records) {
+        let created = |(id, day, _): &(&str, &str, Vec<Verdict>)| {
+            let at = format!("{day}T10:00");
+            by(&at, id, "orchestrator", "-", "change-created")
+        };
+        let kept =
+            |(id, _, verdicts): &(&str, &str, Vec<Verdict>)| (id.to_string(), verdicts.clone());
+        let records = Records {
+            reviews: changes.iter().map(kept).collect(),
+            ..Records::default()
+        };
+        (changes.iter().map(created).collect(), records)
+    }
+
+    /// The line on reviews to pass of the report of `rows` with `records`, since the day
+    /// `since` when given.
+    fn passes(rows: &[String], records: &Records, since: Option<&str>) -> String {
+        let text = delivery_of(rows, records, since).to_string();
+        let line = text
+            .lines()
+            .find(|line| line.starts_with("  Reviews to pass: "));
+        line.unwrap_or_default().to_string()
+    }
+
+    #[test]
+    fn reviews_to_pass_is_the_median_over_the_changes_reviewed_and_their_first_verdict() {
+        let (ok, ko) = (Verdict::Ok, Verdict::Ko);
+        let (rows, records) = reviewed(&[
+            ("a", "20", vec![ko, ok]),
+            ("b", "21", vec![ok]),
+            ("c", "22", vec![ko, ko, ko, ok]),
+            ("d", "22", vec![]),
+        ]);
+        let odd = "  Reviews to pass: median 2 per change · first review OK in 1 of 3 changes";
+        assert_eq!(passes(&rows, &records, None), odd);
+        let even = "  Reviews to pass: median 2.5 per change · first review OK in 1 of 2 changes";
+        assert_eq!(passes(&rows, &records, Some("2026-10-21")), even);
+        let numbers = serde_json::to_value(delivery_of(&rows, &records, None)).unwrap();
+        assert_eq!(numbers["reviews_to_pass_median"], 2.0);
+        assert_eq!(numbers["first_review_ok"], 1);
+        assert_eq!(numbers["reviewed_changes"], 3);
+        let (rows, records) = reviewed(&[("a", "20", vec![ok, ko]), ("b", "21", vec![ko])]);
+        let half = "  Reviews to pass: median 1.5 per change · first review OK in 1 of 2 changes";
+        assert_eq!(passes(&rows, &records, None), half);
+        let one = "  Reviews to pass: median 1 per change · first review OK in 0 of 1 changes";
+        assert_eq!(passes(&rows, &records, Some("2026-10-21")), one);
+    }
+
+    #[test]
+    fn without_a_change_reviewed_reviews_to_pass_has_no_data() {
+        let none = "  Reviews to pass: no data yet";
+        let (rows, records) = reviewed(&[("a", "20", vec![])]);
+        assert_eq!(passes(&rows, &records, None), none);
+        let numbers = serde_json::to_value(delivery_of(&rows, &records, None)).unwrap();
+        assert_eq!(numbers["reviews_to_pass_median"], serde_json::Value::Null);
+        assert_eq!(numbers["first_review_ok"], 0);
+        assert_eq!(numbers["reviewed_changes"], 0);
+        let (rows, records) = reviewed(&[("a", "20", vec![Verdict::Ok])]);
+        assert_eq!(passes(&rows, &records, Some("2026-10-21")), none);
+    }
+
+    #[test]
+    fn a_median_shows_one_decimal_only_when_it_is_not_whole() {
+        assert_eq!(decimal(2.0), "2");
+        assert_eq!(decimal(2.5), "2.5");
+        assert_eq!(decimal(0.0), "0");
+        assert_eq!(decimal(10.5), "10.5");
+    }
+
     #[test]
     fn mutation_testing_red_counts_the_runs_of_g3_not_other_commands() {
         let rows = [
@@ -1011,6 +1114,6 @@ mod tests {
                 "GDD signals (signs to read, never targets)",
             ]
         );
-        assert_eq!(lines.len(), 15);
+        assert_eq!(lines.len(), 16);
     }
 }

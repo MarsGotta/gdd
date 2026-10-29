@@ -20,7 +20,7 @@ It contains `change=<id>` and `round=1` or `round=2`.
 
 You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders.
 
-- `<state>/.gdd/changes/<id>/package.md` (what was asked) and `<state>/.gdd/changes/<id>/change.json` (color and gates).
+- `<state>/.gdd/changes/<id>/package.md` (what was asked) and `<state>/.gdd/changes/<id>/change.json` (color, gates and earlier reviews).
 - The change `.feature` files.
 - The whole change: `git diff main...HEAD` and, if any, `git status` and the new files.
 - `<state>/.gdd/changes/<id>/g2.json` and `<state>/.gdd/changes/<id>/g3.json`.
@@ -34,11 +34,18 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 4. If the color is red: security (data, permissions, secrets, unvalidated input).
 5. Done is not good: code that only looks finished (placeholders, half-wired options, messages that promise missing behaviour), abstractions nobody uses yet, and anything that breaks `docs/standards.md`. Name it as blocking only when a standard or a scenario is broken; otherwise as an improvement.
 
-In **round 2** you only check that the round 1 KO reasons were fixed. You open no new topics unless they are blocking.
+## Earlier reviews
+
+Read `reviews` in `<state>/.gdd/changes/<id>/change.json`: gdd keeps there every review of the change, in order, relaunches included. The last entry is this review; its `changed` lists the files that changed since the review before. The `output` of each entry is where its answer is kept, from `<state>/.gdd/changes/<id>/`.
+
+- **First review** (no earlier entry with a verdict): Give every finding in one pass. Walk every point of `package.md` and every scenario before answering. Name each finding with an id (F1, F2...), its class of bug (for example: an unchecked input, a path followed through a link, an error branch without a test), its `file:line` and every other place in the change where the same class occurs.
+- **Later review** (an earlier entry has a verdict): read the output of each earlier review and say, for each of its blocking findings, whether it is fixed; keep their ids, and give new findings the next ones. You never repeat a finding already settled. Look for new findings only in the files that changed since the last review (`changed` of the last entry). Outside those files, a finding blocks only if it loses data, opens a security hole or breaks an approved scenario; mark it "missed earlier".
+
+In **round 2** you only check that the round 1 KO reasons were fixed. You open no new topics unless they are blocking. Read this together with the earlier reviews: a round 1 after a relaunch is a later review when the record has earlier ones.
 
 ## Answer format
 
-A short list of findings, each with `file:line`, what fails and why it blocks. Non-blocking items go to an «Improvements» section and do not count for the verdict.
+A short list of findings. In a later review, first the earlier blocking findings, by id: fixed or not. Then the blocking findings, each with what fails and why it blocks, as `F<n> · <class> · file:line · what fails · other places`. Non-blocking items go to an «Improvements» section and do not count for the verdict.
 
 The **last line** is exactly one of these:
 

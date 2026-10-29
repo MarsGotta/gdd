@@ -1349,6 +1349,46 @@ fn record_state(w: &mut GddWorld, id: String, state: String) {
     assert_eq!(record["state"], state.as_str(), "record {record}");
 }
 
+/// The entries of `reviews` in the record of `id`; a record without the field has none.
+fn record_reviews(w: &mut GddWorld, id: &str) -> Vec<serde_json::Value> {
+    let record = read_record(&project_root(w), id);
+    record["reviews"].as_array().cloned().unwrap_or_default()
+}
+
+#[then(expr = "the record of {string} lists the reviews {string}")]
+fn record_lists_reviews(w: &mut GddWorld, id: String, verdicts: String) {
+    let found: Vec<String> = record_reviews(w, &id)
+        .iter()
+        .map(|r| r["verdict"].as_str().unwrap_or("none").to_string())
+        .collect();
+    assert_eq!(found.join(", "), verdicts, "reviews of {id}: {found:?}");
+}
+
+#[then(expr = "review {int} of {string} lists the changed file {string}")]
+fn review_lists_changed_file(w: &mut GddWorld, n: usize, id: String, file: String) {
+    let reviews = record_reviews(w, &id);
+    let entry = n
+        .checked_sub(1)
+        .and_then(|i| reviews.get(i))
+        .unwrap_or_else(|| panic!("review {n} of {id} is not in the record: {reviews:?}"));
+    let changed = entry["changed"].as_array().cloned().unwrap_or_default();
+    assert!(
+        changed.iter().any(|c| c == file.as_str()),
+        "review {n} of {id} lacks {file}: {entry}"
+    );
+}
+
+#[then(expr = "review {int} of {string} lists no changed files")]
+fn review_lists_no_changed_files(w: &mut GddWorld, n: usize, id: String) {
+    let reviews = record_reviews(w, &id);
+    let entry = n
+        .checked_sub(1)
+        .and_then(|i| reviews.get(i))
+        .unwrap_or_else(|| panic!("review {n} of {id} is not in the record: {reviews:?}"));
+    let changed = entry["changed"].as_array().map_or(0, Vec::len);
+    assert_eq!(changed, 0, "review {n} of {id} lists changes: {entry}");
+}
+
 #[then(expr = "the file {string} contains {string}")]
 fn file_contains(w: &mut GddWorld, path: String, text: String) {
     // The step text escapes the quotes inside the text.

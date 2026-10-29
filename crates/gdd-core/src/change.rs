@@ -226,6 +226,41 @@ fn resolved_where(
     written(&record)
 }
 
+/// A call of the Reviewer on a change, as its record keeps it in `reviews`: only gdd writes them,
+/// one for each call, in the order of the calls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Review {
+    /// The output the call keeps, from the folder of the change: `outputs/reviewer-<n>.md`.
+    pub output: String,
+    /// `OK` or `KO` once the call ended; `None` before, or when the call stopped the recipe.
+    #[serde(default)]
+    pub verdict: Option<String>,
+    /// The paths whose hash changed since the review before, new and gone ones included, sorted;
+    /// `None` for the first review of the change.
+    #[serde(default)]
+    pub changed: Option<Vec<String>>,
+    /// The hashes of what the change touched right before the call, as a snapshot takes them.
+    #[serde(default)]
+    pub hashes: BTreeMap<String, String>,
+}
+
+/// The reviews the record `text` keeps (see [`Review`]): none when it has no `reviews`, or
+/// `null`.
+pub fn reviews(text: &str) -> Result<Vec<Review>, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct Raw {
+        #[serde(default)]
+        reviews: Option<Vec<Review>>,
+    }
+    let raw: Raw = serde_json::from_str(text)?;
+    Ok(raw.reviews.unwrap_or_default())
+}
+
+/// The record `text` with `reviews` as its reviews; every other field keeps its value.
+pub fn with_reviews(text: &str, reviews: &[Review]) -> Result<String, serde_json::Error> {
+    with_fields(text, vec![("reviews", serde_json::to_value(reviews)?)])
+}
+
 /// The kind of work the record `text` says its change is (`Feature`, `Spike`...): `Feature`
 /// when it says none.
 pub fn kind(text: &str) -> Result<String, serde_json::Error> {
@@ -832,6 +867,57 @@ mod tests {
         assert_eq!(value["inbox"][4]["resolved"], "now");
         assert!(with_request_resolved("{not json", "G4?", "now").is_err());
         assert_eq!(POLISH, "polish");
+    }
+
+    #[test]
+    fn a_record_without_reviews_has_none() {
+        for text in ["{}", r#"{"reviews": null}"#, r#"{"reviews": []}"#] {
+            assert!(reviews(text).unwrap().is_empty(), "{text}");
+        }
+        let wrong = [
+            r#"{"reviews": {}}"#,
+            r#"{"reviews": [{"verdict": "OK"}]}"#,
+            "3",
+        ];
+        for text in wrong {
+            assert!(reviews(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_reviews_are_written_in_the_record_and_keep_the_rest() {
+        let first = Review {
+            output: "outputs/reviewer-1.md".to_string(),
+            verdict: Some("KO".to_string()),
+            changed: None,
+            hashes: BTreeMap::from([("src/a.rs".to_string(), "ab".to_string())]),
+        };
+        let second = Review {
+            output: "outputs/reviewer-2.md".to_string(),
+            verdict: None,
+            changed: Some(vec!["src/a.rs".to_string()]),
+            hashes: BTreeMap::new(),
+        };
+        let text = r#"{"id": "c1", "inbox": [1]}"#;
+        let written = with_reviews(text, &[first.clone(), second.clone()]).unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        assert_eq!(reviews(&written).unwrap(), [first, second]);
+        let value: Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(value["id"], "c1");
+        assert_eq!(value["inbox"], serde_json::json!([1]));
+        let kept = serde_json::json!({
+            "output": "outputs/reviewer-2.md",
+            "verdict": null,
+            "changed": ["src/a.rs"],
+            "hashes": {},
+        });
+        assert_eq!(value["reviews"][1], kept);
+        assert_eq!(value["reviews"][0]["changed"], Value::Null);
+        let short = r#"{"reviews": [{"output": "outputs/reviewer-1.md"}]}"#;
+        let [read] = reviews(short).unwrap().try_into().unwrap();
+        assert_eq!((read.verdict, read.changed), (None, None));
+        assert!(read.hashes.is_empty());
+        assert!(with_reviews("[]", &[]).is_err());
     }
 
     #[test]

@@ -8,8 +8,9 @@
 //!    the replans: the Orchestrator, test mode again when it says so, and one more round. Still
 //!    red, the change parks.
 //! 3. G3. Red: one fix by the Builder, G2, and G3 again, which decides. Still red, it parks.
-//! 4. When the change has a Reviewer: its review. KO: one fix, G2, G3 and a second review. KO,
-//!    or G3 red, it parks.
+//! 4. When the change has a Reviewer: its review, which the record of the change keeps with the
+//!    files that changed since the review before, relaunches included. KO: one fix, G2, G3 and a
+//!    second review. KO, or G3 red, it parks.
 //! 5. G3 opened by the machines, merge, pre. Merges go one at a time; when main moved since the
 //!    change was built, the change takes the latest main and passes G3 again on top of it before
 //!    it merges: a conflict, or G3 red, parks it.
@@ -171,6 +172,14 @@ pub trait Steps {
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String>;
     /// Records what the change touched, as it is now, in `snapshot`.
     fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String>;
+    /// Before a relaunch prepares the change again, Path Guard for build mode on what it touched
+    /// since its build started, judged from the build snapshot, and the scope check: their
+    /// failures, a check that cannot judge failing with the reason. `None` without a build
+    /// snapshot: test mode never passed its Path Guard, or did not run.
+    fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String>;
+    /// The hashes of what the change touched, as they are now: what a snapshot records (see
+    /// [`guard::snapshot`]).
+    fn hashes(&mut self) -> Result<guard::Hashes, String>;
     /// Runs `gate` for build mode, saved and logged: whether it passed.
     fn gate(&mut self, gate: Gate) -> Result<bool, String>;
     /// Records the decision `decision` (`ok` or `ko`) on `gate` of the change, by `by`, with
@@ -275,11 +284,12 @@ enum Ended {
 }
 
 /// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
-/// worktree of change `id` or reuses it (see [`worktree::open`]), prepares the change and runs
-/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only while
-/// the cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that judgement
-/// until prepare makes the change building, it holds the launch lock (see [`queue::admission`]):
-/// two launches at once never both pass it. Once prepared, it warns of the changes in flight the
+/// worktree of change `id` or reuses it (see [`worktree::open`]), with the work of an earlier run
+/// there committed once the gates accept it (see [`earlier_work`]), prepares the change and runs
+/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only while the
+/// cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that judgement until
+/// prepare makes the change building, it holds the launch lock (see [`queue::admission`]): two
+/// launches at once never both pass it. Once prepared, it warns of the changes in flight the
 /// change overlaps (see [`warned`]).
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
@@ -288,6 +298,7 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
     let warnings = queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
     worktree::open(project.root, project.worktree, id)?;
+    earlier_work(project.work, id, steps)?;
     state::clear(project.state, id)?;
     let decided = steps.prepare()?;
     drop(admitted);
@@ -353,20 +364,46 @@ fn from_main_checkout(project: &Project, command: &str) -> Result<(), String> {
 
 /// Leaves the main checkout of `project` on the main branch before change `id` runs in its
 /// worktree. On the branch of the change, its work there is the work of an earlier run,
-/// committed first, without the state (see [`Git::commit_work`]); on any other branch,
-/// uncommitted changes in tracked files are refused.
+/// committed first (see [`earlier_run`]): a person's, as the agents work in the worktree; on any
+/// other branch, uncommitted changes in tracked files are refused.
 fn to_main(project: &Project, id: &str) -> Result<(), String> {
     let git = Git::new(project.root);
     let said = |e: git::Error| e.to_string();
     if git.current_branch().map_err(said)? == change::branch(id) {
-        if git.has_work().map_err(said)? {
-            let message = format!("gdd({id}): work of the earlier run, before relaunch");
-            git.commit_work(&message).map_err(said)?;
-        }
+        earlier_run(project.root, id).map_err(said)?;
     } else if git.has_tracked_changes().map_err(said)? {
         return Err(UNCOMMITTED.to_string());
     }
     git.checkout(project.main).map_err(said)
+}
+
+/// Commits the work of an earlier run of change `id` left in the project at `root`, on the
+/// branch of the change, when there is any, without the state (see [`Git::commit_work`]): a
+/// relaunch judges it as it judges committed work, and its build starts after it, so what test
+/// mode wrote before is not build mode's doing.
+fn earlier_run(root: &Path, id: &str) -> Result<(), git::Error> {
+    let git = Git::new(root);
+    if git.has_work()? {
+        let message = format!("gdd({id}): work of the earlier run, before relaunch");
+        git.commit_work(&message)?;
+    }
+    Ok(())
+}
+
+/// The work the agents of an earlier run of change `id` left in its worktree, at `work`,
+/// committed (see [`earlier_run`]) only once the gates of that run accept it, judged as they
+/// judged it, from its build snapshot (see [`Steps::guard_earlier`]). Otherwise it stays as it
+/// is, and the gates of the relaunch judge it from where its build starts: committed, it would
+/// fall behind that start, and a protected path no gate passed would leave their sight.
+fn earlier_work(work: &Path, id: &str, steps: &mut impl Steps) -> Result<(), String> {
+    let said = |e: git::Error| e.to_string();
+    if !Git::new(work).has_work().map_err(said)? {
+        return Ok(());
+    }
+    match steps.guard_earlier()? {
+        Some(failures) if failures.is_empty() => earlier_run(work, id).map_err(said),
+        Some(_) | None => Ok(()),
+    }
 }
 
 /// A change at its merge.
@@ -957,21 +994,81 @@ impl<S: Steps> Run<'_, S> {
     /// The Reviewer; KO, one fix by the Builder, G2, G3 and a second review. KO, or G3 red, the
     /// change parks.
     fn review(&mut self) -> Result<(), Stop> {
-        let (state, id) = (self.project.state, self.id);
-        self.call(Who::Reviewer, "round=1")?;
-        if verdict::review(state, id)? {
+        if self.reviewed("round=1")? {
             return Ok(());
         }
         self.call(Who::BuilderBuild, "mode=build fix=review")?;
         self.steps.gate(Gate::G2)?;
         let g3 = self.steps.gate(Gate::G3)?;
-        self.call(Who::Reviewer, "round=2")?;
-        if verdict::review(state, id)? && g3 {
+        if self.reviewed("round=2")? && g3 {
             Ok(())
         } else {
             Err(Stop::Park(REVIEW_KO.to_string()))
         }
     }
+
+    /// The Reviewer with `args`, kept in the record of the change: its review right before the
+    /// call (see [`review_begun`]), its verdict right after it (see [`review_ended`]). A call that
+    /// stops the recipe leaves its review without a verdict. Whether the Reviewer said OK.
+    fn reviewed(&mut self, args: &str) -> Result<bool, Stop> {
+        let (state, id) = (self.project.state, self.id);
+        let hashes = self.steps.hashes()?;
+        review_begun(state, id, hashes)?;
+        self.call(Who::Reviewer, args)?;
+        let ok = verdict::review(state, id)?;
+        review_ended(state, id, ok)?;
+        Ok(ok)
+    }
+}
+
+/// Adds to the reviews of change `id`, in its record under the state root `state`, the review of
+/// the call of the Reviewer about to start (see [`change::Review`]), with no verdict yet: the
+/// output the call keeps (see [`review_output`]), `hashes`, what the change touched as it is now,
+/// and, after a first review, the paths whose hash changed since the review before (see
+/// [`differ`]).
+fn review_begun(state: &Path, id: &str, hashes: guard::Hashes) -> Result<(), String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let invalid = |e: serde_json::Error| format!("{path}: {e}");
+    let mut reviews = change::reviews(&text).map_err(invalid)?;
+    let changed = reviews.last().map(|last| differ(&last.hashes, &hashes));
+    reviews.push(change::Review {
+        output: review_output(state, id)?,
+        verdict: None,
+        changed,
+        hashes,
+    });
+    let written = change::with_reviews(&text, &reviews).map_err(invalid)?;
+    change::write(state, &path, &written)
+}
+
+/// Gives the last review of change `id`, in its record under the state root `state`, the
+/// verdict of its call: `OK` when it is `ok`, else `KO`.
+fn review_ended(state: &Path, id: &str, ok: bool) -> Result<(), String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let invalid = |e: serde_json::Error| format!("{path}: {e}");
+    let mut reviews = change::reviews(&text).map_err(invalid)?;
+    if let Some(last) = reviews.last_mut() {
+        last.verdict = Some(if ok { "OK" } else { "KO" }.to_string());
+    }
+    let written = change::with_reviews(&text, &reviews).map_err(invalid)?;
+    change::write(state, &path, &written)
+}
+
+/// The output the next call of the Reviewer on change `id` keeps, from the folder of the change:
+/// `outputs/reviewer-<n>.md`, `n` after the lines of the Reviewer on the change in the log under
+/// the state root `state`, as the call numbers it (see [`invoke::run`]). Lines that are not JSON
+/// objects are left out; a log that is not a file of its own is an error.
+fn review_output(state: &Path, id: &str) -> Result<String, String> {
+    let unread = |e: io::Error| format!("cannot read {}: {e}", log::PATH);
+    let bytes = files::read(state, log::PATH).map_err(unread)?;
+    let text = String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned();
+    let role = Who::Reviewer.role();
+    let parsed = |line: &str| serde_json::from_str::<Value>(line).ok();
+    let theirs = |line: &Value| line["change"] == id && line["role"] == role;
+    let earlier = text.lines().filter_map(parsed).filter(theirs).count();
+    Ok(format!("outputs/{role}-{}.md", earlier + 1))
 }
 
 /// What a file of GDD state is during an agent call, which says how it may change.
@@ -1251,9 +1348,11 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    /// A git repository with one commit, as a folder.
+    /// A git repository with one commit and the record of change `c1`, as a folder.
     fn repo_folder() -> Folder {
-        Repo::new().0
+        let folder = Repo::new().0;
+        folder.write(&change::record_path("c1"), "{}\n");
+        folder
     }
 
     /// A model named `name`.
@@ -1279,10 +1378,11 @@ mod tests {
     }
 
     /// The steps of the recipe, played: what ran, in order, with scripted answers. A gate
-    /// passes once its answers run out; the Reviewer says OK, and the replan build mode. Each
-    /// call of an agent does what `acts` gives it to do, on the project root, and a release step
-    /// what `released` gives it. A release step, or a decision on a gate, named in `fails` fails
-    /// with what it gives.
+    /// passes once its answers run out; the Reviewer says OK, and the replan build mode; what the
+    /// change touched hashes to nothing; the work of an earlier run passes the gates. Each call
+    /// of an agent does what `acts` gives it to do, on the project root, and a release step what
+    /// `released` gives it. A release step, or a decision on a gate, named in `fails` fails with
+    /// what it gives.
     struct Played<'a> {
         root: &'a Path,
         ran: Vec<String>,
@@ -1290,8 +1390,10 @@ mod tests {
         g2: VecDeque<bool>,
         g3: VecDeque<bool>,
         reviews: VecDeque<&'static str>,
+        hashes: VecDeque<guard::Hashes>,
         replan: &'static str,
         guard: Vec<String>,
+        earlier: Option<Vec<String>>,
         stuck: Option<Who>,
         acts: Vec<(Who, Act)>,
         released: Vec<(&'static str, Act)>,
@@ -1309,8 +1411,10 @@ mod tests {
             g2: VecDeque::new(),
             g3: VecDeque::new(),
             reviews: VecDeque::new(),
+            hashes: VecDeque::new(),
             replan: "NEXT: build",
             guard: Vec::new(),
+            earlier: Some(Vec::new()),
             stuck: None,
             acts: Vec::new(),
             released: Vec::new(),
@@ -1393,6 +1497,15 @@ mod tests {
         fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
             self.ran.push(format!("snapshot {snapshot:?}"));
             Ok(())
+        }
+
+        fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String> {
+            self.ran.push("guard earlier".into());
+            Ok(self.earlier.clone())
+        }
+
+        fn hashes(&mut self) -> Result<guard::Hashes, String> {
+            Ok(self.hashes.pop_front().unwrap_or_default())
         }
 
         fn gate(&mut self, gate: Gate) -> Result<bool, String> {
@@ -1692,6 +1805,149 @@ mod tests {
         }
     }
 
+    /// The reviews the record of change `c1` of the project at `root` keeps.
+    fn reviews_of(root: &Path) -> Vec<change::Review> {
+        change::reviews(&change::read_record(root, "c1").unwrap()).unwrap()
+    }
+
+    /// The hashes of `pairs`: each path with its hash.
+    fn hashed(pairs: &[(&str, &str)]) -> guard::Hashes {
+        let owned = |(path, hash): &(&str, &str)| (path.to_string(), hash.to_string());
+        pairs.iter().map(owned).collect()
+    }
+
+    /// A review of the record: its output, `outputs/reviewer-<n>.md`, its verdict, what changed
+    /// and its hashes.
+    fn kept(
+        n: usize,
+        verdict: Option<&str>,
+        changed: Option<&[&str]>,
+        hashes: &guard::Hashes,
+    ) -> change::Review {
+        change::Review {
+            output: format!("outputs/reviewer-{n}.md"),
+            verdict: verdict.map(str::to_string),
+            changed: changed.map(|paths| paths.iter().map(|path| path.to_string()).collect()),
+            hashes: hashes.clone(),
+        }
+    }
+
+    /// What a Reviewer call does besides its answer: its line in the log, as gdd writes it, and
+    /// a look at its review in the record, which has no verdict yet.
+    fn reviewing(root: &Path) {
+        let reviews = reviews_of(root);
+        let review = reviews.last().expect("its review");
+        assert_eq!(review.verdict, None, "{review:?}");
+        log::append(root, r#"{"change": "c1", "role": "reviewer"}"#).unwrap();
+    }
+
+    #[test]
+    fn every_review_is_kept_with_its_verdict_and_what_changed_since_the_one_before() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO"]);
+        steps.acts = vec![(Who::Reviewer, reviewing as Act)];
+        let first = hashed(&[("src/a.rs", "1"), ("tests/a.rs", "1")]);
+        let second = hashed(&[("src/a.rs", "2"), ("tests/a.rs", "1")]);
+        steps.hashes = VecDeque::from([first.clone(), second.clone()]);
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        let expected = [
+            kept(1, Some("KO"), None, &first),
+            kept(2, Some("OK"), Some(&["src/a.rs"]), &second),
+        ];
+        assert_eq!(reviews_of(&folder.0), expected);
+        // New and gone files changed too; one with the same hash did not.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO"]);
+        let first = hashed(&[("a", "1"), ("b", "1"), ("d", guard::DELETED)]);
+        let second = hashed(&[("b", "1"), ("c", "1"), ("d", guard::DELETED)]);
+        steps.hashes = VecDeque::from([first, second]);
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        let changed = reviews_of(&folder.0)
+            .pop()
+            .and_then(|review| review.changed);
+        assert_eq!(changed, Some(vec!["a".to_string(), "c".to_string()]));
+    }
+
+    #[test]
+    fn the_reviews_of_a_relaunch_follow_the_earlier_ones() {
+        let folder = repo_folder();
+        let hashes = [
+            hashed(&[("a", "1")]),
+            hashed(&[("a", "2")]),
+            hashed(&[("a", "3")]),
+        ];
+        for scripted in [&hashes[..2], &hashes[1..]] {
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.reviews = VecDeque::from(["VERDICT: KO", "VERDICT: KO"]);
+            steps.acts = vec![(Who::Reviewer, reviewing as Act)];
+            steps.hashes = scripted.iter().cloned().collect();
+            assert_eq!(launched(&mut steps, 1), park(REVIEW_KO));
+        }
+        let ko = Some("KO");
+        let expected = [
+            kept(1, ko, None, &hashes[0]),
+            kept(2, ko, Some(&["a"]), &hashes[1]),
+            kept(3, ko, Some(&[]), &hashes[1]),
+            kept(4, ko, Some(&["a"]), &hashes[2]),
+        ];
+        assert_eq!(reviews_of(&folder.0), expected);
+    }
+
+    #[test]
+    fn a_review_whose_call_stops_the_recipe_has_no_verdict() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.stuck = Some(Who::Reviewer);
+        let why = "the Reviewer did not answer within 2 seconds";
+        assert_eq!(launched(&mut steps, 1), park(why));
+        let none = guard::Hashes::new();
+        assert_eq!(reviews_of(&folder.0), [kept(1, None, None, &none)]);
+        // A record that cannot be read stops the recipe before the call.
+        let folder = repo_folder();
+        fs::write(folder.0.join(change::record_path("c1")), "{\"reviews\": 1}").unwrap();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        let ended = launched(&mut steps, 1);
+        let start = ".gdd/changes/c1/change.json: ";
+        assert!(
+            matches!(&ended, Err(Stop::Fail(e)) if e.starts_with(start)),
+            "{ended:?}"
+        );
+        assert_eq!(last(&steps), "G3");
+    }
+
+    #[test]
+    fn the_output_of_a_review_follows_the_calls_of_the_reviewer_on_the_change_in_the_log() {
+        let folder = Folder::new();
+        assert_eq!(
+            review_output(&folder.0, "c1"),
+            Ok("outputs/reviewer-1.md".into())
+        );
+        let lines = [
+            r#"{"change": "c1", "role": "reviewer"}"#,
+            r#"{"change": "c2", "role": "reviewer"}"#,
+            r#"{"change": "c1", "role": "builder-build"}"#,
+            "not json",
+            "[1]",
+            r#"{"change": "c1", "role": "reviewer", "result": "timeout"}"#,
+        ];
+        folder.write(log::PATH, &lines.join("\n"));
+        assert_eq!(
+            review_output(&folder.0, "c1"),
+            Ok("outputs/reviewer-3.md".into())
+        );
+        let folder = Folder::new();
+        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
+        let err = review_output(&folder.0, "c1").unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+    }
+
     #[test]
     fn a_change_without_a_reviewer_is_not_reviewed() {
         let folder = repo_folder();
@@ -1769,14 +2025,22 @@ mod tests {
         assert!(!folder.0.join(approve::G0_PATH).exists());
         assert_eq!(text(&folder, approve::ZONES_PATH), "ok");
         assert_eq!(text(&folder, log::PATH), LOG_LINE);
-        // A record that went away comes back, even with its folder.
+        // A record that went away comes back, even with its folder, as gdd left it before the
+        // call: with its review, without a verdict.
         let folder = with_state();
         let ended = acting(&folder, Who::Reviewer, |root| {
             fs::remove_file(root.join(change::record_path("c1"))).unwrap();
         });
         let why = format!("the Reviewer changed GDD state: {record}");
         assert_eq!(ended, park(&why));
-        assert_eq!(text(&folder, &record), RECORD);
+        let review = change::Review {
+            output: "outputs/reviewer-1.md".to_string(),
+            verdict: None,
+            changed: None,
+            hashes: guard::Hashes::new(),
+        };
+        let reviewed = change::with_reviews(RECORD, &[review]).unwrap();
+        assert_eq!(text(&folder, &record), reviewed);
         let folder = with_state();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
             fs::remove_dir_all(root.join(".gdd/changes")).unwrap();
@@ -1898,12 +2162,15 @@ mod tests {
         steps.replan = "NEXT: test";
         assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
         assert_eq!(text(&folder, &verdict::replan_path("c1")), "NEXT: test\n");
-        // Without a record or a log before the call, nothing counts but what the call wrote.
+        // Without a record or a log before the call, nothing counts but what the call wrote. A
+        // review would write the record.
         let folder = repo_folder();
-        let ended = acting(&folder, Who::BuilderBuild, |root| {
-            log::append(root, "{}").unwrap();
-        });
-        assert_eq!(ended, Ok(Ended::Closed));
+        fs::remove_file(folder.0.join(change::record_path("c1"))).unwrap();
+        let mut steps = played(&folder.0);
+        steps.decided.reviewer = false;
+        let logs: Act = |root| log::append(root, "{}").unwrap();
+        steps.acts = vec![(Who::BuilderBuild, logs)];
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
         let ended = acting(&folder, Who::BuilderBuild, |root| {
             change::write(root, &change::record_path("c1"), "{}").unwrap();
         });
@@ -2509,6 +2776,56 @@ mod tests {
         assert_eq!(committed, ".gitignore");
         assert_eq!(record(root)["state"], "parked");
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
+    }
+
+    /// Launches change `c1` of `repo` again, with code that passes G2 already and a Reviewer that
+    /// never answers, after the gates judged the work of the earlier run in its worktree with
+    /// `earlier` (see [`Steps::guard_earlier`]): what ran.
+    fn relaunched(repo: &Checkout, earlier: Option<Vec<String>>) -> Vec<String> {
+        let mut steps = played(repo.root());
+        steps.decided.resume_green = true;
+        steps.stuck = Some(Who::Reviewer);
+        steps.earlier = earlier;
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(parked(said).starts_with("Change c1 parked: "));
+        steps.ran
+    }
+
+    #[test]
+    fn a_relaunch_keeps_the_earlier_work_in_the_worktree_as_a_commit() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
+        let ran = relaunched(&repo, Some(Vec::new()));
+        assert_eq!(ran[..2], ["guard earlier", "prepare"]);
+        let committed = repo.git(&["show", "--name-only", "--format=%s", "change/c1"]);
+        let subject = "gdd(c1): work of the earlier run, before relaunch";
+        assert_eq!(committed, format!("{subject}\n\ntests/steps/a.txt"));
+        let work = Git::new(&repo.work);
+        assert!(!work.has_changes().unwrap());
+        // Without work left there, nothing is judged or committed.
+        let head = work.head().unwrap();
+        assert_eq!(relaunched(&repo, Some(Vec::new()))[0], "prepare");
+        assert_eq!(work.head().unwrap(), head);
+    }
+
+    #[test]
+    fn a_relaunch_leaves_uncommitted_the_earlier_work_the_gates_did_not_pass() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let work = Git::new(&repo.work);
+        let head = work.head().unwrap();
+        change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
+        // Path Guard or the scope check failed on it, or test mode never passed its Path Guard.
+        let failed = vec!["gdd/commands.toml: protected path for builder-build".to_string()];
+        for earlier in [Some(failed), None] {
+            let ran = relaunched(&repo, earlier);
+            assert_eq!(ran[..2], ["guard earlier", "prepare"]);
+            assert_eq!(work.head().unwrap(), head);
+            assert!(work.has_changes().unwrap());
+        }
     }
 
     #[test]
