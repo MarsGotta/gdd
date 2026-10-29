@@ -418,7 +418,7 @@ fn review_texts(
 
 /// The class of the finding a line names, in lower case: `F<digits> · <class> · ...`, once
 /// trimmed and without the leading `-` and `*`. `None` when the line is not a finding or its
-/// class is blank.
+/// class is blank. The Markdown emphasis (`*`, `_`) around the class is trimmed.
 fn finding_class(line: &str) -> Option<String> {
     let line = line.trim_start_matches(|c: char| c == '-' || c == '*' || c.is_whitespace());
     let rest = line.strip_prefix('F')?;
@@ -427,7 +427,9 @@ fn finding_class(line: &str) -> Option<String> {
         return None;
     }
     let (class, _) = after.strip_prefix(" · ")?.split_once(" · ")?;
-    let class = class.trim().to_lowercase();
+    let class = class
+        .trim_matches(|c: char| c == '*' || c == '_' || c.is_whitespace())
+        .to_lowercase();
     (!class.is_empty()).then_some(class)
 }
 
@@ -442,17 +444,18 @@ fn is_ko(text: &str) -> Option<bool> {
 }
 
 /// What the reviews, each with the id of its change, say: the classes found in two changes or
-/// more and the KO reviews with no finding line.
+/// more and the KO reviews with no finding line. Only KO reviews, the ones that blocked, add a
+/// class: a review that is OK or has no verdict adds none.
 fn summarize(reviews: &[(String, String)]) -> Reviews {
     let mut classes: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
     let mut summary = Reviews::default();
     let mut unclassed = BTreeSet::new();
     for (change, text) in reviews {
-        let found: Vec<String> = text.lines().filter_map(finding_class).collect();
-        for class in &found {
-            classes.entry(class.clone()).or_default().insert(change);
-        }
         if is_ko(text) == Some(true) {
+            let found: Vec<String> = text.lines().filter_map(finding_class).collect();
+            for class in &found {
+                classes.entry(class.clone()).or_default().insert(change);
+            }
             summary.ko += 1;
             if found.is_empty() {
                 summary.unclassed_reviews += 1;
@@ -887,6 +890,34 @@ mod tests {
         assert_eq!(class("F1 ·  · x"), None);
         assert_eq!(class("G1 · class · x"), None);
         assert_eq!(class("- [P2] src/a.rs:8: not checked."), None);
+    }
+
+    #[test]
+    fn markdown_emphasis_around_a_class_is_trimmed() {
+        let line = "- **F1 · Unchecked input** · src/a.rs:1 · why · none";
+        assert_eq!(finding_class(line).as_deref(), Some("unchecked input"));
+        let line = "F1 · _Corregido_ · x";
+        assert_eq!(finding_class(line).as_deref(), Some("corregido"));
+        assert_eq!(finding_class("F1 · ** · x"), None);
+    }
+
+    #[test]
+    fn a_ko_review_with_a_finding_counts_the_class() {
+        let ko = "F1 · Unchecked input** · x · y · z\nVERDICT: KO\n";
+        let reviews = [review("a", ko), review("b", ko)];
+        let summary = summarize(&reviews);
+        assert_eq!(summary.repeated.len(), 1);
+        assert_eq!(summary.repeated[0].class, "unchecked input");
+        assert_eq!(summary.repeated[0].changes, ["a", "b"]);
+    }
+
+    #[test]
+    fn an_ok_review_or_one_without_verdict_adds_no_class() {
+        let ko = "F1 · fixed · x\nVERDICT: KO\n";
+        let ok = "- **F1 · Fixed** · [learn.rs:423](x)\nVERDICT: OK\n";
+        let none = "F1 · fixed · x\n";
+        let reviews = [review("a", ko), review("b", ok), review("c", none)];
+        assert!(summarize(&reviews).repeated.is_empty());
     }
 
     #[test]
