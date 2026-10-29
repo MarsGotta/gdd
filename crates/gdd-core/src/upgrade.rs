@@ -9,10 +9,13 @@
 //! folder under `.gdd/upgrade/` of the state root, removed afterwards. The branch gets two
 //! commits: what this gdd writes, pure, with the new `gdd/generated.toml` (the base of the next
 //! upgrade), then the merge with the project's changes. Both are made in a worktree of their own,
-//! in the folder of the changes' worktrees, which goes whatever happens; the branch is made last,
-//! on the second commit, so a run that fails leaves none. Where this gdd writes a file and the
-//! project has something else (a folder, a link), the upgrade stops before writing anything.
+//! in the folder of the changes' worktrees, which goes whatever happens (and that folder with it
+//! when the run made it and nothing else came into it); the branch is made last, on the second
+//! commit, so a run that fails leaves none. Where this gdd writes a file and the project has
+//! something else (a folder, a link), the upgrade stops before writing anything.
 
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -183,7 +186,8 @@ pub fn upgrade(root: &Path, role: Option<&str>, env: &Env) -> Result<String, Str
         return Ok(nothing);
     }
     let folder = worktree::folder(root, &rules).map_err(unreadable)?;
-    let proposed = upgrade.propose(&worktree::path(&folder, BRANCH)?, &files);
+    let path = worktree::path(&folder, BRANCH)?;
+    let proposed = upgrade.propose(&folder, &path, &files);
     proposed.map_err(|why| format!("{NO_BRANCH}: {why}"))?;
     Ok(upgrade.said(&files))
 }
@@ -294,9 +298,22 @@ impl Upgrade<'_> {
         Ok((merged, conflicts))
     }
 
+    /// Makes the two commits of the `files` in a worktree of their own at `path`, in the folder
+    /// of the worktrees `folder`, and the branch on the second. The worktree goes whatever
+    /// happened, and the folder with it when this run made it and nothing else came into it.
+    fn propose(&self, folder: &Path, path: &Path, files: &[Settled]) -> Result<(), String> {
+        // Looked at before git makes it for the worktree: a folder that was there stays.
+        let made = !folder.exists();
+        let last = self.in_worktree(path, files);
+        let tidied = if made { tidy(folder) } else { Ok(()) };
+        let last = last?;
+        tidied?;
+        self.git.create_branch(BRANCH, &last).map_err(said)
+    }
+
     /// Makes the two commits of the `files` in a worktree of their own at `path`, from the main
-    /// branch as it is, and the branch on the second. The worktree goes whatever happened.
-    fn propose(&self, path: &Path, files: &[Settled]) -> Result<(), String> {
+    /// branch as it is: the id of the second. The worktree goes whatever happened.
+    fn in_worktree(&self, path: &Path, files: &[Settled]) -> Result<String, String> {
         let from = self.git.head().map_err(said)?;
         self.git.add_worktree(path, &from).map_err(said)?;
         let made = self.commit(path, files);
@@ -304,7 +321,7 @@ impl Upgrade<'_> {
         let removed = removed.and_then(|()| self.git.prune_worktrees());
         let last = made?;
         removed.map_err(said)?;
-        self.git.create_branch(BRANCH, &last).map_err(said)
+        Ok(last)
     }
 
     /// Makes, in the worktree at `path`, the commit of what this gdd writes, then the one of the
@@ -360,7 +377,8 @@ impl Upgrade<'_> {
             lines.push(format!("Conflicts: git switch {BRANCH}, {settle}."));
         }
         let review = format!("Review it: git diff {main} {BRANCH}");
-        let take = format!("Take it: git merge {BRANCH}, then bin/gdd agents install");
+        let merge = format!("git merge {BRANCH}, git branch -d {BRANCH}");
+        let take = format!("Take it: {merge}, then bin/gdd agents install");
         lines.extend([review, take]);
         lines.join("\n")
     }
@@ -392,6 +410,16 @@ fn remove(root: &Path, path: &str) -> Result<(), String> {
     files::remove(root, path).map_err(|e| format!("cannot remove {path}: {e}"))
 }
 
+/// Removes the folder `folder` when it is empty: one with anything in it stays, and nothing there
+/// is left as it is. A link there is not a folder, and is not removed.
+fn tidy(folder: &Path) -> Result<(), String> {
+    match fs::remove_dir(folder) {
+        Ok(()) => Ok(()),
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty) => Ok(()),
+        Err(e) => Err(format!("cannot remove {}: {e}", folder.display())),
+    }
+}
+
 /// What a failure of git says.
 fn said(e: git::Error) -> String {
     e.to_string()
@@ -409,7 +437,6 @@ fn unrendered(e: init::Error) -> String {
 mod tests {
     use super::*;
     use crate::git::tests::{Folder, env};
-    use std::fs;
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::PathBuf;
     use std::process::Command;
@@ -516,14 +543,30 @@ mod tests {
             git.exists(&format!("refs/heads/{BRANCH}")).unwrap()
         }
 
-        /// Whether the upgrade left nothing behind: the worktree, its files of the merges.
+        /// The folder of its worktrees, next to it.
+        fn worktrees(&self) -> PathBuf {
+            self.folder.0.join("project.worktrees")
+        }
+
+        /// Whether the upgrade left nothing behind: the worktree, the folder of the worktrees it
+        /// made for it, its files of the merges.
         fn left_nothing(&self) -> bool {
-            let worktree = self.folder.0.join("project.worktrees").join(BRANCH);
             let listed = self.git(&["worktree", "list", "--porcelain"]);
             let worktrees = listed.matches("worktree ").count();
             let id = std::process::id().to_string();
             let scratch = self.root.join(SCRATCH).join(id);
-            !worktree.exists() && worktrees == 1 && !scratch.exists()
+            !self.worktrees().exists() && worktrees == 1 && !scratch.exists()
+        }
+
+        /// Has git run `script` before each commit of the project, its worktrees' too.
+        fn before_each_commit(&self, script: &str) {
+            let hooks = self.folder.0.join("hooks");
+            fs::create_dir_all(&hooks).unwrap();
+            let hook = hooks.join("pre-commit");
+            fs::write(&hook, format!("#!/bin/sh\n{script}\n")).unwrap();
+            fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+            let path = hooks.display().to_string();
+            self.git(&["config", "--local", "core.hooksPath", &path]);
         }
     }
 
@@ -616,7 +659,7 @@ mod tests {
              \x20 docs/old.md: yours, gdd {VERSION} no longer writes it\n\
              Conflicts: git switch gdd-upgrade, settle the marks, commit, then git switch main.\n\
              Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, then bin/gdd agents install"
+             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then bin/gdd agents install"
         );
         assert_eq!(said, expected);
         let ours = project.on_branch(BASICS).unwrap();
@@ -681,7 +724,7 @@ mod tests {
              \x20 docs/brief.md: {kept}\n\
              \x20 .github/workflows/gdd.yml: merged with your changes\n\
              Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, then bin/gdd agents install"
+             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then bin/gdd agents install"
         );
         assert_eq!(said, expected);
         let workflow = project.on_branch(WORKFLOW).unwrap();
@@ -863,13 +906,7 @@ mod tests {
         project.older("0.0.0", &[], &[]);
         let main = project.git(&["rev-parse", "main"]);
         // A hook that refuses every commit.
-        let hooks = project.folder.0.join("hooks");
-        fs::create_dir_all(&hooks).unwrap();
-        let hook = hooks.join("pre-commit");
-        fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
-        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
-        let path = hooks.display().to_string();
-        project.git(&["config", "--local", "core.hooksPath", &path]);
+        project.before_each_commit("exit 1");
         let said = project.upgrade().unwrap_err();
         let commit = format!("git commit -q -m gdd upgrade 0.0.0 to {VERSION}: what ");
         let start = format!("{NO_BRANCH}: {commit}");
@@ -929,7 +966,7 @@ mod tests {
         let project = Project::new();
         project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
         project.older("0.0.0", &[], &[]);
-        let worktree = project.folder.0.join("project.worktrees").join(BRANCH);
+        let worktree = project.worktrees().join(BRANCH);
         fs::create_dir_all(&worktree).unwrap();
         fs::write(worktree.join("mine.txt"), "mine\n").unwrap();
         let said = project.upgrade().unwrap_err();
@@ -938,6 +975,68 @@ mod tests {
         let mine = fs::read_to_string(worktree.join("mine.txt")).unwrap();
         assert_eq!(mine, "mine\n");
         assert!(!project.has_branch());
+    }
+
+    #[test]
+    fn the_folder_of_the_worktrees_this_run_made_goes_with_its_worktree() {
+        let project = Project::new();
+        project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
+        project.older("0.0.0", &[], &[]);
+        assert!(!project.worktrees().exists());
+        project.upgrade().unwrap();
+        assert!(project.has_branch());
+        assert!(!project.worktrees().exists());
+        assert!(project.left_nothing());
+    }
+
+    #[test]
+    fn a_folder_of_the_worktrees_that_was_there_stays() {
+        let project = Project::new();
+        project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
+        project.older("0.0.0", &[], &[]);
+        fs::create_dir(project.worktrees()).unwrap();
+        project.upgrade().unwrap();
+        assert!(project.has_branch());
+        let left = fs::read_dir(project.worktrees()).unwrap();
+        assert_eq!(left.count(), 0);
+    }
+
+    #[test]
+    fn a_folder_of_the_worktrees_that_got_something_else_meanwhile_stays() {
+        let project = Project::new();
+        project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
+        project.older("0.0.0", &[], &[]);
+        // Something else comes into the folder while the worktree is there.
+        project.before_each_commit("echo mine > ../mine.txt");
+        project.upgrade().unwrap();
+        assert!(project.has_branch());
+        assert!(!project.worktrees().join(BRANCH).exists());
+        let mine = fs::read_to_string(project.worktrees().join("mine.txt")).unwrap();
+        assert_eq!(mine, "mine\n");
+    }
+
+    #[test]
+    fn a_folder_goes_only_when_empty_and_what_cannot_be_removed_says_which() {
+        let folder = Folder::new();
+        let empty = folder.0.join("empty");
+        fs::create_dir(&empty).unwrap();
+        tidy(&empty).unwrap();
+        assert!(!empty.exists());
+        // Nothing there is left as it is.
+        tidy(&empty).unwrap();
+        folder.write("full/mine.txt", "mine\n");
+        tidy(&folder.0.join("full")).unwrap();
+        assert!(folder.0.join("full/mine.txt").exists());
+        // A file or a link is no folder: it stays, and says why.
+        let link = folder.0.join("link");
+        symlink(folder.0.join("full"), &link).unwrap();
+        let file = folder.0.join("full/mine.txt");
+        for at in [&file, &link] {
+            let said = tidy(at).unwrap_err();
+            let why = format!("cannot remove {}: Not a directory", at.display());
+            assert!(said.starts_with(&why), "{said}");
+            assert!(fs::symlink_metadata(at).is_ok(), "{said}");
+        }
     }
 
     #[test]
