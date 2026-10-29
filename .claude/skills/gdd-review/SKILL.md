@@ -47,6 +47,15 @@ Read `reviews` in `<state>/.gdd/changes/<id>/change.json`: gdd keeps there every
 
 In **round 2** you only check that the round 1 KO reasons were fixed. You open no new topics unless they are blocking. Read this together with the earlier reviews: a round 1 after a relaunch is a later review when the record has earlier ones.
 
+## Depth
+
+Read `review` in the `decision` of `<state>/.gdd/changes/<id>/change.json`.
+
+- **Quick review**: read only the files the change touched, `package.md` and the scenarios with their steps. Check that every step asserts something real and every point of the package is done. Give the blocking findings only.
+- **Deep review**: everything in the quick review, plus the code that calls what changed and the paths its data takes; look for security holes, data loss and concurrency faults, and check every red zone the change touches. Give the blocking findings, then the improvements worth one line.
+
+Without a `review` in the decision, do a deep review.
+
 ## Answer format
 
 A short list of findings. In a later review, first the earlier blocking findings, by id: fixed or not. Then the blocking findings, each with what fails and why it blocks, as `F<n> · <class> · file:line · what fails · other places`. Non-blocking items go to an «Improvements» section and do not count for the verdict.
