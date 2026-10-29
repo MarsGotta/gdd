@@ -35,6 +35,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 3. The change stays within the package scope. Paths outside the package that Path Guard accepted by rule (same or lower color; listed in `g2.json` under `out_of_scope` and in the inbox) do not block for their location: judge their content.
 4. If the color is red: security (data, permissions, secrets, unvalidated input).
 5. Done is not good: code that only looks finished (placeholders, half-wired options, messages that promise missing behaviour), abstractions nobody uses yet, and anything that breaks `docs/standards.md`. Name it as blocking only when a standard or a scenario is broken; otherwise as an improvement.
+6. Steps that repeat: name as a finding **a new step that says what an existing step already says** (its class: duplicated step), with the step it repeats.
 
 ## Earlier reviews
 

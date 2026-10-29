@@ -29,6 +29,8 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 ## What you do
 
 1. Write the step definitions for the package scenarios **against the domain language**, with real assertions: every `Then` step checks something observable. No empty or pending steps.
+   - Before writing a step, look for one that matches: **reuse a step that already says the same**, even with other words around it, and **add a new one only when none fits**. A new step is general (its values are parameters), so the next scenario can reuse it.
+   - Each step drives the behavior at **the lowest layer that shows the behavior**: **a domain function, then the command line, then the screen**. A scenario is not an end-to-end test by default; it goes through the screen only when what it checks is on the screen.
 2. If the color is yellow or red and you will touch existing code, first write **characterization tests** that pin down what it does today.
 3. Check with `bin/gdd g2 --role builder-test`: the new tests must fail **because the behavior is missing**, not because of syntax or setup errors.
 
