@@ -1,6 +1,7 @@
-//! The Decision Inbox of a change: what the human must decide, what was decided without them
-//! and what was parked, from the notes of its record; the security exceptions its last G3 named
-//! as added; and the known debt its latest G2 and G3 found still failing or paid.
+//! The Decision Inbox of a change: how the change works, as its Reviewer says; what the human
+//! must decide, what was decided without them and what was parked, from the notes of its record;
+//! the security exceptions its last G3 named as added; and the known debt its latest G2 and G3
+//! found still failing or paid.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -10,7 +11,23 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::change::{self, NOTE_KINDS, POLISH};
-use crate::gates::{Gate, debt};
+use crate::gates::{Gate, debt, verdict};
+
+/// The heading of the section of a review that says how the change works, and of its group.
+pub const HOW_IT_WORKS: &str = "How it works";
+
+/// The most lines of the section that says how the change works that are kept.
+const MOST_EXPLAINED: usize = 12;
+
+/// What a line of the verdict of a review starts with.
+const VERDICT: &str = "VERDICT:";
+
+/// The state in which a change waits for the G4 of the human.
+const IN_PRE: &str = "in-pre";
+
+/// What the inbox of a change that waits for its G4 says when its review does not say how the
+/// change works.
+const UNEXPLAINED: &str = "The Reviewer did not explain the change.";
 
 /// The title of the group of each kind of note, in the order of [`NOTE_KINDS`].
 const HEADINGS: [&str; 3] = ["Needs your decision", "Decided without you", "Parked"];
@@ -59,20 +76,28 @@ struct RawNote {
     resolved: Value,
 }
 
-/// The Decision Inbox of change `id`, from the text of its record and `reported`, the groups
-/// from its gate reports (see [`save`]), without a line break at the end: its title, color, lane
-/// and state, then one group per kind of note with the notes still open (`Nothing.` when there
-/// are none) and, among the decisions, the paths outside the package the scope check accepted;
-/// then each group of `reported` that has entries; then the human's notes at G4, when there are,
-/// under `Polish`; last, how many requests were resolved before the last launch, if any. Notes
-/// of other kinds are left out.
-pub fn render(id: &str, record: &str, reported: &[Group]) -> Result<String, serde_json::Error> {
+/// The Decision Inbox of change `id`, from the text of its record, the text of its `review`
+/// (empty when there is none, `None` when it cannot be read) and `reported`, the groups from its
+/// gate reports (see [`save`]), without a line break at the end: its title, color, lane and
+/// state; then how the change works, when the review says it (see [`how_it_works`]), or that the
+/// Reviewer did not explain it while the change waits for its G4; then one group per kind of
+/// note with the notes still open (`Nothing.` when there are none) and, among the decisions, the
+/// paths outside the package the scope check accepted; then each group of `reported` that has
+/// entries; then the human's notes at G4, when there are, under `Polish`; last, how many requests
+/// were resolved before the last launch, if any. Notes of other kinds are left out.
+pub fn render(
+    id: &str,
+    record: &str,
+    review: Option<&str>,
+    reported: &[Group],
+) -> Result<String, serde_json::Error> {
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
     let decision = raw.decision.unwrap_or_default();
     let color = decision.color.unwrap_or_else(|| "?".into());
     let lane = decision.lane.unwrap_or_else(|| "?".into());
     let state = raw.state.unwrap_or_else(|| "?".into());
+    let explained = review.and_then(|review| explained(review, &state));
     let mut groups: [Vec<String>; 3] = Default::default();
     let mut polish = Vec::new();
     let mut resolved = 0;
@@ -94,6 +119,7 @@ pub fn render(id: &str, record: &str, reported: &[Group]) -> Result<String, serd
         format!("# Decision Inbox · {id} · {title}"),
         format!("Color {color} · lane {lane} · state {state}"),
     ];
+    blocks.extend(explained);
     for (heading, notes) in HEADINGS.iter().zip(groups) {
         let mut block = format!("## {heading}");
         if notes.is_empty() {
@@ -123,11 +149,70 @@ fn listed(heading: &str, lines: &[String]) -> Option<String> {
     Some(format!("## {heading}\n{}", items.join("\n")))
 }
 
+/// The group that says how the change works, from the text of its `review`: the lines of its
+/// section as they are; without them, that the Reviewer did not explain the change, only while
+/// the `state` of the change is the one where it waits for its G4.
+fn explained(review: &str, state: &str) -> Option<String> {
+    let (lines, _) = how_it_works(review);
+    if !lines.is_empty() {
+        return Some(format!("## {HOW_IT_WORKS}\n{}", lines.join("\n")));
+    }
+    (state == IN_PRE).then(|| format!("## {HOW_IT_WORKS}\n- {UNEXPLAINED}"))
+}
+
+/// The section of the review `text` that says how the change works, and the lines of `text`
+/// outside that section and its heading. The section starts at the first line that, trimmed, is
+/// one or more `#`, spaces, then `How it works`, in any case; it holds the lines after it up to
+/// the next one that starts with `#` or with `VERDICT:`, or the end. Its lines come without the
+/// blank ones at their start and end, at most [`MOST_EXPLAINED`]; none without such a heading or
+/// with nothing under it.
+pub fn how_it_works(text: &str) -> (Vec<&str>, Vec<&str>) {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(heading) = lines.iter().position(|line| is_how_it_works(line)) else {
+        return (Vec::new(), lines);
+    };
+    let start = heading + 1;
+    let held = lines[start..].iter().position(|line| ends_section(line));
+    let end = held.map_or(lines.len(), |held| start + held);
+    let mut rest = lines[..heading].to_vec();
+    rest.extend_from_slice(&lines[end..]);
+    (kept(&lines[start..end]), rest)
+}
+
+/// Whether `line`, trimmed, is one or more `#`, spaces, then `How it works`, in any case.
+fn is_how_it_works(line: &str) -> bool {
+    let Some(marked) = line.trim().strip_prefix('#') else {
+        return false;
+    };
+    let marked = marked.trim_start_matches('#');
+    let words = marked.trim_start();
+    words.len() < marked.len() && words.eq_ignore_ascii_case(HOW_IT_WORKS)
+}
+
+/// Whether `line` ends the section that says how the change works: it starts with `#` or with
+/// `VERDICT:`.
+fn ends_section(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with('#') || line.starts_with(VERDICT)
+}
+
+/// `lines` without the blank ones at their start and end, at most [`MOST_EXPLAINED`].
+fn kept<'a>(lines: &[&'a str]) -> Vec<&'a str> {
+    let blank = |line: &&str| line.trim().is_empty();
+    let filled = lines.iter().copied().skip_while(blank);
+    let mut kept: Vec<&str> = filled.take(MOST_EXPLAINED).collect();
+    while kept.last().is_some_and(blank) {
+        kept.pop();
+    }
+    kept
+}
+
 /// Renders the Decision Inbox of change `id` of the project whose state root is `state` from the
-/// text of its record (see [`render`]) and its gate reports: the security exceptions its last G3
-/// named as added, then the commands with known debt its latest G2 and G3 found still failing,
-/// with what their output keeps, then the ones they found paid (see [`debt::reported`]). It
-/// saves it next to the record, with a line break at the end. What it rendered.
+/// text of its record and its review (see [`render`]) and its gate reports: the security
+/// exceptions its last G3 named as added, then the commands with known debt its latest G2 and G3
+/// found still failing, with what their output keeps, then the ones they found paid (see
+/// [`debt::reported`]). It saves it next to the record, with a line break at the end. What it
+/// rendered.
 pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
     let added = added_exceptions(state, id)?;
     let known = debt::reported(state, id)?;
@@ -136,10 +221,21 @@ pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
         (KNOWN_DEBT, known.owed.iter().map(still_failing).collect()),
         (DEBT_PAID, known.paid.iter().map(paid_in).collect()),
     ];
-    let rendered =
-        render(id, record, &reported).map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+    let review = review_of(state, id);
+    let rendered = render(id, record, review.as_deref(), &reported)
+        .map_err(|e| format!("{}: {e}", change::record_path(id)))?;
     change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
+}
+
+/// The text of the review of change `id` of the project whose state root is `state`: empty when
+/// there is none, `None` when it cannot be read. Bytes that are not UTF-8 are replaced.
+fn review_of(state: &Path, id: &str) -> Option<String> {
+    match fs::read(state.join(verdict::review_path(id))) {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Some(String::new()),
+        Err(_) => None,
+    }
 }
 
 /// The entry of a command with known debt still failing in its gate: its name and gate, what it
@@ -195,6 +291,9 @@ mod tests {
 
     const NONE: [Group; 0] = [];
 
+    /// The review of a change that has none.
+    const NO_REVIEW: Option<&str> = Some("");
+
     const RECORD: &str = r#"{
         "id": "c1", "title": "Drafts", "state": "building",
         "decision": {"color": "red", "lane": "full"},
@@ -220,7 +319,7 @@ mod tests {
             "## Parked\n- Nothing.\n\n",
             "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
         );
-        assert_eq!(render("c1", RECORD, &NONE).unwrap(), expected);
+        assert_eq!(render("c1", RECORD, NO_REVIEW, &NONE).unwrap(), expected);
     }
 
     #[test]
@@ -232,17 +331,17 @@ mod tests {
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
         );
-        assert_eq!(render("c2", "{}", &NONE).unwrap(), expected);
+        assert_eq!(render("c2", "{}", NO_REVIEW, &NONE).unwrap(), expected);
         let nulls = r#"{"decision": null, "inbox": null, "out_of_scope": null}"#;
-        assert_eq!(render("c2", nulls, &NONE).unwrap(), expected);
+        assert_eq!(render("c2", nulls, NO_REVIEW, &NONE).unwrap(), expected);
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
-        assert_eq!(render("c2", empty, &NONE).unwrap(), expected);
+        assert_eq!(render("c2", empty, NO_REVIEW, &NONE).unwrap(), expected);
     }
 
     #[test]
     fn parked_notes_have_their_group() {
         let record = r#"{"inbox": [{"kind": "parked", "text": "Waiting for the API"}]}"#;
-        let text = render("c1", record, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
         let end = "## Parked\n- Waiting for the API";
         assert!(text.ends_with(end), "{text}");
     }
@@ -255,14 +354,15 @@ mod tests {
             {"kind": "polish", "text": "Old", "resolved": "2026-01-02"},
             {"kind": "polish", "text": "Plainer words"}
         ]}"#;
-        let text = render("c1", record, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
         let end = concat!(
             "## Parked\n- Waiting\n\n",
             "## Polish\n- Shorter errors\n- Plainer words\n\n",
             "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
         );
         assert!(text.ends_with(end), "{text}");
-        assert!(!render("c1", "{}", &NONE).unwrap().contains("Polish"));
+        let text = render("c1", "{}", NO_REVIEW, &NONE).unwrap();
+        assert!(!text.contains("Polish"), "{text}");
     }
 
     #[test]
@@ -270,7 +370,7 @@ mod tests {
         let record = r#"{"inbox": [{"kind": "polish", "text": "Shorter errors"}]}"#;
         let line = "exception added: A · deny.toml · no end date · r";
         let added = (EXCEPTIONS, vec![line.to_string()]);
-        let text = render("c1", record, &[added, (KNOWN_DEBT, vec![])]).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[added, (KNOWN_DEBT, vec![])]).unwrap();
         let end = concat!(
             "## Parked\n- Nothing.\n\n",
             "## Security exceptions this change adds\n",
@@ -278,7 +378,7 @@ mod tests {
             "## Polish\n- Shorter errors"
         );
         assert!(text.ends_with(end), "{text}");
-        let text = render("c1", record, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
         assert!(!text.contains("Security exceptions"), "{text}");
     }
 
@@ -319,7 +419,7 @@ mod tests {
         assert!(saved.ends_with(group), "{saved}");
         folder.write(report, r#"{"ok": true}"#);
         let saved = save(&folder.0, "c1", "{}").unwrap();
-        assert_eq!(saved, render("c1", "{}", &NONE).unwrap());
+        assert_eq!(saved, render("c1", "{}", NO_REVIEW, &NONE).unwrap());
         folder.write(report, "{not json");
         let err = save(&folder.0, "c1", "{}").unwrap_err();
         assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
@@ -328,6 +428,135 @@ mod tests {
         let err = save(&folder.0, "c1", "{}").unwrap_err();
         let start = "cannot read .gdd/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn the_section_starts_at_a_how_it_works_heading_of_any_form() {
+        let headings = [
+            "## How it works",
+            "# how it works",
+            "###   HOW IT WORKS   ",
+            "  ## How It Works",
+            "#\tHow it works",
+        ];
+        let expected = (vec!["One line."], vec!["Fine."]);
+        for heading in headings {
+            let text = format!("Fine.\n{heading}\nOne line.\n");
+            assert_eq!(how_it_works(&text), expected, "{text:?}");
+        }
+        let not_headings = [
+            "How it works",
+            "##How it works",
+            "## How it works:",
+            "## How it works now",
+            "- ## How it works",
+            "**How it works**",
+        ];
+        for line in not_headings {
+            let text = format!("{line}\nOne line.");
+            let (section, rest) = how_it_works(&text);
+            assert!(section.is_empty(), "{text:?}");
+            assert_eq!(rest, vec![line, "One line."]);
+        }
+    }
+
+    #[test]
+    fn the_section_ends_at_the_next_heading_or_the_verdict() {
+        let text = "Intro\n## How it works\none\ntwo\nthree\n### Notes\nfour\nVERDICT: OK\n";
+        let rest = vec!["Intro", "### Notes", "four", "VERDICT: OK"];
+        assert_eq!(how_it_works(text), (vec!["one", "two", "three"], rest));
+        let text = "## How it works\none\ntwo\n  #x\nthree";
+        let rest = vec!["  #x", "three"];
+        assert_eq!(how_it_works(text), (vec!["one", "two"], rest));
+        let text = "## How it works\none\n  VERDICT: OK\n";
+        assert_eq!(how_it_works(text), (vec!["one"], vec!["  VERDICT: OK"]));
+        let text = "Fine.\n## How it works\none\ntwo";
+        assert_eq!(how_it_works(text), (vec!["one", "two"], vec!["Fine."]));
+    }
+
+    #[test]
+    fn blank_lines_at_the_start_and_end_of_the_section_are_dropped() {
+        let text = "## How it works\n\n  \none\n\n  two\n \n\nVERDICT: OK";
+        let section = vec!["one", "", "  two"];
+        assert_eq!(how_it_works(text), (section, vec!["VERDICT: OK"]));
+    }
+
+    #[test]
+    fn the_section_keeps_twelve_lines_at_most() {
+        let lines: Vec<String> = (1..=20).map(|n| format!("line {n}")).collect();
+        let first: Vec<&str> = lines.iter().map(String::as_str).collect();
+        let text = format!("## How it works\n{}\nVERDICT: OK", lines.join("\n"));
+        let (section, rest) = how_it_works(&text);
+        assert_eq!(section, first[..12]);
+        assert_eq!(rest, vec!["VERDICT: OK"]);
+        let text = format!("## How it works\n\n{}\n \nline 13", first[..11].join("\n"));
+        let (section, _) = how_it_works(&text);
+        assert_eq!(section, first[..11]);
+    }
+
+    #[test]
+    fn a_review_without_a_section_or_with_an_empty_one_explains_nothing() {
+        assert_eq!(how_it_works(""), (vec![], vec![]));
+        let text = "Fine.\nVERDICT: OK\n";
+        assert_eq!(how_it_works(text), (vec![], vec!["Fine.", "VERDICT: OK"]));
+        let text = "Fine.\n## How it works\n\n \n## Notes\nVERDICT: OK\n";
+        let rest = vec!["Fine.", "## Notes", "VERDICT: OK"];
+        assert_eq!(how_it_works(text), (vec![], rest));
+    }
+
+    #[test]
+    fn the_inbox_says_how_the_change_works_right_after_its_title() {
+        let review = "Fine.\n## How it works\nThe export reads each note.\n  - As it is\n\n\
+                      VERDICT: OK\n";
+        for state in [IN_PRE, "building", "closed"] {
+            let record = format!(r#"{{"state": "{state}"}}"#);
+            let text = render("c1", &record, Some(review), &NONE).unwrap();
+            let start = format!(
+                "# Decision Inbox · c1 · \n\nColor ? · lane ? · state {state}\n\n\
+                 ## How it works\nThe export reads each note.\n  - As it is\n\n\
+                 ## Needs your decision\n"
+            );
+            assert!(text.starts_with(&start), "{text}");
+        }
+    }
+
+    #[test]
+    fn without_a_section_the_inbox_says_so_only_while_the_change_waits_for_its_g4() {
+        let review = "Fine.\nVERDICT: OK\n";
+        let waiting = r#"{"state": "in-pre"}"#;
+        let group = format!("in-pre\n\n## How it works\n- {UNEXPLAINED}\n\n## Needs");
+        for said in [Some(review), NO_REVIEW] {
+            let text = render("c1", waiting, said, &NONE).unwrap();
+            assert!(text.contains(&group), "{text}");
+        }
+        for record in [r#"{"state": "building"}"#, r#"{"state": "closed"}"#, "{}"] {
+            let text = render("c1", record, Some(review), &NONE).unwrap();
+            assert!(!text.contains(HOW_IT_WORKS), "{text}");
+        }
+        let text = render("c1", waiting, None, &NONE).unwrap();
+        assert!(!text.contains(HOW_IT_WORKS), "{text}");
+    }
+
+    #[test]
+    fn the_saved_inbox_reads_the_review_and_leaves_out_one_that_cannot_be_read() {
+        let folder = Folder::new();
+        let record = r#"{"state": "in-pre"}"#;
+        let saved = save(&folder.0, "c1", record).unwrap();
+        assert!(saved.contains(UNEXPLAINED), "{saved}");
+        let review = ".gdd/changes/c1/review.md";
+        folder.write(review, "## How it works\nOne pure function.\nVERDICT: OK\n");
+        let saved = save(&folder.0, "c1", record).unwrap();
+        let group = "## How it works\nOne pure function.\n\n";
+        assert!(saved.contains(group), "{saved}");
+        fs::write(folder.0.join(review), b"## How it works\n\xff bytes\n").unwrap();
+        let saved = save(&folder.0, "c1", record).unwrap();
+        let group = "## How it works\n\u{fffd} bytes\n\n";
+        assert!(saved.contains(group), "{saved}");
+        fs::remove_file(folder.0.join(review)).unwrap();
+        fs::create_dir_all(folder.0.join(review)).unwrap();
+        let saved = save(&folder.0, "c1", record).unwrap();
+        assert_eq!(saved, render("c1", record, None, &NONE).unwrap());
+        assert!(!saved.contains(HOW_IT_WORKS), "{saved}");
     }
 
     #[test]
@@ -344,7 +573,7 @@ mod tests {
     fn the_inbox_is_saved_next_to_the_record_as_it_is_rendered() {
         let folder = Folder::new();
         let saved = save(&folder.0, "c1", RECORD).unwrap();
-        assert_eq!(saved, render("c1", RECORD, &NONE).unwrap());
+        assert_eq!(saved, render("c1", RECORD, NO_REVIEW, &NONE).unwrap());
         let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
         assert_eq!(text, format!("{saved}\n"));
         let err = save(&folder.0, "c1", "{not json").unwrap_err();
@@ -364,7 +593,7 @@ mod tests {
             r#"{"inbox": [{"text": 3}]}"#,
             r#"{"title": 1}"#,
         ] {
-            assert!(render("c1", record, &NONE).is_err(), "{record}");
+            assert!(render("c1", record, NO_REVIEW, &NONE).is_err(), "{record}");
         }
     }
 }

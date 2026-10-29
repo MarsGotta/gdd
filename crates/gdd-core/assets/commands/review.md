@@ -57,6 +57,8 @@ Without a `review` in the decision, do a deep review.
 
 A short list of findings. In a later review, first the earlier blocking findings, by id: fixed or not. Then the blocking findings, each with what fails and why it blocks, as `F<n> · <class> · file:line · what fails · other places`. Non-blocking items go to an «Improvements» section and do not count for the verdict.
 
+When your verdict is OK, end with a section `## How it works`, before the verdict line: 3 to 6 short lines in plain words, for the human who approves without reading every line. Say where the change sits in the code, how it fits with what was there, which pattern it sets or follows, and one thing worth knowing later. No findings there, and no code beyond a name.
+
 The **last line** is exactly one of these:
 
 VERDICT: OK

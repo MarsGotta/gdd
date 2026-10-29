@@ -14,6 +14,7 @@ use gdd_core::changelog;
 use gdd_core::flow::{self, Flow};
 use gdd_core::gates::approve;
 use gdd_core::git::Git;
+use gdd_core::inbox;
 use gdd_core::log;
 use gdd_core::recipe;
 use gdd_core::state;
@@ -42,6 +43,9 @@ const IN_PRE: &str = "in-pre";
 
 /// What the G4 page says when the review has no verdict.
 const NO_REVIEW: &str = "Reviewer: no review yet";
+
+/// What the G4 page says when the review does not say how the change works.
+const UNEXPLAINED: &str = "How it works: the Reviewer did not explain the change";
 
 /// What the G4 page says when the change has no demo files.
 const NO_DEMO: &str = "Demo: none, the project has no demo command";
@@ -707,8 +711,9 @@ fn run_text(id: &str, answer: Answer, words: &str) -> Vec<String> {
     text
 }
 
-/// The G4 page of the change `card`, whose state root is `state`: what the Reviewer said, the
-/// demo, what was decided without the human, the changelog line and the time of the change.
+/// The G4 page of the change `card`, whose state root is `state`: how the change works and what
+/// else the Reviewer said, the demo, what was decided without the human, the changelog line and
+/// the time of the change.
 fn g4_lines(state: &Path, card: &Card) -> Result<Vec<Line<'static>>, String> {
     let id = card.id.as_str();
     let title = format!("{id} · {} · waiting for your G4", card.title);
@@ -738,20 +743,38 @@ fn record_of(state: &Path, id: &str) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("{}: {e}", change::record_path(id)))
 }
 
-/// The review of the change `id`: its verdict, then its other lines; or that there is none.
+/// The review of the change `id`: how the change works (see [`inbox::how_it_works`]), then its
+/// verdict and its other lines; or that there is none.
 fn review_lines(state: &Path, id: &str) -> Result<Vec<Line<'static>>, String> {
     let path = format!(".gdd/changes/{id}/review.md");
     let text = crate::read(state, &path)?.unwrap_or_default();
+    let (explained, others) = inbox::how_it_works(&text);
+    let mut lines = explained_lines(&explained);
+    lines.push(Line::default());
     let Some(verdict) = verdict_of(&text) else {
-        return Ok(vec![Line::from(NO_REVIEW)]);
+        lines.push(Line::from(NO_REVIEW));
+        return Ok(lines);
     };
-    let mut lines = vec![Line::from(format!("Reviewer: {verdict}"))];
-    let others: Vec<String> = text_lines(&text)
+    lines.push(Line::from(format!("Reviewer: {verdict}")));
+    let others: Vec<String> = others
         .into_iter()
         .filter(|line| !line.trim().starts_with(VERDICT))
+        .map(spaced)
         .collect();
     lines.extend(plain(&others));
     Ok(lines)
+}
+
+/// The `How it works` section of the G4 page: the lines of the review that say how the change
+/// works; without them, that the Reviewer did not explain it.
+fn explained_lines(explained: &[&str]) -> Vec<Line<'static>> {
+    if explained.is_empty() {
+        return vec![Line::from(UNEXPLAINED)];
+    }
+    let mut lines = vec![Line::from(inbox::HOW_IT_WORKS).bold()];
+    let explained: Vec<String> = explained.iter().copied().map(spaced).collect();
+    lines.extend(plain(&explained));
+    lines
 }
 
 /// What a line of the verdict of a review starts with.
@@ -964,8 +987,12 @@ fn scenario_lines(id: &str, scenarios: &[Scenario]) -> Vec<Line<'static>> {
 
 /// The lines of a file's `text`, with its tabs as spaces so that they take room on the screen.
 fn text_lines(text: &str) -> Vec<String> {
-    let spaced = |line: &str| line.replace('\t', "    ");
     text.lines().map(spaced).collect()
+}
+
+/// `line` with its tabs as spaces, so that they take room on the screen.
+fn spaced(line: &str) -> String {
+    line.replace('\t', "    ")
 }
 
 /// The section of the red zones of the project at `root`, whose state root is `state`, and how
@@ -2152,6 +2179,47 @@ mod tests {
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &[NO_REVIEW]);
         assert_hides(&sitting, &["Just words"]);
+    }
+
+    #[test]
+    fn the_g4_page_shows_how_the_change_works_before_the_review() {
+        let (project, _) = waiting(Value::Null);
+        let said = "Fine work\n## How it works\nOne pure function.\n\tThen the edge.\n\n\
+                    ## Improvements\nShorter names\nVERDICT: OK\n";
+        review(&project, said);
+        let sitting = open(&project, "c1");
+        let expected = vec![
+            Line::from("c1 · App · waiting for your G4").bold(),
+            Line::default(),
+            Line::from("How it works").bold(),
+            Line::from("One pure function."),
+            Line::from("    Then the edge."),
+            Line::default(),
+            Line::from("Reviewer: OK"),
+            Line::from("Fine work"),
+            Line::from("## Improvements"),
+            Line::from("Shorter names"),
+            Line::default(),
+        ];
+        assert_eq!(sitting.lines[..expected.len()], expected);
+        assert_hides(&sitting, &["## How it works", UNEXPLAINED]);
+    }
+
+    #[test]
+    fn without_a_section_the_g4_page_says_the_reviewer_did_not_explain_the_change() {
+        let (project, sitting) = waiting(Value::Null);
+        let unexplained = |sitting: &Sitting, reviewer: &str| {
+            let said = Line::from(reviewer.to_string());
+            let start = [Line::from(UNEXPLAINED), Line::default(), said];
+            assert_eq!(sitting.lines[2..5], start);
+        };
+        unexplained(&sitting, NO_REVIEW);
+        review(&project, "Fine work\nVERDICT: OK\n");
+        unexplained(&open(&project, "c1"), "Reviewer: OK");
+        review(&project, "Fine work\n## How it works\n\n \nVERDICT: OK\n");
+        let sitting = open(&project, "c1");
+        unexplained(&sitting, "Reviewer: OK");
+        assert_hides(&sitting, &["## How it works"]);
     }
 
     #[test]
