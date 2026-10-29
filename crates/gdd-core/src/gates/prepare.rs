@@ -477,6 +477,7 @@ mod tests {
         project.repo.write(".gdd/changes/c1/change.json", &ok);
         let out = project.prepared();
         assert_eq!(out["color"], "red");
+        assert_eq!(out["review"], "deep");
         let opus = serde_json::json!({"integration": "claude", "model": "opus"});
         assert_eq!(out["builder"], opus);
     }
@@ -563,6 +564,7 @@ mod tests {
         assert_eq!(out["type"], "Feature");
         assert_eq!(out["color"], "yellow");
         assert_eq!(out["lane"], "full");
+        assert_eq!(out["review"], "quick");
         let sonnet = serde_json::json!({"integration": "claude", "model": "sonnet"});
         assert_eq!(out["builder"], sonnet);
         assert_eq!(out["builder_test"], sonnet);

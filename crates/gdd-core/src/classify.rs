@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Serialize, Serializer};
 
 use crate::config::{Color, Error, Lane};
-use crate::rules::RulesTable;
+use crate::rules::{Depth, RulesTable};
 use crate::zones::ZoneMap;
 
 /// A change to classify.
@@ -41,6 +41,8 @@ pub struct Classification {
     pub mutation: bool,
     /// The Reviewer checks the change.
     pub reviewer: bool,
+    /// How deep the Reviewer looks: `"quick"` or `"deep"` as JSON.
+    pub review: Depth,
     /// The human release gate (G4) applies.
     pub g4: bool,
     /// The human approves the plan.
@@ -122,6 +124,7 @@ pub fn classify_with(
         tests_first: rule.tests_first.unwrap_or(g1) && (g1 || color != Color::Green),
         mutation: rule.mutation,
         reviewer: rule.reviewer,
+        review: rule.review,
         g4: color == Color::Red || (g1 && rule.g4_if_g1),
         human_plan: color == Color::Red,
     })
@@ -340,5 +343,26 @@ mod tests {
         assert_eq!(json["lane"], "fast");
         assert_eq!(json["reasons"][0], "docs/a.md -> green ()");
         assert_eq!(json["g4"], false);
+        assert_eq!(json["review"], "quick");
+    }
+
+    #[test]
+    fn the_review_is_deep_for_red_and_quick_otherwise_unless_the_rules_say() {
+        let mut red = change(&["x.rs"], false);
+        red.min_color = Some(Color::Red);
+        let (yellow, green) = (change(&["x.rs"], true), change(&["docs/a.md"], true));
+        let shipped = rules::default_table();
+        let review = |table: &RulesTable, ch: &Change| classify(&zones(), table, ch).unwrap();
+        assert_eq!(review(&shipped, &red).review, Depth::Deep);
+        assert_eq!(review(&shipped, &yellow).review, Depth::Quick);
+        assert_eq!(review(&shipped, &green).review, Depth::Quick);
+        let deep = RulesTable::from_toml("[color.yellow.fast]\nreview = \"deep\"\n").unwrap();
+        let c = review(&deep, &yellow);
+        assert_eq!((c.lane, c.review), (Lane::Fast, Depth::Deep));
+        assert_eq!(review(&deep, &green).review, Depth::Quick);
+        let json = serde_json::to_value(review(&deep, &red)).unwrap();
+        assert_eq!(json["review"], "deep");
+        let json = serde_json::to_value(review(&shipped, &yellow)).unwrap();
+        assert_eq!(json["review"], "quick");
     }
 }

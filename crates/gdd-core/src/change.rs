@@ -784,7 +784,7 @@ mod tests {
                 r#"{"change":"save","color":"red","lane":"full","#,
                 r#""reasons":["a.rs -> red (no zone: default color)"],"#,
                 r#""g1":false,"features":[],"tests_first":true,"mutation":true,"#,
-                r#""reviewer":true,"g4":true,"human_plan":true,"#,
+                r#""reviewer":true,"review":"deep","g4":true,"human_plan":true,"#,
                 r#""type":"Spike","builder":{"integration":"claude","model":"opus"},"#,
                 r#""builder_test":{},"reviewer_model":{},"orchestrator":{},"retries":3}"#
             )
