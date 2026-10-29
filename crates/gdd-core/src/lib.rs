@@ -17,6 +17,7 @@ pub mod git;
 pub mod guard;
 pub mod inbox;
 pub mod init;
+pub mod learn;
 pub mod log;
 pub mod recipe;
 pub mod repo;
