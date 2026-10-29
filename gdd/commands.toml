@@ -35,6 +35,10 @@ observe = ""          # fails if errors rise
 rollback = ""         # back to the previous production version
 rollback_pre = ""     # no real pre yet: the self-test logs the rollback as simulated
 
+[learn]   # warnings for Learn (gdd learn), never a gate
+duplication = "npx --yes jscpd --silent crates"
+unused = "cargo machete"
+
 [selftest]
 file = "crates/gdd-core/tests/gdd_selftest_failing.rs"      # path of a deliberately failing test (created and removed)
 content = "#[test]\nfn gdd_selftest_must_fail() {\n    panic!(\"gdd selftest\");\n}\n"   # its content
