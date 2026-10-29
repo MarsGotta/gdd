@@ -28,7 +28,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 - If `fix=polish`: the human's notes at G4 in `<state>/.gdd/changes/<id>/inbox.md` (under Polish). Polish what they ask, nothing else.
 - `<state>/.gdd/changes/<id>/g2.json`: if present, the failures of the previous round.
 - If `fix=g3`: `<state>/.gdd/changes/<id>/g3.json`.
-- If `fix=review`: `<state>/.gdd/changes/<id>/review.md` (the reasons for the KO).
+- If `fix=review`: `<state>/.gdd/changes/<id>/review.md` (the reasons for the KO). Each finding names a class of bug: fix it at every place of that class, not only the line named, and say in your summary which places you changed for each finding id.
 - If `after=replan`: `<state>/.gdd/changes/<id>/replan.md`.
 - The code under the package paths.
 
@@ -48,7 +48,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 
 If something is ambiguous, pick the simplest reversible option and note it: `bin/gdd note <id> decided "..."`. If it needs the human: `bin/gdd note <id> needs "..."`.
 
-Finish with a three-line summary: what you changed and the state of G2.
+Finish with a three-line summary: what you changed and the state of G2. With `fix=review`, add the places you changed for each finding id.
 
 ## Commands
 
