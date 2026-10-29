@@ -106,3 +106,4 @@ Feature: The G4 page says how the change works (hidden examples)
     When I open the sitting of "c1"
     Then the sitting shows "One cache per project, cleared when the rules change."
     And the sitting does not show "the Reviewer did not explain the change"
+    And the sitting does not show "### how it works"
