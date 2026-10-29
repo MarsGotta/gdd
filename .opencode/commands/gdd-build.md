@@ -16,7 +16,7 @@ Before writing tests, steps or code, read the instructions of each stack of the 
 $ARGUMENTS
 ```
 
-It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`.
+It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`. With `mode=spike`, the change is a Spike: read the Spike section below first.
 
 ## Your context (only this)
 
@@ -36,6 +36,12 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 1. Implement the domain, the wiring into the application and the unit tests it needs.
 2. Check with `bin/gdd g2 --role builder-build` and fix until it is green or until you see you cannot.
 3. Reuse what the package tells you to reuse. Do not add new dependencies: if one seems necessary, note it.
+
+## Spike (mode=spike)
+
+A Spike answers one question so the human can decide. Build the smallest thing that answers it, fast; its code is thrown away and never reaches main. Measure what the question needs (numbers, not impressions). Write the decision in a new file under docs/adr/ (next free number, like the ones there): the question, the options you tried, what you measured, a `## Decision` section with your proposal and why, and what it means for the next change. Only the ADR reaches main, when the human approves it at G4.
+
+G2 for a spike is Path Guard and that ADR: `bin/gdd g2 --role builder-build` runs it, without the project's tests. The spike has a fixed budget: it parks once its agent calls cost what `[spike] max_usd` in `gdd/rules.toml` allows.
 
 ## What you never do
 
