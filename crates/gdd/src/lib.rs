@@ -2776,7 +2776,7 @@ mod tests {
                 "g1": false,
                 "features": [],
                 "tests_first": false,
-                "mutation": false,
+                "mutation": true,
                 "reviewer": true,
                 "g4": true,
                 "human_plan": true,
