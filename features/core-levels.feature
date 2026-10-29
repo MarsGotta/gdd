@@ -29,6 +29,7 @@ Feature: Minimal by default, a core that stays on
       acceptance_full = "true"
       mutation = "echo mutation-ran"
       """
+    And everything is committed on main
 
   Scenario: A rules file cannot switch mutation testing off for red changes
     Given the file "gdd/rules.toml" says:

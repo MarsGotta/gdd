@@ -25,6 +25,7 @@ Feature: Minimal by default, a core that stays on (hidden examples)
       acceptance_full = "true"
       mutation = "echo mutation-ran"
       """
+    And everything is committed on main
 
   Scenario: A rules file cannot take the Reviewer from red changes
     Given the file "gdd/rules.toml" says:
