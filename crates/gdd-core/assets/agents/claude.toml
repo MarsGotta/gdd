@@ -14,7 +14,8 @@ invoke = "/{name}"                         # how a command is called
 # the arguments of the role below.
 args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json", "{role_args}"]
 # A Builder call that continues the change's Builder session ([session] builder = "shared" in
-# gdd/models.toml) adds these at the end; {session} is the session gdd kept from the call before.
+# gdd/models.toml) adds these at the end; {session} is the one the Builder call before it in the
+# same run of gdd reported, which gdd keeps only in memory.
 resume_args = ["--resume", "{session}"]
 
 # Per role: no MCP servers, its change's state folder among its working folders, what it may run

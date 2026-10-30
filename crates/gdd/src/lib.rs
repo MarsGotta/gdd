@@ -1592,6 +1592,9 @@ struct ProjectSteps<'a> {
     env: &'a Env,
     /// What `gdd/models.toml` says of the agents besides the model of each role.
     settings: invoke::Settings,
+    /// The Builder session of the change in this run (see [`invoke::Ongoing`]): every run starts
+    /// without one.
+    builder_session: invoke::Ongoing,
     /// How the recipe says what it says on its way, a line each.
     voice: Voice,
 }
@@ -1616,6 +1619,7 @@ impl<'a> ProjectSteps<'a> {
             timeout: Duration::from_secs(limits.agent_timeout_s),
             env,
             settings,
+            builder_session: invoke::Ongoing::default(),
             voice,
         }
     }
@@ -1639,7 +1643,7 @@ impl recipe::Steps for ProjectSteps<'_> {
             settings: &self.settings,
             timeout: self.timeout,
         };
-        invoke::run(&project, call)
+        invoke::run(&project, call, &mut self.builder_session)
     }
 
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {

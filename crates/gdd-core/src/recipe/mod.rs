@@ -1251,8 +1251,8 @@ enum Kind {
     Record,
     /// The log, and the sessions of the calls: only by lines added at their end.
     Log,
-    /// An output of the role that is called, which gdd keeps for each call: it may be added,
-    /// never changed. Of the Builder sessions gdd keeps, only the one of the call itself.
+    /// An output of the role that is called, which gdd keeps for each call (see
+    /// [`call_output`]): it may be added, never changed.
     Output,
     /// The report of the G2 a Builder runs: only into a report of G2.
     Report,
@@ -1264,9 +1264,8 @@ enum Kind {
 }
 
 impl Kind {
-    /// The kind of the file `path` of GDD state during a call of `who` on change `id`, whose
-    /// Builder session gdd keeps at `session`, if it keeps one (see [`invoke::session_kept`]).
-    fn of(path: &str, id: &str, who: Who, session: Option<&str>) -> Kind {
+    /// The kind of the file `path` of GDD state during a call of `who` on change `id`.
+    fn of(path: &str, id: &str, who: Who) -> Kind {
         let own = format!(".gdd/changes/{id}/");
         let Some(inside) = path.strip_prefix(&own) else {
             let logs = [log::PATH, invoke::SESSIONS];
@@ -1278,20 +1277,27 @@ impl Kind {
         };
         let builds = matches!(who, Who::BuilderTest | Who::BuilderBuild);
         let output = inside.strip_prefix(&format!("outputs/{}-", who.role()));
-        // Only gdd keeps a Builder session: what else an agent leaves would choose the next.
-        let kept_by_gdd = !path.ends_with(invoke::SESSION) || session == Some(path);
         if path == change::record_path(id) {
             Kind::Record
         } else if builds && path == Gate::G2.report_path(id) {
             Kind::Report
         } else if who.answer(id).as_deref() == Some(path) {
             Kind::Answer
-        } else if kept_by_gdd && output.is_some_and(|number| !number.contains('/')) {
+        } else if output.is_some_and(call_output) {
             Kind::Output
         } else {
             Kind::Kept
         }
     }
+}
+
+/// Whether `name`, what follows `outputs/<role>-` in the folder of a change, names an output gdd
+/// keeps of a call of that role (see [`invoke::run`]): the number of the call, then `.md` or
+/// `.raw`. Nothing else an agent leaves there, a `.session` say, is one.
+fn call_output(name: &str) -> bool {
+    let raw = || name.strip_suffix(".raw");
+    let number = name.strip_suffix(".md").or_else(raw);
+    number.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// GDD state as it was before a call of `who` on change `id`: every file of it (see
@@ -1319,17 +1325,15 @@ impl<'a> State<'a> {
 
     /// Puts back as it was, with its permissions, each file of this state whose bytes changed in
     /// a way its kind does not allow, or that is no longer a file of its own, and removes what was
-    /// not there: their paths, sorted. The call is over: the Builder session gdd kept of it is
-    /// where the log says (see [`invoke::session_kept`]). Every file is checked and put back
-    /// before a file that could not be put back stops the recipe.
+    /// not there: their paths, sorted. Every file is checked and put back before a file that
+    /// could not be put back stops the recipe.
     fn put_back(&self, root: &Path) -> Result<Vec<String>, String> {
         let after = state_files(root, self.id)?;
-        let session = invoke::session_kept(root, self.id, self.who);
         // Sorted, a folder that is no longer one goes before what was in it comes back.
         let paths: BTreeSet<&String> = self.files.keys().chain(&after).collect();
         let (mut changed, mut stuck) = (Vec::new(), Vec::new());
         for path in paths {
-            let kind = Kind::of(path, self.id, self.who, session.as_deref());
+            let kind = Kind::of(path, self.id, self.who);
             let found = self.files.get(path);
             let before = found.map(|file| file.bytes.as_slice());
             let now = files::read(root, path).ok();
@@ -2337,48 +2341,31 @@ mod tests {
     /// A report of G2, as `gdd g2` saves it.
     const G2_REPORT: &str = "{\"ok\": true, \"gate\": \"G2\"}\n";
 
-    /// The line of the log of a call of the Builder in build mode on change `c1`.
-    const BUILD_LINE: &str = "{\"change\": \"c1\", \"role\": \"builder-build\"}";
-
     #[test]
-    fn a_builder_session_that_gdd_did_not_keep_of_the_call_goes_back_and_parks_the_change() {
+    fn a_session_file_an_agent_leaves_next_to_the_outputs_goes_back_and_parks_the_change() {
+        // No file holds a Builder session: gdd keeps it in memory for one run (`invoke::Ongoing`).
         let outputs = ".gdd/changes/c1/outputs";
-        // The one of an earlier call, which kept none: it would choose the session of the next.
-        let folder = with_state();
-        let ended = acting(&folder, Who::BuilderBuild, |root| {
-            log::append(root, BUILD_LINE).unwrap();
-            log::append(root, BUILD_LINE).unwrap();
-            for n in [2, 1] {
-                let session = format!(".gdd/changes/c1/outputs/builder-build-{n}.session");
-                change::write(root, &session, &format!("s-{n}")).unwrap();
-            }
-        });
-        let why = format!(
-            "the Builder in build mode changed GDD state: {outputs}/builder-build-1.session"
-        );
-        assert_eq!(ended, park(&why));
-        let root = &folder.0;
-        let kept = |n: u8| root.join(format!("{outputs}/builder-build-{n}.session"));
-        assert_eq!(fs::read_to_string(kept(2)).unwrap(), "s-2");
-        assert!(!kept(1).exists());
-        // One of a later call.
-        let folder = with_state();
-        let ended = acting(&folder, Who::BuilderTest, |root| {
-            log::append(root, "{\"change\": \"c1\", \"role\": \"builder-test\"}").unwrap();
-            let session = ".gdd/changes/c1/outputs/builder-test-2.session";
-            change::write(root, session, "s-2").unwrap();
-        });
-        let why =
-            format!("the Builder in test mode changed GDD state: {outputs}/builder-test-2.session");
-        assert_eq!(ended, park(&why));
-        // One of a role that keeps none.
-        let folder = with_state();
-        let ended = acting(&folder, Who::Reviewer, |root| {
-            change::write(root, ".gdd/changes/c1/outputs/reviewer-1.session", "s-1").unwrap();
-        });
-        let why = format!("the Reviewer changed GDD state: {outputs}/reviewer-1.session");
-        assert_eq!(ended, park(&why));
-        assert!(!folder.0.join(outputs).join("reviewer-1.session").exists());
+        let plants: [(Who, Act); 3] = [
+            (Who::BuilderTest, |root| {
+                let session = ".gdd/changes/c1/outputs/builder-test-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+            (Who::BuilderBuild, |root| {
+                let session = ".gdd/changes/c1/outputs/builder-build-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+            (Who::Reviewer, |root| {
+                let session = ".gdd/changes/c1/outputs/reviewer-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+        ];
+        for (who, plant) in plants {
+            let folder = with_state();
+            let session = format!("{outputs}/{}-1.session", who.role());
+            let why = format!("the {who} changed GDD state: {session}");
+            assert_eq!(acting(&folder, who, plant), park(&why), "{who}");
+            assert!(!folder.0.join(&session).exists(), "{who}");
+        }
     }
 
     #[test]
@@ -2401,10 +2388,6 @@ mod tests {
             // Its G2, what gdd keeps of its call, and what is neither its change's nor shared.
             change::write(root, ".gdd/changes/c1/g2.json", G2_REPORT).unwrap();
             change::write(root, ".gdd/changes/c1/outputs/builder-build-1.md", "done").unwrap();
-            // The line of the call in the log, then the Builder session gdd keeps of it.
-            log::append(root, BUILD_LINE).unwrap();
-            let session = ".gdd/changes/c1/outputs/builder-build-1.session";
-            change::write(root, session, "s-1").unwrap();
             change::write(root, invoke::SESSIONS, "s-1\n").unwrap();
             change::write(root, ".gdd/changes/c2/change.json", "{}").unwrap();
             change::write(root, ".gdd/fake/calls", "builder-build\n").unwrap();
@@ -2610,7 +2593,7 @@ mod tests {
 
     #[test]
     fn what_a_call_may_write_depends_on_who_is_called() {
-        let of = |path: &str, who: Who| Kind::of(path, "c1", who, None);
+        let of = |path: &str, who: Who| Kind::of(path, "c1", who);
         let everyone = [
             Who::BuilderTest,
             Who::BuilderBuild,
@@ -2652,28 +2635,21 @@ mod tests {
         assert_eq!(output("orchestrator-1.md", Who::Orchestrator), Kind::Output);
         assert_eq!(output("builder-test-1.md", build), Kind::Kept);
         assert_eq!(output("reviewer-1/x.md", Who::Reviewer), Kind::Kept);
-        assert_eq!(output("reviewer-1.session", Who::Reviewer), Kind::Kept);
         assert_eq!(of(".gdd/changes/c10/g2.json", build), Kind::Kept);
-    }
-
-    #[test]
-    fn of_the_builder_sessions_a_call_may_add_only_the_one_gdd_keeps_of_it() {
-        let at = |name: &str| format!(".gdd/changes/c1/outputs/{name}");
-        let session = |name: &str, who: Who, kept: Option<&str>| {
-            Kind::of(&at(name), "c1", who, kept.map(at).as_deref())
-        };
-        let (build, test) = (Who::BuilderBuild, Who::BuilderTest);
-        let (b1, b2) = ("builder-build-1.session", "builder-build-2.session");
-        let (t1, t2) = ("builder-test-1.session", "builder-test-2.session");
-        assert_eq!(session(b2, build, Some(b2)), Kind::Output);
-        assert_eq!(session(b1, build, Some(b2)), Kind::Kept);
-        assert_eq!(session(t1, test, Some(t1)), Kind::Output);
-        assert_eq!(session(t2, test, Some(t1)), Kind::Kept);
-        let md = "builder-build-2.md";
-        assert_eq!(session(md, build, Some(b2)), Kind::Output);
-        // When the log cannot say which, none.
-        assert_eq!(session(t1, test, None), Kind::Kept);
-        assert_eq!(session("builder-test-1.md", test, None), Kind::Output);
+        // Only what gdd keeps of a call: its number, then `.md` or `.raw`.
+        assert_eq!(output("builder-build-12.raw", build), Kind::Output);
+        for other in [
+            "builder-build-1.session",
+            "builder-build-1.json",
+            "builder-build-1.md.session",
+            "builder-build-.md",
+            "builder-build-x.md",
+            "builder-build-1a.raw",
+            "builder-build-1",
+        ] {
+            assert_eq!(output(other, build), Kind::Kept, "{other}");
+        }
+        assert_eq!(output("reviewer-1.session", Who::Reviewer), Kind::Kept);
     }
 
     /// The text of `path` of the project at `folder`, read as a file of its own.
