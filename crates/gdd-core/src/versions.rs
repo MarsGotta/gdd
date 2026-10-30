@@ -930,7 +930,7 @@ mod tests {
 
     fn steps(promote: &str) -> release::Steps {
         let text = format!("[release]\nsimulated = true\npromote = {promote:?}\n");
-        release::Steps::from_toml(&text).unwrap()
+        release::Steps::from_toml(&text, crate::exec::TIMEOUT).unwrap()
     }
 
     fn promotion<'a>(repo: &'a Repo, steps: &'a release::Steps, rules: Rules) -> Promotion<'a> {

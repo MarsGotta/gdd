@@ -25,7 +25,7 @@ It may bring a topic. If empty, the topic is the next piece of value for the pro
 
 1. **Start from `docs/brief.md`**. Do not repeat the Setup questions: build on the answers.
 2. **Exploration**. Research on the web when needed. For each important question (design, data, privacy, risks, market), present two or three options with pros, cons and your recommendation.
-3. **Spikes** only when a question blocks a decision. Each spike is a change of type Spike with fixed time and cost (`bin/gdd new-change <id> --type Spike --title ...`) and leaves an ADR.
+3. **Spikes** only when a question blocks a decision. Each spike is a change of type Spike with fixed time and cost (`bin/gdd new-change <id> --type Spike --title ...`) and leaves an ADR. When the question has 2 to 4 options, ask for one variant per option (`--option <option>`, once for each: `--option SQLite --option Postgres`), or for `--variants <n>` of the same brief when there are no options to tell apart; the human compares the variants at G4 and picks one.
 4. **Decisions** that are costly to change go to an ADR in `docs/adr/NNNN-title.md` (context, decision, alternatives, consequences).
 5. **MVP and kill rule** if the Brief does not have them yet: the smallest MVP with value, and what would have to happen to abandon it.
 6. **Next changes**: propose the order of the next changes, each one small and valuable.

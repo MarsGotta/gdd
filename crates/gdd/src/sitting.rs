@@ -59,6 +59,15 @@ const NO_CHANGELOG: &str = "Changelog: none set";
 const SPIKE_PAGE: &str = "Spike: no Reviewer, demo or changelog line. OK brings only its ADR \
                           files under docs/adr/ to main; its code stays on its branch.";
 
+/// What the G4 page of a spike with variants says where another change has its review, its demo
+/// and its changelog line.
+const VARIANTS_PAGE: &str = "Spike with variants: no Reviewer, demo or changelog line. OK with \
+                             the number of a variant brings only its ADR files under docs/adr/ \
+                             to main; the code of every variant stays on its branch.";
+
+/// The question of the text line of a G4 answer on a spike with variants.
+const WHICH_VARIANT: &str = "Which variant? Its number:";
+
 /// The keys of a page that only scrolls.
 const SCROLL_KEYS: &str = "↑↓ scroll · q quit";
 
@@ -120,6 +129,9 @@ enum Page {
     Reply(Answer, String),
     /// The confirmation of a G4 answer, with its words (none for OK).
     Run(Answer, String),
+    /// The text line of `o` and `p` at the G4 of a spike with variants, which asks the number of
+    /// one, with what was typed.
+    Pick(Answer, String),
 }
 
 /// What the human answers at G4.
@@ -194,6 +206,10 @@ pub struct Sitting {
     g4: bool,
     /// Whether the change is a spike, whose G4 brings only its ADR files to main.
     spike: bool,
+    /// Whether the change is a spike with variants: OK and polish pick one first.
+    variants: bool,
+    /// The number of the variant picked for the G4 answer on its way; none on the main page.
+    variant: Option<String>,
     /// The `gdd` arguments the human chose with `y` at G4.
     chosen: Option<Vec<String>>,
 }
@@ -222,6 +238,8 @@ impl Sitting {
             closed: false,
             g4: false,
             spike: false,
+            variants: false,
+            variant: None,
             chosen: None,
         }
     }
@@ -236,10 +254,12 @@ impl Sitting {
             status::Basics::from_toml(&project).map_err(|e| format!("{}: {e}", crate::PROJECT))?;
         let card = card_of(&root, &state, change)?;
         if card.state == IN_PRE {
-            let lines = g4_lines(&state, &card)?;
+            let record = record_of(&state, &card.id)?;
+            let lines = g4_lines(&state, &card, &record)?;
             let mut sitting = Sitting::new(&basics.name, &card.id, &root, lines, None);
             sitting.g4 = true;
             sitting.spike = card.kind == SPIKE;
+            sitting.variants = !variants_of(&card.id, &record)?.is_empty();
             return Ok(sitting);
         }
         let title = format!("{} · {} · {}", card.id, card.title, card.color);
@@ -283,6 +303,7 @@ impl Sitting {
             Page::Done(_) => self.on_done(key),
             Page::Reply(..) => self.on_reply(key),
             Page::Run(..) => self.on_run(key),
+            Page::Pick(..) => self.on_pick(key),
         }
     }
 
@@ -305,18 +326,49 @@ impl Sitting {
     }
 
     /// The main page: Up and Down scroll, `a` and `c` ask, while the sitting is not over, `o`, `k`
-    /// and `p` answer at G4, and `q` closes.
+    /// and `p` answer at G4, and `q` closes. On a spike with variants, `o` and `p` ask the number
+    /// of one first.
     fn on_main(&mut self, key: Key) {
         let open = self.approval.is_some();
+        let pick = self.g4 && self.variants;
         match key {
             Key::Char('q') => self.closed = true,
             Key::Up => self.scroll_up(),
             Key::Down => self.scroll_down(),
             Key::Char('a') if open => self.go_to(Page::Approve),
             Key::Char('c') if open => self.go_to(Page::Ask(String::new())),
+            Key::Char('o') if pick => self.go_to(Page::Pick(Answer::Ok, String::new())),
+            Key::Char('p') if pick => self.go_to(Page::Pick(Answer::Polish, String::new())),
             Key::Char('o') if self.g4 => self.go_to(Page::Run(Answer::Ok, String::new())),
             Key::Char('k') if self.g4 => self.go_to(Page::Reply(Answer::Ko, String::new())),
             Key::Char('p') if self.g4 => self.go_to(Page::Reply(Answer::Polish, String::new())),
+            _ => {}
+        }
+    }
+
+    /// The text line of the number of a variant: digits type, Backspace erases, Enter with a
+    /// number goes on, to the confirmation of OK or to the notes of the polish round, and Esc
+    /// goes back.
+    fn on_pick(&mut self, key: Key) {
+        let Page::Pick(answer, text) = &mut self.page else {
+            return;
+        };
+        let answer = *answer;
+        match key {
+            Key::Enter if text.parse::<usize>().is_ok() => {
+                let number = text.clone();
+                let next = match answer {
+                    Answer::Polish => Page::Reply(answer, String::new()),
+                    Answer::Ok | Answer::Ko => Page::Run(answer, String::new()),
+                };
+                self.go_to(next);
+                self.variant = Some(number);
+            }
+            Key::Esc => self.go_to(Page::Main),
+            Key::Char(digit) if digit.is_ascii_digit() => text.push(digit),
+            Key::Backspace => {
+                text.pop();
+            }
             _ => {}
         }
     }
@@ -389,7 +441,8 @@ impl Sitting {
         let (answer, words) = (*answer, words.clone());
         match self.current_state() {
             Ok(state) if state == IN_PRE => {
-                self.chosen = Some(resume_args(&self.id, answer, &words));
+                let variant = self.variant.as_deref();
+                self.chosen = Some(resume_args(&self.id, answer, &words, variant));
                 self.closed = true;
             }
             Ok(state) => {
@@ -429,8 +482,11 @@ impl Sitting {
         }
     }
 
-    /// Shows `page` from its top.
+    /// Shows `page` from its top. Back on the main page, no variant is picked.
     fn go_to(&mut self, page: Page) {
+        if page == Page::Main {
+            self.variant = None;
+        }
         self.page = page;
         self.scroll = 0;
         self.stale = false;
@@ -454,7 +510,7 @@ impl Sitting {
 
     /// Whether the page scrolls.
     fn scrolls(&self) -> bool {
-        !matches!(self.page, Page::Ask(_) | Page::Reply(..))
+        !matches!(self.page, Page::Ask(_) | Page::Reply(..) | Page::Pick(..))
     }
 
     /// The lines of the page the human is on, and its keys.
@@ -467,8 +523,13 @@ impl Sitting {
                 (vec![Line::from(QUESTION), typed], ASK_KEYS)
             }
             Page::Run(answer, words) => {
-                let text = run_text(&self.id, *answer, words, self.spike);
+                let variant = self.variant.as_deref();
+                let text = run_text(&self.id, *answer, words, self.spike, variant);
                 (plain(&text), SCROLL_KEYS)
+            }
+            Page::Pick(_, text) => {
+                let typed = Line::from(format!("> {text}_"));
+                (vec![Line::from(WHICH_VARIANT), typed], ASK_KEYS)
             }
             Page::Main => (self.main_lines(), SCROLL_KEYS),
             Page::Approve => (plain(&self.approval_text()), SCROLL_KEYS),
@@ -709,22 +770,34 @@ fn type_into(text: &mut String, key: Key) {
     }
 }
 
-/// The arguments of `gdd resume` that give the answer `answer` at G4, with `words` for a KO or a
-/// polish round.
-fn resume_args(id: &str, answer: Answer, words: &str) -> Vec<String> {
+/// The arguments of `gdd resume` that give the answer `answer` at G4, on the `variant` of a spike
+/// when one was picked, with `words` for a KO or a polish round.
+fn resume_args(id: &str, answer: Answer, words: &str, variant: Option<&str>) -> Vec<String> {
     let mut args: Vec<String> = ["resume", id, "--g4", answer.word()]
         .map(str::to_string)
         .to_vec();
+    if let Some(variant) = variant {
+        args.extend(["--variant".to_string(), variant.to_string()]);
+    }
     if answer != Answer::Ok {
         args.extend(["--note".to_string(), words.to_string()]);
     }
     args
 }
 
-/// What the confirmation of a G4 answer says: the command that runs, what follows, to a `spike`
-/// or not, and the keys.
-fn run_text(id: &str, answer: Answer, words: &str, spike: bool) -> Vec<String> {
+/// What the confirmation of a G4 answer says: the command that runs, on the `variant` picked if
+/// any, what follows, to a `spike` or not, and the keys.
+fn run_text(
+    id: &str,
+    answer: Answer,
+    words: &str,
+    spike: bool,
+    variant: Option<&str>,
+) -> Vec<String> {
     let mut command = format!("gdd resume {id} --g4 {}", answer.word());
+    if let Some(variant) = variant {
+        command.push_str(&format!(" --variant {variant}"));
+    }
     if answer != Answer::Ok {
         command.push_str(&format!(" --note \"{words}\""));
     }
@@ -734,31 +807,38 @@ fn run_text(id: &str, answer: Answer, words: &str, spike: bool) -> Vec<String> {
     text
 }
 
-/// The G4 page of the change `card`, whose state root is `state`: how the change works and what
-/// else the Reviewer said, the demo, what was decided without the human, the changelog line and
-/// the time of the change. A spike has no review, demo or changelog line: what OK brings
-/// instead (see [`SPIKE_PAGE`]).
-fn g4_lines(state: &Path, card: &Card) -> Result<Vec<Line<'static>>, String> {
+/// The G4 page of the change `card`, whose state root is `state` and whose record is `record`:
+/// how the change works and what else the Reviewer said, the demo, what was decided without the
+/// human, the changelog line and the time of the change. A spike has no review, demo or
+/// changelog line: what OK brings instead (see [`SPIKE_PAGE`]); a spike with variants, what each
+/// of them did, on one page, first (see [`inbox::variant_lines`]).
+fn g4_lines(state: &Path, card: &Card, record: &Value) -> Result<Vec<Line<'static>>, String> {
     let id = card.id.as_str();
     let title = format!("{id} · {} · waiting for your G4", card.title);
-    let record = record_of(state, id)?;
     let spike = card.kind == SPIKE;
+    let variants = variants_of(id, record)?;
     let mut lines = vec![Line::from(title).bold(), Line::default()];
-    if !spike {
+    if !variants.is_empty() {
+        lines.push(Line::from(inbox::VARIANTS).bold());
+        lines.extend(plain(&inbox::variant_lines(&variants)));
+        lines.push(Line::default());
+    } else if !spike {
         lines.extend(review_lines(state, id)?);
         lines.push(Line::default());
         lines.push(Line::from(demo_line(state, id)));
         lines.push(Line::default());
     }
-    let decided = decided_lines(&record);
+    let decided = decided_lines(record);
     if !decided.is_empty() {
         lines.extend(decided);
         lines.push(Line::default());
     }
-    let last = if spike {
+    let last = if !variants.is_empty() {
+        VARIANTS_PAGE.to_string()
+    } else if spike {
         SPIKE_PAGE.to_string()
     } else {
-        changelog_line(&record)
+        changelog_line(record)
     };
     lines.push(Line::from(last));
     let time = time_lines(state, id);
@@ -773,6 +853,15 @@ fn g4_lines(state: &Path, card: &Card) -> Result<Vec<Line<'static>>, String> {
 fn record_of(state: &Path, id: &str) -> Result<Value, String> {
     let text = change::read_record(state, id)?;
     serde_json::from_str(&text).map_err(|e| format!("{}: {e}", change::record_path(id)))
+}
+
+/// The variants of a spike the record of the change `id`, `record`, keeps: none when it has no
+/// `variants`, or `null`.
+fn variants_of(id: &str, record: &Value) -> Result<Vec<change::Variant>, String> {
+    let variants = record.get("variants").cloned().unwrap_or_default();
+    let read = serde_json::from_value::<Option<Vec<change::Variant>>>(variants);
+    let read = read.map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+    Ok(read.unwrap_or_default())
 }
 
 /// The review of the change `id`: how the change works (see [`inbox::how_it_works`]), then its
@@ -2426,6 +2515,111 @@ mod tests {
         assert_hides(&feature, &["Spike:"]);
         feature.press(Key::Char('o'));
         assert_hides(&feature, &ok);
+    }
+
+    /// Change `c1` waiting for its G4 as a spike with two variants: the first parked, the second
+    /// ready with its ADR.
+    fn waiting_variants() -> (Project, Sitting) {
+        let (project, _) = waiting(Value::Null);
+        set_record(&project, |record| {
+            record["type"] = Value::from(SPIKE);
+            record["variants"] = serde_json::json!([
+                {"option": "SQLite", "branch": "change/c1-v1", "state": "parked",
+                 "reason": "G2 still red"},
+                {"option": "Postgres", "branch": "change/c1-v2", "state": "ready",
+                 "adrs": ["docs/adr/0002-storage.md"], "decision": "Postgres.", "files": 2,
+                 "minutes": 0.5, "usd": 0.25},
+            ]);
+        });
+        let sitting = open(&project, "c1");
+        (project, sitting)
+    }
+
+    #[test]
+    fn the_g4_of_a_spike_with_variants_puts_them_on_one_page() {
+        let (_project, sitting) = waiting_variants();
+        let lines = [
+            "Variant 1 · SQLite · parked: G2 still red · ADR: none · decision: none · 0 files · \
+             0.0 min · 0.00 USD",
+            "Variant 2 · Postgres · ready · ADR: docs/adr/0002-storage.md · decision: Postgres. \
+             · 2 files · 0.5 min · 0.25 USD",
+        ];
+        for line in lines {
+            let shown = Line::from(line.to_string());
+            assert!(sitting.lines.contains(&shown), "{line}");
+        }
+        assert!(sitting.lines.contains(&Line::from(VARIANTS_PAGE)));
+        assert!(!sitting.lines.contains(&Line::from(SPIKE_PAGE)));
+        assert_hides(&sitting, &[NO_DEMO, NO_REVIEW, NO_CHANGELOG, UNEXPLAINED]);
+        let screen = sitting.render(200, 40);
+        assert_before(&screen, "Variants", "Variant 1 · SQLite");
+        assert_before(&screen, "Variant 2 · Postgres", "Spike with variants:");
+    }
+
+    #[test]
+    fn ok_on_a_spike_with_variants_asks_the_number_then_confirms_with_it() {
+        let (_project, mut sitting) = waiting_variants();
+        sitting.press(Key::Char('o'));
+        assert_shows(&sitting, &[WHICH_VARIANT, "> _"]);
+        // Only digits type, and Enter needs a number.
+        press(&mut sitting, &[Key::Enter, Key::Char('x'), Key::Space]);
+        assert_eq!(sitting.page, Page::Pick(Answer::Ok, String::new()));
+        let typed = [Key::Char('3'), Key::Backspace, Key::Char('2')];
+        press(&mut sitting, &typed);
+        assert_shows(&sitting, &["> 2_"]);
+        sitting.press(Key::Enter);
+        assert_shows(&sitting, &["gdd resume c1 --g4 ok --variant 2", RUN]);
+        sitting.press(Key::Char('y'));
+        assert!(sitting.closed());
+        let words = ["resume", "c1", "--g4", "ok", "--variant", "2"];
+        assert_eq!(sitting.chosen(), Some(args(&words)));
+    }
+
+    #[test]
+    fn polish_on_a_spike_with_variants_asks_the_number_then_the_notes() {
+        let (_project, mut sitting) = waiting_variants();
+        press(&mut sitting, &[Key::Char('p'), Key::Char('2'), Key::Enter]);
+        assert_shows(&sitting, &[QUESTION]);
+        type_in(&mut sitting, "Measure");
+        sitting.press(Key::Enter);
+        let command = "gdd resume c1 --g4 polish --variant 2 --note \"Measure\"";
+        assert_shows(&sitting, &[command]);
+        sitting.press(Key::Char('y'));
+        let words = [
+            "resume",
+            "c1",
+            "--g4",
+            "polish",
+            "--variant",
+            "2",
+            "--note",
+            "Measure",
+        ];
+        assert_eq!(sitting.chosen(), Some(args(&words)));
+        // KO rejects them all: no number.
+        let (_, mut sitting) = waiting_variants();
+        press(&mut sitting, &[Key::Char('k'), Key::Char('x'), Key::Enter]);
+        assert_shows(&sitting, &["gdd resume c1 --g4 ko --note \"x\""]);
+        // Back on the page, the number picked is forgotten.
+        let (_project, mut sitting) = waiting_variants();
+        let back = [Key::Char('o'), Key::Char('2'), Key::Enter, Key::Esc];
+        press(&mut sitting, &back);
+        assert_eq!(sitting.page, Page::Main);
+        press(&mut sitting, &[Key::Char('o'), Key::Esc, Key::Char('k')]);
+        press(&mut sitting, &[Key::Char('x'), Key::Enter, Key::Char('y')]);
+        let words = ["resume", "c1", "--g4", "ko", "--note", "x"];
+        assert_eq!(sitting.chosen(), Some(args(&words)));
+    }
+
+    #[test]
+    fn variants_the_record_cannot_hold_are_an_error_naming_it() {
+        let (project, _) = waiting(Value::Null);
+        let object = serde_json::json!({});
+        set_record(&project, |record| record["variants"] = object);
+        let err = Sitting::load(&project.0, "c1").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        set_record(&project, |record| record["variants"] = Value::Null);
+        assert!(!open(&project, "c1").variants);
     }
 
     #[test]

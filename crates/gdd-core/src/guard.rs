@@ -178,7 +178,8 @@ impl Verdict {
 /// now, protects, and what the rules file protected when the build started: deleting the file
 /// or one of its protections frees no one from it. With the hashes of a snapshot, only the paths
 /// whose hash changed since it count as touched. A change never prepared fails: there is no
-/// starting point.
+/// starting point. In the worktree of a variant of a spike, what its branch touched (see
+/// [`change::branch_at`]).
 pub fn path_guard(
     root: &Path,
     id: &str,
@@ -191,7 +192,7 @@ pub fn path_guard(
         return Ok(Verdict::new(vec![not_prepared(id, "Path Guard")]));
     };
     let git = Git::new(root);
-    let mut touched = git.changed_since(&change::branch(id), start)?;
+    let mut touched = git.changed_since(&change::branch_at(&git, id)?, start)?;
     if let Some(before) = snapshot {
         touched = changed_after(root, touched, before)?;
     }
@@ -235,7 +236,8 @@ pub fn snapshot(root: &Path, id: &str, record: &Record) -> Result<Hashes, Error>
     let Some(start) = record.build_start.as_deref() else {
         return Err(Error::NotPrepared(id.to_string()));
     };
-    let touched = Git::new(root).changed_since(&change::branch(id), start)?;
+    let git = Git::new(root);
+    let touched = git.changed_since(&change::branch_at(&git, id)?, start)?;
     hashes(root, &touched)
 }
 
@@ -282,7 +284,8 @@ pub fn scope(
     };
     let planned = &record.plan.paths;
     let (mut failures, mut accepted) = (Vec::new(), Vec::new());
-    for path in Git::new(root).changed_since(&change::branch(id), start)? {
+    let git = Git::new(root);
+    for path in git.changed_since(&change::branch_at(&git, id)?, start)? {
         if planned.iter().any(|plan| glob_matches(plan, &path)) {
             continue;
         }
@@ -301,12 +304,14 @@ pub fn scope(
 
 /// Paths change `id` of the project at `root` touched against the main branch, which count when
 /// classifying it: nothing when the project is not in a git repository or the change has no
-/// branch yet.
+/// branch yet. In the worktree of a variant of a spike, what its branch touched (see
+/// [`change::branch_at`]).
 pub fn touched(root: &Path, id: &str, settings: &Settings) -> Result<Vec<String>, git::Error> {
     if !git::is_repository(root) {
         return Ok(Vec::new());
     }
-    Git::new(root).changed_from(&settings.main_branch, &change::branch(id))
+    let git = Git::new(root);
+    git.changed_from(&settings.main_branch, &change::branch_at(&git, id)?)
 }
 
 #[cfg(test)]

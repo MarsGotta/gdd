@@ -13,6 +13,7 @@ required = true                     # zero scenarios counts as a G3 failure
 builder_retries = 3   # Builder rounds against G2
 replans = 1           # Orchestrator replans per stuck change
 reviewer_fixes = 1
+command_seconds = 1800   # how long each gate and release command may run; raise it on a slow machine
 
 [spike]
 max_usd = 5   # a spike parks when its agent calls cost this much (USD)

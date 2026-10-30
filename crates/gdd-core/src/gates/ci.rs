@@ -146,7 +146,7 @@ fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
     let commands = project.commands.of(gate);
     let mut report = judged.report(gate, commands);
     let owed = debt::owed(&mut report, project.root, gate);
-    judged.run_commands(&mut report, project.root, project.commands, &owed);
+    judged.run_commands(&mut report, project, &owed);
     if gate == Gate::G3 {
         judged.scenarios(&mut report, project);
         exceptions::judge(&mut report, &exceptions::read(project.root));

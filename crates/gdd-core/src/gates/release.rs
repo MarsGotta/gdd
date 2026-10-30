@@ -1,14 +1,15 @@
 //! The release steps (`gdd release pre|promote|observe`): what takes a merged change to pre,
 //! then to production, and rolls it back when production gets worse.
 //!
-//! Each step runs its command from the `[release]` section of `gdd/commands.toml` (see
-//! [`exec::run`]), never anything else; a step without a command passes as simulated only when
-//! that section says `simulated = true`. Every step is logged. A change that needs the human G4
-//! is never promoted without it.
+//! Each step runs its command from the `[release]` section of `gdd/commands.toml`, within the
+//! time limit of the rules (see [`exec::run_limited`]), never anything else; a step without a
+//! command passes as simulated only when that section says `simulated = true`. Every step is
+//! logged. A change that needs the human G4 is never promoted without it.
 
 use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -33,17 +34,21 @@ const NEEDS_G4: &str = "This change needs a human G4 before promotion.";
 const ROLLED_BACK: &str = "Production failed while observing: rolled back to the previous \
                            version. A hotfix is needed.";
 
-/// The release commands of a project: the `[release]` section of `gdd/commands.toml`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The release commands of a project: the `[release]` section of `gdd/commands.toml`, and how
+/// long each may run.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Steps {
     commands: BTreeMap<String, String>,
     simulated: bool,
+    limit: Duration,
 }
 
 impl Steps {
     /// Reads the `[release]` section of a commands file; the rest is ignored. A command is text
-    /// that is not blank; only `simulated = true` lets the steps without one pass.
-    pub fn from_toml(text: &str) -> Result<Steps, config::Error> {
+    /// that is not blank; only `simulated = true` lets the steps without one pass. Each may run
+    /// for `limit`, the time limit of the rules file (see [`crate::rules::command_seconds`]):
+    /// there are no steps without one.
+    pub fn from_toml(text: &str, limit: Duration) -> Result<Steps, config::Error> {
         #[derive(Deserialize)]
         struct Raw {
             #[serde(default)]
@@ -54,6 +59,7 @@ impl Steps {
         Ok(Steps {
             commands: configured(raw.release),
             simulated,
+            limit,
         })
     }
 }
@@ -200,7 +206,7 @@ fn versioned(
         Some(command) => {
             let mut env = vec![("GDD_CHANGE", id)];
             env.extend(version.map(|version| ("GDD_VERSION", version)));
-            Step::ran(name, exec::run(command, root, &env, exec::TIMEOUT))
+            Step::ran(name, exec::run_limited(command, root, &env, steps.limit))
         }
         None if steps.simulated => Step {
             simulated: true,
@@ -369,7 +375,6 @@ mod tests {
     use super::*;
     use crate::git::tests::Folder;
     use std::fs;
-    use std::time::Duration;
 
     const COMMANDS: &str = r#"
 [g2]
@@ -398,7 +403,7 @@ flag = false
                              "inbox": [], "x": 1}"#;
 
     fn steps(text: &str) -> Steps {
-        Steps::from_toml(text).unwrap()
+        Steps::from_toml(text, exec::TIMEOUT).unwrap()
     }
 
     /// `commands` with the release command `name` set to `command`.
@@ -428,8 +433,8 @@ flag = false
         let commands: Vec<&str> = read.commands.keys().map(String::as_str).collect();
         assert_eq!(commands, ["build", "deploy_pre", "tests_pre"]);
         assert!(read.simulated);
-        assert_eq!(steps(""), Steps::default());
-        assert!(!Steps::default().simulated);
+        let none = steps("");
+        assert!(none.commands.is_empty() && !none.simulated, "{none:?}");
         for text in [
             "[release]\nsimulated = false\n",
             "[release]\nsimulated = \"yes\"\n",
@@ -437,7 +442,7 @@ flag = false
             assert!(!steps(text).simulated, "{text}");
         }
         for wrong in ["release = 1\n", "[release", "[release]\nbuild = "] {
-            let result = Steps::from_toml(wrong);
+            let result = Steps::from_toml(wrong, exec::TIMEOUT);
             assert!(matches!(result, Err(config::Error::Toml(_))), "{wrong:?}");
         }
     }
@@ -468,6 +473,23 @@ flag = false
             assert_eq!(fixed, ["-", "machine", ""].map(String::from));
         }
         assert_eq!(log[1].duration_s, failed.duration_s.unwrap());
+    }
+
+    #[test]
+    fn a_step_runs_within_the_time_limit_of_the_rules() {
+        let limit = Duration::from_millis(300);
+        let text = "[release]\nbuild = \"true\"\ndemo = \"echo started; sleep 5\"\n";
+        let slow = Steps::from_toml(text, limit).unwrap();
+        assert_eq!(slow.limit, limit);
+        let folder = project(RECORD);
+        let ran = step(&folder.0, &folder.0, "c1", &slow, "demo").unwrap();
+        assert!(!ran.ok);
+        assert_eq!(ran.code, Some(exec::TIMED_OUT));
+        let said = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(ran.tail.as_deref(), Some(said));
+        // One that ends in time passes.
+        let built = step(&folder.0, &folder.0, "c1", &slow, "build").unwrap();
+        assert!(built.ok && !built.simulated, "{built:?}");
     }
 
     #[test]

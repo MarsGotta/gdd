@@ -152,7 +152,7 @@ pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
     let checks = [
         failing_test_caught(project, config)?,
         (PROTECTED.to_string(), harness_protected(project)),
-        (rollback.to_string(), rollback_works(project.root, config)),
+        (rollback.to_string(), rollback_works(project, config)),
         (ZERO_SCENARIOS.to_string(), zero_scenarios_fail(project)?),
     ];
     let checks = checks.map(|(test, ok)| Check { test, ok }).to_vec();
@@ -202,9 +202,9 @@ fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bo
     }
     let (root, state) = (project.root, project.state);
     let kept = set_aside(root, state, file)?;
-    let red_without = failing(commands, root);
+    let red_without = failing(commands, project);
     let red = if red_without.is_empty() {
-        planted_and_red(root, file, content, commands)
+        planted_and_red(project, file, content, commands)
     } else {
         Ok(false)
     };
@@ -226,18 +226,19 @@ fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bo
     Ok((named, false))
 }
 
-/// Plants `content` at `file` of the project at `root`, in place of whatever the G2 commands
-/// left there (see [`cleared`]), and runs the `commands` from `root` until one fails: whether one
-/// did. A test that cannot be planted is an error, and then nothing runs.
+/// Plants `content` at `file` of `project`, in place of whatever the G2 commands left there (see
+/// [`cleared`]), and runs the `commands` from its root until one fails (see [`fails`]): whether
+/// one did. A test that cannot be planted is an error, and then nothing runs.
 fn planted_and_red(
-    root: &Path,
+    project: &Project,
     file: &str,
     content: &str,
     commands: &BTreeMap<String, String>,
 ) -> io::Result<bool> {
+    let root = project.root;
     cleared(root, file)?;
     written(&root.join(file), content.as_bytes())?;
-    Ok(commands.values().any(|c| fails(c, root)))
+    Ok(commands.values().any(|c| fails(c, project)))
 }
 
 /// Sets aside what was at `file` of the project at `root`: a copy of it, bytes and permissions,
@@ -338,9 +339,9 @@ fn link_on_the_way(root: &Path, file: &str) -> io::Result<Option<PathBuf>> {
     Ok(link.filter(|link| link != Path::new(file)))
 }
 
-/// The names of the `commands` that fail, run from `root` (see [`fails`]), in their order.
-fn failing<'a>(commands: &'a BTreeMap<String, String>, root: &Path) -> Vec<&'a str> {
-    let failed = commands.iter().filter(|(_, c)| fails(c, root));
+/// The names of the `commands` that fail, run in `project` (see [`fails`]), in their order.
+fn failing<'a>(commands: &'a BTreeMap<String, String>, project: &Project) -> Vec<&'a str> {
+    let failed = commands.iter().filter(|(_, c)| fails(c, project));
     failed.map(|(name, _)| name.as_str()).collect()
 }
 
@@ -363,11 +364,13 @@ fn removed(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Whether `command`, run from `root` with `GDD_CHANGE=selftest` (see [`exec::run`]), fails: it
-/// ends with a code other than 0, or it cannot run.
-fn fails(command: &str, root: &Path) -> bool {
+/// Whether `command`, run from the root of `project` with `GDD_CHANGE=selftest`, within the time
+/// limit of its rules (see [`exec::run_limited`]), fails: it ends with a code other than 0, or it
+/// cannot run.
+fn fails(command: &str, project: &Project) -> bool {
     let env = [("GDD_CHANGE", "selftest")];
-    let ran = exec::run(command, root, &env, exec::TIMEOUT);
+    let limit = project.rules.command_limit;
+    let ran = exec::run_limited(command, project.root, &env, limit);
     !ran.is_ok_and(|ran| ran.ok())
 }
 
@@ -381,11 +384,11 @@ fn harness_protected(project: &Project) -> bool {
     protected(guard::RULES) && protected(WORKFLOW) && runs_ci
 }
 
-/// Whether the rollback in pre works: its command passes, from `root`; without one, the release
-/// is simulated.
-fn rollback_works(root: &Path, config: &Config) -> bool {
+/// Whether the rollback in pre works: its command passes, in `project` (see [`fails`]); without
+/// one, the release is simulated.
+fn rollback_works(project: &Project, config: &Config) -> bool {
     match &config.rollback_pre {
-        Some(command) => !fails(command, root),
+        Some(command) => !fails(command, project),
         None => config.simulated,
     }
 }

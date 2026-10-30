@@ -20,7 +20,10 @@
 //! A spike has a recipe of its own (see [`Run::spiked`]): rounds of build mode in `mode=spike`
 //! against its own G2 (see [`crate::gates::spike`]), within a budget checked after each of its
 //! agent calls (see [`Run::within_budget`]); green, it pauses at G4 without G3, Reviewer, merge
-//! or pre, and OK brings only its ADR to main (see [`spike_ok`]).
+//! or pre, and OK brings only its ADR to main (see [`spike_ok`]). A spike with variants runs
+//! that recipe once for each, one after another, each in a worktree and on a branch of its own
+//! (see [`Run::variant`]): it pauses at G4 when one passed its gate (see [`Run::compared`]), and
+//! OK brings only the ADR of the variant the human picks.
 //!
 //! The recipe decides which steps run, in what order, and when the change stops; the steps that
 //! read the configuration of the project are [`Steps`]. Its agents and gates run in the
@@ -44,8 +47,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -53,9 +57,9 @@ use serde_json::{Map, Value};
 use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::{Model, Session};
-use crate::change::{self, Note};
+use crate::change::{self, Built, Note, Variant};
 use crate::classify::SPIKE;
-use crate::gates::spike::ADR_FOLDER;
+use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
@@ -87,6 +91,9 @@ const G3_RED: &str = "G3 still red after one fix";
 
 /// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix.
 const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
+
+/// Why a spike with variants parks when none of them passed its gate.
+const NO_VARIANT: &str = "no variant passed its gate";
 
 /// Why a change parks when G3 is red once it took the latest main.
 const G3_RED_ON_MAIN: &str = "G3 red on top of the latest main";
@@ -222,6 +229,10 @@ pub trait Steps {
     /// Tells the person who runs the recipe `line` on the way, before what the run says at its
     /// end.
     fn say(&mut self, line: &str);
+    /// From now on, the steps run in the project at `work`: the project root in the worktree of
+    /// a variant of a spike while it builds (see [`Run::variant`]), then the one of the change
+    /// again.
+    fn work_in(&mut self, work: &Path);
 }
 
 /// What the recipe reads from the project itself.
@@ -277,6 +288,17 @@ impl FromStr for Answer {
             "ko" => Ok(Answer::Ko),
             "polish" => Ok(Answer::Polish),
             other => Err(format!("G4 is ok, ko or polish, not {other:?}")),
+        }
+    }
+}
+
+impl Answer {
+    /// The word of the answer, as `gdd resume --g4` takes it.
+    fn word(self) -> &'static str {
+        match self {
+            Answer::Ok => "ok",
+            Answer::Ko => "ko",
+            Answer::Polish => "polish",
         }
     }
 }
@@ -340,6 +362,7 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
         id,
         steps,
         decided,
+        variant: None,
     };
     let ended = run.launched();
     finish(project, id, ended)
@@ -515,35 +538,49 @@ fn conflicts(at: &Merging, paths: &[String]) -> String {
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
-/// it, with `note` (which `polish` needs). Builders and Reviewers cannot answer. The answer
-/// resolves the request of G4 and the notes on promotions that failed. `ok` promotes the change
-/// (see [`ok_at_g4`]), or brings only the ADR of a spike to main (see [`spike_ok`]); `ko` rejects
-/// it, production untouched; either way its worktree goes once it ends. `polish` runs a polish
-/// pass in its worktree from the commit it is at, made again from the branch of the change when
-/// it went away (see [`polish_pass`]). A change that an earlier
+/// it, with `note` (which `polish` needs) and, for a spike with variants, the `variant` it picks
+/// (see [`picked`]). Builders and Reviewers cannot answer. The answer resolves the request of G4
+/// and the notes on promotions that failed. `ok` promotes the change (see [`ok_at_g4`]), or
+/// brings only the ADR of a spike, or of the variant picked, to main (see [`spike_ok`]); `ko`
+/// rejects it, production untouched; either way its worktree goes once it ends, and so do those
+/// of its variants. `polish` runs a polish pass in its worktree, or in the one of the variant
+/// picked, from the commit it is at, made again from its branch when it went away (see
+/// [`polish_pass`]). A change that an earlier
 /// `ok` promoted takes only `ok`, which observes it; one whose promotion did not end parks,
 /// whatever the answer (see [`unsure`]). Only from the main checkout (see
-/// [`from_main_checkout`]).
+/// [`from_main_checkout`]). An answer to the G4 of a spike picks what reaches main: it is checked
+/// and acted on under the merge lock, which the merge of another change makes it wait for, saying
+/// so (see [`queue::lock`]), until the spike no longer waits; so of two answers at once, the
+/// second finds the first one's end, never the pause both saw.
 pub fn resume(
     project: &Project,
     id: &str,
     answer: Answer,
     note: &str,
     role: Option<&str>,
+    variant: Option<usize>,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     from_main_checkout(project, "resume")?;
     let state_root = project.state;
     approve::may_record(role).map_err(|e| e.to_string())?;
-    let (text, record) = release::read(state_root, id)?;
+    let (_, record) = release::read(state_root, id)?;
     if answer == Answer::Polish && note.trim().is_empty() {
         return Err(format!(
             "polish needs your notes: gdd resume {id} --g4 polish --note ..."
         ));
     }
+    let lock = if record["type"] == SPIKE {
+        Some(queue::lock(state_root, || steps.say(queue::WAITING))?)
+    } else {
+        None
+    };
+    // Read again: under the lock, as the answer before this one left it.
+    let (text, record) = release::read(state_root, id)?;
     if !state::paused_at_g4(state_root, id)? {
         return Err(format!("Change {id} is not paused at G4."));
     }
+    picked(id, answer, variant, &variants_in(state_root, id)?)?;
     if record["state"] == release::PROMOTING {
         answered(state_root, id, text, &record)?;
         return unsure(
@@ -560,7 +597,10 @@ pub fn resume(
         ));
     }
     match answer {
-        Answer::Ok if record["type"] == SPIKE => spike_ok(project, id, note, text, &record, steps),
+        Answer::Ok if record["type"] == SPIKE => {
+            let answer = Picked { note, variant };
+            spike_ok(project, id, &answer, text, &record, steps)
+        }
         Answer::Ok => {
             answered(state_root, id, text, &record)?;
             ok_at_g4(project, id, note, in_production, steps)
@@ -571,14 +611,68 @@ pub fn resume(
             steps.decide("G4", "ko", "human", note)?;
             saved_in_state(state_root, id, "rejected")?;
             let said = format!("Change {id} rejected at G4: production untouched.");
-            without_worktree(project, said)
+            without_worktree(project, id, said)
         }
         Answer::Polish => {
             // First, so a worktree that cannot be made leaves the change paused.
-            let start = to_polish(project, id)?;
+            let start = to_polish(project, id, variant)?;
             answered(state_root, id, text, &record)?;
             state::clear(state_root, id)?;
-            polish_pass(project, id, note, &start, steps)
+            // It no longer waits at G4: its pass runs without the lock.
+            drop(lock);
+            let answer = Picked { note, variant };
+            polish_pass(project, id, &answer, &start, steps)
+        }
+    }
+}
+
+/// The human's words at G4, and the variant of a spike they picked, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Picked<'a> {
+    /// What to read about the answer: the notes of a polish pass.
+    note: &'a str,
+    /// The number of the variant, from 1.
+    variant: Option<usize>,
+}
+
+/// `Ok` when `variant`, the variant of change `id` the human picked with `answer` at G4, goes
+/// with `variants`, those of the change; else why not, with the way to answer. A change without
+/// variants takes none. A spike with variants needs, for OK and polish, one that passed its gate,
+/// and takes none for KO, which rejects them all.
+fn picked(
+    id: &str,
+    answer: Answer,
+    variant: Option<usize>,
+    variants: &[Variant],
+) -> Result<(), String> {
+    let word = answer.word();
+    let numbered = variants.iter().zip(1..);
+    let ready = numbered.filter(|(variant, _)| variant.ready());
+    let passed: Vec<String> = ready.map(|(_, number)| number.to_string()).collect();
+    let polish = answer == Answer::Polish;
+    let notes = if polish { " --note ..." } else { "" };
+    let pick = format!(
+        "gdd resume {id} --g4 {word} --variant {}{notes}",
+        passed.join("|")
+    );
+    match (variants.is_empty(), answer, variant) {
+        (true, _, None) | (false, Answer::Ko, None) => Ok(()),
+        (true, _, Some(_)) => Err(format!(
+            "change {id} has no variants: gdd resume {id} --g4 {word}, without --variant"
+        )),
+        (false, Answer::Ko, Some(_)) => Err(format!(
+            "KO rejects every variant of {id}: gdd resume {id} --g4 ko, without --variant"
+        )),
+        (false, _, None) => Err(format!("pick a variant: {pick}")),
+        (false, _, Some(number)) => {
+            let chosen = number.checked_sub(1).and_then(|at| variants.get(at));
+            match chosen {
+                Some(chosen) if chosen.ready() => Ok(()),
+                Some(_) => Err(format!(
+                    "variant {number} did not pass its gate: pick one that did, {pick}"
+                )),
+                None => Err(format!("{id} has no variant {number}: {pick}")),
+            }
         }
     }
 }
@@ -597,11 +691,27 @@ fn answered(root: &Path, id: &str, text: String, record: &Value) -> Result<(), S
     change::write(root, &path, &answered)
 }
 
-/// The worktree of change `id` of `project`, ready for a polish pass (see [`worktree::open`]):
-/// the commit it is at, where the pass starts.
-fn to_polish(project: &Project, id: &str) -> Result<String, String> {
-    worktree::open(project.root, project.worktree, id)?;
-    Git::new(project.work).head().map_err(|e| e.to_string())
+/// The worktree of change `id` of `project`, or the one of its `variant`, ready for a polish pass
+/// (see [`worktree::open`] and [`worktree::open_variant`]): the commit it is at, where the pass
+/// starts.
+fn to_polish(project: &Project, id: &str, variant: Option<usize>) -> Result<String, String> {
+    let Some(number) = variant else {
+        worktree::open(project.root, project.worktree, id)?;
+        return Git::new(project.work).head().map_err(|e| e.to_string());
+    };
+    let path = variant_worktree(project, id, number)?;
+    worktree::open_variant(project.root, &path, id, number, project.main)?;
+    let work = worktree::project_root(project.root, &path)?;
+    Git::new(&work).head().map_err(|e| e.to_string())
+}
+
+/// Where the worktree of variant `number` of spike `id` of `project` goes: next to the worktree
+/// of the change, named after the variant (see [`change::variant_id`] and [`worktree::path`]).
+fn variant_worktree(project: &Project, id: &str, number: usize) -> Result<PathBuf, String> {
+    let shown = project.worktree.display();
+    let folder = project.worktree.parent();
+    let folder = folder.ok_or_else(|| format!("{shown} is in no folder of worktrees"))?;
+    worktree::path(folder, &change::variant_id(id, number))
 }
 
 /// The requests to the human that an answer to the G4 of change `id`, whose record is `record`,
@@ -612,7 +722,8 @@ fn g4_requests(id: &str, record: &Value) -> Vec<String> {
         .filter_map(|note| note["text"].as_str())
         .filter(|text| text.starts_with(PROMOTION_FAILED));
     let kind = record["type"].as_str().unwrap_or_default();
-    let mut requests = vec![g4_request(id, kind)];
+    let variants = record["variants"].as_array().map_or(0, Vec::len);
+    let mut requests = vec![g4_request_of(id, kind, variants)];
     requests.extend(failed.map(str::to_string));
     requests
 }
@@ -641,27 +752,38 @@ fn ok_at_g4(
     finish(project, id, observed(steps))
 }
 
-/// OK at G4 of spike `id` of `project`, by the human with `note`; its record is `record`, whose
-/// text is `text`. Under the merge lock, which the merge of another change makes it wait for,
-/// saying so (see [`queue::lock`]), its ADR reaches main from the main checkout, alone (see
-/// [`merge::adr_only`]); then the answer resolves the requests of G4, the decision is recorded
-/// and the change is closed: its worktree goes, its branch stays. No promotion, no observation.
-/// When its ADR cannot reach main, nothing changed: the change stays paused at G4.
+/// OK at G4 of spike `id` of `project`, by the human with the note of `answer`; its record is
+/// `record`, whose text is `text`. With the merge lock held (see [`resume`]), its ADR reaches
+/// main from the main checkout, alone (see [`merge::adr_only`]); for a spike with variants, the
+/// ADR of the variant of `answer`, from its branch, with the variants in it (see
+/// [`change::variants_section`]). Then the answer resolves the requests of G4, the decision is
+/// recorded and the change is closed: its worktrees go, its branches stay. No promotion, no
+/// observation. When its ADR cannot reach main, nothing changed: the change stays paused at G4.
 fn spike_ok(
     project: &Project,
     id: &str,
-    note: &str,
+    answer: &Picked,
     text: String,
     record: &Value,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let state_root = project.state;
     let title = record["title"].as_str().unwrap_or_default();
-    let lock = queue::lock(state_root, || steps.say(queue::WAITING))?;
-    merge::adr_only(project.root, project.main, id, title)?;
-    drop(lock);
+    let (branch, section) = match answer.variant {
+        Some(number) => {
+            let variants = variants_in(state_root, id)?;
+            let section = change::variants_section(&variants, number, answer.note);
+            (change::branch(&change::variant_id(id, number)), section)
+        }
+        None => (change::branch(id), String::new()),
+    };
+    let from = merge::Adrs {
+        branch: &branch,
+        appended: &section,
+    };
+    merge::adr_only(project.root, project.main, id, title, &from)?;
     answered(state_root, id, text, record)?;
-    steps.decide("G4", "ok", "human", note)?;
+    steps.decide("G4", "ok", "human", answer.note)?;
     state::clear(state_root, id)?;
     saved_in_state(state_root, id, "closed")?;
     finish(project, id, Ok(Ended::Closed))
@@ -721,25 +843,27 @@ fn promotion_failed(root: &Path, id: &str, failure: &str) -> String {
     }
 }
 
-/// A polish pass of change `id`, on its branch, from the commit `start` it is at: `note`, the
-/// human's notes at G4, kept for the Builder; then the recipe again from build mode, the notes
-/// in its first round, until it pauses at G4 again.
+/// A polish pass of change `id`, on its branch, or on the one of the variant of `answer`, from
+/// the commit `start` it is at: the note of `answer`, the human's notes at G4, kept for the
+/// Builder; then the recipe again from build mode, the notes in its first round, until it pauses
+/// at G4 again.
 fn polish_pass(
     project: &Project,
     id: &str,
-    note: &str,
+    answer: &Picked,
     start: &str,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let state_root = project.state;
-    polish_noted(state_root, id, note, start)?;
+    polish_noted(state_root, id, answer.note, start)?;
     let mut run = Run {
         project,
         id,
         steps,
         decided: decided_of(state_root, id)?,
+        variant: None,
     };
-    let ended = run.polished();
+    let ended = run.polished(answer.variant);
     finish(project, id, ended)
 }
 
@@ -820,6 +944,25 @@ fn g4_request(id: &str, kind: &str) -> String {
     )
 }
 
+/// The request to the human at G4 of change `id`, whose kind of work is `kind`, with `variants`
+/// variants: a spike with variants asks to compare them and pick one; any other change, as
+/// [`g4_request`] says.
+fn g4_request_of(id: &str, kind: &str, variants: usize) -> String {
+    if variants == 0 {
+        return g4_request(id, kind);
+    }
+    let first = change::variant_id(id, 1);
+    let last = change::variant_id(id, variants);
+    format!(
+        "G4 · Release Gate: compare the variants of the spike below, and read the ADR files each \
+         left under {ADR_FOLDER} on its branch (change/{first} to change/{last}), then answer \
+         with gdd resume {id} --g4 ok --variant <n> (bring only the ADR files of variant n to \
+         main, in a commit of their own that lists the variants not chosen: the code of every \
+         variant stays on its branch), --g4 ko (reject them all: main untouched) or --g4 polish \
+         --variant <n> --note <what to polish> (one more Builder round on that variant)."
+    )
+}
+
 /// What the person who ran the recipe of change `id` of `project` reads, from how it ended. A
 /// closed change loses its worktree (see [`without_worktree`]); a pause at G4 leaves the request
 /// in the Decision Inbox and the run state paused; a stop that parks parks the change (see
@@ -831,7 +974,7 @@ fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Sai
         Ok(Ended::Closed) => {
             let tokens = format!("Tokens: gdd report --change {id}");
             let said = format!("Change {id} closed. {inbox} · {tokens}");
-            without_worktree(project, said)
+            without_worktree(project, id, said)
         }
         Ok(Ended::Paused) => {
             pause_at_g4(root, id, None)?;
@@ -843,14 +986,34 @@ fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Sai
     }
 }
 
-/// What the human reads of a change of `project` that ended (`said`), once its worktree is
-/// removed (see [`worktree::remove`]). When it cannot be, the change stays as it ended, and the
-/// human reads why too.
-fn without_worktree(project: &Project, said: String) -> Result<Said, String> {
-    match worktree::remove(project.root, project.worktree) {
+/// What the human reads of change `id` of `project` that ended (`said`), once the worktrees of
+/// its variants, if it has some, and its own are removed (see [`worktree::remove`]); their
+/// branches stay. When one cannot be, the change stays as it ended, and the human reads why too.
+fn without_worktree(project: &Project, id: &str, said: String) -> Result<Said, String> {
+    let removed = variant_worktrees(project, id).and_then(|paths| {
+        let remove = |path: &PathBuf| worktree::remove(project.root, path);
+        paths.iter().try_for_each(remove)
+    });
+    match removed.and_then(|()| worktree::remove(project.root, project.worktree)) {
         Ok(()) => Ok(Said::Done(said)),
         Err(e) => Err(format!("{said}\nIts worktree stays: {e}")),
     }
+}
+
+/// Where the worktrees of the variants of spike `id` of `project` go, as many as its record has
+/// (see [`variant_worktree`]): none for a change without variants.
+fn variant_worktrees(project: &Project, id: &str) -> Result<Vec<PathBuf>, String> {
+    let count = variants_in(project.state, id)?.len();
+    let path = |number| variant_worktree(project, id, number);
+    (1..=count).map(path).collect()
+}
+
+/// The variants the record of change `id`, under the state root `state`, keeps (see
+/// [`change::variants_of`]).
+fn variants_in(state: &Path, id: &str) -> Result<Vec<Variant>, String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    change::variants_of(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// Leaves the request of G4 in the Decision Inbox of change `id`, under the state root `root`,
@@ -860,7 +1023,8 @@ fn pause_at_g4(root: &Path, id: &str, why: Option<&str>) -> Result<(), String> {
     let path = change::record_path(id);
     let ts = log::now();
     let kind = change::kind(&noted).map_err(|e| format!("{path}: {e}"))?;
-    let request = g4_request(id, &kind);
+    let variants = change::variants_of(&noted).map_err(|e| format!("{path}: {e}"))?;
+    let request = g4_request_of(id, &kind, variants.len());
     for text in why.into_iter().chain([request.as_str()]) {
         let note = Note {
             kind: "needs",
@@ -902,14 +1066,37 @@ struct Run<'a, S> {
     id: &'a str,
     steps: &'a mut S,
     decided: Decided,
+    /// The variant of a spike the run builds, when it builds one (see [`Run::variant`]).
+    variant: Option<Building>,
+}
+
+/// A variant of a spike while a run builds it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Building {
+    /// Its number, from 1.
+    number: usize,
+    /// What the agent calls of the change had cost when the run started, less what the earlier
+    /// runs of the variant cost: its budget counts from there.
+    spent_before: f64,
+    /// Whether its last G2 in the run passed: `None` before its first.
+    g2: Option<bool>,
 }
 
 impl<S: Steps> Run<'_, S> {
     /// The recipe of a launch, once prepared; a spike's has no test mode and ends at
-    /// [`Run::spiked`].
+    /// [`Run::spiked`], or, with variants, at [`Run::compared`] once each was built (see
+    /// [`Run::variant`]): what prepare decided on the code of the branch of the change is no
+    /// word on theirs.
     fn launched(&mut self) -> Result<Ended, Stop> {
         let green = self.decided.resume_green;
         if self.decided.spike() {
+            let variants = variants_in(self.project.state, self.id)?.len();
+            if variants > 0 {
+                for number in 1..=variants {
+                    self.variant(number, false)?;
+                }
+                return self.compared();
+            }
             if !green {
                 self.build(SPIKE_BUILD, SPIKE_BUILD)?;
             }
@@ -925,18 +1112,41 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// The recipe of a polish pass: from build mode, the human's notes first. A spike's is one
-    /// round, with no retry or replan, then G2: green, it ends at [`Run::spiked`], never merging;
-    /// still red, the change parks.
-    fn polished(&mut self) -> Result<Ended, Stop> {
+    /// round (see [`Run::polish_round`]): green, it ends at [`Run::spiked`], never merging; still
+    /// red, the change parks. With `variant`, the round is on that variant of the spike (see
+    /// [`Run::variant`]), which then ends at [`Run::compared`].
+    fn polished(&mut self, variant: Option<usize>) -> Result<Ended, Stop> {
         if self.decided.spike() {
-            self.call(Who::BuilderBuild, "mode=spike fix=polish")?;
-            if !self.steps.gate(Gate::G2)? {
-                return Err(self.still_red("the polish round"));
+            if let Some(number) = variant {
+                self.variant(number, true)?;
+                return self.compared();
             }
+            self.polish_round()?;
             return self.spiked();
         }
         self.build("mode=build fix=polish", BUILD)?;
         self.integrate(true)
+    }
+
+    /// The round of a polish pass of a spike, or of the variant the run builds: one round in
+    /// `mode=spike fix=polish` (see [`Run::spike_mode`]), with no retry or replan, then G2. Still
+    /// red, it parks.
+    fn polish_round(&mut self) -> Result<(), Stop> {
+        let args = format!("{} fix=polish", self.spike_mode());
+        self.call(Who::BuilderBuild, &args)?;
+        if !self.g2()? {
+            return Err(self.still_red("the polish round"));
+        }
+        Ok(())
+    }
+
+    /// The arguments of a round of build mode on a spike: `mode=spike`, then `variant=<n>` when
+    /// the run builds variant n.
+    fn spike_mode(&self) -> String {
+        match self.variant {
+            Some(building) => format!("{SPIKE_BUILD} variant={}", building.number),
+            None => SPIKE_BUILD.to_string(),
+        }
     }
 
     /// The end of a spike, green: its work committed on its branch, which keeps it whatever the
@@ -948,10 +1158,137 @@ impl<S: Steps> Run<'_, S> {
         let (main, id) = (self.project.main, self.id);
         let said = |e: git::Error| Stop::Fail(e.to_string());
         work_committed(work, &format!("gdd({id}): spike work")).map_err(said)?;
-        let adrs = merge::adr_files(work, main, id).map_err(said)?;
+        let adrs = merge::adr_files(work, main, &change::branch(id)).map_err(said)?;
         self.steps.say(&format!("ADR: {}", adrs.join(", ")));
         saved_in_state(state, id, IN_PRE)?;
         Ok(Ended::Paused)
+    }
+
+    /// Variant `number` of the spike, in its worktree on its branch, made from the main branch
+    /// when there is none (see [`worktree::open_variant`]): its project root there is the `work`
+    /// of its run, where its agents work and the steps run meanwhile (see [`Steps::work_in`]).
+    /// Its build starts where its branch left the main branch, so Path Guard
+    /// judges all of its work, its earlier runs' included; then the recipe of a spike, as a spike
+    /// without variants has it, in `mode=spike variant=<number>`, its budget counted on its own
+    /// calls (see [`Building`]); `polishing`, the round of a polish pass instead (see
+    /// [`Run::polish_round`]), whose build started where the pass did. Then its work committed on
+    /// its branch and what it did kept in the record (see [`Run::variant_kept`]). One that parks
+    /// is kept as parked and lets the others run; a step that fails stops the recipe.
+    fn variant(&mut self, number: usize, polishing: bool) -> Result<(), Stop> {
+        let project = *self.project;
+        let (state, main, id) = (project.state, project.main, self.id);
+        let earlier = variant_of(state, id, number)?;
+        let path = variant_worktree(&project, id, number)?;
+        worktree::open_variant(project.root, &path, id, number, main)?;
+        let work = worktree::project_root(project.root, &path)?;
+        if !polishing {
+            let said = |e: git::Error| Stop::Fail(e.to_string());
+            let start = Git::new(&work).merge_base(main, &earlier.branch);
+            started_at(state, id, &start.map_err(said)?)?;
+        }
+        let building = Building {
+            number,
+            spent_before: spent(state, id)? - earlier.usd.unwrap_or_default(),
+            g2: None,
+        };
+        let at = Project {
+            work: &work,
+            ..project
+        };
+        let started = Instant::now();
+        self.steps.work_in(&work);
+        let mut run = Run {
+            project: &at,
+            id,
+            steps: &mut *self.steps,
+            decided: self.decided.clone(),
+            variant: Some(building),
+        };
+        let built = if polishing {
+            run.polish_round()
+        } else {
+            let mode = run.spike_mode();
+            run.build(&mode, &mode)
+        };
+        let g2 = run.variant.and_then(|building| building.g2);
+        self.steps.work_in(project.work);
+        let parked = match built {
+            Ok(()) => None,
+            Err(Stop::Park(why)) => Some(why),
+            Err(Stop::Fail(e)) => return Err(Stop::Fail(e)),
+        };
+        let done = Done {
+            parked,
+            g2: g2.or(earlier.g2),
+            minutes: earlier.minutes.unwrap_or_default() + in_minutes(started.elapsed()),
+            usd: spent(state, id)? - building.spent_before,
+        };
+        self.variant_kept(number, &work, earlier, done)
+    }
+
+    /// Commits the work variant `number`, `earlier` in the record before its run, left in its
+    /// worktree, at `work`, on its branch, as `gdd(<id>): variant <number>`, whether it passed
+    /// its gate or parked: its branch keeps it, and its worktree may go once the human answers.
+    /// Then keeps in the record what it did, as `done` says, with the ADR files of its branch
+    /// (see [`merge::adr_files`]), the first line of their decision (see [`first_decision`]) and
+    /// how many files its branch changed against the main branch.
+    fn variant_kept(
+        &self,
+        number: usize,
+        work: &Path,
+        earlier: Variant,
+        done: Done,
+    ) -> Result<(), Stop> {
+        let (state, main, id) = (self.project.state, self.project.main, self.id);
+        let said = |e: git::Error| Stop::Fail(e.to_string());
+        work_committed(work, &format!("gdd({id}): variant {number}")).map_err(said)?;
+        let git = Git::new(work);
+        let branch = earlier.branch.clone();
+        let adrs = merge::adr_files(work, main, &branch).map_err(said)?;
+        let decision = first_decision(&git, &branch, &adrs).map_err(said)?;
+        let files = git.changed_from(main, &branch).map_err(said)?.len();
+        let state_of = if done.parked.is_some() {
+            Built::Parked
+        } else {
+            Built::Ready
+        };
+        let variant = Variant {
+            state: Some(state_of),
+            reason: done.parked,
+            g2: done.g2,
+            adrs,
+            decision,
+            files: Some(files),
+            minutes: Some(done.minutes),
+            usd: Some(done.usd),
+            ..earlier
+        };
+        Ok(variant_saved(state, id, number, variant)?)
+    }
+
+    /// The end of a spike with variants: one line for each of them (see [`variant_said`]); then,
+    /// when one passed its gate, the change in pre, waiting at G4 for the human to pick one;
+    /// when none did, the change parks.
+    fn compared(&mut self) -> Result<Ended, Stop> {
+        let (state, id) = (self.project.state, self.id);
+        let variants = variants_in(state, id)?;
+        for (variant, number) in variants.iter().zip(1..) {
+            self.steps.say(&variant_said(variant, number));
+        }
+        if !variants.iter().any(Variant::ready) {
+            return Err(Stop::Park(NO_VARIANT.to_string()));
+        }
+        saved_in_state(state, id, IN_PRE)?;
+        Ok(Ended::Paused)
+    }
+
+    /// G2, as the steps run it: whether it passed, which the run of a variant keeps.
+    fn g2(&mut self) -> Result<bool, Stop> {
+        let passed = self.steps.gate(Gate::G2)?;
+        if let Some(building) = &mut self.variant {
+            building.g2 = Some(passed);
+        }
+        Ok(passed)
     }
 
     /// Calls `who` with `args`, then checks what it did: GDD state it changed goes back as it was
@@ -999,14 +1336,20 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// What the agent calls of the change spent so far (see [`spent`]), against the budget of a
-    /// spike: once it reaches it, the change parks, saying both to the cent.
+    /// spike: once it reaches it, the change parks, saying both to the cent. The run of a variant
+    /// counts only what its own calls spent (see [`Building`]), and it is the variant that parks.
     fn within_budget(&self) -> Result<(), Stop> {
         let max = self.project.spike_usd;
-        let spent = spent(self.project.state, self.id)?;
+        let before = self.variant.map_or(0.0, |building| building.spent_before);
+        let spent = spent(self.project.state, self.id)? - before;
         if spent + SPENT_ERROR < max {
             return Ok(());
         }
-        let why = format!("the spike spent {spent:.2} USD of its budget of {max:.2} USD");
+        let who = match self.variant {
+            Some(building) => format!("variant {}", building.number),
+            None => "the spike".to_string(),
+        };
+        let why = format!("{who} spent {spent:.2} USD of its budget of {max:.2} USD");
         Err(Stop::Park(why))
     }
 
@@ -1039,7 +1382,7 @@ impl<S: Steps> Run<'_, S> {
                 self.test_mode("mode=test after=replan", true)?;
             }
             self.call(Who::BuilderBuild, &format!("{mode} after=replan"))?;
-            if self.steps.gate(Gate::G2)? {
+            if self.g2()? {
                 return Ok(());
             }
         }
@@ -1067,7 +1410,7 @@ impl<S: Steps> Run<'_, S> {
         let mut args = first;
         for _ in 0..self.decided.retries.max(1) {
             self.call(Who::BuilderBuild, args)?;
-            if self.steps.gate(Gate::G2)? {
+            if self.g2()? {
                 return Ok(true);
             }
             args = mode;
@@ -1160,6 +1503,86 @@ impl<S: Steps> Run<'_, S> {
         let ok = verdict::review(state, id)?;
         review_ended(state, id, ok)?;
         Ok(ok)
+    }
+}
+
+/// What the run of a variant of a spike did, for its record (see [`Run::variant_kept`]).
+#[derive(Debug, Clone, PartialEq)]
+struct Done {
+    /// Why it parked; `None` when it passed its gate.
+    parked: Option<String>,
+    /// Whether its last G2 passed: `None` before its first.
+    g2: Option<bool>,
+    /// The minutes of its runs, this one included.
+    minutes: f64,
+    /// What the agent calls of its runs cost, in USD, this one included.
+    usd: f64,
+}
+
+/// `duration` in minutes.
+fn in_minutes(duration: Duration) -> f64 {
+    duration.as_secs_f64() / 60.0
+}
+
+/// Variant `number`, from 1, of spike `id`, as its record under the state root `state` keeps it;
+/// one it does not have is an error.
+fn variant_of(state: &Path, id: &str, number: usize) -> Result<Variant, String> {
+    let mut variants = variants_in(state, id)?;
+    let at = number.checked_sub(1).filter(|at| *at < variants.len());
+    let missing = || format!("{}: no variant {number}", change::record_path(id));
+    at.map(|at| variants.swap_remove(at)).ok_or_else(missing)
+}
+
+/// Keeps `variant` as variant `number`, from 1, of spike `id`, in its record under the state
+/// root `state`.
+fn variant_saved(state: &Path, id: &str, number: usize, variant: Variant) -> Result<(), String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let invalid = |e: serde_json::Error| format!("{path}: {e}");
+    let mut variants = change::variants_of(&text).map_err(invalid)?;
+    let at = number.checked_sub(1).and_then(|at| variants.get_mut(at));
+    let Some(slot) = at else {
+        return Err(format!("{path}: no variant {number}"));
+    };
+    *slot = variant;
+    let written = change::with_variants(&text, &variants).map_err(invalid)?;
+    change::write(state, &path, &written)
+}
+
+/// Starts the build of change `id`, in its record under the state root `state`, at the commit
+/// `start`: Path Guard judges what follows it.
+fn started_at(state: &Path, id: &str, start: &str) -> Result<(), String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let fields = vec![("build_start", Value::from(start))];
+    let started = change::with_fields(&text, fields).map_err(|e| format!("{path}: {e}"))?;
+    change::write(state, &path, &started)
+}
+
+/// The first line of the decision of the first of `adrs`, files of `branch` in the project of
+/// `git`, that is an ADR document (see [`spike::is_adr`]) and has one (see
+/// [`spike::decision_of`]): an image or a note next to them is never read for it.
+fn first_decision(git: &Git, branch: &str, adrs: &[String]) -> Result<Option<String>, git::Error> {
+    for path in adrs.iter().filter(|path| spike::is_adr(path)) {
+        let bytes = git.regular_file_at(branch, path)?.unwrap_or_default();
+        if let Some(decision) = spike::decision_of(&String::from_utf8_lossy(&bytes)) {
+            return Ok(Some(decision));
+        }
+    }
+    Ok(None)
+}
+
+/// What a launch says of `variant`, number `number`: `Variant <number> · <option> · ready · <ADR
+/// files>`, or `parked: <reason>` instead of the last two; `not built yet` before.
+fn variant_said(variant: &Variant, number: usize) -> String {
+    let start = format!("Variant {number} · {}", variant.named());
+    match variant.state {
+        Some(Built::Ready) => format!("{start} · ready · {}", variant.adrs.join(", ")),
+        Some(Built::Parked) => {
+            let reason = variant.reason.as_deref().unwrap_or("-");
+            format!("{start} · parked: {reason}")
+        }
+        None => format!("{start} · not built yet"),
     }
 }
 
@@ -1564,11 +1987,15 @@ mod tests {
     /// The steps of the recipe, played: what ran, in order, with scripted answers, and the
     /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
     /// says OK, and the replan build mode; what the change touched hashes to nothing; the work of
-    /// an earlier run passes the gates. Each call of an agent does what `acts` gives it to do, on
-    /// the project root, and a release step what `released` gives it. A release step, or a
-    /// decision on a gate, named in `fails` fails with what it gives.
+    /// an earlier run passes the gates. Each call of an agent does what `acts` gives it to do,
+    /// where the steps run (the project root until they move, see [`Steps::work_in`]), and a
+    /// release step what `released` gives it, on the project root. Each call of a role in
+    /// `costly` costs what [`costs`] logs. A release step, or a decision on a gate, named in
+    /// `fails` fails with what it gives.
     struct Played<'a> {
         root: &'a Path,
+        work: PathBuf,
+        costly: Vec<Who>,
         ran: Vec<String>,
         sessions: Vec<Session>,
         decided: Decided,
@@ -1591,6 +2018,8 @@ mod tests {
     fn played(root: &Path) -> Played<'_> {
         Played {
             root,
+            work: root.to_path_buf(),
+            costly: Vec::new(),
             ran: Vec::new(),
             sessions: Vec::new(),
             decided: decided(),
@@ -1661,7 +2090,10 @@ mod tests {
             self.ran.push(step);
             self.sessions.push(call.builder_session);
             let acts = self.acts.iter().filter(|(who, _)| *who == call.who);
-            acts.for_each(|(_, act)| act(self.root));
+            acts.for_each(|(_, act)| act(&self.work));
+            if self.costly.contains(&call.who) {
+                costs(self.root);
+            }
             if self.stuck == Some(call.who) {
                 return Err(invoke::Error::Timeout(call.who, 2));
             }
@@ -1730,6 +2162,12 @@ mod tests {
         fn say(&mut self, line: &str) {
             self.ran.push(format!("say {line}"));
         }
+
+        fn work_in(&mut self, work: &Path) {
+            let name = work.file_name().unwrap_or_default().to_string_lossy();
+            self.ran.push(format!("in {name}"));
+            self.work = work.to_path_buf();
+        }
     }
 
     /// Runs the recipe of a launch on change `c1`, once prepared, with `replans` replans, all in
@@ -1757,6 +2195,7 @@ mod tests {
             id: "c1",
             steps,
             decided,
+            variant: None,
         };
         run.launched()
     }
@@ -2983,7 +3422,7 @@ mod tests {
         };
         let refused = launch(&elsewhere, "c1", &mut steps);
         assert_eq!(refused, Err(why("launch")));
-        let refused = resume(&elsewhere, "c1", Answer::Ok, "", None, &mut steps);
+        let refused = resume(&elsewhere, "c1", Answer::Ok, "", None, None, &mut steps);
         assert_eq!(refused, Err(why("resume")));
         assert!(steps.ran.is_empty());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
@@ -3550,21 +3989,21 @@ mod tests {
         let root = repo.root();
         let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         state::pause_at_g4(root, "c1").unwrap();
         let refused = "A Builder or Reviewer cannot open or close gates.";
         for role in ["builder-build", "reviewer"] {
-            let said = resume(&here, "c1", Answer::Ok, "", Some(role), &mut steps);
+            let said = resume(&here, "c1", Answer::Ok, "", Some(role), None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{role}");
         }
         let polish = "polish needs your notes: gdd resume c1 --g4 polish --note ...";
-        let said = resume(&here, "c1", Answer::Polish, " ", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, " ", None, None, &mut steps);
         assert_eq!(said, Err(polish.into()));
         assert!(steps.ran.is_empty());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], "in-pre");
-        let missing = resume(&here, "c9", Answer::Ok, "", None, &mut steps);
+        let missing = resume(&here, "c9", Answer::Ok, "", None, None, &mut steps);
         let start = "change c9 does not exist";
         assert!(missing.unwrap_err().starts_with(start));
     }
@@ -3589,7 +4028,7 @@ mod tests {
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
         let role = Some("orchestrator");
-        let said = resume(&here, "c1", Answer::Ok, "Fine", role, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", role, None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert!(!repo.work.exists(), "the worktree stays");
@@ -3619,7 +4058,7 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let failed = format!(
             "Promotion of c1 failed: {PROMOTE_FAILED}. Production untouched: the change is \
              still paused at G4. To retry: gdd resume c1 --g4 ok (or --g4 ko to reject)."
@@ -3639,13 +4078,13 @@ mod tests {
         // Failed again: only the last failure is open.
         let mut steps = played(root);
         steps.fails = vec![("promote", "release.promote failed")];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
         let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
                    gdd resume c1 --g4 ok, or --g4 ko.";
         assert_eq!(open_requests(root), [why.to_string(), request]);
         // Fixed, the same answer promotes it.
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -3659,9 +4098,9 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
         assert!(done(said).starts_with("Change c1 rejected at G4"));
         assert_eq!(steps.ran, ["G4 ko human: No"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -3676,9 +4115,10 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).is_err());
+        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "Shorter", None, &mut steps);
+        let note = "Shorter";
+        let said = resume(&here, "c1", Answer::Polish, note, None, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(steps.ran[0], "build b mode=build fix=polish");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
@@ -3689,9 +4129,9 @@ mod tests {
     #[test]
     fn a_change_promoted_already_is_only_observed() {
         let repo = paused_in(IN_PRODUCTION);
-        let root = repo.root();
+        let (root, here) = (repo.root(), repo.project());
         let mut steps = played(root);
-        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -3700,10 +4140,10 @@ mod tests {
     #[test]
     fn a_failed_observation_after_g4_does_not_leave_the_change_paused() {
         let repo = paused();
-        let root = repo.root();
+        let (root, here) = (repo.root(), repo.project());
         let mut steps = played(root);
         steps.fails = vec![("observe", "release.observe failed")];
-        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         assert_eq!(said, Err("release.observe failed".into()));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -3728,7 +4168,7 @@ mod tests {
         let mut steps = played(root);
         steps.released = vec![("promote", promoting)];
         steps.fails = vec![("promote", UNLOGGED)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but gdd cannot go on with it \
              ({UNLOGGED}). Check production before anything else: promoting it again could \
@@ -3741,7 +4181,7 @@ mod tests {
         assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
         // No answer promotes it again.
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         assert!(steps.ran.is_empty());
     }
@@ -3752,7 +4192,7 @@ mod tests {
             let repo = paused_in(release::PROMOTING);
             let root = repo.root();
             let mut steps = played(root);
-            let said = resume(&repo.project(), "c1", answer, note, None, &mut steps);
+            let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
             let why = "Change c1 parked: production may have it, but gdd cannot go on with it \
                        (an earlier answer stopped while promoting it). Check production";
             assert!(parked(said).starts_with(why), "{answer:?}");
@@ -3765,10 +4205,10 @@ mod tests {
     #[test]
     fn a_change_that_cannot_park_says_why_and_is_no_longer_paused() {
         let repo = paused_in(release::PROMOTING);
-        let root = repo.root();
+        let (root, here) = (repo.root(), repo.project());
         fs::create_dir_all(root.join(log::PATH)).unwrap();
         let mut steps = played(root);
-        let err = resume(&repo.project(), "c1", Answer::Ok, "", None, &mut steps).unwrap_err();
+        let err = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps).unwrap_err();
         let start = "Change c1 cannot park: production may have it, but gdd cannot go on with it";
         assert!(err.starts_with(start), "{err}");
         assert!(err.ends_with(&format!("twice.\n{UNLOGGED}")), "{err}");
@@ -3783,7 +4223,7 @@ mod tests {
                        be rejected or polished. To observe it: gdd resume c1 --g4 ok.";
         for (answer, note) in [(Answer::Ko, "No"), (Answer::Polish, "x")] {
             let mut steps = played(root);
-            let said = resume(&repo.project(), "c1", answer, note, None, &mut steps);
+            let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{answer:?}");
             assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
         }
@@ -3796,11 +4236,11 @@ mod tests {
     #[test]
     fn a_change_promoted_already_whose_ok_cannot_be_recorded_parks() {
         let repo = paused_in(IN_PRODUCTION);
-        let root = repo.root();
+        let (root, here) = (repo.root(), repo.project());
         let mut steps = played(root);
         let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
         steps.fails = vec![("G4", unwritten)];
-        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but gdd cannot go on with it \
              ({unwritten})."
@@ -3822,7 +4262,8 @@ mod tests {
         };
         steps.released = vec![("promote", unreadable)];
         steps.fails = vec![("promote", "release.promote failed")];
-        let said = resume(&repo.project(), "c1", Answer::Ok, "Fine", None, &mut steps);
+        let here = repo.project();
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
                      whether production has it: cannot read .gdd/changes/c1/change.json: ";
         let err = said.unwrap_err();
@@ -3839,7 +4280,7 @@ mod tests {
         let mut steps = played(root);
         let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
         steps.fails = vec![("G4", unwritten)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let start = format!("Promotion of c1 failed: {unwritten}. Production untouched");
         let err = said.unwrap_err();
         assert!(err.starts_with(&start), "{err}");
@@ -3852,7 +4293,7 @@ mod tests {
         fs::create_dir(&inbox).unwrap();
         let mut steps = played(root);
         steps.fails = vec![("promote", "release.promote failed")];
-        let err = resume(&here, "c1", Answer::Ok, "Fine", None, &mut steps).unwrap_err();
+        let err = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).unwrap_err();
         let start = "Promotion of c1 failed: release.promote failed. Production untouched";
         assert!(err.starts_with(start), "{err}");
         let unsaved = "\ncannot write .gdd/changes/c1/inbox.md: ";
@@ -3867,7 +4308,7 @@ mod tests {
         let here = repo.project();
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(said, Ok(Said::Done(rejected.into())));
         assert!(!repo.work.exists(), "the worktree stays");
@@ -3896,7 +4337,7 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         let note = "Shorter error messages";
-        let said = resume(&here, "c1", Answer::Polish, note, None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, note, None, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let expected = [
             "build b mode=build fix=polish",
@@ -3948,7 +4389,7 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false, false]);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let expected = [
             "build b mode=build fix=polish",
@@ -3974,7 +4415,7 @@ mod tests {
         repo.git(&["branch", "-D", "change/c1"]);
         let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
         let err = said.unwrap_err();
         assert!(err.starts_with("git worktree add -q -- "), "{err}");
         assert!(steps.ran.is_empty());
@@ -3989,7 +4430,7 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.g3 = VecDeque::from([false, false]);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
         let why = "Change c1 parked: G3 still red after one fix.";
         assert!(parked(said).starts_with(why));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -3999,7 +4440,7 @@ mod tests {
         state::pause_at_g4(root, "c1").unwrap();
         let here = broken.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
         let start = ".gdd/changes/c1/change.json: missing field";
         assert!(said.unwrap_err().starts_with(start));
         assert!(steps.ran.is_empty());
@@ -4168,6 +4609,7 @@ mod tests {
             id: "c1",
             steps: &mut steps,
             decided,
+            variant: None,
         };
         run.within_budget()
     }
@@ -4268,7 +4710,7 @@ mod tests {
         worktree::open(root, &repo.work, "c1").unwrap();
         let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Go", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Go", None, None, &mut steps);
         assert_eq!(done(said), CLOSED);
         // No promotion, no observation.
         assert_eq!(unwaited(&steps), ["G4 ok human: Go"]);
@@ -4291,7 +4733,7 @@ mod tests {
         let before = repo.git(&["rev-parse", "main"]);
         let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Go", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Go", None, None, &mut steps);
         let err = said.unwrap_err();
         assert!(err.contains("without uncommitted changes"), "{err}");
         assert!(unwaited(&steps).is_empty());
@@ -4332,14 +4774,14 @@ mod tests {
         let here = repo.project();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false; 9]);
-        let said = resume(&here, "c1", Answer::Polish, "More", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "More", None, None, &mut steps);
         let Ok(Said::Parked(parked)) = &said else {
             panic!("a red polish round parks: {said:?}");
         };
         let why = format!("G2 still red after the polish round: {NO_ADR}");
         assert!(parked.contains(&why), "{parked}");
         // No retry, no replan: one agent call.
-        assert_eq!(steps.ran, ["build b mode=spike fix=polish", "G2"]);
+        assert_eq!(unwaited(&steps), ["build b mode=spike fix=polish", "G2"]);
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
         assert_eq!(record(root)["state"], "parked");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -4353,20 +4795,487 @@ mod tests {
         // What prepare decided comes from the record of the spike.
         let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "More", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Polish, "More", None, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let polished = ["build b mode=spike fix=polish", "G2", ADR_SAID];
-        assert_eq!(steps.ran, polished);
+        assert_eq!(unwaited(&steps), polished);
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], "in-pre");
         // KO then leaves main as it was, and the branch keeps the spike.
-        let said = resume(&here, "c1", Answer::Ko, "No", None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(said, Ok(Said::Done(rejected.into())));
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
         repo.git(&["cat-file", "-e", "change/c1:docs/adr/0002-storage.md"]);
         assert_eq!(record(root)["state"], "rejected");
+    }
+
+    /// The record of spike `c1`, titled `Storage`, in state `state`, with a variant for SQLite and
+    /// one for Postgres.
+    fn variants_record(state: &str) -> String {
+        let options = ["SQLite".to_string(), "Postgres".to_string()];
+        let variants = change::variants("c1", SPIKE, &options, None).unwrap();
+        let record = spike_record().replace("in-pre", state);
+        change::with_variants(&record, &variants).unwrap()
+    }
+
+    /// The repository with spike `c1` and its two variants (see [`variants_record`]), building.
+    fn spike_with_variants() -> Checkout {
+        repo_with_change(&variants_record("building"))
+    }
+
+    /// Runs the recipe of a launch on spike `c1` of `repo`, once prepared, as [`launched`] does,
+    /// with `spike_usd` as the budget of each variant.
+    fn launched_variants(
+        repo: &Checkout,
+        steps: &mut Played,
+        spike_usd: f64,
+    ) -> Result<Ended, Stop> {
+        let project = Project {
+            spike_usd,
+            ..repo.project()
+        };
+        let decided = steps.decided.clone();
+        let mut run = Run {
+            project: &project,
+            id: "c1",
+            steps,
+            decided,
+            variant: None,
+        };
+        run.launched()
+    }
+
+    /// Where the worktree of variant `number` of `c1` of `repo` goes.
+    fn variant_tree(repo: &Checkout, number: usize) -> PathBuf {
+        repo.work.with_file_name(format!("c1-v{number}"))
+    }
+
+    /// What a launch says of variant `number`, ready with the ADR of [`decides`].
+    fn ready_said(number: usize, option: &str) -> String {
+        format!("say Variant {number} · {option} · ready · docs/adr/0002-storage.md")
+    }
+
+    #[test]
+    fn a_spike_with_variants_builds_each_on_its_own_branch_and_waits_at_g4() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let main = repo.git(&["rev-parse", "main"]);
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
+        let built = [
+            "in c1-v1",
+            "build b mode=spike variant=1",
+            "G2",
+            "in c1",
+            "in c1-v2",
+            "build b mode=spike variant=2",
+            "G2",
+            "in c1",
+        ];
+        let mut expected: Vec<String> = built.map(String::from).to_vec();
+        expected.extend([ready_said(1, "SQLite"), ready_said(2, "Postgres")]);
+        assert_eq!(steps.ran, expected);
+        for number in [1, 2] {
+            let branch = format!("change/c1-v{number}");
+            repo.git(&["cat-file", "-e", &format!("{branch}:src/app.txt")]);
+            let last = repo.git(&["log", "-1", "--format=%s", &branch]);
+            assert_eq!(last, format!("gdd(c1): variant {number}"));
+            let tree = variant_tree(&repo, number);
+            assert_eq!(Git::new(&tree).current_branch().unwrap(), branch);
+            assert_eq!(repo.git(&["merge-base", "main", &branch]), main);
+        }
+        // Nothing reaches main, and the branch of the spike has nothing either.
+        assert_eq!(repo.git(&["rev-parse", "main"]), main);
+        assert_eq!(repo.git(&["rev-parse", "change/c1"]), main);
+        let record = record(root);
+        assert_eq!(record["state"], "in-pre");
+        assert_eq!(record["build_start"], main.as_str());
+        let built = &record["variants"][1];
+        assert_eq!(built["option"], "Postgres");
+        assert_eq!(built["state"], "ready");
+        assert_eq!(built["g2"], true);
+        let adrs = serde_json::json!(["docs/adr/0002-storage.md"]);
+        assert_eq!(built["adrs"], adrs);
+        assert_eq!(built["decision"], "SQLite.");
+        assert_eq!(built["files"], 2);
+        assert_eq!(built["usd"], 0.0);
+        let minutes = built["minutes"].as_f64().unwrap_or(-1.0);
+        assert!((0.0..1.0).contains(&minutes), "{built}");
+        assert!(built.get("reason").is_none(), "{built}");
+    }
+
+    #[test]
+    fn a_variant_that_parks_lets_the_others_run_and_with_none_left_the_spike_parks() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        steps.g2 = VecDeque::from([false, false, false, false, true]);
+        assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
+        let red = "G2 still red after 3 retries and 1 replan";
+        let round = ["build b mode=spike variant=1", "G2"];
+        let replan = [
+            "replan o reason=g2",
+            "build b mode=spike variant=1 after=replan",
+            "G2",
+        ];
+        let rounds = [&round[..], &round, &round, &replan].concat();
+        let first = [&["in c1-v1"][..], &rounds[..], &["in c1"]].concat();
+        assert_eq!(steps.ran[..first.len()], first);
+        let said = format!("say Variant 1 · SQLite · parked: {red}");
+        let end = [said, ready_said(2, "Postgres")];
+        assert_eq!(steps.ran[steps.ran.len() - 2..], end);
+        let parked = &record(root)["variants"][0];
+        assert_eq!(parked["state"], "parked");
+        assert_eq!(parked["reason"], red);
+        assert_eq!(parked["g2"], false);
+        // Its work stays on its branch, which the human can still read.
+        let last = repo.git(&["log", "-1", "--format=%s", "change/c1-v1"]);
+        assert_eq!(last, "gdd(c1): variant 1");
+        // When every variant parks, the spike parks.
+        let mut steps = spike_played(root);
+        steps.g2 = VecDeque::from([false; 10]);
+        assert_eq!(launched_variants(&repo, &mut steps, 5.0), park(NO_VARIANT));
+        let variants = variants_in(root, "c1").unwrap();
+        assert!(variants.iter().all(|variant| !variant.ready()));
+        assert_eq!(NO_VARIANT, "no variant passed its gate");
+    }
+
+    #[test]
+    fn each_variant_has_the_budget_of_a_spike_counted_on_its_own_calls() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        steps.costly = vec![Who::BuilderBuild];
+        steps.g2 = VecDeque::from([false, true]);
+        let ended = launched_variants(&repo, &mut steps, 0.02);
+        assert_eq!(ended, Ok(Ended::Paused));
+        let why = "variant 1 spent 0.02 USD of its budget of 0.02 USD";
+        let said = format!("say Variant 1 · SQLite · parked: {why}");
+        assert!(steps.ran.contains(&said), "{:?}", steps.ran);
+        assert!(steps.ran.contains(&ready_said(2, "Postgres")));
+        let close = |value: &Value, usd: f64| (value.as_f64().unwrap() - usd).abs() < 1e-9;
+        let first = record(root)["variants"].clone();
+        assert!(close(&first[0]["usd"], 0.02), "{first}");
+        assert!(close(&first[1]["usd"], 0.01), "{first}");
+        // A relaunch counts what the earlier runs of each variant spent, and the time they took.
+        let mut steps = spike_played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        let ended = launched_variants(&repo, &mut steps, 0.02);
+        assert_eq!(ended, park(NO_VARIANT));
+        let variants = record(root)["variants"].clone();
+        let why = "variant 1 spent 0.03 USD of its budget of 0.02 USD";
+        assert_eq!(variants[0]["reason"], why);
+        assert!(close(&variants[0]["usd"], 0.03), "{variants}");
+        assert!(close(&variants[1]["usd"], 0.02), "{variants}");
+        for number in [0, 1] {
+            let minutes = |variants: &Value| variants[number]["minutes"].as_f64().unwrap();
+            assert!(minutes(&variants) > minutes(&first), "{variants}");
+        }
+    }
+
+    #[test]
+    fn a_variant_whose_builder_leaves_a_state_folder_in_its_worktree_parks() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        let leaves: Act = |work| {
+            if work.ends_with("c1-v1") {
+                change::write(work, &change::record_path("c1"), "{}\n").unwrap();
+            }
+        };
+        steps.acts = vec![(Who::BuilderBuild, decides), (Who::BuilderBuild, leaves)];
+        assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
+        let left = variant_tree(&repo, 1).join(STATE_FOLDER);
+        assert!(!left.exists(), "the state folder stays");
+        let shown = left.display();
+        let why = format!("the Builder in build mode changed GDD state: {shown}");
+        let parked = &record(root)["variants"][0];
+        assert_eq!(parked["state"], "parked");
+        assert_eq!(parked["reason"], why.as_str());
+        assert!(steps.ran.contains(&ready_said(2, "Postgres")));
+    }
+
+    /// The repository with spike `c1` paused at G4 after its launch: variant 1 parked with G2
+    /// red, variant 2 ready, each on its branch and in its worktree.
+    fn variants_paused() -> Checkout {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        steps.g2 = VecDeque::from([false, false, false, false, true]);
+        let ended = launched_variants(&repo, &mut steps, 5.0);
+        finish(&repo.project(), "c1", ended).unwrap();
+        repo
+    }
+
+    #[test]
+    fn the_g4_of_a_spike_with_variants_asks_to_pick_one_and_its_inbox_lists_them() {
+        let repo = variants_paused();
+        let root = repo.root();
+        assert_eq!(open_requests(root), [g4_request_of("c1", SPIKE, 2)]);
+        let request = g4_request_of("c1", SPIKE, 2);
+        for said in [
+            "compare the variants of the spike",
+            "(change/c1-v1 to change/c1-v2)",
+            "gdd resume c1 --g4 ok --variant <n>",
+            "--g4 polish --variant <n> --note <what to polish>",
+        ] {
+            assert!(request.contains(said), "{said}: {request}");
+        }
+        for promised in ["demo", " pre", "production", "promot"] {
+            assert!(!request.contains(promised), "{promised}: {request}");
+        }
+        assert_eq!(g4_request_of("c1", SPIKE, 0), g4_request("c1", SPIKE));
+        let feature = g4_request("c1", "Feature");
+        assert_eq!(g4_request_of("c1", "Feature", 0), feature);
+        let inbox = inbox_of(root);
+        for listed in [
+            "## Variants\n- Variant 1 · SQLite · parked: ",
+            "- Variant 2 · Postgres · ready · ADR: ",
+        ] {
+            assert!(inbox.contains(listed), "{inbox}");
+        }
+    }
+
+    #[test]
+    fn ok_with_a_variant_brings_its_adr_to_main_with_the_others_and_closes_the_spike() {
+        let repo = variants_paused();
+        let root = repo.root();
+        let here = repo.project();
+        let mut steps = played(root);
+        let note = "Postgres scales";
+        let said = resume(&here, "c1", Answer::Ok, note, None, Some(2), &mut steps);
+        assert_eq!(done(said), CLOSED);
+        assert_eq!(unwaited(&steps), ["G4 ok human: Postgres scales"]);
+        let message = repo.git(&["log", "-1", "--format=%s", "main"]);
+        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        let adr = repo.tool().file_at("main", "docs/adr/0002-storage.md");
+        let adr = String::from_utf8(adr.unwrap().unwrap()).unwrap();
+        let expected = "# 0002 · Where the notes live\n## Decision\nSQLite.\n\n## Variants\n\
+                        Chosen: variant 2 (Postgres), branch change/c1-v2. Postgres scales\n\
+                        Variant 1 (SQLite): not chosen, branch change/c1-v1, parked: G2 still \
+                        red after 3 retries and 1 replan\n";
+        assert_eq!(adr, expected);
+        assert_eq!(repo.tool().file_at("main", "src/app.txt").unwrap(), None);
+        assert_eq!(record(root)["state"], "closed");
+        assert!(open_requests(root).is_empty());
+        for number in [1, 2] {
+            let gone = !variant_tree(&repo, number).exists();
+            assert!(gone, "worktree {number} stays");
+            let code = format!("change/c1-v{number}:src/app.txt");
+            repo.git(&["cat-file", "-e", &code]);
+        }
+    }
+
+    #[test]
+    fn ok_and_polish_on_a_spike_with_variants_need_one_that_passed_its_gate() {
+        let repo = variants_paused();
+        let root = repo.root();
+        let here = repo.project();
+        let main = repo.git(&["rev-parse", "main"]);
+        for (answer, note, variant, said) in [
+            (
+                Answer::Ok,
+                "",
+                None,
+                "pick a variant: gdd resume c1 --g4 ok --variant 2",
+            ),
+            (
+                Answer::Polish,
+                "More",
+                None,
+                "pick a variant: gdd resume c1 --g4 polish --variant 2 --note ...",
+            ),
+            (
+                Answer::Ok,
+                "",
+                Some(1),
+                "variant 1 did not pass its gate: pick one that did, gdd resume c1 --g4 ok",
+            ),
+            (Answer::Ok, "", Some(3), "c1 has no variant 3: "),
+            (Answer::Ok, "", Some(0), "c1 has no variant 0: "),
+            (
+                Answer::Ko,
+                "No",
+                Some(2),
+                "KO rejects every variant of c1: gdd resume c1 --g4 ko, without --variant",
+            ),
+        ] {
+            let mut steps = played(root);
+            let err = resume(&here, "c1", answer, note, None, variant, &mut steps).unwrap_err();
+            assert!(err.starts_with(said), "{err}");
+            assert!(unwaited(&steps).is_empty(), "{:?}", steps.ran);
+        }
+        assert_eq!(repo.git(&["rev-parse", "main"]), main);
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+        assert_eq!(record(root)["state"], "in-pre");
+        // A change without variants takes none.
+        let plain = paused();
+        let mut steps = played(plain.root());
+        let here = plain.project();
+        let said = resume(&here, "c1", Answer::Ok, "", None, Some(1), &mut steps);
+        let why = "change c1 has no variants: gdd resume c1 --g4 ok, without --variant";
+        assert_eq!(said, Err(why.to_string()));
+    }
+
+    #[test]
+    fn polishing_a_variant_builds_it_again_alone_and_waits_at_g4_with_the_others() {
+        let repo = variants_paused();
+        let root = repo.root();
+        let here = repo.project();
+        let head = Git::new(&variant_tree(&repo, 2)).head().unwrap();
+        let mut steps = played(root);
+        let note = "Measure";
+        let said = resume(&here, "c1", Answer::Polish, note, None, Some(2), &mut steps);
+        assert!(done(said).starts_with("Paused at G4."));
+        let polished = [
+            "in c1-v2",
+            "build b mode=spike variant=2 fix=polish",
+            "G2",
+            "in c1",
+        ];
+        let ran = unwaited(&steps);
+        assert_eq!(ran[..4], polished);
+        assert_eq!(ran[5], ready_said(2, "Postgres"));
+        // Path Guard judges what the pass touched.
+        assert_eq!(record(root)["build_start"], head.as_str());
+        assert_eq!(record(root)["state"], "in-pre");
+        // Red, the variant parks; with none left that passed, so does the spike.
+        let mut steps = played(root);
+        steps.g2 = VecDeque::from([false]);
+        let note = "Again";
+        let said = resume(&here, "c1", Answer::Polish, note, None, Some(2), &mut steps);
+        assert!(parked(said).contains(NO_VARIANT));
+        let variant = &record(root)["variants"][1];
+        assert_eq!(variant["state"], "parked");
+        assert_eq!(variant["reason"], "G2 still red after the polish round");
+        assert_eq!(unwaited(&steps).len(), 6, "one round: {:?}", steps.ran);
+    }
+
+    #[test]
+    fn polishing_a_variant_red_while_another_passed_keeps_the_spike_at_g4() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        let ended = launched_variants(&repo, &mut steps, 5.0);
+        finish(&repo.project(), "c1", ended).unwrap();
+        let mut steps = played(root);
+        steps.g2 = VecDeque::from([false]);
+        let here = repo.project();
+        let note = "More";
+        let said = resume(&here, "c1", Answer::Polish, note, None, Some(1), &mut steps);
+        assert!(done(said).starts_with("Paused at G4."));
+        let variants = record(root)["variants"].clone();
+        assert_eq!(variants[0]["state"], "parked");
+        assert_eq!(variants[1]["state"], "ready");
+        assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+    }
+
+    #[test]
+    fn ko_on_a_spike_with_variants_removes_their_worktrees_and_keeps_their_branches() {
+        let repo = variants_paused();
+        let root = repo.root();
+        let main = repo.git(&["rev-parse", "main"]);
+        let mut steps = played(root);
+        let here = repo.project();
+        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
+        let rejected = "Change c1 rejected at G4: production untouched.";
+        assert_eq!(done(said), rejected);
+        assert_eq!(repo.git(&["rev-parse", "main"]), main);
+        assert_eq!(record(root)["state"], "rejected");
+        for number in [1, 2] {
+            let gone = !variant_tree(&repo, number).exists();
+            assert!(gone, "worktree {number} stays");
+            repo.git(&["rev-parse", "--verify", &format!("change/c1-v{number}")]);
+        }
+    }
+
+    #[test]
+    fn an_answer_to_the_g4_of_a_spike_is_checked_again_once_it_holds_the_merge_lock() {
+        let repo = variants_paused();
+        let root = repo.root();
+        let main = repo.git(&["rev-parse", "main"]);
+        let here = repo.project();
+        for (answer, note, variant) in [
+            (Answer::Ok, "Postgres", Some(2)),
+            (Answer::Ko, "No", None),
+            (Answer::Polish, "More", Some(2)),
+        ] {
+            state::pause_at_g4(root, "c1").unwrap();
+            // Another answer holds the lock, and the spike no longer waits once it lets go.
+            let held = queue::lock(root, || {}).unwrap();
+            let state = root.to_path_buf();
+            let other = thread::spawn(move || {
+                thread::sleep(Duration::from_millis(300));
+                state::clear(&state, "c1").unwrap();
+                drop(held);
+            });
+            let mut steps = played(root);
+            let said = resume(&here, "c1", answer, note, None, variant, &mut steps);
+            other.join().unwrap();
+            let late = "Change c1 is not paused at G4.";
+            assert_eq!(said, Err(late.to_string()), "{answer:?}");
+            assert!(unwaited(&steps).is_empty(), "{:?}", steps.ran);
+            // Nothing reached main, and the variants are as they were.
+            assert_eq!(repo.git(&["rev-parse", "main"]), main);
+            assert_eq!(record(root)["state"], "in-pre");
+            assert!(variant_tree(&repo, 2).exists());
+        }
+    }
+
+    #[test]
+    fn the_decision_of_a_variant_is_read_only_from_its_adr_documents() {
+        let repo = Repo::new();
+        repo.write("docs/adr/0002-a.txt", "## Decision\nNot an ADR.\n");
+        repo.write("docs/adr/img/0002.md", "## Decision\nNor this.\n");
+        repo.write("docs/adr/0002-storage.md", "# 0002\n## Decision\nKeep.\n");
+        repo.commit();
+        let adrs = [
+            "docs/adr/0002-a.txt",
+            "docs/adr/img/0002.md",
+            "docs/adr/0002-storage.md",
+        ]
+        .map(String::from);
+        let (git, branch) = (repo.tool(), repo.git(&["branch", "--show-current"]));
+        let first = first_decision(&git, &branch, &adrs).unwrap();
+        assert_eq!(first.as_deref(), Some("Keep."));
+        assert_eq!(first_decision(&git, &branch, &adrs[..2]).unwrap(), None);
+    }
+
+    #[test]
+    fn a_variant_is_read_by_its_number_from_one_and_its_time_in_minutes() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        assert_eq!(variant_of(root, "c1", 1).unwrap().named(), "SQLite");
+        assert_eq!(variant_of(root, "c1", 2).unwrap().named(), "Postgres");
+        for missing in [0, 3] {
+            let err = variant_of(root, "c1", missing).unwrap_err();
+            let said = format!(".gdd/changes/c1/change.json: no variant {missing}");
+            assert_eq!(err, said);
+            assert!(variant_saved(root, "c1", missing, built_variant()).is_err());
+        }
+        assert_eq!(in_minutes(Duration::from_secs(90)), 1.5);
+        assert_eq!(in_minutes(Duration::from_millis(1500)), 0.025);
+    }
+
+    /// A variant built and ready, for the record.
+    fn built_variant() -> Variant {
+        let mut variant = variant_of(&variants_folder().0, "c1", 1).unwrap();
+        variant.state = Some(Built::Ready);
+        variant
+    }
+
+    /// A folder whose record of spike `c1` has its two variants.
+    fn variants_folder() -> Folder {
+        let folder = Folder::new();
+        folder.write(&change::record_path("c1"), &variants_record("building"));
+        folder
     }
 
     #[test]
