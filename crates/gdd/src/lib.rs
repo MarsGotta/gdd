@@ -1025,13 +1025,15 @@ struct Decided {
 }
 
 impl Decided {
-    /// The decision for change `id`, as `gdd classify` prints it.
+    /// The decision for change `id`, as `gdd classify` prints it, with the Builder session of its
+    /// color (see [`Models::builder_session`]).
     fn decision<'a>(&'a self, id: &'a str) -> Decision<'a> {
         Decision {
             change: id,
             classification: &self.classification,
             kind: &self.kind,
             roles: &self.roles,
+            builder_session: self.models.builder_session(self.classification.color),
             retries: self.retries,
         }
     }
@@ -1056,7 +1058,7 @@ fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
     let classification =
         classify_with(&zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
     let classification = of_kind(classification, &kind);
-    let models = load_models(root)?;
+    let models = load_models_with_session(root, state)?;
     let roles = models.roles(classification.color);
     let retries = load_limits(root)?.builder_retries;
     Ok(Decided {
@@ -1933,8 +1935,10 @@ fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
 }
 
 /// `gdd status`: where the project at `root` stands, and its changes, from its files and what
-/// the state root `state` keeps; and the coding agents on the `PATH` of the environment `env`
-/// that could review it when it accepted one model family only (see [`status::second_family`]).
+/// the state root `state` keeps; why a Builder session it shares stays separate for some color
+/// (see [`status::builder_session`]); and the coding agents on the `PATH` of the environment
+/// `env` that could review it when it accepted one model family only (see
+/// [`status::second_family`]).
 fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String> {
     let project = read(root, PROJECT)?.unwrap_or_default();
     let basics = status::Basics::from_toml(&project).map_err(|e| format!("{PROJECT}: {e}"))?;
@@ -1945,7 +1949,7 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
     let found = exceptions::read(root);
     let selftest = read(state, approve::SELFTEST_PATH)?;
     let log_lines = read(state, log::PATH)?.map(|text| text.lines().count());
-    let models = load_models(root)?;
+    let models = load_models_with_session(root, state)?;
     let status = Status {
         basics,
         brief: root.join(approve::BRIEF).is_file(),
@@ -1957,6 +1961,7 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
         exceptions: found.map(|found| found.iter().map(|e| e.line(today)).collect()),
         debt: debt::read(root).map(|known| known.map(|known| known.debt).unwrap_or_default()),
         without_mutation: status::without_mutation(root),
+        builder_session: status::builder_session(&models),
         changes: change_lines(state)?,
         log_lines,
         second_family: status::second_family(&models, &init::agents_on_path(env)?),
@@ -2052,6 +2057,14 @@ fn load_models(root: &Path) -> Result<Models, String> {
     let path = agents::models::PATH;
     let text = read(root, path)?.unwrap_or_default();
     Models::from_toml(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+/// The models of the project at `root` (see [`load_models`]), with the Builder session of the
+/// main checkout, under the state root `state`: the project's choice as main has it, as the
+/// agents' settings are (see [`agent_settings`]), whatever the branch of a change says.
+fn load_models_with_session(root: &Path, state: &Path) -> Result<Models, String> {
+    let session = load_models(state)?.session();
+    Ok(load_models(root)?.with_session(session))
 }
 
 /// The limits the rules file of the project sets on the agents.
@@ -2766,6 +2779,29 @@ mod tests {
     }
 
     #[test]
+    fn a_change_gets_the_builder_session_of_the_main_checkout_and_the_roles_of_its_branch() {
+        use gdd_core::agents::models::{PATH, Session};
+        let (main, branch) = (Project::new(), Project::new());
+        let red = "[builder.red]\nintegration = \"claude\"\nmodel = ";
+        let shared = "[session]\nbuilder = \"shared\"\n";
+        main.write(PATH, &format!("{red}\"haiku\"\n{shared}"));
+        branch.write(PATH, &format!("{red}\"opus\"\n"));
+        let models = load_models_with_session(&branch.0, &main.0).unwrap();
+        assert_eq!(models.session(), Session::Shared);
+        assert_eq!(models.roles(Color::Red).builder["model"], "opus");
+        let separate = load_models_with_session(&main.0, &branch.0).unwrap();
+        assert_eq!(separate.session(), Session::Separate);
+        // A Builder session that is neither refuses either file.
+        let refused = "session.builder must be separate or shared";
+        branch.write(PATH, "[session]\nbuilder = \"joint\"\n");
+        for (root, state) in [(&branch, &main), (&main, &branch)] {
+            let err = load_models_with_session(&root.0, &state.0).unwrap_err();
+            assert!(err.starts_with("gdd/models.toml: "), "{err}");
+            assert!(err.contains(refused), "{err}");
+        }
+    }
+
+    #[test]
     fn classify_prints_the_decision_as_json() {
         let project = project_with_change(
             r#"{"id": "save", "paths": ["src/storage/a.rs", "docs/x.md"], "resumable": true, "min_color": null}"#,
@@ -2801,6 +2837,7 @@ mod tests {
                 "builder_test": {},
                 "reviewer_model": {},
                 "orchestrator": {},
+                "builder_session": "separate",
                 "retries": 3,
             })
         );
@@ -4750,6 +4787,21 @@ esac
         assert_eq!(g4["note"], "Not what I asked");
         assert_eq!(record["state"], "rejected");
         assert!(!project.0.join(".gdd/changes/c1/run.json").exists());
+    }
+
+    #[test]
+    fn resume_refuses_models_whose_builder_session_is_neither() {
+        let project = launched_project();
+        project.write(".gdd/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
+        let before = record_of(&project, "c1");
+        project.write(agents::models::PATH, "[session]\nbuilder = \"joint\"\n");
+        for answer in ["ko --note No", "polish --note Shorter"] {
+            let out = project.run(&format!("resume c1 --g4 {answer}"));
+            let refused = "error: gdd/models.toml: invalid TOML: session.builder must be separate \
+                           or shared, not \"joint\"\n";
+            assert_eq!(out, Outcome::failure(refused.into()), "{answer}");
+            assert_eq!(record_of(&project, "c1"), before, "{answer}");
+        }
     }
 
     /// The paths `gdd agents install` said it wrote.

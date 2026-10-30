@@ -1,6 +1,6 @@
 //! The status of a project: where it stands in the method, its security exceptions, its known
-//! debt, its changes, its log and, when it accepted one model family only, the agents of another
-//! family on the machine.
+//! debt, why a Builder session it shares stays separate, its changes, its log and, when it
+//! accepted one model family only, the agents of another family on the machine.
 
 use std::fmt;
 use std::fs;
@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use crate::agents::models::{self, Models};
+use crate::agents::models::{self, Apart, Models, Session};
 use crate::change::Record;
 use crate::classify::{Change, classify};
 use crate::config::{self, Color};
@@ -49,6 +49,16 @@ const UNSEEN: &str = "a change can add to it unseen";
 const NO_MUTATION: &str =
     "no mutation testing command in [g3] of gdd/commands.toml: red changes go without it";
 
+/// How the lines on a shared Builder session that stays separate start.
+const SHARED_IS_SET: &str = "Builder session: shared is set, but";
+
+/// How the lines on a shared Builder session that stays separate end.
+const STAY_SEPARATE: &str = "the sessions stay separate";
+
+/// The colors whose Builder the status names on a Builder session that stays separate, in the
+/// order it looks at them.
+const SESSION_COLORS: [Color; 3] = [Color::Yellow, Color::Red, Color::Green];
+
 /// What `gdd status` says of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -75,6 +85,9 @@ pub struct Status {
     pub debt: Result<Vec<Debt>, String>,
     /// Whether its red changes go without mutation testing (see [`without_mutation`]).
     pub without_mutation: bool,
+    /// Why the Builder session it shares stays separate, a line per reason (see
+    /// [`builder_session`]).
+    pub builder_session: Vec<String>,
     /// One line per change (see [`change_line`]).
     pub changes: Vec<String>,
     /// How many lines its log has; `None` when there is no log.
@@ -121,6 +134,9 @@ impl fmt::Display for Status {
         if self.without_mutation {
             writeln!(f, "{NO_MUTATION}")?;
         }
+        for line in &self.builder_session {
+            writeln!(f, "{line}")?;
+        }
         write!(f, "Changes:")?;
         for line in &self.changes {
             write!(f, "\n{line}")?;
@@ -152,6 +168,41 @@ pub fn second_family(models: &Models, found: &[String]) -> Vec<String> {
         model.is_some_and(|model| models.family(&model) != builder)
     };
     found.iter().filter(other).cloned().collect()
+}
+
+/// Why the Builder session `models` share stays separate for some color (see [`Models::apart`]):
+/// a line per reason, each said once. Different agents name the first Builder whose agent is not
+/// that of test mode, yellow, then red, then green; then an agent that cannot resume a session.
+/// A color whose Builder, in either mode, has no agent says nothing: it cannot run. Nothing when
+/// the models keep the sessions separate.
+pub fn builder_session(models: &Models) -> Vec<String> {
+    if models.session() != Session::Shared {
+        return Vec::new();
+    }
+    let has_agent = |color: Color| {
+        let roles = models.roles(color);
+        let agents = [&roles.builder_test, &roles.builder].map(models::integration);
+        agents.iter().all(|agent| !agent.is_empty())
+    };
+    let colors = SESSION_COLORS.into_iter().filter(|color| has_agent(*color));
+    let apart: Vec<Apart> = colors.filter_map(|color| models.apart(color)).collect();
+    let differ = |apart: &&Apart| matches!(apart, Apart::Agents(..));
+    let agents = apart.iter().find(differ);
+    let resume = apart.iter().find(|apart| !differ(apart));
+    agents.into_iter().chain(resume).map(apart_line).collect()
+}
+
+/// The line of the status on a shared Builder session that stays separate because of `apart`.
+fn apart_line(apart: &Apart) -> String {
+    match apart {
+        Apart::Agents(test, build) => format!(
+            "{SHARED_IS_SET} test mode ({test}) and build mode ({build}) use different agents: \
+             {STAY_SEPARATE}"
+        ),
+        Apart::NoResume(agent) => {
+            format!("{SHARED_IS_SET} {agent} cannot resume a session: {STAY_SEPARATE}")
+        }
+    }
 }
 
 /// Whether the red changes of the project at `root` go without mutation testing: `[g3]` of its
@@ -459,6 +510,7 @@ mod tests {
                 debt("lint", Gate::G3, "2026-10-27"),
             ]),
             without_mutation: false,
+            builder_session: vec![],
             changes: vec!["  - c1 · Drafts · open · no gates yet".into()],
             log_lines: Some(3),
             second_family: vec![],
@@ -567,6 +619,80 @@ mod tests {
                      in [g3] of gdd/commands.toml: red changes go without it\nChanges:\n";
         assert!(without.to_string().contains(lines), "{without}");
         assert!(!status().to_string().contains(NO_MUTATION));
+    }
+
+    #[test]
+    fn the_status_says_why_a_shared_builder_session_stays_separate_before_the_changes() {
+        let apart = Status {
+            builder_session: vec!["one".into(), "two".into()],
+            without_mutation: true,
+            ..status()
+        };
+        let lines = format!("\n{NO_MUTATION}\none\ntwo\nChanges:\n");
+        assert!(apart.to_string().contains(&lines), "{apart}");
+    }
+
+    /// A models file that shares the Builder session, whose Builder in test mode is `test` and
+    /// whose Builder of each color of `builders` is the agent next to it.
+    fn sharing(test: &str, builders: &[(&str, &str)]) -> Models {
+        let table = |agent: &str| format!("integration = \"{agent}\"\nmodel = \"m\"\n");
+        let tested = table(test);
+        let mut text = format!("[session]\nbuilder = \"shared\"\n[builder_test]\n{tested}");
+        for (color, agent) in builders {
+            text.push_str(&format!("[builder.{color}]\n{}", table(agent)));
+        }
+        Models::from_toml(&text).unwrap()
+    }
+
+    /// What the status says when test mode uses `test` and build mode `build`.
+    fn differ(test: &str, build: &str) -> String {
+        format!(
+            "Builder session: shared is set, but test mode ({test}) and build mode ({build}) use \
+             different agents: the sessions stay separate"
+        )
+    }
+
+    /// What the status says when the Builder's agent, Codex, cannot resume a session.
+    const CODEX: &str = "Builder session: shared is set, but codex cannot resume a session: the \
+                         sessions stay separate";
+
+    #[test]
+    fn a_shared_builder_session_that_stays_separate_names_the_first_builder_that_differs() {
+        let lines = |builders: &[(&str, &str)]| builder_session(&sharing("claude", builders));
+        let all = [("green", "claude"), ("yellow", "claude"), ("red", "claude")];
+        assert_eq!(lines(&all), Vec::<String>::new());
+        // Yellow, then red, then green; said once.
+        let each = [("green", "codex"), ("yellow", "opencode"), ("red", "codex")];
+        assert_eq!(lines(&each), [differ("claude", "opencode")]);
+        let red = [("green", "codex"), ("yellow", "claude"), ("red", "codex")];
+        assert_eq!(lines(&red), [differ("claude", "codex")]);
+        let green = [("green", "opencode"), ("red", "claude")];
+        assert_eq!(lines(&green), [differ("claude", "opencode")]);
+        // A color whose Builder has no agent, in either mode, says nothing.
+        assert_eq!(lines(&[("yellow", "claude")]), Vec::<String>::new());
+        let untested = builder_session(&sharing("", &[("yellow", "codex")]));
+        assert_eq!(untested, Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_shared_builder_session_that_stays_separate_names_the_agent_that_cannot_resume() {
+        let codex = sharing("codex", &[("red", "codex"), ("green", "codex")]);
+        assert_eq!(builder_session(&codex), [CODEX]);
+        // Both reasons, different agents first.
+        let both = sharing("codex", &[("green", "codex"), ("yellow", "claude")]);
+        let lines = [differ("codex", "claude"), CODEX.to_string()];
+        assert_eq!(builder_session(&both), lines);
+    }
+
+    #[test]
+    fn separate_builder_sessions_say_nothing() {
+        let text = "[builder_test]\nintegration = \"claude\"\nmodel = \"m\"\n\
+                    [builder.yellow]\nintegration = \"codex\"\nmodel = \"m\"\n";
+        let separate = Models::from_toml(text).unwrap();
+        assert_eq!(builder_session(&separate), Vec::<String>::new());
+        let said = format!("{text}[session]\nbuilder = \"separate\"\n");
+        let said = Models::from_toml(&said).unwrap();
+        assert_eq!(builder_session(&said), Vec::<String>::new());
     }
 
     #[test]
