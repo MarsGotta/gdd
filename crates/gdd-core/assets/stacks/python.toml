@@ -17,13 +17,13 @@ lint = '''uv run ruff check . && uv run ruff format --check .'''   # complexity:
 types = '''uv run mypy src'''
 unit = '''uv run pytest -q tests/unit'''
 acceptance = '''uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # pytest-bdd fails on a step without code; only GDD_FEATURES (all if empty); 5 = no scenario yet
-architecture = '''uv run lint-imports'''   # import-linter contracts in pyproject.toml
+architecture = '''uv run lint-imports'''   # import-linter contracts in [tool.importlinter] of pyproject.toml
 
 [g3]
 acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # G3 counts the scenarios itself
 lockfile = '''uv lock --check'''
 security = '''uv run bandit -q -r src && osv-scanner scan source -L uv.lock'''   # exceptions: [[IgnoredVulns]] in osv-scanner.toml, with a reason
-dependencies = '''mkdir -p .gdd && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o .gdd/runtime-requirements.txt && { ! grep -q '^[A-Za-z0-9]' .gdd/runtime-requirements.txt || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L requirements.txt:.gdd/runtime-requirements.txt; }'''   # licenses of what ships: the runtime dependencies, none yet is a pass
+dependencies = '''R=$(mktemp) && trap 'rm -f "$R"' EXIT && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o "$R" && { ! grep -q '^[A-Za-z0-9]' "$R" || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L "requirements.txt:$R"; }'''   # licenses of what ships: the runtime dependencies, none yet is a pass; exported to a temporary file removed when the command ends, never in the project (.gdd is gdd's state)
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact'''
 mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | tr / . | sed 's/$/*/'); [ -z "$P" ] || { uv run mutmut run $P && ! uv run mutmut results | grep -q survived; }'''   # set -f: the module patterns reach mutmut unexpanded; [tool.mutmut] source_paths in pyproject.toml
 
@@ -95,8 +95,8 @@ default = "import-linter (1.2k stars)"
 [[tool]]
 need = "Security"
 gate = "G3"
-default = "Bandit (8.3k stars) + pip-audit (PyPA)"
-alternative = "OSV-Scanner"
+default = "Bandit (8.3k stars) + OSV-Scanner (Google, 11.3k stars)"
+alternative = "pip-audit (PyPA)"
 
 [[tool]]
 need = "Licenses"
