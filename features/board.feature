@@ -99,7 +99,7 @@ Feature: The Board
   Scenario: A project without changes says how to start one
     When I open the board
     Then the board shows "No changes yet"
-    And the board shows "gdd new-change"
+    And the board shows "/gdd-change"
 
   Scenario: A record that cannot be read is shown, not skipped
     Given I run "gdd new-change c1 --title Drafts --paths src/storage/db.rs"

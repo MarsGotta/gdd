@@ -883,11 +883,14 @@ pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Opt
     }
 }
 
-/// Whether `gdd` with `args` shows the Board (see [`board::in_terminal`]): it is `gdd board`, and
-/// its standard input and output are terminals (`stdin` and `stdout`).
+/// Whether `gdd` with `args` shows the Board (see [`board::in_terminal`]): it is `gdd board`, or
+/// `gdd` with no command, and its standard input and output are terminals (`stdin` and `stdout`).
 pub fn asks_board(args: &[String], stdin: bool, stdout: bool) -> bool {
-    let command = parse(args).ok().and_then(|cli| cli.command);
-    stdin && stdout && matches!(command, Some(Run::InProject(Command::Board)))
+    let Ok(cli) = parse(args) else {
+        return false;
+    };
+    let board = matches!(cli.command, None | Some(Run::InProject(Command::Board)));
+    stdin && stdout && board
 }
 
 /// The change whose sitting `gdd` with `args` shows (see [`sitting::in_terminal`]): it is
@@ -2446,7 +2449,20 @@ mod tests {
         assert!(!asks("board", true, false));
         assert!(!asks("status", true, true));
         assert!(!asks("board --nope", true, true));
-        assert!(!asks("", true, true));
+        assert!(!asks("--nope", true, true));
+    }
+
+    #[test]
+    fn gdd_alone_in_a_terminal_shows_the_board_and_otherwise_the_help() {
+        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout);
+        assert!(asks("", true, true));
+        assert!(!asks("", false, true));
+        assert!(!asks("", true, false));
+        assert!(!asks("", false, false));
+        let project = Project::new();
+        let out = project.run("");
+        assert_eq!(out.code, 0);
+        assert!(out.stdout.contains("Usage: gdd"), "{}", out.stdout);
     }
 
     #[test]
