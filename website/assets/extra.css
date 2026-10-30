@@ -1,0 +1,246 @@
+/* gdd's colors, the same as its terminal app and the GDD guide: the traffic light (green,
+   yellow, red) and amber on night blue. "night" is the dark scheme, "day" the light one. */
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 20;
+  --md-default-bg-color: #0d1020;
+  --md-default-fg-color: #e8eaf6;
+  --md-default-fg-color--light: #a3a9cc;
+  --md-default-fg-color--lighter: #7d84ad;
+  --md-default-fg-color--lightest: #2b3263;
+  --md-primary-fg-color: #111530;
+  --md-primary-bg-color: #e8eaf6;
+  --md-accent-fg-color: #4fd18b;
+  --md-typeset-a-color: #ffb36b;
+  --md-code-bg-color: #161a36;
+  --md-code-fg-color: #e8eaf6;
+  --md-footer-bg-color: #111530;
+  --md-footer-bg-color--dark: #0d1020;
+  --gd-red: #ff6b6b;
+  --gd-amber: #ffb36b;
+  --gd-yellow: #ffcc66;
+  --gd-green: #4fd18b;
+  --gd-panel: #1a1f3d;
+  --gd-line: #2b3263;
+  --md-accent-fg-color--transparent: rgba(255, 179, 107, 0.1);
+  --md-code-hl-keyword-color: #4fd18b;
+  --md-code-hl-string-color: #ffcc66;
+  --md-code-hl-number-color: #ffb36b;
+  --md-code-hl-constant-color: #ffb36b;
+  --md-code-hl-function-color: #ffb36b;
+  --md-code-hl-special-color: #ff6b6b;
+  --md-code-hl-comment-color: #7d84ad;
+  --md-code-hl-name-color: #e8eaf6;
+  --md-code-hl-variable-color: #e8eaf6;
+  --md-code-hl-operator-color: #a3a9cc;
+  --md-code-hl-punctuation-color: #a3a9cc;
+  --md-code-hl-generic-color: #a3a9cc;
+  --md-mermaid-node-bg-color: #1a1f3d;
+  --md-mermaid-node-fg-color: #e8eaf6;
+  --md-mermaid-edge-color: #ffb36b;
+  --md-mermaid-label-bg-color: #0d1020;
+  --md-mermaid-label-fg-color: #e8eaf6;
+  --md-mermaid-sequence-actor-bg-color: #1a1f3d;
+  --md-mermaid-sequence-actor-border-color: #ffb36b;
+  --md-mermaid-sequence-actor-fg-color: #e8eaf6;
+  --md-mermaid-sequence-actor-line-color: #2b3263;
+  --md-mermaid-sequence-message-line-color: #ffb36b;
+  --md-mermaid-sequence-message-fg-color: #e8eaf6;
+  --md-mermaid-sequence-note-bg-color: #111530;
+  --md-mermaid-sequence-note-border-color: #4fd18b;
+  --md-mermaid-sequence-note-fg-color: #e8eaf6;
+  --md-mermaid-sequence-number-bg-color: #4fd18b;
+  --md-mermaid-sequence-number-fg-color: #0d1020;
+  --md-mermaid-sequence-loop-border-color: #2b3263;
+  --md-mermaid-sequence-box-bg-color: #111530;
+}
+
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #f7f8fc;
+  --md-default-fg-color: #151a33;
+  --md-default-fg-color--light: #3b4166;
+  --md-default-fg-color--lighter: #5d6388;
+  --md-default-fg-color--lightest: #c5c9e0;
+  --md-primary-fg-color: #eceef8;
+  --md-primary-bg-color: #151a33;
+  --md-accent-fg-color: #1f8a55;
+  --md-typeset-a-color: #b4561a;
+  --md-code-bg-color: #eceef8;
+  --md-code-fg-color: #151a33;
+  --md-footer-bg-color: #151a33;
+  --md-footer-bg-color--dark: #0d1020;
+  --gd-red: #b4561a;
+  --gd-amber: #c66a1e;
+  --gd-yellow: #9a7400;
+  --gd-green: #1f8a55;
+  --gd-panel: #eceef8;
+  --gd-line: #d6d9ec;
+  --md-accent-fg-color--transparent: rgba(180, 86, 26, 0.08);
+  --md-code-hl-keyword-color: #1f8a55;
+  --md-code-hl-string-color: #8a6200;
+  --md-code-hl-number-color: #b4561a;
+  --md-code-hl-constant-color: #b4561a;
+  --md-code-hl-function-color: #b4561a;
+  --md-code-hl-special-color: #b4561a;
+  --md-code-hl-comment-color: #5d6388;
+  --md-mermaid-node-bg-color: #eceef8;
+  --md-mermaid-node-fg-color: #151a33;
+  --md-mermaid-edge-color: #b4561a;
+  --md-mermaid-label-bg-color: #f7f8fc;
+  --md-mermaid-label-fg-color: #151a33;
+  --md-mermaid-sequence-actor-bg-color: #eceef8;
+  --md-mermaid-sequence-actor-border-color: #b4561a;
+  --md-mermaid-sequence-actor-line-color: #c5c9e0;
+  --md-mermaid-sequence-message-line-color: #b4561a;
+  --md-mermaid-sequence-note-bg-color: #f7f8fc;
+  --md-mermaid-sequence-note-border-color: #1f8a55;
+  --md-mermaid-sequence-number-bg-color: #1f8a55;
+  --md-mermaid-sequence-number-fg-color: #f7f8fc;
+}
+
+/* Header and tabs: a quiet bar, the color comes from the logo and the active tab. */
+.md-header,
+.md-tabs {
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+  box-shadow: none;
+  border-bottom: 1px solid var(--gd-line);
+}
+.md-tabs__link--active,
+.md-tabs__item--active .md-tabs__link {
+  color: var(--gd-amber);
+}
+.md-header__button.md-logo img {
+  height: 1.6rem;
+}
+.md-header__topic:first-child {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h2 {
+  font-weight: 650;
+}
+.md-typeset a:hover {
+  color: var(--gd-green);
+}
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  color: var(--gd-amber) !important;
+  background: var(--md-accent-fg-color--transparent);
+}
+.md-typeset code {
+  border-radius: 4px;
+}
+.md-typeset table:not([class]) th {
+  background: var(--gd-panel);
+}
+
+/* "You should see:" output blocks read as terminal output. */
+.md-typeset pre > code {
+  border-left: 2px solid var(--gd-line);
+}
+
+/* Home page hero. */
+.gd-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 2.4rem;
+  align-items: center;
+  margin: 0.6rem 0 2.2rem;
+}
+.gd-hero h1 .headerlink {
+  display: none;
+}
+.gd-hero h1 {
+  margin: 0 0 0.6rem;
+  font-size: 3.4rem;
+  font-weight: 800;
+  line-height: 1.1;
+  background: linear-gradient(90deg, var(--gd-green), var(--gd-yellow) 45%, var(--gd-amber) 70%, var(--gd-red));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.gd-hero .gd-tagline {
+  font-size: 1.05rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0 0 1.2rem;
+}
+.gd-hero .md-button {
+  margin: 0 0.4rem 0.6rem 0;
+}
+.gd-hero .md-button--primary {
+  background-color: var(--gd-amber);
+  border-color: var(--gd-amber);
+  color: #0d1020;
+}
+.gd-hero .md-button--primary:hover {
+  background-color: var(--gd-green);
+  border-color: var(--gd-green);
+}
+.gd-hero .md-button:not(.md-button--primary) {
+  color: var(--gd-amber);
+  border-color: var(--gd-amber);
+}
+.gd-hero img {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--gd-line);
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.6);
+}
+@media (max-width: 960px) {
+  .gd-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The four ways in: cards on the home page, four across on wide screens. */
+@media (min-width: 1220px) {
+  .md-typeset .grid.cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 600px) and (max-width: 1219px) {
+  .md-typeset .grid.cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.md-typeset .grid.cards > ul > li {
+  border-color: var(--gd-line);
+  background: var(--gd-panel);
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: var(--gd-amber);
+}
+
+/* Callouts that Zensical has no style for. */
+.md-typeset .admonition.important,
+.md-typeset details.important {
+  border-color: var(--gd-green);
+}
+.md-typeset .important > .admonition-title,
+.md-typeset .important > summary {
+  background-color: color-mix(in srgb, var(--gd-green) 12%, transparent);
+}
+.md-typeset .important > .admonition-title::before,
+.md-typeset .important > summary::before {
+  background-color: var(--gd-green);
+}
+.md-typeset .admonition.caution,
+.md-typeset details.caution {
+  border-color: var(--gd-red);
+}
+.md-typeset .caution > .admonition-title,
+.md-typeset .caution > summary {
+  background-color: color-mix(in srgb, var(--gd-red) 12%, transparent);
+}
+.md-typeset .caution > .admonition-title::before,
+.md-typeset .caution > summary::before {
+  background-color: var(--gd-red);
+}
+

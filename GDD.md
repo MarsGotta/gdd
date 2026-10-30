@@ -4,14 +4,21 @@ The working method of this repository. Work moves forward by passing gates. How 
 
 ## Principles
 
-1. Machines decide what can be checked; people decide what cannot.
-2. Every rule lives in one place: `gdd/project.toml` (project basics), `gdd/zones.toml` (zone map), `gdd/rules.toml` (rules table), `gdd/models.toml` (agent and model per role) and `gdd/commands.toml` (gate commands). `bin/gdd`, the workflow and CI read those files.
-3. Every loop has a limit. Nothing iterates forever.
-4. Minimum context: each agent gets only what its task needs.
-5. The human does not read code. They are the stakeholder: they approve red zones, scenarios and, sometimes, the demo, grouped in as few sittings as possible.
-6. Every repeated error becomes a rule, lint, hook or test.
-7. **Done is not good.** A change that passes every gate can still be unfinished: AI makes work look finished fast. The human is the editor at G4, and the project writes its quality bar in `docs/standards.md`, which the Builder and the Reviewer read.
-8. Measure outcomes, not output: DORA's delivery metrics and GDD's own signals (polish rate, parks, Reviewer findings). Tokens measure cost, not productivity; lines of code are never a goal.
+They hold whatever the tool, the stack or the agents, and every mechanism below exists because of one of them.
+
+1. **Nothing moves forward without passing a gate.** No one, person or agent, skips a gate or loosens one.
+2. **Risk decides the gates, not size.** A change takes the color of the riskiest path it touches; the color decides how many gates it meets and how strict they are.
+3. **Machines check; people decide.** A gate answers yes or no with its reason, never an opinion. The human does not read code: they decide what is sensitive, what the product must do and whether the result is good, grouped in as few sittings as possible.
+4. **Behavior is agreed before code.** The scenarios the human approves are the contract, and whoever builds cannot change them.
+5. **Whoever builds does not judge their own work.** The checks are independent of the builder: gates the agent cannot edit, and a Reviewer of another model family.
+6. **Everyone gets the minimum context.** Each agent receives only what its task needs.
+7. **Every loop has a limit.** What gets stuck stops and asks; nothing iterates forever.
+8. **Done is not good.** A change that passes every gate can still be unfinished: AI makes work look finished fast. The human is the editor at G4, and the project writes its quality bar in `docs/standards.md`, which the Builder and the Reviewer read.
+9. **What repeats becomes a rule, and outcomes are measured, not output.** Every repeated error becomes a rule, lint, hook or test. Measure DORA's delivery metrics and GDD's own signals (polish rate, parks, Reviewer findings); tokens measure cost, not productivity, and lines of code are never a goal.
+
+## Where the rules live
+
+Every rule lives in one place: `gdd/project.toml` (project basics), `gdd/zones.toml` (zone map), `gdd/rules.toml` (rules table), `gdd/models.toml` (agent and model per role) and `gdd/commands.toml` (gate commands). `bin/gdd`, the workflow and CI read those files.
 
 ## Vocabulary
 

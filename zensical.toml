@@ -1,0 +1,146 @@
+# The documentation website. Build it with `python3 scripts/build_site.py` (needs uv: it runs
+# Zensical through uvx), which stages docs/ into build/site-src first (see that script for why).
+[project]
+site_name = "gdd"
+site_url = "https://gdd.marsgotta.com/"
+site_description = "Gate-Driven Development: build software with AI coding agents, one gate at a time."
+site_author = "Marcela Gotta"
+copyright = "Copyright &copy; Marcela Gotta. Apache-2.0 or MIT."
+repo_url = "https://github.com/MarsGotta/gdd"
+repo_name = "MarsGotta/gdd"
+docs_dir = "build/site-src"
+site_dir = "build/site"
+extra_css = ["assets/extra.css"]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Learn" = [
+    "getting-started/tutorial.md",
+    "explanation/method.md",
+  ] },
+  { "Do" = [
+    { "Day to day" = [
+      "how-to/install.md",
+      "how-to/run-a-change.md",
+      "how-to/write-scenarios.md",
+      "how-to/release-gate.md",
+      "how-to/parked-change.md",
+    ] },
+    { "Shaping the work" = [
+      "how-to/red-zones.md",
+      "how-to/spikes.md",
+      "how-to/parallel-changes.md",
+    ] },
+    { "Setting up" = [
+      "how-to/adopt-existing-project.md",
+      "how-to/agents-and-models.md",
+      "how-to/gates-and-commands.md",
+      "how-to/ci.md",
+      "how-to/upgrade.md",
+    ] },
+    { "Shipping and measuring" = [
+      "how-to/releases-and-changelog.md",
+      "how-to/measure.md",
+    ] },
+    "how-to/troubleshooting.md",
+  ] },
+  { "Look up" = [
+    "reference/cli.md",
+    "reference/configuration.md",
+    "reference/gates.md",
+    "reference/roles.md",
+    "reference/stacks.md",
+    "reference/files.md",
+    "reference/environment.md",
+    "glossary.md",
+  ] },
+  { "Understand" = [
+    "explanation/life-of-a-change.md",
+    "explanation/risk.md",
+    "explanation/safety.md",
+    "explanation/human-stops.md",
+    "explanation/measuring.md",
+    "explanation/design-decisions.md",
+  ] },
+  { "Contribute" = [
+    { "Contributing" = "https://github.com/MarsGotta/gdd/blob/main/CONTRIBUTING.md" },
+    { "Writing the docs" = "STYLE.md" },
+    { "The method's rules (GDD.md)" = "https://github.com/MarsGotta/gdd/blob/main/GDD.md" },
+    { "Roadmap" = "https://github.com/MarsGotta/gdd/blob/main/ROADMAP.md" },
+    { "Changelog" = "https://github.com/MarsGotta/gdd/blob/main/CHANGELOG.md" },
+  ] },
+]
+
+[project.theme]
+logo = "assets/logo.svg"
+favicon = "assets/logo.svg"
+language = "en"
+features = [
+  "navigation.instant",
+  "navigation.instant.progress",
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.path",
+  "toc.follow",
+  "search.highlight",
+  "content.code.copy",
+  "content.code.annotate",
+  "content.tooltips",
+]
+
+[[project.theme.palette]]
+scheme = "slate"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to day"
+
+[[project.theme.palette]]
+scheme = "default"
+primary = "custom"
+accent = "custom"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to night"
+
+[project.theme.font]
+text = "Inter"
+code = "JetBrains Mono"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/MarsGotta/gdd"
+
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
+[project.markdown_extensions.toc]
+permalink = true
+# Anchors as GitHub makes them (accents kept), so the same links work on GitHub and here.
+slugify = { object = "pymdownx.slugs.slugify", kwds = { case = "lower" } }
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.keys]
+[project.markdown_extensions.pymdownx.quotes]
+callouts = true
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+[project.markdown_extensions.pymdownx.emoji]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
