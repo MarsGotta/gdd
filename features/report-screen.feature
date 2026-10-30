@@ -115,9 +115,9 @@ Feature: Where the time goes, on the Board
     When I open the board
     Then the board shows "t time"
 
-  Scenario: A log that cannot be read is shown, not hidden, and the list still works
+  Scenario: A line of the log that is not gdd's is left out, said, and the list still works
     Given the log line 1 is replaced by "{not json"
     When I open the board
     Then the board shows "Build (1)"
     When I press t on the board
-    Then the board shows "the log cannot be read"
+    Then the board shows "1 line of the log is not one of gdd's: left out"

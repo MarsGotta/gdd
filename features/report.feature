@@ -53,7 +53,8 @@ Feature: Report token usage
     Then the output is a JSON list of 2 entries
     And the entry with "role" "reviewer" has "tokens_in" 1000 and "calls" 1
 
-  Scenario: A broken line in the log is an error that names the line
+  Scenario: A broken line in the log is left out, and the report says so
     Given the log line 3 is replaced by "{not json"
     When I run "gdd report"
-    Then it fails with a message that contains "line 3"
+    Then it succeeds
+    And the output contains "1 line of the log is not one of gdd's: left out"
