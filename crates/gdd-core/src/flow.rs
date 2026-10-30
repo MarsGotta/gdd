@@ -11,7 +11,7 @@ use std::fmt;
 
 use serde::{Serialize, Serializer};
 
-use crate::log::{self, LineError, Record};
+use crate::log::{self, Record};
 
 /// Seconds in a day.
 pub(crate) const DAY: i64 = 86_400;
@@ -42,26 +42,21 @@ pub struct Line {
     pub record: Record,
 }
 
-/// Reads the text of a log (see [`log::parse`]) and places each line in time: a line whose `ts`
-/// is not a time as the log writes it is an error that names it too.
-pub fn read(text: &str) -> Result<Vec<Line>, LineError> {
-    let records = log::parse(text)?;
-    let numbers = text
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| !line.trim().is_empty())
-        .map(|(i, _)| i + 1);
-    numbers
-        .zip(records)
-        .map(|(number, record)| {
-            let ts = record.text("ts");
-            let at = seconds(&ts).ok_or_else(|| LineError {
-                line: number,
-                message: format!("ts {ts:?} is not a time like 2026-10-28T10:00:00+00:00"),
-            })?;
-            Ok(Line { at, record })
-        })
-        .collect()
+/// Reads the text of a log, leaving out the lines that are not gdd's (see [`log::read`]), and
+/// places each line in time: a line whose `ts` is not a time as the log writes it is not gdd's
+/// either, and is left out with them.
+pub fn read(text: &str) -> log::Read<Line> {
+    let read = log::read(text);
+    let records = read.lines.len();
+    let placed = |record: Record| {
+        let at = seconds(&record.text("ts"))?;
+        Some(Line { at, record })
+    };
+    let lines: Vec<Line> = read.lines.into_iter().filter_map(placed).collect();
+    log::Read {
+        left_out: read.left_out + records - lines.len(),
+        lines,
+    }
 }
 
 /// The day `text` names as `YYYY-MM-DD`, a date of the calendar, in days since 1970-01-01;
@@ -674,13 +669,14 @@ mod tests {
         Waiting: for the human at G4 30m, at the sitting 5m, to start 5m";
 
     fn flow(change: Option<&str>, since: Option<&str>) -> Flow {
-        let lines = read(LOG).unwrap();
-        Flow::new(&lines, change, since.map(|text| day(text).unwrap()))
+        let log = read(LOG);
+        assert_eq!(log.left_out, 0);
+        Flow::new(&log.lines, change, since.map(|text| day(text).unwrap()))
     }
 
     /// The lines of `text`, one JSON object per line, placed in time.
     fn lines(text: &str) -> Vec<Line> {
-        read(text).unwrap()
+        read(text).lines
     }
 
     /// The change `c` of the lines of `text`.
@@ -1221,18 +1217,16 @@ mod tests {
     }
 
     #[test]
-    fn a_line_without_a_time_is_an_error_that_names_it() {
+    fn a_line_without_a_time_is_left_out_with_the_lines_that_are_not_gdds() {
         let placed = "\n{\"ts\": \"2026-10-28T10:00:00+00:00\"}\n";
-        let text = format!("{placed}\n{{\"ts\": \"10:00\"}}\n");
-        let err = read(&text).unwrap_err();
-        assert_eq!(err.line, 4);
-        let said = "ts \"10:00\" is not a time like 2026-10-28T10:00:00+00:00";
-        assert_eq!(err.message, said);
-        let left_out = said.replacen("10:00", "-", 1);
-        assert_eq!(read("{}").unwrap_err().message, left_out);
-        assert_eq!(read("{}\n{x").unwrap_err().line, 2);
-        let lines = lines(placed);
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].at, 1_793_181_600);
+        let text = format!("{placed}\n{{\"ts\": \"10:00\"}}\n{{}}\nnot gdd's\n");
+        let log = read(&text);
+        assert_eq!(log.left_out, 3);
+        assert_eq!(log.lines.len(), 1);
+        assert_eq!(log.lines[0].at, 1_793_181_600);
+        let forged = "{\"ts\": \"2026-10-28T10:00:00+00:00\", \"cost_usd\": -1}";
+        let log = read(&format!("{placed}{forged}\n{{x\n"));
+        assert_eq!((log.lines.len(), log.left_out), (1, 2));
+        assert_eq!(read(placed).left_out, 0);
     }
 }

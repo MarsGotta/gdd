@@ -315,6 +315,20 @@ fn the_log_says(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
 }
 
+#[given("the log has the line:")]
+fn the_log_has_the_line(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    use std::io::Write;
+    let path = project_root(w).join(".gdd/log.jsonl");
+    let line = docstring(step, "a log line docstring");
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the .gdd folder");
+    let mut log = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .unwrap_or_else(|e| panic!("cannot open {path:?}: {e}"));
+    writeln!(log, "{line}").unwrap_or_else(|e| panic!("cannot write {path:?}: {e}"));
+}
+
 #[given(regex = r#"^the log line (\d+) is replaced by "(.*)"$"#)]
 fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
     let path = project_root(w).join(".gdd/log.jsonl");
@@ -1665,6 +1679,11 @@ case "$role" in
         printf '{"ts":"2026-01-01T00:00:00+00:00","change":"%s","phase":"2-build","gate":"-","role":"builder-build","agent":"claude","model":"sonnet","result":"ok"}\n' "${log_line%%|*}" >> "$GDD_STATE/.gdd/log.jsonl"
       fi
     fi
+    if [ -f "$fake/append_path" ]; then
+      appended="$GDD_STATE/$(cat "$fake/append_path")"
+      mkdir -p "$(dirname "$appended")"
+      cat "$fake/append_line" >> "$appended"
+    fi
     ;;
   reviewer)
     answer="VERDICT: OK"
@@ -1842,6 +1861,13 @@ fn builder_also_writes(w: &mut GddWorld, path: String, step: &cucumber::gherkin:
     let text = docstring(step, "the text of the file");
     fake_file(w, "build_also", &path);
     fake_file(w, "build_also_content", &format!("{text}\n"));
+}
+
+#[given(expr = "the Builder in build mode appends to {string} the line:")]
+fn builder_appends(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Step) {
+    let line = docstring(step, "the line to append");
+    fake_file(w, "append_path", &path);
+    fake_file(w, "append_line", &format!("{line}\n"));
 }
 
 #[given(expr = "the spike budget is {string} USD")]

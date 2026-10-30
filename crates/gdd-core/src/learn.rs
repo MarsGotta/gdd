@@ -192,11 +192,14 @@ pub struct Learned {
     pub notes: Vec<Note>,
     /// What the reviews of the Reviewer say.
     pub reviews: Reviews,
+    /// How many lines of the log are not gdd's, and were left out (see [`flow::read`]).
+    pub left_out: usize,
 }
 
 impl fmt::Display for Learned {
     /// What `gdd learn` prints, without a line break at the end: the tools, or how to add them,
-    /// then the polish notes.
+    /// then the polish notes and the reviews; last, how many lines of the log it left out, when
+    /// it left out any (see [`log::left_out`]).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.tools.is_empty() {
             writeln!(f, "{NO_TOOLS}")?;
@@ -208,7 +211,11 @@ impl fmt::Display for Learned {
         for note in &self.notes {
             write!(f, "\n- {}: {}", note.change, note.text)?;
         }
-        write!(f, "\n\n{}", self.reviews)
+        write!(f, "\n\n{}", self.reviews)?;
+        match log::left_out(self.left_out) {
+            Some(said) => write!(f, "\n\n{said}"),
+            None => Ok(()),
+        }
     }
 }
 
@@ -274,13 +281,13 @@ fn learn_within(
             crate::gates::COMMANDS
         ));
     }
-    let lines = log_lines(state)?;
-    let starts = starts_of(&lines);
+    let log = log_lines(state)?;
+    let starts = starts_of(&log.lines);
     let from = since.map(|day| day * DAY);
     let wanted = |change: &str| {
         from.is_none_or(|from| starts.get(change).is_some_and(|start| *start >= from))
     };
-    let notes = polish_notes(&lines, &wanted);
+    let notes = polish_notes(&log.lines, &wanted);
     let reviews = summarize(&review_texts(state, &wanted)?);
     let mut tools = Vec::new();
     for (name, command) in found {
@@ -290,6 +297,7 @@ fn learn_within(
         tools,
         notes,
         reviews,
+        left_out: log.left_out,
     })
 }
 
@@ -339,14 +347,15 @@ fn without_colors(text: &str) -> String {
     plain
 }
 
-/// The lines of the log under `state`. No log is no lines.
-fn log_lines(state: &Path) -> Result<Vec<flow::Line>, String> {
+/// The lines of the log under `state` that are gdd's, and how many are not (see
+/// [`flow::read`]). No log is no lines.
+fn log_lines(state: &Path) -> Result<log::Read<flow::Line>, String> {
     let text = match fs::read_to_string(state.join(log::PATH)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
     };
-    flow::read(&text).map_err(|e| format!("{}, {e}", log::PATH))
+    Ok(flow::read(&text))
 }
 
 /// When each change of the log started: the time of its first line.
@@ -1071,15 +1080,32 @@ mod tests {
     }
 
     #[test]
-    fn a_log_line_that_cannot_be_read_is_an_error_naming_it() {
+    fn a_log_line_that_is_not_gdds_is_left_out_and_said_once() {
         let (root, state) = project();
-        state.write(".gdd/log.jsonl", &(log_text() + "not json\n"));
-        let err = learn(&root.0, &state.0, "", None).unwrap_err();
-        assert!(err.starts_with(".gdd/log.jsonl, line 8: "), "{err}");
+        state.write(".gdd/log.jsonl", &(log_text() + "not a line of gdd\n"));
+        let learned = learn(&root.0, &state.0, "", None).unwrap();
+        assert_eq!((learned.notes.len(), learned.left_out), (3, 1));
+        let said = learned.to_string();
+        let one = "\n\n1 line of the log is not one of gdd's: left out";
+        assert!(said.ends_with(one), "{said}");
+        assert_eq!(said.matches("left out").count(), 1, "{said}");
+        // A time that is not one, or a cost below zero, is no line of gdd's either.
         let bad_time = line("yesterday", "a", "G4", "polish", "x");
-        state.write(".gdd/log.jsonl", &bad_time);
-        let err = learn(&root.0, &state.0, "", None).unwrap_err();
-        assert!(err.starts_with(".gdd/log.jsonl, line 1: "), "{err}");
+        let polish = line("2026-10-20T12:00:00+00:00", "a", "G4", "polish", "forged");
+        let forged = polish.replacen('{', r#"{"cost_usd": -100.0, "#, 1);
+        state.write(".gdd/log.jsonl", &(log_text() + &bad_time + &forged));
+        let learned = learn(&root.0, &state.0, "", None).unwrap();
+        assert_eq!((learned.notes.len(), learned.left_out), (3, 2));
+        let two = "\n\n2 lines of the log are not one of gdd's: left out";
+        assert!(learned.to_string().ends_with(two), "{learned}");
+        // Without them, nothing is said.
+        state.write(".gdd/log.jsonl", &log_text());
+        let said = learn(&root.0, &state.0, "", None).unwrap().to_string();
+        assert!(!said.contains("left out"), "{said}");
+        // A line that opens an object but is not JSON is no line of gdd's either.
+        state.write(".gdd/log.jsonl", &(log_text() + "{not json\n"));
+        let learned = learn(&root.0, &state.0, "", None).unwrap();
+        assert_eq!((learned.notes.len(), learned.left_out), (3, 1));
     }
 
     #[test]
