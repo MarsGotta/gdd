@@ -99,7 +99,7 @@ Feature: The cases of the old kit's end-to-end suite, end to end
     When I run "gdd launch c1"
     Then it fails with a message that contains "parked"
     And the file ".gdd/changes/c1/g2.json" contains "The gate commands did not run: Path Guard must pass first."
-    And the worktree of "c1" has no file "swapped.ran"
+    And the worktree of "c1" has no "swapped.ran"
 
   Scenario: t15 · A protected change committed by an earlier run never runs on relaunch and stays visible
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
@@ -107,5 +107,5 @@ Feature: The cases of the old kit's end-to-end suite, end to end
     And I run "gdd launch c1"
     When I run "gdd launch c1"
     Then it fails with a message that contains "parked"
-    And the worktree of "c1" has no file "planted.ran"
+    And the worktree of "c1" has no "planted.ran"
     And the file ".gdd/changes/c1/g2.json" contains "gdd/commands.toml: protected path"

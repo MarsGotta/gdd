@@ -1674,8 +1674,9 @@ case "$role" in
       awk -v line="planted_check = \"touch $marker\"" '{ print } /^\[g2\]/ { print line }' "$target" > "$target.tmp"
       mv "$target.tmp" "$target"
       unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-      git add -- "$target"
-      git -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "the Builder plants a G2 command" -- "$target"
+      git add -- "$target" || exit 1
+      git -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "the Builder plants a G2 command" -- "$target" || exit 1
+      git show "HEAD:$target" | grep -q planted_check || exit 1
     fi
     if [ -f "$fake/record" ]; then
       record=$(cat "$fake/record")
@@ -1889,11 +1890,6 @@ fn builder_swaps(w: &mut GddWorld, path: String, marker: String) {
 #[given(expr = "the Builder in build mode commits to {string} a G2 command that writes {string}")]
 fn builder_commits_g2_command(w: &mut GddWorld, path: String, marker: String) {
     fake_file(w, "plant", &format!("{path}|{marker}"));
-}
-
-#[then(expr = "the worktree of {string} has no file {string}")]
-fn worktree_has_no_file(w: &mut GddWorld, id: String, path: String) {
-    worktree_has_no(w, id, path);
 }
 
 #[given(expr = "the spike budget is {string} USD")]
