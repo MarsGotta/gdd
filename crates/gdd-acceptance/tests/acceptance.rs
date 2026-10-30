@@ -1496,14 +1496,21 @@ fn file_does_not_exist(w: &mut GddWorld, path: String) {
 fn files_containing(dir: &Path, text: &str, found: &mut Vec<PathBuf>) {
     let entries =
         fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
         let path = entry.path();
         if path.is_dir() {
             if entry.file_name() != ".git" {
                 files_containing(&path, text, found);
             }
-        } else if fs::read_to_string(&path).is_ok_and(|content| content.contains(text)) {
-            found.push(path);
+            continue;
+        }
+        // A file that is not text (not UTF-8) cannot name a command; any other error fails.
+        match fs::read_to_string(&path) {
+            Ok(content) if content.contains(text) => found.push(path),
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {}
+            Err(e) => panic!("cannot read {}: {e}", path.display()),
         }
     }
 }
