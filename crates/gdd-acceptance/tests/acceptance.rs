@@ -1763,6 +1763,48 @@ fn agent_call_includes(w: &mut GddWorld, number: usize, text: String) {
     assert!(call.contains(&text), "call {number} was {call:?}");
 }
 
+#[then(expr = "agent call {int} does not include {string}")]
+fn agent_call_does_not_include(w: &mut GddWorld, number: usize, text: String) {
+    let call = agent_call(w, number);
+    assert!(!call.contains(&text), "call {number} was {call:?}");
+}
+
+#[given(expr = "the Builder session is {string}")]
+fn builder_session_is(w: &mut GddWorld, value: String) {
+    assert!(
+        !w.models.contains("[session]"),
+        "the models have a [session] already"
+    );
+    w.models = format!(
+        "{}\n[session]\nbuilder = \"{value}\"\n",
+        w.models.trim_end()
+    );
+    let models = format!("{}\n", w.models);
+    write_models(w, &models);
+}
+
+#[given(expr = "the yellow Builder is {string} with the model {string}")]
+fn yellow_builder_is(w: &mut GddWorld, integration: String, model: String) {
+    let mut in_yellow = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in w.models.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_yellow = trimmed == "[builder.yellow]";
+            lines.push(line.to_string());
+            if in_yellow {
+                lines.push(format!("integration = \"{integration}\""));
+                lines.push(format!("model = \"{model}\""));
+            }
+        } else if !in_yellow {
+            lines.push(line.to_string());
+        }
+    }
+    w.models = lines.join("\n");
+    let models = format!("{}\n", w.models);
+    write_models(w, &models);
+}
+
 /// Whether agent call `number` had the environment variable `name`.
 fn agent_got(w: &GddWorld, number: usize, name: &str) -> bool {
     agent_call(w, number); // fails when there is no such call

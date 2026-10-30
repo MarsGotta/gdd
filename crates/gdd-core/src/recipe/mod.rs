@@ -56,7 +56,7 @@ use serde_json::{Map, Value};
 
 use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
-use crate::agents::models::Model;
+use crate::agents::models::{Model, Session};
 use crate::change::{self, Built, Note, Variant};
 use crate::classify::SPIKE;
 use crate::gates::spike::{self, ADR_FOLDER};
@@ -139,8 +139,8 @@ const SHARED: [&str; 5] = [
 const HARNESS: [&str; 2] = [".gdd/bin", ".gdd/selftest"];
 
 /// What prepare decided for a change, as the recipe reads it: from what `gdd prepare` printed,
-/// or from the record of a prepared change. Every field must be there: a missing one would skip
-/// a step.
+/// or from the record of a prepared change. Every field must be there, but the Builder session: a
+/// missing one would skip a step.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Decided {
     /// Test mode comes before build mode.
@@ -164,6 +164,10 @@ pub struct Decided {
     /// The kind of work of the change (`Feature`, `Spike`...): a spike has a recipe of its own.
     #[serde(rename = "type")]
     pub kind: String,
+    /// The Builder session of the change, which each Builder call gets (see [`invoke::run`]). A
+    /// change prepared before gdd decided it has none: separate, as it ran then.
+    #[serde(default)]
+    pub builder_session: Session,
 }
 
 impl Decided {
@@ -1300,6 +1304,7 @@ impl<S: Steps> Run<'_, S> {
             who,
             model: self.decided.model(who),
             args,
+            builder_session: self.decided.builder_session,
         };
         let calling = queue::calling(state)?;
         let before = State::of(state, self.id, who)?;
@@ -1669,8 +1674,8 @@ enum Kind {
     Record,
     /// The log, and the sessions of the calls: only by lines added at their end.
     Log,
-    /// An output of the role that is called, which gdd keeps for each call: it may be added,
-    /// never changed.
+    /// An output of the role that is called, which gdd keeps for each call (see
+    /// [`call_output`]): it may be added, never changed.
     Output,
     /// The report of the G2 a Builder runs: only into a report of G2.
     Report,
@@ -1701,12 +1706,21 @@ impl Kind {
             Kind::Report
         } else if who.answer(id).as_deref() == Some(path) {
             Kind::Answer
-        } else if output.is_some_and(|number| !number.contains('/')) {
+        } else if output.is_some_and(call_output) {
             Kind::Output
         } else {
             Kind::Kept
         }
     }
+}
+
+/// Whether `name`, what follows `outputs/<role>-` in the folder of a change, names an output gdd
+/// keeps of a call of that role (see [`invoke::run`]): the number of the call, then `.md` or
+/// `.raw`. Nothing else an agent leaves there, a `.session` say, is one.
+fn call_output(name: &str) -> bool {
+    let raw = || name.strip_suffix(".raw");
+    let number = name.strip_suffix(".md").or_else(raw);
+    number.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// GDD state as it was before a call of `who` on change `id`: every file of it (see
@@ -1966,21 +1980,24 @@ mod tests {
             reviewer_model: model("r"),
             orchestrator: model("o"),
             kind: "Feature".to_string(),
+            builder_session: Session::Separate,
         }
     }
 
-    /// The steps of the recipe, played: what ran, in order, with scripted answers. A gate
-    /// passes once its answers run out; the Reviewer says OK, and the replan build mode; what the
-    /// change touched hashes to nothing; the work of an earlier run passes the gates. Each call
-    /// of an agent does what `acts` gives it to do, where the steps run (the project root until
-    /// they move, see [`Steps::work_in`]), and a release step what `released` gives it, on the
-    /// project root. Each call of a role in `costly` costs what [`costs`] logs. A release step, or
-    /// a decision on a gate, named in `fails` fails with what it gives.
+    /// The steps of the recipe, played: what ran, in order, with scripted answers, and the
+    /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
+    /// says OK, and the replan build mode; what the change touched hashes to nothing; the work of
+    /// an earlier run passes the gates. Each call of an agent does what `acts` gives it to do,
+    /// where the steps run (the project root until they move, see [`Steps::work_in`]), and a
+    /// release step what `released` gives it, on the project root. Each call of a role in
+    /// `costly` costs what [`costs`] logs. A release step, or a decision on a gate, named in
+    /// `fails` fails with what it gives.
     struct Played<'a> {
         root: &'a Path,
         work: PathBuf,
         costly: Vec<Who>,
         ran: Vec<String>,
+        sessions: Vec<Session>,
         decided: Decided,
         g2: VecDeque<bool>,
         g3: VecDeque<bool>,
@@ -2004,6 +2021,7 @@ mod tests {
             work: root.to_path_buf(),
             costly: Vec::new(),
             ran: Vec::new(),
+            sessions: Vec::new(),
             decided: decided(),
             g2: VecDeque::new(),
             g3: VecDeque::new(),
@@ -2070,6 +2088,7 @@ mod tests {
             let name = name.unwrap_or_default();
             let step = format!("{} {name} {}", short(call.who), call.args);
             self.ran.push(step);
+            self.sessions.push(call.builder_session);
             let acts = self.acts.iter().filter(|(who, _)| *who == call.who);
             acts.for_each(|(_, act)| act(&self.work));
             if self.costly.contains(&call.who) {
@@ -2214,6 +2233,29 @@ mod tests {
         ];
         expected.extend(to_production());
         assert_eq!(steps.ran, expected);
+    }
+
+    #[test]
+    fn every_agent_call_gets_the_builder_session_of_the_change() {
+        for session in [Session::Separate, Session::Shared] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.builder_session = session;
+            assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+            // Test mode, build mode and the Reviewer, who ignores it.
+            assert_eq!(steps.sessions, [session; 3], "{session:?}");
+        }
+    }
+
+    #[test]
+    fn a_decision_kept_without_a_builder_session_keeps_the_sessions_separate() {
+        let record: Value = serde_json::from_str(RECORD).unwrap();
+        let mut decision = record["decision"].clone();
+        let kept: Decided = serde_json::from_value(decision.clone()).unwrap();
+        assert_eq!(kept.builder_session, Session::Separate);
+        decision["builder_session"] = "shared".into();
+        let shared: Decided = serde_json::from_value(decision).unwrap();
+        assert_eq!(shared.builder_session, Session::Shared);
     }
 
     #[test]
@@ -2739,6 +2781,33 @@ mod tests {
     const G2_REPORT: &str = "{\"ok\": true, \"gate\": \"G2\"}\n";
 
     #[test]
+    fn a_session_file_an_agent_leaves_next_to_the_outputs_goes_back_and_parks_the_change() {
+        // No file holds a Builder session: gdd keeps it in memory for one run (`invoke::Ongoing`).
+        let outputs = ".gdd/changes/c1/outputs";
+        let plants: [(Who, Act); 3] = [
+            (Who::BuilderTest, |root| {
+                let session = ".gdd/changes/c1/outputs/builder-test-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+            (Who::BuilderBuild, |root| {
+                let session = ".gdd/changes/c1/outputs/builder-build-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+            (Who::Reviewer, |root| {
+                let session = ".gdd/changes/c1/outputs/reviewer-1.session";
+                change::write(root, session, "s-evil").unwrap();
+            }),
+        ];
+        for (who, plant) in plants {
+            let folder = with_state();
+            let session = format!("{outputs}/{}-1.session", who.role());
+            let why = format!("the {who} changed GDD state: {session}");
+            assert_eq!(acting(&folder, who, plant), park(&why), "{who}");
+            assert!(!folder.0.join(&session).exists(), "{who}");
+        }
+    }
+
+    #[test]
     fn agents_may_change_gdd_state_through_gdd() {
         let folder = with_state();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
@@ -3006,6 +3075,20 @@ mod tests {
         assert_eq!(output("builder-test-1.md", build), Kind::Kept);
         assert_eq!(output("reviewer-1/x.md", Who::Reviewer), Kind::Kept);
         assert_eq!(of(".gdd/changes/c10/g2.json", build), Kind::Kept);
+        // Only what gdd keeps of a call: its number, then `.md` or `.raw`.
+        assert_eq!(output("builder-build-12.raw", build), Kind::Output);
+        for other in [
+            "builder-build-1.session",
+            "builder-build-1.json",
+            "builder-build-1.md.session",
+            "builder-build-.md",
+            "builder-build-x.md",
+            "builder-build-1a.raw",
+            "builder-build-1",
+        ] {
+            assert_eq!(output(other, build), Kind::Kept, "{other}");
+        }
+        assert_eq!(output("reviewer-1.session", Who::Reviewer), Kind::Kept);
     }
 
     /// The text of `path` of the project at `folder`, read as a file of its own.

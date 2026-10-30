@@ -13,6 +13,10 @@ invoke = "/{name}"                         # how a command is called
 # Headless run, as the recipe starts it. {invoke} {args} is the prompt; {role_args} expands to
 # the arguments of the role below.
 args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json", "{role_args}"]
+# A Builder call that continues the change's Builder session ([session] builder = "shared" in
+# gdd/models.toml) adds these at the end; {session} is the one the Builder call before it in the
+# same run of gdd reported, which gdd keeps only in memory.
+resume_args = ["--resume", "{session}"]
 
 # Per role: no MCP servers, its change's state folder among its working folders, what it may run
 # without asking, what it may never do. GDD state is written only through gdd. The agent runs in
