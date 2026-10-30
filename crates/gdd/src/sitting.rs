@@ -5,9 +5,11 @@
 //! in the terminal of the process. Nothing is written before the human confirms with `y`.
 
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::fs;
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use gdd_core::change;
 use gdd_core::changelog;
@@ -15,6 +17,7 @@ use gdd_core::classify::SPIKE;
 use gdd_core::flow::{self, Flow};
 use gdd_core::gates::approve;
 use gdd_core::git::Git;
+use gdd_core::guard;
 use gdd_core::inbox;
 use gdd_core::log;
 use gdd_core::recipe;
@@ -272,16 +275,25 @@ impl Sitting {
         let scenarios = scenarios(&root, &card.id)?;
         let (zone_lines, zones) = red_zones(&root, &state)?;
         let red = card.color == RED;
+        let record = record_of(&state, &card.id)?;
+        let waiting = waits(&record, &scenarios, zones, red)?;
+        if !waiting {
+            let nothing = format!(
+                "Nothing waits for you in this sitting: G1 ok on {}.",
+                card.id
+            );
+            lines.extend([Line::from(nothing).bold(), Line::default()]);
+        }
         lines.extend(scenario_lines(&card.id, &scenarios));
         lines.extend(zone_lines);
         lines.push(Line::default());
         lines.extend(plan_lines(&state, &card, red)?);
-        let approval = Approval {
+        let approval = waiting.then_some(Approval {
             sealing: scenarios,
             zones,
             plan: red,
-        };
-        let sitting = Sitting::new(&basics.name, &card.id, &root, lines, Some(approval));
+        });
+        let sitting = Sitting::new(&basics.name, &card.id, &root, lines, approval);
         Ok(sitting)
     }
 
@@ -1086,6 +1098,54 @@ fn scenarios_at(root: &Path, rev: &str) -> Result<Vec<Scenario>, String> {
     Ok(found)
 }
 
+/// Whether something waits for the human in the sitting of a change whose `record` is given:
+/// unless G1 was recorded for these very `scenarios` (same files, same hashes), the red zones are
+/// approved (`zones` is none) and the plan of a `red` change is approved too.
+fn waits(
+    record: &Value,
+    scenarios: &[Scenario],
+    zones: Option<usize>,
+    red: bool,
+) -> Result<bool, String> {
+    let plan_waits = red && record["gates"]["plan"]["decision"] != "ok";
+    if zones.is_some() || plan_waits {
+        return Ok(true);
+    }
+    let mut current = BTreeMap::new();
+    for scenario in scenarios {
+        current.insert(scenario.path.clone(), text_hash(&scenario.text)?);
+    }
+    Ok(current.is_empty() || current != approved_hashes(record))
+}
+
+/// The hashes G1 sealed in `record`, by scenario file; none without G1.
+fn approved_hashes(record: &Value) -> BTreeMap<String, String> {
+    let hashes = record["gates"]["G1"]["hashes"].as_object();
+    let hashes = hashes.into_iter().flatten();
+    let hash = |(path, hash): (&String, &Value)| Some((path.clone(), hash.as_str()?.to_string()));
+    hashes.filter_map(hash).collect()
+}
+
+/// The SHA-256 of `text`, in hex, as G1 seals a file (see [`guard::file_hash`]).
+fn text_hash(text: &str) -> Result<String, String> {
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    let call = CALLS.fetch_add(1, Ordering::Relaxed);
+    let name = format!("gdd-sitting-hash-{}-{call}", std::process::id());
+    let file = std::env::temp_dir().join(name);
+    let cannot = |e: io::Error| format!("cannot hash {}: {e}", file.display());
+    // `create_new` never follows a link already there and never shares the file with another call.
+    let mut created = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file)
+        .map_err(cannot)?;
+    let written = created.write_all(text.as_bytes()).map_err(cannot);
+    drop(created);
+    let hash = written.and_then(|()| guard::file_hash(&file).map_err(cannot));
+    let _ = fs::remove_file(&file);
+    hash
+}
+
 /// The `Scenarios` section: each file with its text.
 fn scenario_lines(id: &str, scenarios: &[Scenario]) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from("Scenarios").bold()];
@@ -1851,6 +1911,86 @@ mod tests {
         assert!(record.contains("features/d.feature"), "{record}");
         sitting.press(Key::Char('q'));
         assert!(sitting.closed());
+    }
+
+    #[test]
+    fn once_g1_is_recorded_nothing_waits_until_the_scenarios_change() {
+        let project = repo();
+        gdd(&project, "gate zones ok --by human");
+        change(&project, "nw", "src/export.rs");
+        let mut sitting = open(&project, "nw");
+        assert_hides(&sitting, &["Nothing waits for you"]);
+        assert_shows(&sitting, &[KEYS]);
+        approve(&mut sitting);
+        let sitting = open(&project, "nw");
+        let nothing = "Nothing waits for you in this sitting: G1 ok on nw.";
+        assert_shows(&sitting, &[nothing, "Scenarios", SCROLL_KEYS]);
+        assert_hides(&sitting, &[KEYS]);
+        let mut sitting = sitting;
+        sitting.press(Key::Char('a'));
+        assert_hides(&sitting, &["This records"]);
+        on_branch(
+            &project,
+            "nw",
+            "features/d.feature",
+            "Feature: D\n  Scenario: Two\n",
+        );
+        let sitting = open(&project, "nw");
+        assert_hides(&sitting, &["Nothing waits for you"]);
+        assert_shows(&sitting, &[KEYS]);
+    }
+
+    /// The record of a change whose G1 sealed `hashes`, with the plan decided as `plan`.
+    fn sealed(hashes: &[(&str, &str)], plan: &str) -> Value {
+        let hashes: BTreeMap<&str, &str> = hashes.iter().copied().collect();
+        serde_json::json!({"gates": {"G1": {"decision": "ok", "hashes": hashes},
+                                     "plan": {"decision": plan}}})
+    }
+
+    #[test]
+    fn concurrent_hashes_each_read_their_own_text() {
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        let threads: Vec<_> = (0..16)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let text = if i % 2 == 0 { "abc" } else { "other" };
+                    (i, text_hash(text).unwrap())
+                })
+            })
+            .collect();
+        for thread in threads {
+            let (i, hash) = thread.join().unwrap();
+            assert_eq!(hash == abc, i % 2 == 0, "call {i}");
+        }
+    }
+
+    #[test]
+    fn something_waits_unless_g1_sealed_these_scenarios_and_zones_and_plan_are_approved() {
+        let text = "Feature: D\n";
+        let one = vec![Scenario {
+            path: "features/d.feature".to_string(),
+            hidden: false,
+            text: text.to_string(),
+        }];
+        let hash = text_hash(text).unwrap();
+        let record = sealed(&[("features/d.feature", &hash)], "ok");
+        assert_eq!(waits(&record, &one, None, false), Ok(false));
+        assert_eq!(waits(&record, &one, None, true), Ok(false));
+        assert_eq!(waits(&record, &one, Some(1), false), Ok(true));
+        let unplanned = sealed(&[("features/d.feature", &hash)], "ko");
+        assert_eq!(waits(&unplanned, &one, None, true), Ok(true));
+        assert_eq!(waits(&unplanned, &one, None, false), Ok(false));
+        let other = sealed(&[("features/d.feature", "ab12")], "ok");
+        assert_eq!(waits(&other, &one, None, false), Ok(true));
+        let more = sealed(
+            &[("features/d.feature", &hash), ("features/e.feature", &hash)],
+            "ok",
+        );
+        assert_eq!(waits(&more, &one, None, false), Ok(true));
+        let unsealed = serde_json::json!({"gates": {}});
+        assert_eq!(waits(&unsealed, &one, None, false), Ok(true));
+        assert_eq!(waits(&record, &[], None, false), Ok(true));
+        assert_eq!(waits(&sealed(&[], "ok"), &[], None, false), Ok(true));
     }
 
     #[test]
