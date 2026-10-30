@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
+use std::ops::RangeInclusive;
 use std::path::Path;
 
 use serde::de::Error as _;
@@ -12,8 +13,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agents::models::Roles;
-use crate::classify::{Change, Classification};
+use crate::classify::{Change, Classification, SPIKE};
 use crate::config::Color;
+use crate::git::{self, Git};
 use crate::{inbox, log};
 
 /// The kind of work of a change whose record says none.
@@ -25,6 +27,17 @@ pub const NOTE_KINDS: [&str; 3] = ["needs", "decided", "parked"];
 
 /// The kind of note the human's notes at G4 are: what to polish in one more Builder round.
 pub const POLISH: &str = "polish";
+
+/// How many variants a spike with variants has: one per option of its question, or that many of
+/// the same brief.
+pub const VARIANTS: RangeInclusive<usize> = 2..=4;
+
+/// What a variant without an option of its own builds.
+pub const SAME_BRIEF: &str = "same brief";
+
+/// Why a new change cannot ask for variants both ways.
+const BOTH_WAYS: &str = "--option and --variants do not go together: one variant for each \
+                         option, or n variants of the same brief";
 
 /// Whether `id` can name a change: a lowercase letter or digit, then up to 40 lowercase
 /// letters, digits or hyphens. Nothing else, so an id never leaves `.gdd/changes/`.
@@ -70,7 +83,7 @@ pub fn read_record(state: &Path, id: &str) -> Result<String, String> {
 }
 
 /// What a new change starts with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct New<'a> {
     /// Its id.
     pub id: &'a str,
@@ -86,6 +99,8 @@ pub struct New<'a> {
     pub min_color: Option<Color>,
     /// When it was created (see [`crate::log::now`]).
     pub created: &'a str,
+    /// The variants of a spike that has them (see [`variants`]); none for any other.
+    pub variants: &'a [Variant],
 }
 
 #[derive(Serialize)]
@@ -101,9 +116,11 @@ struct Fresh<'a> {
     state: &'a str,
     gates: Map<String, Value>,
     inbox: Vec<Value>,
+    #[serde(skip_serializing_if = "<[Variant]>::is_empty")]
+    variants: &'a [Variant],
 }
 
-/// The record of a new change: open, without gates or notes.
+/// The record of a new change: open, without gates or notes; with its variants, when it has some.
 pub fn new_record(new: &New) -> Result<String, serde_json::Error> {
     written(&Fresh {
         id: new.id,
@@ -116,7 +133,196 @@ pub fn new_record(new: &New) -> Result<String, serde_json::Error> {
         state: "open",
         gates: Map::new(),
         inbox: Vec::new(),
+        variants: new.variants,
     })
+}
+
+/// A variant of a spike, as its record keeps it in `variants`: the option of the question it
+/// builds and its branch; once built, what it did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Variant {
+    /// The option it builds; `None` when it builds the same brief as the others.
+    pub option: Option<String>,
+    /// Its branch (see [`variant_id`]).
+    pub branch: String,
+    /// Where it ended once built: `None` before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<Built>,
+    /// Why it parked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Whether its last G2 passed: `None` before its first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub g2: Option<bool>,
+    /// The ADR files its branch adds or changes, which OK would bring to main.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adrs: Vec<String>,
+    /// The first line of the decision of its ADR (see [`crate::gates::spike::decision_of`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    /// How many files its branch changed since it left the main branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<usize>,
+    /// The minutes its runs took, all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<f64>,
+    /// What the agent calls of its runs cost, in USD, all of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usd: Option<f64>,
+}
+
+/// Where a variant of a spike ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Built {
+    /// It passed the G2 of a spike: OK may bring its ADR to main.
+    Ready,
+    /// It stopped before: its reason says why.
+    Parked,
+}
+
+impl Variant {
+    /// What it builds: its option, or [`SAME_BRIEF`].
+    pub fn named(&self) -> &str {
+        self.option.as_deref().unwrap_or(SAME_BRIEF)
+    }
+
+    /// Whether it passed its gate.
+    pub fn ready(&self) -> bool {
+        self.state == Some(Built::Ready)
+    }
+
+    /// Its line in the Decision Inbox and on the G4 page, as variant `number`: `Variant <number> ·
+    /// <option> · ready` or `parked: <reason>`, then its ADR files, the first line of their
+    /// decision, the files it changed, its minutes and its cost; `not built yet` before.
+    pub fn line(&self, number: usize) -> String {
+        let start = format!("Variant {number} · {}", self.named());
+        let result = match self.state {
+            None => return format!("{start} · not built yet"),
+            Some(Built::Ready) => "ready".to_string(),
+            Some(Built::Parked) => format!("parked: {}", self.reason.as_deref().unwrap_or("-")),
+        };
+        let adrs = if self.adrs.is_empty() {
+            "none".to_string()
+        } else {
+            self.adrs.join(", ")
+        };
+        let decision = self.decision.as_deref().unwrap_or("none");
+        let files = self.files.unwrap_or_default();
+        let minutes = self.minutes.unwrap_or_default();
+        let usd = self.usd.unwrap_or_default();
+        format!(
+            "{start} · {result} · ADR: {adrs} · decision: {decision} · {files} files · \
+             {minutes:.1} min · {usd:.2} USD"
+        )
+    }
+}
+
+/// The variants a new change `kind` of work asks for: one for each of `options`, or `count` of
+/// the same brief, numbered from 1, each on the branch of its own (see [`variant_id`]); none with
+/// neither. Only a spike has them, from 2 to 4 (see [`VARIANTS`]), and never both ways at once:
+/// all of it is checked before any variant is made, so a count out of range costs nothing.
+pub fn variants(
+    id: &str,
+    kind: &str,
+    options: &[String],
+    count: Option<usize>,
+) -> Result<Vec<Variant>, String> {
+    let n = match (options, count) {
+        ([], None) => return Ok(Vec::new()),
+        ([], Some(count)) => count,
+        (options, None) => options.len(),
+        (_, Some(_)) => return Err(BOTH_WAYS.to_string()),
+    };
+    if kind != SPIKE {
+        return Err(format!(
+            "only a Spike has variants, and {id} is a {kind}: add --type Spike, or leave out \
+             --option and --variants"
+        ));
+    }
+    if !VARIANTS.contains(&n) {
+        let (fewest, most) = (VARIANTS.start(), VARIANTS.end());
+        return Err(format!("a spike has {fewest} to {most} variants, not {n}"));
+    }
+    let wanted: Vec<Option<String>> = if options.is_empty() {
+        vec![None; n]
+    } else {
+        options.iter().cloned().map(Some).collect()
+    };
+    let numbered = wanted.into_iter().zip(1..);
+    let variant = |(option, number)| Variant {
+        option,
+        branch: branch(&variant_id(id, number)),
+        state: None,
+        reason: None,
+        g2: None,
+        adrs: Vec::new(),
+        decision: None,
+        files: None,
+        minutes: None,
+        usd: None,
+    };
+    Ok(numbered.map(variant).collect())
+}
+
+/// The variants of a spike the record `text` keeps: none when it has no `variants`, or `null`.
+pub fn variants_of(text: &str) -> Result<Vec<Variant>, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct Raw {
+        #[serde(default)]
+        variants: Option<Vec<Variant>>,
+    }
+    let raw: Raw = serde_json::from_str(text)?;
+    Ok(raw.variants.unwrap_or_default())
+}
+
+/// The record `text` with `variants` as its variants; every other field keeps its value.
+pub fn with_variants(text: &str, variants: &[Variant]) -> Result<String, serde_json::Error> {
+    with_fields(text, vec![("variants", serde_json::to_value(variants)?)])
+}
+
+/// The name of variant `number` of spike `id`, from 1: `<id>-v<number>`, which its branch
+/// (`change/<id>-v<number>`) and its worktree take.
+pub fn variant_id(id: &str, number: usize) -> String {
+    format!("{id}-v{number}")
+}
+
+/// The branch whose work change `id` has in the project of `git`: the branch of one of its
+/// variants when it is the one checked out there, else the branch of the change.
+pub fn branch_at(git: &Git, id: &str) -> Result<String, git::Error> {
+    let current = git.current_branch()?;
+    let of_variant = |number: usize| current == branch(&variant_id(id, number));
+    if (1..=*VARIANTS.end()).any(of_variant) {
+        Ok(current)
+    } else {
+        Ok(branch(id))
+    }
+}
+
+/// The section each ADR file of spike `id` gets on main when the human chose its variant
+/// `chosen`, from 1, among `variants`, with `note`: the variant chosen, with its option, its
+/// branch and the note, if any; then each other one, not chosen, with its branch, and the reason
+/// of those that parked.
+pub fn variants_section(variants: &[Variant], chosen: usize, note: &str) -> String {
+    let mut lines = vec!["## Variants".to_string()];
+    for (variant, number) in variants.iter().zip(1..) {
+        let (named, branch) = (variant.named(), &variant.branch);
+        if number == chosen {
+            let mut line = format!("Chosen: variant {number} ({named}), branch {branch}.");
+            if !note.trim().is_empty() {
+                line.push_str(&format!(" {}", note.trim()));
+            }
+            lines.insert(1, line);
+            continue;
+        }
+        let mut line = format!("Variant {number} ({named}): not chosen, branch {branch}");
+        if variant.state == Some(Built::Parked) {
+            let reason = variant.reason.as_deref().unwrap_or("-");
+            line.push_str(&format!(", parked: {reason}"));
+        }
+        lines.push(line);
+    }
+    format!("{}\n", lines.join("\n"))
 }
 
 /// A gate decision as a record keeps it.
@@ -538,6 +744,7 @@ mod tests {
             resumable: true,
             min_color: Some(Color::Red),
             created: "2026-10-26T07:12:29+00:00",
+            variants: &[],
         };
         let expected = "{\n  \"id\": \"c1\",\n  \"title\": \"Drafts\",\n  \
                         \"type\": \"Feature\",\n  \
@@ -1001,5 +1208,212 @@ mod tests {
         let err = write(&folder.0, ".gdd/changes/c3/change.json", "{}").unwrap_err();
         let start = "cannot write .gdd/changes/c3/change.json: ";
         assert!(err.starts_with(start), "{err}");
+    }
+
+    fn words(words: &[&str]) -> Vec<String> {
+        words.iter().map(ToString::to_string).collect()
+    }
+
+    /// Variant `number` of spike `c1`, built to `state`.
+    fn built(number: usize, option: Option<&str>, state: Option<Built>) -> Variant {
+        let mut all = variants("c1", SPIKE, &[], Some(4)).unwrap();
+        let mut variant = all.remove(number - 1);
+        variant.option = option.map(str::to_string);
+        variant.state = state;
+        variant
+    }
+
+    #[test]
+    fn a_spike_has_one_variant_per_option_or_n_of_the_same_brief_on_branches_of_their_own() {
+        let options = words(&["SQLite", "Plain files"]);
+        let made = variants("c1", SPIKE, &options, None).unwrap();
+        let named: Vec<(Option<&str>, &str)> = made
+            .iter()
+            .map(|v| (v.option.as_deref(), v.branch.as_str()))
+            .collect();
+        let expected = [
+            (Some("SQLite"), "change/c1-v1"),
+            (Some("Plain files"), "change/c1-v2"),
+        ];
+        assert_eq!(named, expected);
+        assert!(made.iter().all(|v| v.state.is_none() && !v.ready()));
+        let same = variants("c1", SPIKE, &[], Some(4)).unwrap();
+        assert_eq!(same.len(), 4);
+        let brief = |v: &Variant| v.option.is_none() && v.named() == SAME_BRIEF;
+        assert!(same.iter().all(brief));
+        assert_eq!(same[3].branch, "change/c1-v4");
+        // Neither: no variants, whatever the kind.
+        for kind in [SPIKE, "Feature"] {
+            assert_eq!(variants("c1", kind, &[], None), Ok(vec![]));
+        }
+        assert_eq!(VARIANTS, 2..=4);
+        assert_eq!(variant_id("c1", 3), "c1-v3");
+    }
+
+    #[test]
+    fn only_a_spike_has_variants_from_two_to_four_and_never_both_ways() {
+        let two = words(&["A", "B"]);
+        let only = "only a Spike has variants, and c2 is a Feature";
+        // A huge count is refused before anything is made for it, of any kind of work.
+        for (options, count) in [
+            (&two[..], None),
+            (&[][..], Some(2)),
+            (&[][..], Some(usize::MAX)),
+        ] {
+            let err = variants("c2", "Feature", options, count).unwrap_err();
+            assert!(err.starts_with(only), "{err}");
+        }
+        for (options, count, n) in [
+            (words(&["A"]), None, 1),
+            (words(&["A", "B", "C", "D", "E"]), None, 5),
+            (vec![], Some(0), 0),
+            (vec![], Some(1), 1),
+            (vec![], Some(5), 5),
+            (vec![], Some(usize::MAX), usize::MAX),
+        ] {
+            let err = variants("c1", SPIKE, &options, count).unwrap_err();
+            assert_eq!(err, format!("a spike has 2 to 4 variants, not {n}"));
+        }
+        let four = words(&["A", "B", "C", "D"]);
+        assert_eq!(variants("c1", SPIKE, &four, None).unwrap().len(), 4);
+        assert_eq!(variants("c1", SPIKE, &[], Some(2)).unwrap().len(), 2);
+        let err = variants("c1", SPIKE, &two, Some(2)).unwrap_err();
+        assert_eq!(err, BOTH_WAYS);
+        assert!(BOTH_WAYS.starts_with("--option and --variants do not go together"));
+    }
+
+    #[test]
+    fn the_record_of_a_new_spike_keeps_its_variants_and_reads_them_back() {
+        let options = words(&["SQLite", "Postgres"]);
+        let made = variants("c1", SPIKE, &options, None).unwrap();
+        let new = New {
+            id: "c1",
+            title: "Storage",
+            kind: SPIKE,
+            paths: &[],
+            resumable: false,
+            min_color: None,
+            created: "2026-10-30T07:00:00+00:00",
+            variants: &made,
+        };
+        let record = new_record(&new).unwrap();
+        let value: Value = serde_json::from_str(&record).unwrap();
+        let expected = serde_json::json!([
+            {"option": "SQLite", "branch": "change/c1-v1"},
+            {"option": "Postgres", "branch": "change/c1-v2"},
+        ]);
+        assert_eq!(value["variants"], expected);
+        assert_eq!(variants_of(&record).unwrap(), made);
+        let same = variants("c1", SPIKE, &[], Some(2)).unwrap();
+        let value = serde_json::to_value(&same).unwrap();
+        let brief = serde_json::json!({"option": null, "branch": "change/c1-v2"});
+        assert_eq!(value[1], brief);
+        for text in ["{}", r#"{"variants": null}"#] {
+            assert!(variants_of(text).unwrap().is_empty(), "{text}");
+        }
+        for wrong in [
+            r#"{"variants": {}}"#,
+            r#"{"variants": [{"option": "A"}]}"#,
+            "3",
+        ] {
+            assert!(variants_of(wrong).is_err(), "{wrong}");
+        }
+    }
+
+    #[test]
+    fn what_a_variant_did_is_written_in_the_record_and_keeps_the_rest() {
+        let mut ready = built(1, Some("SQLite"), Some(Built::Ready));
+        ready.g2 = Some(true);
+        ready.adrs = words(&["docs/adr/0002-storage.md"]);
+        ready.decision = Some("SQLite.".to_string());
+        ready.files = Some(2);
+        ready.minutes = Some(1.5);
+        ready.usd = Some(0.25);
+        let text = r#"{"id": "c1", "inbox": [1]}"#;
+        let written = with_variants(text, std::slice::from_ref(&ready)).unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        let value: Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(value["id"], "c1");
+        assert_eq!(value["inbox"], serde_json::json!([1]));
+        let expected = serde_json::json!({
+            "option": "SQLite", "branch": "change/c1-v1", "state": "ready", "g2": true,
+            "adrs": ["docs/adr/0002-storage.md"], "decision": "SQLite.", "files": 2,
+            "minutes": 1.5, "usd": 0.25,
+        });
+        assert_eq!(value["variants"][0], expected);
+        assert_eq!(variants_of(&written).unwrap(), [ready]);
+        assert!(with_variants("[]", &[]).is_err());
+    }
+
+    #[test]
+    fn the_line_of_a_variant_says_what_it_did() {
+        let mut ready = built(1, Some("SQLite"), Some(Built::Ready));
+        ready.adrs = words(&["docs/adr/0002-storage.md", "docs/adr/0003-cache.md"]);
+        ready.decision = Some("SQLite, one file.".to_string());
+        ready.files = Some(3);
+        ready.minutes = Some(2.26);
+        ready.usd = Some(0.126);
+        assert!(ready.ready());
+        let line = "Variant 1 · SQLite · ready · ADR: docs/adr/0002-storage.md, \
+                    docs/adr/0003-cache.md · decision: SQLite, one file. · 3 files · 2.3 min · \
+                    0.13 USD";
+        assert_eq!(ready.line(1), line);
+        let mut parked = built(2, None, Some(Built::Parked));
+        parked.reason = Some("G2 still red".to_string());
+        assert!(!parked.ready());
+        let line = "Variant 2 · same brief · parked: G2 still red · ADR: none · decision: none · \
+                    0 files · 0.0 min · 0.00 USD";
+        assert_eq!(parked.line(2), line);
+        parked.reason = None;
+        let line = parked.line(2);
+        assert!(line.starts_with("Variant 2 · same brief · parked: - · "));
+        let waiting = built(3, Some("Postgres"), None);
+        assert_eq!(waiting.line(3), "Variant 3 · Postgres · not built yet");
+    }
+
+    #[test]
+    fn the_section_of_the_variants_names_the_chosen_one_first_and_the_others_with_their_branch() {
+        let mut first = built(1, Some("SQLite"), Some(Built::Parked));
+        first.reason = Some("the spike spent 1.00 USD".to_string());
+        let second = built(2, Some("Postgres"), Some(Built::Ready));
+        let third = built(3, None, Some(Built::Ready));
+        let all = [first, second, third];
+        let section = variants_section(&all, 2, " Postgres scales ");
+        let expected = "## Variants\n\
+                        Chosen: variant 2 (Postgres), branch change/c1-v2. Postgres scales\n\
+                        Variant 1 (SQLite): not chosen, branch change/c1-v1, parked: the spike \
+                        spent 1.00 USD\n\
+                        Variant 3 (same brief): not chosen, branch change/c1-v3\n";
+        assert_eq!(section, expected);
+        let section = variants_section(&all[1..], 1, "");
+        let expected = "## Variants\n\
+                        Chosen: variant 1 (Postgres), branch change/c1-v2.\n\
+                        Variant 2 (same brief): not chosen, branch change/c1-v3\n";
+        assert_eq!(section, expected);
+    }
+
+    #[test]
+    fn the_work_of_a_change_is_on_the_branch_of_its_variant_checked_out_or_on_its_own() {
+        let repo = crate::git::tests::Repo::new();
+        let git = repo.tool();
+        assert_eq!(branch_at(&git, "c1").unwrap(), "change/c1");
+        for (checked_out, of_c1) in [
+            ("change/c1", "change/c1"),
+            ("change/c1-v1", "change/c1-v1"),
+            ("change/c1-v4", "change/c1-v4"),
+            ("change/c1-v5", "change/c1"),
+            ("change/c1-v0", "change/c1"),
+            ("change/c2-v1", "change/c1"),
+            ("change/c1-v1x", "change/c1"),
+        ] {
+            repo.git(&["checkout", "-q", "-b", checked_out]);
+            assert_eq!(branch_at(&git, "c1").unwrap(), of_c1, "{checked_out}");
+            repo.git(&["checkout", "-q", "main"]);
+        }
+        // A change whose id looks like a variant is a change of its own.
+        repo.git(&["checkout", "-q", "change/c1-v1"]);
+        assert_eq!(branch_at(&git, "c1-v1").unwrap(), "change/c1-v1");
+        let plain = Folder::new();
+        assert!(branch_at(&Git::new(&plain.0), "c1").is_err());
     }
 }

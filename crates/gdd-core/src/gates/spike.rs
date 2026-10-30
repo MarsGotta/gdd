@@ -1,7 +1,8 @@
 //! G2 for a spike. A spike answers one question and its code never reaches main: the project's
 //! G2 commands do not run. It passes when Path Guard passes, with the rules of the role it runs
 //! for, and the branch of the spike adds or changes an ADR with its decision: a file
-//! `docs/adr/*.md` with a line that, trimmed, is `## Decision`. Its report is G2's.
+//! `docs/adr/*.md` with a line that, trimmed, is `## Decision`. Its report is G2's. In the
+//! worktree of a variant of a spike, the branch is the variant's (see [`change::branch_at`]).
 
 use std::path::Path;
 use std::time::Instant;
@@ -67,9 +68,18 @@ pub fn run(
 /// [`Git::changed_since`]).
 fn changed(root: &Path, id: &str, settings: &Settings) -> Result<Vec<String>, git::Error> {
     let git = Git::new(root);
-    let branch = change::branch(id);
+    let branch = change::branch_at(&git, id)?;
     let left = git.merge_base(&settings.main_branch, &branch)?;
     git.changed_since(&branch, &left)
+}
+
+/// The first line of the decision of the ADR `text`: the first line after its `## Decision`
+/// heading that is not blank, trimmed, unless the next heading comes first. `None` without one.
+pub fn decision_of(text: &str) -> Option<String> {
+    let mut lines = text.lines().skip_while(|line| line.trim() != DECISION);
+    lines.next()?;
+    let first = lines.find(|line| !line.trim().is_empty())?.trim();
+    (!first.starts_with('#')).then(|| first.to_string())
 }
 
 /// Whether, among `changed`, what the branch of a spike checked out at `root` changed (see
@@ -82,7 +92,8 @@ fn decided(root: &Path, changed: &[String]) -> bool {
 }
 
 /// Whether `path`, from the project root, is an ADR: a Markdown file right in [`ADR_FOLDER`].
-fn is_adr(path: &str) -> bool {
+/// What else the folder holds (an image, a file in a folder of its own) is no ADR.
+pub fn is_adr(path: &str) -> bool {
     let name = path.strip_prefix(ADR_FOLDER);
     name.is_some_and(|name| name.ends_with(".md") && !name.contains('/'))
 }
@@ -354,6 +365,44 @@ mod tests {
         assert_eq!(report.failures[0].name, PATH_GUARD);
         let why = "Change c1 has not been prepared: Path Guard has no starting point.";
         assert_eq!(report.failures[0].tail, why);
+    }
+
+    #[test]
+    fn in_the_worktree_of_a_variant_the_gate_judges_the_branch_of_the_variant() {
+        let project = spike();
+        project.git(&["checkout", "-q", "-b", "change/c1-v2", "main"]);
+        project.write(ADR_PATH, DECIDED);
+        project.write("features/a.feature", "Feature: a\n");
+        let report = project.run();
+        assert_eq!(report.passed, [ADR]);
+        let protected = "features/a.feature: protected path for builder-build";
+        let tail = &report.failures[0].tail;
+        assert!(tail.starts_with(protected), "{tail}");
+        // Committed on the branch of the variant, it still counts.
+        fs::remove_file(project.path("features/a.feature")).unwrap();
+        project.repo.commit();
+        assert!(project.run().ok);
+        // On the branch of the spike, what the variant did is not the spike's.
+        project.git(&["checkout", "-q", "change/c1"]);
+        assert_eq!(project.failed(), [ADR]);
+    }
+
+    #[test]
+    fn the_decision_of_an_adr_is_the_first_line_under_its_heading() {
+        assert_eq!(decision_of(DECIDED).as_deref(), Some("SQLite."));
+        let spaced = "# 0002\n  ## Decision \n\n   Postgres, for its replicas.  \nMore.\n";
+        let first = decision_of(spaced);
+        assert_eq!(first.as_deref(), Some("Postgres, for its replicas."));
+        for none in [
+            "# 0002\nSQLite.\n",
+            "# 0002\n## Decision\n",
+            "# 0002\n## Decision\n\n \n",
+            "# 0002\n## Decision\n## Consequences\nSlower.\n",
+            "# 0002\n### Decision\nSQLite.\n",
+            "",
+        ] {
+            assert_eq!(decision_of(none), None, "{none:?}");
+        }
     }
 
     #[test]

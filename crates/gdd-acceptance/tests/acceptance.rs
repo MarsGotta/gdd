@@ -1639,11 +1639,17 @@ case "$role" in
         ;;
       from\ *) [ "$n" -ge "${mode#from }" ] || write=no ;;
     esac
+    also_write=yes
+    if [ -f "$fake/nothing_variants" ]; then
+      for v in $(cat "$fake/nothing_variants"); do
+        case " $args " in *" variant=$v "*) write=no; also_write=no ;; esac
+      done
+    fi
     if [ "$write" = yes ]; then
       mkdir -p "$(dirname "$path")"
       echo "$n" > "$path"
     fi
-    if [ -f "$fake/build_also" ]; then
+    if [ "$also_write" = yes ] && [ -f "$fake/build_also" ]; then
       also=$(cat "$fake/build_also")
       mkdir -p "$(dirname "$also")"
       cp "$fake/build_also_content" "$also"
@@ -1811,6 +1817,13 @@ fn builder_writes_nothing(w: &mut GddWorld) {
     );
     ids.sort();
     fake_file(w, "build", &format!("nothing {}", ids.join(" ")));
+}
+
+#[given(expr = "the Builder in build mode writes nothing for variant {int}")]
+fn builder_writes_nothing_for_variant(w: &mut GddWorld, variant: usize) {
+    let path = project_root(w).join(".gdd/fake/nothing_variants");
+    let before = fs::read_to_string(&path).unwrap_or_default();
+    fake_file(w, "nothing_variants", &format!("{before}{variant}\n"));
 }
 
 #[given("the Builder in build mode never answers")]

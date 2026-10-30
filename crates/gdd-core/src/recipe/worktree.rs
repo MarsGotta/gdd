@@ -63,19 +63,46 @@ pub fn project_root(root: &Path, path: &Path) -> Result<PathBuf, String> {
 /// there when git lists it on the branch of the change; otherwise a new one on that branch, once
 /// git forgets the worktrees whose folders are gone. Anything else at `path` is refused, named.
 pub fn open(checkout: &Path, path: &Path, id: &str) -> Result<(), String> {
-    let git = Git::new(checkout);
     let branch = change::branch(id);
+    opened(checkout, path, &format!("change {id}"), &branch)
+}
+
+/// Leaves the worktree `path` of variant `number` of spike `id` ready, from the main checkout
+/// `checkout`, as [`open`] leaves the one of a change, on the branch of the variant (see
+/// [`change::variant_id`]): made from the main branch `main` when there is none, kept when there
+/// is one.
+pub fn open_variant(
+    checkout: &Path,
+    path: &Path,
+    id: &str,
+    number: usize,
+    main: &str,
+) -> Result<(), String> {
+    let git = Git::new(checkout);
+    let branch = change::branch(&change::variant_id(id, number));
+    let said = |e: git::Error| e.to_string();
+    if !git.exists(&branch).map_err(said)? {
+        git.create_branch(&branch, main).map_err(said)?;
+    }
+    let what = format!("variant {number} of {id}");
+    opened(checkout, path, &what, &branch)
+}
+
+/// Leaves the worktree `path` of `what` ready on `branch`, from the main checkout `checkout` (see
+/// [`open`]).
+fn opened(checkout: &Path, path: &Path, what: &str, branch: &str) -> Result<(), String> {
+    let git = Git::new(checkout);
     let said = |e: git::Error| e.to_string();
     if seen(path)?.is_none() {
         git.prune_worktrees().map_err(said)?;
-        return git.add_worktree(path, &branch).map_err(said);
+        return git.add_worktree(path, branch).map_err(said);
     }
-    if is_worktree_on(&git, path, &branch).map_err(said)? {
+    if is_worktree_on(&git, path, branch).map_err(said)? {
         return Ok(());
     }
     Err(format!(
-        "{} is in the way of the worktree of change {id}: it is not a worktree on {branch}. Move \
-         it away, then run gdd again.",
+        "{} is in the way of the worktree of {what}: it is not a worktree on {branch}. Move it \
+         away, then run gdd again.",
         path.display()
     ))
 }
@@ -232,6 +259,36 @@ mod tests {
         let err = open(repo.root(), &under, "c1").unwrap_err();
         let start = format!("cannot look at {}: ", under.display());
         assert!(err.starts_with(&start), "{err}");
+    }
+
+    #[test]
+    fn the_worktree_of_a_variant_is_on_its_branch_made_from_main_and_kept() {
+        let (repo, trees) = with_branch();
+        repo.identify();
+        let path = trees.0.join("c1-v2");
+        open_variant(repo.root(), &path, "c1", 2, "main").unwrap();
+        assert_eq!(Git::new(&path).current_branch().unwrap(), "change/c1-v2");
+        let main = repo.git(&["rev-parse", "main"]);
+        assert_eq!(Git::new(&path).head().unwrap(), main);
+        // Its branch moves on and stays: gone, the worktree is made again on it.
+        fs::write(path.join("work.txt"), "variant\n").unwrap();
+        Git::new(&path).commit_all("variant work").unwrap();
+        let moved = repo.git(&["rev-parse", "change/c1-v2"]);
+        fs::remove_dir_all(&path).unwrap();
+        open_variant(repo.root(), &path, "c1", 2, "main").unwrap();
+        assert_eq!(Git::new(&path).head().unwrap(), moved);
+        // What is in the way is refused by name.
+        let other = trees.0.join("other");
+        fs::create_dir_all(&other).unwrap();
+        let err = open_variant(repo.root(), &other, "c1", 3, "main").unwrap_err();
+        let named = format!(
+            "{} is in the way of the worktree of variant 3 of c1: it is not a worktree on \
+             change/c1-v3.",
+            other.display()
+        );
+        assert!(err.starts_with(&named), "{err}");
+        let err = open_variant(repo.root(), &trees.0.join("c1-v4"), "c1", 4, "trunk");
+        assert!(err.unwrap_err().starts_with("git branch "));
     }
 
     #[test]

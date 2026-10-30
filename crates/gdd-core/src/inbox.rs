@@ -1,7 +1,7 @@
-//! The Decision Inbox of a change: how the change works, as its Reviewer says; what the human
-//! must decide, what was decided without them and what was parked, from the notes of its record;
-//! the security exceptions its last G3 named as added; and the known debt its latest G2 and G3
-//! found still failing or paid.
+//! The Decision Inbox of a change: how the change works, as its Reviewer says; what each variant
+//! of a spike did; what the human must decide, what was decided without them and what was parked,
+//! from the notes of its record; the security exceptions its last G3 named as added; and the
+//! known debt its latest G2 and G3 found still failing or paid.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -10,11 +10,14 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::change::{self, NOTE_KINDS, POLISH};
+use crate::change::{self, NOTE_KINDS, POLISH, Variant};
 use crate::gates::{Gate, debt, verdict};
 
 /// The heading of the section of a review that says how the change works, and of its group.
 pub const HOW_IT_WORKS: &str = "How it works";
+
+/// The title of the group of the variants of a spike.
+pub const VARIANTS: &str = "Variants";
 
 /// The most lines of the section that says how the change works that are kept.
 const MOST_EXPLAINED: usize = 12;
@@ -59,6 +62,7 @@ struct Raw {
     decision: Option<RawDecision>,
     inbox: Option<Vec<RawNote>>,
     out_of_scope: Option<Vec<String>>,
+    variants: Option<Vec<Variant>>,
 }
 
 #[derive(Default, Deserialize)]
@@ -80,7 +84,8 @@ struct RawNote {
 /// (empty when there is none, `None` when it cannot be read) and `reported`, the groups from its
 /// gate reports (see [`save`]), without a line break at the end: its title, color, lane and
 /// state; then how the change works, when the review says it (see [`how_it_works`]), or that the
-/// Reviewer did not explain it while the change waits for its G4; then one group per kind of
+/// Reviewer did not explain it while the change waits for its G4; then, for a spike with
+/// variants, the line of each (see [`Variant::line`]); then one group per kind of
 /// note with the notes still open (`Nothing.` when there are none) and, among the decisions, the
 /// paths outside the package the scope check accepted; then each group of `reported` that has
 /// entries; then the human's notes at G4, when there are, under `Polish`; last, how many requests
@@ -120,6 +125,8 @@ pub fn render(
         format!("Color {color} · lane {lane} · state {state}"),
     ];
     blocks.extend(explained);
+    let variants = variant_lines(&raw.variants.unwrap_or_default());
+    blocks.extend(listed(VARIANTS, &variants));
     for (heading, notes) in HEADINGS.iter().zip(groups) {
         let mut block = format!("## {heading}");
         if notes.is_empty() {
@@ -138,6 +145,12 @@ pub fn render(
         blocks.push(format!("_{resolved} {RESOLVED}_"));
     }
     Ok(blocks.join("\n\n"))
+}
+
+/// The line of each of `variants`, numbered from 1 (see [`Variant::line`]).
+pub fn variant_lines(variants: &[Variant]) -> Vec<String> {
+    let line = |(variant, number): (&Variant, usize)| variant.line(number);
+    variants.iter().zip(1..).map(line).collect()
 }
 
 /// The group `heading` with one item per line of `lines`; nothing without lines.
@@ -336,6 +349,38 @@ mod tests {
         assert_eq!(render("c2", nulls, NO_REVIEW, &NONE).unwrap(), expected);
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
         assert_eq!(render("c2", empty, NO_REVIEW, &NONE).unwrap(), expected);
+    }
+
+    #[test]
+    fn a_spike_with_variants_lists_what_each_did_before_the_notes() {
+        let record = r#"{"state": "in-pre", "inbox": [{"kind": "needs", "text": "G4?"}],
+            "variants": [
+                {"option": "SQLite", "branch": "change/c1-v1", "state": "parked",
+                 "reason": "G2 still red", "files": 1, "minutes": 0.5, "usd": 0.1},
+                {"option": null, "branch": "change/c1-v2", "state": "ready",
+                 "adrs": ["docs/adr/0002-storage.md"], "decision": "Postgres.", "files": 2,
+                 "minutes": 1.26, "usd": 0.5},
+                {"option": "Files", "branch": "change/c1-v3"}
+            ]}"#;
+        let text = render("c1", record, Some("VERDICT: OK"), &NONE).unwrap();
+        let group = concat!(
+            "## How it works\n- The Reviewer did not explain the change.\n\n",
+            "## Variants\n",
+            "- Variant 1 · SQLite · parked: G2 still red · ADR: none · decision: none · ",
+            "1 files · 0.5 min · 0.10 USD\n",
+            "- Variant 2 · same brief · ready · ADR: docs/adr/0002-storage.md · ",
+            "decision: Postgres. · 2 files · 1.3 min · 0.50 USD\n",
+            "- Variant 3 · Files · not built yet\n\n",
+            "## Needs your decision\n- G4?"
+        );
+        assert!(text.contains(group), "{text}");
+        assert_eq!(VARIANTS, "Variants");
+        for plain in ["{}", r#"{"variants": null}"#, r#"{"variants": []}"#] {
+            let text = render("c1", plain, NO_REVIEW, &NONE).unwrap();
+            assert!(!text.contains("## Variants"), "{text}");
+        }
+        let wrong = r#"{"variants": [{"option": "A"}]}"#;
+        assert!(render("c1", wrong, NO_REVIEW, &NONE).is_err());
     }
 
     #[test]
