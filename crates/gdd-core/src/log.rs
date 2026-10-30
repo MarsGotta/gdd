@@ -201,6 +201,61 @@ pub fn parse(text: &str) -> Result<Vec<Record>, LineError> {
         .collect()
 }
 
+/// The lines of a log that are gdd's, read (see [`read`]), and how many were left out.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Read<T> {
+    /// The lines that are gdd's, in the order of the log.
+    pub lines: Vec<T>,
+    /// How many lines are not gdd's.
+    pub left_out: usize,
+}
+
+/// An empty log: no lines, none left out.
+impl<T> Default for Read<T> {
+    fn default() -> Read<T> {
+        Read {
+            lines: Vec::new(),
+            left_out: 0,
+        }
+    }
+}
+
+/// Reads the text of a log, one record per line, leaving out each line that is not gdd's: one
+/// that is not JSON, or JSON that is not an object with the fields of a record (see [`parse`]),
+/// as one whose cost is not a number, or whose cost is below zero, which gdd never writes. Agents
+/// can add lines to the log, so a report over it leaves theirs out instead of failing, whatever
+/// they look like. Blank lines are skipped.
+pub fn read(text: &str) -> Read<Record> {
+    let mut read = Read::default();
+    let filled = text.lines().filter(|line| !line.trim().is_empty());
+    for line in filled {
+        match of_gdd(line) {
+            Some(record) => read.lines.push(record),
+            None => read.left_out += 1,
+        }
+    }
+    read
+}
+
+/// The record of `line` when it is a line gdd could have written; nothing when it is not gdd's
+/// (see [`read`]).
+fn of_gdd(line: &str) -> Option<Record> {
+    let record = serde_json::from_str::<Record>(line).ok()?;
+    (record.cost_usd >= 0.0).then_some(record)
+}
+
+/// What a report over the log says when it left out `count` lines that are not gdd's (see
+/// [`read`]): nothing when it left none out.
+pub fn left_out(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("1 line of the log is not one of gdd's: left out".to_string()),
+        n => Some(format!(
+            "{n} lines of the log are not one of gdd's: left out"
+        )),
+    }
+}
+
 /// The message of a JSON error without its position: the JSON of a record is a single line,
 /// so the line that counts is the line of the log.
 fn without_position(e: &serde_json::Error) -> String {
@@ -310,6 +365,50 @@ mod tests {
         ] {
             assert_eq!(parse(text).map_err(|e| e.line), Err(line), "{text:?}");
         }
+    }
+
+    #[test]
+    fn a_line_that_is_not_gdds_is_left_out_and_counted() {
+        let text = concat!(
+            "{\"change\": \"a\", \"cost_usd\": 0.5}\n",
+            "not a line of gdd\n",
+            "\n",
+            "[1, 2]\n",
+            "{\"change\": \"b\", \"cost_usd\": -100.0}\n",
+            "{\"change\": \"c\", \"cost_usd\": \"1\"}\n",
+            "{\"change\": \"d\", \"cost_usd\": null}\n",
+            "{\"change\": \"e\", \"tokens_out\": -1}\n",
+            "{\"change\": \"f\", \"cost_usd\": 0}\n",
+            "{\"change\": \"g\"}\n",
+            "\"text\"\n",
+            "x}\n",
+        );
+        let kept = read(text);
+        let changes: Vec<String> = kept.lines.iter().map(|r| r.text("change")).collect();
+        assert_eq!(changes, ["a", "f", "g"]);
+        assert_eq!(kept.lines[0].cost_usd, 0.5);
+        assert_eq!(kept.left_out, 8);
+        let none = read("{\"change\": \"a\"}\n\n  \n");
+        assert_eq!((none.lines.len(), none.left_out), (1, 0));
+        assert_eq!(read(""), Read::default());
+    }
+
+    #[test]
+    fn a_line_that_opens_an_object_but_is_not_json_is_left_out_too() {
+        let text = "{}\n{x\n\n  {not json\n{\"change\": \"a\", \"cost_usd\": 0.5\n{}\n";
+        let kept = read(text);
+        assert_eq!((kept.lines.len(), kept.left_out), (2, 3));
+    }
+
+    #[test]
+    fn what_a_report_says_of_the_lines_it_left_out_counts_them() {
+        assert_eq!(left_out(0), None);
+        let one = "1 line of the log is not one of gdd's: left out";
+        assert_eq!(left_out(1).as_deref(), Some(one));
+        let two = "2 lines of the log are not one of gdd's: left out";
+        assert_eq!(left_out(2).as_deref(), Some(two));
+        let many = left_out(12).unwrap_or_default();
+        assert!(many.starts_with("12 lines of the log are "), "{many}");
     }
 
     #[test]

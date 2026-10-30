@@ -1014,23 +1014,23 @@ fn changelog_line(record: &Value) -> String {
 }
 
 /// The time of the change `id` as `gdd report --time --change` writes it, without its first line
-/// and its indent; nothing when none was measured.
+/// and its indent, nothing when none was measured; then how many lines of the log it left out,
+/// when it left out any (see [`log::left_out`]). A log that cannot be read says why.
 fn time_lines(state: &Path, id: &str) -> Vec<Line<'static>> {
-    let log = crate::read(state, log::PATH)
-        .and_then(|text| flow::read(&text.unwrap_or_default()).map_err(|e| e.to_string()));
-    let log = match log {
-        Ok(log) => log,
+    let log = match crate::read(state, log::PATH) {
+        Ok(text) => flow::read(&text.unwrap_or_default()),
         Err(why) => return vec![Line::from(format!("the log cannot be read: {why}"))],
     };
-    let flow = Flow::new(&log, Some(id), None);
+    let left_out = log::left_out(log.left_out).map(Line::from);
+    let flow = Flow::new(&log.lines, Some(id), None);
     let measured = serde_json::to_value(&flow).ok();
     if !matches!(measured, Some(Value::Array(changes)) if !changes.is_empty()) {
-        return Vec::new();
+        return left_out.into_iter().collect();
     }
     let text = flow.to_string();
-    let rows = text.lines().skip(1);
-    rows.map(|row| Line::from(row.strip_prefix("  ").unwrap_or(row).to_string()))
-        .collect()
+    let unindented = |row: &str| Line::from(row.strip_prefix("  ").unwrap_or(row).to_string());
+    let rows = text.lines().skip(1).map(unindented);
+    rows.chain(left_out).collect()
 }
 
 /// The card of the change `id`; else why there is none.
@@ -2441,8 +2441,27 @@ mod tests {
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Flow time 1h 00m"]);
         assert_before(&sitting.render(100, 40), "Changelog: none set", "Flow time");
-        project.write(".gdd/log.jsonl", "{not json\n");
-        assert_shows(&open(&project, "c1"), &["the log cannot be read"]);
+        assert_hides(&sitting, &["left out"]);
+        // A line that is not gdd's is left out, and the sitting says so.
+        let text = format!("not gdd's\n{start}\n{end}\n");
+        project.write(".gdd/log.jsonl", &text);
+        let said = "1 line of the log is not one of gdd's: left out";
+        let sitting = open(&project, "c1");
+        assert_shows(&sitting, &["Flow time 1h 00m", said]);
+        assert_before(&sitting.render(100, 40), "Flow time", said);
+        project.write(".gdd/log.jsonl", "not gdd's\n");
+        assert_shows(&open(&project, "c1"), &[said]);
+        // A line that opens an object but is not JSON is left out too.
+        project.write(".gdd/log.jsonl", &format!("{start}\n{{not json\n{end}\n"));
+        let sitting = open(&project, "c1");
+        assert_shows(&sitting, &["Flow time 1h 00m", said]);
+        assert_hides(&sitting, &["cannot be read"]);
+        // A log that cannot be read says why.
+        fs::remove_file(project.0.join(".gdd/log.jsonl")).unwrap();
+        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
+        let why = "the log cannot be read: cannot read .gdd/log.jsonl: ";
+        assert_shows(&open(&project, "c1"), &[why]);
+        assert_hides(&open(&project, "c1"), &["Flow time", "left out"]);
     }
 
     #[test]

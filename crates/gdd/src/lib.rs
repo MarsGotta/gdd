@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use gdd_core::agents::{
-    self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet,
+    self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet, usage::Usage,
 };
 use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::{classify_with, of_kind};
@@ -738,7 +738,7 @@ impl Command {
             }
             Command::Agents { action } => return agent_commands(root, &action),
             Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
-            Command::Report(args) => report(state, &args)?,
+            Command::Report(args) => return report(state, &args),
             Command::Classify { change } => classify(root, state, &change_id(change, env)?)?,
             Command::Snapshot { change } => snapshot(root, state, &change_id(change, env)?)?,
             Command::Scope { change } => scope(root, state, &change)?,
@@ -916,48 +916,78 @@ fn project_root(cwd: &Path) -> Result<PathBuf, String> {
 }
 
 /// `gdd report`: the agent calls of the log under the state root `state`, added up by the fields
-/// `by` of `args`; with `--time`, where the time of each change goes (see [`time_report`]).
-fn report(state: &Path, args: &ReportArgs) -> Result<String, String> {
+/// `by` of `args`; with `--time`, where the time of each change goes (see [`time_report`]); with
+/// `--dora`, the signals of delivery (see [`dora_report`]). The lines of the log that are not
+/// gdd's are left out (see [`log::read`]), and the report says how many (see
+/// [`with_left_out`]).
+fn report(state: &Path, args: &ReportArgs) -> Result<Outcome, String> {
     let text = read(state, log::PATH)?.unwrap_or_default();
-    if args.time {
-        return time_report(&text, args);
-    }
-    if args.dora {
-        return dora_report(state, &text, args);
-    }
-    let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
-    let by: Vec<String> = args.by.split(',').map(str::to_string).collect();
-    let report = Report::new(&records, &by, args.change.as_deref());
-    if args.json {
-        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())
+    let (printed, left_out) = if args.time {
+        time_report(&text, args)?
+    } else if args.dora {
+        dora_report(state, &text, args)?
     } else {
-        Ok(report.to_string())
+        calls_report(&text, args)?
+    };
+    Ok(with_left_out(printed, left_out, args.json))
+}
+
+/// What a report over the log prints, `printed`, then what it says of the `count` lines of the
+/// log it left out, if any (see [`log::left_out`]): on the standard error after a report in JSON,
+/// which keeps the standard output JSON.
+fn with_left_out(printed: String, count: usize, json: bool) -> Outcome {
+    let mut outcome = Outcome::printed(printed, 0);
+    if let Some(said) = log::left_out(count) {
+        let stream = if json {
+            &mut outcome.stderr
+        } else {
+            &mut outcome.stdout
+        };
+        stream.push_str(&format!("{said}\n"));
     }
+    outcome
+}
+
+/// `gdd report` without `--time` or `--dora`: the agent calls of the log `text`, added up by the
+/// fields `by` of `args` (see [`Report`]), and how many lines of the log it left out.
+fn calls_report(text: &str, args: &ReportArgs) -> Result<(String, usize), String> {
+    let logged = log::read(text);
+    let by: Vec<String> = args.by.split(',').map(str::to_string).collect();
+    let report = Report::new(&logged.lines, &by, args.change.as_deref());
+    let printed = if args.json {
+        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+    } else {
+        report.to_string()
+    };
+    Ok((printed, logged.left_out))
 }
 
 /// `gdd report --time`: where the time of each change of the log `text` goes, for the change and
-/// since the day of `args` (see [`flow::Flow`]).
-fn time_report(text: &str, args: &ReportArgs) -> Result<String, String> {
-    let lines = flow::read(text).map_err(|e| format!("{}, {e}", log::PATH))?;
-    let flow = flow::Flow::new(&lines, args.change.as_deref(), args.since);
-    if args.json {
-        serde_json::to_string_pretty(&flow).map_err(|e| e.to_string())
+/// since the day of `args` (see [`flow::Flow`]), and how many lines of the log it left out.
+fn time_report(text: &str, args: &ReportArgs) -> Result<(String, usize), String> {
+    let logged = flow::read(text);
+    let flow = flow::Flow::new(&logged.lines, args.change.as_deref(), args.since);
+    let printed = if args.json {
+        serde_json::to_string_pretty(&flow).map_err(|e| e.to_string())?
     } else {
-        Ok(flow.to_string())
-    }
+        flow.to_string()
+    };
+    Ok((printed, logged.left_out))
 }
 
 /// `gdd report --dora`: DORA's five and GDD's signals from the log `text`, the records of its
-/// changes and their review files, since the day of `args` (see [`delivery::Delivery`]).
-fn dora_report(state: &Path, text: &str, args: &ReportArgs) -> Result<String, String> {
-    let lines = flow::read(text).map_err(|e| format!("{}, {e}", log::PATH))?;
-    let records = change_records(state, &lines)?;
-    let delivery = delivery::Delivery::new(&lines, &records, args.since);
-    if args.json {
-        serde_json::to_string_pretty(&delivery).map_err(|e| e.to_string())
+/// changes and their review files, since the day of `args` (see [`delivery::Delivery`]), and how
+/// many lines of the log it left out.
+fn dora_report(state: &Path, text: &str, args: &ReportArgs) -> Result<(String, usize), String> {
+    let logged = flow::read(text);
+    let records = change_records(state, &logged.lines)?;
+    let delivery = delivery::Delivery::new(&logged.lines, &records, args.since);
+    let printed = if args.json {
+        serde_json::to_string_pretty(&delivery).map_err(|e| e.to_string())?
     } else {
-        Ok(delivery.to_string())
-    }
+        delivery.to_string()
+    };
+    Ok((printed, logged.left_out))
 }
 
 /// The type and the verdicts of the reviews of each change the log names.
@@ -1644,7 +1674,7 @@ impl recipe::Steps for ProjectSteps<'_> {
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
-    fn agent(&mut self, call: &invoke::Call) -> Result<(), invoke::Error> {
+    fn agent(&mut self, call: &invoke::Call) -> (Usage, Result<(), invoke::Error>) {
         let project = invoke::Project {
             root: &self.root,
             state: self.state,
@@ -2701,17 +2731,29 @@ mod tests {
     }
 
     #[test]
-    fn a_broken_log_line_is_an_error_that_names_it() {
+    fn a_log_line_that_is_not_gdds_is_left_out_and_the_report_says_so() {
         let project = Project::new();
-        project.write(log::PATH, &format!("{LOG}{{\"tokens_in\": \"x\"}}\n"));
+        let junk = "{\"tokens_in\": \"x\"}\nnot a line of gdd";
+        let forged = r#"{"role": "reviewer", "tokens_in": 9, "cost_usd": -100.0}"#;
+        project.write(log::PATH, &format!("{LOG}{junk}\n{forged}\n"));
         let out = project.run("report");
-        assert_eq!(out.code, 1);
-        assert!(out.stdout.is_empty());
-        assert!(
-            out.stderr
-                .starts_with("error: .gdd/log.jsonl, line 4: invalid type"),
-            "{out:?}"
-        );
+        let clean = Project::new();
+        clean.write(log::PATH, LOG);
+        let report = clean.run("report").stdout;
+        let said = "3 lines of the log are not one of gdd's: left out\n";
+        assert_eq!(out, Outcome::success(format!("{report}{said}")));
+        // In JSON, the standard output stays JSON and the standard error says it.
+        let out = project.run("report --json");
+        assert_eq!(out.stdout, clean.run("report --json").stdout);
+        assert_eq!((out.code, out.stderr.as_str()), (0, said));
+        // A log whose lines are all gdd's says nothing of it.
+        assert!(clean.run("report").stderr.is_empty());
+        assert!(!report.contains("left out"), "{report}");
+        // A line that opens an object but is not JSON is left out too.
+        project.write(log::PATH, &format!("{LOG}{{not json\n"));
+        let one = "1 line of the log is not one of gdd's: left out\n";
+        let out = project.run("report");
+        assert_eq!(out, Outcome::success(format!("{report}{one}")));
     }
 
     /// Two changes in time: `a` still at its sitting, `b` built the next day.
@@ -2812,16 +2854,32 @@ mod tests {
     }
 
     #[test]
-    fn report_time_names_a_line_it_cannot_place_in_time() {
+    fn report_time_and_dora_leave_out_a_line_that_is_not_gdds_and_say_so() {
         let project = Project::new();
-        project.write(log::PATH, &format!("{TIMED}\n{{\"change\": \"a\"}}\n"));
+        project.write(log::PATH, TIMED);
+        let timed = project.run("report --time").stdout;
+        let dora = project.run("report --dora").stdout;
+        let json = project.run("report --time --json").stdout;
+        let junk = "{\"change\": \"a\"}\nnot gdd's";
+        project.write(log::PATH, &format!("{TIMED}\n{junk}\n"));
+        let said = "2 lines of the log are not one of gdd's: left out\n";
         let out = project.run("report --time");
-        let said = "error: .gdd/log.jsonl, line 7: ts \"-\" is not a time like ";
-        assert!(out.stderr.starts_with(said), "{out:?}");
+        assert_eq!(out, Outcome::success(format!("{timed}{said}")));
+        let out = project.run("report --dora");
+        assert_eq!(out, Outcome::success(format!("{dora}{said}")));
+        let out = project.run("report --time --json");
+        assert_eq!((out.stdout, out.stderr.as_str()), (json, said));
+        let forged = r#"{"ts": "2026-10-29T09:40:00+00:00", "change": "b", "cost_usd": -1}"#;
+        project.write(log::PATH, &format!("{TIMED}{forged}\n"));
+        let one = "1 line of the log is not one of gdd's: left out\n";
+        let out = project.run("report --time");
+        assert_eq!(out.stdout, format!("{timed}{one}"));
+        // A line that opens an object but is not JSON is left out too.
         project.write(log::PATH, &format!("{TIMED}{{x\n"));
         let out = project.run("report --time");
-        let broken = "error: .gdd/log.jsonl, line 6: ";
-        assert!(out.stderr.starts_with(broken), "{out:?}");
+        assert_eq!(out, Outcome::success(format!("{timed}{one}")));
+        let out = project.run("report --dora");
+        assert_eq!(out, Outcome::success(format!("{dora}{one}")));
     }
 
     #[test]

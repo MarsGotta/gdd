@@ -105,8 +105,9 @@ enum View {
     Time,
 }
 
-/// The lines of the log, or why they could not be read.
-type TimeLog = Result<Vec<flow::Line>, String>;
+/// The lines of the log that are gdd's and how many are not (see [`flow::read`]), or why the log
+/// could not be read.
+type TimeLog = Result<log::Read<flow::Line>, String>;
 
 /// The Board: the changes of a project, the one selected and what is on the screen.
 #[derive(Debug)]
@@ -134,7 +135,7 @@ impl Board {
         Board {
             project: project.to_string(),
             cards,
-            log: Ok(Vec::new()),
+            log: Ok(log::Read::default()),
             done_shown: false,
             selected: 0,
             view: View::List,
@@ -347,7 +348,7 @@ impl Board {
             Ok(log) => log,
             Err(why) => return vec![cannot_read(why)],
         };
-        let flow = Flow::new(log, Some(id), None);
+        let flow = Flow::new(&log.lines, Some(id), None);
         let entries = entries(&flow);
         let flow_s = entries.first().and_then(|change| change["flow_s"].as_u64());
         if flow_s.unwrap_or(0) == 0 {
@@ -359,7 +360,8 @@ impl Board {
             .collect()
     }
 
-    /// The time of the project: what the changes add up to, then each change, as the report
+    /// The time of the project: how many lines of the log it left out, when it left out any (see
+    /// [`log::left_out`]); then what the changes add up to, then each change, as the report
     /// writes them.
     fn time_lines(&self) -> Vec<Line<'static>> {
         let mut lines = vec![Line::from(TIME_TITLE).bold(), Line::default()];
@@ -370,7 +372,10 @@ impl Board {
                 return lines;
             }
         };
-        let flow = Flow::new(log, None, None);
+        if let Some(said) = log::left_out(log.left_out) {
+            lines.extend([Line::from(said), Line::default()]);
+        }
+        let flow = Flow::new(&log.lines, None, None);
         if entries(&flow).is_empty() {
             lines.push(Line::from(NO_TIME));
             return lines;
@@ -395,11 +400,11 @@ fn cannot_read(why: &str) -> Line<'static> {
     Line::from(format!("the log cannot be read: {why}"))
 }
 
-/// The log under the state root `state`: its lines, or why they could not be read. A missing log
-/// has no lines.
+/// The log under the state root `state`: its lines that are gdd's and how many are not, or why it
+/// could not be read. A missing log has no lines.
 fn read_log(state: &Path) -> TimeLog {
     let text = crate::read(state, log::PATH)?.unwrap_or_default();
-    flow::read(&text).map_err(|e| e.to_string())
+    Ok(flow::read(&text))
 }
 
 /// The changes of `flow` as its JSON gives them.
@@ -922,7 +927,7 @@ mod tests {
 
     /// A board of `cards` whose log is `lines`.
     fn timed(cards: Vec<Card>, lines: &[String]) -> Board {
-        let log = flow::read(&lines.join("\n")).unwrap();
+        let log = flow::read(&lines.join("\n"));
         board(cards).with_log(Ok(log))
     }
 
@@ -1048,32 +1053,44 @@ mod tests {
     }
 
     #[test]
+    fn a_line_of_the_log_that_is_not_gdds_is_left_out_and_the_time_says_so() {
+        let project = Project::new();
+        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        let log = [log_line("a", "08:00:00", 0), log_line("a", "08:30:00", 600)];
+        let text = format!("{{not json\n{}\n", log.join("\n"));
+        project.write(".gdd/log.jsonl", &text);
+        let mut board = Board::load(&project.0).unwrap();
+        assert_shows(&board, &["Discover (1)", "› a ·"]);
+        board.press(Key::Enter);
+        assert_shows(&board, &["a · A", "Flow time 30m"]);
+        assert_hides(&board, &["cannot be read"]);
+        press(&mut board, &[Key::Esc, Key::Char('t')]);
+        let said = "1 line of the log is not one of gdd's: left out";
+        assert_shows(&board, &[TIME_TITLE, said, "Project: 1 change(s)"]);
+        let rows = lines(&board);
+        let at = |start: &str| rows.iter().position(|row| row.starts_with(start)).unwrap();
+        assert!(at(said) < at("Project: "), "{rows:?}");
+        // A log whose lines are all gdd's says nothing of it.
+        project.write(".gdd/log.jsonl", &format!("{}\n", log.join("\n")));
+        let mut board = Board::load(&project.0).unwrap();
+        board.press(Key::Char('t'));
+        assert_hides(&board, &["left out"]);
+    }
+
+    #[test]
     fn a_log_that_cannot_be_read_shows_where_the_time_would_and_the_list_works() {
         let project = Project::new();
         project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
-        project.write(".gdd/log.jsonl", "{not json\n");
+        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
         let mut board = Board::load(&project.0).unwrap();
         assert_shows(&board, &["Discover (1)", "› a ·"]);
-        let why = "the log cannot be read: line 1: ";
+        let why = "the log cannot be read: cannot read .gdd/log.jsonl: ";
         board.press(Key::Enter);
         assert_shows(&board, &["a · A", why]);
         assert_hides(&board, &[NOT_MEASURED]);
         press(&mut board, &[Key::Esc, Key::Char('t')]);
         assert_shows(&board, &[TIME_TITLE, why]);
         assert_hides(&board, &[NO_TIME, "Project:"]);
-    }
-
-    #[test]
-    fn a_log_that_cannot_be_opened_is_not_an_empty_one() {
-        let project = Project::new();
-        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
-        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
-        let mut board = Board::load(&project.0).unwrap();
-        board.press(Key::Char('t'));
-        assert_shows(
-            &board,
-            &["the log cannot be read: cannot read .gdd/log.jsonl: "],
-        );
     }
 
     #[test]

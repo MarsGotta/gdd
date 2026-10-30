@@ -13,6 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::agents::models::{Roles, Session};
+use crate::agents::usage::Usage;
 use crate::classify::{Change, Classification, SPIKE};
 use crate::config::Color;
 use crate::git::{self, Git};
@@ -166,9 +167,12 @@ pub struct Variant {
     /// The minutes its runs took, all of them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minutes: Option<f64>,
-    /// What the agent calls of its runs cost, in USD, all of them.
+    /// What the agent calls of its runs cost, in USD, all of them (see [`with_spent`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usd: Option<f64>,
+    /// The tokens the agent calls of its runs used, all of them (see [`with_spent`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<Tokens>,
 }
 
 /// Where a variant of a spike ended.
@@ -261,6 +265,7 @@ pub fn variants(
         files: None,
         minutes: None,
         usd: None,
+        tokens: None,
     };
     Ok(numbered.map(variant).collect())
 }
@@ -279,6 +284,113 @@ pub fn variants_of(text: &str) -> Result<Vec<Variant>, serde_json::Error> {
 /// The record `text` with `variants` as its variants; every other field keeps its value.
 pub fn with_variants(text: &str, variants: &[Variant]) -> Result<String, serde_json::Error> {
     with_fields(text, vec![("variants", serde_json::to_value(variants)?)])
+}
+
+/// Tokens agent calls used, as the record of a change keeps them: `{"in": n, "cache": n, "out":
+/// n}`, what each call reported, added up. A count the record leaves out is 0.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tokens {
+    /// Input tokens not read from the cache.
+    #[serde(rename = "in")]
+    pub input: u64,
+    /// Input tokens read from the cache.
+    pub cache: u64,
+    /// Output tokens.
+    pub out: u64,
+}
+
+impl Tokens {
+    /// These tokens and `more`, added up.
+    fn plus(self, more: Tokens) -> Tokens {
+        Tokens {
+            input: self.input.saturating_add(more.input),
+            cache: self.cache.saturating_add(more.cache),
+            out: self.out.saturating_add(more.out),
+        }
+    }
+}
+
+/// What agent calls spent, in USD and in tokens, as the record of a change keeps it: in
+/// `spent_usd` and `spent_tokens` for the change, in `usd` and `tokens` for each variant of a
+/// spike. Only gdd writes it, after each call (see [`with_spent`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Spent {
+    /// In US dollars.
+    pub usd: f64,
+    /// In tokens.
+    pub tokens: Tokens,
+}
+
+impl Spent {
+    /// What a call that reported `usage` spent: its tokens, and its cost never below zero, as a
+    /// negative one, or one that is not a finite number, counts as 0.
+    pub fn of(usage: &Usage) -> Spent {
+        let reported = usage.cost_usd;
+        let usd = if reported.is_finite() {
+            reported.max(0.0)
+        } else {
+            0.0
+        };
+        Spent {
+            usd,
+            tokens: Tokens {
+                input: usage.tokens_in,
+                cache: usage.tokens_cache,
+                out: usage.tokens_out,
+            },
+        }
+    }
+
+    /// This and `more`, added up.
+    fn plus(self, more: Spent) -> Spent {
+        Spent {
+            usd: self.usd + more.usd,
+            tokens: self.tokens.plus(more.tokens),
+        }
+    }
+}
+
+/// What the agent calls of the change whose record is `text` spent (see [`Spent`]): nothing
+/// where the record says nothing, as one from before gdd kept it there.
+pub fn spent(text: &str) -> Result<Spent, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct Raw {
+        #[serde(default)]
+        spent_usd: Option<f64>,
+        #[serde(default)]
+        spent_tokens: Option<Tokens>,
+    }
+    let raw: Raw = serde_json::from_str(text)?;
+    Ok(Spent {
+        usd: raw.spent_usd.unwrap_or_default(),
+        tokens: raw.spent_tokens.unwrap_or_default(),
+    })
+}
+
+/// The record `text` with what one agent call spent, `call`, added to what its change spent and,
+/// with `variant`, to what that variant of its spike spent, from 1 (see [`Spent`]); every other
+/// field keeps its value. A variant the record does not have is an error.
+pub fn with_spent(
+    text: &str,
+    call: Spent,
+    variant: Option<usize>,
+) -> Result<String, serde_json::Error> {
+    let total = spent(text)?.plus(call);
+    let mut fields = vec![
+        ("spent_usd", Value::from(total.usd)),
+        ("spent_tokens", serde_json::to_value(total.tokens)?),
+    ];
+    if let Some(number) = variant {
+        let mut variants = variants_of(text)?;
+        let at = number.checked_sub(1).and_then(|at| variants.get_mut(at));
+        let missing = || serde_json::Error::custom(format!("no variant {number}"));
+        let built = at.ok_or_else(missing)?;
+        built.usd = Some(built.usd.unwrap_or_default() + call.usd);
+        built.tokens = Some(built.tokens.unwrap_or_default().plus(call.tokens));
+        fields.push(("variants", serde_json::to_value(&variants)?));
+    }
+    with_fields(text, fields)
 }
 
 /// The name of variant `number` of spike `id`, from 1: `<id>-v<number>`, which its branch
@@ -1019,6 +1131,102 @@ mod tests {
         assert_eq!(same, serde_json::from_str::<Value>(text).unwrap());
         assert!(with_fields("[]", vec![]).is_err());
         assert!(with_fields("{not json", vec![]).is_err());
+    }
+
+    fn usage(tokens: [u64; 3], cost_usd: f64) -> Usage {
+        let [tokens_in, tokens_cache, tokens_out] = tokens;
+        Usage {
+            tokens_in,
+            tokens_cache,
+            tokens_out,
+            cost_usd,
+        }
+    }
+
+    fn tokens(input: u64, cache: u64, out: u64) -> Tokens {
+        Tokens { input, cache, out }
+    }
+
+    #[test]
+    fn a_call_spends_its_tokens_and_its_cost_never_below_zero() {
+        let normal = Spent::of(&usage([100, 50, 20], 0.25));
+        assert_eq!(normal.usd, 0.25);
+        assert_eq!(normal.tokens, tokens(100, 50, 20));
+        assert_eq!(Spent::of(&Usage::default()), Spent::default());
+        for cost in [-100.0, -0.01, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let spent = Spent::of(&usage([1, 2, 3], cost));
+            assert_eq!(spent.usd, 0.0, "{cost}");
+            assert_eq!(spent.tokens, tokens(1, 2, 3), "{cost}");
+        }
+    }
+
+    #[test]
+    fn a_record_from_before_gdd_kept_what_it_spent_has_spent_nothing() {
+        for text in ["{}", r#"{"spent_usd": null, "spent_tokens": null}"#] {
+            assert_eq!(spent(text).unwrap(), Spent::default(), "{text}");
+        }
+        let text = r#"{"spent_usd": 1.5, "spent_tokens": {"in": 7, "out": 2}}"#;
+        let some = spent(text).unwrap();
+        assert_eq!(some.usd, 1.5);
+        assert_eq!(some.tokens, tokens(7, 0, 2));
+        for wrong in [
+            r#"{"spent_usd": "1"}"#,
+            r#"{"spent_tokens": {"in": -1}}"#,
+            "3",
+        ] {
+            assert!(spent(wrong).is_err(), "{wrong}");
+        }
+    }
+
+    #[test]
+    fn each_call_adds_what_it_spent_to_the_record_and_keeps_the_rest() {
+        let first = Spent::of(&usage([100, 50, 20], 0.5));
+        let record = r#"{"id": "c1", "x": [1]}"#;
+        let text = with_spent(record, first, None).unwrap();
+        assert!(text.ends_with("}\n"), "{text}");
+        let second = Spent::of(&usage([1, 2, 3], 0.25));
+        let text = with_spent(&text, second, None).unwrap();
+        let none = Spent::of(&usage([0, 0, 0], -9.0));
+        let text = with_spent(&text, none, None).unwrap();
+        let record: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(record["spent_usd"], 0.75);
+        let added = serde_json::json!({"in": 101, "cache": 52, "out": 23});
+        assert_eq!(record["spent_tokens"], added);
+        assert_eq!(record["id"], "c1");
+        assert_eq!(record["x"], serde_json::json!([1]));
+        assert!(record.get("variants").is_none(), "{record}");
+        // Counts that cannot grow any more stay at their most.
+        let full = r#"{"spent_tokens": {"in": 18446744073709551615}}"#;
+        let text = with_spent(full, second, None).unwrap();
+        assert_eq!(spent(&text).unwrap().tokens.input, u64::MAX);
+        assert!(with_spent(r#"{"spent_usd": "x"}"#, first, None).is_err());
+    }
+
+    #[test]
+    fn a_call_of_a_variant_adds_what_it_spent_to_the_variant_too() {
+        let options = words(&["SQLite", "Postgres"]);
+        let made = variants("c1", SPIKE, &options, None).unwrap();
+        let record = with_variants(r#"{"id": "c1"}"#, &made).unwrap();
+        let call = Spent::of(&usage([10, 5, 1], 0.02));
+        let once = with_spent(&record, call, Some(2)).unwrap();
+        let twice = with_spent(&once, call, Some(2)).unwrap();
+        let kept = variants_of(&twice).unwrap();
+        assert_eq!((kept[0].usd, kept[0].tokens), (None, None));
+        assert_eq!(kept[1].usd, Some(0.04));
+        assert_eq!(kept[1].tokens, Some(tokens(20, 10, 2)));
+        assert_eq!(kept[1].option.as_deref(), Some("Postgres"));
+        assert_eq!(spent(&twice).unwrap().usd, 0.04);
+        let value: Value = serde_json::from_str(&twice).unwrap();
+        let shown = serde_json::json!({"in": 20, "cache": 10, "out": 2});
+        assert_eq!(value["variants"][1]["tokens"], shown);
+        for number in [0, 3] {
+            let err = with_spent(&record, call, Some(number)).unwrap_err();
+            assert_eq!(err.to_string(), format!("no variant {number}"));
+        }
+        // Without one, no variant spends.
+        let alone = with_spent(&record, call, None).unwrap();
+        let untouched = variants_of(&alone).unwrap();
+        assert!(untouched.iter().all(|v| v.usd.is_none()));
     }
 
     #[test]

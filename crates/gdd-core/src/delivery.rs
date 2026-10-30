@@ -598,8 +598,13 @@ mod tests {
     }
 
     fn delivery_of(rows: &[String], records: &Records, since: Option<&str>) -> Delivery {
-        let lines = flow::read(&rows.join("\n")).unwrap();
-        Delivery::new(&lines, records, since.map(|text| flow::day(text).unwrap()))
+        let log = flow::read(&rows.join("\n"));
+        assert_eq!(log.left_out, 0, "{rows:?}");
+        Delivery::new(
+            &log.lines,
+            records,
+            since.map(|text| flow::day(text).unwrap()),
+        )
     }
 
     fn delivery(rows: &[String]) -> Delivery {

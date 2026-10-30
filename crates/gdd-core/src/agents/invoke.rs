@@ -35,7 +35,7 @@ use crate::agents::env::Env;
 use crate::agents::files;
 use crate::agents::models::{self, Model, Roles, Session};
 use crate::agents::sheets::{self, Place, Sheet};
-use crate::agents::usage::{self, Price, Said};
+use crate::agents::usage::{self, Price, Said, Usage};
 use crate::gates::verdict;
 use crate::{config, exec, log};
 
@@ -354,8 +354,45 @@ struct Ran {
 /// session continues the one of the run, `ongoing`, once the run has one: the resume arguments of
 /// its sheet go at the end of its own; once what it said is kept, the session it reported is the
 /// run's (see [`Ongoing::follow`]). What it said is kept and logged even when it fails or runs out
-/// of time.
-pub fn run(project: &Project, call: &Call, ongoing: &mut Ongoing) -> Result<(), Error> {
+/// of time. What the agent reported it used, never the estimate the log prices when it reports no
+/// cost, and how the call ended: what it reported counts even when what it said cannot be kept,
+/// and a call that stopped before the agent ran used nothing.
+pub fn run(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<(), Error>) {
+    let (reported, ended) = called(project, call, ongoing);
+    let ended = ended.and_then(|ended| match ended {
+        Ended::Code(0) => Ok(()),
+        Ended::Code(code) => Err(Error::Failed(call.who, code)),
+        Ended::Timeout => Err(Error::Timeout(call.who, project.timeout.as_secs())),
+    });
+    (reported, ended)
+}
+
+/// The call of [`run`]: what the agent reported it used, once it ran, and how it ended, or why
+/// what it said could not be kept. The run follows the session the agent reported only once what
+/// it said is kept.
+fn called(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<Ended, Error>) {
+    let (start, ran) = match started(project, call, ongoing) {
+        Ok(started) => started,
+        Err(e) => return (Usage::default(), Err(e)),
+    };
+    let said = usage::read(start.sheet.usage(), &String::from_utf8_lossy(&ran.out));
+    let reported = said.usage;
+    let session = said.session.clone();
+    let kept = keep(project, call.who, &start, &ran, said);
+    if kept.is_ok() && start.shares {
+        ongoing.follow(session.as_deref());
+    }
+    (reported, kept.map(|()| ran.ended))
+}
+
+/// Starts the agent of `call` on the change of `project`, continuing the run's Builder session
+/// when it shares it, its answer file gone first, and waits for it (see [`spawned`]): how it was
+/// started, and what it did.
+fn started<'a>(
+    project: &Project,
+    call: &Call<'a>,
+    ongoing: &Ongoing,
+) -> Result<(Start<'a>, Ran), Error> {
     let mut start = start(call, project.id, project.state)?;
     if let Some(session) = ongoing.0.as_deref().filter(|_| start.shares) {
         let resume = start.sheet.resume(session);
@@ -366,17 +403,7 @@ pub fn run(project: &Project, call: &Call, ongoing: &mut Ongoing) -> Result<(), 
         remove(project.state, &answer)?;
     }
     let ran = spawned(project, call.who, &program, &start.args)?;
-    let said = usage::read(start.sheet.usage(), &String::from_utf8_lossy(&ran.out));
-    let reported = said.session.clone();
-    keep(project, call.who, &start, &ran, said)?;
-    if start.shares {
-        ongoing.follow(reported.as_deref());
-    }
-    match ran.ended {
-        Ended::Code(0) => Ok(()),
-        Ended::Code(code) => Err(Error::Failed(call.who, code)),
-        Ended::Timeout => Err(Error::Timeout(call.who, project.timeout.as_secs())),
-    }
+    Ok((start, ran))
 }
 
 /// Starts `program` with `args` for `who` on the change of `project` and waits for it to end and
@@ -872,11 +899,16 @@ mod tests {
             *self.run.borrow_mut() = Ongoing::default();
         }
 
-        /// Calls `who`, model `claude` `opus`, on change `c1`, with `timeout`. A process another
-        /// test is starting can still hold the program just written open for writing, and until
-        /// it lets it go the program cannot start ("text file busy"): then the call is tried
-        /// again, a few times.
+        /// Calls `who` as [`Faked::used`] does: how it ended.
         fn call(&self, who: Who, timeout: Duration) -> Result<(), Error> {
+            self.used(who, timeout).1
+        }
+
+        /// Calls `who`, model `claude` `opus`, on change `c1`, with `timeout`: what it used, and
+        /// how it ended. A process another test is starting can still hold the program just
+        /// written open for writing, and until it lets it go the program cannot start ("text
+        /// file busy"): then the call is tried again, a few times.
+        fn used(&self, who: Who, timeout: Duration) -> (Usage, Result<(), Error>) {
             let table = model("claude", "opus");
             let call = Call {
                 who,
@@ -895,13 +927,13 @@ mod tests {
             let (mut tries, mut ongoing) = (1, self.run.borrow_mut());
             loop {
                 match run(&project, &call, &mut ongoing) {
-                    Err(Error::Start(_, e))
+                    (_, Err(Error::Start(_, e)))
                         if e.kind() == ErrorKind::ExecutableFileBusy && tries < 20 =>
                     {
                         tries += 1;
                         thread::sleep(POLL);
                     }
-                    result => return result,
+                    ran => return ran,
                 }
             }
         }
@@ -1133,6 +1165,42 @@ mod tests {
         assert_eq!(err.to_string(), said);
         assert!(!err.parks());
         assert!(!faked.has(log::PATH));
+    }
+
+    #[test]
+    fn a_call_says_what_the_agent_reported_it_used_even_when_it_fails_or_is_not_kept() {
+        let faked = Faked::new(&format!("{SAYS}; exit 3"));
+        faked.write("said", RESULT);
+        let (used, ended) = faked.used(Who::BuilderBuild, LONG);
+        let failed = matches!(ended, Err(Error::Failed(Who::BuilderBuild, 3)));
+        assert!(failed, "{ended:?}");
+        let reported = Usage {
+            tokens_in: 100,
+            tokens_cache: 50,
+            tokens_out: 20,
+            cost_usd: 0.5,
+        };
+        assert_eq!(used, reported);
+        // What it said cannot be kept: what it reported still counts.
+        fs::remove_file(faked.folder.0.join(log::PATH)).unwrap();
+        fs::create_dir_all(faked.folder.0.join(log::PATH)).unwrap();
+        let (used, ended) = faked.used(Who::BuilderBuild, LONG);
+        assert!(matches!(ended, Err(Error::Read(..))), "{ended:?}");
+        assert_eq!(used, reported);
+        // The log prices a call that reports no cost; what the agent reported stays without one.
+        let mut faked = Faked::new(SAYS);
+        faked.write("said", r#"{"usage":{"output_tokens":1000000}}"#);
+        let prices = "[prices.opus]\noutput = 15\n";
+        faked.settings = Settings::from_toml(prices).unwrap();
+        let (used, ended) = faked.used(Who::Reviewer, LONG);
+        assert!(ended.is_ok(), "{ended:?}");
+        assert_eq!((used.tokens_out, used.cost_usd), (1_000_000, 0.0));
+        assert_eq!(faked.logged().cost_usd, 15.0);
+        // A call whose agent never ran used nothing.
+        faked.env = vec![("PATH".into(), "/nonexistent".into())];
+        let (used, ended) = faked.used(Who::BuilderBuild, LONG);
+        assert!(matches!(ended, Err(Error::Missing(..))), "{ended:?}");
+        assert_eq!(used, Usage::default());
     }
 
     #[test]

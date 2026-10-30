@@ -57,7 +57,8 @@ use serde_json::{Map, Value};
 use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::{Model, Session};
-use crate::change::{self, Built, Note, Variant};
+use crate::agents::usage::Usage;
+use crate::change::{self, Built, Note, Spent, Variant};
 use crate::classify::SPIKE;
 use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
@@ -201,8 +202,8 @@ pub enum Snapshot {
 pub trait Steps {
     /// Checks that the change may enter Build and starts it (`gdd prepare`): what it decided.
     fn prepare(&mut self) -> Result<Decided, String>;
-    /// Calls an agent and waits for it (see [`invoke::run`]).
-    fn agent(&mut self, call: &Call) -> Result<(), invoke::Error>;
+    /// Calls an agent and waits for it (see [`invoke::run`]): what it used, and how it ended.
+    fn agent(&mut self, call: &Call) -> (Usage, Result<(), invoke::Error>);
     /// Path Guard for test mode on what the change touched since its build started or, with
     /// `since_snapshot`, since the round snapshot: its failures.
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String>;
@@ -1070,14 +1071,12 @@ struct Run<'a, S> {
     variant: Option<Building>,
 }
 
-/// A variant of a spike while a run builds it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A variant of a spike while a run builds it: the calls of the run spend on it too (see
+/// [`Run::spent_on`]), and its budget counts what they spent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Building {
     /// Its number, from 1.
     number: usize,
-    /// What the agent calls of the change had cost when the run started, less what the earlier
-    /// runs of the variant cost: its budget counts from there.
-    spent_before: f64,
     /// Whether its last G2 in the run passed: `None` before its first.
     g2: Option<bool>,
 }
@@ -1169,11 +1168,12 @@ impl<S: Steps> Run<'_, S> {
     /// of its run, where its agents work and the steps run meanwhile (see [`Steps::work_in`]).
     /// Its build starts where its branch left the main branch, so Path Guard
     /// judges all of its work, its earlier runs' included; then the recipe of a spike, as a spike
-    /// without variants has it, in `mode=spike variant=<number>`, its budget counted on its own
-    /// calls (see [`Building`]); `polishing`, the round of a polish pass instead (see
-    /// [`Run::polish_round`]), whose build started where the pass did. Then its work committed on
-    /// its branch and what it did kept in the record (see [`Run::variant_kept`]). One that parks
-    /// is kept as parked and lets the others run; a step that fails stops the recipe.
+    /// without variants has it, in `mode=spike variant=<number>`, its budget counted on the calls
+    /// of the variant, its earlier runs' included (see [`Building`]); `polishing`, the round of a
+    /// polish pass instead (see [`Run::polish_round`]), whose build started where the pass did.
+    /// Then its work committed on its branch and what it did kept in the record (see
+    /// [`Run::variant_kept`]). One that parks is kept as parked and lets the others run; a step
+    /// that fails stops the recipe.
     fn variant(&mut self, number: usize, polishing: bool) -> Result<(), Stop> {
         let project = *self.project;
         let (state, main, id) = (project.state, project.main, self.id);
@@ -1186,11 +1186,7 @@ impl<S: Steps> Run<'_, S> {
             let start = Git::new(&work).merge_base(main, &earlier.branch);
             started_at(state, id, &start.map_err(said)?)?;
         }
-        let building = Building {
-            number,
-            spent_before: spent(state, id)? - earlier.usd.unwrap_or_default(),
-            g2: None,
-        };
+        let building = Building { number, g2: None };
         let at = Project {
             work: &work,
             ..project
@@ -1221,29 +1217,30 @@ impl<S: Steps> Run<'_, S> {
             parked,
             g2: g2.or(earlier.g2),
             minutes: earlier.minutes.unwrap_or_default() + in_minutes(started.elapsed()),
-            usd: spent(state, id)? - building.spent_before,
         };
-        self.variant_kept(number, &work, earlier, done)
+        // As the calls of its run left it, with what they spent.
+        let kept = variant_of(state, id, number)?;
+        self.variant_kept(number, &work, kept, done)
     }
 
-    /// Commits the work variant `number`, `earlier` in the record before its run, left in its
-    /// worktree, at `work`, on its branch, as `gdd(<id>): variant <number>`, whether it passed
-    /// its gate or parked: its branch keeps it, and its worktree may go once the human answers.
-    /// Then keeps in the record what it did, as `done` says, with the ADR files of its branch
-    /// (see [`merge::adr_files`]), the first line of their decision (see [`first_decision`]) and
-    /// how many files its branch changed against the main branch.
+    /// Commits the work variant `number`, `kept` in the record, left in its worktree, at `work`,
+    /// on its branch, as `gdd(<id>): variant <number>`, whether it passed its gate or parked: its
+    /// branch keeps it, and its worktree may go once the human answers. Then keeps in the record
+    /// what it did, as `done` says, with the ADR files of its branch (see [`merge::adr_files`]),
+    /// the first line of their decision (see [`first_decision`]) and how many files its branch
+    /// changed against the main branch; what its calls spent stays as they left it.
     fn variant_kept(
         &self,
         number: usize,
         work: &Path,
-        earlier: Variant,
+        kept: Variant,
         done: Done,
     ) -> Result<(), Stop> {
         let (state, main, id) = (self.project.state, self.project.main, self.id);
         let said = |e: git::Error| Stop::Fail(e.to_string());
         work_committed(work, &format!("gdd({id}): variant {number}")).map_err(said)?;
         let git = Git::new(work);
-        let branch = earlier.branch.clone();
+        let branch = kept.branch.clone();
         let adrs = merge::adr_files(work, main, &branch).map_err(said)?;
         let decision = first_decision(&git, &branch, &adrs).map_err(said)?;
         let files = git.changed_from(main, &branch).map_err(said)?.len();
@@ -1260,8 +1257,7 @@ impl<S: Steps> Run<'_, S> {
             decision,
             files: Some(files),
             minutes: Some(done.minutes),
-            usd: Some(done.usd),
-            ..earlier
+            ..kept
         };
         Ok(variant_saved(state, id, number, variant)?)
     }
@@ -1296,8 +1292,11 @@ impl<S: Steps> Run<'_, S> {
     /// either parks the change, as a Reviewer that changed the working tree does. From the state
     /// as it was until it is checked, the call holds the lock of the agent calls (see
     /// [`queue::calling`]): what a person writes to the state every change shares lands before
-    /// or after it, never during it. After a call of a spike that ended, its budget (see
-    /// [`Run::within_budget`]): a call is never cut.
+    /// or after it, never during it. Once its state is put back, what the call used is added to
+    /// what the change spent, in its record, by gdd alone (see [`Run::spent_on`]), whatever the
+    /// call did, even when the state folder it left cannot go; GDD state that cannot be put back
+    /// stops the recipe before gdd writes there. After a call of a spike that ended, its budget
+    /// (see [`Run::within_budget`]): a call is never cut.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
         let Project { state, work, .. } = *self.project;
         let call = Call {
@@ -1312,10 +1311,12 @@ impl<S: Steps> Run<'_, S> {
             Who::Reviewer => Some(working_tree(work)?),
             Who::BuilderTest | Who::BuilderBuild | Who::Orchestrator => None,
         };
-        let called = self.steps.agent(&call);
+        let (used, called) = self.steps.agent(&call);
         let mut changed = before.put_back(state)?;
-        changed.extend(state_left(work, state)?);
+        let left = state_left(work, state);
         drop(calling);
+        self.spent_on(&used)?;
+        changed.extend(left?);
         if !changed.is_empty() {
             let files = changed.join(", ");
             return Err(Stop::Park(format!("the {who} changed GDD state: {files}")));
@@ -1335,13 +1336,25 @@ impl<S: Steps> Run<'_, S> {
         Ok(())
     }
 
+    /// Adds what a call used, `used`, to what the change spent, in its record under the state
+    /// root, and, in the run of a variant, to what the variant spent (see [`change::with_spent`]).
+    fn spent_on(&self, used: &Usage) -> Result<(), String> {
+        let (state, id) = (self.project.state, self.id);
+        let text = change::read_record(state, id)?;
+        let path = change::record_path(id);
+        let number = self.variant.map(|building| building.number);
+        let added = change::with_spent(&text, Spent::of(used), number);
+        let added = added.map_err(|e| format!("{path}: {e}"))?;
+        change::write(state, &path, &added)
+    }
+
     /// What the agent calls of the change spent so far (see [`spent`]), against the budget of a
     /// spike: once it reaches it, the change parks, saying both to the cent. The run of a variant
-    /// counts only what its own calls spent (see [`Building`]), and it is the variant that parks.
+    /// counts only what the calls of the variant spent, and it is the variant that parks.
     fn within_budget(&self) -> Result<(), Stop> {
         let max = self.project.spike_usd;
-        let before = self.variant.map_or(0.0, |building| building.spent_before);
-        let spent = spent(self.project.state, self.id)? - before;
+        let number = self.variant.map(|building| building.number);
+        let spent = spent(self.project.state, self.id, number)?;
         if spent + SPENT_ERROR < max {
             return Ok(());
         }
@@ -1515,8 +1528,6 @@ struct Done {
     g2: Option<bool>,
     /// The minutes of its runs, this one included.
     minutes: f64,
-    /// What the agent calls of its runs cost, in USD, this one included.
-    usd: f64,
 }
 
 /// `duration` in minutes.
@@ -1631,13 +1642,17 @@ fn review_output(state: &Path, id: &str) -> Result<String, String> {
     Ok(format!("outputs/{role}-{}.md", earlier + 1))
 }
 
-/// What the agent calls of change `id` cost so far, in USD: the `cost_usd` of its lines in the
-/// log under the state root `state` (see [`log_lines`]), 0 where a line has none.
-fn spent(state: &Path, id: &str) -> Result<f64, String> {
-    let lines = log_lines(state)?;
-    let theirs = lines.iter().filter(|line| line["change"] == id);
-    let costs = theirs.map(|line| line["cost_usd"].as_f64().unwrap_or(0.0));
-    Ok(costs.sum())
+/// What the agent calls of change `id` cost so far, in USD, or, with `variant`, those of that
+/// variant of its spike, from 1: what its record under the state root `state` keeps (see
+/// [`change::spent`]), never the log, where agents can add lines.
+fn spent(state: &Path, id: &str, variant: Option<usize>) -> Result<f64, String> {
+    if let Some(number) = variant {
+        return Ok(variant_of(state, id, number)?.usd.unwrap_or_default());
+    }
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let spent = change::spent(&text).map_err(|e| format!("{path}: {e}"))?;
+    Ok(spent.usd)
 }
 
 /// The lines of the log under the state root `state`, in order: no log, none. Lines that are not
@@ -1990,12 +2005,14 @@ mod tests {
     /// an earlier run passes the gates. Each call of an agent does what `acts` gives it to do,
     /// where the steps run (the project root until they move, see [`Steps::work_in`]), and a
     /// release step what `released` gives it, on the project root. Each call of a role in
-    /// `costly` costs what [`costs`] logs. A release step, or a decision on a gate, named in
-    /// `fails` fails with what it gives.
+    /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
+    /// ([`CENT`]); the others, nothing. A release step, or a
+    /// decision on a gate, named in `fails` fails with what it gives.
     struct Played<'a> {
         root: &'a Path,
         work: PathBuf,
         costly: Vec<Who>,
+        used: Usage,
         ran: Vec<String>,
         sessions: Vec<Session>,
         decided: Decided,
@@ -2015,11 +2032,20 @@ mod tests {
     /// What an agent does on the project root when it is called.
     type Act = fn(&Path);
 
+    /// What a costly call of [`Played`] reports it used: a cent, and a few tokens.
+    const CENT: Usage = Usage {
+        tokens_in: 10,
+        tokens_cache: 5,
+        tokens_out: 1,
+        cost_usd: 0.01,
+    };
+
     fn played(root: &Path) -> Played<'_> {
         Played {
             root,
             work: root.to_path_buf(),
             costly: Vec::new(),
+            used: CENT,
             ran: Vec::new(),
             sessions: Vec::new(),
             decided: decided(),
@@ -2083,7 +2109,7 @@ mod tests {
             Ok(self.decided.clone())
         }
 
-        fn agent(&mut self, call: &Call) -> Result<(), invoke::Error> {
+        fn agent(&mut self, call: &Call) -> (Usage, Result<(), invoke::Error>) {
             let name = call.model.get("model").and_then(Value::as_str);
             let name = name.unwrap_or_default();
             let step = format!("{} {name} {}", short(call.who), call.args);
@@ -2091,11 +2117,13 @@ mod tests {
             self.sessions.push(call.builder_session);
             let acts = self.acts.iter().filter(|(who, _)| *who == call.who);
             acts.for_each(|(_, act)| act(&self.work));
-            if self.costly.contains(&call.who) {
-                costs(self.root);
-            }
+            let used = if self.costly.contains(&call.who) {
+                self.used
+            } else {
+                Usage::default()
+            };
             if self.stuck == Some(call.who) {
-                return Err(invoke::Error::Timeout(call.who, 2));
+                return (used, Err(invoke::Error::Timeout(call.who, 2)));
             }
             match call.who {
                 Who::Reviewer => {
@@ -2105,7 +2133,7 @@ mod tests {
                 Who::Orchestrator => self.answer(&verdict::replan_path("c1"), self.replan),
                 Who::BuilderTest | Who::BuilderBuild => {}
             }
-            Ok(())
+            (used, Ok(()))
         }
 
         fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
@@ -2655,6 +2683,12 @@ mod tests {
         fs::read_to_string(folder.0.join(path)).unwrap_or_default()
     }
 
+    /// The record `text` as gdd leaves it after agent calls that used nothing, once their checks
+    /// put back what the agents changed (see [`Run::spent_on`]).
+    fn spent_nothing(text: &str) -> String {
+        change::with_spent(text, Spent::default(), None).unwrap()
+    }
+
     #[test]
     fn an_agent_that_changes_gdd_state_parks_the_change_and_the_state_goes_back() {
         let record = change::record_path("c1");
@@ -2666,7 +2700,7 @@ mod tests {
         });
         let why = format!("the Builder in build mode changed GDD state: {record}");
         assert_eq!(ended, park(&why));
-        assert_eq!(text(&folder, &record), RECORD);
+        assert_eq!(text(&folder, &record), spent_nothing(RECORD));
         // The approvals at all, and the log other than at its end, are the same.
         let folder = with_state();
         folder.write(approve::ZONES_PATH, "ok");
@@ -2696,13 +2730,13 @@ mod tests {
             hashes: guard::Hashes::new(),
         };
         let reviewed = change::with_reviews(RECORD, &[review]).unwrap();
-        assert_eq!(text(&folder, &record), reviewed);
+        assert_eq!(text(&folder, &record), spent_nothing(&reviewed));
         let folder = with_state();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
             fs::remove_dir_all(root.join(".gdd/changes")).unwrap();
         });
         assert!(matches!(ended, Err(Stop::Park(_))), "{ended:?}");
-        assert_eq!(text(&folder, &record), RECORD);
+        assert_eq!(text(&folder, &record), spent_nothing(RECORD));
         // A file where the folders of the changes were goes before the record comes back.
         let folder = with_state();
         let ended = acting(&folder, Who::BuilderBuild, |root| {
@@ -2712,7 +2746,7 @@ mod tests {
         let changed = format!(".gdd/changes, {record}");
         let why = format!("the Builder in build mode changed GDD state: {changed}");
         assert_eq!(ended, park(&why));
-        assert_eq!(text(&folder, &record), RECORD);
+        assert_eq!(text(&folder, &record), spent_nothing(RECORD));
     }
 
     #[test]
@@ -2845,20 +2879,21 @@ mod tests {
         steps.replan = "NEXT: test";
         assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
         assert_eq!(text(&folder, &verdict::replan_path("c1")), "NEXT: test\n");
-        // Without a record or a log before the call, nothing counts but what the call wrote. A
-        // review would write the record.
+        // Without a log before the call, nothing counts but what the call wrote.
         let folder = repo_folder();
-        fs::remove_file(folder.0.join(change::record_path("c1"))).unwrap();
         let mut steps = played(&folder.0);
         steps.decided.reviewer = false;
         let logs: Act = |root| log::append(root, "{}").unwrap();
         steps.acts = vec![(Who::BuilderBuild, logs)];
         assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
-        let ended = acting(&folder, Who::BuilderBuild, |root| {
+        // A record the call wrote where there was none goes, and without a record to keep what
+        // the call spent, the recipe stops.
+        fs::remove_file(folder.0.join(change::record_path("c1"))).unwrap();
+        let ended = acting(&folder, Who::BuilderTest, |root| {
             change::write(root, &change::record_path("c1"), "{}").unwrap();
         });
-        let why = "the Builder in build mode changed GDD state: .gdd/changes/c1/change.json";
-        assert_eq!(ended, park(why));
+        let missing = "change c1 does not exist: there is no .gdd/changes/c1/change.json";
+        assert_eq!(ended, Err(Stop::Fail(missing.to_string())));
         assert!(!folder.0.join(change::record_path("c1")).exists());
     }
 
@@ -2932,7 +2967,7 @@ mod tests {
         let changed = [record.as_str(), log::PATH, approve::ZONES_PATH].join(", ");
         let why = format!("the Builder in build mode changed GDD state: {changed}");
         assert_eq!(ended, park(&why));
-        assert_eq!(own(&folder, &record), RECORD);
+        assert_eq!(own(&folder, &record), spent_nothing(RECORD));
         assert_eq!(own(&folder, approve::ZONES_PATH), "ok");
         assert_eq!(own(&folder, log::PATH), LOG_LINE);
         assert_eq!(text(&folder, "zones.json"), "ko");
@@ -2947,8 +2982,9 @@ mod tests {
         let changed = format!(".gdd/changes/c1, {record}");
         let why = format!("the Builder in build mode changed GDD state: {changed}");
         assert_eq!(ended, park(&why));
-        assert_eq!(own(&folder, &record), RECORD);
-        assert_eq!(text(&folder, "elsewhere/c1/change.json"), RECORD);
+        let before = spent_nothing(RECORD);
+        assert_eq!(own(&folder, &record), before);
+        assert_eq!(text(&folder, "elsewhere/c1/change.json"), before);
     }
 
     #[test]
@@ -2972,7 +3008,8 @@ mod tests {
             assert!(fs::symlink_metadata(c1.join(path)).is_err(), "{path}");
         }
         assert_eq!(text(&folder, "target.json"), "outside");
-        assert_eq!(text(&folder, &change::record_path("c1")), RECORD);
+        let record = text(&folder, &change::record_path("c1"));
+        assert_eq!(record, spent_nothing(RECORD));
     }
 
     /// `paths`, and the files gdd keeps for every change.
@@ -4473,9 +4510,11 @@ mod tests {
         change::write(root, "docs/adr/0002-storage.md", adr).unwrap();
     }
 
-    /// What an agent call costs, in the log of change `c1`.
-    fn costs(root: &Path) {
-        log::append(root, r#"{"change": "c1", "cost_usd": 0.01}"#).unwrap();
+    /// What an agent that forges a line of the log of change `c1` adds, which the guard lets in:
+    /// a call that cost less than nothing.
+    fn forges(root: &Path) {
+        let line = r#"{"change": "c1", "role": "builder-build", "cost_usd": -100.0}"#;
+        log::append(root, line).unwrap();
     }
 
     const ADR_SAID: &str = "say ADR: docs/adr/0002-storage.md";
@@ -4556,17 +4595,16 @@ mod tests {
     fn a_spike_parks_once_its_agent_calls_reach_its_budget() {
         let repo = spike_folder();
         let root = repo.root();
-        // Other changes, and lines that are not JSON, do not count; a line without a cost is free.
+        // The log does not count, whatever its lines say of the change.
         for line in [
-            r#"{"change": "c2", "cost_usd": 3}"#,
-            r#"{"change": "c1"}"#,
-            "x",
+            r#"{"change": "c1", "cost_usd": 3}"#,
+            r#"{"change": "c1", "cost_usd": -3}"#,
         ] {
             log::append(root, line).unwrap();
         }
         let mut steps = spike_played(root);
         steps.g2 = VecDeque::from([false; 9]);
-        steps.acts = vec![(Who::BuilderBuild, costs)];
+        steps.costly = vec![Who::BuilderBuild];
         let why = "the spike spent 0.02 USD of its budget of 0.02 USD";
         assert_eq!(launched_within(&mut steps, 1, 0.02), park(why));
         let calls = ["build b mode=spike", "G2", "build b mode=spike"];
@@ -4575,7 +4613,7 @@ mod tests {
         let mut steps = spike_played(root);
         steps.decided.retries = 1;
         steps.g2 = VecDeque::from([false; 9]);
-        steps.acts = vec![(Who::BuilderBuild, costs), (Who::Orchestrator, costs)];
+        steps.costly = vec![Who::BuilderBuild, Who::Orchestrator];
         let why = "the spike spent 0.04 USD of its budget of 0.04 USD";
         assert_eq!(launched_within(&mut steps, 1, 0.04), park(why));
         let calls = ["build b mode=spike", "G2", "replan o reason=g2"];
@@ -4584,9 +4622,170 @@ mod tests {
         let folder = repo_folder();
         let mut steps = played(&folder.0);
         steps.decided.reviewer = false;
-        steps.acts = vec![(Who::BuilderTest, costs), (Who::BuilderBuild, costs)];
+        steps.costly = vec![Who::BuilderTest, Who::BuilderBuild];
         assert_eq!(launched_within(&mut steps, 1, 0.01), Ok(Ended::Closed));
-        assert_eq!(spent(&folder.0, "c1"), Ok(0.02));
+        assert_eq!(spent(&folder.0, "c1", None), Ok(0.02));
+    }
+
+    #[test]
+    fn a_line_an_agent_adds_to_the_log_does_not_lift_the_budget_of_a_spike() {
+        let repo = spike_folder();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        steps.costly = vec![Who::BuilderBuild];
+        steps.acts = vec![(Who::BuilderBuild, forges)];
+        let why = "the spike spent 0.02 USD of its budget of 0.02 USD";
+        assert_eq!(launched_within(&mut steps, 1, 0.02), park(why));
+        assert_eq!(
+            steps.ran,
+            ["build b mode=spike", "G2", "build b mode=spike"]
+        );
+        let text = fs::read_to_string(root.join(log::PATH)).unwrap();
+        assert_eq!(text.matches("-100.0").count(), 2, "{text}");
+    }
+
+    /// Calls the Builder in build mode once on change `c1`, whose state root is `root`, with
+    /// `steps`, where they work, in the run of `variant` when given (see [`Run::call`]).
+    fn call_once(root: &Path, steps: &mut Played, variant: Option<usize>) -> Result<(), Stop> {
+        let work = steps.work.clone();
+        let project = Project {
+            root,
+            state: root,
+            worktree: root,
+            work: &work,
+            main: "main",
+            replans: 0,
+            max: 1,
+            spike_usd: 5.0,
+        };
+        let decided = steps.decided.clone();
+        let mut run = Run {
+            project: &project,
+            id: "c1",
+            steps,
+            decided,
+            variant: variant.map(|number| Building { number, g2: None }),
+        };
+        run.call(Who::BuilderBuild, "mode=build")
+    }
+
+    /// A folder with the record `text` of change `c1`.
+    fn with_record(text: &str) -> Folder {
+        let folder = Folder::new();
+        folder.write(&change::record_path("c1"), text);
+        folder
+    }
+
+    #[test]
+    fn each_agent_call_adds_what_it_used_to_the_record_and_never_less_than_nothing() {
+        let folder = with_record(r#"{"id": "c1"}"#);
+        let root = &folder.0;
+        let mut steps = played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        for _ in 0..2 {
+            assert_eq!(call_once(root, &mut steps, None), Ok(()));
+        }
+        let kept = record(root);
+        assert_eq!(kept["spent_usd"], 0.02);
+        let tokens = serde_json::json!({"in": 20, "cache": 10, "out": 2});
+        assert_eq!(kept["spent_tokens"], tokens);
+        assert_eq!(kept["id"], "c1");
+        // No cost, one below zero or one that is not a number spends no USD, only the tokens.
+        for cost in [0.0, -100.0, f64::NAN, f64::INFINITY] {
+            steps.used = Usage {
+                cost_usd: cost,
+                ..CENT
+            };
+            assert_eq!(call_once(root, &mut steps, None), Ok(()));
+        }
+        let kept = record(root);
+        assert_eq!(kept["spent_usd"], 0.02);
+        assert_eq!(kept["spent_tokens"]["in"], 60);
+        // A call that reports nothing spends nothing.
+        steps.costly.clear();
+        assert_eq!(call_once(root, &mut steps, None), Ok(()));
+        assert_eq!(record(root)["spent_tokens"]["out"], 6);
+        assert!(record(root).get("variants").is_none());
+    }
+
+    #[test]
+    fn a_call_that_parks_still_spends_and_an_agent_cannot_change_what_it_spent() {
+        let folder = with_record(r#"{"id": "c1", "spent_usd": 1.0}"#);
+        let root = &folder.0;
+        let mut steps = played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        steps.stuck = Some(Who::BuilderBuild);
+        let timeout = invoke::Error::Timeout(Who::BuilderBuild, 2).to_string();
+        assert_eq!(call_once(root, &mut steps, None), Err(Stop::Park(timeout)));
+        let close = |value: &Value, usd: f64| (value.as_f64().unwrap() - usd).abs() < 1e-9;
+        assert!(close(&record(root)["spent_usd"], 1.01), "{}", record(root));
+        // An agent that writes what the change spent in its record: gdd puts it back, then adds
+        // what the call used, and the change parks.
+        let lowers: Act = |root| {
+            let text = r#"{"id": "c1", "spent_usd": 0.0, "spent_tokens": null}"#;
+            let path = change::record_path("c1");
+            change::write(root, &path, text).unwrap();
+        };
+        let mut steps = played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        steps.acts = vec![(Who::BuilderBuild, lowers)];
+        let Err(Stop::Park(why)) = call_once(root, &mut steps, None) else {
+            panic!("an agent that changes the record parks the change");
+        };
+        assert!(
+            why.ends_with("changed GDD state: .gdd/changes/c1/change.json"),
+            "{why}"
+        );
+        let kept = record(root);
+        assert!(close(&kept["spent_usd"], 1.02), "{kept}");
+        assert_eq!(kept["spent_tokens"]["in"], 20);
+        // A worktree whose state folder cannot be looked at stops the recipe, once the call spent.
+        folder.write("file", "");
+        let mut steps = played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        steps.work = root.join("file");
+        let Err(Stop::Fail(e)) = call_once(root, &mut steps, None) else {
+            panic!("a state folder that cannot be looked at stops the recipe");
+        };
+        assert!(e.starts_with("cannot look at "), "{e}");
+        assert!(close(&record(root)["spent_usd"], 1.03), "{}", record(root));
+        // A record that cannot say what the change spent stops the recipe.
+        let folder = with_record(r#"{"spent_usd": "a lot"}"#);
+        let Err(Stop::Fail(e)) = call_once(&folder.0, &mut played(&folder.0), None) else {
+            panic!("a record that cannot be read stops the recipe");
+        };
+        assert!(e.starts_with(".gdd/changes/c1/change.json: "), "{e}");
+    }
+
+    #[test]
+    fn a_call_in_the_run_of_a_variant_spends_on_the_variant_too() {
+        let folder = with_record(&variants_record("building"));
+        let root = &folder.0;
+        let mut steps = spike_played(root);
+        steps.costly = vec![Who::BuilderBuild];
+        for _ in 0..3 {
+            assert_eq!(call_once(root, &mut steps, Some(2)), Ok(()));
+        }
+        assert_eq!(call_once(root, &mut steps, None), Ok(()));
+        let kept = record(root);
+        let close = |value: &Value, usd: f64| (value.as_f64().unwrap() - usd).abs() < 1e-9;
+        assert!(close(&kept["spent_usd"], 0.04), "{kept}");
+        let variant = &kept["variants"][1];
+        assert!(close(&variant["usd"], 0.03), "{kept}");
+        let tokens = serde_json::json!({"in": 30, "cache": 15, "out": 3});
+        assert_eq!(variant["tokens"], tokens);
+        assert!(kept["variants"][0].get("usd").is_none(), "{kept}");
+        assert_eq!(
+            spent(root, "c1", Some(2)),
+            Ok(variant["usd"].as_f64().unwrap())
+        );
+        assert_eq!(spent(root, "c1", Some(1)), Ok(0.0));
+        // A variant the record does not have stops the recipe.
+        let Err(Stop::Fail(e)) = call_once(root, &mut steps, Some(3)) else {
+            panic!("a variant the record does not have stops the recipe");
+        };
+        assert_eq!(e, ".gdd/changes/c1/change.json: no variant 3");
     }
 
     /// Whether spike `c1`, whose state root is `root`, is still within the budget `spike_usd`
@@ -4614,25 +4813,30 @@ mod tests {
         run.within_budget()
     }
 
-    /// A folder whose log says change `c1` spent each of `costs`, in USD.
-    fn spending(costs: &[&str]) -> Folder {
-        let folder = Folder::new();
+    /// A folder whose record of change `c1` says it spent each of `costs`, in USD, one call each.
+    fn spending(costs: &[f64]) -> Folder {
+        let folder = with_record("{}");
+        let mut steps = played(&folder.0);
+        steps.costly = vec![Who::BuilderBuild];
         for cost in costs {
-            let line = format!(r#"{{"change": "c1", "cost_usd": {cost}}}"#);
-            log::append(&folder.0, &line).unwrap();
+            steps.used = Usage {
+                cost_usd: *cost,
+                ..Usage::default()
+            };
+            call_once(&folder.0, &mut steps, None).unwrap();
         }
         folder
     }
 
     #[test]
     fn a_budget_reached_but_for_what_adding_up_costs_loses_is_reached() {
-        let folder = spending(&["0.7", "0.1"]);
-        assert!(spent(&folder.0, "c1").unwrap() < 0.8);
+        let folder = spending(&[0.7, 0.1]);
+        assert!(spent(&folder.0, "c1", None).unwrap() < 0.8);
         let why = "the spike spent 0.80 USD of its budget of 0.80 USD";
         assert_eq!(within(&folder.0, 0.8), Err(Stop::Park(why.into())));
         assert_eq!(within(&folder.0, 0.81), Ok(()));
         // What it loses is far below a cent, never more than SPENT_ERROR.
-        let folder = spending(&["0.5"]);
+        let folder = spending(&[0.5]);
         let why = "the spike spent 0.50 USD of its budget of 0.50 USD";
         assert_eq!(within(&folder.0, 0.5), Err(Stop::Park(why.into())));
         let reached = within(&folder.0, 0.5 + SPENT_ERROR);
@@ -4644,29 +4848,29 @@ mod tests {
     }
 
     #[test]
-    fn what_a_change_spent_adds_up_the_cost_of_its_lines_in_the_log() {
-        let folder = Folder::new();
-        assert_eq!(spent(&folder.0, "c1"), Ok(0.0));
-        for line in [
-            r#"{"change": "c1", "cost_usd": 0.5}"#,
-            r#"{"change": "c2", "cost_usd": 7}"#,
-            r#"{"change": "c1"}"#,
-            r#"{"change": "c1", "cost_usd": null}"#,
-            r#"{"change": "c1", "cost_usd": "1"}"#,
-            "not json",
-            r#"[{"change": "c1", "cost_usd": 9}]"#,
-            r#"{"change": "c1", "cost_usd": 0.25}"#,
-        ] {
-            log::append(&folder.0, line).unwrap();
-        }
-        assert_eq!(spent(&folder.0, "c1"), Ok(0.75));
-        assert_eq!(spent(&folder.0, "c2"), Ok(7.0));
-        assert_eq!(spent(&folder.0, "c3"), Ok(0.0));
-        // A log that is not a file of its own cannot be read.
-        fs::remove_file(folder.0.join(log::PATH)).unwrap();
-        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
-        let err = spent(&folder.0, "c1").unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+    fn what_a_change_spent_is_what_its_record_keeps_never_the_log() {
+        // A record from before gdd kept it has spent nothing.
+        let folder = with_record("{}");
+        assert_eq!(spent(&folder.0, "c1", None), Ok(0.0));
+        log::append(&folder.0, r#"{"change": "c1", "cost_usd": 0.5}"#).unwrap();
+        assert_eq!(spent(&folder.0, "c1", None), Ok(0.0));
+        folder.write(&change::record_path("c1"), r#"{"spent_usd": 0.75}"#);
+        assert_eq!(spent(&folder.0, "c1", None), Ok(0.75));
+        // A variant counts what the calls of its runs spent.
+        let sqlite = r#""option": "SQLite""#;
+        let with_usd = format!(r#"{sqlite}, "usd": 0.25"#);
+        let record = variants_record("building").replacen(sqlite, &with_usd, 1);
+        folder.write(&change::record_path("c1"), &record);
+        assert_eq!(spent(&folder.0, "c1", Some(1)), Ok(0.25));
+        assert_eq!(spent(&folder.0, "c1", Some(2)), Ok(0.0));
+        let err = spent(&folder.0, "c1", Some(3)).unwrap_err();
+        assert_eq!(err, ".gdd/changes/c1/change.json: no variant 3");
+        // A record that cannot say it, or no record, is an error.
+        folder.write(&change::record_path("c1"), r#"{"spent_usd": "1"}"#);
+        let err = spent(&folder.0, "c1", None).unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        let missing = "change c2 does not exist: there is no .gdd/changes/c2/change.json";
+        assert_eq!(spent(&folder.0, "c2", None), Err(missing.to_string()));
     }
 
     #[test]
