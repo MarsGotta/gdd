@@ -31,7 +31,10 @@ Read this before writing tests, scenario steps or code in Python in a GDD projec
 - **mypy**: type every public function; no `Any` leaking from input; handle `None`.
 - **Ruff** (with `C901` for complexity) and **Bandit**: small functions, no `shell=True`, no
   `eval`, no paths or commands built from input without checking them.
-- **import-linter**: respect the contracts in `.importlinter`.
+- **import-linter**: respect the contracts in `[tool.importlinter]` of `pyproject.toml`.
+- **Bandit + OSV-Scanner** (G3 security): Bandit on `src/`, OSV-Scanner on every dependency in
+  `uv.lock`, dev tools included. A vulnerability exception goes in `osv-scanner.toml` with a
+  reason; adding one is a red change.
 
 ## Never by hand
 
