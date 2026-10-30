@@ -30,6 +30,7 @@ use crate::gates::{self, Gate, approve, debt};
 use crate::git::Git;
 use crate::guard;
 use crate::log;
+use crate::rules;
 
 /// Why a change without G3 does not merge.
 const G3_CLOSED: &str = "G3 is not open.";
@@ -345,13 +346,17 @@ fn merge_paying(
     })
 }
 
-/// Whether to push the main branch, and the release commands, as the project at `root` has them
-/// in its working tree: after the merge, the main branch's. A missing file says nothing.
+/// Whether to push the main branch, and the release commands with the time limit of the rules
+/// (see [`rules::command_seconds`]), as the project at `root` has them in its working tree:
+/// after the merge, the main branch's. A missing file says nothing.
 fn configured(root: &Path) -> Result<(bool, Steps), String> {
     let rules = configuration(root, guard::RULES)?;
-    let push = push_main(&rules).map_err(|e| format!("{}: {e}", guard::RULES))?;
+    let in_rules = |e: config::Error| format!("{}: {e}", guard::RULES);
+    let push = push_main(&rules).map_err(in_rules)?;
+    let limit = rules::command_seconds(&rules).map_err(in_rules)?;
     let commands = configuration(root, gates::COMMANDS)?;
-    let steps = Steps::from_toml(&commands).map_err(|e| format!("{}: {e}", gates::COMMANDS))?;
+    let in_commands = |e: config::Error| format!("{}: {e}", gates::COMMANDS);
+    let steps = Steps::from_toml(&commands, limit).map_err(in_commands)?;
     Ok((push, steps))
 }
 
@@ -603,7 +608,6 @@ mod tests {
     use super::*;
     use crate::classify::{Change, classify};
     use crate::git::tests::{Folder, Repo};
-    use crate::rules;
     use crate::zones::ZoneMap;
 
     const ZONES: &str = "default = \"yellow\"\n[[zone]]\ncolor = \"red\"\n\
@@ -1228,6 +1232,19 @@ mod tests {
         assert_eq!(err, expected);
     }
 
+    #[test]
+    fn the_build_and_the_deploy_after_the_merge_run_within_the_time_limit_of_the_rules() {
+        let repo = started(".gdd/*\n");
+        let slow = "[release]\nbuild = \"true\"\ndeploy_pre = \"echo started; sleep 5\"\n";
+        repo.write(gates::COMMANDS, slow);
+        repo.write(guard::RULES, "[limits]\ncommand_seconds = 1\n");
+        let err = merged(&repo).unwrap_err();
+        let expected = "Could not deploy to pre: release.deploy_pre failed (exit code 124):\n\
+                        started\ntimed out (1s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(err, expected);
+        assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
+    }
+
     /// A bare repository in a temporary folder, the remote `origin` of `repo`.
     fn remote(repo: &Repo) -> Folder {
         let remote = Folder::new();
@@ -1297,6 +1314,10 @@ mod tests {
         let err = failed(guard::RULES, "push_main = \"yes\"\n");
         let start = "gdd/rules.toml: invalid TOML";
         assert!(err.starts_with(start), "{err}");
+        let err = failed(guard::RULES, "[limits]\ncommand_seconds = 0\n");
+        let said = "gdd/rules.toml: invalid TOML: limits.command_seconds must be a whole number \
+                    of seconds above 0, not 0";
+        assert_eq!(err, said);
         // A folder where the rules file should be.
         let err = failed("gdd/rules.toml/x", "");
         let start = "cannot read gdd/rules.toml: ";

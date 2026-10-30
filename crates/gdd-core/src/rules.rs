@@ -1,14 +1,43 @@
-//! The rules table: which gates each color and lane asks for, and where the scenarios live; and
-//! the budget of a spike.
+//! The rules table: which gates each color and lane asks for, and where the scenarios live; the
+//! budget of a spike; and the time limit of the gate and release commands.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Color, Error, Lane};
+use crate::exec;
 
 /// What the agent calls of a spike may cost, in USD, when the rules file says nothing.
 pub const SPIKE_USD: f64 = 5.0;
+
+/// How long each gate and release command may run: `[limits] command_seconds` of a rules file,
+/// [`exec::TIMEOUT`] when it says nothing. The rest of the file is ignored. A value that is not
+/// a whole number above 0 is an error that names `limits.command_seconds`.
+pub fn command_seconds(text: &str) -> Result<Duration, Error> {
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct Raw {
+        limits: RawLimits,
+    }
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct RawLimits {
+        command_seconds: Option<toml::Value>,
+    }
+    let raw: Raw = toml::from_str(text).map_err(|e| Error::Toml(e.to_string()))?;
+    let Some(value) = raw.limits.command_seconds else {
+        return Ok(exec::TIMEOUT);
+    };
+    let seconds = value.as_integer().and_then(|n| u64::try_from(n).ok());
+    match seconds.filter(|&seconds| seconds > 0) {
+        Some(seconds) => Ok(Duration::from_secs(seconds)),
+        None => Err(Error::Toml(format!(
+            "limits.command_seconds must be a whole number of seconds above 0, not {value}"
+        ))),
+    }
+}
 
 /// The budget of a spike: what its agent calls may cost, in USD, before it parks; `[spike]
 /// max_usd` of a rules file, [`SPIKE_USD`] when it says nothing. The rest of the file is ignored.
@@ -673,6 +702,49 @@ mod tests {
         );
         for wrong in ["spike = 3\n", "[spike", "spike.max_usd = "] {
             let result = spike_budget(wrong);
+            assert!(matches!(result, Err(Error::Toml(_))), "{wrong:?}");
+        }
+    }
+
+    #[test]
+    fn the_commands_have_the_time_limit_of_the_rules_file_or_thirty_minutes() {
+        assert_eq!(command_seconds(""), Ok(Duration::from_secs(1800)));
+        assert_eq!(exec::TIMEOUT, Duration::from_secs(1800));
+        let other = "[limits]\nreplans = 1\n[spike]\nmax_usd = 5\n";
+        assert_eq!(command_seconds(other), Ok(exec::TIMEOUT));
+        let one = "[limits]\ncommand_seconds = 1\n";
+        assert_eq!(command_seconds(one), Ok(Duration::from_secs(1)));
+        let long =
+            "main_branch = \"main\"\n[limits]\nbuilder_retries = 3\ncommand_seconds = 7200\n";
+        assert_eq!(command_seconds(long), Ok(Duration::from_secs(7200)));
+    }
+
+    #[test]
+    fn a_time_limit_that_is_not_a_whole_number_above_zero_names_its_key() {
+        for (value, shown) in [
+            ("0", "0"),
+            ("-1", "-1"),
+            ("-1800", "-1800"),
+            ("1.5", "1.5"),
+            ("60.0", "60.0"),
+            ("\"60\"", "\"60\""),
+            ("\"\"", "\"\""),
+            ("true", "true"),
+            ("[60]", "[60]"),
+        ] {
+            let text = format!("[limits]\ncommand_seconds = {value}\n");
+            let said = format!(
+                "limits.command_seconds must be a whole number of seconds above 0, not {shown}"
+            );
+            assert_eq!(command_seconds(&text), Err(Error::Toml(said)), "{value}");
+        }
+        let said = command_seconds("[limits]\ncommand_seconds = 0\n").unwrap_err();
+        assert_eq!(
+            said.to_string(),
+            "invalid TOML: limits.command_seconds must be a whole number of seconds above 0, not 0"
+        );
+        for wrong in ["limits = 3\n", "[limits", "limits.command_seconds = "] {
+            let result = command_seconds(wrong);
             assert!(matches!(result, Err(Error::Toml(_))), "{wrong:?}");
         }
     }

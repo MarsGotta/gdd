@@ -39,7 +39,7 @@ use crate::exec;
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
 use crate::log;
-use crate::rules::RulesTable;
+use crate::rules::{self, RulesTable};
 use crate::zones::ZoneMap;
 
 /// The role of build mode: in a gate, the scope check judges it too.
@@ -225,6 +225,9 @@ pub struct Rules {
     pub scenarios_required: bool,
     /// The harness: the paths no role may change, `[protected] all`.
     pub harness: Vec<String>,
+    /// How long each gate and release command may run: `[limits] command_seconds` (see
+    /// [`rules::command_seconds`]).
+    pub command_limit: Duration,
 }
 
 #[derive(Deserialize)]
@@ -254,13 +257,15 @@ impl Default for RawAcceptance {
 }
 
 impl Rules {
-    /// Reads what a gate needs from a rules file; see [`RulesTable::from_toml`].
+    /// Reads what a gate needs from a rules file; see [`RulesTable::from_toml`] and
+    /// [`rules::command_seconds`].
     pub fn from_toml(text: &str) -> Result<Rules, config::Error> {
         let raw: RawRules = toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
         Ok(Rules {
             table: RulesTable::of_project(text)?,
             scenarios_required: raw.acceptance.required,
             harness: raw.protected.all,
+            command_limit: rules::command_seconds(text)?,
         })
     }
 }
@@ -346,6 +351,11 @@ pub struct Report {
     /// merge takes them off the list; left out of the JSON when there is none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub paid_debt: Vec<String>,
+    /// The last line each mutation command that passed printed, by name: its summary, which says
+    /// what a pass may still count as caught (the Rust sheet's mutants that hung twice); left out
+    /// of the JSON when there is none.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub summaries: BTreeMap<String, String>,
     /// Seconds the commands took, added up.
     #[serde(skip)]
     pub duration_s: f64,
@@ -408,6 +418,7 @@ impl Report {
             added_exceptions: Vec::new(),
             known_debt: Vec::new(),
             paid_debt: Vec::new(),
+            summaries: BTreeMap::new(),
             duration_s: 0.0,
             timed: Vec::new(),
         }
@@ -440,6 +451,9 @@ impl Report {
             if owed.is_some() {
                 self.paid_debt.push(name.to_string());
             }
+            if let Ok(ran) = &ran {
+                self.summarize(name, &ran.output);
+            }
             return;
         };
         let Some(ceiling) = owed else {
@@ -458,6 +472,18 @@ impl Report {
                 failure.tail = format!("{why}\n{}", failure.tail);
                 self.failures.push(failure);
             }
+        }
+    }
+
+    /// Keeps the last line that is not blank of `output`, what the command `name` that passed
+    /// printed, when it is a mutation command (see [`Report::summaries`]).
+    fn summarize(&mut self, name: &str, output: &str) {
+        let last = output
+            .lines()
+            .map(str::trim_end)
+            .rfind(|line| !line.is_empty());
+        if let Some(line) = last.filter(|_| is_mutation(name)) {
+            self.summaries.insert(name.to_string(), line.to_string());
         }
     }
 
@@ -534,6 +560,11 @@ impl Report {
     }
 }
 
+/// Whether the command `name` runs mutation testing: its name starts with `mutation`.
+fn is_mutation(name: &str) -> bool {
+    name.starts_with("mutation")
+}
+
 /// `seconds` to a tenth of a second.
 pub(crate) fn tenths(seconds: f64) -> f64 {
     (seconds * 10.0).round() / 10.0
@@ -581,8 +612,10 @@ pub fn run_of_kind(
 /// ones it plans or touched and the ones its record names. First Path Guard judges `role`, from
 /// the snapshot `snapshot` when there is one: the commands run only if it passes, since a role
 /// that touched the gate configuration could make them its own and put the files back as they
-/// ran. Each configured command of the gate runs from the project root (see [`exec::run`]),
-/// except the `mutation*` ones when the change does not need mutation testing. Each gets
+/// ran. Each configured command of the gate runs from the project root, within the time limit of
+/// the rules (see [`exec::run_limited`]), except the `mutation*` ones when the change does not
+/// need mutation testing; a mutation command that passes leaves its last line in the report
+/// (see [`Report::summaries`]). Each gets
 /// `GDD_CHANGE`, `GDD_COLOR`, `GDD_FEATURES` (the change's scenario files) and `GDD_DIFF_FILES`
 /// (what it touched, or what it plans while it touched nothing), one path per line. Then Path
 /// Guard judges again; build mode also gets the scope check, and G3 counts the scenarios: none
@@ -633,7 +666,7 @@ pub fn run(
     };
     let mut guarded = guard();
     if guarded.is_empty() {
-        judged.run_commands(&mut report, root, project.commands, &owed);
+        judged.run_commands(&mut report, project, &owed);
         guarded = guard();
     } else {
         guarded.push(NOT_RUN.to_string());
@@ -689,19 +722,20 @@ impl Judged<'_> {
         report
     }
 
-    /// Runs each of the `commands` of the gate of `report` from `root` (see [`exec::run`]) into
-    /// `report`, except the `mutation*` ones when the change does not need mutation testing; the
-    /// ones named in `owed` have known debt, each with the count recorded for it when there is
-    /// one, and only warn while what they report stays within that count (see
-    /// [`Report::command`]). Each gets `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` and
-    /// `GDD_FEATURES`, one path per line.
+    /// Runs each of the commands of `project` for the gate of `report` from its root, within the
+    /// time limit of its rules (see [`exec::run_limited`]), into `report`, except the
+    /// `mutation*` ones when the change does not need mutation testing; the ones named in `owed`
+    /// have known debt, each with the count recorded for it when there is one, and only warn
+    /// while what they report stays within that count (see [`Report::command`]). Each gets
+    /// `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
     pub(crate) fn run_commands(
         &self,
         report: &mut Report,
-        root: &Path,
-        commands: &Commands,
+        project: &Project,
         owed: &BTreeMap<String, Option<u64>>,
     ) {
+        let (root, commands) = (project.root, project.commands);
+        let limit = project.rules.command_limit;
         let color = self.decision.color.to_string();
         let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
         let env = [
@@ -711,10 +745,10 @@ impl Judged<'_> {
             ("GDD_FEATURES", features.as_str()),
         ];
         for (name, command) in commands.of(report.gate) {
-            if name.starts_with("mutation") && !self.decision.mutation {
+            if is_mutation(name) && !self.decision.mutation {
                 report.skipped.push(name.clone());
             } else {
-                let ran = exec::run(command, root, &env, exec::TIMEOUT);
+                let ran = exec::run_limited(command, root, &env, limit);
                 let held = owed.get(name).map(|&known| debt::Ceiling {
                     known,
                     texts: commands.count(name),
@@ -803,7 +837,6 @@ mod tests {
     use crate::classify::Change;
     use crate::config::Lane;
     use crate::git::tests::{Folder, Repo};
-    use crate::rules;
 
     const PROTECTED: &str = "[protected]\nall = [\"gdd/**\"]\nbuilder_build = [\"features/**\"]\n";
 
@@ -974,6 +1007,7 @@ paths = ["src/storage/**"]
             table: rules::default_table(),
             scenarios_required: true,
             harness: vec!["gdd/**".into()],
+            command_limit: exec::TIMEOUT,
         };
         assert_eq!(rules, expected);
         let rules = Rules::from_toml("[acceptance]\ndir = \"specs\"\nrequired = false\n").unwrap();
@@ -1017,6 +1051,7 @@ paths = ["src/storage/**"]
             added_exceptions: vec![],
             known_debt: vec![],
             paid_debt: vec![],
+            summaries: BTreeMap::new(),
             duration_s: report.duration_s,
             timed: report.timed.clone(),
         };
@@ -1328,6 +1363,56 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
     }
 
     #[test]
+    fn a_mutation_command_that_passes_leaves_its_last_line_in_the_report() {
+        let commands = "[g3]\nacceptance = \"echo all green\"\n\
+                        mutation = \"echo 12 caught; printf '3 hung again  \\n\\n'\"\n\
+                        mutation-quiet = \"true\"\nmutation-weak = \"echo 1 missed; exit 2\"\n";
+        let project = started(&["src/app.rs"], commands);
+        let report = project.run(Gate::G3, "builder");
+        let said = BTreeMap::from([("mutation".to_string(), "3 hung again".to_string())]);
+        assert_eq!(report.summaries, said);
+        assert_eq!(names(&report), ["mutation-weak", "scenarios"]);
+        // One that is not run says nothing either.
+        let green = started(&["docs/a.md"], commands);
+        let report = green.run(Gate::G3, "builder");
+        assert_eq!(
+            report.skipped,
+            ["mutation", "mutation-quiet", "mutation-weak"]
+        );
+        assert_eq!(report.summaries, BTreeMap::new());
+    }
+
+    #[test]
+    fn a_command_runs_within_the_time_limit_of_the_rules() {
+        let commands = "[g2]\nlint = \"true\"\nunit = \"echo started; sleep 5\"\n";
+        let mut project = started(&["src/app.rs"], commands);
+        project.rules.command_limit = Duration::from_millis(300);
+        let begun = Instant::now();
+        let report = project.run(Gate::G2, "builder");
+        assert!(begun.elapsed() < Duration::from_secs(4), "{report:?}");
+        assert_eq!(report.passed, ["lint", "path-guard"]);
+        let [failure] = report.failures.as_slice() else {
+            panic!("one failure: {report:?}");
+        };
+        let tail = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(
+            (failure.name.as_str(), failure.tail.as_str()),
+            ("unit", tail)
+        );
+        assert_eq!(failure.exit.map(|exit| exit.code), Some(exec::TIMED_OUT));
+    }
+
+    #[test]
+    fn the_rules_give_the_time_limit_of_the_commands() {
+        let rules = Rules::from_toml("[limits]\nreplans = 1\ncommand_seconds = 60\n").unwrap();
+        assert_eq!(rules.command_limit, Duration::from_secs(60));
+        assert_eq!(Rules::from_toml("").unwrap().command_limit, exec::TIMEOUT);
+        let refused = Rules::from_toml("[limits]\ncommand_seconds = -5\n").unwrap_err();
+        let said = "limits.command_seconds must be a whole number of seconds above 0, not -5";
+        assert_eq!(refused, config::Error::Toml(said.into()));
+    }
+
+    #[test]
     fn g3_counts_the_scenarios_and_fails_without_them() {
         let commands = "[g2]\nunit = \"true\"\n[g3]\nacceptance = \"true\"\n";
         let project = started(&["src/app.rs"], commands);
@@ -1559,6 +1644,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             added_exceptions: vec![],
             known_debt: vec![],
             paid_debt: vec![],
+            summaries: BTreeMap::new(),
             duration_s: 9.0,
             timed: vec![Timed {
                 name: "unit".into(),
@@ -1603,6 +1689,13 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             r#""paid_debt":["unit"]}"#
         );
         assert!(json.ends_with(end), "{json}");
+        let summarized = Report {
+            summaries: BTreeMap::from([("mutation".into(), "3 caught".into())]),
+            ..in_debt
+        };
+        let json = serde_json::to_string(&summarized).unwrap();
+        let end = r#""paid_debt":["unit"],"summaries":{"mutation":"3 caught"}}"#;
+        assert!(json.ends_with(end), "{json}");
     }
 
     #[test]
@@ -1618,6 +1711,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             added_exceptions: vec![],
             known_debt: vec![],
             paid_debt: vec![],
+            summaries: BTreeMap::new(),
             duration_s: 0.1 + 0.2,
             timed: vec![],
         };

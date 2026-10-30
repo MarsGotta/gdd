@@ -482,20 +482,7 @@ mod tests {
     }
 
     fn report() -> Report {
-        Report {
-            ok: false,
-            gate: Gate::G2,
-            color: Color::Yellow,
-            passed: vec![],
-            skipped: vec![],
-            failures: vec![],
-            out_of_scope: vec![],
-            added_exceptions: vec![],
-            known_debt: vec![],
-            paid_debt: vec![],
-            duration_s: 0.0,
-            timed: vec![],
-        }
+        Report::new(Gate::G2, Color::Yellow)
     }
 
     fn paid(list: &[(Gate, &str)]) -> Vec<(Gate, String)> {
