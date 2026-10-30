@@ -517,20 +517,7 @@ ignore = [
 
     #[test]
     fn g3_refuses_an_exception_without_a_reason_and_a_file_it_cannot_read() {
-        let mut report = Report {
-            ok: false,
-            gate: crate::gates::Gate::G3,
-            color: crate::config::Color::Red,
-            passed: vec![],
-            skipped: vec![],
-            failures: vec![],
-            out_of_scope: vec![],
-            added_exceptions: vec![],
-            known_debt: vec![],
-            paid_debt: vec![],
-            duration_s: 0.0,
-            timed: vec![],
-        };
+        let mut report = Report::new(crate::gates::Gate::G3, crate::config::Color::Red);
         judge(&mut report, &Ok(vec![]));
         judge(&mut report, &Ok(vec![found(OSV, "A", None, Some("r"))]));
         assert_eq!(report.passed, [CHECK, CHECK]);
