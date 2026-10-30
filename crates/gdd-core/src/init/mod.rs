@@ -73,7 +73,7 @@ const NEVER_OVERWRITES: &str =
 
 /// What to do once the project is set up.
 const NEXT: &str = "Next: run gdd bootstrap (first install of each stack and its lock file), \
-                    gdd agents check, then start your agent and run the gdd-setup command \
+                    then start your agent and run the gdd-setup command \
                     (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
 
 /// An environment: its variables, with their values.
@@ -549,7 +549,7 @@ mod tests {
         let skill = ".agents/skills/gdd-stack-rust/SKILL.md";
         assert_eq!(lines[lines.len() - 2..], [skill, NEXT]);
         let next = "Next: run gdd bootstrap (first install of each stack and its lock file), \
-                    gdd agents check, then start your agent and run the gdd-setup command \
+                    then start your agent and run the gdd-setup command \
                     (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
         assert_eq!(NEXT, next);
         assert!(!folder.0.join("bin").exists());

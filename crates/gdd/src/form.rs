@@ -41,7 +41,15 @@ const SAME_FAMILY: &str =
     "The Reviewer would be of the same model family as the Builder: press y to accept it";
 
 /// What the human does with the flags command when they are not sure of the technology.
-const ASK_AGENT: &str = "Ask your agent with /gdd-setup, then run it";
+const ASK_AGENT: &str = "Your coding agent can help you choose it.";
+
+/// The last line once the project is set up and its stacks installed.
+const NEXT_AGENT: &str = "Next: start your coding agent here and run the gdd-setup command \
+                          (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+
+/// What the human does when the install of the stacks failed after the setup.
+const INSTALL_FAILED: &str =
+    "The harness is set up and committed. Fix the install, then run gdd bootstrap.";
 
 /// Why the form ended without writing anything.
 const QUIT: &str = "gdd init stopped: nothing was written";
@@ -487,10 +495,43 @@ impl Form {
 /// command to run later; what it says, or why it wrote nothing.
 pub fn finish(root: &Path, outcome: &Outcome, env: &[(String, String)]) -> Result<String, String> {
     match outcome {
-        Outcome::SetUp(options) => init::init(root, options, env).map_err(|e| e.to_string()),
+        Outcome::SetUp(options) => set_up(root, options, env),
         Outcome::NotSure(command) => Ok(format!("{command}\n{ASK_AGENT}")),
         Outcome::Quit => Err(QUIT.to_string()),
     }
+}
+
+/// Sets the project up (see [`init::init`]) and installs its stacks (see [`init::bootstrap`]):
+/// what both said, without the next step each gives, then the one for the person's agent. When
+/// the install fails, the setup stays committed and the error says how to retry.
+fn set_up(
+    root: &Path,
+    options: &init::Options,
+    env: &[(String, String)],
+) -> Result<String, String> {
+    let set_up = init::init(root, options, env).map_err(|e| e.to_string())?;
+    let mut lines = without_next(&set_up);
+    match init::bootstrap(root, &options.stacks, env) {
+        Ok(installed) => {
+            lines.extend(without_next(&installed));
+            lines.push(NEXT_AGENT.to_string());
+            Ok(lines.join("\n"))
+        }
+        Err(stopped) => {
+            lines.extend(without_next(&stopped.said));
+            lines.extend([
+                format!("error: {}", stopped.why),
+                INSTALL_FAILED.to_string(),
+            ]);
+            Err(lines.join("\n"))
+        }
+    }
+}
+
+/// The lines of `text` but those that give the next step.
+fn without_next(text: &str) -> Vec<String> {
+    let lines = text.lines().filter(|line| !line.starts_with("Next:"));
+    lines.map(str::to_string).collect()
 }
 
 /// `gdd init` in a terminal: asks the form (see [`ask`]), with the coding agents on the `PATH`
@@ -587,10 +628,12 @@ fn shell_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{init_env, plain_folder};
+    use crate::tests::{Project, init_env, plain_folder};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use std::io;
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
 
     fn names(named: &[&str]) -> Vec<String> {
         named.iter().map(|name| name.to_string()).collect()
@@ -1036,7 +1079,7 @@ mod tests {
     #[test]
     fn finish_does_what_the_human_answered() {
         let said = finish(Path::new("/"), &Outcome::NotSure("gdd init x".into()), &[]);
-        let ask = "gdd init x\nAsk your agent with /gdd-setup, then run it".to_string();
+        let ask = "gdd init x\nYour coding agent can help you choose it.".to_string();
         assert_eq!(said, Ok(ask));
         let quit = Err("gdd init stopped: nothing was written".to_string());
         assert_eq!(finish(Path::new("/"), &Outcome::Quit, &[]), quit);
@@ -1047,11 +1090,68 @@ mod tests {
         assert!(refused.starts_with(one_family), "{refused}");
         assert!(!folder.0.join("gdd").exists());
         let two = Outcome::SetUp(notes(&["claude", "codex"], false));
-        let said = finish(&folder.0, &two, &init_env()).unwrap();
+        let (_bin, env) = with_cargo("echo locked > Cargo.lock");
+        let said = finish(&folder.0, &two, &env).unwrap();
         assert!(said.starts_with("gdd/project.toml\n"), "{said}");
         let path = folder.0.join("gdd/project.toml");
         let project = std::fs::read_to_string(path).unwrap();
         assert!(project.contains("name = \"Notes\"\n"), "{project}");
+    }
+
+    /// A folder with a `cargo` that runs `script`, and the environment of [`init_env`] with it
+    /// first on the `PATH`; the folder goes when dropped.
+    fn with_cargo(script: &str) -> (Project, Vec<(String, String)>) {
+        let bin = Project::new();
+        bin.write("bin/cargo", &format!("#!/bin/sh\n{script}\n"));
+        let program = bin.0.join("bin/cargo");
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut env = init_env();
+        for (name, value) in &mut env {
+            if name == "PATH" {
+                *value = format!("{}:{value}", bin.0.join("bin").display());
+            }
+        }
+        (bin, env)
+    }
+
+    fn last_subject(folder: &Path) -> String {
+        let mut log = Command::new("git");
+        let out = log.args(["log", "-1", "--format=%s"]).current_dir(folder);
+        let out = out.output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn setting_up_installs_the_stacks_and_ends_by_sending_you_to_your_agent() {
+        let folder = plain_folder();
+        let (_bin, env) = with_cargo("echo locked > Cargo.lock");
+        let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
+        let said = finish(&folder.0, &set_up, &env).unwrap();
+        assert!(said.starts_with("gdd/project.toml\n"), "{said}");
+        assert!(said.contains("\nrust: cargo generate-lockfile\n"), "{said}");
+        assert!(said.contains("\nCommitted: Cargo.lock\n"), "{said}");
+        assert_eq!(said.lines().last(), Some(NEXT_AGENT));
+        assert_eq!(said.matches("Next:").count(), 1, "{said}");
+        assert!(!said.contains("run gdd bootstrap"), "{said}");
+        assert_eq!(last_subject(&folder.0), "gdd bootstrap");
+    }
+
+    #[test]
+    fn a_failed_install_keeps_the_setup_and_says_how_to_retry() {
+        let folder = plain_folder();
+        let (_bin, env) = with_cargo("exit 3");
+        let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
+        let said = finish(&folder.0, &set_up, &env).unwrap_err();
+        assert!(said.starts_with("gdd/project.toml\n"), "{said}");
+        let failed = "rust: cargo generate-lockfile failed (exit 3)";
+        assert!(said.contains(&format!("\nerror: {failed}\n")), "{said}");
+        assert!(said.ends_with(INSTALL_FAILED), "{said}");
+        assert!(!said.contains("Next:"), "{said}");
+        assert!(folder.0.join("gdd/project.toml").is_file());
+        assert_eq!(
+            last_subject(&folder.0),
+            format!("gdd init {}", gdd_core::VERSION)
+        );
     }
 
     #[test]

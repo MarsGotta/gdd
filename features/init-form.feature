@@ -89,10 +89,11 @@ Feature: The Setup form of gdd init
       | stacks    | rust     |
       | language  | es       |
       | sensitive | Payments |
+    And the program "cargo" on the PATH writes the file "Cargo.lock"
     When I press Enter
     Then the file "gdd/project.toml" contains "Notes"
     And the file "gdd/project.toml" contains "es"
-    And the last commit on main says "gdd init"
+    And the last commit on main says "gdd bootstrap"
 
   Scenario: Not sure about the technology ends with the command to run later
     Given the form is filled with:
@@ -101,7 +102,7 @@ Feature: The Setup form of gdd init
       | platform | cli      |
       | stacks   | not sure |
     Then the form shows "gdd init --name Notes --platform cli"
-    And the form shows "/gdd-setup"
+    And the form does not show "/gdd-setup"
     And the form does not show "Enter to set up"
 
   Scenario: One model family needs an explicit yes
