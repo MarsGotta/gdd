@@ -7,6 +7,11 @@
 //! to the change, the Reviewer's text is its review, and the call goes to the log. The tool prints
 //! none of it, and writes none of it through a link the agent could have left (see [`files`]).
 //!
+//! On a change whose Builder session is shared, each Builder call continues the session the
+//! Builder call before it reported in the same run of gdd (see [`Ongoing`]); the Reviewer and the
+//! Orchestrator never join it. Nothing on disk holds it: nothing an agent writes chooses the
+//! session of the next call, and a new run starts a session of its own.
+//!
 //! Each call runs in a process group of its own and has a time limit. When the call ends, or its
 //! time runs out, the whole group is killed, never a process read from a file: nothing the agent
 //! started outlives the call. The file where the Reviewer or the replan answers goes away before
@@ -24,11 +29,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::agents::env::Env;
 use crate::agents::files;
-use crate::agents::models::{self, Model, Roles};
+use crate::agents::models::{self, Model, Roles, Session};
 use crate::agents::sheets::{self, Place, Sheet};
 use crate::agents::usage::{self, Price, Said, Usage};
 use crate::gates::verdict;
@@ -75,6 +80,11 @@ impl Who {
         }
     }
 
+    /// Whether it is the Builder, in either mode: the calls that may share a session.
+    fn builds(self) -> bool {
+        matches!(self, Who::BuilderTest | Who::BuilderBuild)
+    }
+
     /// The phase and the gate of its calls in the log.
     fn stage(self) -> (&'static str, &'static str) {
         match self {
@@ -114,6 +124,26 @@ pub struct Call<'a> {
     pub model: &'a Model,
     /// The arguments of its command after `change=<id>`: `mode=build fix=g3`...
     pub args: &'a str,
+    /// The Builder session of the change (see [`models::Models::builder_session`]): shared, a
+    /// Builder call continues it. Other roles ignore it.
+    pub builder_session: Session,
+}
+
+/// The Builder session of a change for one run of gdd, a `gdd launch` or a `gdd resume`: the
+/// session the last Builder call of the run that shares it reported, once it can be passed on (see
+/// [`session_id`]). Only memory holds it: nothing an agent writes chooses it, and a new run starts
+/// without one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ongoing(Option<String>);
+
+impl Ongoing {
+    /// Follows a Builder call that shares the session and reported `session`: the next continues
+    /// it. A call that reported none, or one that cannot be passed on, leaves the one before.
+    fn follow(&mut self, session: Option<&str>) {
+        if let Some(id) = session.and_then(session_id) {
+            self.0 = Some(id.to_string());
+        }
+    }
 }
 
 /// What `gdd/models.toml` says of the agents besides the model of each role: the variables they
@@ -124,12 +154,19 @@ pub struct Call<'a> {
 pub struct Settings {
     env: Env,
     prices: BTreeMap<String, Price>,
+    // As it is, only to refuse the file as the models do (see [`Session`]).
+    session: Map<String, Value>,
 }
 
 impl Settings {
-    /// Reads them from the text of a models file; the rest of the file is ignored.
+    /// Reads them from the text of a models file; the rest of the file is ignored, but a Builder
+    /// session that is neither of its values refuses it, as it refuses the models (see
+    /// [`models::Models::from_toml`]).
     pub fn from_toml(text: &str) -> Result<Settings, config::Error> {
-        toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))
+        let settings: Settings =
+            toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
+        Session::of(&settings.session)?;
+        Ok(settings)
     }
 }
 
@@ -262,19 +299,20 @@ fn runnable(file: &Path) -> bool {
     meta.is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
-/// What starts a call: the integration, the agent sheet and the model name of its model, and its
-/// arguments.
+/// What starts a call: the integration, the agent sheet and the model name of its model, its
+/// arguments, and whether it shares the change's Builder session.
 struct Start<'a> {
     integration: &'a str,
     sheet: Sheet,
     model: &'a str,
     args: Vec<String>,
+    shares: bool,
 }
 
 /// What starts `call` on change `id`, whose state root is `state`: the `launch.args` of the
 /// sheet of its integration (see [`Sheet::launch`]) for its command and its role, with
 /// `change=<id> <args>` as the words of the command and the `effort` of its model, if it has
-/// one.
+/// one. A Builder call on a change whose Builder session is shared shares it.
 fn start<'a>(call: &Call<'a>, id: &str, state: &Path) -> Result<Start<'a>, Error> {
     let (integration, sheet, model) = startable(call.who, call.model)?;
     let words = format!("change={id} {}", call.args);
@@ -291,6 +329,7 @@ fn start<'a>(call: &Call<'a>, id: &str, state: &Path) -> Result<Start<'a>, Error
         sheet,
         model,
         args,
+        shares: call.who.builds() && call.builder_session == Session::Shared,
     })
 }
 
@@ -311,12 +350,15 @@ struct Ran {
 }
 
 /// Calls the agent of `call` on the change of `project` (see the module) and waits for it, its
-/// time limit at most. Its answer file goes away first. What it said is kept and logged even when
-/// it fails or runs out of time. What the agent reported it used, never the estimate the log
-/// prices when it reports no cost, and how the call ended: what it reported counts even when
-/// what it said cannot be kept, and a call that stopped before the agent ran used nothing.
-pub fn run(project: &Project, call: &Call) -> (Usage, Result<(), Error>) {
-    let (reported, ended) = called(project, call);
+/// time limit at most. Its answer file goes away first. A call that shares the change's Builder
+/// session continues the one of the run, `ongoing`, once the run has one: the resume arguments of
+/// its sheet go at the end of its own; once what it said is kept, the session it reported is the
+/// run's (see [`Ongoing::follow`]). What it said is kept and logged even when it fails or runs out
+/// of time. What the agent reported it used, never the estimate the log prices when it reports no
+/// cost, and how the call ended: what it reported counts even when what it said cannot be kept,
+/// and a call that stopped before the agent ran used nothing.
+pub fn run(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<(), Error>) {
+    let (reported, ended) = called(project, call, ongoing);
     let ended = ended.and_then(|ended| match ended {
         Ended::Code(0) => Ok(()),
         Ended::Code(code) => Err(Error::Failed(call.who, code)),
@@ -326,22 +368,36 @@ pub fn run(project: &Project, call: &Call) -> (Usage, Result<(), Error>) {
 }
 
 /// The call of [`run`]: what the agent reported it used, once it ran, and how it ended, or why
-/// what it said could not be kept.
-fn called(project: &Project, call: &Call) -> (Usage, Result<Ended, Error>) {
-    let (start, ran) = match started(project, call) {
+/// what it said could not be kept. The run follows the session the agent reported only once what
+/// it said is kept.
+fn called(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<Ended, Error>) {
+    let (start, ran) = match started(project, call, ongoing) {
         Ok(started) => started,
         Err(e) => return (Usage::default(), Err(e)),
     };
     let said = usage::read(start.sheet.usage(), &String::from_utf8_lossy(&ran.out));
     let reported = said.usage;
+    let session = said.session.clone();
     let kept = keep(project, call.who, &start, &ran, said);
+    if kept.is_ok() && start.shares {
+        ongoing.follow(session.as_deref());
+    }
     (reported, kept.map(|()| ran.ended))
 }
 
-/// Starts the agent of `call` on the change of `project`, its answer file gone first, and waits
-/// for it (see [`spawned`]): how it was started, and what it did.
-fn started<'a>(project: &Project, call: &Call<'a>) -> Result<(Start<'a>, Ran), Error> {
-    let start = start(call, project.id, project.state)?;
+/// Starts the agent of `call` on the change of `project`, continuing the run's Builder session
+/// when it shares it, its answer file gone first, and waits for it (see [`spawned`]): how it was
+/// started, and what it did.
+fn started<'a>(
+    project: &Project,
+    call: &Call<'a>,
+    ongoing: &Ongoing,
+) -> Result<(Start<'a>, Ran), Error> {
+    let mut start = start(call, project.id, project.state)?;
+    if let Some(session) = ongoing.0.as_deref().filter(|_| start.shares) {
+        let resume = start.sheet.resume(session);
+        start.args.extend(resume);
+    }
     let program = program(&start.sheet, project.env)?;
     if let Some(answer) = call.who.answer(project.id) {
         remove(project.state, &answer)?;
@@ -509,6 +565,14 @@ fn earlier_lines(state: &Path, id: &str, role: &str) -> Result<usize, Error> {
     Ok(theirs.count())
 }
 
+/// `session` when it can be passed to an agent as an argument of its own: letters, digits, `-`
+/// and `_`, not empty, and not starting with `-`, which the agent would read as an option.
+fn session_id(session: &str) -> Option<&str> {
+    let allowed = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let valid = !session.is_empty() && !session.starts_with('-') && session.chars().all(allowed);
+    valid.then_some(session)
+}
+
 /// Makes `path` under the state root `state` a new file with `bytes` (see [`files::replace`]).
 fn save(state: &Path, path: &str, bytes: &[u8]) -> Result<(), Error> {
     files::replace(state, path, bytes).map_err(|e| Error::Write(path.to_string(), e))
@@ -535,6 +599,8 @@ fn remove(state: &Path, path: &str) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::*;
     use crate::git::tests::Folder;
 
@@ -558,6 +624,7 @@ mod tests {
             who,
             model: table,
             args,
+            builder_session: Session::Separate,
         };
         let started = start(&call, "c1", Path::new("/state"));
         started.map(|start| start.args).unwrap_or_default()
@@ -642,6 +709,7 @@ mod tests {
                 who: Who::Reviewer,
                 model: &table,
                 args: "round=1",
+                builder_session: Session::Shared,
             };
             let err = start(&call, "c1", Path::new("/state")).err().unwrap();
             assert!(!err.parks());
@@ -784,17 +852,27 @@ mod tests {
             let result = Settings::from_toml(wrong);
             assert!(matches!(result, Err(config::Error::Toml(_))), "{wrong:?}");
         }
+        // A Builder session that is neither refuses them, as it refuses the models.
+        let joint = Settings::from_toml("[session]\nbuilder = \"joint\"\n").unwrap_err();
+        let refused = "invalid TOML: session.builder must be separate or shared, not \"joint\"";
+        assert_eq!(joint.to_string(), refused);
+        for value in ["separate", "shared"] {
+            let session = format!("[session]\nbuilder = \"{value}\"\n");
+            assert!(Settings::from_toml(&session).is_ok(), "{value}");
+        }
     }
 
     /// A project whose `claude` is the shell script `script`, in its folder `bin`, the
-    /// environment gdd runs in, with that folder first on the `PATH`, and the settings of its
-    /// agents.
+    /// environment gdd runs in, with that folder first on the `PATH`, the settings of its
+    /// agents, the Builder session of its change and the run of gdd its calls belong to.
     struct Faked {
         folder: Folder,
         /// The state root: the project folder itself, unless a test moves it.
         state: PathBuf,
         env: Vec<(String, String)>,
         settings: Settings,
+        session: Session,
+        run: RefCell<Ongoing>,
     }
 
     impl Faked {
@@ -811,7 +889,14 @@ mod tests {
                 folder,
                 env: vec![("PATH".into(), path)],
                 settings: Settings::default(),
+                session: Session::Separate,
+                run: RefCell::default(),
             }
+        }
+
+        /// The calls after it belong to another run of gdd: a relaunch, say.
+        fn new_run(&self) {
+            *self.run.borrow_mut() = Ongoing::default();
         }
 
         /// Calls `who` as [`Faked::used`] does: how it ended.
@@ -829,6 +914,7 @@ mod tests {
                 who,
                 model: &table,
                 args: "round=1",
+                builder_session: self.session,
             };
             let project = Project {
                 root: &self.folder.0,
@@ -838,9 +924,9 @@ mod tests {
                 settings: &self.settings,
                 timeout,
             };
-            let mut tries = 1;
+            let (mut tries, mut ongoing) = (1, self.run.borrow_mut());
             loop {
-                match run(&project, &call) {
+                match run(&project, &call, &mut ongoing) {
                     (_, Err(Error::Start(_, e)))
                         if e.kind() == ErrorKind::ExecutableFileBusy && tries < 20 =>
                     {
@@ -1217,5 +1303,155 @@ mod tests {
         let err = faked.call(Who::BuilderBuild, limit).unwrap_err();
         assert!(start.elapsed() < Duration::from_secs(4), "not stopped");
         assert!(matches!(err, Error::Timeout(Who::BuilderBuild, 0)), "{err}");
+    }
+
+    /// A fake agent that keeps its arguments in the file `seen`, each followed by `;`, and
+    /// prints the file `said` of the project.
+    const SEES: &str = "printf '%s;' \"$@\" > seen; cat said 2>/dev/null";
+
+    #[test]
+    fn the_builder_calls_of_one_run_share_its_session() {
+        let mut faked = Faked::new(SEES);
+        faked.session = Session::Shared;
+        let says = |session: &str| faked.write("said", &RESULT.replace("s-9", session));
+        let seen = || faked.read("seen");
+        let resumes = |session: &str| seen().ends_with(&format!(";--resume;{session};"));
+        // The first Builder call of the run starts a session of its own.
+        says("s-1");
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(!seen().contains("--resume"), "{}", seen());
+        // Each Builder call after it continues the session the one before reported, at the end of
+        // its arguments.
+        says("s-2");
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        let build = "-p;/gdd-build change=c1 round=1;";
+        assert!(seen().starts_with(build), "{}", seen());
+        assert!(resumes("s-1"), "{}", seen());
+        // The Reviewer and the Orchestrator neither join it nor change it.
+        says("s-3");
+        for who in [Who::Reviewer, Who::Orchestrator] {
+            faked.call(who, LONG).unwrap();
+            assert!(!seen().contains("--resume"), "{who}: {}", seen());
+        }
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(resumes("s-2"), "{}", seen());
+        // A call that reports no session leaves the one before.
+        faked.write("said", "plain words");
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(resumes("s-3"), "{}", seen());
+        says("s-4");
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(resumes("s-3"), "{}", seen());
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(resumes("s-4"), "{}", seen());
+        // Nothing on disk holds it: neither the lines of the calls nor a file next to their
+        // outputs.
+        let log = faked.read(log::PATH);
+        assert!(!log.contains("\"session\""), "{log}");
+        let outputs = fs::read_dir(faked.folder.0.join(".gdd/changes/c1/outputs")).unwrap();
+        for output in outputs {
+            let name = output.unwrap().file_name().to_string_lossy().into_owned();
+            assert!(name.ends_with(".md") || name.ends_with(".raw"), "{name}");
+        }
+    }
+
+    #[test]
+    fn separate_builder_sessions_never_continue_one() {
+        let faked = Faked::new(SEES);
+        faked.write("said", RESULT);
+        for who in [Who::BuilderTest, Who::BuilderBuild, Who::BuilderBuild] {
+            faked.call(who, LONG).unwrap();
+            assert!(!faked.read("seen").contains("--resume"), "{who}");
+        }
+    }
+
+    #[test]
+    fn a_new_run_starts_a_session_of_its_own() {
+        let mut faked = Faked::new(SEES);
+        faked.session = Session::Shared;
+        faked.write("said", RESULT);
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(faked.read("seen").ends_with(";--resume;s-9;"));
+        // A relaunch, a polish, the fix of a KO at G4: each is a run of its own.
+        faked.new_run();
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(!faked.read("seen").contains("--resume"));
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(faked.read("seen").ends_with(";--resume;s-9;"));
+    }
+
+    #[test]
+    fn what_an_agent_leaves_on_disk_never_chooses_the_session() {
+        // A Builder call that plants a session where gdd once kept them, next to its outputs, and
+        // forges a line of the log with another.
+        let forged = r#"{"change":"c1","role":"builder-test","session":"s-evil"}"#;
+        let plants = format!(
+            "mkdir -p .gdd/changes/c1/outputs; for n in 1 2 3; do \
+             printf s-evil > .gdd/changes/c1/outputs/builder-build-$n.session; done; \
+             echo '{forged}' >> {}; {SEES}",
+            log::PATH
+        );
+        let mut faked = Faked::new(&plants);
+        faked.session = Session::Shared;
+        // What is there before the run is not its session: its first call starts one of its own.
+        faked.write(log::PATH, &format!("{}\n", forged.replace("test", "build")));
+        faked.write(".gdd/changes/c1/outputs/builder-test-1.session", "s-evil");
+        faked.write("said", "plain words");
+        let seen = || faked.read("seen");
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(!seen().contains("--resume"), "{}", seen());
+        // Nor is what a call of the run leaves: the next continues the session a call reported.
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(!seen().contains("--resume"), "{}", seen());
+        faked.write("said", RESULT);
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(seen().ends_with(";--resume;s-9;"), "{}", seen());
+        assert!(faked.read(log::PATH).contains("s-evil"));
+    }
+
+    #[test]
+    fn a_session_that_cannot_be_passed_on_is_never_continued() {
+        let mut faked = Faked::new(SEES);
+        faked.session = Session::Shared;
+        let option = RESULT.replace("s-9", "--dangerously-skip-permissions");
+        faked.write("said", &option);
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        assert!(!faked.read("seen").contains("--resume"));
+        // Nor does it take the place of the one before.
+        faked.write("said", RESULT);
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        faked.write("said", &option);
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        faked.call(Who::BuilderTest, LONG).unwrap();
+        assert!(faked.read("seen").ends_with(";--resume;s-9;"));
+    }
+
+    #[test]
+    fn a_resumed_call_that_fails_is_a_failed_call() {
+        let mut faked = Faked::new(&format!("{SEES}; exit 3"));
+        faked.session = Session::Shared;
+        faked.write("said", RESULT);
+        let err = faked.call(Who::BuilderTest, LONG).unwrap_err();
+        assert!(matches!(err, Error::Failed(Who::BuilderTest, 3)), "{err}");
+        // What it reported is the run's all the same.
+        let err = faked.call(Who::BuilderBuild, LONG).unwrap_err();
+        assert!(matches!(err, Error::Failed(Who::BuilderBuild, 3)), "{err}");
+        assert!(faked.read("seen").ends_with(";--resume;s-9;"));
+    }
+
+    #[test]
+    fn only_a_session_that_reads_as_one_argument_is_passed_on() {
+        let uuid = "0f6c2e1a-7b3d-4c5e-9a8b-1d2e3f4a5b6c";
+        for passed in ["s-9", "fake-session", uuid, "A_9", "x-"] {
+            assert_eq!(session_id(passed), Some(passed));
+        }
+        let options = ["", "-x", "--resume"];
+        let odd = ["a b", "a\n", "a/b", "a=b", "ñ", "$(x)", "a.b"];
+        for refused in options.into_iter().chain(odd) {
+            assert_eq!(session_id(refused), None, "{refused:?}");
+        }
     }
 }

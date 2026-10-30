@@ -1668,6 +1668,30 @@ case "$role" in
       mkdir -p "$(dirname "$also")"
       cp "$fake/build_also_content" "$also"
     fi
+    if [ -f "$fake/delete" ]; then
+      rm -rf "$(cat "$fake/delete")"
+    fi
+    if [ -f "$fake/swap" ]; then
+      swap=$(cat "$fake/swap")
+      target=${swap%%|*}
+      marker=${swap#*|}
+      [ -f "$fake/swap_original" ] || cp "$target" "$fake/swap_original"
+      {
+        echo "[g2]"
+        echo "aaa_restore = \"cp '$fake/swap_original' '$target' && touch '$marker'\""
+      } > "$target"
+    fi
+    if [ -f "$fake/plant" ] && [ "$n" = 1 ]; then
+      plant=$(cat "$fake/plant")
+      target=${plant%%|*}
+      marker=${plant#*|}
+      awk -v line="planted_check = \"touch $marker\"" '{ print } /^\[g2\]/ { print line }' "$target" > "$target.tmp"
+      mv "$target.tmp" "$target"
+      unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+      git add -- "$target" || exit 1
+      git -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "the Builder plants a G2 command" -- "$target" || exit 1
+      git show "HEAD:$target" | grep -q planted_check || exit 1
+    fi
     if [ -f "$fake/record" ]; then
       record=$(cat "$fake/record")
       mkdir -p "$(dirname "$GDD_STATE/.gdd/changes/$record")"
@@ -1782,6 +1806,48 @@ fn agent_call_includes(w: &mut GddWorld, number: usize, text: String) {
     assert!(call.contains(&text), "call {number} was {call:?}");
 }
 
+#[then(expr = "agent call {int} does not include {string}")]
+fn agent_call_does_not_include(w: &mut GddWorld, number: usize, text: String) {
+    let call = agent_call(w, number);
+    assert!(!call.contains(&text), "call {number} was {call:?}");
+}
+
+#[given(expr = "the Builder session is {string}")]
+fn builder_session_is(w: &mut GddWorld, value: String) {
+    assert!(
+        !w.models.contains("[session]"),
+        "the models have a [session] already"
+    );
+    w.models = format!(
+        "{}\n[session]\nbuilder = \"{value}\"\n",
+        w.models.trim_end()
+    );
+    let models = format!("{}\n", w.models);
+    write_models(w, &models);
+}
+
+#[given(expr = "the yellow Builder is {string} with the model {string}")]
+fn yellow_builder_is(w: &mut GddWorld, integration: String, model: String) {
+    let mut in_yellow = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in w.models.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_yellow = trimmed == "[builder.yellow]";
+            lines.push(line.to_string());
+            if in_yellow {
+                lines.push(format!("integration = \"{integration}\""));
+                lines.push(format!("model = \"{model}\""));
+            }
+        } else if !in_yellow {
+            lines.push(line.to_string());
+        }
+    }
+    w.models = lines.join("\n");
+    let models = format!("{}\n", w.models);
+    write_models(w, &models);
+}
+
 /// Whether agent call `number` had the environment variable `name`.
 fn agent_got(w: &GddWorld, number: usize, name: &str) -> bool {
     agent_call(w, number); // fails when there is no such call
@@ -1868,6 +1934,30 @@ fn builder_appends(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Ste
     let line = docstring(step, "the line to append");
     fake_file(w, "append_path", &path);
     fake_file(w, "append_line", &format!("{line}\n"));
+}
+
+// ---- features/regression/kit-cases.feature -------------------------------------------------
+//
+// The fake Builder in build mode also acts on `delete` (a path it removes from the worktree on
+// each call), `swap` (`<path>|<marker>`: it replaces that file with a commands file whose first G2
+// command puts the original back and creates the marker) and `plant` (`<path>|<marker>`: on its
+// first call it adds a G2 command creating the marker to that file and commits it on the branch).
+
+#[given(expr = "the Builder in build mode deletes {string}")]
+fn builder_deletes(w: &mut GddWorld, path: String) {
+    fake_file(w, "delete", &path);
+}
+
+#[given(
+    expr = "the Builder in build mode swaps {string} for checks that put it back and write {string}"
+)]
+fn builder_swaps(w: &mut GddWorld, path: String, marker: String) {
+    fake_file(w, "swap", &format!("{path}|{marker}"));
+}
+
+#[given(expr = "the Builder in build mode commits to {string} a G2 command that writes {string}")]
+fn builder_commits_g2_command(w: &mut GddWorld, path: String, marker: String) {
+    fake_file(w, "plant", &format!("{path}|{marker}"));
 }
 
 #[given(expr = "the spike budget is {string} USD")]
