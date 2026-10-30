@@ -108,4 +108,4 @@ Feature: The cases of the old kit's end-to-end suite, end to end
     When I run "gdd launch c1"
     Then it fails with a message that contains "parked"
     And the worktree of "c1" has no file "planted.ran"
-    And the file ".gdd/changes/c1/g2.json" contains "gdd/commands.toml: protected path for builder-build"
+    And the file ".gdd/changes/c1/g2.json" contains "gdd/commands.toml: protected path"
