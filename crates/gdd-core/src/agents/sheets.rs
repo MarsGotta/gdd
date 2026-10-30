@@ -69,6 +69,10 @@ struct Launch {
     /// filled in.
     #[serde(default)]
     effort_args: Vec<String>,
+    /// Arguments added at the end of a call that continues a session, where `{session}` is
+    /// filled in. None: the agent cannot resume a session.
+    #[serde(default)]
+    resume_args: Vec<String>,
 }
 
 /// What a sheet says of a role.
@@ -155,6 +159,19 @@ impl Sheet {
     /// How the output of this agent reports what it used.
     pub fn usage(&self) -> Reader {
         self.usage
+    }
+
+    /// Whether this agent can continue a session headless: its sheet says how.
+    pub fn resumes(&self) -> bool {
+        !self.launch.resume_args.is_empty()
+    }
+
+    /// The arguments that continue `session`, added at the end of a call: none when this agent
+    /// cannot resume a session.
+    pub fn resume(&self, session: &str) -> Vec<String> {
+        let values = [("session", session)];
+        let args = self.launch.resume_args.iter();
+        args.map(|arg| fill(arg, &values)).collect()
     }
 
     /// The arguments that start this agent headless on `command`, with the words `args`, the
@@ -444,6 +461,20 @@ mod tests {
         assert_eq!(with, without);
         let opencode = of("opencode").launch("build", "w", "m", "reviewer", Some("high"), HERE);
         assert_eq!(opencode.len(), 8);
+    }
+
+    #[test]
+    fn only_claude_code_says_how_to_resume_a_session() {
+        let claude = of("claude");
+        assert!(claude.resumes());
+        assert_eq!(claude.resume("s-1"), ["--resume", "s-1"]);
+        // What the session brings in is not filled again.
+        assert_eq!(claude.resume("{session}"), ["--resume", "{session}"]);
+        for name in ["codex", "opencode"] {
+            let sheet = of(name);
+            assert!(!sheet.resumes(), "{name}");
+            assert!(sheet.resume("s-1").is_empty(), "{name}");
+        }
     }
 
     #[test]

@@ -12,7 +12,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::agents::models::Roles;
+use crate::agents::models::{Roles, Session};
 use crate::classify::{Change, Classification, SPIKE};
 use crate::config::Color;
 use crate::git::{self, Git};
@@ -659,7 +659,7 @@ impl Record {
 }
 
 /// What `gdd classify` prints: the id of the change, its classification, its kind of work, the
-/// model of each role and the Builder rounds against G2.
+/// model of each role, its Builder session and the Builder rounds against G2.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Decision<'a> {
     /// Id of the change.
@@ -673,6 +673,8 @@ pub struct Decision<'a> {
     /// The model of each role.
     #[serde(flatten)]
     pub roles: &'a Roles,
+    /// The Builder session it gets (see [`crate::agents::models::Models::builder_session`]).
+    pub builder_session: Session,
     /// Builder rounds against G2 before the change is parked.
     pub retries: u32,
 }
@@ -982,6 +984,7 @@ mod tests {
             classification: &classification,
             kind: "Spike",
             roles: &roles,
+            builder_session: Session::Shared,
             retries: 3,
         })
         .unwrap();
@@ -993,7 +996,8 @@ mod tests {
                 r#""g1":false,"features":[],"tests_first":true,"mutation":true,"#,
                 r#""reviewer":true,"review":"deep","g4":true,"human_plan":true,"#,
                 r#""type":"Spike","builder":{"integration":"claude","model":"opus"},"#,
-                r#""builder_test":{},"reviewer_model":{},"orchestrator":{},"retries":3}"#
+                r#""builder_test":{},"reviewer_model":{},"orchestrator":{},"#,
+                r#""builder_session":"shared","retries":3}"#
             )
         );
     }

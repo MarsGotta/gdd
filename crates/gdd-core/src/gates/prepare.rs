@@ -368,6 +368,7 @@ mod tests {
                 classification: &classification,
                 kind: &kind,
                 roles: &roles,
+                builder_session: self.models.builder_session(classification.color),
                 retries: 3,
             };
             let project = self.gates();
