@@ -2,8 +2,9 @@
 //! they must. The machines open G0 only once all four pass.
 //!
 //! 1. A failing test turns G2 red: the file at the path of the test `[selftest]` describes is
-//!    set aside, and the G2 commands must all pass without it; then the test is planted, and
-//!    one G2 command at least must fail. The file is given back as it was, from a copy kept in
+//!    set aside, and G2 must be green without it; then the test is planted, and G2 must turn
+//!    red. G2 is judged as the gate judges it: a command red when it fails and is not held to its
+//!    known debt (see [`debt`]). The file is given back as it was, from a copy kept in
 //!    `.gdd/selftest/kept/` meanwhile. Neither planting nor giving back writes through a link,
 //!    not even one the G2 commands made: when one stops the file from going back, the copy stays.
 //! 2. Editing a protected file is blocked (Path Guard and CI): the harness covers the rules file
@@ -24,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde::{Deserialize, Serialize};
 
 use crate::agents::render::first_link;
-use crate::gates::{Gate, Project, approve, configured, count_scenarios};
+use crate::gates::{Gate, Project, approve, configured, count_scenarios, debt};
 use crate::zones::glob_matches;
 use crate::{change, config, exec, guard, log};
 
@@ -185,13 +186,15 @@ pub fn save(state: &Path, selftest: &Selftest) -> Result<(), String> {
 }
 
 /// The first check: its name, and whether it passed. The file at the path of the failing test of
-/// `config` is set aside (see [`set_aside`]) and the G2 commands run, which must all pass; then
-/// the failing test is planted and they run until one fails. The file is given back in every
-/// case (see [`give_back`]): its earlier bytes and permissions, or no file when there was none.
-/// The check passes when G2 was green without the test and red with it; when it was red without
-/// it, the name says which commands failed. It fails without a test to plant or G2 commands, and
-/// when a link kept the file from going back: then the name says where its copy is. What goes
-/// wrong with a file to give back is told before what goes wrong with the test.
+/// `config` is set aside (see [`set_aside`]) and the G2 commands run, none of which may turn G2
+/// red, held to the known debt of G2 as the gate holds them (see [`red`]); then the failing test
+/// is planted and they run until one turns G2 red. The file is given back in every case (see
+/// [`give_back`]): its earlier bytes and permissions, or no file when there was none. The check
+/// passes when G2 was green without the test and red with it; when it was red without it, the
+/// name says which commands turned it red. It fails without a test to plant or G2 commands; when
+/// the known debt cannot be read, and then nothing runs; and when a link kept the file from going
+/// back: then the name says why, or where its copy is. What goes wrong with a file to give back
+/// is told before what goes wrong with the test.
 fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bool), String> {
     let commands = project.commands.of(Gate::G2);
     let (Some(file), Some(content)) = (&config.file, &config.content) else {
@@ -200,11 +203,15 @@ fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bo
     if commands.is_empty() {
         return Ok((FAILING_TEST.to_string(), false));
     }
+    let owed = match debt::of_gate(project.root, Gate::G2) {
+        Ok(owed) => owed,
+        Err(why) => return Ok((format!("{FAILING_TEST} ({why})"), false)),
+    };
     let (root, state) = (project.root, project.state);
     let kept = set_aside(root, state, file)?;
-    let red_without = failing(commands, project);
+    let red_without = turning_red(commands, project, &owed);
     let red = if red_without.is_empty() {
-        planted_and_red(project, file, content, commands)
+        planted_and_red(project, file, content, &owed)
     } else {
         Ok(false)
     };
@@ -227,18 +234,20 @@ fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bo
 }
 
 /// Plants `content` at `file` of `project`, in place of whatever the G2 commands left there (see
-/// [`cleared`]), and runs the `commands` from its root until one fails (see [`fails`]): whether
-/// one did. A test that cannot be planted is an error, and then nothing runs.
+/// [`cleared`]), and runs its G2 commands from its root, held to the known debt `owed`, until one
+/// turns G2 red (see [`red`]): whether one did. A test that cannot be planted is an error, and
+/// then nothing runs.
 fn planted_and_red(
     project: &Project,
     file: &str,
     content: &str,
-    commands: &BTreeMap<String, String>,
+    owed: &BTreeMap<String, Option<u64>>,
 ) -> io::Result<bool> {
     let root = project.root;
     cleared(root, file)?;
     written(&root.join(file), content.as_bytes())?;
-    Ok(commands.values().any(|c| fails(c, project)))
+    let mut commands = project.commands.of(Gate::G2).iter();
+    Ok(commands.any(|(name, c)| red(name, c, project, owed)))
 }
 
 /// Sets aside what was at `file` of the project at `root`: a copy of it, bytes and permissions,
@@ -339,10 +348,29 @@ fn link_on_the_way(root: &Path, file: &str) -> io::Result<Option<PathBuf>> {
     Ok(link.filter(|link| link != Path::new(file)))
 }
 
-/// The names of the `commands` that fail, run in `project` (see [`fails`]), in their order.
-fn failing<'a>(commands: &'a BTreeMap<String, String>, project: &Project) -> Vec<&'a str> {
-    let failed = commands.iter().filter(|(_, c)| fails(c, project));
-    failed.map(|(name, _)| name.as_str()).collect()
+/// The names of the G2 `commands` that turn G2 red, run in `project` held to the known debt
+/// `owed` (see [`red`]), in their order.
+fn turning_red<'a>(
+    commands: &'a BTreeMap<String, String>,
+    project: &Project,
+    owed: &BTreeMap<String, Option<u64>>,
+) -> Vec<&'a str> {
+    let turned = commands.iter().filter(|(n, c)| red(n, c, project, owed));
+    turned.map(|(name, _)| name.as_str()).collect()
+}
+
+/// Whether the G2 command `name`, `command`, turns G2 red, run in `project` (see [`failed`]): it
+/// fails, and it is not held to its known debt in `owed`, by name, the count recorded for it
+/// when there is one, as G2 holds it (see [`debt::held`]).
+fn red(name: &str, command: &str, project: &Project, owed: &BTreeMap<String, Option<u64>>) -> bool {
+    let Some(output) = failed(command, project) else {
+        return false;
+    };
+    let Some(&known) = owed.get(name) else {
+        return true;
+    };
+    let texts = project.commands.count(name);
+    debt::held(name, debt::Ceiling { known, texts }, &output).is_err()
 }
 
 /// Writes `bytes` as the new file at `path`, creating its folder: the file, still open.
@@ -364,14 +392,22 @@ fn removed(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Whether `command`, run from the root of `project` with `GDD_CHANGE=selftest`, within the time
-/// limit of its rules (see [`exec::run_limited`]), fails: it ends with a code other than 0, or it
-/// cannot run.
-fn fails(command: &str, project: &Project) -> bool {
+/// What `command` printed, run from the root of `project` with `GDD_CHANGE=selftest`, within the
+/// time limit of its rules (see [`exec::run_limited`]), when it fails: it ends with a code other
+/// than 0, or it cannot run, and then it printed nothing. `None` when it passes.
+fn failed(command: &str, project: &Project) -> Option<String> {
     let env = [("GDD_CHANGE", "selftest")];
     let limit = project.rules.command_limit;
-    let ran = exec::run_limited(command, project.root, &env, limit);
-    !ran.is_ok_and(|ran| ran.ok())
+    match exec::run_limited(command, project.root, &env, limit) {
+        Ok(ran) if ran.ok() => None,
+        Ok(ran) => Some(ran.output),
+        Err(_) => Some(String::new()),
+    }
+}
+
+/// Whether `command`, run in `project`, fails (see [`failed`]).
+fn fails(command: &str, project: &Project) -> bool {
+    failed(command, project).is_some()
 }
 
 /// Whether the harness of `project` covers the rules file and the CI workflow, and the workflow
@@ -503,6 +539,40 @@ mod tests {
         }
     }
 
+    /// The harness of `COMMANDS` with `unit` as its G2 command and `lint` too, counted by
+    /// `Found {n} error`, with known debt in G2 for `lint`, with `count` recorded when there is
+    /// one.
+    fn owing_lint(lint: &str, unit: &str, count: Option<u64>) -> Harness {
+        let both = format!("lint = '{lint}'\nunit = '{unit}'");
+        let commands = COMMANDS.replace(UNIT, &both);
+        let counted = format!("{commands}[count]\nlint = ['Found {{n}} error']\n");
+        let harness = Harness::new(&counted);
+        harness.folder.write(debt::PATH, &known("lint", count));
+        harness
+    }
+
+    /// The file of the known debt with debt in G2 for `command`, with `count` recorded when
+    /// there is one.
+    fn known(command: &str, count: Option<u64>) -> String {
+        let owed = debt::Debt {
+            command: command.to_string(),
+            gate: Gate::G2,
+            since: "2026-10-30".to_string(),
+            count,
+        };
+        let known = debt::Known {
+            adopted: "2026-10-30".to_string(),
+            debt: vec![owed],
+        };
+        known.to_toml()
+    }
+
+    /// The name of the first check of the self-test of `harness`, and whether it passed.
+    fn first(harness: &Harness) -> (String, bool) {
+        let check = harness.run().unwrap().checks.swap_remove(0);
+        (check.test, check.ok)
+    }
+
     /// The bytes and the permissions of the file at `path`.
     fn bytes_and_mode(path: &Path) -> (String, u32) {
         use std::os::unix::fs::PermissionsExt;
@@ -604,6 +674,63 @@ mod tests {
         fs::remove_file(harness.planted()).unwrap();
         assert!(!harness.run().unwrap().checks[0].ok);
         assert!(!harness.planted().exists());
+    }
+
+    #[test]
+    fn a_g2_command_held_to_its_known_debt_leaves_g2_green() {
+        let unit = "test ! -f tests/failing.txt";
+        for (lint, count) in [
+            ("echo Found 5 errors.; false", Some(5)),
+            ("echo Found 3 errors.; false", Some(5)),
+            ("echo panicked; false", None),
+        ] {
+            let harness = owing_lint(lint, unit, count);
+            let selftest = harness.run().unwrap();
+            assert!(selftest.ok(), "{lint}: {selftest}");
+            assert!(!harness.planted().exists(), "{lint}");
+        }
+    }
+
+    #[test]
+    fn a_g2_command_above_its_known_debt_or_without_it_turns_g2_red() {
+        let unit = "test ! -f tests/failing.txt";
+        let named = "a failing test turns G2 red (G2 is red without it: lint)".to_string();
+        // More than its count, or nothing gdd can count.
+        for lint in ["echo Found 7 errors.; false", "echo panicked; false"] {
+            let harness = owing_lint(lint, unit, Some(5));
+            assert_eq!(first(&harness), (named.clone(), false), "{lint}");
+        }
+        // Debt of another command does not hold it.
+        let harness = owing_lint("echo Found 5 errors.; false", unit, Some(5));
+        harness.folder.write(debt::PATH, &known("types", Some(5)));
+        assert_eq!(first(&harness), (named, false));
+    }
+
+    #[test]
+    fn with_the_test_a_command_held_to_its_known_debt_must_report_more() {
+        // Held to its debt, lint misses the test, and nothing else catches it.
+        let harness = owing_lint("echo Found 5 errors.; false", "true", Some(5));
+        assert_eq!(first(&harness), (FAILING_TEST.to_string(), false));
+        // A count the test raises turns G2 red.
+        let rises = "test -f tests/failing.txt && echo Found 6 errors. || \
+                     echo Found 5 errors.; false";
+        let harness = owing_lint(rises, "true", Some(5));
+        assert_eq!(first(&harness), (FAILING_TEST.to_string(), true));
+        assert!(!harness.planted().exists());
+    }
+
+    #[test]
+    fn known_debt_that_cannot_be_read_fails_the_first_check_and_nothing_runs() {
+        let harness = Harness::with_unit("echo ran >> runs; test ! -f tests/failing.txt");
+        harness.folder.write("tests/failing.txt", "mine\n");
+        harness.folder.write(debt::PATH, "[[debt]");
+        let (named, ok) = first(&harness);
+        let start = "a failing test turns G2 red (gdd/debt.toml: invalid TOML: ";
+        assert!(named.starts_with(start) && named.ends_with(')'), "{named}");
+        assert!(!ok);
+        assert!(!harness.folder.0.join("runs").exists());
+        assert_eq!(fs::read_to_string(harness.planted()).unwrap(), "mine\n");
+        assert!(!harness.kept().exists());
     }
 
     #[test]
