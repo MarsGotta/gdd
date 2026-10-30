@@ -9,7 +9,7 @@ authors.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-gdd-core = { path = "../gdd-core", version = "0.0.1" }
+gdd-core = { path = "../gdd-core", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"
 ratatui = "0.30"
