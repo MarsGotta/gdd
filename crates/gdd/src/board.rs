@@ -25,7 +25,8 @@ const IN_PRE: &str = "in-pre";
 const WAITING: &str = "waiting for your G4";
 
 /// What the Board says of a project without changes.
-const NO_CHANGES: &str = "No changes yet · start one with gdd new-change <id> --title <what>";
+const NO_CHANGES: &str =
+    "No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)";
 
 /// The keys of the list.
 const LIST_KEYS: &str = "↑↓ move · Enter details · d done · t time · q quit";
