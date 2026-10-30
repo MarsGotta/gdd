@@ -589,6 +589,12 @@ struct NewChangeArgs {
     /// Declared minimum color: it raises the color, never lowers it.
     #[arg(long, value_parser = parse_color)]
     min_color: Option<Color>,
+    /// One variant of a Spike for this option of its question; once for each option (2 to 4).
+    #[arg(long = "option", value_name = "OPTION")]
+    options: Vec<String>,
+    /// That many variants of a Spike on the same brief (2 to 4).
+    #[arg(long, value_name = "N")]
+    variants: Option<usize>,
 }
 
 /// What `gdd gate` takes.
@@ -679,6 +685,9 @@ struct ResumeArgs {
     /// What to read about the answer: the rest of the words. Polish needs it.
     #[arg(long, num_args = 1.., allow_hyphen_values = true)]
     note: Vec<String>,
+    /// The variant of a Spike with variants that OK brings to main, or that polish builds again.
+    #[arg(long, value_name = "N")]
+    variant: Option<usize>,
 }
 
 /// A color named on the command line.
@@ -1474,7 +1483,7 @@ fn resume(
     let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
     in_worktree(root, state, id, env, voice, |project, steps| {
-        recipe::resume(project, id, answer, &note, role, steps)
+        recipe::resume(project, id, answer, &note, role, args.variant, steps)
     })
 }
 
@@ -1577,10 +1586,11 @@ fn stack_sheets(action: Option<StacksAction>) -> Result<String, stacks::Error> {
 }
 
 /// The steps of the recipe on change `id` of the project at `root`, the worktree of the change,
-/// as the commands of the same name run them: each reads the configuration as it is when it
-/// runs, but the agents' time limit and settings, read once.
+/// or the one of a variant of a spike while it builds (see [`recipe::Steps::work_in`]), as the
+/// commands of the same name run them: each reads the configuration as it is when it runs, but
+/// the agents' time limit and settings, read once.
 struct ProjectSteps<'a> {
-    root: &'a Path,
+    root: PathBuf,
     /// The state root of the project (see [`state::root`]).
     state: &'a Path,
     id: &'a str,
@@ -1599,7 +1609,7 @@ impl<'a> ProjectSteps<'a> {
     /// rules file sets `limits`, with the agents starting in the environment `env` with
     /// `settings`, saying what the recipe says on its way with `voice`.
     fn new(
-        root: &'a Path,
+        root: &Path,
         state: &'a Path,
         id: &'a str,
         limits: &Limits,
@@ -1608,7 +1618,7 @@ impl<'a> ProjectSteps<'a> {
         voice: Voice,
     ) -> ProjectSteps<'a> {
         ProjectSteps {
-            root,
+            root: root.to_path_buf(),
             state,
             id,
             timeout: Duration::from_secs(limits.agent_timeout_s),
@@ -1622,15 +1632,15 @@ impl<'a> ProjectSteps<'a> {
 impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let decided = decide(self.root, self.state, self.id)?;
+        let decided = decide(&self.root, self.state, self.id)?;
         invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
-        let printed = prepare_decided(self.root, self.state, self.id, &decided)?;
+        let printed = prepare_decided(&self.root, self.state, self.id, &decided)?;
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
     fn agent(&mut self, call: &invoke::Call) -> Result<(), invoke::Error> {
         let project = invoke::Project {
-            root: self.root,
+            root: &self.root,
             state: self.state,
             id: self.id,
             env: self.env,
@@ -1641,7 +1651,7 @@ impl recipe::Steps for ProjectSteps<'_> {
     }
 
     fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
-        let verdict = path_guard(self.root, self.state, self.id, TEST_ROLE, since_snapshot)?;
+        let verdict = path_guard(&self.root, self.state, self.id, TEST_ROLE, since_snapshot)?;
         Ok(verdict.failures)
     }
 
@@ -1650,19 +1660,19 @@ impl recipe::Steps for ProjectSteps<'_> {
             Snapshot::Round => change::snapshot_path(self.id),
             Snapshot::Build => change::build_snapshot_path(self.id),
         };
-        save_snapshot(self.root, self.state, self.id, &path)
+        save_snapshot(&self.root, self.state, self.id, &path)
     }
 
     fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String> {
-        earlier_failures(self.root, self.state, self.id)
+        earlier_failures(&self.root, self.state, self.id)
     }
 
     fn hashes(&mut self) -> Result<guard::Hashes, String> {
-        touched_hashes(self.root, self.state, self.id)
+        touched_hashes(&self.root, self.state, self.id)
     }
 
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
-        let (root, state, id) = (self.root, self.state, self.id);
+        let (root, state, id) = (&self.root, self.state, self.id);
         let report = gate_report(root, state, gate, id, gates::BUILD_ROLE, true)?;
         Ok(report.ok)
     }
@@ -1675,13 +1685,13 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        let (root, state, voice) = (self.root, self.state, &mut self.voice);
+        let (root, state, voice) = (&self.root, self.state, &mut self.voice);
         record_gate(root, state, &args, None, |line| voice.say(line)).map(drop)
     }
 
     /// The recipe holds the merge lock already.
     fn merge(&mut self) -> Result<String, String> {
-        merge_change(self.root, self.state, self.id)
+        merge_change(&self.root, self.state, self.id)
     }
 
     /// After the merge the change is on the main branch: its release runs from the main checkout,
@@ -1693,6 +1703,10 @@ impl recipe::Steps for ProjectSteps<'_> {
 
     fn say(&mut self, line: &str) {
         self.voice.say(line);
+    }
+
+    fn work_in(&mut self, work: &Path) {
+        self.root = work.to_path_buf();
     }
 }
 
@@ -1763,9 +1777,11 @@ fn scope(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     serde_json::to_string(&checked).map_err(|e| e.to_string())
 }
 
-/// `gdd new-change`: the record of a new change `id`, under the state root `state`, and, when it
-/// has none, its branch from the main branch; logged. Its classification as JSON. A change that
-/// exists already is an error.
+/// `gdd new-change`: the record of a new change `id`, under the state root `state`, with the
+/// variants of a spike that asks for them (see [`change::variants`]), and, when it has none, its
+/// branch from the main branch; logged. Its classification as JSON. A change that exists already
+/// is an error, and so is one whose branch would be the branch of a variant (see
+/// [`clashes_with_variants`]).
 fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String, String> {
     let id = args.change.as_str();
     change::check_id(id)?;
@@ -1773,8 +1789,10 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
     if state.join(&path).exists() {
         return Err(format!("Change {id} already exists."));
     }
+    let variants = change::variants(id, &args.kind, &args.options, args.variants)?;
     let main = load_settings(root)?.main_branch;
     let git = Git::new(root);
+    clashes_with_variants(state, &git, id, variants.len())?;
     let branch = change::branch(id);
     let created = match git.exists(&branch) {
         Ok(true) => Ok(()),
@@ -1791,6 +1809,7 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
         resumable: args.resumable,
         min_color: args.min_color,
         created: &ts,
+        variants: &variants,
     };
     let record = change::new_record(&new).map_err(|e| e.to_string())?;
     write(state, &path, &record)?;
@@ -1807,6 +1826,42 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
     let line = entry.line(&ts).map_err(|e| e.to_string())?;
     log::append(state, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
     classify(root, state, id)
+}
+
+/// `Ok` unless new change `id`, with `count` variants, would share a branch, and so a worktree,
+/// with a variant of a spike, under the state root `state`, in the repository of `git`: the
+/// branch of one of its variants is a change or a branch already, or its own branch is the one
+/// of a variant of a spike there (see [`change::variant_id`]).
+fn clashes_with_variants(state: &Path, git: &Git, id: &str, count: usize) -> Result<(), String> {
+    for number in 1..=count {
+        let variant = change::variant_id(id, number);
+        let branch = change::branch(&variant);
+        let recorded = state.join(change::record_path(&variant)).exists();
+        if recorded || git.exists(&branch).map_err(|e| e.to_string())? {
+            return Err(format!(
+                "{branch}, the branch of variant {number} of {id}, is taken already: pick another \
+                 id for the spike"
+            ));
+        }
+    }
+    let Some((spike, number)) = id.rsplit_once("-v") else {
+        return Ok(());
+    };
+    let Ok(number) = number.parse::<usize>() else {
+        return Ok(());
+    };
+    if !change::valid_id(spike) || !state.join(change::record_path(spike)).exists() {
+        return Ok(());
+    }
+    let text = change::read_record(state, spike)?;
+    let variants = change::variants_of(&text);
+    let variants = variants.map_err(|e| format!("{}: {e}", change::record_path(spike)))?;
+    if (1..=variants.len()).contains(&number) {
+        return Err(format!(
+            "change/{id} is the branch of variant {number} of spike {spike}: pick another id"
+        ));
+    }
+    Ok(())
 }
 
 /// `gdd gate`: records a gate decision for the role `role` (see [`approve::record`]); what it
@@ -3798,6 +3853,101 @@ mod tests {
     }
 
     #[test]
+    fn new_change_keeps_the_variants_a_spike_asks_for_and_makes_none_of_their_branches() {
+        let project = committed_project();
+        // Each --option is one option, spaces and all.
+        let words = [
+            "new-change",
+            "c1",
+            "--title",
+            "Storage",
+            "--type",
+            "Spike",
+            "--paths",
+            "src/app.txt",
+            "--option",
+            "SQLite",
+            "--option",
+            "Plain files",
+        ];
+        let words: Vec<String> = words.into_iter().map(str::to_string).collect();
+        let out = run_as(&words, &project.0, None);
+        assert_eq!(out.code, 0, "{out:?}");
+        let expected = serde_json::json!([
+            {"option": "SQLite", "branch": "change/c1-v1"},
+            {"option": "Plain files", "branch": "change/c1-v2"},
+        ]);
+        assert_eq!(record_of(&project, "c1")["variants"], expected);
+        let branches = git(&project, &["branch", "--list", "change/*"]);
+        assert_eq!(branches, "change/c1");
+        let out = project.run("new-change c2 --type Spike --title Same --variants 3");
+        assert_eq!(out.code, 0, "{out:?}");
+        let variants = record_of(&project, "c2")["variants"].clone();
+        let brief = serde_json::json!({"option": null, "branch": "change/c2-v3"});
+        assert_eq!(variants[2], brief);
+        // Without either, a spike has none.
+        let out = project.run("new-change c3 --type Spike --title One");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert_eq!(record_of(&project, "c3").get("variants"), None);
+    }
+
+    /// Runs `command` in `project`, which must fail with `said` in its message.
+    fn refused(project: &Project, command: &str, said: &str) {
+        let out = project.run(command);
+        assert_eq!(out.code, 1, "{command}");
+        assert!(out.stderr.contains(said), "{command}: {out:?}");
+    }
+
+    #[test]
+    fn new_change_refuses_variants_out_of_a_spike_or_out_of_two_to_four() {
+        let project = committed_project();
+        let huge = format!("--variants {}", usize::MAX);
+        for flags in ["--type Spike --variants 5", "--type Spike --option A"] {
+            let command = format!("new-change c1 --title S {flags}");
+            refused(&project, &command, "a spike has 2 to 4 variants");
+        }
+        refused(
+            &project,
+            &format!("new-change c1 --title S --type Spike {huge}"),
+            "a spike has 2 to 4 variants",
+        );
+        for flags in ["--option A --option B", "--variants 2", huge.as_str()] {
+            let command = format!("new-change c1 --title S {flags}");
+            refused(&project, &command, "only a Spike has variants");
+        }
+        let both = "new-change c1 --type Spike --title S --option A --variants 2";
+        refused(&project, both, "do not go together");
+        assert!(!project.0.join(change::record_path("c1")).exists());
+        assert!(git(&project, &["branch", "--list", "change/*"]).is_empty());
+    }
+
+    #[test]
+    fn a_change_never_takes_the_branch_of_a_variant() {
+        let project = committed_project();
+        let spike = "new-change api --type Spike --title A --variants 2";
+        assert_eq!(project.run(spike).code, 0);
+        let taken = "change/api-v2 is the branch of variant 2 of spike api: pick another id";
+        refused(&project, "new-change api-v2 --title Two", taken);
+        assert!(!project.0.join(change::record_path("api-v2")).exists());
+        // Beyond its variants, the id is free; so is one that only looks like a variant.
+        for free in ["api-v3", "web-vx", "web-v1"] {
+            let out = project.run(&format!("new-change {free} --title Free"));
+            assert_eq!(out.code, 0, "{free}: {out:?}");
+        }
+        // A spike whose variants would take a change, or a branch, is refused.
+        let variants = "--type Spike --title S --variants 2";
+        let taken = "change/web-v1, the branch of variant 1 of web, is taken already: pick \
+                     another id for the spike";
+        refused(&project, &format!("new-change web {variants}"), taken);
+        git(&project, &["branch", "change/dbs-v2"]);
+        let taken = "change/dbs-v2, the branch of variant 2 of dbs, is taken already";
+        refused(&project, &format!("new-change dbs {variants}"), taken);
+        assert!(!project.0.join(change::record_path("dbs")).exists());
+        let out = project.run("new-change dbs --type Spike --title S");
+        assert_eq!(out.code, 0, "{out:?}");
+    }
+
+    #[test]
     fn new_change_never_overwrites_a_change_and_keeps_its_branch() {
         let project = committed_project();
         assert_eq!(project.run("new-change c1 --title First").code, 0);
@@ -4457,6 +4607,27 @@ mod tests {
         let voice = Streams::Outcome.out();
         let mut missing = ProjectSteps::new(root, root, "none", &limits, settings, &[], voice);
         assert!(recipe::Steps::hashes(&mut missing).is_err());
+    }
+
+    #[test]
+    fn the_steps_judge_the_worktree_of_a_variant_until_they_move_back() {
+        let project = started_project();
+        let tree = project.worktrees().join("save-v1");
+        let shown = tree.to_string_lossy().to_string();
+        git(&project, &["branch", "change/save-v1"]);
+        git(&project, &["worktree", "add", &shown, "change/save-v1"]);
+        fs::create_dir_all(tree.join("src")).unwrap();
+        fs::write(tree.join("src/a.rs"), "variant\n").unwrap();
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
+        assert_eq!(recipe::Steps::hashes(&mut steps), Ok(guard::Hashes::new()));
+        recipe::Steps::work_in(&mut steps, &tree);
+        let hashes = recipe::Steps::hashes(&mut steps).unwrap();
+        assert_eq!(hashes.keys().collect::<Vec<_>>(), ["src/a.rs"]);
+        recipe::Steps::work_in(&mut steps, root);
+        assert_eq!(recipe::Steps::hashes(&mut steps), Ok(guard::Hashes::new()));
     }
 
     #[test]

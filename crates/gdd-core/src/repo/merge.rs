@@ -25,7 +25,7 @@ use crate::changelog;
 use crate::classify::Classification;
 use crate::config::{self, Color};
 use crate::gates::release::{self, Passed, Steps};
-use crate::gates::spike::ADR_FOLDER;
+use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{self, Gate, approve, debt};
 use crate::git::Git;
 use crate::guard;
@@ -207,17 +207,17 @@ pub fn not_ready(checkout: &Path, main: &str) -> Result<Option<String>, crate::g
     Ok(None)
 }
 
-/// The files under [`ADR_FOLDER`] the branch of spike `id` added or changed since it left the
-/// main branch `main`, from the project root of `git`, each with what it holds on that branch, in
-/// git's order. What the branch removed, and its links, are left out: only files reach main.
-fn adrs(git: &Git, main: &str, id: &str) -> Result<Vec<(String, Vec<u8>)>, crate::git::Error> {
-    let branch = change::branch(id);
+/// The files under [`ADR_FOLDER`] the branch `branch` of a spike, or of one of its variants,
+/// added or changed since it left the main branch `main`, from the project root of `git`, each
+/// with what it holds on that branch, in git's order. What the branch removed, and its links, are
+/// left out: only files reach main.
+fn adrs(git: &Git, main: &str, branch: &str) -> Result<Vec<(String, Vec<u8>)>, crate::git::Error> {
     let mut adrs = Vec::new();
-    for path in git.committed_from(main, &branch)? {
+    for path in git.committed_from(main, branch)? {
         if !path.starts_with(ADR_FOLDER) {
             continue;
         }
-        if let Some(bytes) = git.regular_file_at(&branch, &path)? {
+        if let Some(bytes) = git.regular_file_at(branch, &path)? {
             adrs.push((path, bytes));
         }
     }
@@ -234,32 +234,43 @@ struct Adr {
     held: Option<Found>,
 }
 
-/// What OK at the G4 of spike `id` brings to the main branch `main` of the project at `root`: the
-/// paths of its ADR files (see [`adrs`]).
-pub fn adr_files(root: &Path, main: &str, id: &str) -> Result<Vec<String>, crate::git::Error> {
-    let adrs = adrs(&Git::new(root), main, id)?;
+/// What OK at the G4 of a spike brings to the main branch `main` of the project at `root` from
+/// `branch`, its own or the one of a variant: the paths of its ADR files (see [`adrs`]).
+pub fn adr_files(root: &Path, main: &str, branch: &str) -> Result<Vec<String>, crate::git::Error> {
+    let adrs = adrs(&Git::new(root), main, branch)?;
     Ok(adrs.into_iter().map(|(path, _)| path).collect())
 }
 
-/// OK at the G4 of spike `id`, titled `title`: its ADR files that main lacks (see [`to_bring`])
-/// written in the main checkout `main_checkout` as its branch has them, and committed alone on
-/// the main branch `main`, with the message `gdd(<id>): Spike ADR · <title>`: no changelog
-/// trailer, as spikes are not in the changelog. The main checkout must be able to take a merge
-/// (see [`not_ready`]); with nothing to bring, there is no commit. When a file cannot be written
-/// or the commit fails, the main checkout gets back what it held (see [`put_back`]). The paths it
-/// committed.
+/// Where the ADR files OK at the G4 of a spike brings to main come from, and what they get there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Adrs<'a> {
+    /// The branch they come from: the spike's, or the one of the variant the human chose.
+    pub branch: &'a str,
+    /// What each ADR document gets at its end on main, after a blank line (see
+    /// [`change::variants_section`]): nothing when empty. Other files get nothing.
+    pub appended: &'a str,
+}
+
+/// OK at the G4 of spike `id`, titled `title`: its ADR files that main lacks, `from` its branch or
+/// the one of the variant the human chose, with what `from` appends (see [`to_bring`]), written
+/// in the main checkout `main_checkout`, and committed alone on the main branch `main`, with the
+/// message `gdd(<id>): Spike ADR · <title>`: no changelog trailer, as spikes are not in the
+/// changelog. The main checkout must be able to take a merge (see [`not_ready`]); with nothing to
+/// bring, there is no commit. When a file cannot be written or the commit fails, the main
+/// checkout gets back what it held (see [`put_back`]). The paths it committed.
 pub fn adr_only(
     main_checkout: &Path,
     main: &str,
     id: &str,
     title: &str,
+    from: &Adrs,
 ) -> Result<Vec<String>, String> {
     let said = |e: crate::git::Error| e.to_string();
     if let Some(why) = not_ready(main_checkout, main).map_err(said)? {
         return Err(why);
     }
     let git = Git::new(main_checkout);
-    let adrs = to_bring(&git, main_checkout, main, id)?;
+    let adrs = to_bring(&git, main_checkout, main, from)?;
     if adrs.is_empty() {
         return Ok(Vec::new());
     }
@@ -274,17 +285,23 @@ pub fn adr_only(
     Ok(paths)
 }
 
-/// The ADR files of spike `id` (see [`adrs`]) that the main checkout at `root`, on the main
-/// branch `main` of `git`, lacks: main holds none of them as the branch has it. Each with what
-/// the main checkout holds at its path, to put it back. Before anything is written, what would be
-/// lost or written through is an error: a link, or what is not a folder, on the way to a file,
-/// or what is not a file of its own at its path (see [`files::found`]); or a file git does not
-/// track there.
-fn to_bring(git: &Git, root: &Path, main: &str, id: &str) -> Result<Vec<Adr>, String> {
+/// The ADR files on the branch of `from` (see [`adrs`]), each ADR document with what `from`
+/// appends to it (see [`appended`]) and every other file, an image say, as the branch has it (see
+/// [`spike::is_adr`]), that the main checkout at `root`, on the main branch `main` of `git`,
+/// lacks: main holds none of them as they would be. Each with what the main checkout holds at
+/// its path, to put it back. Before anything is written, what would be lost or written through is
+/// an error: a link, or what is not a folder, on the way to a file, or what is not a file of its
+/// own at its path (see [`files::found`]); or a file git does not track there.
+fn to_bring(git: &Git, root: &Path, main: &str, from: &Adrs) -> Result<Vec<Adr>, String> {
     let said = |e: crate::git::Error| e.to_string();
     let shown = root.display();
     let mut brought = Vec::new();
-    for (path, bytes) in adrs(git, main, id).map_err(said)? {
+    for (path, bytes) in adrs(git, main, from.branch).map_err(said)? {
+        let bytes = if spike::is_adr(&path) {
+            appended(bytes, from.appended)
+        } else {
+            bytes
+        };
         let tracked = git.file_at(main, &path).map_err(said)?;
         if tracked.as_ref() == Some(&bytes) {
             continue;
@@ -304,6 +321,20 @@ fn to_bring(git: &Git, root: &Path, main: &str, id: &str) -> Result<Vec<Adr>, St
         brought.push(Adr { path, bytes, held });
     }
     Ok(brought)
+}
+
+/// The ADR file `bytes` with `text` at its end, after a blank line, its last line ended first;
+/// as it is when `text` is empty.
+fn appended(mut bytes: Vec<u8>, text: &str) -> Vec<u8> {
+    if text.is_empty() {
+        return bytes;
+    }
+    if !bytes.is_empty() && !bytes.ends_with(b"\n") {
+        bytes.push(b'\n');
+    }
+    bytes.push(b'\n');
+    bytes.extend_from_slice(text.as_bytes());
+    bytes
 }
 
 /// What the human reads when bringing `adrs` to the main checkout of `git`, at `root`, failed
@@ -1330,6 +1361,17 @@ mod tests {
         repo
     }
 
+    /// OK at the G4 of spike `id` of `repo`, titled `title`: its ADR files from its own branch,
+    /// as they are there.
+    fn adr_ok(repo: &Repo, id: &str, title: &str) -> Result<Vec<String>, String> {
+        let branch = change::branch(id);
+        let from = Adrs {
+            branch: &branch,
+            appended: "",
+        };
+        adr_only(repo.root(), "main", id, title, &from)
+    }
+
     /// The paths the last commit on `main` of `repo` touched.
     fn last_commit_paths(repo: &Repo) -> Vec<String> {
         let shown = repo.git(&["show", "--format=", "--name-only", "main"]);
@@ -1349,9 +1391,9 @@ mod tests {
             "docs/adr/0002-storage.md",
             "docs/adr/img/schema.svg",
         ];
-        assert_eq!(adr_files(repo.root(), "main", "c1").unwrap(), adrs);
+        assert_eq!(adr_files(repo.root(), "main", "change/c1").unwrap(), adrs);
         let before = repo.git(&["rev-parse", "main"]);
-        let committed = adr_only(repo.root(), "main", "c1", "Storage").unwrap();
+        let committed = adr_ok(&repo, "c1", "Storage").unwrap();
         assert_eq!(committed, adrs);
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         assert_eq!(message, "gdd(c1): Spike ADR · Storage");
@@ -1378,26 +1420,78 @@ mod tests {
         repo.write("docs/adr/0002-storage.md", STORAGE);
         repo.git(&["add", "docs/adr/0002-storage.md"]);
         repo.git(&["commit", "-q", "-m", "already there"]);
-        let committed = adr_only(repo.root(), "main", "c1", "Storage").unwrap();
+        let committed = adr_ok(&repo, "c1", "Storage").unwrap();
         let brought = ["docs/adr/0001-old.md", "docs/adr/img/schema.svg"];
         assert_eq!(committed, brought);
         assert_eq!(last_commit_paths(&repo), committed);
         // With nothing left to bring, no commit.
         let before = repo.git(&["rev-parse", "main"]);
-        assert_eq!(adr_only(repo.root(), "main", "c1", "Storage"), Ok(vec![]));
+        assert_eq!(adr_ok(&repo, "c1", "Storage"), Ok(vec![]));
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
         // A spike without ADR files has nothing to bring.
         repo.git(&["branch", "change/c2"]);
-        assert!(adr_files(repo.root(), "main", "c2").unwrap().is_empty());
-        assert_eq!(adr_only(repo.root(), "main", "c2", "None"), Ok(vec![]));
+        let none = adr_files(repo.root(), "main", "change/c2").unwrap();
+        assert!(none.is_empty());
+        assert_eq!(adr_ok(&repo, "c2", "None"), Ok(vec![]));
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
+    }
+
+    #[test]
+    fn ok_to_a_variant_brings_its_adr_files_from_its_branch_with_what_is_appended() {
+        let repo = spiked();
+        repo.git(&["checkout", "-q", "-b", "change/c1-v2", "main"]);
+        let postgres = "# 0002\n## Decision\nPostgres.";
+        repo.write("docs/adr/0002-storage.md", postgres);
+        repo.write("docs/adr/0002-schema.svg", "<svg/>");
+        repo.write("docs/adr/img/0002-notes.md", "# Notes\n");
+        repo.write("src/app.txt", "variant code\n");
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        let adrs = [
+            "docs/adr/0002-schema.svg",
+            "docs/adr/0002-storage.md",
+            "docs/adr/img/0002-notes.md",
+        ];
+        let files = adr_files(repo.root(), "main", "change/c1-v2").unwrap();
+        assert_eq!(files, adrs);
+        let section = "## Variants\nChosen: variant 2 (Postgres), branch change/c1-v2.\n";
+        let from = Adrs {
+            branch: "change/c1-v2",
+            appended: section,
+        };
+        let brought = adr_only(repo.root(), "main", "c1", "Storage", &from).unwrap();
+        assert_eq!(brought, adrs);
+        let message = repo.git(&["log", "-1", "--format=%B", "main"]);
+        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        assert_eq!(last_commit_paths(&repo), adrs);
+        let expected = format!("{postgres}\n\n{section}");
+        assert_eq!(held(&repo, "docs/adr/0002-storage.md"), expected);
+        // Only the ADR gets the section: what else it brings reaches main as the branch has it.
+        assert_eq!(held(&repo, "docs/adr/0002-schema.svg"), "<svg/>");
+        assert_eq!(held(&repo, "docs/adr/img/0002-notes.md"), "# Notes\n");
+        assert!(!repo.root().join("src/app.txt").exists());
+        assert_eq!(repo.git(&["status", "--porcelain"]), "");
+        // Once main has them as they would be, there is nothing left to bring.
+        let again = adr_only(repo.root(), "main", "c1", "Storage", &from);
+        assert_eq!(again, Ok(vec![]));
+    }
+
+    #[test]
+    fn what_is_appended_to_an_adr_comes_after_a_blank_line() {
+        let section = "## Variants\nx\n";
+        let ended = appended(b"# 0002\n".to_vec(), section);
+        assert_eq!(ended, b"# 0002\n\n## Variants\nx\n");
+        let open = appended(b"# 0002".to_vec(), section);
+        assert_eq!(open, b"# 0002\n\n## Variants\nx\n");
+        assert_eq!(appended(Vec::new(), section), b"\n## Variants\nx\n");
+        assert_eq!(appended(b"# 0002".to_vec(), ""), b"# 0002");
     }
 
     #[test]
     fn a_spike_reaches_main_only_from_a_main_checkout_that_could_take_a_merge() {
         let repo = spiked();
         repo.git(&["checkout", "-q", "change/c1"]);
-        let err = adr_only(repo.root(), "main", "c1", "Storage").unwrap_err();
+        let err = adr_ok(&repo, "c1", "Storage").unwrap_err();
         let shown = repo.root().display();
         let expected = format!(
             "the merge needs the main checkout ({shown}) on main, and it is on change/c1: \
@@ -1407,13 +1501,13 @@ mod tests {
         repo.git(&["checkout", "-q", "main"]);
         repo.write("README.md", "uncommitted\n");
         let before = repo.git(&["rev-parse", "main"]);
-        let err = adr_only(repo.root(), "main", "c1", "Storage").unwrap_err();
+        let err = adr_ok(&repo, "c1", "Storage").unwrap_err();
         assert!(err.contains("without uncommitted changes"), "{err}");
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
         assert!(!repo.root().join("docs/adr/0002-storage.md").exists());
         // A spike whose branch does not exist cannot be read.
         repo.git(&["checkout", "-q", "--", "README.md"]);
-        let err = adr_only(repo.root(), "main", "c9", "None").unwrap_err();
+        let err = adr_ok(&repo, "c9", "None").unwrap_err();
         assert!(err.starts_with("git diff"), "{err}");
     }
 
@@ -1463,7 +1557,7 @@ mod tests {
             in_the_way(&repo, &elsewhere.0);
             let draft = held(&repo, NEW);
             let main = repo.git(&["rev-parse", "main"]);
-            let err = adr_only(repo.root(), "main", "c1", "Storage").unwrap_err();
+            let err = adr_ok(&repo, "c1", "Storage").unwrap_err();
             assert!(err.starts_with(start), "{way}: {err}");
             assert!(err.ends_with(", then answer again"), "{way}: {err}");
             // Nothing written: not the ADRs before it either, nor through the link.
@@ -1488,8 +1582,8 @@ mod tests {
             "docs/adr/0002-storage.md",
             "docs/adr/img/schema.svg",
         ];
-        assert_eq!(adr_files(repo.root(), "main", "c1").unwrap(), adrs);
-        let brought = adr_only(repo.root(), "main", "c1", "Storage").unwrap();
+        assert_eq!(adr_files(repo.root(), "main", "change/c1").unwrap(), adrs);
+        let brought = adr_ok(&repo, "c1", "Storage").unwrap();
         assert_eq!(brought, adrs);
         assert!(fs::symlink_metadata(repo.root().join("docs/adr/0003-code.md")).is_err());
         let kept = repo.tool().file_at("main", "docs/adr/0003-code.md");
@@ -1507,7 +1601,7 @@ mod tests {
         fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
         let path = hooks.0.display().to_string();
         repo.git(&["config", "--local", "core.hooksPath", &path]);
-        let err = adr_only(repo.root(), "main", "c1", "Storage").unwrap_err();
+        let err = adr_ok(&repo, "c1", "Storage").unwrap_err();
         assert!(err.starts_with("git commit "), "{err}");
         assert!(err.contains("refused"), "{err}");
         let end = ". The ADR files were taken back out: main is as it was.";
@@ -1521,7 +1615,7 @@ mod tests {
         assert!(!repo.tool().has_staged("docs/adr").unwrap());
         // Once git takes the commit, the same answer brings them.
         repo.git(&["config", "--local", "core.hooksPath", "/dev/null"]);
-        assert!(adr_only(repo.root(), "main", "c1", "Storage").is_ok());
+        assert!(adr_ok(&repo, "c1", "Storage").is_ok());
         assert_eq!(held(&repo, "docs/adr/0002-storage.md"), STORAGE);
     }
 
