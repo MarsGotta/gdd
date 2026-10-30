@@ -2,7 +2,7 @@ Feature: gdd init
   A project gets GDD from flags, without a screen (the form comes later, on top of this). gdd init
   writes the harness into the folder it runs in: the project basics, the gate commands of the
   chosen stack sheets, the protected paths, a first zone map, which agent and model plays each role,
-  the Brief skeleton, bin/gdd, the CI workflow and the agents' commands; then it commits what it
+  the Brief skeleton, the CI workflow and the agents' commands; then it commits what it
   wrote, and only that. It never overwrites a file: when one is already there it names it and
   writes nothing. The Reviewer is of another model family than the Builder; with one family only,
   the human must say they accept it, and the choice is recorded with its date.
@@ -14,7 +14,7 @@ Feature: gdd init
     When I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
     Then it succeeds
     And the last commit on main says "gdd init"
-    And the file "bin/gdd" is executable
+    And the file "bin/gdd" does not exist
     And the file ".gitignore" contains ".gdd/"
     And the file "gdd/generated.toml" contains "gdd/commands.toml"
 

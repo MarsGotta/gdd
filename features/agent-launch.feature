@@ -83,7 +83,8 @@ Feature: gdd starts the agents itself
     When I run "gdd launch c1"
     Then it succeeds
     And agent call 2 includes "--permission-mode acceptEdits"
-    And agent call 2 includes "Bash(bin/gdd gate:*)"
+    And agent call 2 includes "Bash(gdd gate:*)"
+    And agent call 2 does not include "bin/gdd"
     And agent call 2 includes "Write(.gdd/**)"
 
   Scenario: Codex gets the reasoning effort of its role
