@@ -16,7 +16,7 @@ Before writing tests, steps or code, read the instructions of each stack of the 
 $ARGUMENTS
 ```
 
-It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`. With `mode=spike`, the change is a Spike: read the Spike section below first.
+It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`. With `mode=spike`, the change is a Spike: read the Spike section below first. A spike may also say `variant=<n>`.
 
 ## Your context (only this)
 
@@ -42,6 +42,8 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 A Spike answers one question so the human can decide. Build the smallest thing that answers it, fast; its code is thrown away and never reaches main. Measure what the question needs (numbers, not impressions). Write the decision in a new file under docs/adr/ (next free number, like the ones there): the question, the options you tried, what you measured, a `## Decision` section with your proposal and why, and what it means for the next change. Only the ADR reaches main, when the human approves it at G4.
 
 G2 for a spike is Path Guard and that ADR: `bin/gdd g2 --role builder-build` runs it, without the project's tests. The spike has a fixed budget: it parks once its agent calls cost what `[spike] max_usd` in `gdd/rules.toml` allows.
+
+With `variant=<n>`, you build variant n of the spike: read its option in the record (`variants`). Build only your option, as if it were the only one, and measure the same things the other variants will, so the human can compare. Your ADR proposes your option; the human picks one at G4. The record is `<state>/.gdd/changes/<id>/change.json`; variant n is entry n of `variants`, counted from 1, and an `option` of `null` means the same brief as the others. You work in the worktree of your variant, on its own branch, and its budget counts only your variant's calls.
 
 ## What you never do
 
