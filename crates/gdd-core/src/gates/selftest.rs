@@ -8,7 +8,8 @@
 //!    `.gdd/selftest/kept/` meanwhile. Neither planting nor giving back writes through a link,
 //!    not even one the G2 commands made: when one stops the file from going back, the copy stays.
 //! 2. Editing a protected file is blocked (Path Guard and CI): the harness covers the rules file
-//!    and the CI workflow, and the workflow runs `bin/gdd ci`.
+//!    and the CI workflow, and the workflow runs `gdd ci`. The `bin/gdd ci` of a project set up
+//!    by an earlier gdd contains it, so it still counts.
 //! 3. Rollback works in pre: `[release] rollback_pre` passes or, without it, the release is
 //!    simulated.
 //! 4. Zero scenarios counts as a failure: G3 counts none in an empty folder, and the rules keep
@@ -47,8 +48,8 @@ const ZERO_SCENARIOS: &str = "zero scenarios counts as a failure";
 /// The CI workflow, from the project root.
 const WORKFLOW: &str = ".github/workflows/gdd.yml";
 
-/// What the CI workflow must run.
-const RUNS_CI: &str = "bin/gdd ci";
+/// What the CI workflow must run; `bin/gdd ci`, which contains it, counts too.
+const RUNS_CI: &str = "gdd ci";
 
 /// Where the file at the path of the failing test is kept while it is set aside, under its own
 /// path, from the state root (see [`crate::state::root`]).
@@ -411,7 +412,7 @@ fn fails(command: &str, project: &Project) -> bool {
 }
 
 /// Whether the harness of `project` covers the rules file and the CI workflow, and the workflow
-/// runs `bin/gdd ci`. A workflow that cannot be read runs nothing.
+/// runs `gdd ci`, or `bin/gdd ci`, which contains it. A workflow that cannot be read runs nothing.
 fn harness_protected(project: &Project) -> bool {
     let harness = &project.rules.harness;
     let protected = |path: &str| harness.iter().any(|p| glob_matches(p, path));
@@ -468,7 +469,7 @@ mod tests {
     const UNIT: &str = "unit = 'test ! -f tests/failing.txt'";
 
     /// A CI workflow that runs the gates.
-    const RUNS_THE_GATES: &str = "steps:\n  - run: bin/gdd ci\n";
+    const RUNS_THE_GATES: &str = "steps:\n  - run: gdd ci\n";
 
     /// A project with a CI workflow that runs the gates, and what the self-test reads from it.
     struct Harness {
@@ -940,6 +941,21 @@ mod tests {
         assert_eq!(harness.passed(), [true, false, true, true]);
         fs::create_dir_all(&workflow).unwrap();
         assert_eq!(harness.passed(), [true, false, true, true]);
+    }
+
+    #[test]
+    fn a_ci_that_runs_gdd_ci_or_the_bin_gdd_ci_of_an_earlier_gdd_runs_the_gates() {
+        let harness = Harness::new(COMMANDS);
+        let workflow = harness.folder.0.join(WORKFLOW);
+        for (runs, passes) in [
+            ("gdd ci", true),
+            ("bin/gdd ci", true),
+            ("echo gdd", false),
+            ("gdd selftest", false),
+        ] {
+            fs::write(&workflow, format!("steps:\n  - run: {runs}\n")).unwrap();
+            assert_eq!(harness.passed()[1], passes, "{runs}");
+        }
     }
 
     #[test]

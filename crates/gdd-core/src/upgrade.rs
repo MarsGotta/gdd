@@ -378,7 +378,7 @@ impl Upgrade<'_> {
         }
         let review = format!("Review it: git diff {main} {BRANCH}");
         let merge = format!("git merge {BRANCH}, git branch -d {BRANCH}");
-        let take = format!("Take it: {merge}, then bin/gdd agents install");
+        let take = format!("Take it: {merge}, then gdd agents install");
         lines.extend([review, take]);
         lines.join("\n")
     }
@@ -659,7 +659,7 @@ mod tests {
              \x20 docs/old.md: yours, gdd {VERSION} no longer writes it\n\
              Conflicts: git switch gdd-upgrade, settle the marks, commit, then git switch main.\n\
              Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then bin/gdd agents install"
+             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then gdd agents install"
         );
         assert_eq!(said, expected);
         let ours = project.on_branch(BASICS).unwrap();
@@ -724,7 +724,7 @@ mod tests {
              \x20 docs/brief.md: {kept}\n\
              \x20 .github/workflows/gdd.yml: merged with your changes\n\
              Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then bin/gdd agents install"
+             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then gdd agents install"
         );
         assert_eq!(said, expected);
         let workflow = project.on_branch(WORKFLOW).unwrap();

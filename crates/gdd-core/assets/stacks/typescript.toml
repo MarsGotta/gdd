@@ -41,7 +41,7 @@ lint = ["✖ {n} problem"]
 types = ["error TS"]
 unit = ["Tests  {n} failed"]
 
-[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+[ci]   # steps of .github/workflows/gdd.yml before gdd ci
 setup = '''
       - uses: actions/setup-node@v6
         with:

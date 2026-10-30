@@ -56,7 +56,7 @@ const G0_BY_MACHINES: &str =
     "G0 is opened by the machines (--by machines): Brief written and harness 4/4.";
 
 /// Why G0 does not open without a passing self-test.
-const G0_UNTESTED: &str = "G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest).";
+const G0_UNTESTED: &str = "G0 cannot open: the harness self-test is not 4/4 (gdd selftest).";
 
 /// Why G0 does not open without the Project Brief.
 const G0_NO_BRIEF: &str = "G0 cannot open: docs/brief.md (Project Brief) is missing.";
@@ -1094,7 +1094,7 @@ mod tests {
         );
         assert_eq!(
             G0_UNTESTED,
-            "G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest)."
+            "G0 cannot open: the harness self-test is not 4/4 (gdd selftest)."
         );
         assert_eq!(
             G0_NO_BRIEF,

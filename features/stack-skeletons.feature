@@ -72,12 +72,13 @@ Feature: Stack skeletons
     When I run "gdd init --name Notes --platform web --stack rust python --agents claude codex"
     Then the file ".github/workflows/gdd.yml" contains "dtolnay/rust-toolchain"
     And the file ".github/workflows/gdd.yml" contains "astral-sh/setup-uv"
-    And the file ".github/workflows/gdd.yml" contains "run: bin/gdd ci"
+    And the file ".github/workflows/gdd.yml" contains "run: gdd ci"
 
   Scenario: gdd init says what comes next
     Given an empty folder
     When I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
-    Then the output contains "bin/gdd bootstrap"
+    Then the output contains "run gdd bootstrap"
+    And the output does not contain "bin/gdd"
 
   Scenario: Bootstrap installs each stack and commits its lock file
     Given an empty folder

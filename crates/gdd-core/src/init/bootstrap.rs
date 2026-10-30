@@ -23,7 +23,7 @@ const MESSAGE: &str = "gdd bootstrap";
 /// What it says when the run wrote nothing to commit.
 const NOTHING: &str = "Nothing new to commit.";
 /// What to do once the stacks are installed.
-const NEXT: &str = "Next: bin/gdd selftest";
+const NEXT: &str = "Next: gdd selftest";
 
 /// Why gdd bootstrap stopped, and what it said until then.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,7 +206,7 @@ mod tests {
         let (why, said) = ran(&folder, &installs, &[]);
         assert_eq!(why, "");
         let expected = "a: printf one\none\nb: echo two >&2\ntwo\nc: true\n\
-                        Nothing new to commit.\nNext: bin/gdd selftest";
+                        Nothing new to commit.\nNext: gdd selftest";
         assert_eq!(said, expected);
         assert_eq!(last_commit(&folder), "first");
     }
@@ -236,7 +236,7 @@ mod tests {
         let supply_chain = ["a.lock", "b.lock", "c.lock", "d.lock", "e.lock"];
         let (why, said) = ran(&folder, &[("x", writes)], &supply_chain);
         assert_eq!(why, "");
-        let end = "\nCommitted: a.lock, b.lock\nNext: bin/gdd selftest";
+        let end = "\nCommitted: a.lock, b.lock\nNext: gdd selftest";
         assert!(said.ends_with(end), "{said}");
         assert_eq!(last_commit(&folder), "gdd bootstrap");
         let last = git(&folder, &["show", "--name-only", "--format=", "HEAD"]);
@@ -319,7 +319,7 @@ mod tests {
         let env = with_cargo(&programs, "echo lock > Cargo.lock");
         let said = bootstrap(&folder.0, &rust, &env).unwrap();
         let expected = "rust: cargo generate-lockfile\n\
-                        Committed: Cargo.lock\nNext: bin/gdd selftest";
+                        Committed: Cargo.lock\nNext: gdd selftest";
         assert_eq!(said, expected);
         let env = with_cargo(&programs, "echo broken; exit 1");
         let stopped = bootstrap(&folder.0, &rust, &env).unwrap_err();

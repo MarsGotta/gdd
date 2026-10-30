@@ -20,9 +20,9 @@ mod roles;
 mod skeletons;
 
 use std::fmt;
-use std::fs::{self, OpenOptions, Permissions};
+use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -46,8 +46,6 @@ const PROJECT: &str = "gdd/project.toml";
 const ZONES: &str = "gdd/zones.toml";
 /// Which gdd wrote the files written once, and what gdd init was asked.
 pub(crate) const GENERATED: &str = "gdd/generated.toml";
-/// The entry point of the agents and CI.
-const BIN: &str = "bin/gdd";
 /// The CI workflow.
 const WORKFLOW: &str = ".github/workflows/gdd.yml";
 /// What git leaves out.
@@ -74,8 +72,8 @@ const NEVER_OVERWRITES: &str =
     "gdd init never overwrites a file: move or remove these, then run it again";
 
 /// What to do once the project is set up.
-const NEXT: &str = "Next: run bin/gdd bootstrap (first install of each stack and its lock file), \
-                    bin/gdd agents check, then start your agent and run the gdd-setup command \
+const NEXT: &str = "Next: run gdd bootstrap (first install of each stack and its lock file), \
+                    gdd agents check, then start your agent and run the gdd-setup command \
                     (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
 
 /// An environment: its variables, with their values.
@@ -287,7 +285,6 @@ impl Plan {
         } else {
             MAIN.to_string()
         };
-        let values = files::Values::new(options, &sheets, &main);
         let answers = Answers {
             name: options.name.clone(),
             description: options.description.clone(),
@@ -300,11 +297,8 @@ impl Plan {
             day: today.to_string(),
             main,
         };
-        // The harness: the files written once, with bin/gdd before the CI workflow.
+        // The harness: the files written once.
         let mut texts = render_once(&answers, env)?;
-        let workflow = texts.iter().position(|(path, _)| path == WORKFLOW);
-        let bin = (BIN.to_string(), values.fill(files::BIN));
-        texts.insert(workflow.unwrap_or(texts.len()), bin);
         texts.extend(instructions);
         texts.extend(skeleton);
         let appended = ignore.as_ref().map(|_| GITIGNORE);
@@ -335,9 +329,6 @@ impl Plan {
             create(root, path, text)?;
             written.push(path.to_string());
         }
-        let runnable = Permissions::from_mode(0o755);
-        let made = fs::set_permissions(root.join(BIN), runnable);
-        made.map_err(|e| cannot_write(BIN, &e))?;
         if let Some(line) = &self.ignore {
             append(root, GITIGNORE, line)?;
             written.push(GITIGNORE.to_string());
@@ -374,7 +365,6 @@ fn check_targets(
         models::PATH,
         GENERATED,
         approve::BRIEF,
-        BIN,
         WORKFLOW,
     ];
     let skeleton = skeleton.iter().map(|(path, _)| path.as_str());
@@ -489,6 +479,8 @@ fn cannot_write(path: &str, e: &std::io::Error) -> String {
 mod tests {
     use super::*;
     use crate::git::tests::{Folder, env};
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
     use std::process::Command;
 
     fn names(named: &[&str]) -> Vec<String> {
@@ -541,7 +533,6 @@ mod tests {
             "gdd/models.toml",
             "gdd/generated.toml",
             "docs/brief.md",
-            "bin/gdd",
             ".github/workflows/gdd.yml",
             "AGENTS.md",
             "CLAUDE.md",
@@ -557,10 +548,11 @@ mod tests {
         assert_eq!(lines[..first.len()], first);
         let skill = ".agents/skills/gdd-stack-rust/SKILL.md";
         assert_eq!(lines[lines.len() - 2..], [skill, NEXT]);
-        let next = "Next: run bin/gdd bootstrap (first install of each stack and its lock file), \
-                    bin/gdd agents check, then start your agent and run the gdd-setup command \
+        let next = "Next: run gdd bootstrap (first install of each stack and its lock file), \
+                    gdd agents check, then start your agent and run the gdd-setup command \
                     (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
         assert_eq!(NEXT, next);
+        assert!(!folder.0.join("bin").exists());
         assert_eq!(git(&folder, &["branch", "--show-current"]), "main");
         let subject = git(&folder, &["log", "-1", "--format=%s"]);
         assert_eq!(subject, format!("gdd init {VERSION}"));
@@ -574,11 +566,9 @@ mod tests {
     }
 
     #[test]
-    fn the_files_say_the_project_and_bin_gdd_runs() {
+    fn the_files_say_the_project() {
         let folder = Folder::new();
         init_notes(&folder).unwrap();
-        let bin = fs::metadata(folder.0.join(BIN)).unwrap();
-        assert_eq!(bin.permissions().mode() & 0o777, 0o755);
         assert_eq!(read(&folder, GITIGNORE), "/target\n.gdd/\n");
         let cargo = read(&folder, "Cargo.toml");
         let package = "[package]\nname = \"notes\"\n";
@@ -716,10 +706,10 @@ mod tests {
         assert_eq!(read(&folder, approve::BRIEF), "mine\n");
         // A link counts, even one to nothing.
         let folder = Folder::new();
-        fs::create_dir_all(folder.0.join("bin")).unwrap();
-        std::os::unix::fs::symlink("nowhere", folder.0.join(BIN)).unwrap();
+        fs::create_dir_all(folder.0.join(".github/workflows")).unwrap();
+        std::os::unix::fs::symlink("nowhere", folder.0.join(WORKFLOW)).unwrap();
         let said = init_notes(&folder).unwrap_err();
-        assert_eq!(said, Error::Exists(vec![BIN.to_string()]));
+        assert_eq!(said, Error::Exists(vec![WORKFLOW.to_string()]));
     }
 
     #[test]

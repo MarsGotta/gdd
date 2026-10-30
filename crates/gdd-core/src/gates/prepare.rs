@@ -28,7 +28,7 @@ use crate::log;
 const G0_PENDING: &str = "G0 pending: run the Setup (the gdd-setup command).";
 
 /// How a human approves the red zones.
-const APPROVE_ZONES: &str = "(bin/gdd gate zones ok --by human)";
+const APPROVE_ZONES: &str = "(gdd gate zones ok --by human)";
 
 /// Why a change with new or changed scenarios waits for G1.
 const G1_PENDING: &str =
@@ -100,7 +100,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
     let branch = change::branch(id);
     if git.current_branch().map_err(|e| e.to_string())? != branch {
         return Err(format!(
-            "Not on branch {branch}. Launch the change with bin/gdd launch {id}."
+            "Not on branch {branch}. Launch the change with gdd launch {id}."
         ));
     }
     let (resume_green, start) = if built_before(state, id)? {
@@ -434,7 +434,7 @@ mod tests {
         let not_approved = format!("{} {APPROVE_ZONES}", ZonesState::NotApproved.message());
         assert_eq!(project.refused(), not_approved);
         assert!(not_approved.starts_with("Red zones not approved"));
-        assert_eq!(APPROVE_ZONES, "(bin/gdd gate zones ok --by human)");
+        assert_eq!(APPROVE_ZONES, "(gdd gate zones ok --by human)");
         let spike = RECORD.replace("\"Feature\"", "\"Spike\"");
         project.repo.write(".gdd/changes/c1/change.json", &spike);
         assert_eq!(project.prepared()["type"], "Spike");
@@ -549,7 +549,7 @@ mod tests {
         let project = fixture(RECORD);
         project.ready();
         project.repo.git(&["checkout", "-q", "main"]);
-        let expected = "Not on branch change/c1. Launch the change with bin/gdd launch c1.";
+        let expected = "Not on branch change/c1. Launch the change with gdd launch c1.";
         assert_eq!(project.refused(), expected);
         assert_eq!(project.record()["state"], "open");
         assert!(project.log().is_empty());
