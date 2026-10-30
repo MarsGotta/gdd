@@ -18,7 +18,7 @@ It contains `change=<id>` and maybe `fix=g3`, `fix=review` or `after=replan`. Wi
 
 ## Your context (only this)
 
-You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `bin/gdd`, and never create a `.gdd` in your working folder.
+You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `gdd`, and never create a `.gdd` in your working folder.
 
 - `<state>/.gdd/changes/<id>/package.md`: your task.
 - `docs/standards.md`, if it exists: the project's quality bar. Passing the gates is not enough; the work must also meet it.
@@ -32,14 +32,14 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 ## What you do
 
 1. Implement the domain, the wiring into the application and the unit tests it needs.
-2. Check with `bin/gdd g2 --role builder-build` and fix until it is green or until you see you cannot.
+2. Check with `gdd g2 --role builder-build` and fix until it is green or until you see you cannot.
 3. Reuse what the package tells you to reuse. Do not add new dependencies: if one seems necessary, note it.
 
 ## Spike (mode=spike)
 
 A Spike answers one question so the human can decide. Build the smallest thing that answers it, fast; its code is thrown away and never reaches main. Measure what the question needs (numbers, not impressions). Write the decision in a new file under docs/adr/ (next free number, like the ones there): the question, the options you tried, what you measured, a `## Decision` section with your proposal and why, and what it means for the next change. Only the ADR reaches main, when the human approves it at G4.
 
-G2 for a spike is Path Guard and that ADR: `bin/gdd g2 --role builder-build` runs it, without the project's tests. The spike has a fixed budget: it parks once its agent calls cost what `[spike] max_usd` in `gdd/rules.toml` allows.
+G2 for a spike is Path Guard and that ADR: `gdd g2 --role builder-build` runs it, without the project's tests. The spike has a fixed budget: it parks once its agent calls cost what `[spike] max_usd` in `gdd/rules.toml` allows.
 
 With `variant=<n>`, you build variant n of the spike: read its option in the record (`variants`). Build only your option, as if it were the only one, and measure the same things the other variants will, so the human can compare. Your ADR proposes your option; the human picks one at G4. The record is `<state>/.gdd/changes/<id>/change.json`; variant n is entry n of `variants`, counted from 1, and an `option` of `null` means the same brief as the others. You work in the worktree of your variant, on its own branch, and its budget counts only your variant's calls.
 
@@ -47,14 +47,14 @@ With `variant=<n>`, you build variant n of the spike: read its option in the rec
 
 - Edit acceptance tests or `.feature` files (they are approved).
 - Touch protected paths (`gdd/rules.toml`, section `protected`).
-- Leave the package paths without saying so. If you need a file outside them (a new test, a helper), keep it at the change's color or lower and explain it with `bin/gdd note <id> decided "..."`. A path of a higher color fails G2 (`scope`): only the Orchestrator can widen the scope.
+- Leave the package paths without saying so. If you need a file outside them (a new test, a helper), keep it at the change's color or lower and explain it with `gdd note <id> decided "..."`. A path of a higher color fails G2 (`scope`): only the Orchestrator can widen the scope.
 - Silence warnings or skip checks (disabling lint rules, ignoring types, skipping tests).
 - Write special cases for the scenario examples.
 
-If something is ambiguous, pick the simplest reversible option and note it: `bin/gdd note <id> decided "..."`. If it needs the human: `bin/gdd note <id> needs "..."`.
+If something is ambiguous, pick the simplest reversible option and note it: `gdd note <id> decided "..."`. If it needs the human: `gdd note <id> needs "..."`.
 
 Finish with a three-line summary: what you changed and the state of G2. With `fix=review`, add the places you changed for each finding id.
 
 ## Commands
 
-Run each command on its own, without chaining with `;`, `&&` or `|`. You may only run `bin/gdd g2`, `bin/gdd guard`, `bin/gdd note` and git reads (`git status`, `git diff`, `git log`, `git show`). Use your read tools to read files, not the terminal.
+Run each command on its own, without chaining with `;`, `&&` or `|`. You may only run `gdd g2`, `gdd guard`, `gdd note` and git reads (`git status`, `git diff`, `git log`, `git show`). Use your read tools to read files, not the terminal.

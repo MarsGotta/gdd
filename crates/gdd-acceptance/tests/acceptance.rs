@@ -1492,6 +1492,40 @@ fn file_does_not_exist(w: &mut GddWorld, path: String) {
     );
 }
 
+/// Every file under `dir` (skipping `.git`) whose text contains `text`; files that are not UTF-8 are skipped.
+fn files_containing(dir: &Path, text: &str, found: &mut Vec<PathBuf>) {
+    let entries =
+        fs::read_dir(dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if entry.file_name() != ".git" {
+                files_containing(&path, text, found);
+            }
+        } else if fs::read_to_string(&path).is_ok_and(|content| content.contains(text)) {
+            found.push(path);
+        }
+    }
+}
+
+#[then(expr = "no file of the project contains {string}")]
+fn no_file_contains(w: &mut GddWorld, text: String) {
+    // The step text escapes the quotes inside the text.
+    let text = text.replace("\\\"", "\"");
+    let root = project_root(w);
+    let mut found = Vec::new();
+    files_containing(&root, &text, &mut found);
+    let names: Vec<String> = found
+        .iter()
+        .map(|p| p.strip_prefix(&root).unwrap_or(p).display().to_string())
+        .collect();
+    assert!(
+        names.is_empty(),
+        "these files contain {text:?}: {}",
+        names.join(", ")
+    );
+}
+
 #[given(expr = "the tag {string} is on main")]
 fn tag_is_on_main(w: &mut GddWorld, tag: String) {
     git(&project_root(w), &["tag", &tag, "main"]);

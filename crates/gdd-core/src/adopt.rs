@@ -27,7 +27,7 @@ const ENV: [(&str, &str); 4] = [
 
 /// How to create the Refactor that pays a debt.
 const CREATE: &str =
-    "Create one with: bin/gdd new-change debt-<name> --type Refactor --title \"...\" --paths ...";
+    "Create one with: gdd new-change debt-<name> --type Refactor --title \"...\" --paths ...";
 
 /// What `gdd adopt` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,7 +250,7 @@ mutation = "touch ran; exit 1"
             "Proposed Refactors, riskiest first:\n",
             "  1. debt-security · Pay the known debt of security · .gdd/adoption/security.txt\n",
             "  2. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n",
-            "Create one with: bin/gdd new-change debt-<name> --type Refactor --title \"...\" ",
+            "Create one with: gdd new-change debt-<name> --type Refactor --title \"...\" ",
             "--paths ..."
         );
         assert_eq!(adopted.to_string(), printed);

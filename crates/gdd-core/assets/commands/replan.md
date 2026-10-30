@@ -21,7 +21,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 1. Read `<state>/.gdd/changes/<id>/package.md`, `<state>/.gdd/changes/<id>/g2.json` and the Builder outputs in `<state>/.gdd/changes/<id>/outputs/`.
 2. Decide the cause: task too big, package with too little context, wrong approach or a harness problem.
 3. Write `<state>/.gdd/changes/<id>/replan.md`: the cause in one sentence and the new approach in concrete steps. If the package fell short, extend it there, in `replan.md`, with just what is needed: the package file stays as it is.
-4. If the cause is the harness or something only the human can decide, do not fix it: `bin/gdd note <id> needs "..."`.
+4. If the cause is the harness or something only the human can decide, do not fix it: `gdd note <id> needs "..."`.
 5. End `replan.md` with exactly one of these lines:
    - `NEXT: test` when the cause is in the steps or tests written in test mode (never the approved `.feature` files): a test-mode round fixes them first, then the build round runs.
    - `NEXT: build` otherwise.
@@ -33,4 +33,4 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 
 ## Commands
 
-Run each command on its own, without chaining with `;`, `&&` or `|`. You may use `bin/gdd status`, `bin/gdd classify`, `bin/gdd note`, `bin/gdd report` and git reads.
+Run each command on its own, without chaining with `;`, `&&` or `|`. You may use `gdd status`, `gdd classify`, `gdd note`, `gdd report` and git reads.

@@ -15,8 +15,6 @@ pub(super) const RULES: &str = include_str!("../../assets/init/rules.toml");
 pub(super) const ZONES: &str = include_str!("../../assets/init/zones.toml");
 /// The Project Brief.
 pub(super) const BRIEF: &str = include_str!("../../assets/init/brief.md");
-/// `bin/gdd`, the entry point of the agents and CI.
-pub(super) const BIN: &str = include_str!("../../assets/init/bin-gdd.sh");
 /// The CI workflow.
 pub(super) const WORKFLOW: &str = include_str!("../../assets/init/gdd.yml");
 /// The release steps, after the commands of the stacks.
@@ -258,9 +256,6 @@ mod tests {
 
     #[test]
     fn other_braces_stay_as_they_are() {
-        let bin = filled(BIN);
-        let exec = "exec \"${GDD_BIN:-gdd}\" \"$@\"\n";
-        assert!(bin.contains(exec), "{bin}");
         let workflow = filled(WORKFLOW);
         let branches = "branches: [\"trunk\", \"change/**\"]";
         assert!(workflow.contains(branches), "{workflow}");
@@ -268,6 +263,7 @@ mod tests {
         assert!(workflow.contains(gitleaks), "{workflow}");
         let install = format!("--tag v{VERSION} gdd\n");
         assert!(workflow.contains(&install), "{workflow}");
+        assert!(workflow.ends_with("\n        run: gdd ci\n"), "{workflow}");
     }
 
     #[test]
@@ -393,7 +389,7 @@ mod tests {
         let expected = "AGENTS.md is yours: add to AGENTS.md a line that sends agents to GDD:\n\
                         This project works with **GDD · Gate-Driven Development**: work moves \
                         forward by passing gates, and\nrisk decides how many gates and how \
-                        strict. `bin/gdd` runs the gates.";
+                        strict. `gdd` runs the gates.";
         assert_eq!((agents.yours)(), expected);
         let claude_md = "CLAUDE.md is yours: add to CLAUDE.md: @AGENTS.md";
         assert_eq!((claude.yours)(), claude_md);

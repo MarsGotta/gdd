@@ -197,8 +197,8 @@ struct Cli {
 /// What `gdd` runs: `gdd init`, which makes a project, or a command that works in one.
 #[derive(Debug, Subcommand)]
 enum Run {
-    /// Sets up GDD in this folder, which becomes the project root: the harness (gdd/, bin/gdd,
-    /// the CI workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent, the
+    /// Sets up GDD in this folder, which becomes the project root: the harness (gdd/, the CI
+    /// workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent, the
     /// skeleton of each stack the folder has no project of, and the lines of each stack and
     /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file,
     /// refuses inside a GDD project and installs nothing (gdd bootstrap does).
@@ -2585,10 +2585,10 @@ mod tests {
     fn init_names_each_file_already_there_and_writes_nothing() {
         let folder = plain_folder();
         folder.write("docs/brief.md", "mine\n");
-        folder.write("bin/gdd", "mine\n");
+        folder.write(".github/workflows/gdd.yml", "mine\n");
         let command = "init --name Notes --platform cli --stack rust --agents claude codex";
         let out = run_with_env(&words(command), &folder.0, &init_env());
-        let said = "docs/brief.md already exists\nbin/gdd already exists\n\
+        let said = "docs/brief.md already exists\n.github/workflows/gdd.yml already exists\n\
                     error: gdd init never overwrites a file: move or remove these, then run it \
                     again\n";
         assert_eq!(out, Outcome::failure(said.to_string()));
@@ -2619,7 +2619,7 @@ mod tests {
         }
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
         let said = "rust: cargo generate-lockfile\nCommitted: Cargo.lock\n\
-                    Next: bin/gdd selftest\n";
+                    Next: gdd selftest\n";
         assert_eq!(out, Outcome::success(said.to_string()));
         folder.write(cargo, "#!/bin/sh\necho broken\nexit 2\n");
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
@@ -3631,7 +3631,7 @@ mod tests {
     fn selftest_prints_its_checks_saves_them_and_fails_unless_all_pass() {
         let project = Project::new();
         project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
-        project.write(".github/workflows/gdd.yml", "run: bin/gdd ci\n");
+        project.write(".github/workflows/gdd.yml", "run: gdd ci\n");
         project.write(COMMANDS, SELFTEST_COMMANDS);
         let out = project.run("selftest");
         assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
@@ -3658,7 +3658,7 @@ mod tests {
     fn selftest_project(unit: &str) -> Project {
         let project = Project::new();
         project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
-        project.write(".github/workflows/gdd.yml", "run: bin/gdd ci\n");
+        project.write(".github/workflows/gdd.yml", "run: gdd ci\n");
         let unit = format!("unit = \"{unit}\"");
         project.write(COMMANDS, &SELFTEST_COMMANDS.replace(SELFTEST_UNIT, &unit));
         project
@@ -4487,7 +4487,7 @@ mod tests {
         assert_eq!(record["state"], "building");
         assert_eq!(record["decision"]["builder"], sonnet);
         git(&project, &["checkout", "-q", "main"]);
-        let refused = "error: Not on branch change/c1. Launch the change with bin/gdd launch c1.\n";
+        let refused = "error: Not on branch change/c1. Launch the change with gdd launch c1.\n";
         assert_eq!(project.run("prepare c1"), Outcome::failure(refused.into()));
         let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
         assert_eq!(project.run("prepare c9"), Outcome::failure(missing.into()));

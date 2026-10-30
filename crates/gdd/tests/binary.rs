@@ -64,7 +64,7 @@ fn a_builder_or_reviewer_named_in_gdd_role_records_no_gate() {
     let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
     assert_eq!(gate(Some("reviewer")), refused);
     assert_eq!(gate(Some("builder-test")), refused);
-    let untested = "error: G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest).\n";
+    let untested = "error: G0 cannot open: the harness self-test is not 4/4 (gdd selftest).\n";
     assert_eq!(gate(None), untested);
     assert_eq!(gate(Some("orchestrator")), untested);
     fs::remove_dir_all(&folder).unwrap();

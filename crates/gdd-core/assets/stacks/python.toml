@@ -41,7 +41,7 @@ lint = ["Found {n} error", "{n} file would be reformatted", "{n} files would be 
 types = ["Found {n} error"]
 unit = ["{n} failed", "{n} error"]
 
-[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+[ci]   # steps of .github/workflows/gdd.yml before gdd ci
 setup = '''
       - uses: astral-sh/setup-uv@v7
       - name: Install the Python dependencies

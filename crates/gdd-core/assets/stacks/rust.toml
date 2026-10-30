@@ -41,7 +41,7 @@ unused = '''cargo machete'''
 lint = ["Diff in ", "due to {n} previous error"]
 unit = ["{n} failed;"]
 
-[ci]   # steps of .github/workflows/gdd.yml before bin/gdd ci
+[ci]   # steps of .github/workflows/gdd.yml before gdd ci
 setup = '''
       - uses: dtolnay/rust-toolchain@stable
         with:

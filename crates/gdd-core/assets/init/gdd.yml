@@ -22,4 +22,4 @@ jobs:
       - name: Install gdd {version}
         run: cargo install --locked --git https://github.com/MarsGotta/gdd --tag v{version} gdd
       - name: GDD gates (Path Guard, G2, G3)
-        run: bin/gdd ci
+        run: gdd ci
