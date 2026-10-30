@@ -1,7 +1,7 @@
 //! The `gdd` command line: it reads the words of a command, runs it on the project and says
-//! what happened. The method itself lives in `gdd-core`. In a terminal, `gdd init` without the
-//! flags of the project asks the Setup form (see [`form`]), `gdd board` shows the Board (see
-//! [`board`]) and `gdd sitting` the sitting of a change (see [`sitting`]).
+//! what happened. The method itself lives in `gdd-core`. In a terminal, and for a person, `gdd
+//! init` without the flags of the project asks the Setup form (see [`form`]), `gdd board` shows
+//! the Board (see [`board`]) and `gdd sitting` the sitting of a change (see [`sitting`]).
 
 pub mod board;
 pub mod form;
@@ -46,6 +46,9 @@ const CHANGES: &str = ".gdd/changes";
 const TEST_ROLE: &str = "builder-test";
 /// Why a Builder or a Reviewer cannot run `gdd learn`.
 const LEARN_REFUSED: &str = "Builders and Reviewers cannot run gdd learn: it writes under .gdd/.";
+/// What an agent gdd started may run, after the command it cannot (see [`refused_to_agent`]).
+const FOR_AGENTS: &str = "an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd \
+                          status, gdd classify, gdd inbox, gdd report and gdd scope.";
 /// Why a command that works on a change cannot run.
 const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
@@ -237,8 +240,8 @@ enum Command {
     /// and prints it as JSON.
     G2(GateArgs),
     /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
-    /// Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE) and
-    /// prints it as JSON.
+    /// Saves the result next to the change, logs it and prints it as JSON. An agent gdd started
+    /// (GDD_ROLE) cannot run it.
     G3(GateArgs),
     /// Creates a change: its record and, when it has none, its branch change/<id> from the main
     /// branch. Logs it and prints its classification as JSON.
@@ -701,6 +704,39 @@ fn parse_day(text: &str) -> Result<i64, String> {
 }
 
 impl Command {
+    /// Whether an agent gdd started may run the command: only what its work needs, `gdd g2`,
+    /// `guard`, `note`, `status`, `classify`, `inbox`, `report` and `scope`.
+    fn for_agents(&self) -> bool {
+        matches!(
+            self,
+            Command::G2(_)
+                | Command::Guard(_)
+                | Command::Note(_)
+                | Command::Status
+                | Command::Classify { .. }
+                | Command::Inbox { .. }
+                | Command::Report(_)
+                | Command::Scope { .. }
+        )
+    }
+
+    /// Whether the command refuses the role `role` itself, in its own words, before it writes
+    /// anything: the ones that record or answer a gate, release a version or write what a person
+    /// writes (`gate`, `changelog-line`, `resume`, `release` without a step, `learn` and
+    /// `upgrade`) refuse a Builder or a Reviewer (see [`approve::may_record`]).
+    fn refuses_itself(&self, role: &str) -> bool {
+        let own = match self {
+            Command::Gate(_)
+            | Command::ChangelogLine(_)
+            | Command::Resume(_)
+            | Command::Learn { .. }
+            | Command::Upgrade => true,
+            Command::Release(args) => args.step.is_none(),
+            _ => false,
+        };
+        own && approve::may_record(Some(role)).is_err()
+    }
+
     /// Runs the command on the project at `root`, whose state root is `state` (see
     /// [`state::root`]), for the role `role`, in the environment `env`: what it prints and its
     /// exit code. What it says on its way, it says on `streams`.
@@ -717,7 +753,7 @@ impl Command {
             Command::G3(args) => return run_gate(root, state, Gate::G3, args, role, env),
             Command::Guard(args) => return run_guard(root, state, args, env),
             Command::Bootstrap => return bootstrap(root, env),
-            Command::Selftest => return run_selftest(root, state, role, streams.out()),
+            Command::Selftest => return run_selftest(root, state, streams.out()),
             Command::Ci => return run_ci(root, state, env),
             Command::Park { change, reason } => {
                 let message = change::park(state, &change, &reason.join(" "))?;
@@ -806,10 +842,14 @@ fn role_in(env: &Env) -> Option<&str> {
 }
 
 /// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
-/// role `role` (`None` for a person), in the environment of the process: a Builder or a
-/// Reviewer cannot record gate decisions. Help and version go to the standard output; every
-/// error goes to the standard error, with exit code 1. `gdd guard --strict` also exits with 1
-/// when Path Guard fails, and `gdd g2 --strict` and `gdd g3 --strict` when the gate fails.
+/// role `role` (`None` for a person), in the environment of the process. An agent gdd started,
+/// whatever its role, runs only `gdd g2`, `guard`, `note`, `status`, `classify`, `inbox`,
+/// `report` and `scope`, besides help and the version: any other command fails before it starts,
+/// in its own words when it refuses a Builder or a Reviewer itself, as the commands that record
+/// gate decisions do, and never opens a screen in a terminal (see [`asks_form`]). Help and
+/// version go to the standard output; every error goes to the standard error, with exit code 1.
+/// `gdd guard --strict` also exits with 1 when Path Guard fails, and `gdd g2 --strict` and `gdd
+/// g3 --strict` when the gate fails.
 /// `gdd park` always exits with 1, its message on the standard error, and `gdd agents check`
 /// when it finds a problem. `gdd selftest` and `gdd ci` exit with 1 when they fail, what they
 /// found on the standard output. `gdd init` without the flags of the project exits with 2. What
@@ -819,17 +859,24 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
 }
 
 /// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
-/// (see [`run_as`]), saying what it says on its way on `streams`.
+/// (see [`run_as`]), saying what it says on its way on `streams`. A command an agent may not run
+/// is refused here, once read and before anything else, naming it as typed.
 fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: Streams) -> Outcome {
-    let cli = match parse(args) {
-        Ok(cli) => cli,
+    let (cli, name) = match parse_named(args) {
+        Ok(parsed) => parsed,
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
         Err(e) => return Outcome::success(e.to_string()),
     };
-    let command = match cli.command {
-        None => return Outcome::success(Cli::command().render_help().to_string()),
-        Some(Run::Init(args)) => return init_project(cwd, args, env),
-        Some(Run::InProject(command)) => command,
+    let Some(run) = cli.command else {
+        return Outcome::success(Cli::command().render_help().to_string());
+    };
+    if role.is_some_and(|role| refused_to_agent(&run, role)) {
+        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        return Outcome::error(&refused);
+    }
+    let command = match run {
+        Run::Init(args) => return init_project(cwd, args, env),
+        Run::InProject(command) => command,
     };
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
@@ -839,18 +886,48 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
     ran.unwrap_or_else(|message| Outcome::error(&message))
 }
 
-/// The command `gdd` with `args`, the words after the program name, as clap reads it.
-fn parse(args: &[String]) -> Result<Cli, clap::Error> {
-    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
-    Cli::try_parse_from(words)
+/// Whether an agent gdd started for the role `role`, any role, is refused `run`: it may run only
+/// what its work needs (see [`Command::for_agents`]), so a command added later is refused by
+/// default. A command that refuses `role` itself keeps its own words (see
+/// [`Command::refuses_itself`]).
+fn refused_to_agent(run: &Run, role: &str) -> bool {
+    let Run::InProject(command) = run else {
+        return true;
+    };
+    !(command.for_agents() || command.refuses_itself(role))
 }
 
-/// The environment of the process; a variable whose name or value is not UTF-8 is left out.
-fn process_env() -> Vec<(String, String)> {
-    let text = |(name, value): (OsString, OsString)| {
-        Some((name.into_string().ok()?, value.into_string().ok()?))
+/// The command `gdd` with `args`, the words after the program name, as clap reads it.
+fn parse(args: &[String]) -> Result<Cli, clap::Error> {
+    parse_named(args).map(|(cli, _)| cli)
+}
+
+/// The command `gdd` with `args` as clap reads it (see [`parse`]), and the name of its
+/// subcommand as typed, such as `agents` for `gdd agents install`: empty without one.
+fn parse_named(args: &[String]) -> Result<(Cli, String), clap::Error> {
+    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
+    let mut matches = Cli::command().try_get_matches_from(words)?;
+    let name = matches.subcommand_name().unwrap_or_default().to_string();
+    let cli = Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut Cli::command()))?;
+    Ok((cli, name))
+}
+
+/// The environment of the process, each variable as text (see [`as_text`]).
+pub fn process_env() -> Vec<(String, String)> {
+    std::env::vars_os().filter_map(as_text).collect()
+}
+
+/// The variable `name`, set to `value`, as text: none when its name or value is not UTF-8, but
+/// for `GDD_ROLE`, whose bytes that are not UTF-8 become U+FFFD: whatever its value, it names an
+/// agent gdd started (see [`run_as`]).
+fn as_text((name, value): (OsString, OsString)) -> Option<(String, String)> {
+    let name = name.into_string().ok()?;
+    let value = match value.into_string() {
+        Ok(value) => value,
+        Err(value) if name == "GDD_ROLE" => value.to_string_lossy().into_owned(),
+        Err(_) => return None,
     };
-    std::env::vars_os().filter_map(text).collect()
+    Some((name, value))
 }
 
 /// `gdd init`: sets up GDD in the folder `cwd` (see [`init::init`]), with git and the agents on
@@ -871,38 +948,56 @@ fn init_project(cwd: &Path, args: InitArgs, env: &Env) -> Outcome {
 
 /// The first answers of the Setup form, when `gdd` with `args` asks it (see
 /// [`form::in_terminal`]): it is `gdd init` without the flags of the project (`--name`,
-/// `--platform` and `--stack`), whose other flags answer first, and its standard input and output
-/// are terminals (`stdin` and `stdout`).
-pub fn asks_form(args: &[String], stdin: bool, stdout: bool) -> Option<init::Options> {
-    if !(stdin && stdout) {
-        return None;
-    }
-    match parse(args).ok()?.command? {
+/// `--platform` and `--stack`), whose other flags answer first, and it may open a screen (see
+/// [`on_screen`]).
+pub fn asks_form(
+    args: &[String],
+    stdin: bool,
+    stdout: bool,
+    env: &[(String, String)],
+) -> Option<init::Options> {
+    match on_screen(args, stdin, stdout, env)? {
         Run::Init(args) if !args.name_the_project() => Some(args.options()),
         _ => None,
     }
 }
 
 /// Whether `gdd` with `args` shows the Board (see [`board::in_terminal`]): it is `gdd board`, or
-/// `gdd` with no command, and its standard input and output are terminals (`stdin` and `stdout`).
-pub fn asks_board(args: &[String], stdin: bool, stdout: bool) -> bool {
+/// `gdd` with no command, its standard input and output are terminals (`stdin` and `stdout`), and
+/// a person runs it, without a `GDD_ROLE` in the environment `env`.
+pub fn asks_board(args: &[String], stdin: bool, stdout: bool, env: &[(String, String)]) -> bool {
+    if !(stdin && stdout) || role_in(env).is_some() {
+        return false;
+    }
     let Ok(cli) = parse(args) else {
         return false;
     };
-    let board = matches!(cli.command, None | Some(Run::InProject(Command::Board)));
-    stdin && stdout && board
+    matches!(cli.command, None | Some(Run::InProject(Command::Board)))
 }
 
 /// The change whose sitting `gdd` with `args` shows (see [`sitting::in_terminal`]): it is
-/// `gdd sitting <change>`, and its standard input and output are terminals (`stdin` and `stdout`).
-pub fn asks_sitting(args: &[String], stdin: bool, stdout: bool) -> Option<String> {
-    if !(stdin && stdout) {
-        return None;
-    }
-    match parse(args).ok()?.command? {
+/// `gdd sitting <change>`, and it may open a screen (see [`on_screen`]).
+pub fn asks_sitting(
+    args: &[String],
+    stdin: bool,
+    stdout: bool,
+    env: &[(String, String)],
+) -> Option<String> {
+    match on_screen(args, stdin, stdout, env)? {
         Run::InProject(Command::Sitting { change }) => Some(change),
         _ => None,
     }
+}
+
+/// The command `gdd` with `args` reads, when it may open a screen instead of running: its
+/// standard input and output are terminals (`stdin` and `stdout`) and a person runs it, without a
+/// `GDD_ROLE` in the environment `env`. An agent gdd started never gets a screen: [`run`] answers
+/// it, and refuses what it may not run (see [`refused_to_agent`]).
+fn on_screen(args: &[String], stdin: bool, stdout: bool, env: &Env) -> Option<Run> {
+    if !(stdin && stdout) || role_in(env).is_some() {
+        return None;
+    }
+    parse(args).ok()?.command
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
@@ -1201,15 +1296,9 @@ fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
 /// logged under the state root `state`. It fails the run unless every check passed. From the
 /// files it plants and the copies it keeps to its result, it writes state every change shares:
 /// it runs as a person's write (see [`queue::shared_write`]): when it waits for the agent calls
-/// under way, it says so with `voice` as the wait starts. A Builder or a Reviewer, the role
-/// `role`, is refused before: its own self-test would wait for its own call.
-fn run_selftest(
-    root: &Path,
-    state: &Path,
-    role: Option<&str>,
-    mut voice: Voice,
-) -> Result<Outcome, String> {
-    approve::may_record(role).map_err(|e| e.to_string())?;
+/// under way, it says so with `voice` as the wait starts. An agent is refused before it starts
+/// (see [`refused_to_agent`]): its own self-test would wait for its own call.
+fn run_selftest(root: &Path, state: &Path, mut voice: Voice) -> Result<Outcome, String> {
     let gates = GateConfig::load(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
     let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
@@ -2443,18 +2532,28 @@ mod tests {
         let said = "error: gdd board needs a terminal; gdd status lists the same changes\n";
         assert_eq!((out.code, out.stdout.as_str()), (2, ""));
         assert_eq!(out.stderr, said);
-        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout);
+        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout, &[]);
         assert!(asks("board", true, true));
         assert!(!asks("board", false, true));
         assert!(!asks("board", true, false));
         assert!(!asks("status", true, true));
         assert!(!asks("board --nope", true, true));
         assert!(!asks("--nope", true, true));
+        for env in agents_env() {
+            assert!(!asks_board(&words("board"), true, true, &env), "{env:?}");
+            assert!(!asks_board(&words(""), true, true, &env), "{env:?}");
+        }
+    }
+
+    /// Environments of an agent gdd started: a role it knows, and one it does not.
+    fn agents_env() -> [Vec<(String, String)>; 2] {
+        let role = |role: &str| vec![("GDD_ROLE".to_string(), role.to_string())];
+        [role("orchestrator"), role("intern")]
     }
 
     #[test]
     fn gdd_alone_in_a_terminal_shows_the_board_and_otherwise_the_help() {
-        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout);
+        let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout, &[]);
         assert!(asks("", true, true));
         assert!(!asks("", false, true));
         assert!(!asks("", true, false));
@@ -2472,18 +2571,22 @@ mod tests {
         assert_eq!((out.code, out.stdout.as_str()), (2, ""));
         let said = format!("error: {}\n", sitting::no_terminal("c1"));
         assert_eq!(out.stderr, said);
-        let asks = |command: &str, stdin, stdout| asks_sitting(&words(command), stdin, stdout);
+        let asks = |command: &str, stdin, stdout| asks_sitting(&words(command), stdin, stdout, &[]);
         assert_eq!(asks("sitting c1", true, true), Some("c1".to_string()));
         assert_eq!(asks("sitting c1", false, true), None);
         assert_eq!(asks("sitting c1", true, false), None);
         assert_eq!(asks("board", true, true), None);
         assert_eq!(asks("sitting", true, true), None);
         assert_eq!(asks("", true, true), None);
+        for env in agents_env() {
+            let asked = asks_sitting(&words("sitting c1"), true, true, &env);
+            assert_eq!(asked, None, "{env:?}");
+        }
     }
 
     #[test]
     fn gdd_init_without_the_flags_of_the_project_in_a_terminal_asks_the_form() {
-        let asks = |command: &str, stdin, stdout| asks_form(&words(command), stdin, stdout);
+        let asks = |command: &str, stdin, stdout| asks_form(&words(command), stdin, stdout, &[]);
         let alone = init::Options {
             name: String::new(),
             platform: String::new(),
@@ -2516,6 +2619,10 @@ mod tests {
             "",
         ] {
             assert_eq!(asks(command, true, true), None, "{command:?}");
+        }
+        // An agent gdd started gets what `run` says, which refuses it.
+        for env in agents_env() {
+            assert_eq!(asks_form(&words("init"), true, true, &env), None, "{env:?}");
         }
     }
 
@@ -3434,14 +3541,16 @@ mod tests {
         project.write(log::PATH, LOG);
         let mut env = process_env();
         env.push(("GDD_ROLE".to_string(), "builder-build".to_string()));
-        for gate in ["g2", "g3"] {
-            let command = words(&format!("{gate} save --role builder-build"));
-            let printed = json(&run_with_env(&command, &project.0, &env));
-            let path = project.0.join(format!(".gdd/changes/save/{gate}.json"));
-            let saved: serde_json::Value =
-                serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-            assert_eq!(saved, printed, "{gate}");
-        }
+        let command = words("g2 save --role builder-build");
+        let printed = json(&run_with_env(&command, &project.0, &env));
+        let path = project.0.join(".gdd/changes/save/g2.json");
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved, printed);
+        // G3 is the recipe's: an agent cannot run it.
+        let g3 = run_with_env(&words("g3 save --role builder-build"), &project.0, &env);
+        assert_eq!(g3, agent_refusal("g3"));
+        assert!(!project.0.join(".gdd/changes/save/g3.json").exists());
         assert_eq!(fs::read_to_string(project.0.join(log::PATH)).unwrap(), LOG);
     }
 
@@ -3719,23 +3828,27 @@ mod tests {
         assert!(project.0.join(approve::SELFTEST_PATH).is_file());
     }
 
+    /// What an agent gdd started reads when it runs `gdd <name>`, which it may not run.
+    fn agent_refusal(name: &str) -> Outcome {
+        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        Outcome::error(&refused)
+    }
+
     #[test]
-    fn selftest_is_refused_to_builders_and_reviewers_before_any_lock() {
+    fn selftest_is_refused_to_any_agent_before_any_lock() {
         let project = selftest_project("test ! -f t.txt");
-        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
-        for role in ["builder-build", "builder-test", "reviewer"] {
+        for role in ["builder-test", "reviewer", "orchestrator"] {
             let out = run_as(&words("selftest"), &project.0, Some(role));
-            assert_eq!(out, Outcome::failure(refused.into()), "{role}");
+            assert_eq!(out, agent_refusal("selftest"), "{role}");
         }
         for path in [queue::AGENTS, queue::TURN, approve::SELFTEST_PATH] {
             assert!(!project.0.join(path).exists(), "{path}");
         }
-        let orchestrator = run_as(&words("selftest"), &project.0, Some("orchestrator"));
-        assert_eq!(orchestrator.code, 0, "{orchestrator:?}");
+        assert_eq!(project.run("selftest").code, 0);
     }
 
     #[test]
-    fn learn_runs_the_tools_for_a_person_and_is_refused_to_builders_and_reviewers() {
+    fn learn_runs_the_tools_for_a_person_and_is_refused_to_any_agent() {
         let project = Project::new();
         project.write(COMMANDS, "[learn]\nt = \"echo hi\"\n");
         let out = project.run("learn");
@@ -3749,6 +3862,65 @@ mod tests {
             let out = run_as(&words("learn"), &project.0, Some(role));
             assert_eq!(out, Outcome::failure(refused.clone()), "{role}");
         }
+        let orchestrator = run_as(&words("learn"), &project.0, Some("orchestrator"));
+        assert_eq!(orchestrator, agent_refusal("learn"));
+    }
+
+    #[test]
+    fn an_agent_runs_only_what_its_work_needs() {
+        let project = committed_project();
+        project.run("new-change c1 --title Drafts");
+        // The roles gdd starts agents for, and one it does not know.
+        for role in [
+            "builder-build",
+            "builder-test",
+            "reviewer",
+            "orchestrator",
+            "intern",
+        ] {
+            for line in [
+                "status",
+                "classify c1",
+                "inbox c1",
+                "report",
+                "note c1 decided Fine",
+                "",
+                "--version",
+                "launch --help",
+            ] {
+                let out = run_as(&words(line), &project.0, Some(role));
+                assert_eq!(out.code, 0, "{role} {line:?}: {out:?}");
+            }
+            for (line, name) in [
+                ("launch c1", "launch"),
+                ("new-change c2 --title Export", "new-change"),
+                ("agents install", "agents"),
+                ("release pre c1", "release"),
+                ("init --name x --platform cli --stack rust", "init"),
+                // Without a screen, which an agent never gets (see `asks_form`).
+                ("init", "init"),
+                ("board", "board"),
+                ("sitting c1", "sitting"),
+            ] {
+                let out = run_as(&words(line), &project.0, Some(role));
+                assert_eq!(out, agent_refusal(name), "{role} {line}");
+            }
+        }
+        assert!(!project.0.join(change::record_path("c2")).exists());
+        assert_eq!(git(&project, &["branch", "--list", "change/c2"]), "");
+        // A person runs every command.
+        assert_eq!(project.run("new-change c2 --title Export").code, 0);
+    }
+
+    #[test]
+    fn an_agent_named_in_the_environment_is_refused_and_a_person_is_not() {
+        let project = committed_project();
+        let role = |role: &str| ("GDD_ROLE".to_string(), role.to_string());
+        let env = [role("reviewer"), role("builder-test")];
+        let out = run_with_env(&words("new-change c1 --title Drafts"), &project.0, &env);
+        assert_eq!(out, agent_refusal("new-change"));
+        let out = run_with_env(&words("new-change c1 --title Drafts"), &project.0, &[]);
+        assert_eq!(out.code, 0, "{out:?}");
     }
 
     /// A standard stream as a test watches it: each write, and each flush, as they happen.
@@ -3799,7 +3971,7 @@ mod tests {
         project.write(approve::BRIEF, "# Brief\n");
         let root = project.0.as_path();
         let waiting = [format!("{}\n", queue::WAITING_AGENTS), FLUSHED.into()];
-        let self_test = |voice| run_selftest(root, root, None, voice);
+        let self_test = |voice| run_selftest(root, root, voice);
         let (shown, out) = shown_during_a_call(root, self_test);
         assert_eq!(shown, waiting);
         // Once: what it printed at its end does not say it again.
@@ -4127,8 +4299,9 @@ mod tests {
         let builder = run_as(&args, &project.0, Some("builder-build"));
         assert_eq!(builder, Outcome::failure(refused.into()));
         let orchestrator = run_as(&args, &project.0, Some("orchestrator"));
-        assert_eq!(orchestrator.stdout, "G4 ok on c1 (human).\n");
-        assert_eq!(log_records(&project).len(), 4);
+        assert_eq!(orchestrator, agent_refusal("gate"));
+        assert_eq!(record_of(&project, "c1")["gates"]["G4"]["decision"], "ko");
+        assert_eq!(log_records(&project).len(), 3);
     }
 
     #[test]
@@ -4867,6 +5040,27 @@ mod tests {
     fn without_an_environment_of_its_own_gdd_runs_in_the_one_of_the_process() {
         let path = std::env::var("PATH").unwrap_or_default();
         assert!(process_env().contains(&("PATH".to_string(), path)));
+    }
+
+    #[test]
+    fn a_role_that_is_not_utf8_still_names_an_agent_and_other_such_variables_are_left_out() {
+        use std::os::unix::ffi::OsStringExt;
+        let variable = |name: &str, value: &[u8]| {
+            as_text((OsString::from(name), OsString::from_vec(value.to_vec())))
+        };
+        let role = |value: &str| Some(("GDD_ROLE".to_string(), value.to_string()));
+        let lossy = variable("GDD_ROLE", b"builder-\xff");
+        assert_eq!(lossy, role("builder-\u{fffd}"));
+        assert_eq!(variable("GDD_ROLE", b"reviewer"), role("reviewer"));
+        assert_eq!(variable("LANG", b"es\xff"), None);
+        let lang = Some(("LANG".to_string(), "es".to_string()));
+        assert_eq!(variable("LANG", b"es"), lang);
+        let name = OsString::from_vec(b"GDD_\xff".to_vec());
+        assert_eq!(as_text((name, OsString::from("x"))), None);
+        // Whatever its value, the role is refused what an agent may not run.
+        let env = [variable("GDD_ROLE", b"\xff\xfe").unwrap()];
+        let out = run_with_env(&words("new-change c1 --title Drafts"), Path::new("/"), &env);
+        assert_eq!(out, agent_refusal("new-change"));
     }
 
     /// The roles `MODELS` lacks: the Builder in test mode and the Orchestrator.
