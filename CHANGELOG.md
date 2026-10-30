@@ -37,3 +37,9 @@ All notable changes to gdd are documented in this file. The format follows
 
 - What a change spent lives in its record: an agent cannot lift a spike's budget through the log <!-- gdd: 36cd64d089d1 -->
 - Changelogs in the common heading styles <!-- gdd: 855039356ee9 -->
+- A new Python project runs its scenarios, and its G3 writes nothing under .gdd <!-- gdd: 768c33f2b099 -->
+- An adopted project with known debt passes its self-test, so G0 can open <!-- gdd: 7e2cc0087fba -->
+
+### Security
+
+- Secrets reach no agent under their other common names, nor inside a URL with a password <!-- gdd: 117485d97883 -->
