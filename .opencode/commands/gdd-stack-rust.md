@@ -49,6 +49,6 @@ Read this before writing tests, scenario steps or code in Rust in a GDD project.
 
 ## Never by hand
 
-Do not run `cargo test`, `cargo clippy` or `cargo mutants` yourself to decide whether you are done: run `bin/gdd g2 --role <your role>`.
+Do not run `cargo test`, `cargo clippy` or `cargo mutants` yourself to decide whether you are done: run `gdd g2 --role <your role>`.
 It runs the same tools with the project's flags, Path Guard and the scope, and it is what counts.
 Read its report (`.gdd/changes/<id>/g2.json`) when it fails.

@@ -18,7 +18,7 @@ They hold whatever the tool, the stack or the agents, and every mechanism below 
 
 ## Where the rules live
 
-Every rule lives in one place: `gdd/project.toml` (project basics), `gdd/zones.toml` (zone map), `gdd/rules.toml` (rules table), `gdd/models.toml` (agent and model per role) and `gdd/commands.toml` (gate commands). `bin/gdd`, the workflow and CI read those files.
+Every rule lives in one place: `gdd/project.toml` (project basics), `gdd/zones.toml` (zone map), `gdd/rules.toml` (rules table), `gdd/models.toml` (agent and model per role) and `gdd/commands.toml` (gate commands). `gdd`, the workflow and CI read those files.
 
 ## Vocabulary
 
@@ -47,7 +47,7 @@ Speed comes from where the steps go, not from the runner: by default, steps talk
 
 ## Gate Level (traffic light)
 
-`bin/gdd classify` computes the color from the touched paths and `gdd/zones.toml`. The highest color wins. When in doubt, the higher one. Only three colors. By default, code without tests is yellow.
+`gdd classify` computes the color from the touched paths and `gdd/zones.toml`. The highest color wins. When in doubt, the higher one. Only three colors. By default, code without tests is yellow.
 
 - **Green:** cheap or local Builder. No mutation testing. Fast Lane possible.
 - **Yellow:** characterization tests before touching. Mutation testing on the diff. Reviewer always.
@@ -83,7 +83,7 @@ A single message per change: what was decided without the human, what needs them
 
 ## Log (mandatory from the first step)
 
-Every agent or gate run appends one JSON line to `.gdd/log.jsonl`. `gdd` (one line per agent call, read from the agent's own JSON output) and `bin/gdd` do it on their own; the conversation with the human is added with `bin/gdd session --phase <phase>`.
+Every agent or gate run appends one JSON line to `.gdd/log.jsonl`. `gdd` does it on its own (one line per agent call, read from the agent's own JSON output); the conversation with the human is added with `gdd session --phase <phase>`.
 
 ```json
 {"ts":"...","change":"...","phase":"...","gate":"...","role":"orchestrator|builder-test|builder-build|reviewer|machine|human","agent":"...","model":"...","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0,"duration_s":0,"result":"ok|ko|error","retry":0}
@@ -95,7 +95,7 @@ Where tokens come from:
 - OpenCode: `step_finish` events from `opencode run --format json`, with tokens and cost.
 - With a subscription, cost is notional: tokens are what compares.
 
-Report: `bin/gdd report --by change,model,role` (any combination of `change`, `phase`, `model`, `role`, `agent`).
+Report: `gdd report --by change,model,role` (any combination of `change`, `phase`, `model`, `role`, `agent`).
 
 ## Language
 
@@ -103,12 +103,12 @@ The tool, its files and its commands are in English. Agents talk to the human in
 
 ## How it runs in this repository
 
-- **`gdd`** (the Rust binary, installed from `main` in `.gdd/bin/gdd-rust`) runs the recipe: `bin/gdd launch <id>` and `bin/gdd resume <id> --g4 ok|ko|polish`. Build with 3 retries and 1 replan, G2, G3 with one fix, Reviewer with one fix, Merge Gate, pre, G4 pause and promotion. Every agent call uses the agent and model from `gdd/models.toml` for the change color, started as its agent sheet says.
+- **`gdd`** (the Rust binary, the one on the PATH, installed from `main` after every merge: `cargo install --path crates/gdd --locked --force`) runs the recipe: `gdd launch <id>` and `gdd resume <id> --g4 ok|ko|polish`. Build with 3 retries and 1 replan, G2, G3 with one fix, Reviewer with one fix, Merge Gate, pre, G4 pause and promotion. Every agent call uses the agent and model from `gdd/models.toml` for the change color, started as its agent sheet says.
 - **`gdd init`** sets up GDD in a folder from flags (`--name`, `--platform`, `--stack`, `--agents`...): it writes the harness and, for a new project, the skeleton of each stack; it never overwrites a file and commits only what it wrote. Then `gdd bootstrap` runs the first install of each stack and commits the lock files, and `gdd selftest` checks the harness (G0).
 - **Stack sheets** built into `gdd` (Rust, TypeScript, Python; `gdd stacks`): a project names one or more in `stack` of `gdd/project.toml`; `gdd stacks compose` shows the gate commands and protected paths they give together, and every agent gets the instructions of each stack (`gdd-stack-<name>`).
 - **GDD commands** in every agent's folder, written by `gdd agents install` and checked by `gdd agents check`: with the human `gdd-status`, `gdd-setup`, `gdd-discover`, `gdd-change`, `gdd-learn`, `gdd-hotfix`, `gdd-report` (`/gdd-status` in Claude Code and OpenCode, `$gdd-status` in Codex); headless, started by the recipe: `gdd-build-test`, `gdd-build`, `gdd-replan`, `gdd-review`.
-- **`bin/gdd`** runs `.gdd/bin/gdd-rust` for every command (gates, Path Guard, Decision Inbox, report, `selftest`, `ci`, `session`). `bin/gdd help`.
+- **One command**: people, agents and CI all run `gdd` for every command (gates, Path Guard, Decision Inbox, report, `selftest`, `ci`, `session`); `gdd help`. It is installed outside every change's worktree, where no agent can write, so a Builder cannot rewrite its own judge.
 - **Agents** are started by `gdd` itself (since agent-launch): each agent's own program from its sheet, with the arguments of the role (no MCP servers; the Reviewer only reads; Builders cannot open gates or merge), an environment without API keys, and the tokens logged. Around every call `gdd` checks that no agent changed GDD state and that the Reviewer changed no file; either parks the change.
-- **CI** (`.github/workflows/gdd.yml`): builds `gdd` from `main` and runs `bin/gdd ci` with it on the change, so the judge is the version before the change. G2 and G3 block there even if an agent skips a step.
+- **CI** (`.github/workflows/gdd.yml`): builds `gdd` from `main`, puts it on the PATH and runs `gdd ci` with it on the change, so the judge is the version before the change. G2 and G3 block there even if an agent skips a step.
 - Spec Kit and the Python kit are no longer used here (removed after agent-sheets and kit-retire); the pilot repository still runs the kit until `gdd init`.
 - **Local state** in `.gdd/` (not committed): log, changes, messages, self-test, G0 and the red zone approval.

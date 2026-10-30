@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bin/gdd:*)",
+      "Bash(gdd:*)",
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
@@ -9,8 +9,7 @@
       "Bash(git branch:*)",
       "Bash(git switch:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(specify workflow status:*)"
+      "Bash(git commit:*)"
     ],
     "deny": [
       "Read(./.env)",

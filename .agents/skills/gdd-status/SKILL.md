@@ -17,7 +17,7 @@ $ARGUMENTS
 
 ## What you do
 
-1. Run `bin/gdd status`.
+1. Run `gdd status`.
 2. If G0 is pending, the project is in **phase 0 · Setup**: propose `$gdd-setup`.
 3. If G0 is open and there is no Discover document for the next work, propose `$gdd-discover`.
 4. If the red zones are pending or changed, they go to the human with the scenarios of the next change (`$gdd-change`).

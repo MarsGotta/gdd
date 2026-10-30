@@ -21,7 +21,7 @@ It contains `change=<id>`.
 
 ## Your context (only this)
 
-You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `bin/gdd`, and never create a `.gdd` in your working folder.
+You work in the change's worktree; GDD state is not there. It lives in `.gdd/` of the state root, `<state>` below: the folder in the variable `GDD_STATE`, or the project root without it. Your agent may also list `<state>/.gdd/changes/<id>/` among its working folders. Read the state there, change it only through `gdd`, and never create a `.gdd` in your working folder.
 
 - `<state>/.gdd/changes/<id>/package.md`
 - The `.feature` files named in the package.
@@ -33,7 +33,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
    - Before writing a step, look for one that matches: **reuse a step that already says the same**, even with other words around it, and **add a new one only when none fits**. A new step is general (its values are parameters), so the next scenario can reuse it.
    - Each step drives the behavior at **the lowest layer that shows the behavior**: **a domain function, then the command line, then the screen**. A scenario is not an end-to-end test by default; it goes through the screen only when what it checks is on the screen.
 2. If the color is yellow or red and you will touch existing code, first write **characterization tests** that pin down what it does today.
-3. Check with `bin/gdd g2 --role builder-test`: the new tests must fail **because the behavior is missing**, not because of syntax or setup errors.
+3. Check with `gdd g2 --role builder-test`: the new tests must fail **because the behavior is missing**, not because of syntax or setup errors.
 
 ## After a replan (`after=replan` in the input)
 
@@ -46,10 +46,10 @@ The code already exists and the Orchestrator found the fault in the steps or tes
 - Touch protected paths (`gdd/rules.toml`, section `protected`).
 - Skip or silence tests.
 
-If something in the package is ambiguous, pick the simplest reading, keep going and note it: `bin/gdd note <id> needs "..."`.
+If something in the package is ambiguous, pick the simplest reading, keep going and note it: `gdd note <id> needs "..."`.
 
 Finish with a three-line summary: which tests you wrote and why they fail now.
 
 ## Commands
 
-Run each command on its own, without chaining with `;`, `&&` or `|`. You may only run `bin/gdd g2`, `bin/gdd guard`, `bin/gdd note` and git reads (`git status`, `git diff`, `git log`, `git show`). Use your read tools to read files, not the terminal.
+Run each command on its own, without chaining with `;`, `&&` or `|`. You may only run `gdd g2`, `gdd guard`, `gdd note` and git reads (`git status`, `git diff`, `git log`, `git show`). Use your read tools to read files, not the terminal.

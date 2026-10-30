@@ -32,6 +32,7 @@ All notable changes to gdd are documented in this file. The format follows
 - New projects run mutation testing on red changes only, and no rules file can switch off the core for red changes <!-- gdd: 330edcf95ef9 -->
 - The Reviewer gives every finding at once, by class, then looks only at what changed <!-- gdd: 84107843bd33 -->
 - CHANGELOG.md is the project's: gdd changelog shows what is missing and adds only that <!-- gdd: 3ef51bac9e34 -->
+- One command, gdd, for people, agents and CI: new projects get no bin/gdd, and every instruction, permission and message says gdd <!-- gdd: bf0b35c640d6 -->
 
 ### Fixed
 

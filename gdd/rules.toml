@@ -1,5 +1,5 @@
 # Rules table · GDD
-# Single source of truth: read by the classifier (bin/gdd classify), the workflow and CI.
+# Single source of truth: read by the classifier (gdd classify), the workflow and CI.
 # Color beats work type and lane.
 
 main_branch = "main"

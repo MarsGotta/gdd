@@ -1,5 +1,5 @@
 # Which agent and model plays each role. integration = claude | codex | opencode.
-# Rule: the Reviewer belongs to a different model family than the Builder (bin/gdd prepare checks it).
+# Rule: the Reviewer belongs to a different model family than the Builder (gdd prepare checks it).
 
 [orchestrator]
 integration = "claude"

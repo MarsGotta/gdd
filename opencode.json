@@ -5,9 +5,9 @@
     "webfetch": "deny",
     "bash": {
       "*": "deny",
-      "bin/gdd g2*": "allow",
-      "bin/gdd guard*": "allow",
-      "bin/gdd note*": "allow",
+      "gdd g2*": "allow",
+      "gdd guard*": "allow",
+      "gdd note*": "allow",
       "git status*": "allow",
       "git diff*": "allow",
       "git log*": "allow"

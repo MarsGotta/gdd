@@ -38,7 +38,6 @@ jobs:
         run: |
           git worktree add -q "$RUNNER_TEMP/judge" origin/main
           (cd "$RUNNER_TEMP/judge" && cargo build -q --release --locked)
-          mkdir -p .gdd/bin
-          install -m 755 "$RUNNER_TEMP/judge/target/release/gdd" .gdd/bin/gdd-rust
+          sudo install -m 755 "$RUNNER_TEMP/judge/target/release/gdd" /usr/local/bin/gdd
       - name: GDD gates (Path Guard, G2, G3)
-        run: bin/gdd ci
+        run: gdd ci

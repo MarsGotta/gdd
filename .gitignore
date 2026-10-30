@@ -18,5 +18,5 @@ build/
 # Python
 __pycache__/
 *.pyc
-# The recipe binary built from main (bin/gdd launch|resume)
+# An older recipe binary, from before gdd ran from the PATH
 .gdd/bin/gdd-rust
