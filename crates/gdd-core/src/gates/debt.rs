@@ -355,18 +355,18 @@ pub(crate) fn write_new(root: &Path, path: &str, bytes: &[u8]) -> Result<(), Str
 /// recorded for its debt, when there is one. When the file cannot be read there are none, and
 /// `report` fails the check `debt` with why.
 pub(crate) fn owed(report: &mut Report, root: &Path, gate: Gate) -> BTreeMap<String, Option<u64>> {
-    match read(root) {
-        Ok(known) => known
-            .into_iter()
-            .flat_map(|known| known.debt)
-            .filter(|debt| debt.gate == gate)
-            .map(|debt| (debt.command, debt.count))
-            .collect(),
-        Err(why) => {
-            report.fail(CHECK, why);
-            BTreeMap::new()
-        }
-    }
+    of_gate(root, gate).unwrap_or_else(|why| {
+        report.fail(CHECK, why);
+        BTreeMap::new()
+    })
+}
+
+/// The commands of `gate` with known debt in the project at `root`, by name, each with the count
+/// recorded for its debt, when there is one; why, when the file cannot be read (see [`read`]).
+pub(crate) fn of_gate(root: &Path, gate: Gate) -> Result<BTreeMap<String, Option<u64>>, String> {
+    let debts = read(root)?.into_iter().flat_map(|known| known.debt);
+    let of_gate = debts.filter(|debt| debt.gate == gate);
+    Ok(of_gate.map(|debt| (debt.command, debt.count)).collect())
 }
 
 /// What the latest G2 and G3 of change `id`, under the state root `state`, said of the known
@@ -760,6 +760,8 @@ mod tests {
         assert_eq!(failure.name, CHECK);
         let start = "gdd/debt.toml: invalid TOML";
         assert!(failure.tail.starts_with(start), "{failure:?}");
+        // Without a report, why is the error.
+        assert_eq!(of_gate(&folder.0, Gate::G2), Err(failure.tail.clone()));
     }
 
     #[test]
