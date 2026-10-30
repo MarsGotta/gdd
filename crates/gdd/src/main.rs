@@ -9,11 +9,12 @@ fn main() -> ExitCode {
     let cwd = std::env::current_dir().unwrap_or_default();
     let input = std::io::stdin().is_terminal();
     let output = std::io::stdout().is_terminal();
-    let out = if let Some(given) = gdd::asks_form(&args, input, output) {
+    let env = gdd::process_env();
+    let out = if let Some(given) = gdd::asks_form(&args, input, output, &env) {
         gdd::form::in_terminal(&cwd, &given)
-    } else if gdd::asks_board(&args, input, output) {
+    } else if gdd::asks_board(&args, input, output, &env) {
         gdd::board::in_terminal(&cwd)
-    } else if let Some(change) = gdd::asks_sitting(&args, input, output) {
+    } else if let Some(change) = gdd::asks_sitting(&args, input, output, &env) {
         gdd::sitting::in_terminal(&cwd, &change)
     } else {
         gdd::run(&args, &cwd)
