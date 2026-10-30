@@ -41,8 +41,8 @@ reached.
 
 ## Principles
 
-Principles are the rules GDD never bends. They do not depend on gdd, a stack or a model: they
-would hold with a different tool. Every mechanism on this site exists because of one of them.
+Principles are the rules the GDD method never bends. They do not depend on the gdd tool, on a
+stack or on a model: they would hold with any other tool. Every mechanism on this site exists because of one of them.
 The source is [`GDD.md`](../../GDD.md#principles).
 
 1. **Nothing moves forward without passing a gate.** No one, person or agent, skips a gate or

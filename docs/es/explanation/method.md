@@ -43,8 +43,8 @@ alcanza un límite.
 
 ## Principios
 
-Los principios son las normas que GDD nunca dobla. No dependen de gdd, de un stack ni de un
-modelo: seguirían valiendo con otra herramienta. Cada mecanismo de este sitio existe por uno de
+Los principios son las normas que el método GDD nunca dobla. No dependen de la herramienta gdd,
+de un stack ni de un modelo: seguirían valiendo con cualquier otra herramienta. Cada mecanismo de este sitio existe por uno de
 ellos. La fuente es [`GDD.md`](../../../GDD.md#principles).
 
 1. **Nada avanza sin pasar una puerta.** Nadie, ni persona ni agente, se salta una puerta ni la
