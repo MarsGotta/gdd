@@ -12,7 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// How long a gate command may run, with its output.
+/// How long a command may run, with its output, when the rules file says nothing: the gate and
+/// release commands take their limit from it (see [`crate::rules::command_seconds`]).
 pub const TIMEOUT: Duration = Duration::from_secs(1800);
 
 /// The exit code of a command that ran out of time, as `timeout(1)` gives it.
@@ -20,6 +21,10 @@ pub const TIMED_OUT: i32 = 124;
 
 /// How often a running command is checked.
 const POLL: Duration = Duration::from_millis(20);
+
+/// What a gate or release command that ran out of time says after how long it had: how to give
+/// it more.
+const RAISE: &str = ": raise limits.command_seconds in gdd/rules.toml";
 
 /// What a command did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +51,30 @@ impl Ran {
 /// then its process group is killed: the shell and everything it started. Not being able to
 /// start the shell, or to tell how it ended, is an error.
 pub fn run(command: &str, root: &Path, env: &[(&str, &str)], timeout: Duration) -> io::Result<Ran> {
+    run_saying(command, root, env, timeout, "")
+}
+
+/// Runs a gate or release command as [`run`] does, with `limit`, the time limit the rules file
+/// gives those commands (see [`crate::rules::command_seconds`]): when it runs out of time, its
+/// last line also says how to raise the limit.
+pub fn run_limited(
+    command: &str,
+    root: &Path,
+    env: &[(&str, &str)],
+    limit: Duration,
+) -> io::Result<Ran> {
+    run_saying(command, root, env, limit, RAISE)
+}
+
+/// Runs `command` (see [`run`]); after a timeout, its last line is `timed out (<n>s)` followed by
+/// `after`.
+fn run_saying(
+    command: &str,
+    root: &Path,
+    env: &[(&str, &str)],
+    timeout: Duration,
+    after: &str,
+) -> io::Result<Ran> {
     let start = Instant::now();
     let mut child = Command::new("sh")
         .arg("-c")
@@ -81,7 +110,7 @@ pub fn run(command: &str, root: &Path, env: &[(&str, &str)], timeout: Duration) 
         if !output.is_empty() && !output.ends_with('\n') {
             output.push('\n');
         }
-        output.push_str(&format!("timed out ({}s)", timeout.as_secs_f64()));
+        output.push_str(&format!("timed out ({}s){after}", timeout.as_secs_f64()));
         TIMED_OUT
     } else {
         // On Unix a process that ended either exited or was killed by a signal: no code is
@@ -197,6 +226,22 @@ mod tests {
         assert_eq!(ran.output, "started\ntimed out (0.3s)");
         let ran = timed_out("sleep 5");
         assert_eq!(ran.output, "timed out (0.3s)");
+    }
+
+    #[test]
+    fn a_gate_command_out_of_time_says_how_to_raise_its_limit() {
+        let folder = Folder::new();
+        let ran = run_limited("echo started; sleep 5", &folder.0, &[], SHORT).unwrap();
+        assert_eq!(ran.code, TIMED_OUT);
+        let said = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(ran.output, said);
+        // A whole number of seconds is shown without decimals.
+        let ran = run_limited("sleep 5", &folder.0, &[], Duration::from_secs(1)).unwrap();
+        let said = "timed out (1s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!((ran.code, ran.output.as_str()), (TIMED_OUT, said));
+        // In time, it is the command as it ran.
+        let ran = run_limited("echo done; exit 2", &folder.0, &[], TIMEOUT).unwrap();
+        assert_eq!((ran.code, ran.output.as_str()), (2, "done\n"));
     }
 
     #[test]

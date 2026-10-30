@@ -792,10 +792,51 @@ fn gate_command_is(w: &mut GddWorld, gate: String, name: String, command: String
     // The step text escapes the quotes inside the command.
     let command = command.replace("\\\"", "\"");
     write_file(&path, &with_command(&toml, &gate, &name, &command));
-    // A Given on the harness is state from before the build; what the change writes goes in a When.
-    git(&root, &["add", "--", "gdd/commands.toml"]);
-    git(&root, &["commit", "-q", "-m", "gate commands"]);
-    let head = git(&root, &["rev-parse", "HEAD"]);
+    commit_harness_file(&root, "gdd/commands.toml", "gate commands");
+}
+
+/// The command `name` of the `gate` section of the sheet `stack`, as `gdd stacks show` prints it.
+fn sheet_command(stack: &str, gate: &str, name: &str) -> String {
+    let sheet = gdd_core::stacks::sheet(stack).expect("a built-in sheet");
+    let prefix = format!("{gate}.{name}: ");
+    let shown = sheet.to_string();
+    let line = shown.lines().find_map(|line| line.strip_prefix(&prefix));
+    line.unwrap_or_else(|| panic!("the {stack} sheet has no command {gate}.{name}"))
+        .to_string()
+}
+
+#[given(expr = "the gate command {string} {string} is the one of the {string} sheet")]
+fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stack: String) {
+    let root = project_root(w);
+    let path = root.join("gdd/commands.toml");
+    let toml = fs::read_to_string(&path).expect("gate commands to edit");
+    // Gate commands run in the process environment, not the scenario's: the command puts the
+    // folder of the scenario's fake programs first on its own PATH.
+    let programs = w
+        .programs
+        .get_or_insert_with(TempDir::new)
+        .0
+        .display()
+        .to_string();
+    // G3 fails with no scenarios to count, and these scenarios are about the mutation command.
+    let feature = "features/counted.feature";
+    write_file(
+        &root.join(feature),
+        "Feature: counted\n\n  Scenario: one\n    Given a thing\n",
+    );
+    commit_harness_file(&root, feature, "a scenario to count");
+    let command = sheet_command(&stack, &gate, &name);
+    let command = format!("PATH='{programs}':\"$PATH\"; export PATH; {command}");
+    write_file(&path, &with_command(&toml, &gate, &name, &command));
+    commit_harness_file(&root, "gdd/commands.toml", "gate commands");
+}
+
+/// Commits a file of the harness and moves the start of the build there: a Given on the harness
+/// is state from before the build; what the change writes goes in a When.
+fn commit_harness_file(root: &Path, file: &str, message: &str) {
+    git(root, &["add", "--", file]);
+    git(root, &["commit", "-q", "-m", message]);
+    let head = git(root, &["rev-parse", "HEAD"]);
     let changes = root.join(".gdd/changes");
     let ids: Vec<String> = fs::read_dir(&changes)
         .map(|dir| {
@@ -806,12 +847,12 @@ fn gate_command_is(w: &mut GddWorld, gate: String, name: String, command: String
         .unwrap_or_default();
     // Only the change whose branch got the commit: a commit on main (after a launch, say) is not
     // in another change's branch, and a build start outside its branch blinds Path Guard.
-    let current = git(&root, &["branch", "--show-current"]);
+    let current = git(root, &["branch", "--show-current"]);
     for id in ids {
-        let mut record = read_record(&root, &id);
+        let mut record = read_record(root, &id);
         if record.get("build_start").is_some() && current == format!("change/{id}") {
             record["build_start"] = head.clone().into();
-            write_record(&root, &id, &record);
+            write_record(root, &id, &record);
         }
     }
 }
@@ -1938,12 +1979,14 @@ fn folder_is_a_repository(w: &mut GddWorld, path: String) {
 /// Writes the executable `name` with `body` and makes sure its folder leads the PATH.
 fn fake_program(w: &mut GddWorld, name: &str, body: &str) {
     use std::os::unix::fs::PermissionsExt;
-    let first_use = w.programs.is_none();
     let dir = w.programs.get_or_insert_with(TempDir::new).0.clone();
     let path = dir.join(name);
     write_file(&path, &format!("#!/bin/sh\n{body}\n"));
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("an executable");
-    if first_use {
+    let leads = |(known, value): &(String, String)| {
+        known == "PATH" && value.starts_with(&format!("{}:", dir.display()))
+    };
+    if !world_env(w).iter().any(leads) {
         let old = world_env(w)
             .iter()
             .find(|(known, _)| known == "PATH")
@@ -1967,6 +2010,69 @@ fn program_fails(w: &mut GddWorld, name: String) {
 #[given(expr = "the program {string} on the PATH does nothing")]
 fn program_does_nothing(w: &mut GddWorld, name: String) {
     fake_program(w, &name, "exit 0");
+}
+
+// ---- features/mutation-speed.feature -------------------------------------------------------
+//
+// A counting fake program keeps its calls in `<name>.calls` next to it, one line of arguments per call.
+
+#[given(expr = "the program {string} on the PATH exits with {int}, then {int}")]
+fn program_exits_then(w: &mut GddWorld, name: String, first: u8, then: u8) {
+    let body = format!(
+        "calls=\"$(dirname \"$0\")/{name}.calls\"\n\
+         echo \"$*\" >> \"$calls\"\n\
+         n=$(wc -l < \"$calls\")\n\
+         echo \"{name} call $n\"\n\
+         if [ \"$n\" -eq 1 ]; then exit {first}; fi\n\
+         exit {then}"
+    );
+    fake_program(w, &name, &body);
+}
+
+/// The arguments of each call of the fake program `name`, in order.
+fn program_calls(w: &GddWorld, name: &str) -> Vec<String> {
+    let dir = &w.programs.as_ref().expect("a fake program on the PATH").0;
+    let calls = fs::read_to_string(dir.join(format!("{name}.calls"))).unwrap_or_default();
+    calls.lines().map(str::to_string).collect()
+}
+
+#[then(expr = "the program {string} was called {int} times")]
+fn program_called_times(w: &mut GddWorld, name: String, times: usize) {
+    let calls = program_calls(w, &name);
+    assert_eq!(calls.len(), times, "the calls of {name}: {calls:?}");
+}
+
+#[then(expr = "call {int} of the program {string} includes {string}")]
+fn program_call_includes(w: &mut GddWorld, call: usize, name: String, text: String) {
+    let calls = program_calls(w, &name);
+    let line = calls
+        .get(call.saturating_sub(1))
+        .unwrap_or_else(|| panic!("no call {call} of {name}: {calls:?}"));
+    assert!(
+        line.contains(&text),
+        "call {call} of {name} lacks {text:?}: {line:?}"
+    );
+}
+
+#[given(expr = "the rules have {string} = {string}")]
+fn rules_have(w: &mut GddWorld, key: String, value: String) {
+    let root = project_root(w);
+    let path = root.join("gdd/rules.toml");
+    let rules = fs::read_to_string(&path).expect("the project's rules");
+    let (table, name) = key.rsplit_once('.').expect("a dotted key");
+    let value = if value.parse::<i64>().is_ok() {
+        value
+    } else {
+        format!("\"{value}\"")
+    };
+    let header = format!("[{table}]\n");
+    // A table already there keeps its lines.
+    let rules = match rules.split_once(&header) {
+        Some((before, after)) => format!("{before}{header}{name} = {value}\n{after}"),
+        None => format!("{rules}\n{header}{name} = {value}\n"),
+    };
+    write_file(&path, &rules);
+    commit_harness_file(&root, "gdd/rules.toml", "rules");
 }
 
 #[then(expr = "git tracks {string}")]

@@ -398,6 +398,8 @@ pub(crate) fn once<'a, T: PartialEq + Clone + 'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec;
+    use crate::git::tests::{Folder, Repo};
 
     fn of(name: &str) -> Sheet {
         sheet(name).unwrap()
@@ -596,6 +598,59 @@ alternative = "other lint"
         let g2: Vec<&String> = sheet.sections[0].iter().map(|(name, _)| name).collect();
         assert_eq!(g2, ["unit", "lint", "acceptance"]);
         assert!(sheet.sections[2].is_empty());
+    }
+
+    /// Runs the mutation command of the Rust sheet in a repository on `main`, with a fake
+    /// `cargo` on the PATH whose call `n` runs `calls[n - 1]` (sh) in the repository, where
+    /// `target/mutants.out/` exists. Returns the exit code, the output and how many times
+    /// cargo was called.
+    fn rust_mutation(calls: &[&str]) -> (i32, String, usize) {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        let g3 = &of("rust").sections[1];
+        let (_, command) = g3.iter().find(|(name, _)| name == "mutation").unwrap();
+        let repo = Repo::new();
+        let programs = Folder::new();
+        let mut cargo = String::from("#!/bin/sh\ncalls=\"$(dirname \"$0\")/calls\"\n");
+        cargo.push_str("echo \"$*\" >> \"$calls\"\nn=$(wc -l < \"$calls\")\n");
+        cargo.push_str("mkdir -p target/mutants.out\n");
+        for (n, call) in calls.iter().enumerate() {
+            cargo.push_str(&format!("if [ \"$n\" -eq {} ]; then {call}; fi\n", n + 1));
+        }
+        cargo.push_str("exit 99\n");
+        let path = programs.0.join("cargo");
+        fs::write(&path, cargo).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        let old = std::env::var("PATH").unwrap_or_default();
+        let found = format!("{}:{old}", programs.0.display());
+        let env = [("PATH", found.as_str())];
+        let ran = exec::run(command, repo.root(), &env, exec::TIMEOUT).unwrap();
+        let called = fs::read_to_string(programs.0.join("calls")).unwrap_or_default();
+        (ran.code, ran.output, called.lines().count())
+    }
+
+    #[test]
+    fn rust_mutants_missed_beside_timeouts_fail_without_a_second_chance() {
+        // cargo-mutants exits 3 when a mutant timed out, even when others were missed.
+        let missed = "printf 'a\\nb\\n' > target/mutants.out/missed.txt; exit 3";
+        let (code, output, called) = rust_mutation(&[missed]);
+        assert_eq!((code, called), (2, 1), "{output}");
+        let said = "2 mutant(s) missed besides the timeouts\n";
+        assert!(output.ends_with(said), "{output}");
+        // One missed in the second chance fails too.
+        let none = ": > target/mutants.out/missed.txt; exit 3";
+        let again = "echo c > target/mutants.out/missed.txt; exit 3";
+        let (code, output, called) = rust_mutation(&[none, again]);
+        assert_eq!((code, called), (2, 2), "{output}");
+        let said = "1 mutant(s) missed besides the timeouts\n";
+        assert!(output.ends_with(said), "{output}");
+        // With none missed, only the timeouts are left: those that hang again count as caught.
+        let hung = ": > target/mutants.out/missed.txt; echo d > target/mutants.out/timeout.txt; \
+                    exit 3";
+        let (code, output, called) = rust_mutation(&[none, hung]);
+        assert_eq!((code, called), (0, 2), "{output}");
+        let said = "1 mutant(s) hung again: counted as caught\n";
+        assert!(output.ends_with(said), "{output}");
     }
 
     #[test]

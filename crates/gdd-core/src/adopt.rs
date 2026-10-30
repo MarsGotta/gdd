@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::agents::files;
 use crate::exec;
@@ -81,12 +82,18 @@ fn kept(name: &str) -> String {
 /// `commands`. Refused before anything runs once the project has `gdd/debt.toml`, or when a
 /// command that can become debt has a name that cannot name a file. Each command of G2, then of
 /// G3, that can become debt (see [`debt::can_owe`]) runs once from `root`, with the variables of
-/// the gates and no change; it passes when it exits with 0. What each one that failed said, as a
+/// the gates and no change, within `limit`, the time limit of the rules (see
+/// [`exec::run_limited`]); it passes when it exits with 0. What each one that failed said, as a
 /// gate keeps it (see [`gates::kept`]), goes to `.gdd/adoption/<name>.txt` under the state root;
 /// its debt gets the count of what it said when `[count]` has texts for it and they count more
 /// than 0 (see [`debt::count`]). Then, when one failed, the known debt goes to `gdd/debt.toml`,
 /// committed alone on the current branch (see [`record`]); when none did, nothing is written.
-pub fn adopt(root: &Path, state: &Path, commands: &Commands) -> Result<Adopted, String> {
+pub fn adopt(
+    root: &Path,
+    state: &Path,
+    commands: &Commands,
+    limit: Duration,
+) -> Result<Adopted, String> {
     if let Some(known) = debt::read(root)? {
         let day = known.adopted;
         let said = format!("this project was already adopted on {day} ({PATH})");
@@ -98,7 +105,7 @@ pub fn adopt(root: &Path, state: &Path, commands: &Commands) -> Result<Adopted, 
     let mut owed = Vec::new();
     let mut said: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for (gate, name, command) in candidates {
-        match exec::run(command, root, &ENV, exec::TIMEOUT) {
+        match exec::run_limited(command, root, &ENV, limit) {
             Ok(ran) if ran.ok() => passed.push(name.to_string()),
             ran => {
                 let output = ran.map_or_else(|e| format!("cannot run sh: {e}"), |ran| ran.output);
@@ -220,7 +227,7 @@ mutation = "touch ran; exit 1"
     }
 
     fn adopted(repo: &Repo, state: &Folder, text: &str) -> Result<Adopted, String> {
-        adopt(repo.root(), &state.0, &commands(text))
+        adopt(repo.root(), &state.0, &commands(text), exec::TIMEOUT)
     }
 
     #[test]
@@ -320,12 +327,26 @@ mutation = "touch ran; exit 1"
         let only_change = "[g2]\nacceptance = \"exit 1\"\n[g3]\nmutation = \"exit 1\"\n";
         let adopted = adopted(&repo, &state, only_change).unwrap();
         assert_eq!(adopted.to_string(), "Passed: none\nKnown debt: none");
-        let adopted = adopt(repo.root(), &state.0, &commands("[g2]\nlint = \"true\"\n"));
+        let lint = commands("[g2]\nlint = \"true\"\n");
+        let adopted = adopt(repo.root(), &state.0, &lint, exec::TIMEOUT);
         let printed = adopted.unwrap().to_string();
         assert_eq!(printed, "Passed: lint\nKnown debt: none");
         assert!(!repo.root().join(PATH).exists());
         assert!(!state.0.join(ADOPTION).exists());
         assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    }
+
+    #[test]
+    fn a_command_out_of_the_time_limit_becomes_debt_saying_how_to_raise_it() {
+        let (repo, state) = project();
+        let slow = commands("[g2]\nlint = \"sleep 5\"\nunit = \"true\"\n");
+        let adopted = adopt(repo.root(), &state.0, &slow, Duration::from_millis(300)).unwrap();
+        let today = exceptions::today().to_string();
+        assert_eq!(adopted.debt, [debt("lint", Gate::G2, &today)]);
+        assert_eq!(adopted.passed, ["unit"]);
+        let said = fs::read_to_string(state.0.join(kept("lint"))).unwrap();
+        let raise = "timed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(said, raise);
     }
 
     #[test]
@@ -402,7 +423,8 @@ mutation = "touch ran; exit 1"
     #[test]
     fn when_git_cannot_commit_the_debt_file_goes() {
         let (plain, state) = (Folder::new(), Folder::new());
-        let err = adopt(&plain.0, &state.0, &commands("[g2]\nlint = \"exit 1\"\n")).unwrap_err();
+        let lint = commands("[g2]\nlint = \"exit 1\"\n");
+        let err = adopt(&plain.0, &state.0, &lint, exec::TIMEOUT).unwrap_err();
         let start = "cannot commit gdd/debt.toml: git add ";
         assert!(err.starts_with(start), "{err}");
         let end = "It was removed: run gdd adopt again once git can commit.";

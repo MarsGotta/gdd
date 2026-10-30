@@ -2024,7 +2024,8 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
 fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
     let commands = read(root, COMMANDS)?.unwrap_or_default();
     let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
-    adopt::adopt(root, state, &commands).map(|adopted| adopted.to_string())
+    let limit = load_command_limit(root)?;
+    adopt::adopt(root, state, &commands, limit).map(|adopted| adopted.to_string())
 }
 
 /// `gdd learn`: the Learn tools of the project at `root`, whose state root is `state`, and the
@@ -2115,10 +2116,18 @@ fn load_limits(root: &Path) -> Result<Limits, String> {
     Limits::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
 }
 
-/// The release commands of the project.
+/// The release commands of the project, with the time limit of its rules file.
 fn load_steps(root: &Path) -> Result<release::Steps, String> {
+    let limit = load_command_limit(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
-    release::Steps::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))
+    release::Steps::from_toml(&text, limit).map_err(|e| format!("{COMMANDS}: {e}"))
+}
+
+/// How long each gate and release command of the project may run (see
+/// [`gdd_core::rules::command_seconds`]).
+fn load_command_limit(root: &Path) -> Result<Duration, String> {
+    let text = read(root, RULES)?.unwrap_or_default();
+    gdd_core::rules::command_seconds(&text).map_err(|e| format!("{RULES}: {e}"))
 }
 
 /// What the rules file of the main checkout, under the state root `state`, says of releases (see
