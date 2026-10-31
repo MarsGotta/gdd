@@ -1,7 +1,7 @@
 # gdd classify
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/classify.md, nunca esta página.
 -->
 
@@ -38,7 +38,7 @@ gdd classify cart-total
 
 You should see the color, the lane and the reason for each path:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 {

@@ -16,7 +16,7 @@ The Builder in test mode may not touch production code:
 gdd guard cart-total --role builder-test
 ```
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 {"ok":false,"failures":["src/shop/cart.py: protected path for builder-test"]}

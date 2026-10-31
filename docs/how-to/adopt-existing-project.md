@@ -43,10 +43,11 @@ form.
 
 gdd writes the [harness](../glossary.md#harness), the files it uses to check the project, next
 to your code. It never overwrites a file, refuses to run in a folder that is already a GDD
-project and commits only what it wrote (`gdd init 0.1.0`). Then it runs the first install of the
+project and commits only what it wrote (`gdd init 0.1.1`). Then it runs the first install of the
 stack, which writes the lock file, and commits it (`gdd bootstrap`). You should see the files it
 wrote, the install, then the next step:
 
+<!-- Real output of the gdd init form, gdd 0.1.1, in a copy of the example project. -->
 ```text
 gdd/project.toml
 gdd/commands.toml
@@ -58,17 +59,20 @@ docs/brief.md
 .github/workflows/gdd.yml
 AGENTS.md
 CLAUDE.md
+CHANGELOG.md
 .gitignore
 .claude/skills/gdd-build/SKILL.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 Using CPython 3.13.15
-Resolved 8 packages in 3ms
+Resolved 8 packages in 5ms
 Using CPython 3.13.15
 Creating virtual environment at: .venv
-Resolved 8 packages in 0.91ms
-Installed 7 packages in 10ms
+Resolved 8 packages in 0.95ms
+...
+Installed 7 packages in 30ms
+...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
 ```
@@ -78,6 +82,7 @@ wrote no skeleton, and the files you already had stay yours.
 
 - `AGENTS.md`: if the project already has one, gdd leaves it alone and tells you the line to
   add, which sends the agents to GDD.
+- `CHANGELOG.md`: gdd starts one only when the project has none; yours stays as it is.
 - Lock file: if the project already committed one, you get `Nothing new to commit.` instead of
   `Committed: uv.lock`.
 
@@ -131,7 +136,8 @@ changes `gdd/commands.toml` or the project, and tries each command by hand. For 
 - added the settings the tools read to `pyproject.toml` (`[tool.mypy]`, `[tool.mutmut]`, an
   import-linter contract);
 - changed the `mutation` command of `gdd/commands.toml` so that a file with nothing to mutate
-  does not fail it.
+  does not fail it. Since gdd 0.1.1 the Python sheet's own command passes such a file and says
+  so, so this edit is no longer needed.
 
 Before you answer, read what the Orchestrator changed. These files are harness, so they change
 on main, never inside a change.
@@ -240,8 +246,9 @@ paths = ["tests/**"]
 reason = "Tests: a wrong test fails loudly and costs nothing in production"
 ```
 
-You approve the red zones at the [sitting](../glossary.md#sitting) of the first change, with
-its scenarios. Approving them records:
+The Setup already asked you to approve the two red zones `gdd init` wrote. The zones Discover
+adds change the red zones, so you approve them again at the [sitting](../glossary.md#sitting)
+of the next change, with its scenarios. Approving them records:
 
 ```text
 Red zones ok (3 red zone(s)).

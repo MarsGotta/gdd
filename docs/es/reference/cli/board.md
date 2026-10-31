@@ -1,7 +1,7 @@
 # gdd board
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/board.md, nunca esta página.
 -->
 
@@ -24,7 +24,8 @@ You, in a terminal.
 
 ## Ejemplos
 
-The Board shows every change by phase (Discover, Build, Release, Done) and changes nothing.
+The Board shows every change by phase (Discover, Build, Release, Done) and changes nothing. It
+reads the project again every 2 seconds, and when you press `r`, keeping the selected change.
 `gdd` with no command opens it when a person runs it in a terminal. Without a terminal, or for
 an agent, `gdd` alone prints the help.
 
@@ -34,12 +35,12 @@ gdd board
 
 In a project with no change yet, you should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
 │No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)               │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

@@ -25,7 +25,7 @@ puertas de tu stack, y después preparas un proyecto con `gdd init`.
 La [referencia de stacks](../reference/stacks.md) recoge todos los comandos que ejecutan las
 puertas de cada stack.
 
-gdd 0.1.0 solo se instala con cargo. Los binarios precompilados, crates.io y Homebrew están en
+gdd 0.1.1 solo se instala con cargo. Los binarios precompilados, crates.io y Homebrew están en
 la [hoja de ruta](../../../ROADMAP.md#5-open-source) y todavía no están disponibles.
 
 ## 1. Instala el binario
@@ -34,7 +34,7 @@ Instala la versión etiquetada desde GitHub. El workflow de CI (integración con
 escribe `gdd init` ejecuta este mismo comando:
 
 ```bash
-cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.0 gdd
+cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.1 gdd
 ```
 
 cargo compila gdd y lo deja en `~/.cargo/bin`, que rustup añade a tu `PATH`. Tú, tus agentes y
@@ -42,9 +42,9 @@ CI ejecutáis este mismo `gdd`.
 
 > [!NOTE]
 > El workflow que escribe `gdd init` instala gdd desde la etiqueta `v<version>`, así que la CI
-> funciona en cuanto esa etiqueta existe en GitHub. Si cargo dice `failed to find tag v0.1.0`,
+> funciona en cuanto esa etiqueta existe en GitHub. Si cargo dice `failed to find tag v0.1.1`,
 > la etiqueta aún no está publicada: instala desde la rama main con el mismo comando, sin
-> `--tag v0.1.0`.
+> `--tag v0.1.1`.
 
 ### O compílalo desde el código fuente
 
@@ -70,7 +70,7 @@ gdd --version
 Deberías ver:
 
 ```text
-gdd 0.1.0
+gdd 0.1.1
 ```
 
 ## 2. Instala un agente de programación
@@ -163,7 +163,8 @@ gdd init
 
 3. Responde al formulario de Setup, un paso cada vez. Deberías ver:
 
-<!-- Real screens of gdd 0.1.0 at 100 columns, blank lines trimmed. -->
+<!-- Real screens of gdd 0.1.0 at 100 columns, blank lines trimmed; gdd 0.1.1 shows the same
+     screens (checked). -->
 ```text
 ┌ gdd init · Step 1 of 7 · Project name ───────────────────────────────────────────────────────────┐
 │What is the project called?                                                                       │
@@ -206,13 +207,18 @@ escribiste. No se escribe nada hasta el resumen:
 ```
 
 `Enter` escribe el [arnés](../glossary.md#arnés), los ficheros que gdd usa para comprobar tu
-proyecto, y hace commit (`gdd init 0.1.0`). Después, el formulario ejecuta la primera
-instalación de cada stack, que escribe el fichero de bloqueo (*lock file*, el que fija la
-versión exacta de cada dependencia), y gdd también hace commit de él (`gdd bootstrap`). gdd
+proyecto, y hace commit (`gdd init 0.1.1`). El mismo commit empieza `CHANGELOG.md`, la lista de
+lo que cambia en cada versión, salvo que la carpeta ya tenga uno. Después, el formulario ejecuta
+la primera instalación de cada stack, que escribe el fichero de bloqueo (*lock file*, el que fija
+la versión exacta de cada dependencia), y gdd también hace commit de él (`gdd bootstrap`). gdd
 lista todos los ficheros que ha escrito y lo que imprimió la instalación. En un proyecto
 Python, deberías ver:
 
 ```text
+gdd/project.toml
+...
+CLAUDE.md
+CHANGELOG.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked

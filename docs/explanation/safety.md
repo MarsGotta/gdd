@@ -140,8 +140,8 @@ control over what each agent may do:
   permission flags yet. So no agent can start, merge, park or release a change, set up or adopt
   the project, or open a screen. [Roles](../reference/roles.md#what-an-agent-may-run) has the
   message it prints.
-- **Builders and Reviewers cannot record a decision.** `gdd gate` and `gdd resume` refuse them,
-  so no agent approves G1, a plan or G4.
+- **No agent gdd started can record a decision.** `gdd gate` and `gdd resume` refuse every one
+  of them, so no agent approves G1, a plan or G4.
 - **No secrets in the agents' environment.** A variable never reaches an agent when one word
   of its name is a secret word (`AWS_SECRET_ACCESS_KEY`, `DB_PASS`, `SENTRY_DSN`), or when its
   value is a URL with a password in it (`DATABASE_URL=postgres://app:***@db/app`). If a project
@@ -213,10 +213,11 @@ code, and you should know them before you rely on a gate.
   those tests are code the Builder wrote. They run on your machine, with the environment gdd
   runs in, without a sandbox. The secrets filter applies to the agents, not to the gate
   commands. Run gdd only on a machine where running that code is safe.
-- **Spend has gaps.** Codex reports no cost, so its calls add 0 USD to the record. Filling
-  `[prices]` in `gdd/models.toml` gives the log an estimate, never the record. OpenCode does not
-  report the model, so the log keeps the requested one. A spike budget in USD alone may never
-  stop a Codex spike.
+- **Spend has gaps.** Codex reports no cost. The log, the report and the merge commit estimate
+  it from `[prices]` in `gdd/models.toml` and mark it as an estimate; with no price for its model
+  they say `unknown`, never 0. The record counts only the costs the agents report, so a Codex
+  call adds 0 USD there, and a spike budget in USD alone may never stop a Codex spike. OpenCode
+  does not report the model, so the log keeps the requested one.
 - **One Reviewer for every color.** The Reviewer's model does not change with the color yet, and
   only deterministic scanners look at security. A separate security review by an agent, for red
   security zones, is planned.

@@ -56,17 +56,18 @@ Changelog: Changed · Orders export as CSV instead of JSON
 Breaking: yes
 ```
 
-Los Builders y los Reviewers no pueden fijar la línea. En gdd 0.1.0, si las palabras de una
-línea empiezan por `--`, pon un `--` delante de ellas:
+Los agentes que gdd arrancó no pueden fijar la línea. Si las palabras de una línea empiezan por
+`--`, pon un `--` delante de ellas:
 [`gdd changelog-line CHANGE Changed -- --time is faster`](../reference/cli/changelog-line.md).
 
 ## 2. Pon al día CHANGELOG.md
 
-`CHANGELOG.md` es tuyo: gdd nunca borra ni reescribe ni una palabra. En gdd 0.1.0,
-[`gdd init`](../reference/cli/init.md) no lo crea. Mientras el fichero no exista, cada línea vive
-solo en los trailers de su commit de fusión, y una versión automática etiqueta ese commit de
-fusión. Para empezar el fichero, pide a tu agente que empiece `CHANGELOG.md`, o créalo con
-`gdd changelog --write` como se muestra abajo y haz commit.
+`CHANGELOG.md` es tuyo: gdd nunca borra ni reescribe ni una palabra.
+[`gdd init`](../reference/cli/init.md) lo empieza en su primer commit, salvo que el proyecto ya
+tenga uno: la cabecera de Keep a Changelog y una sección `## [Unreleased]` vacía. Un proyecto
+sin el fichero, como uno preparado con gdd 0.1.0, guarda cada línea solo en los trailers de su
+commit de fusión, y una versión automática etiqueta ese commit de fusión. Para empezar el
+fichero ahí, créalo con `gdd changelog --write` como se muestra abajo y haz commit.
 
 [`gdd changelog`](../reference/cli/changelog.md) compara el fichero con las líneas que llevan los
 commits de fusión de main, versión a versión, y muestra lo que falta. Lo que todavía no ha
@@ -86,7 +87,7 @@ Missing from CHANGELOG.md:
 
 ### Added
 
-- The cart shows its total <!-- gdd: 2dabea449211 -->
+- The cart shows its total <!-- gdd: 95e4eeb6d229 -->
 
 Nothing written: gdd changelog --write adds them.
 ```
@@ -150,13 +151,12 @@ La primera versión de un proyecto es `0.1.0`. Elige uno de estos dos modos en `
   mode = "manual"   # release in batches with gdd release
   ```
 
-En modo auto, un Change promovido en un proyecto que tiene su changelog en git se ve así en main
-(`Start CHANGELOG.md` es el commit que creó el fichero):
+En modo auto, un Change promovido en un proyecto que tiene su changelog en git se ve así en
+main:
 
 ```text
-d78a276 Release v0.1.0
-06118e8 Start CHANGELOG.md
-2dabea4 gdd(cart-total): G3 Merge Gate · Cart total
+08625a9 Release v0.1.0
+95e4eeb gdd(cart-total): G3 Merge Gate · The cart shows its total
 ```
 
 ## 4. Publica a mano
@@ -220,7 +220,9 @@ error: the version must come after v0.1.0
 ```
 
 Si no se ha fusionado nada desde la etiqueta más reciente, `gdd release` dice
-`Nothing to release since v0.2.0`. Los Builders y los Reviewers no pueden publicar.
+`Nothing to release since v0.2.0`. Un Change pulido en G4 se fusiona dos veces y lleva su línea
+en los dos commits de fusión; una publicación la lista una sola vez. Los agentes que gdd arrancó
+no pueden publicar.
 
 ## 5. Configura los pasos de publicación
 
@@ -297,9 +299,15 @@ Todas las claves están en [Configuración](../reference/configuration.md#comman
 
 ## 6. Comprueba el changelog en CI (opcional)
 
-`gdd changelog --check` no escribe nada y falla cuando al fichero le falta alguna línea:
+`gdd changelog --check` no escribe nada, imprime las líneas que faltan y falla cuando al fichero
+le falta alguna:
 
 ```text
+## [Unreleased]
+
+### Added
+
+- The cart shows its total <!-- gdd: 95e4eeb6d229 -->
 error: CHANGELOG.md misses 1 line(s): gdd changelog shows them, gdd changelog --write adds them
 ```
 

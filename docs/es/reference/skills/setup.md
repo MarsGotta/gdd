@@ -84,8 +84,10 @@ preguntar y decidir, decide y te lo dice. Su último mensaje termina con un sigu
    y la zona del arnés viene en rojo. Ningún Change puede lanzarse antes de que una persona
    apruebe el mapa de zonas, así que la skill te lo pide en una línea y te dice qué protege la
    zona del arnés: los ficheros del propio gdd, la CI y las instrucciones de los agentes. Con tu
-   OK ejecuta [`gdd gate zones ok --by human`](../cli/gate.md). La skill `gdd-discover` mapea
-   después tus propias áreas sensibles.
+   OK ejecuta [`gdd gate zones ok --by human`](../cli/gate.md). Hasta entonces,
+   [`gdd status`](../cli/status.md) dice `Red zones not approved yet: the Setup asks you to
+   approve them (the gdd-setup command).` La skill `gdd-discover` mapea después tus propias
+   áreas sensibles.
 7. **Protege las rutas correctas** en `gdd/rules.toml`: el código de producción frente al Builder
    en modo test, y la carpeta de los pasos de los escenarios frente al Builder en modo build.
 8. **Instala y adopta cuando hace falta.** Cuando falta el fichero de lock de un stack (el

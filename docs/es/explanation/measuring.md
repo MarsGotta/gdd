@@ -50,9 +50,11 @@ decenas de millones de tokens de caché y una cantidad modesta de tokens nuevos.
 dos formas de trabajar, compara la entrada nueva y la salida.
 
 Los dólares van después porque no todos los agentes los miden. Claude Code informa de un coste
-que es una estimación hecha en tu máquina. Codex no informa de ninguno, y una tabla de precios en
-`gdd/models.toml` permite que el log lo estime. Con una suscripción, el coste por llamada es solo
-nominal. Todos los agentes informan de los tokens, así que los tokens son lo que puedes comparar.
+que es una estimación hecha en tu máquina. Codex no informa de ninguno, y una tabla de precios
+en `gdd/models.toml` permite que el log lo estime: el informe marca esa estimación con `~`, y
+una llamada cuyo modelo no tiene precio muestra `unknown`, nunca 0. Con una suscripción, el
+coste por llamada es solo nominal. Todos los agentes informan de los tokens, así que los tokens
+son lo que puedes comparar.
 
 `gdd report --by change,model,role` agrupa las llamadas como necesites: por Change, fase, modelo,
 rol o agente. Lo que gastó un Change también vive en su registro, que solo escribe gdd, y en su

@@ -1,7 +1,7 @@
 # gdd launch
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/launch.md, nunca esta página.
 -->
 
@@ -44,9 +44,17 @@ worktree of its own, on the branch `change/<id>`, and moves your checkout to the
 gdd launch cart-total
 ```
 
-It prints nothing while the agents work, and pauses at G4 when the change needs you. When the
-change parks, it exits with 1. The [tutorial](../../getting-started/tutorial.md) shows a whole
-launch with real output.
+It prints nothing while the agents work, and pauses at G4 when the change needs you:
+
+<!-- REAL OUTPUT: gdd 0.1.1, with stand-in agents: the acceptance harness's fake claude and
+     codex scripts, so the tokens and costs are theirs, not a real model's. -->
+
+```text
+Paused at G4. Message: .gdd/changes/cart-total/inbox.md · To continue: gdd resume cart-total --g4 ok|ko|polish
+```
+
+When the change parks, it exits with 1. The [tutorial](../../getting-started/tutorial.md)
+shows a whole launch with real output.
 
 ## Ver también
 

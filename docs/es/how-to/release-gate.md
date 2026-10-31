@@ -37,43 +37,45 @@ Cuando el Change se detiene en G4, el Orchestrator trae al chat su Decision Inbo
 con palabras sencillas, y te pide la respuesta. Para `cart-total`, el Change que muestra el
 total del carrito de `shop`, el agente escribió:
 
-<!-- The chat excerpts and the screens of this page come from one real run of gdd 0.1.0 (main
-at e244577) on 2026-10-31, with Claude Code as the chat agent and Codex as the Reviewer: the
-run of the tutorial. Paths are shown under /home/me. -->
+<!-- The chat excerpts and the screens of this page come from one real run of gdd 0.1.1 (main
+at 30b50c4) on 2026-10-31, with Claude Code as the chat agent and Codex as the Reviewer: the
+run of the tutorial. Before G4 the change parked three times on gdd 0.1.1 bugs and the agent
+rebuilt it; the blocks trim the lines of that detour, and a Reviewer link with an absolute
+path, with `...`. -->
 
 ```text
-The **cart-total** change is built and checked, and it's waiting for your **G4** answer.
-
-**What it does:** a cart adds up the pieces in it and shows two figures, the total and how much
-of that total is tax.
-- 1 Blue mug (24.20) + 2 Wide bowls (36.30 each) gives a **total of 96.80, of which 16.80 is
-  tax**.
 ...
-**Checks:**
-- **All 6 scenarios pass**, including the 2 hidden examples the Builder never saw. That shows
-  it implemented the rule rather than copying the numbers.
-- **The other merge checks pass:** lint, types, unit tests, security, secrets and dependencies.
-- **Mutation testing was skipped,** as the rules say for yellow changes. ...
-- **The Reviewer from another model family said OK** with no findings.
-- **It's merged into `main`.** The test server is simulated, so there's no page or video to
-  look at yet. ...
+**What you'd approve:** the cart now gives three amounts: the subtotal before tax, the 21% tax
+on the whole cart rounded to the cent (half a cent rounds up), and the total. Adding the same
+piece again adds to its quantity. The code is merged on `main` and deployed to pre. Pre is
+simulated here, so there's no video or screenshots.
 
-**Two things you should know:**
-- The inbox asks you to approve the cart's technical interface: how other code adds pieces and
-  reads the totals. That's a code detail; I've checked it and it's fine, so you don't need to
-  decide anything there.
-- The cart doesn't yet refuse odd input like a quantity of 0 or a negative price. Nothing
-  allows that today, but I'd add the rule when pieces are added from a real page.
+**The evidence:**
+- **Reviewer:** OK, with no new findings. ...
+- **Full checks (G3):** all green, including security, dependencies and a scan for leaked
+  secrets.
+- **Demo:** I ran all 5 scenarios on `main` and they all pass:
+  - a cart with several pieces: 60.50 + 12.71 = 73.21
+  - an empty cart: 0.00
+  - the two hidden examples (rounding down, and the same piece added twice)
+  - the smoke test
 
-**Next step:** reply **OK** to send it to production (simulated for now), **KO** to reject it,
-or **polish** with what you'd like changed.
+**One gap:** ... Nothing can hit that today, because there's no screen where a customer types a
+quantity yet. Left as is, though, a negative quantity would give a negative total.
+
+**What I recommend:** say OK now, and make "a quantity must be at least 1" its own small change
+before customers can choose quantities. The alternative is polish: one more Builder round to
+add that check before going to production.
+
+**Next step:** reply "OK", "polish", or "KO" (reject; production stays untouched).
 ```
 
 Dice lo que hace el Change con los números de tus escenarios, lo que han dicho las puertas y el
-Reviewer, y lo que ha leído para ti en la bandeja. Los 6 escenarios son los 3 visibles de
-`cart-total`, sus 2 ejemplos ocultos y el escenario de humo que escribió la fase Setup
-(`features/smoke.feature`): G3 ejecuta todos los escenarios del proyecto, no solo los del
-Change.
+Reviewer, y lo que dejaría para más tarde, con una recomendación y su alternativa. Los 5
+escenarios son los 2 visibles de `cart-total`, sus 2 ejemplos ocultos y el escenario de humo que
+escribió la fase Setup (`features/smoke.feature`): G3 ejecuta todos los escenarios del proyecto,
+no solo los del Change. El hueco que nombra, una cantidad de 0 o menos, es el tipo de comentario
+para el que sirve un polish, o un Change pequeño propio.
 
 La bandeja en sí es el único mensaje que gdd guarda por cada Change, en
 `.gdd/changes/CHANGE/inbox.md`. En G4 empieza por cómo funciona el Change. La bandeja completa
@@ -85,18 +87,19 @@ de `cart-total`:
 Color yellow · lane full · state in-pre
 
 ## How it works
-- `src/shop/cart.py` adds a plain Python cart, independent of the web layer.
-- Totals sum tax-inclusive prices multiplied by quantities using `Decimal`.
-- Included tax uses the supplied rate, calculated once on the total and rounded half up.
-- Acceptance steps follow the existing fixture pattern; unit tests cover rounding, alternative rates and empty carts.
+`src/shop/cart.py` holds catalogue lookup, accumulated quantities and totals.
+It uses Decimal amounts and applies 21% tax once to the subtotal, rounding half up.
+Acceptance steps follow the existing fixture pattern and call the package directly.
+Adding the same piece again increases its quantity.
 
 ## Needs your decision
-- API expected by the tests: shop.cart.Cart(tax_rate: Decimal) with add(name: str, price: Decimal, quantity: int), and Decimal properties total and tax_included, both quantized to two places (str() shows e.g. 96.80). The rate is a percentage (Decimal(21)).
-- G4 · Release Gate: check the pre demo and the change message, then answer with gdd resume cart-total --g4 ok (promote to production), --g4 ko (reject: production untouched) or --g4 polish --note <what to polish> (one more Builder round).
+- Test mode: API assumed in shop.cart: TAX_RATE=Decimal('0.21'); Cart(catalogue: dict[str, Decimal]); Cart.add(piece, quantity) raises KeyError for a piece not in the catalogue; Cart.totals() -> Totals(subtotal, tax, total) as 2-decimal Decimal. Lint I001 on the new tests fails only while src/shop/cart.py is missing (Ruff then sees shop as third-party); the blank line before the shop import follows the package and is right once the module exists.
+- G4 · Release Gate: check the pre demo and the change message, then answer your agent (or the sitting screen): OK promotes to production, KO rejects it (production untouched), polish with your notes runs one more Builder round. Your agent runs gdd resume cart-total --g4 ok, --g4 ko or --g4 polish --note <your notes>.
 
 ## Decided without you
-- No human plan: the change is yellow. Money as Decimal, tax rate given to the cart (not hard-coded), tax computed once on the cart total and rounded half up to the cent.
-- Euros: scenarios keep amounts without the euro sign, as approved; the currency shows up when the cart reaches a page.
+- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single constant (21%), confirmed by the owner
+- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in
+...
 
 ## Parked
 - Nothing.
@@ -107,9 +110,9 @@ Color yellow · lane full · state in-pre
   entiendes sin leer cada línea. Cuando el Reviewer no la ha escrito, la bandeja lo dice.
 - **Needs your decision** (necesita tu decisión) recoge la petición de G4 y las notas que los
   agentes te han dejado por el camino. Aquí el Builder en modo test describió el código que
-  esperan sus tests, y el Orchestrator lo comprobó y te lo resumió. La línea de G4 nombra el
-  comando en que se convierte tu respuesta: lo ejecuta el Orchestrator, tú respondes con
-  palabras.
+  esperan sus tests, y el Orchestrator lo comprobó por ti. La línea de G4 dice qué hace cada
+  respuesta, y que tu agente, o la pantalla de la sentada, ejecuta el comando por ti: tú
+  respondes con palabras.
 - **Decided without you** (decidido sin ti) lista lo que han elegido los agentes por su cuenta,
   y las rutas fuera del plan que ha aceptado la comprobación de alcance.
 - **Parked** (aparcado) lista lo que un agente ha dejado para más tarde: aquí, nada.
@@ -132,28 +135,24 @@ Deberías ver (sin las líneas en blanco):
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
 │cart-total · Show the cart total, taxes included · waiting for your G4                            │
 │How it works                                                                                      │
-│- `src/shop/cart.py` adds a plain Python cart, independent of the web layer.                      │
-│- Totals sum tax-inclusive prices multiplied by quantities using `Decimal`.                       │
-│- Included tax uses the supplied rate, calculated once on the total and rounded half up.          │
-│- Acceptance steps follow the existing fixture pattern; unit tests cover rounding, alternative    │
-│rates and empty carts.                                                                            │
+│`src/shop/cart.py` holds catalogue lookup, accumulated quantities and totals.                     │
+│It uses Decimal amounts and applies 21% tax once to the subtotal, rounding half up.               │
+│Acceptance steps follow the existing fixture pattern and call the package directly.               │
+│Adding the same piece again increases its quantity.                                               │
 │Reviewer: OK                                                                                      │
-│No blocking findings. The implementation matches the package, and scenario steps assert exact     │
-│amounts with two decimal places. No duplicated steps or example-specific shortcuts found.         │
-│Recorded G2 and G3 pass; mutation testing was skipped. This review was read-only; no tests were   │
-│rerun.                                                                                            │
+...
+│- No new blocking findings.                                                                       │
+│Recorded G2 and G3 pass; mutation testing was skipped. No files modified or tests rerun during    │
+│this read-only review.                                                                            │
 │Demo: none, the project has no demo command                                                       │
 │Decided without you                                                                               │
-│- No human plan: the change is yellow. Money as Decimal, tax rate given to the cart (not          │
-│hard-coded), tax computed once on the cart total and rounded half up to the cent.                 │
-│- Euros: scenarios keep amounts without the euro sign, as approved; the currency shows up when the│
-│cart reaches a page.                                                                              │
+│- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single       │
+│constant (21%), confirmed by the owner                                                            │
+│- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in │
+...
 │Changelog: none set                                                                               │
-│Flow time 3m · active 2m (59%) · waiting 1m · between steps 0s                                    │
-│Agents: builder-test · sonnet 51s, reviewer · gpt-6-astra 30s, builder-build · sonnet 17s         │
-│Gates: security 1s, secrets 0s, acceptance 0s, acceptance_full 0s, unit 0s, architecture 0s, lint │
-│0s, types 0s, dependencies 0s, lockfile 0s, path-guard 0s                                         │
-│Waiting: at the sitting 55s, to start 15s                                                         │
+...
+│Agents: builder-test · sonnet 2m, reviewer · gpt-6-astra 1m, builder-build · sonnet 1m            │
 │↑↓ scroll · o OK · k KO · p polish · q quit                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -161,8 +160,8 @@ Deberías ver (sin las líneas en blanco):
 De arriba abajo: cómo funciona el Change, el veredicto del Reviewer y sus palabras, la demo
 (con sus números cuando el comando de demo los ha escrito, por ejemplo
 `Demo: 12 scenarios (12 passed)`), lo que han decidido los agentes sin ti, la línea del
-changelog y en qué se ha ido el tiempo del Change. Aquí el Builder en modo test es el que más
-ha tardado, y el Change esperó 55 segundos tu OK en la primera sentada.
+changelog y en qué se ha ido el tiempo del Change: el tiempo de flujo y, más abajo, cada agente,
+cada puerta y cada espera. Aquí el Builder en modo test es el que más ha tardado.
 
 Dos líneas dicen "nada todavía". `Demo: none, the project has no demo command` porque `shop`
 aún no ha rellenado el paso `demo` de `[release]`, así que pre no ha dejado ficheros de demo.
@@ -206,14 +205,14 @@ OK
 El agente respondió:
 
 ```text
-**cart-total** is released as **v0.1.0**, and the change is closed. Production is still
-simulated, so nothing is live on the web yet. The shop's core now has a cart that shows the
-total and the tax included in it.
+The cart total is in production as **v0.1.0**, and the change is closed. Production is still
+simulated, so nothing is deployed to a real server yet.
 
-**What it cost:** the report shows **$0.39** in total. That figure covers only the Builder's
-two rounds (writing the tests, then the code). The Reviewer and my own work show $0.00, which
-looks like they weren't priced in the report rather than free. Your answers stopped the process
-twice for a human decision: the scenarios and G4.
+What shipped: the cart shows the subtotal, the 21% tax on the whole cart (rounded to the cent,
+with half a cent rounding up), and the total. It's tagged and recorded on `main`.
+
+**Cost:** about $0.91 for the Builders. The reviewer's and my own calls aren't priced, because
+gdd has no price for those two models, so the real total is higher.
 ...
 ```
 
@@ -252,9 +251,10 @@ Change cart-total closed. Message: .gdd/changes/cart-total/inbox.md · Tokens: g
 ```
 
 - **Versiones.** Con `[versions] mode = "auto"` (el valor por defecto), un Change promovido con
-  línea de changelog recibe la siguiente etiqueta de versión en cuanto pasa la promoción: aquí
-  `v0.1.0`, la primera versión de un proyecto, en el commit de fusión de `cart-total`. Una
-  Feature posterior sube la versión menor. Consulta [Publicar versiones y mantener un
+  línea de changelog recibe la siguiente versión en cuanto pasa la promoción: aquí `v0.1.0`, la
+  primera versión de un proyecto. gdd añade la línea a `CHANGELOG.md` bajo la versión nueva, hace
+  commit en `main` como `Release v0.1.0` y pone a ese commit la etiqueta `v0.1.0`. Una Feature
+  posterior sube la versión menor. Consulta [Publicar versiones y mantener un
   changelog](releases-and-changelog.md).
 - **Revertir (*rollback*).** Cuando la observación falla, gdd ejecuta el paso `rollback` para
   volver a la versión anterior, el Change termina `rolled-back` y su bandeja pide un hotfix:
@@ -289,8 +289,8 @@ entre Changes, para que se conviertan en una línea de `docs/standards.md` o en 
   lugar de adivinar, con un mensaje para que mires primero producción, y así no se despliega
   nada dos veces.
 
-<!-- The two refusals below were reproduced the same day in a throwaway copy of the same
-project, without agents and without a launch. -->
+<!-- The two refusals below were reproduced the same day with gdd 0.1.1, in the project of the
+run once the change was closed, without agents. -->
 
 - **Polish sin palabras.** gdd lo rechaza:
 

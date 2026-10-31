@@ -137,6 +137,8 @@ Cada Change te deja un mensaje, su **Decision Inbox** (su bandeja de decisiones)
 dónde mirar (gdd escribe los títulos en inglés):
 
 - **How it works** (cómo funciona), del Reviewer, cuando el Change espera en G4;
+- **Your decisions** (tus decisiones): cada KO que diste y que sigue en pie, con tus palabras,
+  hasta que esa puerta se decide de nuevo;
 - **Needs your decision** (necesita tu decisión): lo que solo tú puedes decidir, cada cosa con una
   recomendación y como mucho una alternativa;
 - **Decided without you** (decidido sin ti): las decisiones reversibles que tomaron los agentes

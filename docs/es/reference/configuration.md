@@ -21,7 +21,7 @@ en [Cómo elige el riesgo las puertas](../explanation/risk.md).
 | [`gdd/project.toml`](#projecttoml) | `gdd init` | `gdd status`, los comandos de stacks, los agentes | Lo básico del proyecto |
 | [`gdd/zones.toml`](#zonestoml) | `gdd init`, después el Orchestrator | `gdd classify`, las puertas, la comprobación de alcance de Path Guard, la aprobación de las zonas rojas | El mapa de zonas: qué rutas tienen qué color |
 | [`gdd/rules.toml`](#rulestoml) | `gdd init` | todo comando que clasifica, pasa puertas, lanza o fusiona | La tabla de reglas, los límites, las rutas protegidas |
-| [`gdd/models.toml`](#modelstoml) | `gdd init` | `gdd prepare`, `gdd launch`, `gdd resume`, `gdd status`, `gdd agents` | El agente y el modelo de cada rol |
+| [`gdd/models.toml`](#modelstoml) | `gdd init` | `gdd prepare`, `gdd launch`, `gdd resume`, `gdd session`, `gdd status`, `gdd agents` | El agente y el modelo de cada rol, y los precios de los modelos |
 | [`gdd/commands.toml`](#commandstoml) | `gdd init` | las puertas, `gdd release`, `gdd selftest`, `gdd learn`, `gdd adopt`, `gdd ci` | Los comandos de las puertas, de Learn y de release |
 | [`gdd/generated.toml`](#generatedtoml) | `gdd init`, `gdd upgrade` | `gdd upgrade` | Lo que `gdd init` escribió una vez y lo que se le pidió |
 | [`gdd/debt.toml`](#debttoml) | `gdd adopt`, después cada fusión | las puertas, `gdd ci`, `gdd status` | La deuda conocida de un proyecto adoptado |
@@ -154,7 +154,7 @@ G3 cuenta las líneas de los ficheros `.feature` de `dir` y sus subcarpetas que 
 | `replans` | entero, 0 o más | `1` | Replanificaciones de un Change que sigue rojo en G2: cada una es una llamada al Orchestrator, otra vez el modo test cuando la replanificación dice `NEXT: test`, una ronda más de build y G2. Después el Change se aparca. |
 | `agent_timeout_s` | entero, 0 o más | `3600` | Segundos que puede durar una llamada de agente, hasta que se cierra su salida. Pasado ese tiempo se mata su grupo de procesos y el Change se aparca. `gdd init` no la escribe. |
 | `command_seconds` | entero mayor que 0 | `1800` | Segundos que puede durar cada comando de puerta y cada comando de release. Un comando que se queda sin tiempo se mata junto con todo lo que arrancó y termina con el código de salida 124. Cualquier otro valor es un error que nombra `limits.command_seconds`. |
-| `reviewer_fixes` | entero | `1` en el fichero que escribe `gdd init` | gdd 0.1.0 no la lee. El Builder recibe siempre una ronda de corrección tras un KO del Reviewer y otra tras un G3 rojo. Cuando un hallazgo del Reviewer nombra un fichero que solo escribe el modo test, esa ronda empieza en modo test. |
+| `reviewer_fixes` | entero | `1` en el fichero que escribe `gdd init` | gdd 0.1.1 no la lee. El Builder recibe siempre una ronda de corrección tras un KO del Reviewer y otra tras un G3 rojo. Cuando un hallazgo del Reviewer nombra un fichero que solo escribe el modo test, esa ronda empieza en modo test. |
 
 ### [spike]
 
@@ -252,7 +252,8 @@ partir de las [fichas de stack](stacks.md).
 
 Quién hace cada rol: un agente (integración) y su modelo. Lo leen `gdd new-change`,
 `gdd classify` y `gdd prepare` (el modelo de cada rol entra en la decisión del Change),
-`gdd launch` y `gdd resume` (qué agente arrancar), `gdd status` y `gdd agents`. `gdd init` lo
+`gdd launch` y `gdd resume` (qué agente arrancar, y los precios), `gdd session` (los precios),
+`gdd status` y `gdd agents`. `gdd init` lo
 escribe a partir de `--agents` y de los valores por defecto de cada agente; consulta
 [Roles](roles.md#modelos-por-defecto).
 
@@ -341,17 +342,36 @@ desde el checkout principal.
 
 ### [prices.\<model\>]
 
-`gdd init` no la escribe. El precio de un modelo, para los agentes que no informan de su coste
-(Codex): una tabla por nombre de modelo, tal como lo escribe `model`.
+`gdd init` no la escribe. El precio de un modelo, para las llamadas cuyo agente no informa de su
+coste (Codex, y las conversaciones de Claude Code que importa `gdd session`): una tabla por
+nombre de modelo, exactamente como lo escribe el log.
+
+```toml
+[prices.gpt-6-astra]
+input = 0.0
+cache = 0.0
+output = 0.0
+```
 
 | Clave | Tipo | Por defecto | Significado |
 |---|---|---|---|
-| `input` | número | `0` | USD por millón de tokens de entrada no leídos de la caché. |
-| `cache` | número | `0` | USD por millón de tokens de entrada leídos de la caché. |
-| `output` | número | `0` | USD por millón de tokens de salida. |
+| `input` | número, 0 o más | `0` | USD por millón de tokens de entrada no leídos de la caché. |
+| `cache` | número, 0 o más | `0` | USD por millón de tokens de entrada leídos de la caché. |
+| `output` | número, 0 o más | `0` | USD por millón de tokens de salida. |
 
-La estimación va a la línea de la llamada en el log. El registro del Change, y por tanto el
-presupuesto del Spike, guarda solo lo que informó el agente.
+Una llamada calculada con esta tabla es una estimación: su línea en el log dice
+`"cost_basis":"estimated"`, y los informes muestran su coste con `~`. Una llamada cuyo modelo no
+tiene tabla cuesta `unknown` (`"cost_basis":"unknown"`, `cost_usd` 0), nunca 0 USD. Un precio
+vale para las llamadas que se registran después de añadirlo. Un precio negativo, `nan` o `inf`
+hace que se rechace el fichero allí donde gdd lee los precios (`gdd session`, `gdd launch`,
+`gdd resume`):
+
+```text
+error: gdd/models.toml: invalid TOML: prices.claude-opus-5-5.output must be a number 0 or more, not -1
+```
+
+El registro del Change, y por tanto el presupuesto del Spike, guarda solo lo que informó el
+agente.
 
 ## commands.toml
 

@@ -34,12 +34,10 @@ sacar a producción un Change, preparar ni adoptar el proyecto, ni escribir el e
 ejemplo, un Builder que ejecuta `gdd selftest` recibe:
 
 ```text
-error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
 
-El Orchestrator que replanifica (`GDD_ROLE=orchestrator`) recibe el mismo mensaje. El mensaje
-nombra a los Builders y a los Reviewers, pero se aplica a todo agente que haya lanzado gdd,
-Orchestrator incluido. Los comandos
+El Orchestrator que replanifica (`GDD_ROLE=orchestrator`) recibe el mismo mensaje. Los comandos
 que ya rechazaban a un Builder o a un Reviewer con sus propias palabras las conservan: `gdd gate`,
 `gdd changelog-line`, `gdd resume`, `gdd release` sin un paso, `gdd learn` y `gdd upgrade`. Por
 ejemplo:
@@ -79,7 +77,7 @@ ocultos), las zonas rojas y sus motivos, el plan de un Change rojo, la Decision 
 |---|---|
 | Las respuestas del Setup (fase 0) y Discover (fase 1) | En conversación con el Orchestrator. |
 | La sentada de un Change: escenarios (G1), zonas rojas, plan de un Change rojo | `gdd sitting <id>`, o el Orchestrator registra la respuesta con `gdd gate G1 ok <id>`, `gdd gate zones ok` y `gdd gate plan ok <id>`, cada uno con `--by human`. |
-| G4 | `gdd resume <id> --g4 ok`, `--g4 ko` o `--g4 polish --note "..."`. |
+| G4 | `gdd sitting <id>`, o de palabra al Orchestrator, que ejecuta `gdd resume <id> --g4 ok`, `--g4 ko` o `--g4 polish --note "..."`. |
 | Un Change aparcado | Lee su Decision Inbox; un mensaje por Change. |
 
 **Escribe:** a través del Orchestrator, el arnés en la rama principal (`gdd/*.toml`,

@@ -20,7 +20,7 @@ gdd park export-csv The CSV columns are not decided yet
 
 You should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 Change export-csv parked: The CSV columns are not decided yet. Message in .gdd/changes/export-csv/inbox.md

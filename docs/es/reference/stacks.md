@@ -3,7 +3,7 @@
 Una ficha de stack son los datos de gdd para una tecnología: los comandos de las puertas y la
 primera instalación, la que crea el lockfile, más el ejecutor de escenarios, las herramientas de
 Learn, el autotest, las rutas protegidas, la preparación de CI y un esqueleto para un proyecto
-nuevo. gdd 0.1.0 trae tres: Python, Rust y TypeScript. Esta página recoge cada valor de cada una.
+nuevo. gdd 0.1.1 trae tres: Python, Rust y TypeScript. Esta página recoge cada valor de cada una.
 
 Herramientas que necesita cada stack antes de `gdd init` (las ejecutan la primera instalación y
 las puertas):
@@ -119,8 +119,8 @@ acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 uv run pytest -q tests/acceptance 
 lockfile = "uv lock --check"
 security = "uv run bandit -q -r src && osv-scanner scan source -L uv.lock"
 dependencies = """R=$(mktemp) && trap 'rm -f "$R"' EXIT && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o "$R" && { ! grep -q '^[A-Za-z0-9]' "$R" || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L "requirements.txt:$R"; }"""
-secrets = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact"
-mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | tr / . | sed 's/$/*/'); [ -z "$P" ] || { uv run mutmut run $P && ! uv run mutmut results | grep -q survived; }'''
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && git add -A --intent-to-add && D=$(mktemp -d) && trap 'rm -rf "$D"' EXIT && git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$M" > "$D/diff" && awk -v w="$D/where" 'function unq(s,r,c,i){r="";s=substr(s,2,length(s)-2);while((i=index(s,"\\"))>0){c=substr(s,i+1,1);if(c!="\""&&c!="\\")c="\\" c;r=r substr(s,1,i-1) c;s=substr(s,i+2)}return r s} /^diff /{h=0;next} /^@@ /{h=1;split($3,a,",");n=substr(a[1],2)+0;next} !h{if(/^\+\+\+ /){f=substr($0,5);sub(/\t$/,"",f);if(f~/^"/)f=unq(f);sub(/^b\//,"",f)}next} /^\+/{print substr($0,2);print f":"n > w;n++;next} !/^-/&&!/^\\/{n++}' "$D/diff" > "$D/added" && printf '{{range .}}{{.StartLine}} {{.RuleID}}\n{{end}}' > "$D/report" || { echo 'secrets: the lines the change adds could not be read, so no secret was checked'; exit 2; }; gitleaks stdin --no-banner --redact --report-format template --report-template "$D/report" --report-path "$D/found" < "$D/added" && exit 0; s=$?; [ ! -f "$D/found" ] || sort -n "$D/found" | while read -r n rule; do printf 'secrets: %s: %s (value not shown)\n' "$(sed -n "${n}p" "$D/where")" "$rule"; done; exit $s'''
+mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | sed 's#/__init__$##' | tr / . | sed 's/$/.x*/'); [ -n "$P" ] || { echo 'mutation: no Python file under src/ changed: nothing to mutate'; exit 0; }; L=$(mktemp) && trap 'rm -f "$L"' EXIT || exit 1; uv run mutmut run $P > "$L" 2>&1; s=$?; if [ $s -ne 0 ] && grep -q 'Filtered for specific mutants, but nothing matches' "$L"; then echo 'mutation: nothing to mutate in the changed Python files (no function or method)'; exit 0; fi; cat "$L"; if [ $s -ne 0 ] && grep -q 'runner returned 5' "$L"; then echo 'mutation: no unit test ran (tests/unit/ collected none), so no mutant was checked'; exit 1; fi; [ $s -eq 0 ] || exit $s; uv run mutmut results > "$L" || exit 1; bad=0; while IFS= read -r l; do n=${l%%:*}; n=${n#"${n%%[! ]*}"}; for p in $P; do case "$n" in $p) case "$l" in *': timeout'|*': caught by type check'|*': skipped') ;; *) echo "$l"; bad=$((bad+1));; esac; break;; esac; done; done < "$L"; [ $bad -eq 0 ] || { echo "mutation: $bad mutant(s) not killed (survived, or no test runs that code)"; exit 1; }; echo 'mutation: every mutant of the changed Python code was caught''''
 
 [learn]
 duplication = "npx --yes jscpd --silent src"
@@ -137,8 +137,11 @@ unit = ["{n} failed", "{n} error"]
 - `dependencies`: solo las licencias de las dependencias de ejecución; si aún no hay ninguna,
   pasa. Las exporta a un fichero temporal, que se borra al salir, y no escribe nada en el
   proyecto.
-- `mutation`: mutmut sobre los módulos de `src/` que tocó el Change; cualquier superviviente
-  hace fallar el comando.
+- `mutation`: mutmut sobre las funciones y los métodos de los módulos de `src/` que tocó el
+  Change. Un mutante que no muere hace fallar la puerta, `no tests` incluido (código que ningún
+  test unitario ejecuta); uno que agota el tiempo, que detecta la comprobación de tipos o que se
+  omite cuenta como detectado. Un Change sin nada que mutar pasa y lo dice, y `tests/unit/` sin
+  ningún test falla y lo dice.
 - Complejidad: la regla `C901` de Ruff (`max-complexity = 10` en el `pyproject.toml` del
   esqueleto).
 
@@ -223,8 +226,8 @@ acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 cargo test --test acceptance --loc
 lockfile = "cargo metadata --locked --format-version 1 > /dev/null"
 security = "cargo deny --locked check advisories bans sources"
 dependencies = "cargo deny --locked check licenses"
-secrets = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact"
-mutation = """export CARGO_PROFILE_TEST_DEBUG=0; if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; if command -v mold >/dev/null && [ -z "${RUSTFLAGS:-}" ]; then export RUSTFLAGS='-C link-arg=-fuse-ld=mold'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && mkdir -p target && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) > target/gdd-change.diff && { missed_too() { if [ $code -eq 3 ] && [ -s target/mutants.out/missed.txt ]; then echo "$(wc -l < target/mutants.out/missed.txt | tr -d ' ') mutant(s) missed besides the timeouts"; code=2; fi; }; cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2; code=$?; missed_too; if [ $code -eq 3 ]; then cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle --iterate -j 1 --minimum-test-timeout 120; code=$?; missed_too; if [ $code -eq 3 ]; then if [ -f target/mutants.out/timeout.txt ]; then n=$(wc -l < target/mutants.out/timeout.txt | tr -d ' '); else n=some; fi; echo "$n mutant(s) hung again: counted as caught"; code=0; fi; fi; exit $code; }"""
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && git add -A --intent-to-add && D=$(mktemp -d) && trap 'rm -rf "$D"' EXIT && git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$M" > "$D/diff" && awk -v w="$D/where" 'function unq(s,r,c,i){r="";s=substr(s,2,length(s)-2);while((i=index(s,"\\"))>0){c=substr(s,i+1,1);if(c!="\""&&c!="\\")c="\\" c;r=r substr(s,1,i-1) c;s=substr(s,i+2)}return r s} /^diff /{h=0;next} /^@@ /{h=1;split($3,a,",");n=substr(a[1],2)+0;next} !h{if(/^\+\+\+ /){f=substr($0,5);sub(/\t$/,"",f);if(f~/^"/)f=unq(f);sub(/^b\//,"",f)}next} /^\+/{print substr($0,2);print f":"n > w;n++;next} !/^-/&&!/^\\/{n++}' "$D/diff" > "$D/added" && printf '{{range .}}{{.StartLine}} {{.RuleID}}\n{{end}}' > "$D/report" || { echo 'secrets: the lines the change adds could not be read, so no secret was checked'; exit 2; }; gitleaks stdin --no-banner --redact --report-format template --report-template "$D/report" --report-path "$D/found" < "$D/added" && exit 0; s=$?; [ ! -f "$D/found" ] || sort -n "$D/found" | while read -r n rule; do printf 'secrets: %s: %s (value not shown)\n' "$(sed -n "${n}p" "$D/where")" "$rule"; done; exit $s'''
+mutation = '''export CARGO_PROFILE_TEST_DEBUG=0; if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; if command -v mold >/dev/null && [ -z "${RUSTFLAGS:-}" ]; then export RUSTFLAGS='-C link-arg=-fuse-ld=mold'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && mkdir -p target && git add -A --intent-to-add && git diff "$M" > target/gdd-change.diff && { missed_too() { if [ $code -eq 3 ] && [ -s target/mutants.out/missed.txt ]; then echo "$(wc -l < target/mutants.out/missed.txt | tr -d ' ') mutant(s) missed besides the timeouts"; code=2; fi; }; cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2; code=$?; missed_too; if [ $code -eq 3 ]; then cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle --iterate -j 1 --minimum-test-timeout 120; code=$?; missed_too; if [ $code -eq 3 ]; then if [ -f target/mutants.out/timeout.txt ]; then n=$(wc -l < target/mutants.out/timeout.txt | tr -d ' '); else n=some; fi; echo "$n mutant(s) hung again: counted as caught"; code=0; fi; fi; exit $code; }'''
 
 [learn]
 duplication = "npx --yes jscpd --silent src"
@@ -314,8 +317,8 @@ acceptance_full = "npx cucumber-js --strict 'features/**/*.feature' "
 lockfile = "npm ci --ignore-scripts --no-audit --no-fund"
 security = "osv-scanner scan source -L package-lock.json"
 dependencies = 'osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0" -L package-lock.json'
-secrets = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && git add -A --intent-to-add && git diff $(git merge-base HEAD $BASE) | gitleaks stdin --no-banner --redact"
-mutation = '''F=$(printf '%s\n' "$GDD_DIFF_FILES" | grep -E '^src/.*\.ts$' | paste -sd, -); [ -z "$F" ] || npx stryker run --mutate "$F"'''
+secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && git add -A --intent-to-add && D=$(mktemp -d) && trap 'rm -rf "$D"' EXIT && git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$M" > "$D/diff" && awk -v w="$D/where" 'function unq(s,r,c,i){r="";s=substr(s,2,length(s)-2);while((i=index(s,"\\"))>0){c=substr(s,i+1,1);if(c!="\""&&c!="\\")c="\\" c;r=r substr(s,1,i-1) c;s=substr(s,i+2)}return r s} /^diff /{h=0;next} /^@@ /{h=1;split($3,a,",");n=substr(a[1],2)+0;next} !h{if(/^\+\+\+ /){f=substr($0,5);sub(/\t$/,"",f);if(f~/^"/)f=unq(f);sub(/^b\//,"",f)}next} /^\+/{print substr($0,2);print f":"n > w;n++;next} !/^-/&&!/^\\/{n++}' "$D/diff" > "$D/added" && printf '{{range .}}{{.StartLine}} {{.RuleID}}\n{{end}}' > "$D/report" || { echo 'secrets: the lines the change adds could not be read, so no secret was checked'; exit 2; }; gitleaks stdin --no-banner --redact --report-format template --report-template "$D/report" --report-path "$D/found" < "$D/added" && exit 0; s=$?; [ ! -f "$D/found" ] || sort -n "$D/found" | while read -r n rule; do printf 'secrets: %s: %s (value not shown)\n' "$(sed -n "${n}p" "$D/where")" "$rule"; done; exit $s'''
+mutation = '''F=$(printf '%s\n' "$GDD_DIFF_FILES" | grep -E '^src/.*\.ts$' | paste -sd, -); [ -n "$F" ] || { echo 'mutation: no TypeScript file under src/ changed: nothing to mutate'; exit 0; }; L=$(mktemp) && trap 'rm -f "$L"' EXIT || exit 1; npx stryker run --mutate "$F" > "$L" 2>&1; s=$?; if grep -q ' with 0 mutant(s)' "$L"; then echo 'mutation: nothing to mutate in the changed TypeScript files'; exit 0; fi; cat "$L"; if [ $s -ne 0 ] && grep -q 'No tests were executed' "$L"; then echo 'mutation: no unit test runs the changed files, so no mutant was checked'; fi; exit $s'''
 
 [learn]
 duplication = "npx --yes jscpd --silent src"
@@ -331,7 +334,8 @@ unit = ["Tests  {n} failed"]
   se distribuye.
 - `mutation`: StrykerJS sobre los ficheros `src/*.ts` que tocó el Change; el
   `stryker.config.json` del esqueleto rompe con cualquier superviviente
-  (`thresholds.break = 100`).
+  (`thresholds.break = 100`). Los ficheros sin ningún mutante pasan y lo dicen; los ficheros que
+  ningún test unitario ejecuta fallan y lo dicen.
 - Complejidad: la regla `complexity` de ESLint (10 en el esqueleto), con typescript-eslint y
   eslint-plugin-security.
 
@@ -383,6 +387,13 @@ repositorio con todo su historial, ejecuta la preparación de cada ficha, instal
 8.30.1 (verificado contra sus checksums) y el propio gdd (`cargo install --locked` desde el
 repositorio git de gdd, en la etiqueta de la versión que escribió el workflow), y después
 ejecuta `gdd ci`.
+
+El comando `secrets` es el mismo en las tres fichas. Solo pasa a gitleaks las líneas que añade
+el Change respecto a la rama principal, así que un secreto que ya está en main, o uno que el
+Change quita, no lo hace fallar, y no examina los ficheros binarios. Por cada hallazgo imprime
+`secrets: <path>:<line>: <rule> (value not shown)`, nunca el valor. Cuando no puede leer las
+líneas añadidas, falla con `secrets: the lines the change adds could not be read, so no secret
+was checked`.
 
 El comando `secrets` y el comando `mutation` de Rust toman como rama principal `main`, o
 `origin/main` cuando no hay un `main` local.

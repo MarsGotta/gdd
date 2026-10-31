@@ -5,11 +5,11 @@ sitting, which has a second page for the Release Gate (G4). This page shows each
 and what each key writes. Consult it when you answer on a screen instead of in the chat with
 your agent.
 
-<!-- Every capture on this page is a real screen of gdd 0.1.0 in a terminal of 100 x 30, from a
-     throwaway project, with the blank lines trimmed; the G4 sitting is the one of the
-     tutorial's real run, from how-to/release-gate.md. The form's summary and output, the empty
-     Board and the sitting with nothing waiting were captured again after gdd 0.1.0 (commit
-     07b1cd6), in a project called shop. -->
+<!-- Every capture on this page is a real screen in a terminal of 100 columns, from a throwaway
+     project, with the blank lines trimmed. The form's summary and output, the Board and the
+     sittings before Build are of gdd 0.1.1 (projects shop and notes). The form's steps are of
+     gdd 0.1.0 and still the same in 0.1.1. The G4 sitting is the one of the tutorial's real run
+     with gdd 0.1.0, from how-to/release-gate.md; its page did not change in 0.1.1. -->
 
 ## Before you start
 
@@ -109,11 +109,11 @@ The summary shows every answer before anything is written:
 ```
 
 `Enter` sets the project up, as `gdd init` with the same answers as flags would: it writes the
-harness, the Brief, the skeleton of each stack and the skills of each coding agent, and commits
-them in one commit, `gdd init 0.1.0`. Then it runs the first install of each stack, as
-[`gdd bootstrap`](cli/bootstrap.md) does, and commits the lock files in a second commit,
-`gdd bootstrap`. It lists every file it wrote, then what the install printed, and ends by
-sending you to your coding agent:
+harness, the Brief, a `CHANGELOG.md` when the project has none, the skeleton of each stack and
+the skills of each coding agent, and commits them in one commit, `gdd init 0.1.1`. Then it runs
+the first install of each stack, as [`gdd bootstrap`](cli/bootstrap.md) does, and commits the
+lock files in a second commit, `gdd bootstrap`. It lists every file it wrote, then what the
+install printed, and ends by sending you to your coding agent:
 
 ```text
 gdd/project.toml
@@ -126,6 +126,7 @@ docs/brief.md
 .github/workflows/gdd.yml
 AGENTS.md
 CLAUDE.md
+CHANGELOG.md
 ...
 .claude/skills/gdd-setup/SKILL.md
 .claude/skills/gdd-status/SKILL.md
@@ -134,7 +135,7 @@ CLAUDE.md
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 Using CPython 3.13.15
-Resolved 40 packages in 15ms
+Resolved 40 packages in 7ms
 ...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
@@ -192,8 +193,10 @@ error: gdd init opens its Setup form only in a terminal; else give it the flags 
 ## The Board
 
 [`gdd board`](cli/board.md) shows every change of the project by phase. It only reads: no key
-writes anything. `gdd` with no command opens it too, when a person runs it in a terminal;
-anywhere else, and for an agent, `gdd` alone prints the help.
+writes anything. It reads the project again every 2 seconds, and when you press `r`, keeping the
+change you selected, so you can leave it open while your agent works. `gdd` with no command
+opens it too, when a person runs it in a terminal; anywhere else, and for an agent, `gdd` alone
+prints the help.
 
 ```bash
 gdd board
@@ -202,12 +205,12 @@ gdd board
 ```text
 ┌ gdd · Board · notes ─────────────────────────────────────────────────────────────────────────────┐
 │Discover (2)                                                                                      │
-│› export-csv · yellow · Export notes as CSV · open · no gates yet                                 │
-│  delete-notes · red · Delete a note · open · no gates yet                                        │
+│› delete-notes · red · Delete a note · open · no gates yet                                        │
+│  export-csv · yellow · Export notes as CSV · open · no gates yet                                 │
 │Build (0)                                                                                         │
 │Release (0)                                                                                       │
 │Done (0) · d to show                                                                              │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -225,7 +228,21 @@ A project with no change yet says so, and says how to start one: ask your agent.
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
 │No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)               │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+While that Board was open, `gdd new-change` created the change `cart-total`, as the change skill
+does. Within 2 seconds the Board shows it, with no key pressed:
+
+```text
+┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
+│Discover (1)                                                                                      │
+│› cart-total · yellow · Show the cart total · open · no gates yet                                 │
+│Build (0)                                                                                         │
+│Release (0)                                                                                       │
+│Done (0) · d to show                                                                              │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -234,15 +251,15 @@ paths, the path of its Decision Inbox and where its time went.
 
 ```text
 ┌ gdd · Board · notes ─────────────────────────────────────────────────────────────────────────────┐
-│delete-notes · Delete a note                                                                      │
+│export-csv · Export notes as CSV                                                                  │
 │Type: Feature                                                                                     │
-│Color: red                                                                                        │
+│Color: yellow                                                                                     │
 │State: open                                                                                       │
 │Gates: no gates yet                                                                               │
 │Paths: src/notes/**, tests/**                                                                     │
-│Inbox: .gdd/changes/delete-notes/inbox.md                                                         │
+│Inbox: .gdd/changes/export-csv/inbox.md                                                           │
 │Time: nothing measured yet                                                                        │
-│Esc to go back · q quit                                                                           │
+│Esc to go back · r reload · q quit                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -259,7 +276,7 @@ each number.
 │  Flow time 0s · active 0s (0%) · waiting 0s · between steps 0s                                   │
 │delete-notes · Delete a note · in progress                                                        │
 │  Flow time 0s · active 0s (0%) · waiting 0s · between steps 0s                                   │
-│↑↓ scroll · Esc to go back · q quit                                                               │
+│↑↓ scroll · Esc to go back · r reload · q quit                                                    │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -271,6 +288,7 @@ each number.
 | `Enter` | opens the details of the selected change | |
 | `t` | opens the time of the project | |
 | `d` | shows or folds Done | |
+| `r` | reads the project again, keeping the selection | reads the project again |
 | `Esc` | | back to the list |
 | `q`, `Ctrl-C` | closes the Board | closes the Board |
 
@@ -285,7 +303,8 @@ error: gdd board needs a terminal; gdd status lists the same changes
 [`gdd sitting CHANGE`](cli/sitting.md) opens everything a change needs from you before the
 build, on one page: the scenarios as the change's branch has them, the red zones when they
 wait for approval, and the plan of a red change. The change skill shows you the same things in
-the chat; the screen records the same decisions.
+the chat; the screen records the same decisions. Your agent commits the scenarios on the
+branch before it shows them to you, so the screen has them before your OK.
 
 ```bash
 gdd sitting export-csv
@@ -347,15 +366,14 @@ the Builders never see it`, then the red zones and the plan:
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-A red change shows its plan, from `.gdd/changes/CHANGE/plan.md`, at the end. A change with no
-scenarios says `No scenario files on change/CHANGE`, and red zones already approved say
-`Red zones: approved`:
+A red change shows its plan, from `.gdd/changes/CHANGE/plan.md`, at the end. A change whose
+branch has no scenarios yet says so, and red zones already approved say `Red zones: approved`:
 
 ```text
 ┌ gdd · Sitting · notes ───────────────────────────────────────────────────────────────────────────┐
 │delete-notes · Delete a note · red                                                                │
 │Scenarios                                                                                         │
-│No scenario files on change/delete-notes                                                          │
+│No scenarios on change/delete-notes yet: they show here once your agent commits them              │
 │Red zones: approved                                                                               │
 │Plan                                                                                              │
 │# Plan · delete-notes                                                                             │

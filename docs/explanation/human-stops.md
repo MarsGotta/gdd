@@ -133,6 +133,8 @@ Every change leaves you one message, its **Decision Inbox**, in `.gdd/changes/<i
 on `gdd inbox CHANGE`. It has a fixed shape, so you always know where to look:
 
 - **How it works**, from the Reviewer, when the change waits at G4;
+- **Your decisions**: each KO you gave that still stands, with your words, until that gate is
+  decided again;
 - **Needs your decision**: what only you can decide, each with a recommendation and at most one
   alternative;
 - **Decided without you**: the reversible calls the agents made on their own, and the paths

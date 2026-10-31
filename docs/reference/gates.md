@@ -163,10 +163,18 @@ You read the scenarios and ask for changes (`gdd gate G1 ko cart-total`):
 G1 ko on cart-total (human).
 ```
 
+Your words stay in the change's Decision Inbox, under *Your decisions*, until G1 is decided
+again. For a change `export-csv` sent back with a note, [`gdd inbox`](cli/inbox.md) shows:
+
+```text
+## Your decisions
+- G1 ko: Say which columns the file has
+```
+
 The red zones of the project were never approved:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
+error: Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command). (gdd gate zones ok --by human)
 ```
 
 A hidden example uses a sentence that no visible scenario has:
@@ -256,8 +264,11 @@ change was built.
 1. Path Guard, then each `[g3]` command (alphabetical, within `command_seconds`, `mutation*`
    only when needed), then Path Guard again, and the scope check in build mode, as in G2.
    The stack sheets put here the full scenario run (hidden examples included), the lock file,
-   static security analysis, dependency licenses, secrets on the diff and mutation testing on
-   the diff.
+   static security analysis, dependency licenses, secrets and mutation testing on the diff.
+   The secrets check reads only the lines the change adds, skips binary files, and names the
+   file, the line and the rule of each finding, never the value. In the Python and TypeScript
+   sheets, mutation testing also fails on changed code that no test runs, and a change with
+   nothing to mutate passes and says so.
 2. The scenario count: zero scenarios in `[acceptance] dir` fail it when `[acceptance]
    required` is `true` or the change has scenario files of its own.
 3. The security exceptions (`[[IgnoredVulns]]` of `osv-scanner.toml`, `[advisories] ignore` of
@@ -294,6 +305,20 @@ A G3 command fails, here a dependency with known vulnerabilities (`jinja2==2.10`
 
 ```text
 {"ok":false,"gate":"G3","color":"red",...,"failures":[...,{"name":"security","ok":false,"code":1,"duration_s":1.0,"tail":"...Total 1 package affected by 6 known vulnerabilities (0 Critical, 2 High, 4 Medium, 0 Low, 0 Unknown) from 1 ecosystem.\n6 vulnerabilities can be fixed.\n...| https://osv.dev/PYSEC-2019-217      | 8.6  | PyPI      | jinja2  | 2.10    | 2.10.1        | uv.lock |\n..."}],"out_of_scope":[],...}
+```
+
+The change adds a line that holds an access key. The secrets check names the file, the line and
+the rule, never the key:
+
+```text
+{"ok":false,"gate":"G3","color":"yellow",...,"failures":[{"name":"secrets","ok":false,"code":1,"duration_s":0.3,"tail":"secrets: src/shop/settings.py:3: aws-access-token (value not shown)\n..."},...],...}
+```
+
+A red change adds a function that no unit test runs, so mutation testing cannot catch a single
+mutant:
+
+```text
+{"ok":false,"gate":"G3","color":"red",...,"failures":[{"name":"mutation","ok":false,"code":1,"duration_s":1.2,"tail":"...    shop.discount.x_discounted__mutmut_6: no tests\nmutation: 6 mutant(s) not killed (survived, or no test runs that code)\n"},...],...}
 ```
 
 The Reviewer answered `VERDICT: KO`, the Builder fixed it once, and the second review

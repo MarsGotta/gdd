@@ -1,7 +1,7 @@
 # gdd init
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/init.md, nunca esta página.
 -->
 
@@ -35,12 +35,12 @@ An agent that gdd started cannot run it: see
 
 In a terminal, `gdd init` with no flags opens the Setup form, one step each for the name, the
 description, the platform, the stacks, the agents, the language and the sensitive areas. On
-`Enter` it writes and commits the harness, runs the first install of each stack as
-[`gdd bootstrap`](bootstrap.md) does, and commits the lock files. The next step is the
-[`gdd-setup`](../skills/setup.md) skill in your agent (`/gdd-setup` in Claude Code and
-OpenCode, `$gdd-setup` in Codex). With `--name`, `--platform` and `--stack` it asks nothing and
-installs nothing; then [`gdd bootstrap`](bootstrap.md) or the `gdd-setup` skill runs the
-install.
+`Enter` it writes and commits the harness (with a `CHANGELOG.md` when the project has none),
+runs the first install of each stack as [`gdd bootstrap`](bootstrap.md) does, and commits the
+lock files. The next step is the [`gdd-setup`](../skills/setup.md) skill in your agent
+(`/gdd-setup` in Claude Code and OpenCode, `$gdd-setup` in Codex). With `--name`, `--platform`
+and `--stack` it asks nothing and installs nothing; then [`gdd bootstrap`](bootstrap.md) or the
+`gdd-setup` skill runs the install.
 
 Open the Setup form in a terminal:
 
@@ -50,7 +50,7 @@ gdd init
 
 After the summary, `Enter` lists every file it wrote, the install, and the next step:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 gdd/project.toml

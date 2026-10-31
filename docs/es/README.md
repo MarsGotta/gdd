@@ -33,8 +33,8 @@ en inglés; esta traducción los explica en español.
 - **Aprobaciones,** en el chat o en la pantalla de la sentada (`gdd sitting CHANGE`): los
   escenarios antes de construir, y OK, KO o polish sobre el resultado en la puerta de salida
   (G4, *Release Gate*).
-- **Board,** para mirar si quieres: `gdd` a secas en una terminal, o `gdd board`. No se
-  actualiza solo; para ver qué ha avanzado, vuelve a abrirlo.
+- **Board,** para mirar si quieres: `gdd` a secas en una terminal, o `gdd board`. Se recarga
+  solo cada dos segundos, así que puedes dejarlo abierto (`r` lo recarga al momento).
 
 ## Cómo orientarte
 

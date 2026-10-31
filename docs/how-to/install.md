@@ -23,7 +23,7 @@ project with `gdd init`.
 
 The [stacks reference](../reference/stacks.md) lists every command each stack's gates run.
 
-gdd 0.1.0 installs with cargo only. Prebuilt binaries, crates.io and Homebrew are on the
+gdd 0.1.1 installs with cargo only. Prebuilt binaries, crates.io and Homebrew are on the
 [roadmap](../../ROADMAP.md#5-open-source) and not available yet.
 
 ## 1. Install the binary
@@ -32,7 +32,7 @@ Install the tagged version from GitHub. The CI (continuous integration) workflow
 `gdd init` writes runs this same command:
 
 ```bash
-cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.0 gdd
+cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.1 gdd
 ```
 
 cargo builds gdd and puts it in `~/.cargo/bin`, which rustup adds to your `PATH`. You, your
@@ -40,8 +40,8 @@ agents and CI all run this one `gdd`.
 
 > [!NOTE]
 > The workflow `gdd init` writes installs gdd from the tag `v<version>`, so CI works once
-> that tag exists on GitHub. If cargo says `failed to find tag v0.1.0`, the tag is not
-> published yet: install from the main branch with the same command without `--tag v0.1.0`.
+> that tag exists on GitHub. If cargo says `failed to find tag v0.1.1`, the tag is not
+> published yet: install from the main branch with the same command without `--tag v0.1.1`.
 
 ### Or build from source
 
@@ -67,7 +67,7 @@ gdd --version
 You should see:
 
 ```text
-gdd 0.1.0
+gdd 0.1.1
 ```
 
 ## 2. Install a coding agent
@@ -154,7 +154,8 @@ gdd init
 
 3. Answer the Setup form, one step at a time. You should see:
 
-<!-- Real screens of gdd 0.1.0 at 100 columns, blank lines trimmed. -->
+<!-- Real screens of gdd 0.1.0 at 100 columns, blank lines trimmed; gdd 0.1.1 shows the same
+     screens (checked). -->
 ```text
 ┌ gdd init · Step 1 of 7 · Project name ───────────────────────────────────────────────────────────┐
 │What is the project called?                                                                       │
@@ -196,12 +197,17 @@ Nothing is written until the summary:
 ```
 
 `Enter` writes the [harness](../glossary.md#harness), the files gdd uses to check your project,
-and commits it (`gdd init 0.1.0`). Then the form runs the first install of each stack, which
-writes the lock file (the file that pins the exact version of every dependency), and gdd
-commits it too (`gdd bootstrap`). gdd lists every file it wrote and what the install printed.
-You should see, for a Python project:
+and commits it (`gdd init 0.1.1`). The same commit starts `CHANGELOG.md`, the list of what
+changed in each version, unless the folder already has one. Then the form runs the first install
+of each stack, which writes the lock file (the file that pins the exact version of every
+dependency), and gdd commits it too (`gdd bootstrap`). gdd lists every file it wrote and what
+the install printed. You should see, for a Python project:
 
 ```text
+gdd/project.toml
+...
+CLAUDE.md
+CHANGELOG.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked

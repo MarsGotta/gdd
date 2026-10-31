@@ -247,11 +247,12 @@ gdd logs the tokens and the cost of every agent call. Each agent reports them in
 | Agent | Tokens | Cost |
 |---|---|---|
 | Claude Code | yes | yes, its own client-side estimate |
+| Claude Code, conversations `gdd session` imports | yes | no |
 | Codex | yes | no |
 | OpenCode | yes | yes (it does not report the model: the log keeps the one gdd asked for) |
 
 If an agent reports no cost, add the prices of its model to `[prices.<model>]`, in US dollars
-(USD) per million tokens, and gdd computes the cost:
+(USD) per million tokens, and gdd estimates the cost:
 
 ```toml
 [prices.gpt-6-astra]
@@ -260,9 +261,19 @@ cache = 0.0    # per million input tokens read from the cache
 output = 0.0   # per million output tokens
 ```
 
-Copy the numbers from the provider's price page; never guess them. Without prices, those calls
-log 0 USD. If you pay by subscription, the cost is only an estimate, so compare tokens instead.
-See [Measure the work](measure.md).
+Copy the numbers from the provider's price page; never guess them. The reports mark an estimate
+with `~`. Without a price row for its model, a call's cost is `unknown`, never 0, and
+`gdd report` names the models that need one. A price that is not a number of 0 or more
+(negative, `nan`, `inf`) is refused before any call is priced, by `gdd session`, `gdd launch`
+and `gdd resume`:
+
+```text
+error: gdd/models.toml: invalid TOML: prices.claude-opus-5-5.output must be a number 0 or more, not -1
+```
+
+A price applies to the calls logged after you add it; earlier lines keep their cost. If you pay
+by subscription, the cost is only an estimate, so compare tokens instead. See
+[Measure the work](measure.md).
 
 ## 7. Other agent settings
 

@@ -145,8 +145,8 @@ el control de lo que puede hacer cada agente:
   opciones de permisos. Así, ningún agente puede arrancar, fusionar, aparcar ni publicar un
   Change, preparar ni adoptar el proyecto, ni abrir una pantalla.
   [Roles](../reference/roles.md#qué-puede-ejecutar-un-agente) tiene el mensaje que imprime.
-- **Los Builders y los Reviewers no pueden registrar una decisión.** `gdd gate` y `gdd resume` los
-  rechazan, así que ningún agente aprueba G1, un plan o G4.
+- **Ningún agente que haya lanzado gdd puede registrar una decisión.** `gdd gate` y
+  `gdd resume` los rechazan a todos, así que ningún agente aprueba G1, un plan o G4.
 - **Sin secretos en el entorno de los agentes.** Una variable nunca llega a un agente cuando una
   palabra de su nombre es una palabra de secreto (`AWS_SECRET_ACCESS_KEY`, `DB_PASS`,
   `SENTRY_DSN`), o cuando su valor es una URL con una contraseña dentro
@@ -225,10 +225,12 @@ y conviene que los conozcas antes de fiarte de una puerta.
   con el entorno en el que corre gdd, sin sandbox. El filtro de secretos se aplica a los agentes,
   no a los comandos de las puertas. Ejecuta gdd solo en una máquina donde ejecutar ese código
   sea seguro.
-- **El gasto tiene huecos.** Codex no informa del coste, así que sus llamadas suman 0 USD al
-  registro. Rellenar `[prices]` en `gdd/models.toml` le da al log una estimación, nunca al
-  registro. OpenCode no informa del modelo, así que el log guarda el que se pidió. Un presupuesto
-  de Spike solo en USD puede no detener nunca un Spike de Codex.
+- **El gasto tiene huecos.** Codex no informa del coste. El log, el informe y el commit de
+  fusión lo estiman con `[prices]` de `gdd/models.toml` y lo marcan como estimación; si su modelo
+  no tiene precio dicen `unknown`, nunca 0. El registro solo cuenta los costes de los que informan
+  los agentes, así que allí una llamada de Codex suma 0 USD, y un presupuesto de Spike solo en USD
+  puede no detener nunca un Spike de Codex. OpenCode no informa del modelo, así que el log guarda
+  el que se pidió.
 - **Un solo Reviewer para todos los colores.** El modelo del Reviewer todavía no cambia con el
   color, y solo los escáneres deterministas miran la seguridad. Está prevista una revisión de
   seguridad aparte, hecha por un agente, para las zonas rojas de seguridad.

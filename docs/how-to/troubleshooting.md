@@ -21,16 +21,16 @@ numbers, paths and ids in the messages are examples. If a change parked, start w
 |---|---|
 | Setting up | [The first install failed](#the-first-install-failed) |
 | Before the build starts | [G0 pending](#g0-pending-run-the-setup) · [G0 cannot open](#g0-cannot-open) · [Self-test: G2 red](#self-test-g2-is-red-without-the-failing-test) · [Red zones not approved](#red-zones-not-approved-yet) · [Red zones changed](#red-zones-changed-after-their-approval) · [Scenarios without G1](#new-or-changed-scenarios-without-g1) · [Red plan](#red-change-a-human-must-approve-the-plan) · [Same model family](#reviewer-and-builder-are-the-same-model-family) · [Agent not found](#cannot-find-the-program-of-an-agent-on-path) · [Uncommitted changes](#the-working-tree-has-uncommitted-changes) · [Not the main checkout](#run-gdd-launch-from-the-main-checkout) · [The cap](#the-cap-of-changes-building-is-reached) |
-| At a sitting | [G1 refused](#g1-refused-hidden-examples-use-step-phrasings) · [No terminal](#gdd-sitting-needs-a-terminal) · [Builder cannot record](#a-builder-or-reviewer-cannot-open-or-close-gates) · [Agent cannot run a command](#builders-and-reviewers-cannot-run-gdd-command) |
+| At a sitting | [G1 refused](#g1-refused-hidden-examples-use-step-phrasings) · [No terminal](#gdd-sitting-needs-a-terminal) · [Builder cannot record](#a-builder-or-reviewer-cannot-open-or-close-gates) · [Agent cannot run a command](#agents-that-gdd-started-cannot-run-gdd-command) |
 | During the build | [G2 still red](#parked-g2-still-red-after-3-retries-and-1-replan) · [Protected path](#protected-path-for-builder-build) · [Commands did not run](#the-gate-commands-did-not-run-path-guard-must-pass-first) · [Approved scenario modified](#scenario-approved-in-g1-and-modified-afterwards) · [Outside the package](#outside-the-package-and-red) · [Test mode wrote code](#path-guard-failed-after-test-mode) · [Agent changed GDD state](#changed-gdd-state) · [Agent did not answer](#did-not-answer-within-n-seconds) · [Spike budget](#the-spike-spent-its-budget) |
-| In G2 and G3 | [Command timed out](#timed-out-raise-limitscommand_seconds) · [Mutation timeouts](#mutation-testing-times-out) · [Not configured](#gddcommandstoml-has-no-commands-for-this-gate) · [Zero scenarios](#zero-scenarios-counts-as-a-failure) |
+| In G2 and G3 | [Command timed out](#timed-out-raise-limitscommand_seconds) · [Mutation timeouts](#mutation-testing-times-out) · [Mutants not killed](#n-mutants-not-killed) · [No unit test ran](#mutation-no-unit-test-ran) · [Secret found](#a-secret-in-the-lines-the-change-adds) · [Not configured](#gddcommandstoml-has-no-commands-for-this-gate) · [Zero scenarios](#zero-scenarios-counts-as-a-failure) |
 | At the merge | [Conflicts with main](#main-moved-under-it-and-the-merge-has-conflicts) · [G3 red on main](#g3-red-on-top-of-the-latest-main) · [Reviewer KO](#reviewer-ko-or-g3-red-after-one-fix) · [Main checkout not clean](#the-merge-needs-the-main-checkout-without-uncommitted-changes) |
 | At G4 | [Not paused at G4](#not-paused-at-g4) · [Pick a variant](#pick-a-variant) |
 
 ## The first install failed
 
-<!-- Real output of the gdd init form, gdd 0.1.0, with an install made to fail on purpose; the
-     line the failing tool printed is left out. -->
+<!-- Real output of the gdd init form, gdd 0.1.1, with a stand-in uv that fails on purpose; the
+     line it printed is left out. -->
 
 ```text
 python: uv lock && uv sync --locked
@@ -39,7 +39,7 @@ error: python: uv lock && uv sync --locked failed (exit 2)
 The harness is set up and committed. Fix the install, then run gdd bootstrap.
 ```
 
-**Why.** The Setup form wrote the harness and committed it as `gdd init 0.1.0`, then the first
+**Why.** The Setup form wrote the harness and committed it as `gdd init 0.1.1`, then the first
 install of a stack failed: no network, a missing tool such as `uv`, `npm` or `cargo`, or a
 dependency that does not resolve.
 
@@ -99,13 +99,15 @@ Then run `gdd selftest` again.
 ## Red zones not approved yet
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
+error: Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command). (gdd gate zones ok --by human)
 ```
 
-**Why.** Until a person approves the red zones, only Spikes can be built.
+**Why.** Until a person approves the red zones, only Spikes can be built. The Setup asks for the
+approval, and this Setup ended without it.
 
-**What to do.** Read `gdd/zones.toml`, then approve the zones at the sitting of your change, or
-with `gdd gate zones ok --by human`. See [Map and approve red zones](red-zones.md).
+**What to do.** Run `/gdd-setup` again, or tell your agent that you approve the red zones of
+`gdd/zones.toml`: it records your OK with `gdd gate zones ok --by human`. See
+[Map and approve red zones](red-zones.md).
 
 ## Red zones changed after their approval
 
@@ -253,10 +255,10 @@ approvals, answer G4 or release.
 
 **What to do.** Run it yourself, in a shell without `GDD_ROLE`.
 
-## Builders and Reviewers cannot run gdd COMMAND
+## Agents that gdd started cannot run gdd COMMAND
 
 ```text
-error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
 
 **Why.** gdd sets `GDD_ROLE` for every agent it starts, and such an agent may run only the
@@ -414,6 +416,55 @@ again counts as caught, while one that now survives fails the gate.
 `command_seconds`, or avoid running two changes in G3 at once (see
 [Run changes in parallel](parallel-changes.md)). For the commands themselves, see
 [Tune the gates](gates-and-commands.md).
+
+## N mutant(s) not killed
+
+```text
+    shop.cart.x_total__mutmut_6: survived
+    shop.cart.x_label__mutmut_1: no tests
+    shop.cart.x_label__mutmut_2: no tests
+    shop.cart.x_label__mutmut_3: no tests
+mutation: 4 mutant(s) not killed (survived, or no test runs that code)
+```
+
+**Why.** On the Python sheet, mutation testing changed the code the change touched and no test
+failed: a test runs that code without checking what it does (`survived`), or no unit test runs
+it at all (`no tests`). The lines above the last one name each mutant.
+
+**What to do.** Read the tail of `mutation` in `.gdd/changes/CHANGE/g3.json`. Each mutant needs
+a test that fails with it, and a function no test runs needs a test of its own, or does not
+belong in the change. In a parked change, ask your agent for those tests (see
+[Get a parked change going again](parked-change.md)).
+
+## Mutation: no unit test ran
+
+```text
+mutation: no unit test ran (tests/unit/ collected none), so no mutant was checked
+```
+
+**Why.** Mutation testing needs unit tests to check each mutant, and on the Python sheet
+`tests/unit/` has none. The TypeScript sheet says
+`mutation: no unit test runs the changed files, so no mutant was checked` when no unit test
+imports the files the change touched.
+
+**What to do.** Add unit tests for the changed code: on Python under `tests/unit/`, on TypeScript
+a `*.test.ts` that imports the changed files. A change with nothing to mutate passes instead,
+with `mutation: nothing to mutate in the changed Python files (no function or method)`.
+
+## A secret in the lines the change adds
+
+```text
+secrets: src/shop/settings.py:3: aws-access-token (value not shown)
+```
+
+**Why.** gitleaks found a secret in a line the change adds: the file, the line and the rule
+that matched. gdd never prints the value. The check reads only the added lines, so a secret
+already on main, or one the change removes, does not fail it.
+
+**What to do.** Remove the secret from the change and read it from an environment variable or a
+file outside git instead. If it was real, revoke it: it stays in the branch's history. If the
+check says `secrets: the lines the change adds could not be read, so no secret was checked`, a
+step before gitleaks failed (git, a temporary folder), and the rest of the tail says which.
 
 ## gdd/commands.toml has no commands for this gate
 

@@ -1,7 +1,7 @@
 # gdd upgrade
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/upgrade.md, nunca esta página.
 -->
 
@@ -38,10 +38,10 @@ gdd upgrade
 
 When the project already has what this gdd writes, you should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
-Already up to date with gdd 0.1.0: nothing to propose.
+Already up to date with gdd 0.1.1: nothing to propose.
 ```
 
 ## Ver también

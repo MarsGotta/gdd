@@ -54,10 +54,12 @@ recommendation.
 3. **Writes the plan** of a red change in `.gdd/changes/<id>/plan.md`, never code.
 4. **Writes the scenarios** on the change's branch `change/<id>`: `.feature` files in
    `features/`, in the words of the domain, few scenarios with concrete examples, plus one or
-   two hidden examples in `features/hidden/`. Then it switches back to `main`.
+   two hidden examples in `features/hidden/`. It commits them on the branch before it shows
+   them to you, so [`gdd sitting`](../cli/sitting.md) shows them too, and commits again when you
+   ask for changes. Then it switches back to `main`.
 5. **Holds the sitting** with you, as above. With your OK it records each part:
-   - the scenarios: a commit on the branch, then
-     [`gdd gate G1 ok <id> --by human`](../cli/gate.md), which seals them;
+   - the scenarios: [`gdd gate G1 ok <id> --by human`](../cli/gate.md), which seals them as the
+     branch has them;
    - the red zones: a commit of `gdd/zones.toml` on `main`, then `gdd gate zones ok`;
    - the plan: `gdd gate plan ok <id>`.
 6. **Writes the context package** in `.gdd/changes/<id>/package.md`, the only context the

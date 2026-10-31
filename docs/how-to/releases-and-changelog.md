@@ -55,16 +55,17 @@ Changelog: Changed · Orders export as CSV instead of JSON
 Breaking: yes
 ```
 
-Builders and Reviewers cannot set the line. In gdd 0.1.0, if the words of a line start with
-`--`, put a `--` before them:
+Agents that gdd started cannot set the line. If the words of a line start with `--`, put a
+`--` before them:
 [`gdd changelog-line CHANGE Changed -- --time is faster`](../reference/cli/changelog-line.md).
 
 ## 2. Bring CHANGELOG.md up to date
 
-`CHANGELOG.md` is yours: gdd never removes or rewrites a word of it. In gdd 0.1.0,
-[`gdd init`](../reference/cli/init.md) does not create it. Until the file exists, each line
-lives only in the trailers of its merge commit, and an automatic version tags that merge
-commit. To start the file, ask your agent to start `CHANGELOG.md`, or create it with
+`CHANGELOG.md` is yours: gdd never removes or rewrites a word of it.
+[`gdd init`](../reference/cli/init.md) starts it in its first commit, unless the project already
+has one: the Keep a Changelog header and an empty `## [Unreleased]` section. A project without
+the file, such as one set up by gdd 0.1.0, keeps each line only in the trailers of its merge
+commit, and an automatic version tags that merge commit. To start the file there, create it with
 `gdd changelog --write` as shown below and commit it.
 
 [`gdd changelog`](../reference/cli/changelog.md) compares the file with the lines the merge
@@ -84,7 +85,7 @@ Missing from CHANGELOG.md:
 
 ### Added
 
-- The cart shows its total <!-- gdd: 2dabea449211 -->
+- The cart shows its total <!-- gdd: 95e4eeb6d229 -->
 
 Nothing written: gdd changelog --write adds them.
 ```
@@ -146,13 +147,11 @@ The first version of a project is `0.1.0`. Pick one of two modes in `gdd/rules.t
   mode = "manual"   # release in batches with gdd release
   ```
 
-In auto mode, a change promoted in a project that tracks a changelog looks like this on main
-(`Start CHANGELOG.md` is the commit that created the file):
+In auto mode, a change promoted in a project that tracks a changelog looks like this on main:
 
 ```text
-d78a276 Release v0.1.0
-06118e8 Start CHANGELOG.md
-2dabea4 gdd(cart-total): G3 Merge Gate · Cart total
+08625a9 Release v0.1.0
+95e4eeb gdd(cart-total): G3 Merge Gate · The cart shows its total
 ```
 
 ## 4. Release by hand
@@ -216,7 +215,8 @@ error: the version must come after v0.1.0
 ```
 
 With nothing merged since the newest tag, `gdd release` says `Nothing to release since v0.2.0`.
-Builders and Reviewers cannot release.
+A change polished at G4 merges twice and carries its line in both merge commits; a release lists
+the line once. Agents that gdd started cannot release.
 
 ## 5. Configure the release steps
 
@@ -293,9 +293,15 @@ Every key is in [Configuration](../reference/configuration.md#commandstoml).
 
 ## 6. Check the changelog in CI (optional)
 
-`gdd changelog --check` writes nothing and fails when the file lacks a line:
+`gdd changelog --check` writes nothing, prints the missing lines and fails when the file lacks
+one:
 
 ```text
+## [Unreleased]
+
+### Added
+
+- The cart shows its total <!-- gdd: 95e4eeb6d229 -->
 error: CHANGELOG.md misses 1 line(s): gdd changelog shows them, gdd changelog --write adds them
 ```
 

@@ -20,10 +20,10 @@ gdd upgrade
 
 When the project already has what this gdd writes, you should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
-Already up to date with gdd 0.1.0: nothing to propose.
+Already up to date with gdd 0.1.1: nothing to propose.
 ```
 
 ## See also

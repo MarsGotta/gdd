@@ -54,10 +54,12 @@ puede dejarte preguntas en la Decision Inbox del Change, cada una con su recomen
 3. **Escribe el plan** de un Change rojo en `.gdd/changes/<id>/plan.md`, nunca código.
 4. **Escribe los escenarios** en la rama del Change, `change/<id>`: ficheros `.feature` en
    `features/`, con las palabras del dominio, pocos escenarios con ejemplos concretos, más uno o
-   dos ejemplos ocultos en `features/hidden/`. Después vuelve a `main`.
+   dos ejemplos ocultos en `features/hidden/`. Hace commit de ellos en la rama antes de
+   enseñártelos, así que [`gdd sitting`](../cli/sitting.md) también los muestra, y vuelve a hacer
+   commit cuando pides cambios. Después vuelve a `main`.
 5. **Celebra la sentada** contigo, como se ha dicho arriba. Con tu OK registra cada parte:
-   - los escenarios: un commit en la rama y después
-     [`gdd gate G1 ok <id> --by human`](../cli/gate.md), que los sella;
+   - los escenarios: [`gdd gate G1 ok <id> --by human`](../cli/gate.md), que los sella tal como
+     los tiene la rama;
    - las zonas rojas: un commit de `gdd/zones.toml` en `main` y después `gdd gate zones ok`;
    - el plan: `gdd gate plan ok <id>`.
 6. **Escribe el paquete de contexto** en `.gdd/changes/<id>/package.md`, el único contexto que

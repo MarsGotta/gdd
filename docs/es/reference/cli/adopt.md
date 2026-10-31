@@ -1,7 +1,7 @@
 # gdd adopt
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/adopt.md, nunca esta página.
 -->
 
@@ -38,8 +38,8 @@ gdd adopt
 
 In a project whose code had an unused import, you should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, a Python project that already had code, in a real gdd-setup
-     session. -->
+<!-- REAL OUTPUT: gdd 0.1.1, a Python project that already had code (one unused import),
+     gdd adopt run by hand; gdd 0.1.0 printed the same in a real gdd-setup session. -->
 
 ```text
 Passed: architecture, types, unit, dependencies, lockfile, security

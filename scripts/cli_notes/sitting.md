@@ -21,7 +21,7 @@ gdd sitting export-csv
 When the scenarios are already approved and nothing else waits, it says so and offers no
 approval:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐

@@ -21,16 +21,16 @@ empieza por [Volver a poner en marcha un Change aparcado](parked-change.md).
 |---|---|
 | Al preparar el proyecto | [Falló la primera instalación](#falló-la-primera-instalación) |
 | Antes de que empiece el build | [G0 pendiente](#g0-pendiente-ejecuta-el-setup) · [G0 no se puede abrir](#g0-no-se-puede-abrir) · [Autotest: G2 en rojo](#autotest-g2-está-en-rojo-sin-el-test-que-falla) · [Zonas rojas sin aprobar](#zonas-rojas-aún-sin-aprobar) · [Zonas rojas cambiadas](#zonas-rojas-cambiadas-después-de-aprobarse) · [Escenarios sin G1](#escenarios-nuevos-o-cambiados-sin-g1) · [Plan de un Change rojo](#change-rojo-una-persona-debe-aprobar-el-plan) · [Misma familia de modelos](#reviewer-y-builder-son-de-la-misma-familia-de-modelos) · [Agente no encontrado](#no-se-encuentra-el-programa-de-un-agente-en-el-path) · [Cambios sin commit](#el-árbol-de-trabajo-tiene-cambios-sin-commit) · [No es el checkout principal](#ejecuta-gdd-launch-desde-el-checkout-principal) · [El tope](#se-ha-alcanzado-el-tope-de-changes-en-construcción) |
-| En una sentada | [G1 rechazada](#g1-rechazada-los-ejemplos-ocultos-usan-frases-de-paso-desconocidas) · [Sin terminal](#gdd-sitting-necesita-un-terminal) · [El Builder no puede registrar](#un-builder-o-un-reviewer-no-puede-abrir-ni-cerrar-puertas) · [Un agente no puede ejecutar un comando](#los-builders-y-los-reviewers-no-pueden-ejecutar-gdd-command) |
+| En una sentada | [G1 rechazada](#g1-rechazada-los-ejemplos-ocultos-usan-frases-de-paso-desconocidas) · [Sin terminal](#gdd-sitting-necesita-un-terminal) · [El Builder no puede registrar](#un-builder-o-un-reviewer-no-puede-abrir-ni-cerrar-puertas) · [Un agente no puede ejecutar un comando](#los-agentes-que-arrancó-gdd-no-pueden-ejecutar-gdd-command) |
 | Durante el build | [G2 sigue en rojo](#aparcado-g2-sigue-en-rojo-tras-3-reintentos-y-1-replanificación) · [Ruta protegida](#ruta-protegida-para-builder-build) · [Los comandos no se ejecutaron](#los-comandos-de-la-puerta-no-se-ejecutaron-primero-debe-pasar-path-guard) · [Escenario aprobado modificado](#escenario-aprobado-en-g1-y-modificado-después) · [Fuera del paquete](#fuera-del-paquete-y-rojo) · [El modo test escribió código](#path-guard-ha-fallado-tras-el-modo-test) · [El agente cambió el estado de GDD](#cambio-en-el-estado-de-gdd) · [El agente no respondió](#no-respondió-en-n-segundos) · [Presupuesto del Spike](#el-spike-ha-agotado-su-presupuesto) |
-| En G2 y G3 | [Comando que agota el tiempo](#tiempo-agotado-sube-limitscommand_seconds) · [Timeouts del mutation testing](#el-mutation-testing-agota-el-tiempo) · [Sin configurar](#gddcommandstoml-no-tiene-comandos-para-esta-puerta) · [Cero escenarios](#cero-escenarios-cuenta-como-fallo) |
+| En G2 y G3 | [Comando que agota el tiempo](#tiempo-agotado-sube-limitscommand_seconds) · [Timeouts del mutation testing](#el-mutation-testing-agota-el-tiempo) · [Mutantes sin matar](#n-mutantes-sin-matar) · [Ningún test unitario](#mutation-no-se-ejecutó-ningún-test-unitario) · [Un secreto](#un-secreto-en-las-líneas-que-añade-el-change) · [Sin configurar](#gddcommandstoml-no-tiene-comandos-para-esta-puerta) · [Cero escenarios](#cero-escenarios-cuenta-como-fallo) |
 | En la fusión | [Conflictos con main](#main-ha-avanzado-entretanto-y-la-fusión-tiene-conflictos) · [G3 en rojo sobre main](#g3-en-rojo-sobre-el-último-main) · [KO del Reviewer](#ko-del-reviewer-o-g3-en-rojo-tras-una-corrección) · [Checkout principal con cambios](#la-fusión-necesita-el-checkout-principal-sin-cambios-pendientes) |
 | En G4 | [No está en pausa en G4](#no-está-en-pausa-en-g4) · [Elige una variante](#elige-una-variante) |
 
 ## Falló la primera instalación
 
-<!-- Real output of the gdd init form, gdd 0.1.0, with an install made to fail on purpose; the
-     line the failing tool printed is left out. -->
+<!-- Real output of the gdd init form, gdd 0.1.1, with a stand-in uv that fails on purpose; the
+     line it printed is left out. -->
 
 ```text
 python: uv lock && uv sync --locked
@@ -40,7 +40,7 @@ The harness is set up and committed. Fix the install, then run gdd bootstrap.
 ```
 
 **Por qué.** El formulario de Setup escribió el arnés y lo guardó en un commit como
-`gdd init 0.1.0`, y luego falló la primera instalación de un stack: no hay red, falta una
+`gdd init 0.1.1`, y luego falló la primera instalación de un stack: no hay red, falta una
 herramienta como `uv`, `npm` o `cargo`, o una dependencia no se resuelve.
 
 **Qué hacer.** Lee la línea que hay encima del error: es lo que dijo la herramienta. Arregla
@@ -101,13 +101,15 @@ Después vuelve a ejecutar `gdd selftest`.
 ## Zonas rojas aún sin aprobar
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
+error: Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command). (gdd gate zones ok --by human)
 ```
 
-**Por qué.** Hasta que una persona apruebe las zonas rojas, solo se pueden construir Spikes.
+**Por qué.** Hasta que una persona apruebe las zonas rojas, solo se pueden construir Spikes. El
+Setup pide la aprobación, y este Setup terminó sin ella.
 
-**Qué hacer.** Lee `gdd/zones.toml` y luego aprueba las zonas en la sentada de tu Change, o con
-`gdd gate zones ok --by human`. Consulta [Mapear y aprobar zonas rojas](red-zones.md).
+**Qué hacer.** Vuelve a ejecutar `/gdd-setup`, o dile a tu agente que apruebas las zonas rojas
+de `gdd/zones.toml`: registra tu OK con `gdd gate zones ok --by human`. Consulta
+[Mapear y aprobar zonas rojas](red-zones.md).
 
 ## Zonas rojas cambiadas después de aprobarse
 
@@ -257,10 +259,10 @@ pueden registrar aprobaciones, responder a G4 ni publicar.
 
 **Qué hacer.** Ejecútalo tú, en un shell sin `GDD_ROLE`.
 
-## Los Builders y los Reviewers no pueden ejecutar gdd COMMAND
+## Los agentes que arrancó gdd no pueden ejecutar gdd COMMAND
 
 ```text
-error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
 
 **Por qué.** gdd pone `GDD_ROLE` a cada agente que arranca, y un agente así solo puede
@@ -426,6 +428,55 @@ sobrevive hace fallar la puerta.
 entero, sube `command_seconds`, o evita tener dos Changes en G3 a la vez (consulta [Ejecutar
 Changes en paralelo](parallel-changes.md)). Para los comandos en sí, consulta [Ajustar las
 puertas](gates-and-commands.md).
+
+## N mutante(s) sin matar
+
+```text
+    shop.cart.x_total__mutmut_6: survived
+    shop.cart.x_label__mutmut_1: no tests
+    shop.cart.x_label__mutmut_2: no tests
+    shop.cart.x_label__mutmut_3: no tests
+mutation: 4 mutant(s) not killed (survived, or no test runs that code)
+```
+
+**Por qué.** En la ficha de Python, el mutation testing cambió el código que tocó el Change y
+ningún test falló: un test ejecuta ese código sin comprobar lo que hace (`survived`), o ningún
+test unitario lo ejecuta (`no tests`). Las líneas de encima de la última nombran cada mutante.
+
+**Qué hacer.** Lee el `tail` de `mutation` en `.gdd/changes/CHANGE/g3.json`. Cada mutante
+necesita un test que falle con él, y una función que ningún test ejecuta necesita un test propio,
+o no pertenece al Change. En un Change aparcado, pide esos tests a tu agente (consulta
+[Volver a poner en marcha un Change aparcado](parked-change.md)).
+
+## Mutation: no se ejecutó ningún test unitario
+
+```text
+mutation: no unit test ran (tests/unit/ collected none), so no mutant was checked
+```
+
+**Por qué.** El mutation testing necesita tests unitarios para comprobar cada mutante, y en la
+ficha de Python `tests/unit/` no tiene ninguno. La ficha de TypeScript dice
+`mutation: no unit test runs the changed files, so no mutant was checked` cuando ningún test
+unitario importa los ficheros que tocó el Change.
+
+**Qué hacer.** Añade tests unitarios del código cambiado: en Python bajo `tests/unit/`, en
+TypeScript un `*.test.ts` que importe los ficheros cambiados. Un Change sin nada que mutar pasa
+en cambio, con `mutation: nothing to mutate in the changed Python files (no function or method)`.
+
+## Un secreto en las líneas que añade el Change
+
+```text
+secrets: src/shop/settings.py:3: aws-access-token (value not shown)
+```
+
+**Por qué.** gitleaks encontró un secreto en una línea que añade el Change: el fichero, la línea
+y la regla que coincidió. gdd nunca imprime el valor. La comprobación solo lee las líneas
+añadidas, así que un secreto que ya está en main, o uno que el Change quita, no la hace fallar.
+
+**Qué hacer.** Quita el secreto del Change y léelo de una variable de entorno o de un fichero
+fuera de git. Si era real, revócalo: queda en la historia de la rama. Si la comprobación dice
+`secrets: the lines the change adds could not be read, so no secret was checked`, falló un paso
+anterior a gitleaks (git, una carpeta temporal), y el resto del `tail` dice cuál.
 
 ## gdd/commands.toml no tiene comandos para esta puerta
 

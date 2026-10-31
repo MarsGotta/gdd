@@ -51,12 +51,13 @@ From those paths gdd works out the color of the change, its risk, from the
 the checks it must pass before it moves on. The Orchestrator tells you the result in its own
 words. For `cart-total`, the agent answered:
 
-<!-- The chat excerpts of this page come from one real run of gdd 0.1.0 (main at e244577) on
-2026-10-31 with Claude Code: the run of the tutorial. -->
+<!-- The chat excerpts and the Board of this page come from one real run of gdd 0.1.1 (main at
+30b50c4) on 2026-10-31 with Claude Code and Codex: the run of the tutorial. -->
 
 ```text
-I've drafted the scenarios for **cart-total**. It's yellow, so there's no plan for you to
-approve and the red zones are unchanged. Before I commit them I need your OK and three answers.
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 ...
 ```
 
@@ -81,16 +82,18 @@ for you per change. The questions it does ask come grouped, each with its recomm
 
 ## 3. Approve what needs you
 
-The Orchestrator writes the scenarios of the change and, for a red change, its plan. Then it
-holds one *sitting* with you: a single message with everything that needs your approval. That
-is the scenarios as plain text, the red zones when they wait, and the plan of a red change.
+The Orchestrator writes the scenarios of the change and, for a red change, its plan, and
+commits them on the change's branch. Then it holds one *sitting* with you: a single message
+with everything that needs your approval. That is the scenarios as plain text, the red zones
+when they wait, and the plan of a red change. Because the files are already on the branch, the
+sitting screen (`gdd sitting CHANGE`) shows the same scenarios before you answer.
 
 The red zones are usually approved already, at the end of the Setup. They come back to a
 sitting only when the zone map changed. Answer in words: OK, or what to change, with the
 answers to the Orchestrator's questions. For `cart-total`:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
 With your OK the Orchestrator records the Scenario Gate (G1), and the red zones and the plan
@@ -156,8 +159,8 @@ gdd board
 
 It shows every change by phase: Discover for the ones not launched yet, Build for the ones
 building or parked, Release for the ones in pre or waiting for your G4, and Done, folded away.
-It only reads, and it reads the project when it opens: close it with `q` and open it again to
-see a later state. A real Board, with `cart-total` building:
+It only reads. It reloads the project every two seconds and keeps your selection, so you can
+leave it open; `r` reloads at once. A real Board, with `cart-total` building:
 
 <!-- Real screen at 100 columns, blank lines trimmed, from the same run. -->
 ```text
@@ -167,7 +170,7 @@ see a later state. A real Board, with `cart-total` building:
 │› cart-total · yellow · Show the cart total, taxes included · building · G1:ok                    │
 │Release (0)                                                                                       │
 │Done (0) · d to show                                                                              │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -188,13 +191,30 @@ The change comes back to the chat in one of three ways:
   and proposes the next step in one line. See
   [Get a parked change going again](parked-change.md).
 
-Two minutes after the launch, `cart-total` came back waiting at G4:
+About two minutes after its launch, `cart-total` came back parked: the Reviewer had
+asked for a fix that the Builder in build mode was not allowed to make. The Orchestrator
+explained it in plain words and proposed a way out:
 
 ```text
-The **cart-total** change is built and checked, and it's waiting for your **G4** answer.
+The build stopped before your final OK. The cart is correct and every automatic check passed,
+including the two hidden examples. What stopped it is a reviewer rejection.
 ...
-**Next step:** reply **OK** to send it to production (simulated for now), **KO** to reject it,
-or **polish** with what you'd like changed.
+**What I recommend:** I split that step into three myself. It's a few lines in the test code
+and nothing changes in what the shop does. Then I relaunch, so the reviewer looks again and it
+comes back to you for the final OK. ...
+
+**Next step:** reply "go" and I'll make the split and relaunch.
+```
+
+<!-- That proposal parked again on a gdd 0.1.1 bug; the agent then removed the worktree and
+launched the change again, which went straight to G4. -->
+
+Once launched again, it came back waiting at G4:
+
+```text
+The rebuild worked and the cart total is ready for your final OK (G4).
+...
+**Next step:** reply "OK", "polish", or "KO" (reject; production stays untouched).
 ```
 
 If you closed the chat meanwhile, start your agent again and run `/gdd-status`

@@ -20,7 +20,7 @@ gdd release
 
 With nothing to release, you should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 Nothing to release: no change on main carries a changelog line

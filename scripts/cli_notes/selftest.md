@@ -19,7 +19,7 @@ gdd selftest
 
 You should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 OK a failing test turns G2 red
@@ -32,7 +32,7 @@ harness 4/4
 A Builder that tries it gets:
 
 ```text
-error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
 
 ## See also

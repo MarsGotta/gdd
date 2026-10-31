@@ -27,8 +27,8 @@ ones after every round of the Builder, and G3 runs the slow ones before the merg
 | `lockfile` | G3 | A lock file (the exact versions of every dependency) that does not match the manifest |
 | `security` | G3 | Unsafe code patterns and dependencies with known vulnerabilities |
 | `dependencies` | G3 | Shipping a dependency whose license you cannot use |
-| `secrets` | G3 | A password or token committed in the change |
-| `mutation` | G3 | Tests that run the code without checking what it does |
+| `secrets` | G3 | A password or token in the lines the change adds |
+| `mutation` | G3 | Tests that run the code without checking what it does, and code no test runs |
 
 Every [stack sheet](../reference/stacks.md), the tools gdd keeps for each language, uses these
 names. [Gates](../reference/gates.md) lists the checks a gate runs besides them.
@@ -126,6 +126,28 @@ as `path-guard`:
 `ok` says whether the gate passed, and `failures` says why when it did not. Here `mutation` is
 under `skipped` because a yellow change does not ask for it.
 
+Each failure keeps the end of what its command printed in `tail`. The `mutation` and `secrets`
+commands of the stack sheets end with a line that says what they found. In a Python change with
+a function no unit test runs and a planted access key, the two tails end with:
+
+<!-- Real output of gdd 0.1.1 (gdd g3) in a throwaway Python project; the key was a fake one
+     built for the test. The mutmut progress lines above them are left out. -->
+```text
+    shop.cart.x_total__mutmut_6: survived
+    shop.cart.x_label__mutmut_1: no tests
+    shop.cart.x_label__mutmut_2: no tests
+    shop.cart.x_label__mutmut_3: no tests
+mutation: 4 mutant(s) not killed (survived, or no test runs that code)
+```
+
+```text
+secrets: src/shop/settings.py:3: aws-access-token (value not shown)
+```
+
+The secrets check names the file, the line and the rule, never the value. It reads only the
+lines the change adds: removing a secret, or editing next to one already on main, does not fail
+it, and binary files are not scanned.
+
 ## 3. Decide what each color gets
 
 `gdd/rules.toml` has one table per color and lane. A new project starts with these values:
@@ -204,10 +226,20 @@ instead of removing checks. Agent calls have their own limit, `agent_timeout_s` 
 Mutation testing, which plants small bugs and expects a test to catch each one, is the slowest
 check of G3. The sheets already run it on the change's diff only:
 
-- Python (mutmut) mutates the modules of `src/` listed in `GDD_DIFF_FILES`.
+- Python (mutmut) mutates the functions and methods of the modules of `src/` listed in
+  `GDD_DIFF_FILES`.
+- TypeScript (StrykerJS) mutates the `src/*.ts` files listed in `GDD_DIFF_FILES`.
 - Rust (cargo-mutants) mutates the diff against the main branch. It is faster with mold
   installed, and it gives mutants that only timed out a second chance; see the
   [rust sheet](../reference/stacks.md#rust).
+
+On Python and TypeScript, a mutant that no test catches fails the gate, and so does code that no
+test runs. A change with nothing to mutate (only constants or types) passes and says so; the
+gate report keeps that line in `summaries`:
+
+```text
+mutation: nothing to mutate in the changed Python files (no function or method)
+```
 
 If mutation testing still runs past the time limit, raise `command_seconds` (step 4), or avoid
 two changes in G3 at once.

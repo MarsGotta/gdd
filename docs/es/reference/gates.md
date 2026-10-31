@@ -168,10 +168,19 @@ Lees los escenarios y pides cambios (`gdd gate G1 ko cart-total`):
 G1 ko on cart-total (human).
 ```
 
+Tus palabras se quedan en la Decision Inbox del Change, bajo *Your decisions*, hasta que G1 se
+decide de nuevo. Para un Change `export-csv` devuelto con una nota, [`gdd inbox`](cli/inbox.md)
+muestra:
+
+```text
+## Your decisions
+- G1 ko: Say which columns the file has
+```
+
 Las zonas rojas del proyecto nunca se han aprobado:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
+error: Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command). (gdd gate zones ok --by human)
 ```
 
 Un ejemplo oculto usa una frase que no tiene ningún escenario visible:
@@ -265,8 +274,11 @@ mientras se construía el Change.
    `command_seconds`, `mutation*` solo cuando hace falta), después Path Guard otra vez, y la
    comprobación de alcance en modo build, como en G2. Las fichas de stack ponen aquí la
    ejecución completa de los escenarios (ejemplos ocultos incluidos), el fichero de lock, el
-   análisis estático de seguridad, las licencias de las dependencias, los secretos en el diff y
-   mutation testing sobre el diff.
+   análisis estático de seguridad, las licencias de las dependencias, los secretos y mutation
+   testing sobre el diff. La comprobación de secretos lee solo las líneas que añade el Change,
+   se salta los ficheros binarios y nombra el fichero, la línea y la regla de cada hallazgo,
+   nunca el valor. En las fichas de Python y TypeScript, mutation testing también falla con
+   código cambiado que ningún test ejecuta, y un Change sin nada que mutar pasa y lo dice.
 2. El recuento de escenarios: cero escenarios en `[acceptance] dir` hacen fallar la puerta
    cuando `[acceptance] required` es `true` o el Change tiene ficheros de escenarios propios.
 3. Las excepciones de seguridad (`[[IgnoredVulns]]` de `osv-scanner.toml`,
@@ -304,6 +316,20 @@ Falla un comando de G3, aquí por una dependencia con vulnerabilidades conocidas
 
 ```text
 {"ok":false,"gate":"G3","color":"red",...,"failures":[...,{"name":"security","ok":false,"code":1,"duration_s":1.0,"tail":"...Total 1 package affected by 6 known vulnerabilities (0 Critical, 2 High, 4 Medium, 0 Low, 0 Unknown) from 1 ecosystem.\n6 vulnerabilities can be fixed.\n...| https://osv.dev/PYSEC-2019-217      | 8.6  | PyPI      | jinja2  | 2.10    | 2.10.1        | uv.lock |\n..."}],"out_of_scope":[],...}
+```
+
+El Change añade una línea con una clave de acceso. La comprobación de secretos nombra el
+fichero, la línea y la regla, nunca la clave:
+
+```text
+{"ok":false,"gate":"G3","color":"yellow",...,"failures":[{"name":"secrets","ok":false,"code":1,"duration_s":0.3,"tail":"secrets: src/shop/settings.py:3: aws-access-token (value not shown)\n..."},...],...}
+```
+
+Un Change rojo añade una función que ningún test unitario ejecuta, así que mutation testing no
+puede cazar ni un mutante:
+
+```text
+{"ok":false,"gate":"G3","color":"red",...,"failures":[{"name":"mutation","ok":false,"code":1,"duration_s":1.2,"tail":"...    shop.discount.x_discounted__mutmut_6: no tests\nmutation: 6 mutant(s) not killed (survived, or no test runs that code)\n"},...],...}
 ```
 
 El Reviewer respondió `VERDICT: KO`, el Builder lo corrigió una vez y la segunda revisión

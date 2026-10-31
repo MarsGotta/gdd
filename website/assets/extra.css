@@ -201,6 +201,12 @@
   border-color: var(--gd-amber);
 }
 
+.gd-hero .gd-agents {
+  margin: 0.4rem 0 0;
+  font-size: 0.72rem;
+  color: var(--md-default-fg-color--lighter);
+}
+
 /* The chat: your lines on the right, the agent's on the left, gdd's last word in green. */
 .md-typeset .gd-chat {
   display: flex;

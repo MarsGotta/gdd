@@ -1,7 +1,7 @@
 # gdd stacks
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/stacks.md, nunca esta página.
 -->
 
@@ -36,7 +36,7 @@ gdd stacks
 
 You should see one line per sheet (name, technology, scenario runner):
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 python · Python · pytest-bdd

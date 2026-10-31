@@ -1,7 +1,7 @@
 # gdd guard
 
 <!--
-Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+Generada por scripts/make_reference.py a partir de gdd 0.1.1. Edita el texto de ayuda en el
 código o scripts/cli_notes/guard.md, nunca esta página.
 -->
 
@@ -40,7 +40,7 @@ The Builder in test mode may not touch production code:
 gdd guard cart-total --role builder-test
 ```
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 {"ok":false,"failures":["src/shop/cart.py: protected path for builder-test"]}

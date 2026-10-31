@@ -83,8 +83,10 @@ clear next step.
    zone map holds only the zones `gdd init` wrote, and the harness zone ships red. No change can
    be launched before a person approved the zone map, so the skill asks you in one line, saying
    what the harness zone protects: gdd's own files, the CI and the agent instructions. With your
-   OK it runs [`gdd gate zones ok --by human`](../cli/gate.md). The discover skill maps your own
-   sensitive areas later.
+   OK it runs [`gdd gate zones ok --by human`](../cli/gate.md). Until then,
+   [`gdd status`](../cli/status.md) says `Red zones not approved yet: the Setup asks you to
+   approve them (the gdd-setup command).` The discover skill maps your own sensitive areas
+   later.
 7. **Protects the right paths** in `gdd/rules.toml`: the production code against the Builder
    in test mode, and the folder of the scenario steps against the Builder in build mode.
 8. **Installs and adopts when needed.** When a stack's lock file (the file that pins the

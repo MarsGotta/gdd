@@ -17,7 +17,7 @@ gdd status
 
 You should see:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 Project: shop · language en · platform cli
@@ -30,6 +30,6 @@ Security exceptions: none
 Known debt: none
 Changes:
   - cart-total · Show the cart total · building · no gates yet
-  - export-csv · Export orders as CSV · parked · no gates yet
-Log: 22 lines in .gdd/log.jsonl (gdd report)
+  - export-csv · Export the catalog as CSV · parked · G1:ok
+Log: 24 lines in .gdd/log.jsonl (gdd report)
 ```

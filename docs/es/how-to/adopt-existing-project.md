@@ -44,11 +44,12 @@ respuestas antes de escribir nada, y `Enter` prepara el proyecto.
 
 gdd escribe el [arnés](../glossary.md#arnés), los ficheros que usa para comprobar el proyecto,
 junto a tu código. Nunca sobrescribe un fichero, se niega a ejecutarse en una carpeta que ya es
-un proyecto GDD y solo hace commit de lo que ha escrito (`gdd init 0.1.0`). Después ejecuta la
+un proyecto GDD y solo hace commit de lo que ha escrito (`gdd init 0.1.1`). Después ejecuta la
 primera instalación del stack, que escribe el fichero de bloqueo (*lock file*), y hace commit de
 él (`gdd bootstrap`). Deberías ver los ficheros que ha escrito, la instalación y, después, el
 siguiente paso:
 
+<!-- Real output of the gdd init form, gdd 0.1.1, in a copy of the example project. -->
 ```text
 gdd/project.toml
 gdd/commands.toml
@@ -60,17 +61,20 @@ docs/brief.md
 .github/workflows/gdd.yml
 AGENTS.md
 CLAUDE.md
+CHANGELOG.md
 .gitignore
 .claude/skills/gdd-build/SKILL.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 Using CPython 3.13.15
-Resolved 8 packages in 3ms
+Resolved 8 packages in 5ms
 Using CPython 3.13.15
 Creating virtual environment at: .venv
-Resolved 8 packages in 0.91ms
-Installed 7 packages in 10ms
+Resolved 8 packages in 0.95ms
+...
+Installed 7 packages in 30ms
+...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
 ```
@@ -81,6 +85,7 @@ siendo tuyos.
 
 - `AGENTS.md`: si el proyecto ya tiene uno, gdd no lo toca y te indica la línea que debes
   añadir, la que envía a los agentes a GDD.
+- `CHANGELOG.md`: gdd solo empieza uno cuando el proyecto no tiene; el tuyo se queda como está.
 - Fichero de bloqueo: si el proyecto ya tenía uno en un commit, obtienes
   `Nothing new to commit.` en lugar de `Committed: uv.lock`.
 
@@ -135,7 +140,8 @@ cada comando a mano. En `shop`:
 - añadió a `pyproject.toml` la configuración que leen las herramientas (`[tool.mypy]`,
   `[tool.mutmut]`, un contrato de import-linter);
 - cambió el comando `mutation` de `gdd/commands.toml` para que un fichero sin nada que mutar no
-  lo haga fallar.
+  lo haga fallar. Desde gdd 0.1.1, el propio comando de la ficha de Python deja pasar ese fichero
+  y lo dice, así que este cambio ya no hace falta.
 
 Antes de responder, lee lo que ha cambiado el Orchestrator. Estos ficheros son arnés, así que
 cambian en main, nunca dentro de un Change.
@@ -246,8 +252,10 @@ paths = ["tests/**"]
 reason = "Tests: a wrong test fails loudly and costs nothing in production"
 ```
 
-Apruebas las zonas rojas en la [sentada](../glossary.md#sentada) del primer Change, junto con
-sus escenarios. Al aprobarlas se registra:
+El Setup ya te pidió aprobar las dos zonas rojas que escribió `gdd init`. Las zonas que añade
+Discover cambian las zonas rojas, así que vuelves a aprobarlas en la
+[sentada](../glossary.md#sentada) del siguiente Change, junto con sus escenarios. Al aprobarlas
+se registra:
 
 ```text
 Red zones ok (3 red zone(s)).

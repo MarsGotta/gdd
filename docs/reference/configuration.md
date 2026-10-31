@@ -21,7 +21,7 @@ upgrades and `debt.toml` adopted projects. The reasons behind the colors are in
 | [`gdd/project.toml`](#projecttoml) | `gdd init` | `gdd status`, the stack commands, the agents | The project basics |
 | [`gdd/zones.toml`](#zonestoml) | `gdd init`, then the Orchestrator | `gdd classify`, the gates, Path Guard's scope check, the red zone approval | The zone map: which paths have which color |
 | [`gdd/rules.toml`](#rulestoml) | `gdd init` | every command that classifies, gates, launches or merges | The rules table, limits, protected paths |
-| [`gdd/models.toml`](#modelstoml) | `gdd init` | `gdd prepare`, `gdd launch`, `gdd resume`, `gdd status`, `gdd agents` | The agent and model of each role |
+| [`gdd/models.toml`](#modelstoml) | `gdd init` | `gdd prepare`, `gdd launch`, `gdd resume`, `gdd session`, `gdd status`, `gdd agents` | The agent and model of each role, and the prices of models |
 | [`gdd/commands.toml`](#commandstoml) | `gdd init` | the gates, `gdd release`, `gdd selftest`, `gdd learn`, `gdd adopt`, `gdd ci` | The gate, Learn and release commands |
 | [`gdd/generated.toml`](#generatedtoml) | `gdd init`, `gdd upgrade` | `gdd upgrade` | What `gdd init` wrote once and what it was asked |
 | [`gdd/debt.toml`](#debttoml) | `gdd adopt`, then each merge | the gates, `gdd ci`, `gdd status` | Known debt of an adopted project |
@@ -150,7 +150,7 @@ G3 counts the lines of the `.feature` files in `dir` and its subfolders that sta
 | `replans` | integer, 0 or more | `1` | Replans of a change still red in G2: each is one Orchestrator call, test mode again when the replan says `NEXT: test`, one more build round and G2. Then the change parks. |
 | `agent_timeout_s` | integer, 0 or more | `3600` | Seconds an agent call may take, until its output closes. Then its process group is killed and the change parks. `gdd init` does not write it. |
 | `command_seconds` | integer above 0 | `1800` | Seconds each gate command and each release command may take. A command that runs out of time is killed with everything it started and ends with exit code 124. Any other value is an error that names `limits.command_seconds`. |
-| `reviewer_fixes` | integer | `1` in the file `gdd init` writes | Not read by gdd 0.1.0. The Builder always gets one fix round after a Reviewer KO and one after a red G3. When a Reviewer finding names a file only test mode writes, that fix round starts in test mode. |
+| `reviewer_fixes` | integer | `1` in the file `gdd init` writes | Not read by gdd 0.1.1. The Builder always gets one fix round after a Reviewer KO and one after a red G3. When a Reviewer finding names a file only test mode writes, that fix round starts in test mode. |
 
 ### [spike]
 
@@ -244,7 +244,8 @@ role fails Path Guard when a scenario file approved at G1 changed after the appr
 
 Who plays each role: an agent (integration) and its model. Read by `gdd new-change`,
 `gdd classify` and `gdd prepare` (the model of each role goes into the decision of the change),
-by `gdd launch` and `gdd resume` (which agent to start), by `gdd status` and by `gdd agents`.
+by `gdd launch` and `gdd resume` (which agent to start, and the prices), by `gdd session` (the
+prices), by `gdd status` and by `gdd agents`.
 `gdd init` writes it from `--agents` and the defaults of each agent; see
 [Roles](roles.md#default-models).
 
@@ -331,17 +332,34 @@ Not written by `gdd init`.
 
 ### [prices.\<model\>]
 
-Not written by `gdd init`. The price of a model, for agents that report no cost (Codex): one
-table per model name, as `model` writes it.
+Not written by `gdd init`. The price of a model, for the calls whose agent reports no cost
+(Codex, and the Claude Code conversations `gdd session` imports): one table per model name,
+exactly as the log writes it.
+
+```toml
+[prices.gpt-6-astra]
+input = 0.0
+cache = 0.0
+output = 0.0
+```
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `input` | number | `0` | USD per million input tokens not read from the cache. |
-| `cache` | number | `0` | USD per million input tokens read from the cache. |
-| `output` | number | `0` | USD per million output tokens. |
+| `input` | number, 0 or more | `0` | USD per million input tokens not read from the cache. |
+| `cache` | number, 0 or more | `0` | USD per million input tokens read from the cache. |
+| `output` | number, 0 or more | `0` | USD per million output tokens. |
 
-The estimate goes to the call's line in the log. The record of the change, and so the spike
-budget, keeps only what the agent reported.
+A call priced from this table is an estimate: its line in the log says
+`"cost_basis":"estimated"`, and the reports show its cost with `~`. A call whose model has no
+table costs `unknown` (`"cost_basis":"unknown"`, `cost_usd` 0), never 0 USD. A price applies to
+the calls logged after it is added. A price that is negative, `nan` or `inf` refuses the file wherever gdd reads the prices
+(`gdd session`, `gdd launch`, `gdd resume`):
+
+```text
+error: gdd/models.toml: invalid TOML: prices.claude-opus-5-5.output must be a number 0 or more, not -1
+```
+
+The record of the change, and so the spike budget, keeps only what the agent reported.
 
 ## commands.toml
 

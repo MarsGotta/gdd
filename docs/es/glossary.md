@@ -39,7 +39,7 @@ máquinas abren G0 solo cuando pasan las cuatro. Consulta
 
 La pantalla de terminal, de solo lectura, que muestra todos los Changes por fase, con su color,
 su estado y sus puertas. Se abre con [`gdd board`](reference/cli/board.md), o con `gdd` solo, en
-una terminal.
+una terminal, y vuelve a leer el proyecto cada 2 segundos.
 
 ## Brief del proyecto
 
@@ -73,9 +73,10 @@ más alto de entre las rutas que toca, y el color decide sus puertas. También s
 
 ## Decision Inbox
 
-El único mensaje que un Change deja para la persona, en `.gdd/changes/<id>/inbox.md`: qué necesita
-su decisión, qué se decidió sin ella y qué quedó aparcado. Consulta
-[Pocas paradas para la persona](explanation/human-stops.md#la-decision-inbox).
+El único mensaje que un Change deja para la persona, en `.gdd/changes/<id>/inbox.md`: sus
+propios KO que siguen en pie, qué necesita su decisión, qué se decidió sin ella y qué quedó
+aparcado. Consulta [Pocas paradas para la
+persona](explanation/human-stops.md#la-decision-inbox).
 
 ## Deuda conocida
 
@@ -236,10 +237,11 @@ escribir código de producción. Consulta
 ## Mutation testing
 
 Una prueba de los tests (pruebas de mutación): una herramienta hace pequeñas ediciones en el
-código, llamadas mutantes, como invertir una comparación, y los tests tienen que fallar con cada
-una. Un mutante que ningún test detecta muestra un test que comprueba demasiado poco. gdd
-ejecuta los comandos `mutation*` en G2 y G3, siempre en los Changes rojos y en los demás colores
-cuando una regla los activa. Consulta [Puertas](reference/gates.md#puertas-por-color).
+código, llamadas mutantes, como invertir una comparación, y los tests tienen que fallar con
+cada una. Un mutante que ningún test detecta muestra un test que comprueba demasiado poco, o
+código que ningún test ejecuta. gdd ejecuta los comandos `mutation*` en G2 y G3, siempre en los
+Changes rojos y en los demás colores cuando una regla los activa. Consulta
+[Puertas](reference/gates.md#puertas-por-color).
 
 ## No-code
 

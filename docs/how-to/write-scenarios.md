@@ -6,10 +6,11 @@ format of `Given`, `When` and `Then` lines. You read them, ask for changes in pl
 approve them at the Scenario Gate (G1). Your OK seals them, so no agent can quietly change
 what you approved.
 
-<!-- The chat excerpts come from one real run of gdd 0.1.0 (main at e244577) on 2026-10-31 with
-Claude Code: the run of the tutorial. The sitting screens with the scenarios, the G1 refusal and
-the sealed-file message were reproduced the same day in throwaway copies of that project, with
-the same scenario files, without agents and without a launch. -->
+<!-- The chat excerpts and the sitting screens up to the confirmation come from one real run of
+gdd 0.1.1 (main at 30b50c4) on 2026-10-31 with Claude Code and Codex: the run of the tutorial.
+The Recorded screen, the G1 refusal and the sealed-file message were reproduced the same day
+with gdd 0.1.1 in a throwaway copy of that project, with the same scenario files, without
+agents and without a launch. -->
 
 ## Before you start
 
@@ -47,73 +48,69 @@ text, the red zones when they wait, and the plan when the change is red. For `ca
 agent wrote:
 
 ```text
-**The scenarios** (all prices are set by you, tax already included):
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 
-> **Background:** the tax rate is 21%
->
-> **1. The total adds up every piece in the cart**
-> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
-> The total is **96.80**, and the tax included in it is **16.80**.
->
-> **2. The tax is rounded to the cent**
-> A cart with 1 × Small cup at 25.00.
-> The total is **25.00**, and the tax included in it is **4.34**.
->
-> **3. An empty cart costs nothing**
-> The total is **0.00**, and the tax included is **0.00**.
+**The scenarios to approve (G1)**
 
-I also wrote two hidden examples that the Builder won't see, to check it implemented the rule
-and didn't just match the visible numbers.
+*A cart with several pieces shows its total, taxes included*
+- The catalogue has a Blue mug at 18.00 and a Large bowl at 24.50.
+- The customer puts 2 Blue mugs and 1 Large bowl in the cart.
+- The cart shows a subtotal of **60.50**, tax of **12.71** and a total of **73.21**.
 
-**Questions:**
-1. **Do your prices already include tax?** I recommend yes: ...
-2. **Which tax rate, and which currency?** I used 21% as a placeholder (Spain's VAT rate) and
-   left out the currency. Tell me your rate and currency and I'll put them in.
-3. **Rounding:** I recommend working out the tax once on the cart total, rounded to the nearest
-   cent. ...
+*An empty cart costs nothing*
+- Subtotal **0.00**, tax **0.00**, total **0.00**.
 
-**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
-corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
+I also wrote two hidden examples that the Builder doesn't see, to catch a wrong rounding rule or
+a piece added twice.
+
+**Two rules I built into these numbers. Please confirm or correct them:**
+1. **Tax rate: 21% on everything.** That's the Spanish standard VAT rate, but it's only my
+   example; tell me your real rate if it's different.
+2. **Catalogue prices are before tax.** The shop adds the tax once, on the whole cart, and
+   rounds to the cent (half a cent rounds up). The alternative is that the prices you list
+   already include tax and the cart shows the tax inside them; in that case I'll redo the
+   examples.
+
+**Next step:** reply "scenarios OK", or give me your rate and price rule, and I'll seal the
+scenarios and launch the build.
 ```
 
-The agent retells the scenarios in plain words and adds its questions. The scenario file behind
-it reads:
+The agent retells the scenarios in plain words and adds the rules it needs you to confirm. It
+committed the scenario file on the change's branch before it wrote this message, so the file
+you would approve already exists (step 4 shows it on a screen). It reads:
 
 ```gherkin
-Feature: Cart total, taxes included
-  The customer sees what the cart costs in total, taxes included,
-  and how much of that total is tax.
-  Prices are set by the seller with tax already included.
+Feature: Cart total with taxes
+  A customer sees what the cart costs before tax, the tax, and the total to pay.
+  Catalogue prices are before tax; the tax rate is 21% on the whole cart,
+  rounded to the nearest cent (half a cent rounds up).
 
-  Background:
-    Given the tax rate is 21%
-
-  Scenario: The total adds up every piece in the cart
-    Given a cart with
-      | piece     | price | quantity |
-      | Blue mug  | 24.20 | 1        |
-      | Wide bowl | 36.30 | 2        |
-    When the customer looks at the cart
-    Then the total is 96.80
-    And the tax included in the total is 16.80
-
-  Scenario: The tax is rounded to the cent
-    Given a cart with
-      | piece     | price | quantity |
-      | Small cup | 25.00 | 1        |
-    When the customer looks at the cart
-    Then the total is 25.00
-    And the tax included in the total is 4.34
+  Scenario: A cart with several pieces shows its total, taxes included
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Blue mug        | 18.00 |
+      | Large bowl      | 24.50 |
+    And the customer puts 2 "Blue mug" in the cart
+    And the customer puts 1 "Large bowl" in the cart
+    When the customer looks at the cart total
+    Then the subtotal is 60.50
+    And the tax is 12.71
+    And the total is 73.21
 
   Scenario: An empty cart costs nothing
-    Given an empty cart
-    When the customer looks at the cart
-    Then the total is 0.00
-    And the tax included in the total is 0.00
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Blue mug        | 18.00 |
+    When the customer looks at the cart total
+    Then the subtotal is 0.00
+    And the tax is 0.00
+    And the total is 0.00
 ```
 
-- `Feature` names the behavior, and the lines under it say what it is for.
-- `Background` sets the starting point every scenario of the file shares: here, the tax rate.
+- `Feature` names the behavior, and the lines under it say what it is for. Here they also state
+  the rules: prices before tax, 21% on the whole cart, half a cent rounds up.
 - Each `Scenario` is one example. `Given` is the starting point, `When` what someone does,
   `Then` what must be true afterwards. `And` continues the line before it. A table under a
   `Given` gives the data of one step, here the pieces of the cart.
@@ -124,13 +121,15 @@ Check these five things:
   that you did not want.
 - **The words are the domain's.** Carts, pieces, prices and taxes, never functions, files or
   classes of the code. The Builder decides how a step reaches the code.
-- **Every `Then` can fail.** `the total is 96.80` names one exact amount. A `Then` that cannot
+- **Every `Then` can fail.** `the total is 73.21` names one exact amount. A `Then` that cannot
   fail promises nothing.
 - **Concrete examples, few scenarios.** Real prices show the edge cases better than a sentence
-  about them: the tax included in 25.00 at 21% is 4.338..., so the example also fixes how the
-  cent rounds.
-- **The starting point is complete.** Everything the behavior depends on is in a `Given` or the
-  `Background`, not assumed: here the tax rate is set, not taken from the project.
+  about them: 21% of 60.50 is 12.705, so the example also fixes how the cent rounds.
+- **The starting point is complete.** Everything the behavior depends on is in a `Given`, or in
+  a `Background` that every scenario of the file shares, not assumed. Here the catalogue and its
+  prices are in a `Given`, but the 21% rate is only in the description: the code takes it from
+  the project. That is fine while the shop has one rate; if it may change, ask for a step such
+  as `Given the tax rate is 21%`.
 
 Only a few scenarios go through the user interface, tagged `@ui`. The others talk to the core
 of the application, which is faster and less brittle; the demo in pre checks the real
@@ -141,7 +140,7 @@ interface.
 Say what is missing or wrong, as you would to a colleague. For example:
 
 ```text
-My prices are without tax: add the tax on top, and show the subtotal too.
+My prices already include tax: show how much of the total is tax.
 Add a cart with three plates of the same kind, so I see a quantity above one.
 ```
 
@@ -157,18 +156,17 @@ shows. Next to the scenarios you read, the Orchestrator writes one or two of the
 chat; the sitting screen does, marked as hidden (see step 4). One of `cart-total`'s:
 
 ```gherkin
-Feature: Cart total, taxes included (hidden examples)
+Feature: Cart total with taxes (hidden examples)
 
-  Background:
-    Given the tax rate is 21%
-
-  Scenario: Several plates of the same kind
-    Given a cart with
-      | piece        | price | quantity |
-      | Dinner plate | 18.15 | 3        |
-    When the customer looks at the cart
-    Then the total is 54.45
-    And the tax included in the total is 9.45
+  Scenario: Tax on the whole cart rounds down when under half a cent
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Dinner plate    | 15.99 |
+    And the customer puts 3 "Dinner plate" in the cart
+    When the customer looks at the cart total
+    Then the subtotal is 47.97
+    And the tax is 10.07
+    And the total is 58.04
 ```
 
 A hidden example reuses the sentences of the visible scenarios with new data. The Builder in
@@ -196,33 +194,32 @@ for you to approve.
 In the chat, say OK, with the answers to any question the Orchestrator asked:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
-The Orchestrator commits the scenarios on the change's branch and records G1 with your words,
-plus the red zones and the plan when they were part of the sitting. Then it launches the
-change. The agent answers:
+The Orchestrator records G1 with your words, plus the red zones and the plan when they were part
+of the sitting. G1 seals the scenario files as the last commit of the change's branch has them.
+Then it launches the change. The agent answers:
 
 ```text
-The **cart-total** change is now building on its own. I'll get a notification when it finishes
-or stops.
+Your answers are recorded and the build is running in the background:
 
-**Approved and recorded:**
-- G1, with your note: prices include tax, the rate is 21%, amounts are in euros, and the tax is
-  worked out once on the cart total.
+- **Scenarios approved (G1):** sealed with your rule: 21% tax on the whole cart, catalogue
+  prices before tax, and half a cent rounds up.
 ...
 ```
 
 To read everything on a screen first, hidden examples included, use the sitting screen. It
-reads the scenarios from the change's branch, and the Orchestrator commits them there only
-after your OK. Until then the screen says `No scenario files on change/cart-total`, so ask the
-agent to commit the scenarios first. Then open the sitting in a terminal:
+reads the scenarios from the change's branch, where the Orchestrator commits them before it
+shows them in the chat. If you open it before that commit, it says `No scenarios on
+change/cart-total yet: they show here once your agent commits them`. Open the sitting in a
+terminal:
 
 ```bash
 gdd sitting cart-total
 ```
 
-With the files committed, you should see:
+You should see:
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
@@ -230,16 +227,13 @@ With the files committed, you should see:
 │                                                                                                  │
 │Scenarios                                                                                         │
 │features/cart_total.feature                                                                       │
-│Feature: Cart total, taxes included                                                               │
-│  The customer sees what the cart costs in total, taxes included,                                 │
-│  and how much of that total is tax.                                                              │
-│  Prices are set by the seller with tax already included.                                         │
+│Feature: Cart total with taxes                                                                    │
+│  A customer sees what the cart costs before tax, the tax, and the total to pay.                  │
+│  Catalogue prices are before tax; the tax rate is 21% on the whole cart,                         │
+│  rounded to the nearest cent (half a cent rounds up).                                            │
 │                                                                                                  │
-│  Background:                                                                                     │
-│    Given the tax rate is 21%                                                                     │
-│                                                                                                  │
-│  Scenario: The total adds up every piece in the cart                                             │
-│    Given a cart with                                                                             │
+│  Scenario: A cart with several pieces shows its total, taxes included                            │
+│    Given the catalogue has these pieces:                                                         │
 ...
 │↑↓ scroll · a approve · c ask for changes · q quit                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -250,11 +244,10 @@ trimmed):
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
-│features/hidden/cart_total.feature · hidden: the Builders never see it                            │
-│Feature: Cart total, taxes included (hidden examples)                                             │
-│  Background:                                                                                     │
-│    Given the tax rate is 21%                                                                     │
-│  Scenario: Several plates of the same kind                                                       │
+│features/hidden/cart_total_hidden.feature · hidden: the Builders never see it                     │
+│Feature: Cart total with taxes (hidden examples)                                                  │
+│  Scenario: Tax on the whole cart rounds down when under half a cent                              │
+│    Given the catalogue has these pieces:                                                         │
 ...
 │Red zones: approved                                                                               │
 │Plan: not needed for a yellow change                                                              │
@@ -270,7 +263,8 @@ as you, and nothing is written before `y`:
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
 │This records, as you:                                                                             │
-│- G1 ok on cart-total, sealing features/cart_total.feature, features/hidden/cart_total.feature    │
+│- G1 ok on cart-total, sealing features/cart_total.feature,                                       │
+│features/hidden/cart_total_hidden.feature                                                         │
 │y to record · n to go back                                                                        │
 │↑↓ scroll · q quit                                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘

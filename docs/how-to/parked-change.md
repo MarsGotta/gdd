@@ -69,15 +69,17 @@ as at any sitting. To drop the path, remove the file in the worktree, then relau
 
 When a change parks, gdd prints one line: the change, the reason, and where its message is.
 The Orchestrator that launched it relays that line in the chat, reads the change's Decision
-Inbox and proposes the next step. Two real parks, from changes of gdd's own repository (paths
+Inbox and proposes the next step. Two real parks: the first from the change `cart-total` of the
+[tutorial](../getting-started/tutorial.md), the second from gdd's own repository (paths
 rewritten):
 
-<!-- Real output of gdd launch, gdd 0.1.0, in gdd's own repository. The Orchestrator's own
-     words around it are not reproduced here: they vary with the agent and the language of the
-     project. -->
+<!-- The first line is real output of gdd launch, gdd 0.1.1, from the run of the tutorial; the
+     second is a capture of gdd 0.1.0 in gdd's own repository, whose message 0.1.1 keeps. The
+     Orchestrator's own words around them are not reproduced here: they vary with the agent and
+     the language of the project. -->
 
 ```text
-Change one-gdd parked: Reviewer KO or G3 red after one fix. Message in .gdd/changes/one-gdd/inbox.md
+Change cart-total parked: Reviewer KO or G3 red after one fix. Message in .gdd/changes/cart-total/inbox.md
 ```
 
 ```text
@@ -88,12 +90,39 @@ The command at the end of the second line (`gdd launch role-guard`) is the Orche
 run, once the conflicts are settled: you ask it to launch the change again (step 5).
 
 The inbox itself is one message per change, also on the Board (`Enter` on the change) and in
-`.gdd/changes/export-csv/inbox.md`. One of a change parked by hand:
+`.gdd/changes/CHANGE/inbox.md`. The inbox of `cart-total` when it parked:
+
+```text
+# Decision Inbox · cart-total · Show the cart total, taxes included
+
+Color yellow · lane full · state parked
+
+## Needs your decision
+...
+- F1 (review): split the generic step 'the {line} is {amount}' in cart_total_steps.py into three parsers.parse steps (subtotal, tax, total) keeping the exact str(amount) assertions. The file is under tests/acceptance/**, protected for builder_build, so it needs gdd-build-test mode (or the Orchestrator). No other occurrences.
+
+## Decided without you
+- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single constant (21%), confirmed by the owner
+- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in
+
+## Parked
+- Reviewer KO or G3 red after one fix
+```
+
+<!-- The trimmed note was an earlier warning of the Builder in test mode about the order of the
+     imports. -->
+
+The Reviewer's finding names a step file that only test mode may write, so build mode could
+not fix it. One of a change parked by hand, before its first launch, from
+`.gdd/changes/export-csv/inbox.md`:
+
+<!-- Reproduced with gdd 0.1.1 in a throwaway project `notes`, without agents and without a
+     launch. -->
 
 ```text
 # Decision Inbox · export-csv · Export notes as CSV
 
-Color yellow · lane full · state parked
+Color and lane not decided yet (gdd decides them at launch) · state parked
 
 ## Needs your decision
 - Tags with spaces: one field joined by spaces, or one column per tag? I recommend one field.
@@ -110,6 +139,8 @@ Color yellow · lane full · state parked
   that the scope check accepted, and warnings that the change overlaps another one.
 - **Parked**: every reason the change parked, the latest last.
 - **How it works**, first, when the Reviewer wrote one: a short explainer of the code.
+
+A change parked before its first launch has no color yet: its header says so instead.
 
 A merge conflict reads like this in a real inbox (paths rewritten):
 
@@ -139,9 +170,15 @@ the Orchestrator puts it where the agents read it: the package, a scenario (whic
 again, see [Approve the scenarios](write-scenarios.md#5-change-a-scenario-after-its-approval)),
 the plan, or the zone map on main. It also leaves a note of what you decided in the inbox.
 
-On the next launch, the questions of this run are marked as resolved. gdd keeps them in the
-change's record, `change.json`, and the inbox shows only how many there were, for example
-`_1 earlier request(s) were resolved before the last launch (kept in change.json)._`
+On the next launch, the questions of this run are marked as resolved, and so are the reasons
+it parked. gdd keeps them in the change's record, `change.json`, and the inbox shows only how
+many there were. After its third relaunch, the inbox of `cart-total` ended with:
+
+```text
+_4 earlier request(s) were resolved before the last launch (kept in change.json)._
+
+_3 earlier reason(s) to park were settled by a later launch (kept in change.json)._
+```
 
 ## 4. Fix by hand in the worktree
 
@@ -192,6 +229,15 @@ from its start, with a full set of retries and a replan.
 The relaunch runs from the main checkout, on main, with no uncommitted changes in tracked
 files. Otherwise it is refused with `run gdd launch from the main checkout (...)` or
 `The working tree has uncommitted changes. Commit them before launching a change.`
+
+> [!NOTE]
+> In gdd 0.1.1 a relaunch can park on what an earlier run left uncommitted in the worktree.
+> With build mode's code there and G2 red, test mode runs again and Path Guard blames it for
+> that code (`Path Guard failed after test mode: src/shop/cart.py: protected path for
+> builder-test`). With a step the Orchestrator edited by hand, G3 blames build mode for it. In
+> the tutorial's run, what worked was to build again from the scenarios: the Orchestrator kept
+> a copy of the old code, removed the change's worktree (the branch keeps the sealed scenarios)
+> and launched the change again.
 
 ## 6. Settle merge conflicts with main
 

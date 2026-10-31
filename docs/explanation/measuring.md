@@ -48,8 +48,9 @@ new input and the output.
 
 Dollars come second because not every agent measures them. Claude Code reports a cost that is
 an estimate made on your machine. Codex reports none, and a price table in `gdd/models.toml`
-lets the log estimate it. With a subscription, the cost per call is only notional. Every agent
-reports tokens, so tokens are what you can compare.
+lets the log estimate it: the report marks that estimate with `~`, and a call whose model has
+no price shows `unknown`, never 0. With a subscription, the cost per call is only notional.
+Every agent reports tokens, so tokens are what you can compare.
 
 `gdd report --by change,model,role` groups the calls any way you need: by change, phase, model,
 role or agent. What one change spent also lives in its record, which only gdd writes, and in its

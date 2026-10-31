@@ -4,9 +4,13 @@ En esta página llevas un Change de una pequeña tienda de ejemplo desde una car
 una versión publicada en producción. Usas una terminal para instalar gdd y crear el proyecto;
 después, el trabajo pasa por tu agente de programación.
 
-<!-- Every output on this page comes from one real run of gdd 0.1.0 (main at e244577) on
+<!-- Every output on this page comes from one real run of gdd 0.1.1 (main at 30b50c4) on
 2026-10-31, with Claude Code as the chat agent and Codex as the Reviewer, in a throwaway
-project `shop`. The whole run, from the form to G4, took about eight minutes. -->
+project `shop`. On the way to G4 the change parked three times on gdd 0.1.1 bugs (a Reviewer
+finding written as a Markdown link did not start the fix round in test mode, and two relaunch
+paths that followed from it) and the agent rebuilt it; the G4 blocks trim the lines of that
+detour with `...`. Without it, the launch takes about two and a half minutes to reach G4; the
+whole run, parks included, took 23 minutes from the form to the release. -->
 
 ## Antes de empezar
 
@@ -25,14 +29,14 @@ project `shop`. The whole run, from the form to G4, took about eight minutes. --
 Instala el binario `gdd` y compruébalo:
 
 ```bash
-cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.0 gdd
+cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.1 gdd
 gdd --version
 ```
 
 Deberías ver:
 
 ```text
-gdd 0.1.0
+gdd 0.1.1
 ```
 
 Si tu shell no encuentra `gdd`, `~/.cargo/bin` no está en tu `PATH`: consulta
@@ -78,18 +82,20 @@ una casilla. El último paso es el resumen:
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Pulsa `Enter`. gdd escribe el proyecto y hace commit. Después instala el stack y hace commit de
-su fichero de bloqueo (*lock file*), el que fija la versión de cada dependencia. Al final
-deberías ver:
+Pulsa `Enter`. gdd escribe el proyecto, `CHANGELOG.md` incluido, y hace commit. Después instala
+el stack y hace commit de su fichero de bloqueo (*lock file*), el que fija la versión de cada
+dependencia. Al final deberías ver:
 
 ```text
 gdd/project.toml
 gdd/commands.toml
 ...
+CHANGELOG.md
+...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 ...
-Installed 39 packages in 61ms
+Installed 39 packages in 62ms
 ...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
@@ -113,49 +119,49 @@ OpenCode:
 En Codex, las skills empiezan por `$`: `$gdd-setup` y, más adelante, `$gdd-change`. Si el
 agente no conoce la skill, lo arrancaste fuera de la carpeta `shop`.
 
-El agente lee lo que escribió el formulario y pregunta solo lo que falta:
+El agente lee lo que escribió el formulario y pregunta solo lo que falta. Escribe el Brief del
+proyecto y ejecuta el autotest del [arnés](../glossary.md#arnés), los ficheros y comandos con
+los que gdd comprueba tu proyecto. Después te pide que apruebes las *zonas rojas*, las rutas que
+siempre reciben las comprobaciones más estrictas, y que revises lo que ha supuesto:
 
 ```text
-Setup already has the basics: a web shop in Python, scenarios run with pytest-bdd, a skeleton
-that runs, and one sensitive area (losing a customer's order). I need a few answers before I
-write the Brief:
-
-1. **What is the shop, in a few lines?** ...
-2. **Who is it for?** ...
-3. **Web framework.** I recommend **Django**. ... The alternative is **FastAPI**, if you'd
-   rather have an API with a separate frontend.
-4. **What else would be serious if it failed?** ...
-```
-
-Responde con tus palabras, en pocas líneas. El agente escribe el Brief del proyecto y ejecuta el
-autotest del [arnés](../glossary.md#arnés), los ficheros y comandos con los que gdd comprueba tu
-proyecto. Después te pide que apruebes las *zonas rojas*, las rutas que siempre reciben las
-comprobaciones más estrictas:
-
-```text
-The harness self-test passes: **harness 4/4**. ...
-
-**1. Approve the red zones.** ... For now there are only two:
-- **The harness itself:** gdd's own files, the CI workflow and the agent instructions.
-- **Dependencies and the toolchain:** the files that decide which outside libraries the shop
-  uses.
-
-"Losing a customer's order" is in the Brief for now. It becomes a red zone once there is real
-order-storage code. Reply **"zones OK"** to approve.
+The harness is ready: the self-test passed 4/4 and the machines opened G0. Everything is
+committed on `main` as `gdd: setup (G0)`, and the session is recorded.
+...
+**What I need from you (one reply is enough):**
+1. **Approve the protected zones.** These are gdd's own files, the CI and the agent
+   instructions, plus the dependency and toolchain files. Any change there gets the strictest
+   checks. Reply "zones OK" and I'll record your approval. No change can start until you do.
+2. **Check my guesses in the Brief:**
+   - The users are customers buying on the web and a shop owner who handles the orders. Is
+     that right?
+   - My recommendation is to leave payments out of the first version and have orders paid
+     outside the shop. The alternative is to include payments from day one, which brings in
+     money as a sensitive area.
 ...
 ```
 
-Di `zones OK`. El agente abre la puerta de preparación (G0, *Setup Gate*) y termina con:
+Puede que tu agente haga sus preguntas antes de escribir el Brief. En los dos casos, responde
+con tus palabras, en pocas líneas, y aprueba las zonas en la misma respuesta:
 
 ```text
-Setup is done and **G0 is open**. The harness is ready: the self-test passes all four checks,
-and the red zones you approved are recorded.
-...
-**Next step:** I recommend `/gdd-discover` before the first change. ... If you'd rather start
-building now, run `/gdd-change` with one sentence, ...
+zones OK. Your guesses are right: customers buy on the web and I run the orders. It sells
+handmade ceramics: mugs, bowls and plates. Payments stay out of the first version.
 ```
 
-Fíjate en **G0 is open**: el proyecto está listo para su primer Change. El agente recomienda
+El agente registra tu aprobación y termina con:
+
+```text
+Setup is finished. G0 is open, your approval of the protected zones is recorded, and the
+self-test passed 4/4.
+...
+**Next step:** run `/gdd-discover`. It picks the web framework, maps where orders and customer
+data live, and plans the first changes. After that, use `/gdd-change` for the first feature,
+for example "customers can browse the catalogue".
+```
+
+Fíjate en **G0 is open**: la puerta de preparación (G0, *Setup Gate*) está abierta y las zonas
+aprobadas, así que el proyecto está listo para su primer Change. El agente recomienda
 `/gdd-discover`, para ideas más grandes; para un Change pequeño, pasa directamente al siguiente
 paso.
 
@@ -168,23 +174,27 @@ Di lo que quieres en una frase:
 ```
 
 El Orchestrator, el rol que hace aquí tu agente, crea el Change `cart-total`. Escribe sus
-*escenarios*, ejemplos en Gherkin (frases llanas con Given, When y Then) de lo que debe pasar, y
-te los enseña con el color del Change:
+*escenarios*, ejemplos en Gherkin (frases llanas con Given, When y Then) de lo que debe pasar,
+hace commit de ellos en la rama del Change y te los enseña con el color del Change:
 
 ```text
-I've drafted the scenarios for **cart-total**. It's yellow, so there's no plan for you to
-approve and the red zones are unchanged. Before I commit them I need your OK and three answers.
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 
-**The scenarios** (all prices are set by you, tax already included):
+**The scenarios to approve (G1)**
 
-> **Background:** the tax rate is 21%
->
-> **1. The total adds up every piece in the cart**
-> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
-> The total is **96.80**, and the tax included in it is **16.80**.
+*A cart with several pieces shows its total, taxes included*
+- The catalogue has a Blue mug at 18.00 and a Large bowl at 24.50.
+- The customer puts 2 Blue mugs and 1 Large bowl in the cart.
+- The cart shows a subtotal of **60.50**, tax of **12.71** and a total of **73.21**.
 ...
-**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
-corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
+**Two rules I built into these numbers. Please confirm or correct them:**
+1. **Tax rate: 21% on everything.** ...
+2. **Catalogue prices are before tax.** ...
+
+**Next step:** reply "scenarios OK", or give me your rate and price rule, and I'll seal the
+scenarios and launch the build.
 ```
 
 Fíjate en *yellow* (amarillo), el color del código corriente: un Reviewer de otra familia de
@@ -192,22 +202,35 @@ modelos lee el Change, y tú lo encuentras dos veces, ahora y al final.
 
 ## 5. Aprueba los escenarios
 
-Responde OK, o qué quieres cambiar, junto con las respuestas a sus preguntas. Tu OK es la
-puerta de escenarios (G1, *Scenario Gate*), y sella los escenarios como el contrato que debe
-cumplir el código:
+Para leer los ficheros de escenarios tal cual, ejemplos ocultos incluidos, abre en una terminal
+la *sentada*, la pantalla con todo lo que un Change necesita de ti:
+
+```bash
+gdd sitting cart-total
+```
+
+Deberías ver los escenarios de los que el agente hizo commit:
+
+![La sentada de cart-total: features/cart_total.feature con sus dos escenarios y, después, los ejemplos ocultos](../img/qs-sitting-g1.png)
+
+Pulsa `q` y responde en el chat: OK, o qué quieres cambiar, junto con las respuestas a sus
+preguntas. Tu OK es la puerta de escenarios (G1, *Scenario Gate*), y sella los escenarios como
+el contrato que debe cumplir el código:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
 El agente registra G1 y lanza el Change:
 
 ```text
-The **cart-total** change is now building on its own. I'll get a notification when it finishes
-or stops.
+Your answers are recorded and the build is running in the background:
+
+- **Scenarios approved (G1):** sealed with your rule: 21% tax on the whole cart, catalogue
+  prices before tax, and half a cent rounds up.
 ...
-**Next step:** wait for the build. When it pauses at G4, I'll show you the result in plain
-words and you answer OK, KO, or "polish" with your notes.
+**Next step:** wait. I'll be notified when it finishes or stops, and I'll come back with the
+result for your OK.
 ```
 
 Ahora el Builder escribe los tests y el código, las puertas lo comprueban y el Reviewer lo lee.
@@ -221,36 +244,41 @@ Deberías ver el Change en Build:
 
 ![El Board de shop: Build (1), cart-total, amarillo, en construcción, G1:ok](../img/qs-board-build.png)
 
-El Board no se actualiza solo. Para ver dónde está ahora el Change, pulsa `q` y vuelve a
-abrirlo.
+El Board se recarga solo cada dos segundos, así que puedes dejarlo abierto: el Change pasa a
+Release por sí mismo.
 
 ## 6. Aprueba en G4
 
-Unos dos minutos después, el Change se detiene en la puerta de salida (G4, *Release Gate*), ya
+Unos minutos después, el Change se detiene en la puerta de salida (G4, *Release Gate*), ya
 fusionado en `main` y desplegado en pre, el entorno previo a producción. El agente vuelve al
 chat:
 
 ```text
-The **cart-total** change is built and checked, and it's waiting for your **G4** answer.
+...
+**What you'd approve:** the cart now gives three amounts: the subtotal before tax, the 21% tax
+on the whole cart rounded to the cent (half a cent rounds up), and the total. Adding the same
+piece again adds to its quantity. The code is merged on `main` and deployed to pre. Pre is
+simulated here, so there's no video or screenshots.
 
-**What it does:** a cart adds up the pieces in it and shows two figures, the total and how much
-of that total is tax.
+**The evidence:**
+- **Reviewer:** OK, with no new findings. ...
+- **Full checks (G3):** all green, including security, dependencies and a scan for leaked
+  secrets.
+- **Demo:** I ran all 5 scenarios on `main` and they all pass:
 ...
-**Checks:**
-- **All 6 scenarios pass**, including the 2 hidden examples the Builder never saw. ...
-- **The Reviewer from another model family said OK** with no findings.
-...
-**Next step:** reply **OK** to send it to production (simulated for now), **KO** to reject it,
-or **polish** with what you'd like changed.
+**Next step:** reply "OK", "polish", or "KO" (reject; production stays untouched).
 ```
 
-Mira primero las comprobaciones. Los seis escenarios son los tres que aprobaste, dos *ejemplos
+Mira primero las pruebas. Los cinco escenarios son los dos que aprobaste, dos *ejemplos
 ocultos* que el Builder nunca vio, y el escenario de humo (*smoke*) que escribió Setup para
 comprobar que el proyecto arranca.
 
 La página de G4 de la sentada, `gdd sitting cart-total`, muestra la misma decisión:
 
 ![La sentada de G4 de cart-total: cómo funciona, Reviewer OK, sin demo, lo que se decidió sin ti](../img/qs-sitting-g4.png)
+
+<!-- The image leaves out four rows with the Reviewer's link to the file it had flagged (an
+absolute path of the run) and the rows of the detour described at the top of the page. -->
 
 Di OK:
 
@@ -261,15 +289,17 @@ OK
 El agente promueve el Change y lo cierra:
 
 ```text
-**cart-total** is released as **v0.1.0**, and the change is closed. Production is still
-simulated, so nothing is live on the web yet. The shop's core now has a cart that shows the
-total and the tax included in it.
+The cart total is in production as **v0.1.0**, and the change is closed. Production is still
+simulated, so nothing is deployed to a real server yet.
+
+What shipped: the cart shows the subtotal, the 21% tax on the whole cart (rounded to the cent,
+with half a cent rounding up), and the total. It's tagged and recorded on `main`.
 ...
 ```
 
-Ahora `main` tiene el Change: los dos commits de su rama, los escenarios y el trabajo, y el
-commit de fusión que los unió, con el tag `v0.1.0`. Si vuelves a abrir el Board, lo muestra en
-Done:
+Ahora `main` tiene el Change: los dos commits de su rama, los escenarios y el trabajo, el commit
+de fusión que los unió y el commit de la versión que añadió su línea a `CHANGELOG.md`, con el
+tag `v0.1.0`. El Board lo muestra en Done; pulsa `d` para desplegarlo:
 
 ![El Board de shop: Done (1), cart-total, amarillo, cerrado, G1:ok, G3:ok, G4:ok](../img/qs-board-done.png)
 

@@ -31,8 +31,8 @@ you decide only what needs a person: the scenarios before the build and the resu
   In Codex the skills start with `$`: `$gdd-setup`, `$gdd-change`.
 - **Approvals,** in the chat or on the sitting screen (`gdd sitting CHANGE`): the scenarios
   before the build, and OK, KO or polish on the result at the Release Gate (G4).
-- **Board,** to watch if you want: `gdd` alone in a terminal, or `gdd board`. It does not
-  refresh by itself; to see what moved, open it again.
+- **Board,** to watch if you want: `gdd` alone in a terminal, or `gdd board`. It reloads by
+  itself every two seconds, so you can leave it open (`r` reloads at once).
 
 ## Find your way around
 

@@ -6,10 +6,11 @@ Gherkin, un formato sencillo de líneas `Given`, `When` y `Then`. Los lees, pide
 palabras normales y los apruebas en la puerta de escenarios (G1, *Scenario Gate*). Tu OK los
 sella, así que ningún agente puede cambiar a escondidas lo que has aprobado.
 
-<!-- The chat excerpts come from one real run of gdd 0.1.0 (main at e244577) on 2026-10-31 with
-Claude Code: the run of the tutorial. The sitting screens with the scenarios, the G1 refusal and
-the sealed-file message were reproduced the same day in throwaway copies of that project, with
-the same scenario files, without agents and without a launch. -->
+<!-- The chat excerpts and the sitting screens up to the confirmation come from one real run of
+gdd 0.1.1 (main at 30b50c4) on 2026-10-31 with Claude Code and Codex: the run of the tutorial.
+The Recorded screen, the G1 refusal and the sealed-file message were reproduced the same day
+with gdd 0.1.1 in a throwaway copy of that project, with the same scenario files, without
+agents and without a launch. -->
 
 ## Antes de empezar
 
@@ -48,74 +49,70 @@ texto llano, las zonas rojas cuando esperan y el plan cuando el Change es rojo. 
 `cart-total`, el agente escribió:
 
 ```text
-**The scenarios** (all prices are set by you, tax already included):
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 
-> **Background:** the tax rate is 21%
->
-> **1. The total adds up every piece in the cart**
-> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
-> The total is **96.80**, and the tax included in it is **16.80**.
->
-> **2. The tax is rounded to the cent**
-> A cart with 1 × Small cup at 25.00.
-> The total is **25.00**, and the tax included in it is **4.34**.
->
-> **3. An empty cart costs nothing**
-> The total is **0.00**, and the tax included is **0.00**.
+**The scenarios to approve (G1)**
 
-I also wrote two hidden examples that the Builder won't see, to check it implemented the rule
-and didn't just match the visible numbers.
+*A cart with several pieces shows its total, taxes included*
+- The catalogue has a Blue mug at 18.00 and a Large bowl at 24.50.
+- The customer puts 2 Blue mugs and 1 Large bowl in the cart.
+- The cart shows a subtotal of **60.50**, tax of **12.71** and a total of **73.21**.
 
-**Questions:**
-1. **Do your prices already include tax?** I recommend yes: ...
-2. **Which tax rate, and which currency?** I used 21% as a placeholder (Spain's VAT rate) and
-   left out the currency. Tell me your rate and currency and I'll put them in.
-3. **Rounding:** I recommend working out the tax once on the cart total, rounded to the nearest
-   cent. ...
+*An empty cart costs nothing*
+- Subtotal **0.00**, tax **0.00**, total **0.00**.
 
-**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
-corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
+I also wrote two hidden examples that the Builder doesn't see, to catch a wrong rounding rule or
+a piece added twice.
+
+**Two rules I built into these numbers. Please confirm or correct them:**
+1. **Tax rate: 21% on everything.** That's the Spanish standard VAT rate, but it's only my
+   example; tell me your real rate if it's different.
+2. **Catalogue prices are before tax.** The shop adds the tax once, on the whole cart, and
+   rounds to the cent (half a cent rounds up). The alternative is that the prices you list
+   already include tax and the cart shows the tax inside them; in that case I'll redo the
+   examples.
+
+**Next step:** reply "scenarios OK", or give me your rate and price rule, and I'll seal the
+scenarios and launch the build.
 ```
 
-El agente cuenta los escenarios con palabras sencillas y añade sus preguntas. El fichero de
-escenarios que hay detrás dice:
+El agente cuenta los escenarios con palabras sencillas y añade las reglas que necesita que
+confirmes. Hizo commit del fichero de escenarios en la rama del Change antes de escribir este
+mensaje, así que el fichero que aprobarías ya existe (el paso 4 lo enseña en una pantalla). Dice:
 
 ```gherkin
-Feature: Cart total, taxes included
-  The customer sees what the cart costs in total, taxes included,
-  and how much of that total is tax.
-  Prices are set by the seller with tax already included.
+Feature: Cart total with taxes
+  A customer sees what the cart costs before tax, the tax, and the total to pay.
+  Catalogue prices are before tax; the tax rate is 21% on the whole cart,
+  rounded to the nearest cent (half a cent rounds up).
 
-  Background:
-    Given the tax rate is 21%
-
-  Scenario: The total adds up every piece in the cart
-    Given a cart with
-      | piece     | price | quantity |
-      | Blue mug  | 24.20 | 1        |
-      | Wide bowl | 36.30 | 2        |
-    When the customer looks at the cart
-    Then the total is 96.80
-    And the tax included in the total is 16.80
-
-  Scenario: The tax is rounded to the cent
-    Given a cart with
-      | piece     | price | quantity |
-      | Small cup | 25.00 | 1        |
-    When the customer looks at the cart
-    Then the total is 25.00
-    And the tax included in the total is 4.34
+  Scenario: A cart with several pieces shows its total, taxes included
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Blue mug        | 18.00 |
+      | Large bowl      | 24.50 |
+    And the customer puts 2 "Blue mug" in the cart
+    And the customer puts 1 "Large bowl" in the cart
+    When the customer looks at the cart total
+    Then the subtotal is 60.50
+    And the tax is 12.71
+    And the total is 73.21
 
   Scenario: An empty cart costs nothing
-    Given an empty cart
-    When the customer looks at the cart
-    Then the total is 0.00
-    And the tax included in the total is 0.00
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Blue mug        | 18.00 |
+    When the customer looks at the cart total
+    Then the subtotal is 0.00
+    And the tax is 0.00
+    And the total is 0.00
 ```
 
-- `Feature` nombra el comportamiento, y las líneas de debajo dicen para qué sirve.
-- `Background` fija el punto de partida que comparten todos los escenarios del fichero: aquí,
-  el tipo de impuesto.
+- `Feature` nombra el comportamiento, y las líneas de debajo dicen para qué sirve. Aquí también
+  enuncian las reglas: precios sin impuesto, 21 % sobre todo el carrito, medio céntimo redondea
+  hacia arriba.
 - Cada `Scenario` es un ejemplo. `Given` es el punto de partida, `When` lo que hace alguien,
   `Then` lo que tiene que ser cierto después. `And` continúa la línea anterior. Una tabla bajo
   un `Given` da los datos de un paso, aquí las piezas del carrito.
@@ -126,14 +123,16 @@ Comprueba estas cinco cosas:
   quisieras.
 - **Las palabras son las del dominio.** Carritos, piezas, precios e impuestos, nunca funciones,
   ficheros ni clases del código. El Builder decide cómo llega un paso al código.
-- **Cada `Then` puede fallar.** `the total is 96.80` nombra un importe exacto. Un `Then` que no
+- **Cada `Then` puede fallar.** `the total is 73.21` nombra un importe exacto. Un `Then` que no
   puede fallar no promete nada.
 - **Ejemplos concretos, pocos escenarios.** Los precios reales muestran los casos límite mejor
-  que una frase sobre ellos: el impuesto incluido en 25.00 al 21 % es 4.338..., así que el
-  ejemplo también fija cómo se redondea el céntimo.
+  que una frase sobre ellos: el 21 % de 60.50 es 12.705, así que el ejemplo también fija cómo se
+  redondea el céntimo.
 - **El punto de partida está completo.** Todo aquello de lo que depende el comportamiento está
-  en un `Given` o en el `Background`, no se da por supuesto: aquí el tipo de impuesto se fija,
-  no se toma del proyecto.
+  en un `Given`, o en un `Background` que comparten todos los escenarios del fichero, no se da
+  por supuesto. Aquí el catálogo y sus precios están en un `Given`, pero el 21 % solo aparece en
+  la descripción: el código lo toma del proyecto. Vale mientras la tienda tenga un único tipo;
+  si puede cambiar, pide un paso como `Given the tax rate is 21%`.
 
 Solo unos pocos escenarios pasan por la interfaz de usuario, con la etiqueta `@ui`. Los demás
 hablan con el núcleo de la aplicación, que es más rápido y menos frágil; la demo en pre
@@ -144,7 +143,7 @@ comprueba la interfaz real.
 Di lo que falta o lo que está mal, como se lo dirías a alguien de tu equipo. Por ejemplo:
 
 ```text
-My prices are without tax: add the tax on top, and show the subtotal too.
+My prices already include tax: show how much of the total is tax.
 Add a cart with three plates of the same kind, so I see a quantity above one.
 ```
 
@@ -162,18 +161,17 @@ pantalla de la sentada sí, marcados como ocultos (consulta el paso 4). Uno de l
 `cart-total`:
 
 ```gherkin
-Feature: Cart total, taxes included (hidden examples)
+Feature: Cart total with taxes (hidden examples)
 
-  Background:
-    Given the tax rate is 21%
-
-  Scenario: Several plates of the same kind
-    Given a cart with
-      | piece        | price | quantity |
-      | Dinner plate | 18.15 | 3        |
-    When the customer looks at the cart
-    Then the total is 54.45
-    And the tax included in the total is 9.45
+  Scenario: Tax on the whole cart rounds down when under half a cent
+    Given the catalogue has these pieces:
+      | piece           | price |
+      | Dinner plate    | 15.99 |
+    And the customer puts 3 "Dinner plate" in the cart
+    When the customer looks at the cart total
+    Then the subtotal is 47.97
+    And the tax is 10.07
+    And the total is 58.04
 ```
 
 Un ejemplo oculto reutiliza las frases de los escenarios visibles con datos nuevos. El Builder
@@ -201,34 +199,32 @@ para que la apruebes.
 En el chat, di OK, con las respuestas a las preguntas que haya hecho el Orchestrator:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
-El Orchestrator hace commit de los escenarios en la rama del Change y registra G1 con tus
-palabras, además de las zonas rojas y el plan cuando formaban parte de la sentada. Después
-lanza el Change. El agente responde:
+El Orchestrator registra G1 con tus palabras, además de las zonas rojas y el plan cuando
+formaban parte de la sentada. G1 sella los ficheros de escenarios tal como los tiene el último
+commit de la rama del Change. Después lanza el Change. El agente responde:
 
 ```text
-The **cart-total** change is now building on its own. I'll get a notification when it finishes
-or stops.
+Your answers are recorded and the build is running in the background:
 
-**Approved and recorded:**
-- G1, with your note: prices include tax, the rate is 21%, amounts are in euros, and the tax is
-  worked out once on the cart total.
+- **Scenarios approved (G1):** sealed with your rule: 21% tax on the whole cart, catalogue
+  prices before tax, and half a cent rounds up.
 ...
 ```
 
 Para leerlo todo antes en una pantalla, ejemplos ocultos incluidos, usa la pantalla de la
-sentada. Lee los escenarios de la rama del Change, y el Orchestrator solo les hace commit ahí
-después de tu OK. Hasta entonces la pantalla dice `No scenario files on change/cart-total`, así
-que pide al agente que haga primero commit de los escenarios. Después abre la sentada en una
+sentada. Lee los escenarios de la rama del Change, donde el Orchestrator les hace commit antes
+de enseñártelos en el chat. Si la abres antes de ese commit, dice `No scenarios on
+change/cart-total yet: they show here once your agent commits them`. Abre la sentada en una
 terminal:
 
 ```bash
 gdd sitting cart-total
 ```
 
-Con los ficheros ya en un commit, deberías ver:
+Deberías ver:
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
@@ -236,16 +232,13 @@ Con los ficheros ya en un commit, deberías ver:
 │                                                                                                  │
 │Scenarios                                                                                         │
 │features/cart_total.feature                                                                       │
-│Feature: Cart total, taxes included                                                               │
-│  The customer sees what the cart costs in total, taxes included,                                 │
-│  and how much of that total is tax.                                                              │
-│  Prices are set by the seller with tax already included.                                         │
+│Feature: Cart total with taxes                                                                    │
+│  A customer sees what the cart costs before tax, the tax, and the total to pay.                  │
+│  Catalogue prices are before tax; the tax rate is 21% on the whole cart,                         │
+│  rounded to the nearest cent (half a cent rounds up).                                            │
 │                                                                                                  │
-│  Background:                                                                                     │
-│    Given the tax rate is 21%                                                                     │
-│                                                                                                  │
-│  Scenario: The total adds up every piece in the cart                                             │
-│    Given a cart with                                                                             │
+│  Scenario: A cart with several pieces shows its total, taxes included                            │
+│    Given the catalogue has these pieces:                                                         │
 ...
 │↑↓ scroll · a approve · c ask for changes · q quit                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -256,11 +249,10 @@ las líneas en blanco):
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
-│features/hidden/cart_total.feature · hidden: the Builders never see it                            │
-│Feature: Cart total, taxes included (hidden examples)                                             │
-│  Background:                                                                                     │
-│    Given the tax rate is 21%                                                                     │
-│  Scenario: Several plates of the same kind                                                       │
+│features/hidden/cart_total_hidden.feature · hidden: the Builders never see it                     │
+│Feature: Cart total with taxes (hidden examples)                                                  │
+│  Scenario: Tax on the whole cart rounds down when under half a cent                              │
+│    Given the catalogue has these pieces:                                                         │
 ...
 │Red zones: approved                                                                               │
 │Plan: not needed for a yellow change                                                              │
@@ -276,7 +268,8 @@ a registrar, en tu nombre, y no se escribe nada antes de `y`:
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
 │This records, as you:                                                                             │
-│- G1 ok on cart-total, sealing features/cart_total.feature, features/hidden/cart_total.feature    │
+│- G1 ok on cart-total, sealing features/cart_total.feature,                                       │
+│features/hidden/cart_total_hidden.feature                                                         │
 │y to record · n to go back                                                                        │
 │↑↓ scroll · q quit                                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘

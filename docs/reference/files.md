@@ -14,6 +14,7 @@ repository commits these files (the agents' commands are listed once per agent f
 .github/workflows/gdd.yml               # CI: the stack setup, gitleaks, gdd, gdd ci
 .gitignore                              # the stack's lines and .gdd/
 AGENTS.md                               # instructions for agents, when the project had none
+CHANGELOG.md                            # the changelog, when the project had none
 CLAUDE.md                               # @AGENTS.md, when the project had none
 docs/brief.md                           # the Project Brief
 features/.gitkeep                       # the scenario folder
@@ -41,6 +42,7 @@ tests/unit/test_greeting.py
 | `gdd/` | The configuration: see [Configuration](configuration.md). |
 | `docs/brief.md` | The Project Brief, from `--name`, `--description`, `--platform`, `--stack` and `--sensitive`. The Orchestrator completes it at Setup. |
 | `AGENTS.md`, `CLAUDE.md` | Written only when the project has none; otherwise gdd prints the line to add. |
+| `CHANGELOG.md` | The Keep a Changelog header and an empty `## [Unreleased]` section. Written only when the project has none. |
 | `.gitignore` | gdd appends the stack's ignored paths and `.gdd/`. |
 | Agent folders | `.claude/skills/<name>/SKILL.md` (Claude Code), `.agents/skills/<name>/SKILL.md` (Codex), `.opencode/commands/<name>.md` (OpenCode), for the agents of `--agents`. `gdd agents install` writes them again; `gdd agents check` names any file missing or edited. |
 | Skeleton | Per stack, only when the folder has no project of that stack: see [Stacks](stacks.md). |
@@ -62,7 +64,7 @@ files, as `gdd bootstrap` does after `gdd init` with flags. `gdd adopt` commits
 | `gdd/*.toml` | yes | `gdd init`, `gdd adopt`, `gdd upgrade`, a person; see [Who may change them](configuration.md#who-may-change-them) |
 | `.github/workflows/gdd.yml`, agent folders, `AGENTS.md`, `CLAUDE.md` | yes | `gdd init`, `gdd agents install` |
 | `docs/`, `features/`, code and tests | yes | the Orchestrator and the Builder, through changes |
-| `CHANGELOG.md` | yes, when the project keeps one | `gdd changelog --write`, `gdd release` |
+| `CHANGELOG.md` | yes | `gdd init` (when the project had none), `gdd changelog --write`, `gdd release` |
 | `.gdd/` | no: `gdd init` adds `.gdd/` to `.gitignore` | gdd, and a few files the Orchestrator writes |
 
 The record of each change reaches git only through its [merge commit](#the-merge-commit).
@@ -236,9 +238,10 @@ also has `hashes`: each sealed scenario file and its SHA-256.
 
 ### inbox
 
-Each note has `kind`, `text` and `ts`, and `resolved` (when it was resolved) once a relaunch
+Each note has `kind`, `text` and `ts`, and `resolved` (when it was resolved) once a launch
 resolved it. `kind` is `needs` (a decision for the human), `decided` (taken without them),
-`parked` (why it stopped) or `polish` (the human's notes at G4).
+`parked` (why it stopped) or `polish` (the human's notes at G4). A launch resolves the `needs`
+and `parked` notes still open: they stay in the record and leave the Decision Inbox.
 
 ### decision
 
@@ -293,8 +296,8 @@ brief), `branch` (`change/<id>-v<n>`), and once built `state` (`ready` or `parke
 ## inbox.md
 
 The Decision Inbox: one message per change that gathers what the agents decided and what waits
-for you. gdd renders it again from the record and the gate reports each time they change.
-`gdd inbox <id>` prints it.
+for you. gdd renders it again from the record and the gate reports each time they change;
+`gdd gate` saves it right away. `gdd inbox <id>` prints it.
 
 ```text
 # Decision Inbox · cart-total · Show the cart total
@@ -312,11 +315,39 @@ Color yellow · lane full · state closed
 - Nothing.
 ```
 
+Before the change is prepared, the second line is
+`Color and lane not decided yet (gdd decides them at launch) · state <state>`. A KO a person
+gave at a gate of the change shows under `Your decisions`, with its note, until that gate is
+decided again. After `gdd gate G1 ko cart-total --by human --note "..."`:
+
+<!-- Real output of gdd 0.1.1 (gdd inbox) in a throwaway project. -->
+```text
+# Decision Inbox · cart-total · The cart shows its total
+
+Color and lane not decided yet (gdd decides them at launch) · state open
+
+## Your decisions
+- G1 ko: Show the total with the currency, as in 5.50 EUR
+
+## Needs your decision
+- Nothing.
+
+## Decided without you
+- Nothing.
+
+## Parked
+- Nothing.
+```
+
 `Needs your decision` is the only group that waits for you. The groups, in order, each only
 when it has something (the three note groups always show): `How it works` (from the Reviewer's
-OK), `Variants`, `Needs your decision`, `Decided without you`, `Parked`,
-`Security exceptions this change adds`, `Known debt`, `Known debt paid`, `Polish`; then how
-many earlier requests were resolved before the last launch.
+OK), `Variants`, `Your decisions` (`<gate> ko: <note>` for each KO of a person still standing,
+`plan`, `G1`, `G2`, `G3`, `G4` in that order), `Needs your decision`, `Decided without you`,
+`Parked`, `Security exceptions this change adds`, `Known debt`, `Known debt paid`, `Polish`;
+then how many earlier requests were resolved before the last launch
+(`_N earlier request(s) were resolved before the last launch (kept in change.json)._`) and how
+many reasons to park a later launch settled
+(`_N earlier reason(s) to park were settled by a later launch (kept in change.json)._`).
 
 ## Gate reports
 
@@ -367,7 +398,13 @@ more) and say how many.
 {"ts":"2026-10-30T13:11:46+00:00","change":"cart-total","phase":"2-build","gate":"G2","role":"machine","agent":"checks","model":"-","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0.0,"duration_s":0.0,"result":"ok","retry":0,"note":""}
 ```
 
-The first line is the `lint` command of G2; the second is the gate as a whole (`checks`).
+The first line is the `lint` command of G2; the second is the gate as a whole (`checks`). An
+agent call, here a conversation `gdd session` imported, also says on what its cost stands:
+
+<!-- Real line of gdd 0.1.1, from a stand-in Claude Code transcript and a made-up price. -->
+```json
+{"ts":"2026-10-31T18:11:28+00:00","change":"-","phase":"1-discover","gate":"-","role":"orchestrator","agent":"claude-interactive","model":"claude-opus-5-5","tokens_in":17060,"tokens_cache":315062,"tokens_out":8669,"cost_usd":1.404774,"cost_basis":"estimated","duration_s":0.0,"result":"ok","retry":0,"note":"session with the human · 9 requests"}
+```
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -381,7 +418,8 @@ The first line is the `lint` command of G2; the second is the gate as a whole (`
 | `tokens_in` | integer | Input tokens not read from the cache. |
 | `tokens_cache` | integer | Input tokens read from the cache. |
 | `tokens_out` | integer | Output tokens. |
-| `cost_usd` | number | Cost of the call: as the agent reported it, or estimated from `[prices]`. |
+| `cost_usd` | number | Cost of the call: as the agent reported it, or estimated from `[prices]`; 0 when unknown. |
+| `cost_basis` | string | Agent calls only: `reported` (the agent's own cost), `estimated` (from `[prices.<model>]`) or `unknown` (no cost and no price). A line without it, as gdd 0.1.0 wrote them, counts as `reported`. |
 | `duration_s` | number | Seconds, to a tenth. |
 | `result` | string | `ok` or `ko`; for an agent call `ok`, `error-<code>` or `timeout`; for a release step `ok`, `ko` or `simulated`; for a step, what happened: `change-created`, `prepared`, `parked`, `changelog-line`, `released`, `polish`. |
 | `retry` | integer | For an agent call, the earlier calls of its role on the change; 0 otherwise. |
@@ -414,13 +452,22 @@ Breaking: no
 | `Approvals: ...` | The red zones (red changes), G1 and the plan when the record has them; else `Approvals: none needed`. |
 | `Reviewer: KO -> OK`, then its findings | When the change was reviewed. |
 | `Decided without the human:` | The last eight `decided` notes. |
-| `Tokens: in <n> · cache <n> · out <n> · <usd> USD (estimate) · <n> agent call(s)` | When the log has calls for the change. |
+| `Tokens: in <n> · cache <n> · out <n> · <cost> · <n> agent call(s)` | When the log has agent calls for the change: the same calls `gdd report --change` counts, never the gate commands. `<cost>` is `<usd> USD (estimate)`, then `+ unknown (<n> call(s) with no price)` when some calls have no price; `unknown (<n> call(s) with no price)` when none has a known cost. |
 | `Known debt paid: ...`, `Known debt lowered: ...` | When the change paid or lowered known debt. |
 | `Record: .gdd/changes/<id>/ (local)` | Always. |
 | `Changelog: <section> · <line>` and `Breaking: yes` or `Breaking: no` | Git trailers, in a paragraph of their own, when the change has a changelog line. |
 
+A change with a price for one of its models and none for the other carries:
+
+<!-- Real line of gdd 0.1.1 (gdd merge) in a throwaway project; the calls come from stand-in
+     Claude Code transcripts imported with gdd session. -->
+```text
+Tokens: in 834 · cache 16,126 · out 429 · 0.02 USD (estimate) + unknown (1 call(s) with no price) · 2 agent call(s)
+```
+
 `gdd changelog` and `gdd release` read the `Changelog:` and `Breaking:` trailers of the merge
-commits on main to write `CHANGELOG.md` and to pick the next version.
+commits on main to write `CHANGELOG.md` and to pick the next version. A change polished at G4
+merges twice; a release lists its line once.
 
 ## See also
 

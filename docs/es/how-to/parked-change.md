@@ -72,15 +72,17 @@ fichero en el worktree y después relanza.
 
 Cuando un Change se aparca, gdd imprime una línea: el Change, el motivo y dónde está su mensaje.
 El Orchestrator que lo lanzó te pasa esa línea en el chat, lee la Decision Inbox del Change y
-propone el siguiente paso. Dos aparcamientos reales, de Changes del propio repositorio de gdd
-(con las rutas reescritas):
+propone el siguiente paso. Dos aparcamientos reales: el primero, del Change `cart-total` del
+[tutorial](../getting-started/tutorial.md); el segundo, del propio repositorio de gdd (con las
+rutas reescritas):
 
-<!-- Real output of gdd launch, gdd 0.1.0, in gdd's own repository. The Orchestrator's own
-     words around it are not reproduced here: they vary with the agent and the language of the
-     project. -->
+<!-- The first line is real output of gdd launch, gdd 0.1.1, from the run of the tutorial; the
+     second is a capture of gdd 0.1.0 in gdd's own repository, whose message 0.1.1 keeps. The
+     Orchestrator's own words around them are not reproduced here: they vary with the agent and
+     the language of the project. -->
 
 ```text
-Change one-gdd parked: Reviewer KO or G3 red after one fix. Message in .gdd/changes/one-gdd/inbox.md
+Change cart-total parked: Reviewer KO or G3 red after one fix. Message in .gdd/changes/cart-total/inbox.md
 ```
 
 ```text
@@ -91,12 +93,39 @@ El comando del final de la segunda línea (`gdd launch role-guard`) lo ejecuta e
 una vez resueltos los conflictos: le pides que vuelva a lanzar el Change (paso 5).
 
 La bandeja en sí es un único mensaje por Change, que también está en el Board (`Enter` sobre el
-Change) y en `.gdd/changes/export-csv/inbox.md`. La de un Change aparcado a mano:
+Change) y en `.gdd/changes/CHANGE/inbox.md`. La bandeja de `cart-total` cuando se aparcó:
+
+```text
+# Decision Inbox · cart-total · Show the cart total, taxes included
+
+Color yellow · lane full · state parked
+
+## Needs your decision
+...
+- F1 (review): split the generic step 'the {line} is {amount}' in cart_total_steps.py into three parsers.parse steps (subtotal, tax, total) keeping the exact str(amount) assertions. The file is under tests/acceptance/**, protected for builder_build, so it needs gdd-build-test mode (or the Orchestrator). No other occurrences.
+
+## Decided without you
+- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single constant (21%), confirmed by the owner
+- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in
+
+## Parked
+- Reviewer KO or G3 red after one fix
+```
+
+<!-- The trimmed note was an earlier warning of the Builder in test mode about the order of the
+     imports. -->
+
+El hallazgo del Reviewer nombra un fichero de pasos que solo puede escribir el modo test, así
+que el modo build no podía arreglarlo. La de un Change aparcado a mano, antes de su primer
+lanzamiento, en `.gdd/changes/export-csv/inbox.md`:
+
+<!-- Reproduced with gdd 0.1.1 in a throwaway project `notes`, without agents and without a
+     launch. -->
 
 ```text
 # Decision Inbox · export-csv · Export notes as CSV
 
-Color yellow · lane full · state parked
+Color and lane not decided yet (gdd decides them at launch) · state parked
 
 ## Needs your decision
 - Tags with spaces: one field joined by spaces, or one column per tag? I recommend one field.
@@ -117,6 +146,9 @@ Color yellow · lane full · state parked
   final.
 - **How it works** (cómo funciona), al principio, cuando el Reviewer la ha escrito: una
   explicación breve del código.
+
+Un Change aparcado antes de su primer lanzamiento aún no tiene color: su cabecera lo dice en su
+lugar.
 
 Así se ve un conflicto de fusión en una bandeja real (con las rutas reescritas):
 
@@ -148,9 +180,16 @@ necesita otra vez tu OK, consulta [Aprobar los
 escenarios](write-scenarios.md#5-cambia-un-escenario-después-de-aprobarlo)), el plan o el mapa
 de zonas en main. También deja en la bandeja una nota de lo que has decidido.
 
-En el siguiente lanzamiento, las preguntas de esta ejecución se marcan como resueltas. gdd las
-guarda en el registro del Change, `change.json`, y la bandeja solo muestra cuántas había, por
-ejemplo `_1 earlier request(s) were resolved before the last launch (kept in change.json)._`
+En el siguiente lanzamiento, las preguntas de esta ejecución se marcan como resueltas, y
+también los motivos por los que se aparcó. gdd los guarda en el registro del Change,
+`change.json`, y la bandeja solo muestra cuántos había. Después de su tercer relanzamiento, la
+bandeja de `cart-total` terminaba así:
+
+```text
+_4 earlier request(s) were resolved before the last launch (kept in change.json)._
+
+_3 earlier reason(s) to park were settled by a later launch (kept in change.json)._
+```
 
 ## 4. Arregla a mano en el worktree
 
@@ -204,6 +243,15 @@ replanificación.
 El relanzamiento se ejecuta desde el checkout principal, en main, sin modificaciones sin commit
 en ficheros versionados. Si no, se rechaza con `run gdd launch from the main checkout (...)` o
 `The working tree has uncommitted changes. Commit them before launching a change.`
+
+> [!NOTE]
+> En gdd 0.1.1 un relanzamiento puede aparcarse por lo que una ejecución anterior dejó sin
+> commit en el worktree. Con el código del modo build ahí y G2 en rojo, el modo test vuelve a
+> ejecutarse y Path Guard le culpa de ese código (`Path Guard failed after test mode:
+> src/shop/cart.py: protected path for builder-test`). Con un paso que el Orchestrator editó a
+> mano, G3 culpa de él al modo build. En la ejecución del tutorial, lo que funcionó fue construir
+> otra vez desde los escenarios: el Orchestrator guardó una copia del código anterior, quitó el
+> worktree del Change (la rama conserva los escenarios sellados) y lo volvió a lanzar.
 
 ## 6. Resuelve los conflictos de fusión con main
 

@@ -14,6 +14,9 @@ docs/ is written for GitHub first, so each language is built from a staged copy:
 - the project's own records (Brief, standards, ADRs, Discover notes) stay on GitHub;
 - website/assets (logo, colors, the flow on the home page) are added to both, and the CNAME
   file of the custom domain to the English one, at the root of the site.
+- for agents (https://llmstxt.org/): each page is also published as Markdown (`index.md` next
+  to its `index.html`, linked from its head), with an `llms.txt` index per language and the
+  English documentation in `llms-small.txt` (Get started and Concepts) and `llms-full.txt`.
 
 Configuration: zensical.toml, for English; the Spanish one is derived from it here (language,
 folders, menu labels). Published to https://gdd.marsgotta.com by .github/workflows/docs.yml on
@@ -89,6 +92,8 @@ HERO_EN = """\
 
 [Quickstart](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD in one page](explanation/method.md){ .md-button }
+
+<p class="gd-agents">For AI agents: <a href="llms.txt">llms.txt</a> · every page also as Markdown (<code>index.md</code>)</p>
 
 </div>
 <figure class="gd-chat" aria-label="A change in the chat, from your sentence to the release">
@@ -170,6 +175,8 @@ HERO_ES = """\
 
 [Inicio rápido](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD en una página](explanation/method.md){ .md-button }
+
+<p class="gd-agents">Para agentes de IA: <a href="llms.txt">llms.txt</a> · cada página también en Markdown (<code>index.md</code>)</p>
 
 </div>
 <figure class="gd-chat" aria-label="Un Change en el chat, de tu frase a la publicación">
@@ -375,6 +382,151 @@ def checked(lang: str, path: Path) -> bool:
     return lang != "en" or not missing
 
 
+AGENT_INTRO = {
+    "en": (
+        "> gdd runs GDD, Gate-Driven Development: a way to build software with AI coding agents "
+        "in which every change passes gates, and risk (green, yellow, red) decides how many and how "
+        "strict. Machines check what can be checked; the person approves the scenarios before the "
+        "build and the result at the end (G4).",
+        "Every page below is also published as Markdown: the links point to those `index.md` "
+        "files. The person types only the install and `gdd init`; everything else goes through "
+        "the agent skills (`/gdd-setup`, `/gdd-change ...`; `$gdd-...` in Codex). The method's full "
+        f"rules are in [GDD.md]({REPO}/blob/main/GDD.md). In one file: the method and a first "
+        "change in [llms-small.txt]({base}llms-small.txt), every page in "
+        "[llms-full.txt]({base}llms-full.txt).",
+    ),
+    "es": (
+        "> gdd ejecuta GDD, Gate-Driven Development: una forma de construir software con agentes "
+        "de IA en la que cada Change pasa puertas, y el riesgo (verde, amarillo, rojo) decide "
+        "cuántas y lo estrictas que son. Las máquinas comprueban lo que se puede comprobar; la "
+        "persona aprueba los escenarios antes de construir y el resultado al final (G4).",
+        "Cada página de abajo se publica también en Markdown: los enlaces apuntan a esos ficheros "
+        "`index.md`. La persona solo escribe la instalación y `gdd init`; todo lo demás pasa por "
+        "las skills del agente (`/gdd-setup`, `/gdd-change ...`; `$gdd-...` en Codex). gdd, sus "
+        f"comandos y sus mensajes están en inglés. Versión en inglés: [llms.txt]({{base_en}}llms.txt).",
+    ),
+}
+"""The summary and the notes at the top of each language's llms.txt (https://llmstxt.org/)."""
+
+SMALL = ("Get started", "Concepts")
+"""The menu sections in llms-small.txt: the method and a first change, small enough to paste into
+a chat. llms-full.txt has every page (as svelte.dev splits its files)."""
+
+MD_LINK = re.compile(r"(\]\()([^)\s]+)((?:\s+\"[^\"]*\")?\))")
+HEAD_LINKS = '<link rel="alternate" type="text/markdown" href="index.md">\n<link rel="describedby" href="{llms}">\n'
+
+
+def page_url(page: str) -> str:
+    """The folder URL, relative to the language's root, of the staged page `page`."""
+    if page == "index.md":
+        return ""
+    if page.endswith("/index.md"):
+        return page[: -len("index.md")]
+    return page[: -len(".md")] + "/"
+
+
+def markdown_of(text: str, page: str, prefix: str) -> str:
+    """The staged page `text` as the Markdown agents get: links to other pages point to their
+    Markdown files, and links to images and other files to their address on the site."""
+    here = posixpath.dirname(page)
+    out, fenced = [], False
+    for line in text.splitlines():
+        if FENCE.match(line):
+            fenced = not fenced
+        if not fenced:
+
+            def fix(m: re.Match[str]) -> str:
+                target = m.group(2)
+                if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith(("#", "/")):
+                    return m.group(0)
+                path, _, anchor = target.partition("#")
+                resolved = posixpath.normpath(posixpath.join(here, path))
+                if resolved.endswith(".md"):
+                    url = prefix + page_url(resolved) + "index.md"
+                else:
+                    url = prefix + resolved
+                return m.group(1) + url + (f"#{anchor}" if anchor else "") + m.group(3)
+
+            line = MD_LINK.sub(fix, line)
+        out.append(line)
+    return "\n".join(out).strip() + "\n"
+
+
+def title_and_lead(text: str) -> tuple[str, str]:
+    """The first heading of a page and the first sentence of its first paragraph, plain."""
+    title, lead, lines = "", "", text.splitlines()
+    for i, line in enumerate(lines):
+        if not title and line.startswith("# "):
+            title = line[2:].strip()
+            for rest in lines[i + 1 :]:
+                rest = rest.strip()
+                if not rest:
+                    if lead:
+                        break
+                    continue
+                if rest.startswith(("#", "```", "|", "<", "!", ">", "-")):
+                    if lead:
+                        break
+                    continue
+                lead += (" " if lead else "") + rest
+            break
+    lead = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", lead)
+    first = re.split(r"(?<=[.?!])\s", lead, maxsplit=1)[0]
+    return title, first[:240]
+
+
+def agent_files(lang: str, base: str, path: Path) -> None:
+    """Writes what agents read into the built site of `lang` (https://llmstxt.org/): an
+    `index.md` next to each page's `index.html`, an `llms.txt` at the language's root (plus
+    `llms-full.txt` in English), and in each page's head the links that lead to both."""
+    stage, site = LANGS[lang]["stage"], LANGS[lang]["site"]
+    root = base + ("es/" if lang == "es" else "")
+    prefix = (f"https://{DOMAIN}" + root) if base == "/" else root
+    pages = sorted(p.relative_to(stage).as_posix() for p in stage.rglob("*.md"))
+    sources = {}
+    for page in pages:
+        text = (stage / page).read_text(encoding="utf-8")
+        if page == "index.md":  # the home page: its README, without the hero
+            src = LANGS[lang]["source"] / "README.md"
+            text = stage_page(src.read_text(encoding="utf-8"), Path("README.md"), lang)
+        md = markdown_of(text, page, prefix)
+        sources[page] = md
+        target = site / page_url(page) / "index.md"
+        if target.parent.is_dir():
+            target.write_text(md, encoding="utf-8")
+            html = target.parent / "index.html"
+            if html.is_file():
+                doc = html.read_text(encoding="utf-8")
+                if 'rel="describedby"' not in doc:
+                    doc = doc.replace("</head>", HEAD_LINKS.format(llms=root + "llms.txt") + "</head>", 1)
+                    html.write_text(doc, encoding="utf-8")
+    with path.open("rb") as file:
+        nav = tomllib.load(file)["project"]["nav"]
+    summary, notes = AGENT_INTRO[lang]
+    lines = ["# gdd", "", summary, "", notes.format(base=prefix, base_en=(f"https://{DOMAIN}" + base) if base == "/" else base), ""]
+    full = []
+    for item in nav:
+        for section, value in item.items():
+            entries = nav_pages(value if isinstance(value, list) else [value])
+            entries = [e for e in entries if e in sources and e != "index.md"]
+            if not entries:
+                continue
+            lines += [f"## {section}", ""]
+            for page in entries:
+                title, lead = title_and_lead(sources[page])
+                url = prefix + page_url(page) + "index.md"
+                lines.append(f"- [{title}]({url})" + (f": {lead}" if lead else ""))
+                full.append((section, f"<!-- {url} -->\n\n{sources[page]}"))
+            lines.append("")
+    (site / "llms.txt").write_text("\n".join(lines), encoding="utf-8")
+    if lang == "en":
+        head = f"# gdd documentation\n\n{summary}\n\nSource: {prefix}llms.txt\n\n"
+        every = [text for _, text in full]
+        small = [text for section, text in full if section in SMALL]
+        (site / "llms-full.txt").write_text(head + "\n\n---\n\n".join(every), encoding="utf-8")
+        (site / "llms-small.txt").write_text(head + "\n\n---\n\n".join(small), encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the documentation website from docs/.")
     parser.add_argument("--serve", action="store_true", help="preview the English site with live reload")
@@ -400,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
         code = subprocess.run(command, cwd=ROOT).returncode
         if code:
             return code
+        agent_files(lang, base, path)
     return 0
 
 

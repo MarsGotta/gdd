@@ -23,7 +23,7 @@ gdd prepare cart-total
 
 You should see its decision, with the model of each role:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 {"ok":true,"change":"cart-total","color":"yellow","lane":"full",...}

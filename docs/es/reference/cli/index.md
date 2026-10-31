@@ -10,7 +10,7 @@ ejemplos reales. La ayuda de gdd está en inglés, como la herramienta, y por ah
 también las notas de cada comando.
 
 > [!NOTE]
-> Generada por `scripts/make_reference.py` a partir de gdd 0.1.0: las opciones salen de
+> Generada por `scripts/make_reference.py` a partir de gdd 0.1.1: las opciones salen de
 > `gdd <comando> --help` y el resto de cada página de `scripts/cli_notes/`. No edites
 > estas páginas: cambia el texto de ayuda en el código o la nota y vuelve a ejecutar el
 > script.
@@ -124,15 +124,20 @@ imprimen `"ok": false` y salen con 0, salvo que les pases `--strict`.
 
 ### Lo que los agentes no pueden ejecutar
 
-gdd reconoce a un Builder o a un Reviewer por `GDD_ROLE`, que `gdd launch` fija para
-cada agente que arranca. Estos comandos los rechazan, intente lo que intente el agente:
-[`gdd upgrade`](upgrade.md), [`gdd gate`](gate.md), [`gdd changelog-line`](changelog-line.md),
-[`gdd resume`](resume.md), [`gdd release`](release.md), y también `gdd selftest` y `gdd learn`.
-Se paran con un mensaje como este:
+gdd reconoce a un agente que ha lanzado por `GDD_ROLE`, que fija para cada agente que
+arranca. Con esa variable, gdd solo ejecuta `gdd g2`, `guard`, `note`, `status`,
+`classify`, `inbox`, `report` y `scope`. Cualquier otro comando se para antes de hacer
+nada, permitan lo que permitan los permisos del propio agente:
 
 ```text
-error: A Builder or Reviewer cannot open or close gates.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
+
+Estos comandos rechazan a un Builder o a un Reviewer con sus propias palabras: `gdd learn`,
+[`gdd upgrade`](upgrade.md), [`gdd gate`](gate.md), [`gdd changelog-line`](changelog-line.md),
+[`gdd resume`](resume.md), [`gdd release`](release.md).
+Por ejemplo: `error: A Builder or Reviewer cannot open or close gates.` Consulta
+[Qué puede ejecutar un agente](../roles.md#qué-puede-ejecutar-un-agente).
 
 ### Pantallas
 

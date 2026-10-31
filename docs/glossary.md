@@ -19,7 +19,8 @@ read its tokens. See [Keeping agents honest](explanation/safety.md#layer-3-what-
 ## Board
 
 The read-only terminal screen that shows every change by phase, with its color, state and gates.
-It opens with [`gdd board`](reference/cli/board.md), or `gdd` alone, in a terminal.
+It opens with [`gdd board`](reference/cli/board.md), or `gdd` alone, in a terminal, and reads the
+project again every 2 seconds.
 
 ## Build mode
 
@@ -60,9 +61,9 @@ Reviewer of another model family and mutation testing on red changes. See
 
 ## Decision Inbox
 
-The single message a change leaves for the human, in `.gdd/changes/<id>/inbox.md`: what needs
-their decision, what was decided without them and what was parked. See
-[Few stops for the human](explanation/human-stops.md#the-decision-inbox).
+The single message a change leaves for the human, in `.gdd/changes/<id>/inbox.md`: their own
+KOs that still stand, what needs their decision, what was decided without them and what was
+parked. See [Few stops for the human](explanation/human-stops.md#the-decision-inbox).
 
 ## Discover
 
@@ -200,8 +201,9 @@ another family than the Builder, so they do not share blind spots. See
 
 A test of the tests: a tool makes small edits to the code, called mutants, such as flipping a
 comparison, and the tests must fail for each one. A mutant that no test catches shows a test
-that checks too little. gdd runs the `mutation*` commands in G2 and G3, always for red changes
-and for other colors when a rule turns them on. See [Gates](reference/gates.md#gates-by-color).
+that checks too little, or code that no test runs. gdd runs the `mutation*` commands in G2 and
+G3, always for red changes and for other colors when a rule turns them on. See
+[Gates](reference/gates.md#gates-by-color).
 
 ## No-code
 

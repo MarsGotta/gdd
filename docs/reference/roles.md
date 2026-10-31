@@ -32,12 +32,10 @@ permissions allow: no agent can start, prepare, merge, park or release a change,
 the project, or write the GDD state. For example, a Builder that runs `gdd selftest` gets:
 
 ```text
-error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+error: Agents that gdd started cannot run gdd selftest: they may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
 ```
 
-The replanning Orchestrator (`GDD_ROLE=orchestrator`) gets the same message. The message names
-Builders and Reviewers, but it applies to every agent gdd started, the Orchestrator included.
-The commands that
+The replanning Orchestrator (`GDD_ROLE=orchestrator`) gets the same message. The commands that
 already refused a Builder or a Reviewer in their own words keep them: `gdd gate`,
 `gdd changelog-line`, `gdd resume`, `gdd release` without a step, `gdd learn` and
 `gdd upgrade`. For example:
@@ -74,7 +72,7 @@ examples), the red zones and their reasons, the plan of a red change, the Decisi
 |---|---|
 | Setup answers (phase 0) and Discover (phase 1) | In conversation with the Orchestrator. |
 | The sitting of a change: scenarios (G1), red zones, plan of a red change | `gdd sitting <id>`, or the Orchestrator records the answer with `gdd gate G1 ok <id>`, `gdd gate zones ok` and `gdd gate plan ok <id>`, each `--by human`. |
-| G4 | `gdd resume <id> --g4 ok`, `--g4 ko` or `--g4 polish --note "..."`. |
+| G4 | `gdd sitting <id>`, or in words to the Orchestrator, which runs `gdd resume <id> --g4 ok`, `--g4 ko` or `--g4 polish --note "..."`. |
 | A parked change | Reads its Decision Inbox; one message per change. |
 
 **Writes:** through the Orchestrator, the harness on the main branch (`gdd/*.toml`,

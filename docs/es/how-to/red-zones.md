@@ -4,7 +4,7 @@ Usa esta página para decirle a gdd qué partes de tu proyecto son arriesgadas. 
 un conjunto de rutas donde un error sería grave, como el inicio de sesión o los pagos: todo
 Change que toca una es rojo y pasa las puertas más estrictas, así que las comprobaciones
 estrictas van donde está el riesgo. Tú nombras las áreas sensibles con palabras, el
-Orchestrator las convierte en zonas y tú apruebas las rojas una vez.
+Orchestrator las convierte en zonas y tú apruebas las rojas.
 
 ## Antes de empezar
 
@@ -137,10 +137,12 @@ subir el color, nunca bajarlo.
 
 ## 4. Aprueba las zonas rojas
 
-Solo una persona aprueba las zonas rojas, una vez para todo el proyecto. Ocurre en la sentada
-del primer Change: el Orchestrator enumera las zonas pendientes, cada una con su motivo, junto a
-los escenarios, y tu OK las registra también. En la pantalla de la sentada
-(`gdd sitting CHANGE`) aparecen bajo `Red zones to approve` (consulta
+Solo una persona aprueba las zonas rojas, para todo el proyecto. El Setup pregunta primero:
+`/gdd-setup` te cuenta qué protegen las zonas que escribió `gdd init`, y tu OK las registra.
+Cuando el Orchestrator añade tus zonas al final de Discover, las zonas rojas han cambiado, así
+que la sentada del siguiente Change vuelve a preguntar: el Orchestrator enumera las zonas
+pendientes, cada una con su motivo, junto a los escenarios, y tu OK las registra también. En la
+pantalla de la sentada (`gdd sitting CHANGE`) aparecen bajo `Red zones to approve` (consulta
 [Aprobar los escenarios](write-scenarios.md#4-aprueba)). Al aprobar se registra:
 
 ```text
@@ -160,11 +162,11 @@ Las máquinas no pueden aprobarlas: `--by machines` se rechaza con
 
 ## 5. Ten claro qué espera a la aprobación
 
-`/gdd-status` te avisa cuando las zonas rojas están pendientes: te llegan con los escenarios del
-siguiente Change. `gdd status` dice:
+`/gdd-status` te avisa cuando las zonas rojas están pendientes. Antes de ninguna aprobación,
+`gdd status` dice:
 
 ```text
-Red zones: pending · Red zones not approved yet: the Orchestrator proposes them at the end of Discover.
+Red zones: pending · Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command).
 ```
 
 Hasta que una persona las apruebe, solo se pueden construir Spikes: un Spike explora y nunca
@@ -172,8 +174,10 @@ fusiona su código (consulta [Explorar con un Spike](spikes.md)). Cualquier otro
 rechaza antes de que se ejecute ningún agente:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
+error: Red zones not approved yet: the Setup asks you to approve them (the gdd-setup command). (gdd gate zones ok --by human)
 ```
+
+Si lo ves, vuelve a ejecutar `/gdd-setup`, o dile a tu agente que apruebas las zonas rojas.
 
 ## 6. Vuelve a aprobar cuando cambian las zonas rojas
 

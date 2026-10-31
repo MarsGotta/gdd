@@ -28,8 +28,8 @@ rápidos después de cada ronda del Builder, y G3 ejecuta los lentos antes de la
 | `lockfile` | G3 | De un fichero de bloqueo (las versiones exactas de cada dependencia) que no coincide con el manifiesto |
 | `security` | G3 | De patrones de código inseguros y de dependencias con vulnerabilidades conocidas |
 | `dependencies` | G3 | De distribuir una dependencia cuya licencia no puedes usar |
-| `secrets` | G3 | De una contraseña o un token incluidos en el Change |
-| `mutation` | G3 | De tests que ejecutan el código sin comprobar lo que hace |
+| `secrets` | G3 | De una contraseña o un token en las líneas que añade el Change |
+| `mutation` | G3 | De tests que ejecutan el código sin comprobar lo que hace, y de código que ningún test ejecuta |
 
 Todas las [fichas de stack](../reference/stacks.md), las herramientas que gdd guarda para cada
 lenguaje, usan estos nombres. [Puertas](../reference/gates.md) lista las comprobaciones que
@@ -130,6 +130,29 @@ comprobaciones, como `path-guard`:
 `ok` dice si la puerta pasó, y `failures` dice por qué cuando no pasó. Aquí `mutation` está en
 `skipped` porque un Change amarillo no lo pide.
 
+Cada fallo guarda en `tail` el final de lo que imprimió su comando. Los comandos `mutation` y
+`secrets` de las fichas de stack terminan con una línea que dice qué encontraron. En un Change de
+Python con una función que ningún test unitario ejecuta y una clave de acceso plantada, los dos
+`tail` terminan así:
+
+<!-- Real output of gdd 0.1.1 (gdd g3) in a throwaway Python project; the key was a fake one
+     built for the test. The mutmut progress lines above them are left out. -->
+```text
+    shop.cart.x_total__mutmut_6: survived
+    shop.cart.x_label__mutmut_1: no tests
+    shop.cart.x_label__mutmut_2: no tests
+    shop.cart.x_label__mutmut_3: no tests
+mutation: 4 mutant(s) not killed (survived, or no test runs that code)
+```
+
+```text
+secrets: src/shop/settings.py:3: aws-access-token (value not shown)
+```
+
+La comprobación de secretos nombra el fichero, la línea y la regla, nunca el valor. Solo lee las
+líneas que añade el Change: quitar un secreto, o editar junto a uno que ya está en main, no la
+hace fallar, y no examina los ficheros binarios.
+
 ## 3. Decide qué recibe cada color
 
 `gdd/rules.toml` tiene una tabla por cada color y vía. Un proyecto nuevo empieza con estos
@@ -214,10 +237,20 @@ El mutation testing (pruebas de mutación), que planta pequeños fallos y espera
 detecte cada uno, es la comprobación más lenta de G3. Las fichas ya lo ejecutan solo sobre el
 diff del Change:
 
-- Python (mutmut) muta los módulos de `src/` que aparecen en `GDD_DIFF_FILES`.
+- Python (mutmut) muta las funciones y los métodos de los módulos de `src/` que aparecen en
+  `GDD_DIFF_FILES`.
+- TypeScript (StrykerJS) muta los ficheros `src/*.ts` que aparecen en `GDD_DIFF_FILES`.
 - Rust (cargo-mutants) muta el diff respecto a la rama main. Va más rápido con mold instalado,
   y da una segunda oportunidad a los mutantes que solo agotaron el tiempo; consulta la
   [ficha de rust](../reference/stacks.md#rust).
+
+En Python y TypeScript, un mutante que ningún test detecta hace fallar la puerta, y también el
+código que ningún test ejecuta. Un Change sin nada que mutar (solo constantes o tipos) pasa y lo
+dice; el informe de la puerta guarda esa línea en `summaries`:
+
+```text
+mutation: nothing to mutate in the changed Python files (no function or method)
+```
 
 Si el mutation testing sigue pasándose del límite de tiempo, sube `command_seconds` (paso 4) o
 evita tener dos Changes en G3 a la vez.

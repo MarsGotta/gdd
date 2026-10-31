@@ -148,8 +148,9 @@ Decision Inbox explica por qué.
 
 G3, la puerta de integración (*Merge Gate*), ejecuta toda la cadena automática: todos los
 escenarios en modo estricto, ejemplos ocultos incluidos, análisis estático de seguridad,
-comprobación de dependencias nuevas, secretos en el diff y, cuando el color lo pide, mutation
-testing sobre el diff. Path Guard se ejecuta antes de los comandos y otra vez después.
+comprobación de dependencias nuevas, secretos en las líneas que añade el Change y, cuando el
+color lo pide, mutation testing sobre el diff. Path Guard se ejecuta antes de los comandos y
+otra vez después.
 
 Una G3 en rojo tiene un arreglo: una ronda de modo build con `fix=g3`, después G2 y después G3
 otra vez, que decide. Si G3 sigue en rojo, el Change se aparca.

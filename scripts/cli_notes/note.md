@@ -19,7 +19,7 @@ gdd note cart-total needs "Should the total include taxes? I recommend no, taxes
 
 Each one prints:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 noted

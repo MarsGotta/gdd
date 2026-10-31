@@ -37,9 +37,10 @@ Nothing.
 3. Sums it up in a few lines: the total, the role and the model that spend the most, the
    retries and the human stops.
 
-An agent that does not report a price shows a cost of 0. The skill says so, and reminds you
-that with a subscription the cost is notional: tokens are what compares. Fill `[prices]` in
-`gdd/models.toml` to get an estimate; see
+An agent that does not report a cost, such as Codex, gets an estimate from `[prices]` in
+`gdd/models.toml`, marked with `~`; when its model has no price there, the report says `unknown`,
+never 0. The skill reminds you that with a subscription the cost is notional: tokens are what
+compares. To fill in the prices, see
 [Choose agents and models](../../how-to/agents-and-models.md#6-fill-in-prices-for-estimates).
 
 ## What you decide

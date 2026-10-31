@@ -22,7 +22,7 @@ gdd agents install --agent claude
 
 You should see the paths it wrote, as JSON:
 
-<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+<!-- REAL OUTPUT: gdd 0.1.1, sandbox project shop (python; claude and codex). -->
 
 ```text
 {"ok":true,"written":[".claude/skills/gdd-build/SKILL.md",".claude/skills/gdd-build-test/SKILL.md",...,".claude/skills/gdd-stack-python/SKILL.md"]}

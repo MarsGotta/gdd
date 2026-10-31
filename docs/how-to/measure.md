@@ -46,10 +46,34 @@ Read the columns in this order:
    are many (here about 29 for every new input token) and
    much cheaper, so do not add them to the new ones.
 3. **cost USD**: an estimate at API prices, never a bill. Claude Code reports its own
-   client-side estimate and OpenCode reports a cost. Codex reports none, so the Reviewer above
-   shows 0 until you fill in `[prices]` (see
-   [Choose agents and models](agents-and-models.md#6-fill-in-prices-for-estimates)). With a
-   subscription the cost is notional: compare tokens.
+   client-side estimate and OpenCode reports a cost. Codex reports none, and neither do the
+   conversations `gdd session` imports. The Reviewer above shows 0 because gdd 0.1.0 logged
+   those calls at 0; the log keeps them as they were. With a subscription the cost is
+   notional: compare tokens.
+
+Since gdd 0.1.1, a call whose agent reports no cost is priced from `[prices.<model>]` in
+`gdd/models.toml` (see
+[Choose agents and models](agents-and-models.md#6-fill-in-prices-for-estimates)) and marked
+with `~`. Without a price for its model, its cost is `unknown`, never 0. In a project with a
+price for `claude-opus-5-5` and none for `claude-sonnet-5-5`, `gdd report --by phase,model`
+says:
+
+<!-- Real output of gdd 0.1.1 in a throwaway project. The conversations come from stand-in
+     Claude Code transcripts imported with gdd session, and the prices are made up for the
+     example: copy real ones from your provider. -->
+```text
+phase · model -> calls · tokens in · cache · out · cost USD · seconds
+0-setup · claude-opus-5-5 -> 1 · 26,915 · 667,575 · 17,701 · ~2.7585 · 0
+1-discover · claude-opus-5-5 -> 1 · 17,060 · 315,062 · 8,669 · ~1.4048 · 0
+1-discover · claude-sonnet-5-5 -> 1 · 19,038 · 483,711 · 7,850 · unknown · 0
+TOTAL -> in 63,013 · cache 1,466,348 · out 34,220 · ~4.1633 USD + unknown (1 call(s) with no price)
+~ estimated from the prices in gdd/models.toml
+unknown: no price in gdd/models.toml for claude-sonnet-5-5
+Human stops logged: 3
+```
+
+The total adds only the costs gdd knows and counts the calls it could not price. The last two
+lines say which costs are estimates and which models need a price row.
 
 Group and filter:
 
@@ -72,7 +96,8 @@ Human stops logged: 201
 ```
 
 `--json` prints the same groups as a list, with `tokens_in`, `tokens_cache`, `tokens_out`,
-`cost_usd` and `duration_s`.
+`cost_usd`, `cost_estimated` (an estimate is in the cost), `calls_without_price` and
+`duration_s`. `cost_usd` adds only the known costs.
 
 Conversations with your agent outside the recipe (the Setup, Discover) are not in the log until
 you add them. This works for Claude Code, and `/gdd-report` does it before its report. By hand:

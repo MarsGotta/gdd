@@ -5,10 +5,16 @@ total del carrito, llevado de una frase a una versión publicada en producción,
 el recorrido del [Inicio rápido](quickstart.md) con todas las pantallas a la vista, para que
 puedas comparar cada resultado con el tuyo.
 
-<!-- Every screen, message and output on this page comes from one real run of gdd 0.1.0 (main
-at e244577) on 2026-10-31, in a throwaway folder, with Claude Code as the chat agent, Codex as
-the Reviewer and the default models. Paths are shown under /home/me. The run took about eight
-minutes from the form to G4, with no fix round. -->
+<!-- Every screen, message and output on this page comes from one real run of gdd 0.1.1 (main
+at 30b50c4) on 2026-10-31, in a throwaway folder, with Claude Code as the chat agent, Codex as
+the Reviewer and the default models. Paths are shown under /home/me. On the way to G4 the
+change parked three times on gdd 0.1.1 bugs: the Reviewer wrote its finding's file as a
+Markdown link, gdd did not see that it named a step only test mode may write, so the fix round
+went to build mode, which may not touch it; the relaunches after the agent fixed the step by
+hand then parked on Path Guard. The agent removed the worktree and launched again, and that
+launch went straight to G4 in about two and a half minutes. Blocks trim the lines of that
+detour with `...`, except where the page says so. The whole run, parks included, took 23
+minutes from the form to the release. -->
 
 ## Antes de empezar
 
@@ -19,9 +25,10 @@ minutes from the form to G4, with no fix round. -->
 - git conoce tu nombre y tu correo: `gdd init` hace commit de lo que escribe.
 - Una terminal de al menos 100 columnas de ancho, para las pantallas que dibuja gdd.
 
-Las llamadas del Builder en esta ejecución costaron 0,39 USD, según las contó Claude Code, y
-las llamadas del Builder y del Reviewer usaron juntas unos 103.000 tokens de entrada nuevos. Con
-una suscripción, las cubre tu plan.
+El lanzamiento que llevó este Change directo a G4 costó 0,21 USD en llamadas del Builder, según
+las contó Claude Code; la ejecución entera, con los aparcamientos que cuenta el paso 6, costó
+0,91 USD. Codex no informa de su coste, así que las llamadas del Reviewer salen como
+desconocidas. Con una suscripción, las cubre tu plan.
 
 ## El recorrido
 
@@ -62,54 +69,57 @@ git init -b main
 gdd init
 ```
 
-Se abre un formulario. Hace siete preguntas, una por paso, y no escribe nada hasta el final.
-Escribe el nombre y pulsa `Enter`:
+Se abre un formulario. Hace siete preguntas, una por paso, y no escribe nada hasta el final. El
+primer paso pide el nombre:
 
 ```text
 ┌ gdd init · Step 1 of 7 · Project name ───────────────────────────────────────────────────────────┐
 │What is the project called?                                                                       │
-│> shop█                                                                                           │
+│> █                                                                                               │
 │Enter: next · Ctrl-C: quit                                                                        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Escribe una descripción corta, o déjala vacía, y pulsa `Enter`:
+Escribe `shop` y pulsa `Enter`. El paso siguiente pide una descripción corta, que puede quedar
+vacía:
 
 ```text
 ┌ gdd init · Step 2 of 7 · Description ────────────────────────────────────────────────────────────┐
 │What is it, in a few words? It may stay empty.                                                    │
-│> A small online shop█                                                                            │
+│> █                                                                                               │
 │Enter: next · Esc: back · Ctrl-C: quit                                                            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Baja hasta `web` con las flechas y pulsa `Enter`:
+Escribe `A small online shop` y pulsa `Enter`. Después elige la plataforma:
 
 ```text
 ┌ gdd init · Step 3 of 7 · Platform ───────────────────────────────────────────────────────────────┐
 │Where does it run?                                                                                │
-│  mobile                                                                                          │
+│> mobile                                                                                          │
 │  desktop                                                                                         │
-│> web                                                                                             │
+│  web                                                                                             │
 │  cli                                                                                             │
 │  other                                                                                           │
 │Up/Down: move · Enter: pick · Esc: back · Ctrl-C: quit                                            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Pulsa `Space` para marcar `python` y después `Enter`. Cada stack trae su *ficha de stack*, los
-comandos que ejecuta cada puerta para esa tecnología:
+Baja hasta `web` con las flechas y pulsa `Enter`. Después, los stacks:
 
 ```text
 ┌ gdd init · Step 4 of 7 · Stacks ─────────────────────────────────────────────────────────────────┐
 │Which technology does it use? Pick one or more, or Not sure.                                      │
-│  [ ] rust                                                                                        │
+│> [ ] rust                                                                                        │
 │  [ ] typescript                                                                                  │
-│> [x] python                                                                                      │
+│  [ ] python                                                                                      │
 │  [ ] Not sure                                                                                    │
 │Up/Down: move · Space: check · Enter: next · Esc: back · Ctrl-C: quit                             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Baja hasta `python`, pulsa `Space` para marcarlo y después `Enter`. Cada stack trae su *ficha de
+stack*, los comandos que ejecuta cada puerta para esa tecnología.
 
 Los agentes de programación que encuentra en la máquina aparecen marcados, y el primero marcado
 construye. Pulsa `Space` sobre `opencode` para desmarcarlo, así Claude Code construye y Codex
@@ -135,14 +145,15 @@ Deja `en`, el idioma que usan los agentes contigo, y pulsa `Enter`:
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Escribe cada área sensible, lo que sería grave si fallara, y pulsa `Enter`. Una línea vacía
-sigue adelante. Estas palabras se convierten después en *zonas rojas*, cuando haya carpetas que
-proteger:
+Escribe cada área sensible, lo que sería grave si fallara, y pulsa `Enter`. Cada una entra en la
+lista, y una línea vacía sigue adelante. Estas palabras se convierten después en *zonas rojas*,
+cuando haya carpetas que proteger:
 
 ```text
 ┌ gdd init · Step 7 of 7 · Sensitive areas ────────────────────────────────────────────────────────┐
 │What would be serious if it failed? One area per line.                                            │
-│> Losing a customer's order█                                                                      │
+│  - Losing a customer's order                                                                     │
+│> █                                                                                               │
 │Enter: add, or go on when empty · Backspace: edit the last · Esc: back · Ctrl-C: quit             │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -178,19 +189,20 @@ docs/brief.md
 .github/workflows/gdd.yml
 AGENTS.md
 CLAUDE.md
+CHANGELOG.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 Using CPython 3.13.15
-Resolved 40 packages in 329ms
+Resolved 40 packages in 8ms
 ...
-Installed 39 packages in 61ms
+Installed 39 packages in 62ms
 ...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
 ```
 
-Fíjate en la última línea: te dice adónde ir ahora. gdd hizo dos commits, `gdd init 0.1.0` con
+Fíjate en la última línea: te dice adónde ir ahora. gdd hizo dos commits, `gdd init 0.1.1` con
 sus ficheros y `gdd bootstrap` con `uv.lock`, el fichero de bloqueo (*lock file*) que fija la
 versión de cada dependencia. Si la salida se para con un error después de la línea `python:`,
 probablemente falta uv: consulta [Instalar gdd](../how-to/install.md#python).
@@ -211,6 +223,7 @@ shop/
 ├── docs/brief.md          the Project Brief: what the project is and what must not fail
 ├── .github/workflows/gdd.yml   CI: Path Guard, G2 and G3 on every pull request
 ├── AGENTS.md, CLAUDE.md   the first instructions every agent reads
+├── CHANGELOG.md           the changelog, empty under [Unreleased]; each release adds to it
 ├── .claude/skills/        the GDD skills for Claude Code (/gdd-setup, /gdd-change...)
 ├── .agents/skills/        the same skills for Codex ($gdd-setup, $gdd-change...)
 ├── features/              the Gherkin scenarios: the contract you approve
@@ -235,115 +248,102 @@ Arranca Claude Code en la carpeta `shop` y ejecuta la skill de preparación:
 
 Si Claude Code no conoce `/gdd-setup`, lo arrancaste fuera de la carpeta `shop`, que es donde
 están las skills. El agente hace de *Orchestrator*, el rol que habla contigo. Ya leyó lo que
-escribió el formulario, así que solo pregunta lo que falta:
+escribió el formulario, así que solo pregunta lo que falta. Aquí el formulario bastó para un
+primer Brief: el agente lo escribió, junto con un registro de decisión de arquitectura (ADR,
+*architecture decision record*) para la tecnología y un esqueleto pequeño con un primer
+escenario de humo (*smoke*). También ejecutó el autotest del *arnés*, los ficheros y comandos
+con los que gdd comprueba el proyecto. Unos dos minutos después responde:
+
+<!-- The trimmed part of this message listed one check the agent could not run, and the
+agent could not go online: this run drove Claude Code headless, where a command outside the
+allowed tools is refused instead of asked. In a normal session Claude Code asks you to allow
+them. -->
 
 ```text
-Setup already has the basics: a web shop in Python, scenarios run with pytest-bdd, a skeleton
-that runs, and one sensitive area (losing a customer's order). I need a few answers before I
-write the Brief:
+The harness is ready: the self-test passed 4/4 and the machines opened G0. Everything is
+committed on `main` as `gdd: setup (G0)`, and the session is recorded.
 
-1. **What is the shop, in a few lines?** What does it sell, who buys, and roughly how big is it
-   (a handful of products or a catalogue)?
-2. **Who is it for?** My guess is one small seller and their customers, with no marketplace of
-   many sellers. Is that right?
-3. **Web framework.** I recommend **Django**. It comes with an admin panel for managing
-   products and orders, plus logins and a database layer, which fits a small shop with little
-   code. The alternative is **FastAPI**, if you'd rather have an API with a separate frontend.
-4. **What else would be serious if it failed?** I have "losing a customer's order." My
-   suggestions to add are:
-   - **Charging the wrong amount, or taking payment without recording the order.** I'd
-     recommend Stripe hosted checkout, so we never handle card numbers ourselves.
-   - **Leaking customers' personal data** (names, addresses, emails).
-
-   Is there anything to add or remove?
-
-**Next step:** answer these four, even in one line each, and I'll write the Brief, the
-technology decision and the gate commands, and open G0.
-```
-
-Responde a cada pregunta en una o dos líneas. Cada una trae una recomendación, y no tienes por
-qué aceptarla:
-
-```text
-It sells handmade ceramics: mugs, bowls and plates. One seller, me. Customers browse, put
-pieces in a cart and place an order; payment comes later, it is out of scope for now. It is
-for people who like handmade ceramics, and I run it day to day. I'd rather have FastAPI. Just
-orders.
-```
-
-Más o menos un minuto y medio después, el agente ha escrito el Brief, un registro de decisión de
-arquitectura (ADR, *architecture decision record*) para la tecnología y un esqueleto pequeño con
-un primer escenario de humo (*smoke*). También ha ejecutado el autotest del *arnés*, los
-ficheros y comandos con los que gdd comprueba el proyecto. Después te pide una cosa más:
-
-<!-- The trimmed part of this message listed two checks the agent could not run: this run
-drove Claude Code headless, where a command outside the allowed tools is refused instead of
-asked. In a normal session Claude Code asks you to allow them. -->
-
-```text
-The harness self-test passes: **harness 4/4**. The Brief and the technology decision are
-written, and the smoke scenario passes. Before I can open G0 and commit, I need two things from
-you.
-
-**1. Approve the red zones.** Red marks the parts of the project that get the strictest checks:
-deeper review, mutation testing, and your sign-off before anything changes. For now there are
-only two:
-- **The harness itself:** gdd's own files, the CI workflow and the agent instructions.
-- **Dependencies and the toolchain:** the files that decide which outside libraries the shop
-  uses.
-
-"Losing a customer's order" is in the Brief for now. It becomes a red zone once there is real
-order-storage code. Reply **"zones OK"** to approve.
+What I did:
+- **Brief** (`docs/brief.md`): I wrote it from your one-line description. Some of it is my own
+  guesses, so please check the questions below.
+- **Technology** (`docs/adr/0001-technology.md`): Python, with pytest-bdd running the
+  scenarios. ... The web framework is left for Discover to decide.
+- **Starting test setup**: one simple smoke scenario that passes, plus empty
+  `features/regression/` and `features/hidden/` folders.
+- **Gate commands**: all of them pass when run by hand. There's no real pre-production or
+  production yet, so release steps are simulated. A deploy just records that it passed and
+  doesn't actually run.
 ...
-**Next step:** reply "zones OK". I'll then run the two checks, open G0, commit (`gdd: setup
-(G0)`) and log the session.
+**What I need from you (one reply is enough):**
+1. **Approve the protected zones.** These are gdd's own files, the CI and the agent
+   instructions, plus the dependency and toolchain files. Any change there gets the strictest
+   checks. Reply "zones OK" and I'll record your approval. No change can start until you do.
+2. **Check my guesses in the Brief:**
+   - The users are customers buying on the web and a shop owner who handles the orders. Is
+     that right?
+   - My recommendation is to leave payments out of the first version and have orders paid
+     outside the shop. The alternative is to include payments from day one, which brings in
+     money as a sensitive area.
+
+Next step: after your OK on the zones, run `/gdd-discover` to pick the web framework and map
+the sensitive areas (orders, customer data).
 ```
 
-Fíjate en las dos zonas rojas. Una *zona roja* es un conjunto de rutas que siempre recibe las
+Fíjate en *the machines opened G0*: la puerta de preparación (G0, *Setup Gate*) se abre cuando
+existe el Brief y el autotest pasa las cuatro comprobaciones. *Release steps are simulated*
+significa que aún no hay servidor de pre ni de producción. Si en cambio el agente dice que un
+comando de puerta no puede ejecutarse, falta una herramienta del stack: consulta [Instalar
+gdd](../how-to/install.md#python). Puede que tu agente haga antes sus preguntas y escriba el
+Brief después de tus respuestas.
+
+Fíjate en las zonas protegidas. Una *zona roja* es un conjunto de rutas que siempre recibe las
 comprobaciones más estrictas. Una persona aprueba el mapa una vez, porque fija lo estricto que
-será cada Change posterior ([Mapear y aprobar zonas rojas](../how-to/red-zones.md)). El carrito
-no está entre las zonas, así que apruébalas:
+será cada Change posterior ([Mapear y aprobar zonas rojas](../how-to/red-zones.md)), y ningún
+Change puede empezar antes. El carrito no está entre las zonas, así que apruébalas y responde a
+lo que supuso el agente en la misma respuesta:
 
 ```text
-zones OK
+zones OK. Your guesses are right: customers buy on the web and I run the orders. It sells
+handmade ceramics: mugs, bowls and plates. Payments stay out of the first version.
 ```
 
-El agente abre la puerta de preparación (G0, *Setup Gate*) y hace commit de la preparación en
-`main`. Deberías ver:
+El agente registra tu aprobación, actualiza el Brief y hace commit en `main`. Deberías ver:
 
 ```text
-Setup is done and **G0 is open**. The harness is ready: the self-test passes all four checks,
-and the red zones you approved are recorded.
+Setup is finished. G0 is open, your approval of the protected zones is recorded, and the
+self-test passed 4/4.
+
+I updated the Brief with your answers and committed it on `main`:
+- The shop sells handmade ceramics (mugs, bowls and plates).
+- Customers buy on the web and you run the orders.
+- Payments are not in the first version; orders are paid outside the shop.
 ...
-- **Release is still simulated:** there is no test or live server yet. The Brief keeps two open
-  questions for later: one-of-a-kind stock, and how you'll see new orders.
-
-**Next step:** I recommend `/gdd-discover` before the first change. Orders are your sensitive
-area, so it's worth settling first how orders get stored and how stock works for pieces that are
-one of a kind. If you'd rather start building now, run `/gdd-change` with one sentence, for
-example "customers can browse the pieces".
+**Next step:** run `/gdd-discover`. It picks the web framework, maps where orders and customer
+data live, and plans the first changes. After that, use `/gdd-change` for the first feature,
+for example "customers can browse the catalogue".
 ```
-
-Fíjate en **G0 is open**: las máquinas abren G0 cuando existe el Brief y el autotest pasa las
-cuatro comprobaciones. *Release is still simulated* significa que aún no hay servidor de pre ni
-de producción. Si en cambio el agente dice que un comando de puerta no puede ejecutarse, falta
-una herramienta del stack: consulta [Instalar gdd](../how-to/install.md#python).
 
 El agente recomienda `/gdd-discover`, que explora ideas más grandes. Tu primer Change es
 pequeño, así que sáltatelo.
 
 Para ver el proyecto desde una terminal, abre el *Board*, la pantalla con todos los Changes por
-fase. Por ahora está vacío:
+fase:
+
+```bash
+gdd board
+```
+
+Por ahora está vacío:
 
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
 │No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)               │
-...
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Pulsa `q` para cerrarlo.
+Déjalo abierto en su terminal. El Board se recarga solo cada dos segundos, y `r` lo recarga al
+momento.
 
 ## 4. Describe el Change
 
@@ -359,8 +359,9 @@ gdd calcula el color a partir de esas rutas y del mapa de zonas, y el agente res
 color primero:
 
 ```text
-I've drafted the scenarios for **cart-total**. It's yellow, so there's no plan for you to
-approve and the red zones are unchanged. Before I commit them I need your OK and three answers.
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 ...
 ```
 
@@ -374,7 +375,6 @@ rama `change/cart-total` e imprimió esta clasificación:
   "lane": "full",
   "reasons": [
     "features/cart_total.feature -> yellow (no zone: default color)",
-    "features/hidden/cart_total.feature -> yellow (no zone: default color)",
     "src/shop/cart.py -> yellow (no zone: default color)",
     "tests/acceptance/steps/** -> yellow (no zone: default color)",
     "tests/unit/test_cart.py -> yellow (no zone: default color)"
@@ -415,169 +415,178 @@ Léela como el plan de este Change:
 
 [Cómo elige el riesgo las puertas](../explanation/risk.md) explica los colores.
 
+El Board que dejaste abierto muestra el Change en Discover, sin volver a abrirlo:
+
+```text
+┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
+│Discover (1)                                                                                      │
+│› cart-total · yellow · Show the cart total, taxes included · open · no gates yet                 │
+│Build (0)                                                                                         │
+│Release (0)                                                                                       │
+│Done (0) · d to show                                                                              │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## 5. Lee y aprueba los escenarios
 
 Un *escenario* es un ejemplo de lo que debe pasar, escrito en Gherkin: frases llanas con Given,
-When y Then que ejecuta una herramienta de tests. El Orchestrator te enseña sus tres escenarios
-en el mismo mensaje, con sus preguntas para ti:
+When y Then que ejecuta una herramienta de tests. El Orchestrator te cuenta sus dos escenarios
+en el mismo mensaje, con las reglas que necesita que confirmes:
 
 ```text
-**The scenarios** (all prices are set by you, tax already included):
+**The scenarios to approve (G1)**
 
-> **Background:** the tax rate is 21%
->
-> **1. The total adds up every piece in the cart**
-> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
-> The total is **96.80**, and the tax included in it is **16.80**.
->
-> **2. The tax is rounded to the cent**
-> A cart with 1 × Small cup at 25.00.
-> The total is **25.00**, and the tax included in it is **4.34**.
->
-> **3. An empty cart costs nothing**
-> The total is **0.00**, and the tax included is **0.00**.
+*A cart with several pieces shows its total, taxes included*
+- The catalogue has a Blue mug at 18.00 and a Large bowl at 24.50.
+- The customer puts 2 Blue mugs and 1 Large bowl in the cart.
+- The cart shows a subtotal of **60.50**, tax of **12.71** and a total of **73.21**.
 
-I also wrote two hidden examples that the Builder won't see, to check it implemented the rule
-and didn't just match the visible numbers.
+*An empty cart costs nothing*
+- Subtotal **0.00**, tax **0.00**, total **0.00**.
 
-**Questions:**
-1. **Do your prices already include tax?** I recommend yes: the price on each piece is what the
-   customer pays, and the cart shows how much of it is tax. The alternative is that you set
-   prices before tax and the cart adds the tax on top. In that case scenario 1 would read
-   "subtotal 80.00 + tax 16.80 = 96.80".
-2. **Which tax rate, and which currency?** I used 21% as a placeholder (Spain's VAT rate) and
-   left out the currency. Tell me your rate and currency and I'll put them in.
-3. **Rounding:** I recommend working out the tax once on the cart total, rounded to the nearest
-   cent. Working it out piece by piece can be off by a cent, for example 6.25 instead of 6.24.
+I also wrote two hidden examples that the Builder doesn't see, to catch a wrong rounding rule or
+a piece added twice.
 
-**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
-corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
+**Two rules I built into these numbers. Please confirm or correct them:**
+1. **Tax rate: 21% on everything.** That's the Spanish standard VAT rate, but it's only my
+   example; tell me your real rate if it's different.
+2. **Catalogue prices are before tax.** The shop adds the tax once, on the whole cart, and
+   rounds to the cent (half a cent rounds up). The alternative is that the prices you list
+   already include tax and the cart shows the tax inside them; in that case I'll redo the
+   examples.
+
+**Next step:** reply "scenarios OK", or give me your rate and price rule, and I'll seal the
+scenarios and launch the build.
 ```
 
-El fichero que hay detrás, `features/cart_total.feature`, dice:
-
-```gherkin
-Feature: Cart total, taxes included
-  The customer sees what the cart costs in total, taxes included,
-  and how much of that total is tax.
-  Prices are set by the seller with tax already included.
-
-  Background:
-    Given the tax rate is 21%
-
-  Scenario: The total adds up every piece in the cart
-    Given a cart with
-      | piece     | price | quantity |
-      | Blue mug  | 24.20 | 1        |
-      | Wide bowl | 36.30 | 2        |
-    When the customer looks at the cart
-    Then the total is 96.80
-    And the tax included in the total is 16.80
-
-  Scenario: The tax is rounded to the cent
-    Given a cart with
-      | piece     | price | quantity |
-      | Small cup | 25.00 | 1        |
-    When the customer looks at the cart
-    Then the total is 25.00
-    And the tax included in the total is 4.34
-
-  Scenario: An empty cart costs nothing
-    Given an empty cart
-    When the customer looks at the cart
-    Then the total is 0.00
-    And the tax included in the total is 0.00
-```
-
-Revisa los números: son el contrato que debe cumplir el código. El Orchestrator también escribió
-*ejemplos ocultos* en `features/hidden/cart_total.feature`, las mismas frases con otros datos.
-El Builder nunca los ve, así que un código que solo encaja con los números visibles falla
-([Aprobar los escenarios](../how-to/write-scenarios.md)).
-
-Para ver la *sentada*, la pantalla con todo lo que un Change necesita de ti, ejecuta en una
-terminal:
+Antes de enseñarte nada, el agente hizo commit de los ficheros de escenarios en la rama
+`change/cart-total`, así que puedes leerlos tal como se sellarán. Para verlos en la *sentada*,
+la pantalla con todo lo que un Change necesita de ti, ejecuta en una terminal:
 
 ```bash
 gdd sitting cart-total
 ```
 
-Aún no muestra escenarios, porque el Orchestrator solo hace commit de ellos en la rama del
-Change con tu OK:
+Deberías ver `features/cart_total.feature` (sin las líneas en blanco):
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
 │cart-total · Show the cart total, taxes included · yellow                                         │
 │Scenarios                                                                                         │
-│No scenario files on change/cart-total                                                            │
+│features/cart_total.feature                                                                       │
+│Feature: Cart total with taxes                                                                    │
+│  A customer sees what the cart costs before tax, the tax, and the total to pay.                  │
+│  Catalogue prices are before tax; the tax rate is 21% on the whole cart,                         │
+│  rounded to the nearest cent (half a cent rounds up).                                            │
+│  Scenario: A cart with several pieces shows its total, taxes included                            │
+│    Given the catalogue has these pieces:                                                         │
+│      | piece           | price |                                                                 │
+│      | Blue mug        | 18.00 |                                                                 │
+│      | Large bowl      | 24.50 |                                                                 │
+│    And the customer puts 2 "Blue mug" in the cart                                                │
+│    And the customer puts 1 "Large bowl" in the cart                                              │
+│    When the customer looks at the cart total                                                     │
+│    Then the subtotal is 60.50                                                                    │
+│    And the tax is 12.71                                                                          │
+│    And the total is 73.21                                                                        │
+│  Scenario: An empty cart costs nothing                                                           │
+│    Given the catalogue has these pieces:                                                         │
+│      | piece           | price |                                                                 │
+│      | Blue mug        | 18.00 |                                                                 │
+│    When the customer looks at the cart total                                                     │
+│    Then the subtotal is 0.00                                                                     │
+│    And the tax is 0.00                                                                           │
+│    And the total is 0.00                                                                         │
+...
+│↑↓ scroll · a approve · c ask for changes · q quit                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Revisa los números: son el contrato que debe cumplir el código. El 21% de 60,50 es 12,705, así
+que el primer escenario fija también cómo se redondea el céntimo. Baja con las flechas hasta los
+*ejemplos ocultos* de `features/hidden/cart_total_hidden.feature`, las mismas frases con otros
+datos:
+
+```text
+┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
+│features/hidden/cart_total_hidden.feature · hidden: the Builders never see it                     │
+│Feature: Cart total with taxes (hidden examples)                                                  │
+│  Scenario: Tax on the whole cart rounds down when under half a cent                              │
+│    Given the catalogue has these pieces:                                                         │
+│      | piece           | price |                                                                 │
+│      | Dinner plate    | 15.99 |                                                                 │
+│    And the customer puts 3 "Dinner plate" in the cart                                            │
+│    When the customer looks at the cart total                                                     │
+│    Then the subtotal is 47.97                                                                    │
+│    And the tax is 10.07                                                                          │
+│    And the total is 58.04                                                                        │
+...
 │Red zones: approved                                                                               │
 │Plan: not needed for a yellow change                                                              │
 │↑↓ scroll · a approve · c ask for changes · q quit                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Pulsa `q` y responde en el chat, con tus respuestas a sus preguntas:
+El Builder nunca ve los ejemplos ocultos, así que un código que solo encaja con los números
+visibles falla ([Aprobar los escenarios](../how-to/write-scenarios.md)). `Red zones: approved` y
+`Plan: not needed` significan que nada más te espera en esta sentada.
+
+Podrías aprobar aquí con `a`. Pulsa `q` en su lugar y responde en el chat, con tus respuestas a
+sus reglas:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
-El agente hace commit de los escenarios, registra la puerta de escenarios (G1, *Scenario Gate*)
-con tus palabras y lanza el Change. En menos de un minuto responde:
+El agente registra la puerta de escenarios (G1, *Scenario Gate*) con tus palabras y lanza el
+Change. En menos de un minuto responde:
 
 ```text
-The **cart-total** change is now building on its own. I'll get a notification when it finishes
-or stops.
+Your answers are recorded and the build is running in the background:
 
-**Approved and recorded:**
-- G1, with your note: prices include tax, the rate is 21%, amounts are in euros, and the tax is
-  worked out once on the cart total.
-- The Builder's brief for this change, with those rules. It says to use exact money arithmetic
-  rather than approximate decimals, and to pass the tax rate in rather than fixing it in the
-  code.
+- **Scenarios approved (G1):** sealed with your rule: 21% tax on the whole cart, catalogue
+  prices before tax, and half a cent rounds up.
+- **What the Builder gets:** one short brief. Amounts are kept exact to the cent, with no
+  floating-point rounding errors, and the 21% rate sits in one named place so it's easy to
+  change later.
+- **Decision I made myself:** this change isn't a protected zone. It shows prices and taxes but
+  doesn't take any money. I'll raise it again when payments come in.
 
-**What happens now:**
-1. Tests are written first.
-2. The Builder writes the code until the checks pass.
-3. A Reviewer from a different model family checks it.
-4. The change merges into `main` and goes to the test server, which is simulated for now.
-5. The build pauses for your **G4** sign-off.
+The steps: first a Builder writes tests that fail, then code that makes them pass, and the
+automatic checks run. Then a reviewer from another AI vendor (gpt-6-astra) checks the work, the
+full checks run including the hidden examples, and the release (simulated for now) follows.
+Then it stops for your final OK (G4).
 
-**Next step:** wait for the build. When it pauses at G4, I'll show you the result in plain
-words and you answer OK, KO, or "polish" with your notes.
+**Next step:** wait. I'll be notified when it finishes or stops, and I'll come back with the
+result for your OK.
 ```
 
-Fíjate en *Approved and recorded*. Aprobar G1 *sella* los ficheros de escenarios, así que ningún
-agente puede cambiarlos sin una aprobación nueva
-([Mantener honestos a los agentes](../explanation/safety.md)).
+Fíjate en *sealed*. Aprobar G1 *sella* los ficheros de escenarios, así que ningún agente puede
+cambiarlos sin una aprobación nueva ([Mantener honestos a los agentes](../explanation/safety.md)).
 
 ## 6. Sigue la construcción en el Board
 
 A partir de aquí la *receta*, la secuencia fija de pasos que gdd ejecuta para un Change, sigue
 sola. En orden, gdd:
 
-1. creó un worktree de git para el Change, una segunda copia de trabajo en su propia carpeta,
-   `../shop.worktrees/cart-total`, en la rama `change/cart-total`, y dejó tu copia de trabajo en
+1. crea un worktree de git para el Change, una segunda copia de trabajo en su propia carpeta,
+   `../shop.worktrees/cart-total`, en la rama `change/cart-total`, y deja tu copia de trabajo en
    `main`;
-2. arrancó el **Builder en modo test** (Claude Code, Sonnet), que escribió los pasos de los
-   escenarios y los tests unitarios, en rojo porque el código aún no existía;
-3. arrancó el **Builder en modo build**, en una sesión aparte que no puede editar los
-   escenarios, que escribió `src/shop/cart.py` hasta que pasó la puerta del bucle (G2, *Loop
+2. arranca el **Builder en modo test** (Claude Code, Sonnet), que escribe los pasos de los
+   escenarios y los tests unitarios, en rojo porque el código aún no existe;
+3. arranca el **Builder en modo build**, en una sesión aparte que no puede editar los
+   escenarios, que escribe `src/shop/cart.py` hasta que pasa la puerta del bucle (G2, *Loop
    Gate*): lint, tipos, tests unitarios, los escenarios y Path Guard, la comprobación de qué
    ficheros puede editar cada rol;
-4. ejecutó la puerta de integración (G3, *Merge Gate*): todos los escenarios, ejemplos ocultos
+4. ejecuta la puerta de integración (G3, *Merge Gate*): todos los escenarios, ejemplos ocultos
    incluidos, más las comprobaciones de seguridad, licencias, fichero de bloqueo y secretos;
-5. arrancó el **Reviewer** (Codex), que leyó el Change entero y dijo OK;
-6. fusionó el Change en `main`, lo construyó y lo desplegó en pre, el entorno previo a
-   producción (ambas cosas simuladas aquí), y se detuvo en la puerta de salida (G4, *Release
+5. arranca el **Reviewer** (Codex), que lee el Change entero y dice OK o KO;
+6. fusiona el Change en `main`, lo construye y lo despliega en pre, el entorno previo a
+   producción (ambas cosas simuladas aquí), y se detiene en la puerta de salida (G4, *Release
    Gate*).
 
-Para seguirlo, abre el Board en otra terminal:
-
-```bash
-gdd board
-```
-
-Deberías ver el Change en Build:
+El Board que dejaste abierto pasa el Change a Build:
 
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
@@ -586,12 +595,11 @@ Deberías ver el Change en Build:
 │› cart-total · yellow · Show the cart total, taxes included · building · G1:ok                    │
 │Release (0)                                                                                       │
 │Done (0) · d to show                                                                              │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-El Board no se actualiza solo. Para ver dónde está ahora el Change, pulsa `q` y vuelve a
-abrirlo. Unos dos minutos después del lanzamiento, está en Release:
+Cuando el Change se detiene en G4, el mismo Board lo muestra en Release:
 
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
@@ -600,9 +608,20 @@ abrirlo. Unos dos minutos después del lanzamiento, está en Release:
 │Release (1)                                                                                       │
 │› cart-total · yellow · Show the cart total, taxes included · waiting for your G4 · G1:ok, G3:ok  │
 │Done (0) · d to show                                                                              │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Si una puerta falla, el Builder recibe otra ronda. Al llegar a su límite, el Change se *aparca*:
+el Board lo muestra como `parked` en Build, y el agente te dice por qué y te propone el
+siguiente paso ([Volver a poner en marcha un Change aparcado](../how-to/parked-change.md)).
+
+> [!NOTE]
+> En la ejecución de esta página, el Change se aparcó tres veces antes de G4, por fallos de
+> gdd 0.1.1: el Reviewer pidió un arreglo en un fichero de pasos que solo puede escribir el modo
+> test, y gdd mandó la ronda de arreglo al modo build. El agente quitó entonces el worktree del
+> Change y lo volvió a lanzar, y ese lanzamiento llegó directo a G4 en unos dos minutos y medio.
+> Los detalles de abajo conservan los aparcamientos, para que veas cómo se muestran.
 
 Pulsa `Enter` para ver los detalles del Change, con dónde se ha ido su tiempo:
 
@@ -614,21 +633,22 @@ Pulsa `Enter` para ver los detalles del Change, con dónde se ha ido su tiempo:
 │State: in-pre                                                                                     │
 │Gates: G1:ok, G3:ok                                                                               │
 │Paths: src/shop/cart.py, tests/unit/test_cart.py, features/cart_total.feature,                    │
-│features/hidden/cart_total.feature, tests/acceptance/steps/**                                     │
+│tests/acceptance/steps/**                                                                         │
 │Inbox: .gdd/changes/cart-total/inbox.md                                                           │
-│Flow time 3m · active 2m (59%) · waiting 1m · between steps 0s                                    │
-│Agents: builder-test · sonnet 51s, reviewer · gpt-6-astra 30s, builder-build · sonnet 17s         │
-│Gates: security 1s, secrets 0s, acceptance 0s, acceptance_full 0s, unit 0s, architecture 0s, lint │
-│0s, types 0s, dependencies 0s, lockfile 0s, path-guard 0s                                         │
-│Waiting: at the sitting 55s, to start 15s                                                         │
-│Esc to go back · q quit                                                                           │
+│Flow time 18m · active 4m (24%) · waiting 14m · between steps 0s                                  │
+│Agents: builder-test · sonnet 2m, reviewer · gpt-6-astra 1m, builder-build · sonnet 1m            │
+│Gates: acceptance 2s, security 2s, unit 2s, types 1s, acceptance_full 1s, secrets 1s, architecture│
+│1s, lint 1s, dependencies 0s, lockfile 0s, path-guard 0s                                          │
+│Waiting: parked 6m (Path Guard failed after test mode: src/shop/cart.py: protected path for       │
+│builder-test), parked 4m (G3 still red after one fix), parked 2m (Reviewer KO or G3 red after one │
+│fix), at the sitting 1m, to start 15s                                                             │
+│Esc to go back · r reload · q quit                                                                │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Fíjate en la línea *Flow time*: el Change tardó tres minutos, dos de ellos activos. *Waiting at
-the sitting* es el tiempo que el Change esperó tus respuestas. Si una puerta falla, el Builder
-recibe otra ronda. Al llegar a su límite, el Change se *aparca* y el agente te dice por qué
-([Volver a poner en marcha un Change aparcado](../how-to/parked-change.md)).
+Fíjate en la línea *Flow time*: 18 minutos, 4 de ellos activos. La línea *Waiting* dice adónde
+fue el resto: cada aparcamiento con su motivo, y *at the sitting*, el tiempo que el Change
+esperó tus respuestas. Un Change que va directo solo espera en la sentada y para empezar.
 
 ## 7. Responde a la puerta de salida
 
@@ -636,41 +656,29 @@ El agente vuelve al chat. El Change está fusionado y en pre, y espera tu respue
 de salida (G4):
 
 ```text
-The **cart-total** change is built and checked, and it's waiting for your **G4** answer.
+...
+**What you'd approve:** the cart now gives three amounts: the subtotal before tax, the 21% tax
+on the whole cart rounded to the cent (half a cent rounds up), and the total. Adding the same
+piece again adds to its quantity. The code is merged on `main` and deployed to pre. Pre is
+simulated here, so there's no video or screenshots.
 
-**What it does:** a cart adds up the pieces in it and shows two figures, the total and how much
-of that total is tax.
-- 1 Blue mug (24.20) + 2 Wide bowls (36.30 each) gives a **total of 96.80, of which 16.80 is
-  tax**.
-- 1 Small cup (25.00) gives **25.00, of which 4.34 is tax**, rounded to the cent.
-- An empty cart gives **0.00 and 0.00**.
-
-The rule you approved is implemented: prices already include tax, the rate is 21%, and the tax
-is worked out once on the cart total.
-
-**Checks:**
-- **All 6 scenarios pass**, including the 2 hidden examples the Builder never saw. That shows
-  it implemented the rule rather than copying the numbers.
-- **The other merge checks pass:** lint, types, unit tests, security, secrets and dependencies.
-- **Mutation testing was skipped,** as the rules say for yellow changes. It deliberately breaks
-  the code to see whether the tests notice.
-- **The Reviewer from another model family said OK** with no findings.
-- **It's merged into `main`.** The test server is simulated, so there's no page or video to
-  look at yet. For now the cart only exists in the shop's core, not on a web page.
-
-**Two things you should know:**
-- The inbox asks you to approve the cart's technical interface: how other code adds pieces and
-  reads the totals. That's a code detail; I've checked it and it's fine, so you don't need to
-  decide anything there.
-- The cart doesn't yet refuse odd input like a quantity of 0 or a negative price. Nothing
-  allows that today, but I'd add the rule when pieces are added from a real page.
-
-**Next step:** reply **OK** to send it to production (simulated for now), **KO** to reject it,
-or **polish** with what you'd like changed.
+**The evidence:**
+- **Reviewer:** OK, with no new findings. Its earlier point is fixed: subtotal, tax and total
+  are now separate steps.
+- **Full checks (G3):** all green, including security, dependencies and a scan for leaked
+  secrets.
+- **Demo:** I ran all 5 scenarios on `main` and they all pass:
+  - a cart with several pieces: 60.50 + 12.71 = 73.21
+  - an empty cart: 0.00
+  - the two hidden examples (rounding down, and the same piece added twice)
+  - the smoke test
+...
+**Next step:** reply "OK", "polish", or "KO" (reject; production stays untouched).
 ```
 
-Mira primero las comprobaciones. Los seis escenarios son los tres que aprobaste, los dos ejemplos
-ocultos y el escenario de humo de Setup.
+Mira primero las pruebas. Los cinco escenarios son los dos que aprobaste, los dos ejemplos
+ocultos y el escenario de humo de Setup. El agente señaló además un hueco que dejaría para un
+Change posterior: el carrito acepta una cantidad de 0 o menos.
 
 El agente leyó todo esto de la *Decision Inbox* del Change, el único mensaje que gdd guarda para
 cada Change, en `.gdd/changes/cart-total/inbox.md`:
@@ -681,58 +689,57 @@ cada Change, en `.gdd/changes/cart-total/inbox.md`:
 Color yellow · lane full · state in-pre
 
 ## How it works
-- `src/shop/cart.py` adds a plain Python cart, independent of the web layer.
-- Totals sum tax-inclusive prices multiplied by quantities using `Decimal`.
-- Included tax uses the supplied rate, calculated once on the total and rounded half up.
-- Acceptance steps follow the existing fixture pattern; unit tests cover rounding, alternative rates and empty carts.
+`src/shop/cart.py` holds catalogue lookup, accumulated quantities and totals.
+It uses Decimal amounts and applies 21% tax once to the subtotal, rounding half up.
+Acceptance steps follow the existing fixture pattern and call the package directly.
+Adding the same piece again increases its quantity.
 
 ## Needs your decision
-- API expected by the tests: shop.cart.Cart(tax_rate: Decimal) with add(name: str, price: Decimal, quantity: int), and Decimal properties total and tax_included, both quantized to two places (str() shows e.g. 96.80). The rate is a percentage (Decimal(21)).
-- G4 · Release Gate: check the pre demo and the change message, then answer with gdd resume cart-total --g4 ok (promote to production), --g4 ko (reject: production untouched) or --g4 polish --note <what to polish> (one more Builder round).
+- Test mode: API assumed in shop.cart: TAX_RATE=Decimal('0.21'); Cart(catalogue: dict[str, Decimal]); Cart.add(piece, quantity) raises KeyError for a piece not in the catalogue; Cart.totals() -> Totals(subtotal, tax, total) as 2-decimal Decimal. Lint I001 on the new tests fails only while src/shop/cart.py is missing (Ruff then sees shop as third-party); the blank line before the shop import follows the package and is right once the module exists.
+- G4 · Release Gate: check the pre demo and the change message, then answer your agent (or the sitting screen): OK promotes to production, KO rejects it (production untouched), polish with your notes runs one more Builder round. Your agent runs gdd resume cart-total --g4 ok, --g4 ko or --g4 polish --note <your notes>.
 
 ## Decided without you
-- No human plan: the change is yellow. Money as Decimal, tax rate given to the cart (not hard-coded), tax computed once on the cart total and rounded half up to the cent.
-- Euros: scenarios keep amounts without the euro sign, as approved; the currency shows up when the cart reaches a page.
+- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single constant (21%), confirmed by the owner
+- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in
+...
 
 ## Parked
 - Nothing.
+...
 ```
 
 - **How it works** es la explicación breve del código que da el Reviewer.
-- **Needs your decision** reúne las notas de los agentes y la petición de G4. El agente las
-  leyó por ti y ejecuta el comando en el que se convierte tu respuesta.
+- **Needs your decision** reúne las notas de los agentes y la petición de G4. El Builder en
+  modo test describió el código que esperan sus tests; la línea de G4 dice qué hace cada
+  respuesta. Tú respondes al agente con palabras, y él ejecuta el comando en el que se convierte
+  tu respuesta.
 - **Decided without you** lista lo que el Orchestrator decidió por su cuenta, todo reversible.
 - **Parked** lista lo que un agente dejó para más tarde: aquí, nada.
 
-La página de G4 de la sentada muestra la misma decisión, con las palabras del Reviewer y dónde
-se fue el tiempo (sin las líneas en blanco):
+La página de G4 de la sentada muestra la misma decisión, con las palabras del Reviewer y la
+línea de changelog (sin las líneas en blanco):
 
 ```text
 ┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
 │cart-total · Show the cart total, taxes included · waiting for your G4                            │
 │How it works                                                                                      │
-│- `src/shop/cart.py` adds a plain Python cart, independent of the web layer.                      │
-│- Totals sum tax-inclusive prices multiplied by quantities using `Decimal`.                       │
-│- Included tax uses the supplied rate, calculated once on the total and rounded half up.          │
-│- Acceptance steps follow the existing fixture pattern; unit tests cover rounding, alternative    │
-│rates and empty carts.                                                                            │
+│`src/shop/cart.py` holds catalogue lookup, accumulated quantities and totals.                     │
+│It uses Decimal amounts and applies 21% tax once to the subtotal, rounding half up.               │
+│Acceptance steps follow the existing fixture pattern and call the package directly.               │
+│Adding the same piece again increases its quantity.                                               │
 │Reviewer: OK                                                                                      │
-│No blocking findings. The implementation matches the package, and scenario steps assert exact     │
-│amounts with two decimal places. No duplicated steps or example-specific shortcuts found.         │
-│Recorded G2 and G3 pass; mutation testing was skipped. This review was read-only; no tests were   │
-│rerun.                                                                                            │
+...
+│- No new blocking findings.                                                                       │
+│Recorded G2 and G3 pass; mutation testing was skipped. No files modified or tests rerun during    │
+│this read-only review.                                                                            │
 │Demo: none, the project has no demo command                                                       │
 │Decided without you                                                                               │
-│- No human plan: the change is yellow. Money as Decimal, tax rate given to the cart (not          │
-│hard-coded), tax computed once on the cart total and rounded half up to the cent.                 │
-│- Euros: scenarios keep amounts without the euro sign, as approved; the currency shows up when the│
-│cart reaches a page.                                                                              │
+│- Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single       │
+│constant (21%), confirmed by the owner                                                            │
+│- No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in │
+...
 │Changelog: none set                                                                               │
-│Flow time 3m · active 2m (59%) · waiting 1m · between steps 0s                                    │
-│Agents: builder-test · sonnet 51s, reviewer · gpt-6-astra 30s, builder-build · sonnet 17s         │
-│Gates: security 1s, secrets 0s, acceptance 0s, acceptance_full 0s, unit 0s, architecture 0s, lint │
-│0s, types 0s, dependencies 0s, lockfile 0s, path-guard 0s                                         │
-│Waiting: at the sitting 55s, to start 15s                                                         │
+...
 │↑↓ scroll · o OK · k KO · p polish · q quit                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -741,8 +748,8 @@ se fue el tiempo (sin las líneas en blanco):
 nadie fijó una línea de changelog, así que gdd usa la línea por defecto del tipo: una Feature
 lleva su título bajo `Added`. Esa línea es la que da su versión al Change en el paso 8.
 
-El total y el impuesto son los que aprobaste, y el Reviewer no encontró nada. Pulsa `q` y di OK
-en el chat:
+Los totales son los que aprobaste, y el Reviewer no tiene ningún hallazgo que bloquee. Pulsa `q`
+y di OK en el chat:
 
 ```text
 OK
@@ -751,19 +758,17 @@ OK
 El agente promueve el Change y lo cierra:
 
 ```text
-**cart-total** is released as **v0.1.0**, and the change is closed. Production is still
-simulated, so nothing is live on the web yet. The shop's core now has a cart that shows the
-total and the tax included in it.
+The cart total is in production as **v0.1.0**, and the change is closed. Production is still
+simulated, so nothing is deployed to a real server yet.
 
-**What it cost:** the report shows **$0.39** in total. That figure covers only the Builder's
-two rounds (writing the tests, then the code). The Reviewer and my own work show $0.00, which
-looks like they weren't priced in the report rather than free. Your answers stopped the process
-twice for a human decision: the scenarios and G4.
+What shipped: the cart shows the subtotal, the 21% tax on the whole cart (rounded to the cent,
+with half a cent rounding up), and the total. It's tagged and recorded on `main`.
 
-**Next step:** I recommend `/gdd-discover`. Orders are the area you said must never fail, so
-it's worth deciding how orders are stored and how one-of-a-kind stock works before building
-more. If you'd rather keep building, the natural next change is the catalogue: run
-`/gdd-change customers can browse the pieces`.
+**Cost:** about $0.91 for the Builders. The reviewer's and my own calls aren't priced, because
+gdd has no price for those two models, so the real total is higher.
+...
+**Next step:** I recommend `/gdd-change a quantity must be at least 1`. It's small and closes
+the gap before customers can choose quantities. The alternative is `/gdd-discover` first.
 ```
 
 Fíjate en **v0.1.0**. OK promovió a producción la build que se ejecutó en pre (simulada aquí) y
@@ -774,65 +779,89 @@ cerró el Change. Su worktree ya no está; su rama se queda.
 Para ver el Change en `main`, ejecuta:
 
 ```bash
-git log --oneline -6
+git log --oneline -7
 ```
 
 Deberías ver:
 
 ```text
-dc3c99a gdd(cart-total): G3 Merge Gate · Show the cart total, taxes included
-7635ef3 gdd(cart-total): change work
-394bab7 cart-total: scenarios (G1)
-85aa812 gdd: setup (G0)
-b356174 gdd bootstrap
-5cbafa8 gdd init 0.1.0
+c99adb1 (HEAD -> main, tag: v0.1.0) Release v0.1.0
+eece577 gdd(cart-total): G3 Merge Gate · Show the cart total, taxes included
+c803a66 (change/cart-total) gdd(cart-total): change work
+c4ac2ed cart-total: scenarios for G1
+f24d02c gdd: setup (G0) · brief confirmed by the owner
+3255fe9 gdd: setup (G0)
+ceced6c gdd bootstrap
 ```
 
-Los dos commits que hay bajo el primero, los escenarios y el trabajo, vienen de la rama
-`change/cart-total`. `dc3c99a` es el commit de fusión que los unió a `main`. Lleva el tag
-`v0.1.0`, porque gdd da una versión a un Change promovido con línea de changelog, y la primera
-versión de un proyecto es 0.1.0. Su mensaje guarda el registro del Change:
+`c4ac2ed` y `c803a66`, los escenarios y el trabajo, vienen de la rama `change/cart-total`.
+`eece577` es el commit de fusión que los unió a `main`. Su mensaje guarda el registro del
+Change:
 
 ```text
 gdd(cart-total): G3 Merge Gate · Show the cart total, taxes included
 
 Color: yellow · lane full · type Feature
 Approvals: G1 ok (human, 2026-10-31, 2 scenario file(s) sealed)
-Reviewer: OK
+Reviewer: KO -> KO -> OK
+...
 Decided without the human:
-  - No human plan: the change is yellow. Money as Decimal, tax rate given to the cart (not hard-coded), tax computed once on the cart total and rounded half up to the cent.
-  - Euros: scenarios keep amounts without the euro sign, as approved; the currency shows up when the cart reaches a page.
-Tokens: in 103,260 · cache 533,866 · out 8,817 · 0.39 USD (estimate) · 13 agent call(s)
+  - Money as Decimal, ROUND_HALF_UP to the cent on the cart subtotal's tax; tax rate a single constant (21%), confirmed by the owner
+  - No new red zone: prices and taxes are shown, no payment is taken; revisit when payments come in
+...
+Tokens: in 245,725 · cache 1,708,519 · out 22,043 · 0.91 USD (estimate) + unknown (3 call(s) with no price) · 10 agent call(s)
 Record: .gdd/changes/cart-total/ (local)
 
 Changelog: Added · Show the cart total, taxes included
 Breaking: no
 ```
 
-Fíjate en las dos últimas líneas: la línea de changelog por defecto del paso 7. El proyecto aún
-no tiene `CHANGELOG.md`, así que la línea vive en este commit
-([Publicar versiones y mantener un changelog](../how-to/releases-and-changelog.md)). El
-`13 agent call(s)` es un error de cuenta conocido de gdd 0.1.0, que suma también los diez
-comandos de puerta que se ejecutaron.
+`Reviewer: KO -> KO -> OK` son todos los veredictos del Reviewer sobre este Change: los dos KO
+son el rodeo de la nota del paso 6. La línea `Tokens` cuenta las llamadas a agentes, 10 aquí
+porque el Change se construyó dos veces. `unknown (3 call(s) with no price)` son las llamadas
+del Reviewer: Codex no informa de su coste, y `gdd/models.toml` no tiene precio para su modelo
+([Medir el trabajo](../how-to/measure.md)).
 
-Para las llamadas reales, el agente ejecutó [`gdd report`](../reference/cli/report.md) para el
-Change y te lo leyó:
+Las dos últimas líneas son la línea de changelog por defecto del paso 7. Con la promoción, gdd la
+escribió en `CHANGELOG.md` e hizo commit como `Release v0.1.0`, con el tag `v0.1.0`: gdd da una
+versión a un Change promovido con línea de changelog, y la primera versión de un proyecto es
+0.1.0 ([Publicar versiones y mantener un changelog](../how-to/releases-and-changelog.md)).
+`CHANGELOG.md` queda así:
+
+```text
+# Changelog
+
+All notable changes to this project are documented in this file. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-10-31
+
+### Added
+
+- Show the cart total, taxes included <!-- gdd: eece57748e08 -->
+```
+
+Para el coste de cada llamada, el agente ejecuta [`gdd report`](../reference/cli/report.md) para
+el Change:
 
 ```text
 role -> calls · tokens in · cache · out · cost USD · seconds
-builder-build -> 1 · 23,685 · 154,625 · 1,605 · 0.1262 · 17
-builder-test -> 1 · 43,025 · 296,425 · 6,017 · 0.2619 · 51
-orchestrator -> 1 · 31,096 · 1,649,674 · 8,069 · 0.0000 · 0
-reviewer -> 1 · 36,550 · 82,816 · 1,195 · 0.0000 · 30
-TOTAL -> in 134,356 · cache 2,183,540 · out 16,886 · 0.3881 USD
+builder-build -> 4 · 69,961 · 619,797 · 6,456 · 0.4063 · 74
+builder-test -> 3 · 76,160 · 755,282 · 12,381 · 0.5039 · 103
+orchestrator -> 1 · 66,390 · 4,350,540 · 25,029 · unknown · 0
+reviewer -> 3 · 99,604 · 333,440 · 3,206 · unknown · 75
+TOTAL -> in 312,115 · cache 6,059,059 · out 47,072 · 0.9102 USD + unknown (4 call(s) with no price)
+unknown: no price in gdd/models.toml for claude-opus-5-5, gpt-6-astra
 Human stops logged: 2
 ```
 
-Una llamada por rol, y dos paradas humanas: los escenarios y G4. La línea del Reviewer no muestra
-coste porque Codex no informa de ninguno, y la línea del Orchestrator, tu sesión de chat,
-tampoco tiene precio.
+Un Change que va directo muestra una llamada por cada rol del Builder y una del Reviewer. La
+línea `orchestrator` es tu sesión de chat, que el agente registra al final. Su coste y el del
+Reviewer salen como `unknown`, nunca 0, y la línea de leyenda nombra los modelos sin precio. Dos
+paradas humanas: los escenarios y G4.
 
-Abre otra vez el Board: el Change está en Done. Pulsa `d` para desplegarlo:
+El Board, todavía abierto, muestra el Change en Done. Pulsa `d` para desplegarlo:
 
 ```text
 ┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
@@ -841,13 +870,13 @@ Abre otra vez el Board: el Change está en Done. Pulsa `d` para desplegarlo:
 │Release (0)                                                                                       │
 │Done (1) · d to hide                                                                              │
 │› cart-total · yellow · Show the cart total, taxes included · closed · G1:ok, G3:ok, G4:ok        │
-│↑↓ move · Enter details · d done · t time · q quit                                                │
+│↑↓ move · Enter details · d done · t time · r reload · q quit                                     │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Has creado un proyecto, has aprobado sus zonas rojas y sus primeros escenarios, y has llevado un
-Change por la construcción, la revisión y la puerta de salida hasta la versión `v0.1.0`, en unos
-ocho minutos. Escribiste un solo comando de gdd; tu agente hizo el resto contigo.
+Change por la construcción, la revisión y la puerta de salida hasta la versión `v0.1.0`.
+Escribiste un solo comando de gdd; tu agente hizo el resto contigo.
 
 ## Siguientes pasos
 
@@ -859,3 +888,4 @@ ocho minutos. Escribiste un solo comando de gdd; tu agente hizo el resto contigo
   contrato, y ejemplos ocultos.
 - [Mapear y aprobar zonas rojas](../how-to/red-zones.md): convierte las áreas sensibles del
   Brief en rutas rojas, como los pedidos de esta tienda.
+

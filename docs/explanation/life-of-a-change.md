@@ -139,8 +139,9 @@ Decision Inbox says why.
 ## 5. G3, the Merge Gate
 
 G3 runs the whole automatic chain: every scenario in strict mode, hidden examples included,
-static security analysis, new dependency checks, secrets in the diff and, when the color asks
-for it, mutation testing on the diff. Path Guard runs before the commands and again after.
+static security analysis, new dependency checks, secrets in the lines the change adds and, when
+the color asks for it, mutation testing on the diff. Path Guard runs before the commands and
+again after.
 
 A red G3 gets one fix: a build-mode round with `fix=g3`, then G2, then G3 again, which decides.
 If G3 is still red, the change parks.

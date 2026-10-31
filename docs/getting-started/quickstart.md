@@ -4,9 +4,13 @@ On this page you take one change of a small example shop from an empty folder to
 production. You use a terminal to install gdd and create the
 project; after that, the work goes through your coding agent.
 
-<!-- Every output on this page comes from one real run of gdd 0.1.0 (main at e244577) on
+<!-- Every output on this page comes from one real run of gdd 0.1.1 (main at 30b50c4) on
 2026-10-31, with Claude Code as the chat agent and Codex as the Reviewer, in a throwaway
-project `shop`. The whole run, from the form to G4, took about eight minutes. -->
+project `shop`. On the way to G4 the change parked three times on gdd 0.1.1 bugs (a Reviewer
+finding written as a Markdown link did not start the fix round in test mode, and two relaunch
+paths that followed from it) and the agent rebuilt it; the G4 blocks trim the lines of that
+detour with `...`. Without it, the launch takes about two and a half minutes to reach G4; the
+whole run, parks included, took 23 minutes from the form to the release. -->
 
 ## Before you start
 
@@ -25,14 +29,14 @@ project `shop`. The whole run, from the form to G4, took about eight minutes. --
 Install the `gdd` binary and check it:
 
 ```bash
-cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.0 gdd
+cargo install --locked --git https://github.com/MarsGotta/gdd --tag v0.1.1 gdd
 gdd --version
 ```
 
 You should see:
 
 ```text
-gdd 0.1.0
+gdd 0.1.1
 ```
 
 If your shell cannot find `gdd`, `~/.cargo/bin` is not on your `PATH`: see
@@ -78,17 +82,20 @@ The last step is the summary:
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Press `Enter`. gdd writes the project and commits it. Then it installs the stack and commits
-its lock file, the file that pins the version of every dependency. You should see, at the end:
+Press `Enter`. gdd writes the project, `CHANGELOG.md` included, and commits it. Then it
+installs the stack and commits its lock file, the file that pins the version of every
+dependency. You should see, at the end:
 
 ```text
 gdd/project.toml
 gdd/commands.toml
 ...
+CHANGELOG.md
+...
 .agents/skills/gdd-stack-python/SKILL.md
 python: uv lock && uv sync --locked
 ...
-Installed 39 packages in 61ms
+Installed 39 packages in 62ms
 ...
 Committed: uv.lock
 Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
@@ -111,49 +118,50 @@ Start your agent in the `shop` folder and run the setup skill. In Claude Code an
 In Codex, skills start with `$`: `$gdd-setup`, and later `$gdd-change`. If the agent does not
 know the skill, you started it outside the `shop` folder.
 
-The agent reads what the form wrote and asks only what is missing:
+The agent reads what the form wrote and asks only what is missing. It writes the Project
+Brief and runs the self-test of the [harness](../glossary.md#harness), the files and commands
+gdd uses to check your project. Then it asks you to approve the *red zones*, the paths that
+always get the strictest checks, and to check what it guessed:
 
 ```text
-Setup already has the basics: a web shop in Python, scenarios run with pytest-bdd, a skeleton
-that runs, and one sensitive area (losing a customer's order). I need a few answers before I
-write the Brief:
-
-1. **What is the shop, in a few lines?** ...
-2. **Who is it for?** ...
-3. **Web framework.** I recommend **Django**. ... The alternative is **FastAPI**, if you'd
-   rather have an API with a separate frontend.
-4. **What else would be serious if it failed?** ...
-```
-
-Answer in your own words, briefly. The agent writes the Project Brief and runs the self-test of
-the [harness](../glossary.md#harness), the files and commands gdd uses to check your project.
-Then it asks you to approve the *red zones*, the paths that always get the strictest checks:
-
-```text
-The harness self-test passes: **harness 4/4**. ...
-
-**1. Approve the red zones.** ... For now there are only two:
-- **The harness itself:** gdd's own files, the CI workflow and the agent instructions.
-- **Dependencies and the toolchain:** the files that decide which outside libraries the shop
-  uses.
-
-"Losing a customer's order" is in the Brief for now. It becomes a red zone once there is real
-order-storage code. Reply **"zones OK"** to approve.
+The harness is ready: the self-test passed 4/4 and the machines opened G0. Everything is
+committed on `main` as `gdd: setup (G0)`, and the session is recorded.
+...
+**What I need from you (one reply is enough):**
+1. **Approve the protected zones.** These are gdd's own files, the CI and the agent
+   instructions, plus the dependency and toolchain files. Any change there gets the strictest
+   checks. Reply "zones OK" and I'll record your approval. No change can start until you do.
+2. **Check my guesses in the Brief:**
+   - The users are customers buying on the web and a shop owner who handles the orders. Is
+     that right?
+   - My recommendation is to leave payments out of the first version and have orders paid
+     outside the shop. The alternative is to include payments from day one, which brings in
+     money as a sensitive area.
 ...
 ```
 
-Say `zones OK`. The agent opens the Setup Gate (G0) and ends with:
+Your agent may ask its questions before it writes the Brief instead. Either way, answer in your
+own words, briefly, and approve the zones in the same reply:
 
 ```text
-Setup is done and **G0 is open**. The harness is ready: the self-test passes all four checks,
-and the red zones you approved are recorded.
-...
-**Next step:** I recommend `/gdd-discover` before the first change. ... If you'd rather start
-building now, run `/gdd-change` with one sentence, ...
+zones OK. Your guesses are right: customers buy on the web and I run the orders. It sells
+handmade ceramics: mugs, bowls and plates. Payments stay out of the first version.
 ```
 
-Notice **G0 is open**: the project is ready for its first change. The agent recommends
-`/gdd-discover`, for bigger ideas; for one small change, go straight to the next step.
+The agent records your approval and ends with:
+
+```text
+Setup is finished. G0 is open, your approval of the protected zones is recorded, and the
+self-test passed 4/4.
+...
+**Next step:** run `/gdd-discover`. It picks the web framework, maps where orders and customer
+data live, and plans the first changes. After that, use `/gdd-change` for the first feature,
+for example "customers can browse the catalogue".
+```
+
+Notice **G0 is open**: the Setup Gate (G0) is open and the zones are approved, so the project
+is ready for its first change. The agent recommends `/gdd-discover`, for bigger ideas; for one
+small change, go straight to the next step.
 
 ## 4. Describe your first change with /gdd-change
 
@@ -165,22 +173,26 @@ Say what you want in a sentence:
 
 The Orchestrator, the role your agent plays here, creates the change `cart-total`. It writes
 its *scenarios*, examples in Gherkin (plain Given, When, Then sentences) of what must happen,
-and shows them to you with the change's color:
+commits them on the change's branch and shows them to you with the change's color:
 
 ```text
-I've drafted the scenarios for **cart-total**. It's yellow, so there's no plan for you to
-approve and the red zones are unchanged. Before I commit them I need your OK and three answers.
+I've set up the change **cart-total** and written its scenarios. It's classified **yellow**:
+ordinary code outside your protected zones. So there's no plan for you to approve now; you
+approve the scenarios now and the finished result at the end.
 
-**The scenarios** (all prices are set by you, tax already included):
+**The scenarios to approve (G1)**
 
-> **Background:** the tax rate is 21%
->
-> **1. The total adds up every piece in the cart**
-> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
-> The total is **96.80**, and the tax included in it is **16.80**.
+*A cart with several pieces shows its total, taxes included*
+- The catalogue has a Blue mug at 18.00 and a Large bowl at 24.50.
+- The customer puts 2 Blue mugs and 1 Large bowl in the cart.
+- The cart shows a subtotal of **60.50**, tax of **12.71** and a total of **73.21**.
 ...
-**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
-corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
+**Two rules I built into these numbers. Please confirm or correct them:**
+1. **Tax rate: 21% on everything.** ...
+2. **Catalogue prices are before tax.** ...
+
+**Next step:** reply "scenarios OK", or give me your rate and price rule, and I'll seal the
+scenarios and launch the build.
 ```
 
 Notice *yellow*, the color of ordinary code: a Reviewer of another model family reads the
@@ -188,21 +200,34 @@ change, and you meet it twice, now and at the end.
 
 ## 5. Approve the scenarios
 
-Answer OK, or what to change, with the answers to its questions. Your OK is the Scenario Gate
-(G1), and it seals the scenarios as the contract the code must meet:
+To read the scenario files themselves, hidden examples included, open the *sitting*, the screen
+of everything a change needs from you, in a terminal:
+
+```bash
+gdd sitting cart-total
+```
+
+You should see the scenarios the agent committed:
+
+![The sitting of cart-total: features/cart_total.feature with its two scenarios, then the hidden examples](../img/qs-sitting-g1.png)
+
+Press `q` and answer in the chat: OK, or what to change, with the answers to its questions.
+Your OK is the Scenario Gate (G1), and it seals the scenarios as the contract the code must meet:
 
 ```text
-OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+scenarios OK. 21% is my rate and my prices are before tax.
 ```
 
 The agent records G1 and launches the change:
 
 ```text
-The **cart-total** change is now building on its own. I'll get a notification when it finishes
-or stops.
+Your answers are recorded and the build is running in the background:
+
+- **Scenarios approved (G1):** sealed with your rule: 21% tax on the whole cart, catalogue
+  prices before tax, and half a cent rounds up.
 ...
-**Next step:** wait for the build. When it pauses at G4, I'll show you the result in plain
-words and you answer OK, KO, or "polish" with your notes.
+**Next step:** wait. I'll be notified when it finishes or stops, and I'll come back with the
+result for your OK.
 ```
 
 The Builder now writes the tests and the code, the gates check it and the Reviewer reads it.
@@ -216,34 +241,39 @@ You should see the change under Build:
 
 ![The Board of shop: Build (1), cart-total, yellow, building, G1:ok](../img/qs-board-build.png)
 
-The Board does not refresh by itself. To see where the change is now, press `q` and open it
-again.
+The Board reloads by itself every two seconds, so you can leave it open: the change moves to
+Release on its own.
 
 ## 6. Approve at G4
 
-After about two minutes the change pauses at the Release Gate (G4), merged into `main` and
+A few minutes later the change pauses at the Release Gate (G4), merged into `main` and
 deployed to pre, the environment before production. The agent comes back to the chat:
 
 ```text
-The **cart-total** change is built and checked, and it's waiting for your **G4** answer.
+...
+**What you'd approve:** the cart now gives three amounts: the subtotal before tax, the 21% tax
+on the whole cart rounded to the cent (half a cent rounds up), and the total. Adding the same
+piece again adds to its quantity. The code is merged on `main` and deployed to pre. Pre is
+simulated here, so there's no video or screenshots.
 
-**What it does:** a cart adds up the pieces in it and shows two figures, the total and how much
-of that total is tax.
+**The evidence:**
+- **Reviewer:** OK, with no new findings. ...
+- **Full checks (G3):** all green, including security, dependencies and a scan for leaked
+  secrets.
+- **Demo:** I ran all 5 scenarios on `main` and they all pass:
 ...
-**Checks:**
-- **All 6 scenarios pass**, including the 2 hidden examples the Builder never saw. ...
-- **The Reviewer from another model family said OK** with no findings.
-...
-**Next step:** reply **OK** to send it to production (simulated for now), **KO** to reject it,
-or **polish** with what you'd like changed.
+**Next step:** reply "OK", "polish", or "KO" (reject; production stays untouched).
 ```
 
-Look at the checks first. The six scenarios are the three you approved, two *hidden examples*
+Look at the evidence first. The five scenarios are the two you approved, two *hidden examples*
 the Builder never saw, and the smoke scenario Setup wrote to check that the project runs.
 
 The G4 page of the sitting, `gdd sitting cart-total`, shows the same decision:
 
 ![The G4 sitting of cart-total: how it works, Reviewer OK, no demo, decided without you](../img/qs-sitting-g4.png)
+
+<!-- The image leaves out four rows with the Reviewer's link to the file it had flagged (an
+absolute path of the run) and the rows of the detour described at the top of the page. -->
 
 Say OK:
 
@@ -254,14 +284,17 @@ OK
 The agent promotes the change and closes it:
 
 ```text
-**cart-total** is released as **v0.1.0**, and the change is closed. Production is still
-simulated, so nothing is live on the web yet. The shop's core now has a cart that shows the
-total and the tax included in it.
+The cart total is in production as **v0.1.0**, and the change is closed. Production is still
+simulated, so nothing is deployed to a real server yet.
+
+What shipped: the cart shows the subtotal, the 21% tax on the whole cart (rounded to the cent,
+with half a cent rounding up), and the total. It's tagged and recorded on `main`.
 ...
 ```
 
-`main` now holds the change: the two commits of its branch, the scenarios and the work, and the
-merge commit that joined them, tagged `v0.1.0`. Opened again, the Board shows it under Done:
+`main` now holds the change: the two commits of its branch, the scenarios and the work, the
+merge commit that joined them, and the release commit that added its line to `CHANGELOG.md`,
+tagged `v0.1.0`. The Board shows it under Done; press `d` to unfold it:
 
 ![The Board of shop: Done (1), cart-total, yellow, closed, G1:ok, G3:ok, G4:ok](../img/qs-board-done.png)
 

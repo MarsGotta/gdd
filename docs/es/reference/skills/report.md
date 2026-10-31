@@ -39,9 +39,10 @@ Nada.
 3. Lo resume en unas pocas líneas: el total, el rol y el modelo que más gastan, los reintentos y
    las paradas humanas.
 
-Un agente que no informa de un precio muestra un coste de 0. La skill lo dice, y te recuerda que
-con una suscripción el coste es teórico: lo que sirve para comparar son los tokens. Rellena
-`[prices]` en `gdd/models.toml` para tener una estimación; consulta
+Un agente que no informa de un coste, como Codex, recibe una estimación a partir de `[prices]` en
+`gdd/models.toml`, marcada con `~`; si su modelo no tiene precio ahí, el informe dice `unknown`,
+nunca 0. La skill te recuerda que con una suscripción el coste es teórico: lo que sirve para
+comparar son los tokens. Para rellenar los precios, consulta
 [Elegir agentes y modelos](../../how-to/agents-and-models.md#6-rellena-los-precios-para-las-estimaciones).
 
 ## Qué decides tú
