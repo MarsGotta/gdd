@@ -41,19 +41,6 @@ const LINE_LENGTH: usize = 220;
 /// Decisions taken without the human the message lists: the last ones.
 const DECIDED: usize = 8;
 
-/// Agents of the log lines that are no agent calls: their tokens do not count.
-const NOT_AGENTS: [&str; 9] = [
-    "-",
-    "checks",
-    "path-guard",
-    "merge",
-    "verdict",
-    "build",
-    "deploy_pre",
-    "tests_pre",
-    "demo",
-];
-
 /// What merging a change reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
@@ -583,7 +570,8 @@ fn unlinked(text: &str) -> String {
     out
 }
 
-/// The tokens of the agent calls of change `id` in the log under the state root `state`, in one
+/// The tokens of the agent calls of change `id` in the log under the state root `state` (see
+/// [`log::Record::is_agent_call`]), what they cost (see [`cost`]) and how many they are, in one
 /// line: nothing when there are none.
 fn tokens(state: &Path, id: &str) -> Result<Option<String>, String> {
     let text = match fs::read_to_string(state.join(log::PATH)) {
@@ -596,24 +584,36 @@ fn tokens(state: &Path, id: &str) -> Result<Option<String>, String> {
     let calls: Vec<&log::Record> = records
         .iter()
         .filter(|record| record.fields.get("change") == Some(&change))
-        .filter(|record| {
-            let agent = record.fields.get("agent").and_then(Value::as_str);
-            !agent.is_some_and(|agent| NOT_AGENTS.contains(&agent))
-        })
+        .filter(|record| record.is_agent_call())
         .collect();
     if calls.is_empty() {
         return Ok(None);
     }
     let sum = |tokens: fn(&log::Record) -> u64| calls.iter().copied().map(tokens).sum::<u64>();
-    let cost: f64 = calls.iter().map(|record| record.cost_usd).sum();
     let line = format!(
-        "Tokens: in {} · cache {} · out {} · {cost:.2} USD (estimate) · {} agent call(s)",
+        "Tokens: in {} · cache {} · out {} · {} · {} agent call(s)",
         grouped(sum(|r| r.tokens_in)),
         grouped(sum(|r| r.tokens_cache)),
         grouped(sum(|r| r.tokens_out)),
+        cost(&calls),
         calls.len()
     );
     Ok(Some(line))
+}
+
+/// What `calls` cost, as the merge commit says it: the dollars the log has for them, an estimate,
+/// and how many have no price, whose cost is unknown and never 0 (see [`log::CostBasis`]).
+fn cost(calls: &[&log::Record]) -> String {
+    let dollars: f64 = calls.iter().map(|record| record.cost_usd).sum();
+    let unpriced = |record: &&&log::Record| record.cost_basis() == log::CostBasis::Unknown;
+    let unknown = calls.iter().filter(unpriced).count();
+    let estimate = format!("{dollars:.2} USD (estimate)");
+    let without = format!("unknown ({unknown} call(s) with no price)");
+    match unknown {
+        0 => estimate,
+        all if all == calls.len() => without,
+        _ => format!("{estimate} + {without}"),
+    }
 }
 
 /// `n` with a comma between each group of three digits: `1,234,567`.
@@ -660,13 +660,20 @@ mod tests {
         serde_json::from_str(text).unwrap()
     }
 
-    /// A line of the log: a call of `agent` for change `change`, with its tokens (in, cache and
-    /// out) and its cost.
-    fn call(change: &str, agent: &str, tokens: [u64; 3], cost: f64) -> String {
+    /// A line of the log: a call of `role` for change `change`, with its tokens (in, cache and
+    /// out) and its cost, without its basis, as gdd 0.1.0 wrote it: reported.
+    fn call(change: &str, role: &str, tokens: [u64; 3], cost: f64) -> String {
         let line = serde_json::json!({
-            "change": change, "agent": agent, "tokens_in": tokens[0],
+            "change": change, "role": role, "tokens_in": tokens[0],
             "tokens_cache": tokens[1], "tokens_out": tokens[2], "cost_usd": cost,
         });
+        line.to_string()
+    }
+
+    /// The line of the log `line` with its cost standing on `basis`.
+    fn on_basis(line: String, basis: &str) -> String {
+        let mut line: Value = serde_json::from_str(&line).unwrap();
+        line["cost_basis"] = Value::from(basis);
         line.to_string()
     }
 
@@ -733,10 +740,10 @@ mod tests {
         let builder = "VERDICT: OK\n- **Not** a review\n";
         folder.write(&format!("{outputs}/builder-1.md"), builder);
         let log = [
-            call("c1", "claude", [1200, 3000, 50], 0.5),
-            call("c1", "codex", [300, 0, 7], 0.256),
-            call("c1", "checks", [999_999, 0, 0], 0.0),
-            call("c2", "claude", [999_999, 0, 0], 0.0),
+            call("c1", "builder-build", [1200, 3000, 50], 0.5),
+            call("c1", "reviewer", [300, 0, 7], 0.256),
+            call("c1", "machine", [999_999, 0, 0], 0.0),
+            call("c2", "builder-build", [999_999, 0, 0], 0.0),
         ];
         folder.write(log::PATH, &log.join("\n"));
         let note = |n: u32| {
@@ -822,6 +829,47 @@ mod tests {
         let err = message(repo.root(), "c1", &wrong, &yellow, &[], &[]).unwrap_err();
         let start = ".gdd/changes/c1/change.json: the section must be one of ";
         assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn the_message_counts_the_agent_calls_and_never_prices_an_unknown_cost_at_0() {
+        let folder = Folder::new();
+        let app = classified("src/app.rs");
+        let tokens = |log: &[String]| {
+            folder.write(log::PATH, &log.join("\n"));
+            let text = message(&folder.0, "c1", &json("{}"), &app, &[], &[]).unwrap();
+            let line = text.lines().find(|line| line.starts_with("Tokens: "));
+            line.unwrap_or_default().to_string()
+        };
+        let unknown = |role: &str| on_basis(call("c1", role, [10, 0, 2], 0.0), "unknown");
+        let estimated = on_basis(call("c1", "reviewer", [10, 5, 1], 0.5), "estimated");
+        let mut known = vec![
+            call("c1", "builder-build", [100, 0, 1], 0.25),
+            estimated,
+            unknown("reviewer"),
+            // The tool and the human make no agent calls, whatever their tokens.
+            call("c1", "machine", [7, 0, 7], 0.0),
+            call("c1", "machines", [7, 0, 7], 0.0),
+            call("c1", "human", [7, 0, 7], 0.0),
+            // A line without tokens in or out is no call.
+            call("c1", "builder-test", [0, 9, 0], 0.0),
+        ];
+        let some = "Tokens: in 120 · cache 5 · out 4 · 0.75 USD (estimate) + unknown (1 call(s) \
+                    with no price) · 3 agent call(s)";
+        assert_eq!(tokens(&known), some);
+        // Without a call whose cost is known.
+        let mut log = known.split_off(2);
+        let none = "Tokens: in 10 · cache 0 · out 2 · unknown (1 call(s) with no price) · \
+                    1 agent call(s)";
+        assert_eq!(tokens(&log), none);
+        log.push(unknown("orchestrator"));
+        let two = "unknown (2 call(s) with no price) · 2 agent call(s)";
+        assert!(tokens(&log).ends_with(two), "{}", tokens(&log));
+        let reported = [call("c1", "reviewer", [10, 0, 2], 0.0)];
+        let free = "Tokens: in 10 · cache 0 · out 2 · 0.00 USD (estimate) · 1 agent call(s)";
+        assert_eq!(tokens(&reported), free);
+        let only_the_tool = [call("c1", "machine", [7, 0, 7], 0.0)];
+        assert_eq!(tokens(&only_the_tool), "");
     }
 
     #[test]

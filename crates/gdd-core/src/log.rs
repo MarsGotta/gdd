@@ -162,10 +162,44 @@ impl Record {
         }
     }
 
-    /// Whether the record is an agent call: it used tokens in or out.
-    /// Machine steps and human gates leave both at 0.
+    /// Whether the record is an agent call: it used tokens in or out, and neither the tool
+    /// (`machine`, `machines`) nor the human acted. The report and the merge commit count these.
     pub fn is_agent_call(&self) -> bool {
-        self.tokens_in > 0 || self.tokens_out > 0
+        let used = self.tokens_in > 0 || self.tokens_out > 0;
+        let role = self.text("role");
+        used && !matches!(role.as_str(), "machine" | "machines" | "human")
+    }
+
+    /// On what its cost stands: its field `cost_basis`. A line without it, or with any other
+    /// text, as gdd 0.1.0 wrote them, is `Reported`.
+    pub fn cost_basis(&self) -> CostBasis {
+        match self.fields.get("cost_basis").and_then(Value::as_str) {
+            Some("estimated") => CostBasis::Estimated,
+            Some("unknown") => CostBasis::Unknown,
+            _ => CostBasis::Reported,
+        }
+    }
+}
+
+/// On what the cost of an agent call stands, as its line in the log says (`cost_basis`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CostBasis {
+    /// The agent reported it.
+    Reported,
+    /// The agent reported none: priced from `[prices.<model>]` of `gdd/models.toml`.
+    Estimated,
+    /// The agent reported none and its model has no price: the line says 0, which is not known.
+    Unknown,
+}
+
+impl CostBasis {
+    /// As the log writes it: `reported`, `estimated` or `unknown`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CostBasis::Reported => "reported",
+            CostBasis::Estimated => "estimated",
+            CostBasis::Unknown => "unknown",
+        }
     }
 }
 
@@ -326,6 +360,43 @@ mod tests {
         assert!(call(0, 0, 1).is_agent_call());
         assert!(!call(0, 5, 0).is_agent_call());
         assert!(!call(0, 0, 0).is_agent_call());
+    }
+
+    #[test]
+    fn the_tool_and_the_human_never_make_agent_calls() {
+        let calls = |role: &str| {
+            let line = format!(r#"{{"role": "{role}", "tokens_in": 9, "tokens_out": 9}}"#);
+            parse(&line).unwrap()[0].is_agent_call()
+        };
+        for role in ["machine", "machines", "human"] {
+            assert!(!calls(role), "{role}");
+        }
+        for role in ["reviewer", "orchestrator", "Machine", "humans"] {
+            assert!(calls(role), "{role}");
+        }
+        let without_role = parse(r#"{"tokens_out": 1}"#).unwrap();
+        assert!(without_role[0].is_agent_call());
+    }
+
+    #[test]
+    fn the_cost_basis_is_reported_unless_the_line_says_otherwise() {
+        let basis = |line: &str| parse(line).unwrap()[0].cost_basis();
+        let estimated = r#"{"cost_basis": "estimated"}"#;
+        assert_eq!(basis(estimated), CostBasis::Estimated);
+        let unknown = r#"{"cost_basis": "unknown"}"#;
+        assert_eq!(basis(unknown), CostBasis::Unknown);
+        let reported = [
+            r#"{}"#,
+            r#"{"cost_basis": "reported"}"#,
+            r#"{"cost_basis": "Unknown"}"#,
+            r#"{"cost_basis": 1}"#,
+        ];
+        for line in reported {
+            assert_eq!(basis(line), CostBasis::Reported, "{line}");
+        }
+        assert_eq!(CostBasis::Reported.as_str(), "reported");
+        assert_eq!(CostBasis::Estimated.as_str(), "estimated");
+        assert_eq!(CostBasis::Unknown.as_str(), "unknown");
     }
 
     #[test]

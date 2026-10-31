@@ -1282,6 +1282,15 @@ fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
 }
 
+/// Appends more tables to the scenario's models (a price for another model, for instance).
+#[given("the models also say:")]
+fn models_also_say(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let more = docstring(step, "a models docstring");
+    w.models = format!("{}\n\n{}\n", w.models.trim_end(), more.trim_end());
+    let models = w.models.clone();
+    write_models(w, &models);
+}
+
 /// `models` with the `[reviewer]` table replaced by the given integration, model and effort.
 fn with_reviewer(models: &str, integration: &str, model: &str, effort: Option<&str>) -> String {
     let mut in_reviewer = false;
