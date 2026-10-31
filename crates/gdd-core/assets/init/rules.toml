@@ -59,7 +59,7 @@ review = "deep"
 
 # Paths each role must not change. Path Guard checks them in G2 and in CI.
 [protected]
-all = ["gdd/**", "bin/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md"]
+all = ["gdd/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md"]
 builder_build = {builder_build}   # approved scenarios and the steps written in test mode
 builder_test = {builder_test}   # production code: test mode only writes tests and steps
 reviewer = ["**"]

@@ -1607,7 +1607,8 @@ fn last_commit_does_not_say(w: &mut GddWorld, branch: String, text: String) {
 // tokens, Codex and OpenCode 5 reasoning ones too) and act on what the steps left in
 // `.gdd/fake/`: `build` (`default`, `nothing <ids>`, `never` or `from <call>`), `build_path`, `replan`,
 // `build_also` and `build_also_content` (a path and its text, written by every build call),
-// `reviews` (one answer per line, the last one repeats), `reviewer_writes` (a path), `record`
+// `reviews` (one answer per line, the last one repeats; with a line `---` in it, one answer of
+// several lines per block, the last block repeats), `reviewer_writes` (a path), `record`
 // (`<change>/<file>` of the state to append a line to during a build call) and `log_line`
 // (`<change>|<build call>`: that call appends a line of the log for the change) and `main_gets`
 // (a path the first Reviewer call commits on main in the main checkout). `linger` (seconds): the
@@ -1752,7 +1753,11 @@ case "$role" in
     ;;
   reviewer)
     answer="VERDICT: OK"
-    if [ -f "$fake/reviews" ]; then
+    if [ -f "$fake/reviews" ] && grep -q '^---$' "$fake/reviews"; then
+      blocks=$(( $(grep -c '^---$' "$fake/reviews") + 1 ))
+      [ "$n" -le "$blocks" ] || n=$blocks
+      answer=$(awk -v n="$n" 'BEGIN { b = 1 } /^---$/ { b++; next } b == n' "$fake/reviews")
+    elif [ -f "$fake/reviews" ]; then
       answer=$(sed -n "${n}p" "$fake/reviews")
       [ -n "$answer" ] || answer=$(tail -n 1 "$fake/reviews")
     fi
@@ -1779,7 +1784,7 @@ case "$role" in
     text=$answer
     ;;
 esac
-text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g')
+text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 case "$integration" in
   claude)
     printf '{"type":"result","result":"%s","session_id":"fake-session","total_cost_usd":0.01,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":50,"output_tokens":20}}\n' "$text"
@@ -2036,6 +2041,25 @@ fn replan_answers(w: &mut GddWorld, answer: String) {
 #[given(expr = "the Reviewer answers {string} and then {string}")]
 fn reviewer_answers_then(w: &mut GddWorld, first: String, second: String) {
     fake_file(w, "reviews", &format!("{first}\n{second}\n"));
+}
+
+/// `{string}` keeps the backslash of `\"`, and a literal `\n` stands for a new line.
+fn finding_text(raw: &str) -> String {
+    raw.replace("\\\"", "\"").replace("\\n", "\n")
+}
+
+#[given(expr = "the Reviewer finds {string}, says KO, and then {word}")]
+fn reviewer_finds_then(w: &mut GddWorld, finding: String, second: String) {
+    assert!(
+        second == "OK" || second == "KO",
+        "the second review is OK or KO, not {second:?}"
+    );
+    let first = finding_text(&finding);
+    fake_file(
+        w,
+        "reviews",
+        &format!("{first}\nVERDICT: KO\n---\nVERDICT: {second}\n"),
+    );
 }
 
 #[given(expr = "the Reviewer answers {string} every time")]
