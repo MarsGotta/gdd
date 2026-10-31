@@ -102,6 +102,12 @@ Feature: A first change reaches G4
       | builder-build | sonnet | change=c1 mode=build fix=review |
       | reviewer      | gpt-6  | change=c1 round=2               |
 
+  Scenario: A finding on a step file that is KO twice still parks
+    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    And the Reviewer finds "F1 · weak step · tests/steps/app.txt:3 · one step checks three sentences", says KO, and then KO
+    When I run "gdd launch c1"
+    Then it fails with a message that contains "parked: Reviewer KO or G3 red after one fix"
+
   Scenario: Red zones approved on main after the change was created count for it
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
     And main has the file "gdd/zones.toml" with:

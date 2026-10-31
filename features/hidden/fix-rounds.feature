@@ -81,9 +81,3 @@ Feature: A first change reaches G4 (hidden examples)
       | builder-test  | sonnet | change=c1 mode=test fix=review  |
       | builder-build | sonnet | change=c1 mode=build fix=review |
       | reviewer      | gpt-6  | change=c1 round=2               |
-
-  Scenario: A finding on a step file that is KO twice still parks
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And the Reviewer finds "F1 · weak step · tests/steps/app.txt:3 · asserts nothing", says KO, and then KO
-    When I run "gdd launch c1"
-    Then it fails with a message that contains "parked: Reviewer KO or G3 red after one fix"
