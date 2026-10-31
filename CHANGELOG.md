@@ -6,6 +6,20 @@ All notable changes to gdd are documented in this file. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The Board reloads by itself every 2 seconds and with r, keeping your place; gdd init starts a CHANGELOG.md; the Decision Inbox and the sitting say when a change's color and its scenarios come <!-- gdd: ded1190be0c2 -->
+
+### Changed
+
+- You answer G4 and the red zones through your agent: the Decision Inbox no longer asks you to type gdd resume, and the change skill commits the scenarios before it shows them, so the sitting shows them before your OK <!-- gdd: ac487059fdf9 -->
+
+### Fixed
+
+- A cost an agent does not report is estimated from the price table and marked with ~, or shown as unknown, never 0; the merge commit counts agent calls only; a release lists each changelog line once <!-- gdd: d5629522b8c2 -->
+- Mutation testing fails on code no test runs and says when there is nothing to mutate; the secrets check names the file, the line and the rule of a secret, never its value <!-- gdd: 3e9da4750e3b -->
+- The Decision Inbox shows your KO at a gate with its note, and a launch settles the reasons a change parked, so a closed change no longer names a worktree that is gone <!-- gdd: 10f606d85c9f -->
+
 ## [0.1.0] - 2026-10-31
 
 ### Added

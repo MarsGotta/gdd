@@ -126,10 +126,10 @@ change, stop and review before adding more.
 
 A polish version: a first change with no stumbles, and numbers gdd can stand behind (Mars, 2026-10-31).
 
-- A first change without friction (change `entry-polish`, next): the G4 inbox asks you to answer your agent instead of typing `gdd resume`; the Board refreshes by itself; `gdd init` starts a `CHANGELOG.md`; before the Setup, `status` and `launch` point to the setup skill for the red zones; the sitting shows the scenarios before your OK; the role guard's refusal names every agent gdd started, not only Builders and Reviewers; the inbox says a change is not classified yet instead of `Color ? · lane ?`.
-- Honest numbers (change `honest-numbers`, next): the merge commit counts agent calls only (it counted gate commands too); the Reviewer's and the Orchestrator's cost is estimated from the price table and marked as an estimate, never 0; a release lists each line once.
-- Gate details (change `gate-details`, next): mutation testing never passes on a project with no tests, and says so when there is nothing to mutate; the secrets check says where it found a secret, without printing it; the inbox stops naming a file that no longer exists; the note of a G1 KO reaches the inbox.
-- Test harness: scenarios no longer inherit `GDD_ROLE` from the agent that runs them; the flaky `A failed observation rolls back and the change no longer waits at G4` scenario and the flaky `versions` unit test are fixed.
+- A first change without friction (changes `entry-polish` and `entry-answers`, done 2026-10-31): the G4 inbox asks you to answer your agent instead of typing `gdd resume`; the Board refreshes by itself; `gdd init` starts a `CHANGELOG.md`; before the Setup, `status` and `launch` point to the setup skill for the red zones; the sitting shows the scenarios before your OK; the role guard's refusal names every agent gdd started, not only Builders and Reviewers; the inbox says a change is not classified yet instead of `Color ? · lane ?`.
+- Honest numbers (change `honest-numbers`, done 2026-10-31): the merge commit counts agent calls only (it counted gate commands too); the Reviewer's and the Orchestrator's cost is estimated from the price table and marked as an estimate, never 0; a release lists each line once.
+- Gate details (changes `gate-details` and `inbox-notes`, done 2026-10-31): mutation testing never passes on a project with no tests, and says so when there is nothing to mutate; the secrets check says where it found a secret, without printing it; the inbox stops naming a file that no longer exists; the note of a G1 KO reaches the inbox.
+- Test harness (change `harness-env`, done 2026-10-31): scenarios no longer inherit `GDD_ROLE` from the agent that runs them; the flaky `versions` unit test is fixed. The `resume-retry` scenario that looked flaky was the same inherited role.
 - Done in 0.1.0 by `fix-rounds`: after a Reviewer KO that only steps can fix, the fix round starts in test mode.
 
 ## 0.1.2
@@ -138,10 +138,14 @@ A polish version: a first change with no stumbles, and numbers gdd can stand beh
 - When an agent sees a fault of gdd itself (gdd crashes, the self-test fails, a gate fails for the machine and not the code), it says so in the Decision Inbox under its own heading, and `gdd bug` writes a draft issue (gdd's version, the system and stack, the command and its output, the steps; only the names of environment variables, paths relative to the project) and, when the fix is in what gdd writes (agent instructions, stack sheets, init templates), the patch for a pull request to MarsGotta/gdd. gdd prints the `gh` commands; the person runs them. An issue template for the public repository (Mars, 2026-10-30).
 - A hand commit on a change branch that holds uncommitted work of the agents moves its build start, and Path Guard then blames build mode for test mode's steps: gdd could notice and say so (kit-cases, 2026-10-30).
 - A refused `gdd launch` leaves the change's worktree checked out on `change/<id>` (the recipe opens it before the prepare check), so the change skill's `git switch change/<id>` then fails: open it after the check passes, or remove it on a refusal (found preparing 0.1.1, 2026-10-31).
+- A flaky unit test: `a_change_that_needs_g4_waits_and_production_getting_worse_rolls_it_back` (crates/gdd/src/lib.rs) sometimes hears `waiting for the merge of another change` under load; it should assert without the wait notice, as `versions` does now (found on inbox-notes' G3, 2026-10-31).
+- The secrets check reads the text lines a change adds: a binary file, or one marked `-diff` in `.gitattributes`, is not scanned (already so before 0.1.1).
+- `change::with_request_resolved` has no caller since entry-answers: remove it.
 - Docs: the guides that still ask you to type commands (upgrade, CI, measure, releases) go through the agent; the changelog scenario says the Orchestrator proposes the line at the sitting, but no agent instruction does.
 
 ## 0.2
 
+- Trackers, opt-in and per provider, Linear first and then GitHub Issues and Projects: a change is an issue (start one from `/gdd-change ENG-123`); gdd moves the issue at each step (building, waiting at G4, closed; a comment when it parks); the merge commit says `Part of <ID>`, never a closing word, since gdd merges at G3, before G4; a ROADMAP block maps to a Linear project and its rows to issues. The tracker mirrors gdd and never blocks a gate (Mars, 2026-10-31).
 - Live view of a running change.
 - Token charts.
 - Semgrep (multi-language static analysis).
