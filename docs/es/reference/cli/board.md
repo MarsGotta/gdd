@@ -1,0 +1,56 @@
+# gdd board
+
+<!--
+Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+código o scripts/cli_notes/board.md, nunca esta página.
+-->
+
+The changes of the project by phase on a screen (Discover, Build, Release, Done), in a
+terminal. Read-only: nothing on it writes anything.
+
+## Uso
+
+```text
+Usage: gdd board
+```
+
+## Opciones
+
+Sin opciones, salvo `-h`, `--help`.
+
+## Quién lo ejecuta
+
+You, in a terminal.
+
+## Ejemplos
+
+The Board shows every change by phase (Discover, Build, Release, Done) and changes nothing.
+`gdd` with no command opens it when a person runs it in a terminal. Without a terminal, or for
+an agent, `gdd` alone prints the help.
+
+```bash
+gdd board
+```
+
+In a project with no change yet, you should see:
+
+<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+
+```text
+┌ gdd · Board · shop ──────────────────────────────────────────────────────────────────────────────┐
+│No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)               │
+│↑↓ move · Enter details · d done · t time · q quit                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Without a terminal, it names `gdd status` and exits with 2:
+
+```text
+error: gdd board needs a terminal; gdd status lists the same changes
+```
+
+## Ver también
+
+- [Referencia de la CLI](index.md): todos los comandos, por área, y lo que comparten.
+- [Screens](../screens.md#el-board): the Board and its keys.
+- [`gdd status`](status.md): the same changes as text.

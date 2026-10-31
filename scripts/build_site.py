@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,14 +57,10 @@ SPANISH = [
     ('site_dir = "build/site"', 'site_dir = "build/site/es"'),
     ('language = "en"', 'language = "es"'),
     ('{ "Home" = "index.md" }', '{ "Inicio" = "index.md" }'),
-    ('{ "Learn" = [', '{ "Aprender" = ['),
-    ('{ "Do" = [', '{ "Hacer" = ['),
-    ('{ "Day to day" = [', '{ "Día a día" = ['),
-    ('{ "Shaping the work" = [', '{ "Dar forma al trabajo" = ['),
-    ('{ "Setting up" = [', '{ "Preparar el proyecto" = ['),
-    ('{ "Shipping and measuring" = [', '{ "Publicar y medir" = ['),
-    ('{ "Look up" = [', '{ "Consultar" = ['),
-    ('{ "Understand" = [', '{ "Entender" = ['),
+    ('{ "Get started" = [', '{ "Empezar" = ['),
+    ('{ "Guides" = [', '{ "Guías" = ['),
+    ('{ "Reference" = [', '{ "Referencia" = ['),
+    ('{ "Concepts" = [', '{ "Conceptos" = ['),
     ('{ "Contribute" = [', '{ "Contribuir" = ['),
     ('{ "Contributing" = ', '{ "Cómo contribuir (en inglés)" = '),
     ('{ "Writing the docs" = "STYLE.md" }',
@@ -85,11 +82,11 @@ HERO_EN = """\
 
 # gdd
 
-<p class="gd-tagline">Build software with AI coding agents, one gate at a time. Risk decides how
-many gates a change meets; machines check what can be checked; you decide only what needs a
-person, in as few sittings as possible.</p>
+<p class="gd-tagline">Build software with AI coding agents, one gate at a time. You talk to your
+agent; risk decides how many gates a change meets; machines check what can be checked, and you
+decide only what needs a person, in as few sittings as possible.</p>
 
-[Your first change](getting-started/tutorial.md){ .md-button .md-button--primary }
+[Quickstart](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD in one page](explanation/method.md){ .md-button }
 
 </div>
@@ -102,37 +99,37 @@ is.](assets/flow.svg)
 
 <div class="grid cards" markdown>
 
--   :material-school-outline: **Learn**
+-   :material-rocket-launch-outline: **Quickstart**
 
     ---
 
-    From an empty folder to a released change in about half an hour, then the method in one page.
+    Install gdd, answer its setup form, then take your first change to a release by talking to your agent.
 
-    [Start the tutorial →](getting-started/tutorial.md)
+    [Start here →](getting-started/quickstart.md)
 
--   :material-wrench-outline: **Do**
-
-    ---
-
-    Run changes, write scenarios, answer the Release Gate, adopt an existing project, fix what breaks.
-
-    [Run a change →](how-to/run-a-change.md)
-
--   :material-book-open-variant: **Look up**
+-   :material-school-outline: **Tutorial**
 
     ---
 
-    Every command, configuration key, gate, role, stack and file. Exact and complete.
+    One real change, from the idea to the release, with every screen on the way.
 
-    [Command reference →](reference/cli.md)
+    [Follow the tutorial →](getting-started/tutorial.md)
 
--   :material-lightbulb-outline: **Understand**
+-   :material-robot-outline: **Skills**
 
     ---
 
-    Why gates, how risk is judged, what keeps agents safe, why you stop so rarely.
+    What you run in your agent: `/gdd-setup`, `/gdd-change` and the rest, and what each one does.
 
-    [The life of a change →](explanation/life-of-a-change.md)
+    [Skills reference →](reference/skills/index.md)
+
+-   :material-console: **CLI**
+
+    ---
+
+    Every `gdd` command, its options and what it prints, for the terminal and for CI.
+
+    [CLI reference →](reference/cli/index.md)
 
 </div>
 """
@@ -144,11 +141,12 @@ HERO_ES = """\
 
 # gdd
 
-<p class="gd-tagline">Construye software con agentes de IA, puerta a puerta. El riesgo decide
-cuántas puertas pasa cada Change; las máquinas comprueban lo que se puede comprobar, y tú solo
-decides lo que necesita a una persona, en las menos sentadas posibles.</p>
+<p class="gd-tagline">Construye software con agentes de IA, puerta a puerta. Hablas con tu
+agente; el riesgo decide cuántas puertas pasa cada Change; las máquinas comprueban lo que se
+puede comprobar, y tú solo decides lo que necesita a una persona, en las menos sentadas
+posibles.</p>
 
-[Tu primer Change](getting-started/tutorial.md){ .md-button .md-button--primary }
+[Inicio rápido](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD en una página](explanation/method.md){ .md-button }
 
 </div>
@@ -161,37 +159,37 @@ cada puerta.](assets/flow-es.svg)
 
 <div class="grid cards" markdown>
 
--   :material-school-outline: **Aprender**
+-   :material-rocket-launch-outline: **Inicio rápido**
 
     ---
 
-    De una carpeta vacía a un Change publicado en una media hora, y después el método en una página.
+    Instala gdd, responde a su formulario de preparación y lleva tu primer Change a producción hablando con tu agente.
 
-    [Empieza el tutorial →](getting-started/tutorial.md)
+    [Empieza aquí →](getting-started/quickstart.md)
 
--   :material-wrench-outline: **Hacer**
-
-    ---
-
-    Lanzar Changes, escribir escenarios, responder a la puerta de salida, adoptar un proyecto existente, arreglar lo que falla.
-
-    [Lanzar un Change →](how-to/run-a-change.md)
-
--   :material-book-open-variant: **Consultar**
+-   :material-school-outline: **Tutorial**
 
     ---
 
-    Cada comando, clave de configuración, puerta, rol, stack y fichero. Exacto y completo.
+    Un Change real, de la idea a la salida a producción, con cada pantalla del camino.
 
-    [Referencia de comandos →](reference/cli.md)
+    [Sigue el tutorial →](getting-started/tutorial.md)
 
--   :material-lightbulb-outline: **Entender**
+-   :material-robot-outline: **Skills**
 
     ---
 
-    Por qué puertas, cómo se mide el riesgo, qué protege a los agentes, por qué paras tan poco.
+    Lo que ejecutas en tu agente: `/gdd-setup`, `/gdd-change` y las demás, y qué hace cada una.
 
-    [La vida de un Change →](explanation/life-of-a-change.md)
+    [Referencia de skills →](reference/skills/index.md)
+
+-   :material-console: **CLI**
+
+    ---
+
+    Cada comando de `gdd`, sus opciones y lo que imprime, para la terminal y para la CI.
+
+    [Referencia de la CLI →](reference/cli/index.md)
 
 </div>
 """
@@ -296,6 +294,38 @@ def config(lang: str, base: str) -> Path:
     return path
 
 
+def nav_pages(nav: list) -> list[str]:
+    """The pages the menu `nav` names, without its links to other sites."""
+    pages = []
+    for item in nav:
+        if isinstance(item, dict):
+            for value in item.values():
+                pages += nav_pages(value if isinstance(value, list) else [value])
+        elif not re.match(r"^[a-z][a-z0-9+.-]*:", item):
+            pages.append(item)
+    return pages
+
+
+def missing_pages(lang: str, path: Path) -> list[str]:
+    """The pages the menu of the configuration `path` names that the staged copy of `lang` does
+    not have. Zensical takes such a path for a link to another site and builds without a word,
+    so the menu would carry a broken entry."""
+    with path.open("rb") as file:
+        nav = tomllib.load(file)["project"]["nav"]
+    stage = LANGS[lang]["stage"]
+    return [page for page in nav_pages(nav) if not (stage / page).is_file()]
+
+
+def checked(lang: str, path: Path) -> bool:
+    """Whether the menu of `lang` has a page behind every entry. A missing English page stops the
+    build; a missing Spanish one is only a warning, since the translation follows the English."""
+    missing = missing_pages(lang, path)
+    for page in missing:
+        kind = "error" if lang == "en" else "warning"
+        print(f"{kind}: the {lang} menu names {page}, which has no page", file=sys.stderr)
+    return lang != "en" or not missing
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the documentation website from docs/.")
     parser.add_argument("--serve", action="store_true", help="preview the English site with live reload")
@@ -310,9 +340,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     zensical = ["zensical"] if shutil.which("zensical") else ["uvx", "zensical@0.0.71"]
     if args.serve:
-        return subprocess.run([*zensical, "serve", "-f", str(config("en", base))], cwd=ROOT).returncode
+        path = config("en", base)
+        checked("en", path)  # the preview goes on: the pages may still be on their way
+        return subprocess.run([*zensical, "serve", "-f", str(path)], cwd=ROOT).returncode
     for lang in LANGS:
-        command = [*zensical, "build", "--clean", "--strict", "-f", str(config(lang, base))]
+        path = config(lang, base)
+        if not checked(lang, path):
+            return 1
+        command = [*zensical, "build", "--clean", "--strict", "-f", str(path)]
         code = subprocess.run(command, cwd=ROOT).returncode
         if code:
             return code

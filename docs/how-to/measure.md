@@ -1,7 +1,8 @@
 # Measure the work
 
-Find out what your changes cost in tokens, where their time goes, how delivery is doing by
-DORA's measures, and what Learn should harden next, from the log gdd keeps.
+Find out what your changes cost in tokens, where their time goes, how delivery is doing and
+what to harden next, from the log gdd keeps. Use this guide once a few changes have run, and
+again at each Learn, the phase where you turn repeated mistakes into checks.
 
 ## Before you start
 
@@ -10,16 +11,22 @@ DORA's measures, and what Learn should harden next, from the log gdd keeps.
 - Read [Measuring what matters](../explanation/measuring.md) for why tokens, not lines of code,
   and why the GDD signals are signs to read, never targets.
 
+Your agent can run these reports for you: `/gdd-report` (`$gdd-report` in Codex) sums up the
+tokens, and `/gdd-learn` runs Learn and proposes what to harden. The reports only read the log,
+so you can also run them yourself in a terminal. The steps below show what each one prints and
+how to read it.
+
 The examples on this page are real output from gdd's own repository, which is built with GDD:
 50 changes in about a week.
 
 ## 1. Count the tokens
 
 ```bash
-bin/gdd report
+gdd report
 ```
 
-You should see one line per role, then the total:
+You should see one line per role, then the total. Tokens are the units of text a model reads
+and writes:
 
 ```text
 role -> calls · tokens in · cache · out · cost USD · seconds
@@ -35,10 +42,11 @@ Read the columns in this order:
 
 1. **tokens in** and **out**: new input tokens and output tokens. These are what compare
    between changes, models and roles.
-2. **cache**: input tokens read from the agent's prompt cache. They are many (here about 29 for
-   every new input token) and much cheaper, so do not add them to the new ones.
+2. **cache**: input tokens read from the agent's prompt cache, text the model already saw. They
+   are many (here about 29 for every new input token) and
+   much cheaper, so do not add them to the new ones.
 3. **cost USD**: an estimate at API prices, never a bill. Claude Code reports its own
-   client-side estimate; OpenCode reports a cost; Codex reports none, so the Reviewer above
+   client-side estimate and OpenCode reports a cost. Codex reports none, so the Reviewer above
    shows 0 until you fill in `[prices]` (see
    [Choose agents and models](agents-and-models.md#6-fill-in-prices-for-estimates)). With a
    subscription the cost is notional: compare tokens.
@@ -46,13 +54,13 @@ Read the columns in this order:
 Group and filter:
 
 ```bash
-bin/gdd report --by agent,model
-bin/gdd report --by role --change CHANGE
-bin/gdd report --by model --json
+gdd report --by agent,model
+gdd report --by role --change CHANGE
+gdd report --by model --json
 ```
 
 `--by` takes any of the log's fields separated by commas (`change`, `phase`, `model`, `role`,
-`agent`...); the default is `role`. With `--by agent,model`:
+`agent`...). The default is `role`. With `--by agent,model`:
 
 ```text
 agent · model -> calls · tokens in · cache · out · cost USD · seconds
@@ -67,16 +75,16 @@ Human stops logged: 201
 `cost_usd` and `duration_s`.
 
 Conversations with your agent outside the recipe (the Setup, Discover) are not in the log until
-you add them. For Claude Code:
+you add them. This works for Claude Code, and `/gdd-report` does it before its report. By hand:
 
 ```bash
-bin/gdd session --phase 1-discover
+gdd session --phase 1-discover
 ```
 
 ## 2. See where the time goes
 
 ```bash
-bin/gdd report --time --change ratchet
+gdd report --time --change ratchet
 ```
 
 ```text
@@ -88,12 +96,17 @@ ratchet · A ratchet for known debt: a change cannot add to it, and what it pays
   Waiting: at the sitting 9m, for the human at G4 2m, to start 8s
 ```
 
+In the second line, read the four parts of the change's time:
+
 - **Flow time** runs from the change's first line in the log to its last.
-- **Active** is agent calls, gate commands and release steps; the percentage is flow
-  efficiency (active divided by flow time).
+- **Active** is agent calls, gate commands and release steps. The percentage is flow
+  efficiency: active divided by flow time.
 - **Waiting** is time for a person: at the sitting, at G4, parked until relaunched, in the
   merge queue, before the start.
 - **Between steps** is the rest: gdd's own time between steps, or a gap in the log.
+
+The lines below it say what took the active time: here, the gate command `mutation`, at 15
+minutes.
 
 Without `--change`, the report lists every change and ends with the project's totals and its
 biggest waits:
@@ -106,13 +119,16 @@ Biggest waits: for the human at G4 32h 49m, at the sitting 18h 12m, to start 3h 
 
 Here the people, not the agents, were the slowest step: a third of the flow time was changes
 waiting at G4. Grouping sittings and answering G4 sooner would save more than a faster model.
-`--since YYYY-MM-DD` keeps only the changes created on or after that day (UTC); `--json` gives
-one object per change.
+`--since YYYY-MM-DD` keeps only the changes created on or after that day (UTC), and `--json`
+gives one object per change.
 
 ## 3. Check delivery with DORA's measures
 
+DORA (DevOps Research and Assessment) is a research program that names five metrics of software
+delivery; [DORA's five](../explanation/measuring.md#doras-five) explains each one.
+
 ```bash
-bin/gdd report --dora
+gdd report --dora
 ```
 
 ```text
@@ -134,9 +150,12 @@ GDD signals (signs to read, never targets)
   Tokens out: median 190,562 per change
 ```
 
-The first block is DORA's five delivery metrics: two of throughput, three of instability. The
-deployments here are simulated (this repository has no real production), which the first line
-says. The second block is GDD's own signals:
+The first block is DORA's five, where a deployment is a promotion to production. Change lead
+time is how long a change takes from the start of its build to production. Change fail rate is
+the share of deployments whose observation failed or that were rolled back. The first line says
+the deployments here are simulated, because this repository has no real production.
+
+The second block is GDD's own signals:
 
 | Signal | What a high value suggests |
 |---|---|
@@ -147,14 +166,14 @@ says. The second block is GDD's own signals:
 | Human stops | Too many sittings: group them |
 | Tokens out | Cost per change, to compare across months or models |
 
-`Human stops` here counts a sitting once and each G4 answer once. The `Human stops logged`
-line of `gdd report` counts every human decision in the log, so three approvals at one sitting
-count three times there.
+`Human stops` here counts a sitting once and each G4 answer once. The `Human stops logged` line
+of [`gdd report`](../reference/cli/report.md) counts every human decision in the log, so three
+approvals at one sitting count three times there.
 
 Compare periods with `--since`:
 
 ```bash
-bin/gdd report --dora --since 2026-10-29
+gdd report --dora --since 2026-10-29
 ```
 
 `--json` gives one object with fields such as `lead_time_s`, `change_fail_rate`,
@@ -162,23 +181,25 @@ bin/gdd report --dora --since 2026-10-29
 
 ## 4. Apply your kill rule
 
-Discover writes a kill rule in `docs/brief.md`: the result that would make you stop and review
-before going on. gdd's own was: if gdd spends more tokens or asks for more human stops than the
-previous tool on the same kind of change, stop and review before adding more.
+Discover writes a [kill rule](../glossary.md#kill-rule) in `docs/brief.md`: the result that
+would make you stop and review before going on. gdd's own was: if gdd spends more tokens or
+asks for more human stops than the previous tool on the same kind of change, stop and review
+before adding more.
 
 1. Write the rule with numbers gdd reports: tokens out per change, human stops per change, flow
    time.
-2. At each Learn, run `bin/gdd report --dora --since DAY` for the period and compare.
+2. At each Learn, run `gdd report --dora --since DAY` for the period and compare.
 3. When the rule fires, stop adding work and open a Discover instead.
 
 ## 5. Run Learn
 
-Learn has no gate: it hardens the project. `gdd learn` runs the Learn tools of `[learn]` in
-`gdd/commands.toml` (warnings only), lists the polish notes people gave at G4 and the classes
-of Reviewer findings that repeat across changes.
+Learn has no gate: it hardens the project. [`gdd learn`](../reference/cli/learn.md) runs the Learn tools of `[learn]` in
+`gdd/commands.toml` (warnings only). It also lists the polish notes people gave at G4 and the
+classes of Reviewer findings that repeat across changes. `/gdd-learn` runs it for you and
+proposes one fix for each thing that repeats.
 
 ```bash
-bin/gdd learn
+gdd learn
 ```
 
 In a small Python project, you should see something like:
@@ -199,9 +220,10 @@ Reviewer findings that repeat: none
 Reviews whose findings name no class: none
 ```
 
-It always exits with 0. Turn what repeats into something that runs every time:
+`gdd learn` always exits with 0, whatever the tools found. Turn what repeats into something that
+runs every time:
 
-- a polish note that comes back becomes a line of `docs/standards.md`, which the Builder and
+- a polish note that repeats becomes a line of `docs/standards.md`, which the Builder and
   the Reviewer read;
 - a class of Reviewer finding in the KO reviews of two changes or more becomes a lint rule, a
   check or a line of `docs/standards.md`;

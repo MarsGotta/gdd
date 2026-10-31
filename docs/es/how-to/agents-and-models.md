@@ -1,8 +1,7 @@
 # Elegir agentes y modelos
 
-Decide qué agente de programación y qué modelo hace cada rol, según el color de riesgo, mantén
-al Reviewer en otra familia de modelos, instala los comandos de GDD en la carpeta de cada agente
-e indica a gdd cómo calcular el precio de las llamadas que no informan de su coste.
+Usa esta guía cuando quieras cambiar qué agente de programación o qué modelo hace un rol, añadir
+un agente a un proyecto o poner precio a las llamadas de un agente que no informa de su coste.
 
 ## Antes de empezar
 
@@ -12,14 +11,16 @@ e indica a gdd cómo calcular el precio de las llamadas que no informan de su co
   (`claude`), Codex (`codex`) u OpenCode (`opencode`). Consulta [Instalar gdd](install.md).
 - Los roles se describen en [Roles](../reference/roles.md).
 
-`gdd/models.toml` guarda todas las decisiones de esta página. Es arnés, protegido frente a todos
-los agentes: cámbialo en la rama main, como persona, entre un Change y otro.
+`gdd/models.toml` guarda todas las decisiones de esta página. Forma parte del
+[arnés](../glossary.md#arnés), los ficheros que gdd usa para comprobar tu proyecto, así que
+ningún agente puede editarlo. Cámbialo tú, en la rama main, entre un Change y otro.
 
 ## 1. Mira quién hace cada rol
 
-`gdd init` rellena `gdd/models.toml` a partir de los agentes que indicaste con `--agents`, o de
-los que tienen su programa en el `PATH`. El primer agente orquesta y construye; el Reviewer es el
-primer agente de otra familia de modelos. Con `--agents claude codex`:
+[`gdd init`](../reference/cli/init.md) rellena `gdd/models.toml` a partir de los agentes que
+elegiste en el formulario (o indicaste con `--agents`) o, si no, de los que tienen su programa en
+el `PATH`. El primer agente orquesta y construye. El Reviewer es el primer agente de otra
+familia de modelos. Con `--agents claude codex`:
 
 ```toml
 [orchestrator]
@@ -52,9 +53,10 @@ effort = "high"
 "codex" = "openai"
 ```
 
-El color de un Change elige al Builder en modo build: un modelo ligero para el trabajo verde,
-uno estándar para el amarillo y el más potente para el rojo. El modo test, el Reviewer y el
-Orchestrator tienen un solo modelo cada uno, sea cual sea el color.
+El [color](../glossary.md#color) de un Change elige el modelo del Builder en modo build: un
+modelo ligero para el trabajo verde, uno estándar para el amarillo y el más potente para el
+rojo. El modo test, el Reviewer y el Orchestrator tienen un solo modelo cada uno, sea cual sea
+el color:
 
 ```mermaid
 flowchart TD
@@ -71,21 +73,22 @@ flowchart TD
     classDef red fill:#fbdcdc,stroke:#c0392b,color:#311
 ```
 
-Para ver qué recibirá un Change concreto, clasifícalo:
+Para ver qué recibirá un Change concreto, clasifícalo con
+[`gdd classify`](../reference/cli/classify.md):
 
 ```bash
-bin/gdd classify CHANGE
+gdd classify CHANGE
 ```
 
-El JSON nombra la tabla de cada rol: `builder`, `builder_test`, `reviewer_model`,
-`orchestrator`, y además `builder_session`.
+La salida JSON (*JavaScript Object Notation*) nombra la tabla de cada rol (`builder`,
+`builder_test`, `reviewer_model`, `orchestrator`) y el ajuste `builder_session` del paso 4.
 
 ## 2. Cambia un agente o un modelo
 
-Edita la tabla del rol. `integration` es el agente (`claude`, `codex` u `opencode`) y `model` es
-un nombre que ese agente acepte: un alias como `sonnet` en Claude Code, un id de modelo en Codex,
-`provider/model` en OpenCode. Por ejemplo, un Builder más barato para el trabajo verde a través
-de OpenCode:
+Para cambiar quién hace un rol, edita la tabla del rol. `integration` es el agente (`claude`,
+`codex` u `opencode`). `model` es un nombre que ese agente acepte: un alias como `sonnet` en
+Claude Code, un id de modelo en Codex, `provider/model` en OpenCode. Por ejemplo, un Builder más
+barato para el trabajo verde a través de OpenCode:
 
 ```toml
 [builder.green]
@@ -93,18 +96,19 @@ integration = "opencode"
 model = "minimax/MiniMax-M3"
 ```
 
-Después añade a `[families]` la familia de cualquier prefijo o agente nuevo (paso 3) e instala
-los comandos de cualquier agente nuevo (paso 5).
+Si el nombre del modelo tiene un prefijo nuevo, o el agente es nuevo, añade su familia a
+`[families]` (paso 3). Si el agente es nuevo, instala también sus comandos (paso 5).
 
-`effort` fija el esfuerzo de razonamiento de Codex (`low`, `medium`, `high`, `xhigh`), que gdd
-pasa como `-c model_reasoning_effort=<effort>`. Solo la ficha de Codex dice cómo pasarlo: en
-otro agente, la clave se ignora.
+Si usas Codex, `effort` fija su esfuerzo de razonamiento (`low`, `medium`, `high`, `xhigh`), que
+gdd pasa como `-c model_reasoning_effort=<effort>`. Los demás agentes ignoran la clave.
 
 ## 3. Mantén al Reviewer en otra familia de modelos
 
-El Reviewer no debe compartir los puntos ciegos del Builder, así que tiene que ser de otra
-familia de modelos. gdd busca la familia de un modelo en `[families]`: la primera clave por la
-que empieza el nombre de su modelo, o que coincide con su integración.
+El Reviewer tiene que ser de una [familia de modelos](../glossary.md#familia-de-modelos)
+distinta a la del Builder, para que no pase por alto los mismos errores;
+[Mantener honestos a los agentes](../explanation/safety.md#capa-2-jueces-que-el-builder-no-puede-tocar)
+explica por qué. gdd busca la familia de un modelo en `[families]`: la primera clave por la que
+empieza el nombre de su modelo, o que coincide con su integración.
 
 ```toml
 [families]
@@ -113,14 +117,14 @@ que empieza el nombre de su modelo, o que coincide con su integración.
 "minimax" = "minimax"
 ```
 
-`gdd prepare`, el primer paso de cada lanzamiento, rechaza un Change cuyo Reviewer sea de la
-familia del Builder:
+[`gdd prepare`](../reference/cli/prepare.md), el primer paso de cada lanzamiento, rechaza un
+Change cuyo Reviewer sea de la familia del Builder:
 
 ```text
 error: Reviewer and Builder are the same model family: edit gdd/models.toml.
 ```
 
-Si solo tienes agentes de una familia, acéptalo una vez, a sabiendas. Al hacer init:
+Si solo tienes agentes de una familia, acéptalo una vez, a sabiendas, al ejecutar init:
 
 ```bash
 gdd init --name notes --platform cli --stack python --agents claude --accept-same-family
@@ -142,8 +146,8 @@ same_family_accepted = "2026-10-30"   # the human accepted one model family only
 ```
 
 En un proyecto existente, añade a mano la misma línea `same_family_accepted = "YYYY-MM-DD"`.
-Sustituye al Reviewer en cuanto tengas disponible una segunda familia. `gdd status` avisa cuando
-detecta una en la máquina:
+Cuando tengas disponible una segunda familia, sustituye al Reviewer.
+[`gdd status`](../reference/cli/status.md) te avisa cuando encuentra una en la máquina:
 
 ```text
 A second model family is on this machine (codex, opencode): set it as the Reviewer in gdd/models.toml
@@ -152,20 +156,20 @@ A second model family is on this machine (codex, opencode): set it as the Review
 ## 4. Comparte una sesión del Builder (opcional)
 
 Por defecto, el modo test y el modo build se ejecutan en sesiones separadas: el modo build
-empieza de cero y lee lo que escribió el modo test. Puedes hacer que el modo build continúe la
-conversación del modo test, y que cada ronda posterior la continúe también:
+empieza de cero y lee lo que escribió el modo test. Si quieres que el modo build continúe la
+conversación del modo test, y que cada ronda posterior la continúe también, pon:
 
 ```toml
 [session]
 builder = "shared"   # or "separate", the default
 ```
 
-Path Guard sigue comprobando cada modo, y el mutation testing y el Reviewer no cambian. El
-Reviewer nunca se une a la sesión del Builder.
+Path Guard, el mutation testing y el Reviewer no cambian. El Reviewer nunca se une a la sesión
+del Builder.
 
-Solo funciona cuando el modo test y el modo build usan el mismo agente y la ficha de ese agente
-dice cómo reanudar una sesión, algo que hoy solo cumple Claude Code. Si no, las sesiones siguen
-separadas y `gdd status` explica por qué:
+Una sesión compartida solo funciona si el modo test y el modo build usan el mismo agente y la
+ficha de ese agente dice cómo reanudar una sesión, algo que hoy solo cumple Claude Code. Si no,
+las sesiones siguen separadas y `gdd status` explica por qué:
 
 ```text
 Builder session: shared is set, but test mode (claude) and build mode (codex) use different agents: the sessions stay separate
@@ -187,15 +191,16 @@ error: gdd/models.toml: invalid TOML: session.builder must be separate or shared
 
 Cada agente encuentra los comandos de GDD (`gdd-setup`, `gdd-change`, `gdd-build`,
 `gdd-review`...) y las instrucciones de cada stack (`gdd-stack-<name>`) en su propia carpeta.
-`gdd init` los escribió una vez; vuelve a escribirlos después de editar `gdd/models.toml` o de
-actualizar gdd:
+`gdd init` los escribió una vez. Después de editar `gdd/models.toml` o de actualizar gdd, vuelve
+a escribirlos con [`gdd agents`](../reference/cli/agents.md):
 
 ```bash
-bin/gdd agents install
+gdd agents install
 ```
 
 Sin `--agent`, escribe para cada `integration` de `gdd/models.toml`. Imprime las rutas como JSON
-y no escribe ningún otro fichero: tus propias skills y tus comandos se quedan como están.
+y no escribe ningún otro fichero, así que tus propias skills y tus comandos se quedan como
+están.
 
 | Agente | Ficheros que recibe | Cómo llamas a un comando |
 |---|---|---|
@@ -206,20 +211,20 @@ y no escribe ningún otro fichero: tus propias skills y tus comandos se quedan c
 Para añadir un agente que el fichero de modelos todavía no usa:
 
 ```bash
-bin/gdd agents install --agent opencode
+gdd agents install --agent opencode
 ```
 
 ```text
 {"ok":true,"written":[".opencode/commands/gdd-build.md",".opencode/commands/gdd-build-test.md",...,".opencode/commands/gdd-stack-python.md"]}
 ```
 
-`install` no hace commit. Estas carpetas son arnés (zona roja): revísalas y haz commit de ellas
-en main.
+`install` no hace commit. Estas carpetas son arnés, en una zona roja: revísalas y haz commit de
+ellas tú, en main.
 
-Comprueba que no se ha editado ni perdido nada:
+Para comprobar que no se ha editado ni perdido nada:
 
 ```bash
-bin/gdd agents check
+gdd agents check
 ```
 
 ```text
@@ -227,14 +232,21 @@ error: .claude/skills/gdd-report/SKILL.md: missing
 error: .claude/skills/gdd-status/SKILL.md: differs from what gdd writes
 ```
 
-Sale con 1 y nombra cada fichero; después de `install` imprime `{"ok":true}`. Cada fichero avisa
-al principio de que está generado: lo que edites ahí se pierde. Las fichas de agente en sí (dónde
-guarda cada agente sus comandos, cómo lo lanza gdd, qué puede hacer cada rol) vienen integradas
-en gdd; un agente sin ficha se rechaza (`no agent sheet`).
+Sale con 1 y nombra cada fichero. Después de `install` imprime `{"ok":true}`. Cada fichero
+avisa al principio de que está generado, así que lo que edites ahí se pierde.
+
+Las fichas de agente (dónde guarda cada agente sus comandos, cómo lo lanza gdd, qué puede hacer
+cada rol) vienen integradas en gdd. Un agente sin ficha se rechaza (`no agent sheet`).
+
+Permitan lo que permitan los permisos propios del agente, un agente que haya arrancado gdd solo
+puede ejecutar `gdd g2`, `gdd guard`, `gdd note`, `gdd status`, `gdd classify`, `gdd inbox`,
+`gdd report` y `gdd scope`. gdd rechaza cualquier otro comando que venga de él. Consulta
+[Qué puede ejecutar un agente](../reference/roles.md#qué-puede-ejecutar-un-agente).
 
 ## 6. Rellena los precios para las estimaciones
 
-Cada agente informa a su manera de lo que gastó una llamada. gdd lo registra por llamada:
+gdd registra los tokens y el coste de cada llamada de agente. Cada agente informa de ellos a su
+manera:
 
 | Agente | Tokens | Coste |
 |---|---|---|
@@ -242,8 +254,8 @@ Cada agente informa a su manera de lo que gastó una llamada. gdd lo registra po
 | Codex | sí | no |
 | OpenCode | sí | sí (no informa del modelo: el registro guarda el que pidió gdd) |
 
-Para un agente que no informa del coste, gdd lo calcula a partir de `[prices.<model>]`, en
-dólares estadounidenses por millón de tokens:
+Si un agente no informa del coste, añade los precios de su modelo en `[prices.<model>]`, en
+dólares estadounidenses (USD) por millón de tokens, y gdd calcula el coste:
 
 ```toml
 [prices.gpt-6-astra]
@@ -253,19 +265,20 @@ output = 0.0   # per million output tokens
 ```
 
 Copia las cifras de la página de precios del proveedor; nunca te las inventes. Sin precios, esas
-llamadas registran 0 USD. Con una suscripción, el coste es teórico de todos modos: compara
-tokens. Consulta [Medir el trabajo](measure.md).
+llamadas registran 0 USD. Si pagas una suscripción, el coste es solo una estimación, así que
+compara tokens. Consulta [Medir el trabajo](measure.md).
 
 ## 7. Otros ajustes de los agentes
 
-- **Secretos.** Los agentes nunca reciben una variable cuyo nombre contenga una palabra de
-  secreto (`KEY`, `TOKEN`, `SECRET`, `PASS`, `PASSWORD`, `CREDENTIALS`, `DSN` y unas pocas más)
-  ni una URL con una contraseña como valor. Para pasar una a propósito, usa
-  `[env] pass = ["NAME"]` en `gdd/models.toml`.
-  [Variables de entorno](../reference/environment.md#qué-variables-guardan-un-secreto) tiene la
-  regla completa.
-- **Tiempo de respuesta.** Una llamada de agente puede durar `agent_timeout_s` segundos, 3600 por
-  defecto, que se configura en `[limits]` de `gdd/rules.toml`.
+Secretos: los agentes nunca reciben una variable cuyo nombre contenga una palabra de secreto
+(`KEY`, `TOKEN`, `SECRET`, `PASS`, `PASSWORD`, `CREDENTIALS`, `DSN` y unas pocas más) ni una URL
+con una contraseña como valor. Si un agente necesita una, nómbrala en `[env] pass = ["NAME"]` de
+`gdd/models.toml`.
+[Variables de entorno](../reference/environment.md#qué-variables-guardan-un-secreto) tiene la
+regla completa.
+
+Tiempo límite: una llamada de agente puede durar `agent_timeout_s` segundos, 3600 por defecto.
+Si las llamadas necesitan más tiempo, súbelo en `[limits]` de `gdd/rules.toml`.
 
 Todas las claves están en [Configuración](../reference/configuration.md#modelstoml).
 

@@ -1,18 +1,47 @@
 # Ajustar las puertas
 
-Elige los comandos que ejecutan la puerta del bucle (G2, *Loop Gate*) y la puerta de integración
-(G3, *Merge Gate*), qué recibe cada color de riesgo, cuánto puede durar un comando y cómo se
-comportan el mutation testing, la deuda conocida y las excepciones de seguridad.
+Cambia qué comprueban la puerta del bucle (G2, *Loop Gate*) y la puerta de integración (G3,
+*Merge Gate*), lo estricto que es cada color de riesgo y cuánto puede durar una comprobación.
+Usa esta guía cuando una puerta sea demasiado lenta, no detecte un tipo de fallo que tiene tu
+proyecto o bloquee algo que has decidido aceptar.
 
 ## Antes de empezar
 
-- Un proyecto GDD cuyo autotest pasa: `bin/gdd selftest` dice `harness 4/4`.
+- Un proyecto GDD cuyo autotest pasa: [`gdd selftest`](../reference/cli/selftest.md) dice
+  `harness 4/4`.
 - Sabes para qué sirve cada puerta: consulta [Puertas](../reference/gates.md) y
   [Cómo elige el riesgo las puertas](../explanation/risk.md).
 
+## Qué protege cada comando de las puertas
+
+Cada comando de una [puerta](../glossary.md#puerta) protege frente a un problema. G2 ejecuta los
+rápidos después de cada ronda del Builder, y G3 ejecuta los lentos antes de la fusión:
+
+| Comando | Puerta | De qué te protege |
+|---|---|---|
+| `lint` | G2 | Del estilo incoherente y de los fallos sencillos que detecta un linter (una herramienta que lee el código sin ejecutarlo) |
+| `types` | G2 | De valores del tipo equivocado, detectados antes de ejecutar nada |
+| `unit` | G2 | De romper una función que funcionaba |
+| `acceptance` | G2 | De un Change que no hace lo que dicen sus escenarios |
+| `architecture` | G2 | De código que cruza un límite que no debe, como un paquete que importa sus tests |
+| `acceptance_full` | G3 | De romper otro escenario, o de pasar solo los ejemplos que el Builder podía ver |
+| `lockfile` | G3 | De un fichero de bloqueo (las versiones exactas de cada dependencia) que no coincide con el manifiesto |
+| `security` | G3 | De patrones de código inseguros y de dependencias con vulnerabilidades conocidas |
+| `dependencies` | G3 | De distribuir una dependencia cuya licencia no puedes usar |
+| `secrets` | G3 | De una contraseña o un token incluidos en el Change |
+| `mutation` | G3 | De tests que ejecutan el código sin comprobar lo que hace |
+
+Todas las [fichas de stack](../reference/stacks.md), las herramientas que gdd guarda para cada
+lenguaje, usan estos nombres. [Puertas](../reference/gates.md) lista las comprobaciones que
+ejecuta una puerta además de ellos.
+
 Las puertas viven en dos ficheros: `gdd/commands.toml` dice qué se ejecuta y `gdd/rules.toml`
-dice qué recibe cada color. Los dos son arnés, protegidos frente a todos los agentes: cámbialos
-en la rama main, como persona, y ejecuta `bin/gdd selftest` después.
+dice qué recibe cada color. Los dos son [arnés](../glossary.md#arnés), los ficheros que usa gdd
+para comprobar tu proyecto, así que ningún agente puede tocarlos. Cámbialos tú en la rama main
+y luego ejecuta `gdd selftest`.
+
+En el diagrama, sigue un Change desde G2 hasta el Reviewer: el color decide si se ejecutan los
+comandos de mutación.
 
 ```mermaid
 flowchart TD
@@ -31,8 +60,9 @@ flowchart TD
 
 ## 1. Mira qué ejecutan hoy las puertas
 
-`gdd init` compuso `gdd/commands.toml` a partir de tus fichas de stack. Cada clave de `[g2]` y
-`[g3]` es el nombre de un comando, y cada valor, un comando de shell:
+[`gdd init`](../reference/cli/init.md) compuso `gdd/commands.toml` a partir de tus fichas de
+stack. Cada clave de `[g2]` y `[g3]` es el nombre de un comando, y cada valor, un comando de
+shell:
 
 ```toml
 [g2]
@@ -51,11 +81,12 @@ secrets = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) &
 mutation = "set -f; P=$(printf '%s\n' \"$GDD_DIFF_FILES\" | ...)"
 ```
 
-Para compararlo con lo que da una ficha de stack, desde dentro del proyecto:
+Para comparar tu fichero con lo que da una ficha de stack, ejecuta
+[`gdd stacks`](../reference/cli/stacks.md) desde dentro del proyecto:
 
 ```bash
-bin/gdd stacks show python
-bin/gdd stacks compose python typescript
+gdd stacks show python
+gdd stacks compose python typescript
 ```
 
 `compose` imprime como TOML los comandos que dan varias fichas juntas, y no escribe nada. Con más
@@ -75,28 +106,29 @@ de un stack, cada nombre lleva el de su stack: `lint-python`, `lint-typescript`.
 
 2. Respeta las reglas que lleva el nombre de un comando:
    - Un comando cuyo nombre empieza por `mutation` solo se ejecuta cuando el color pide
-     mutation testing; si no, el informe lo incluye en `skipped`.
+     mutation testing. Si no, el informe lo incluye en `skipped`.
    - Los nombres que empiezan por `acceptance`, `mutation` o `secrets` nunca pueden convertirse
      en deuda conocida.
    - Un comando vacío (`types = ""`) no está configurado y no se ejecuta. Una puerta sin ningún
      comando falla.
-3. Prueba el comando a mano, haz commit en main y después:
+3. Prueba el comando a mano, haz commit en main y después ejecuta:
 
    ```bash
-   bin/gdd selftest
+   gdd selftest
    ```
 
-   La primera comprobación planta un test que falla y espera que G2 se ponga en rojo: una G2
+   La primera comprobación planta un test que falla y espera que G2 se ponga en rojo. Una G2
    que no puede fallar se rechaza.
 
-G2 también ejecuta Path Guard antes y después de los comandos, y la comprobación del alcance
-(*scope*) en modo build. G3 añade Path Guard, el recuento de escenarios
-(`[acceptance] required = true` hace que cero escenarios cuente como fallo) y la comprobación de
-las excepciones de seguridad. Una puerta imprime su informe como JSON:
+Una puerta imprime su informe como JSON. Además de tus comandos, lista sus propias
+comprobaciones, como `path-guard`:
 
 ```text
 {"ok":true,"gate":"G3","color":"yellow","passed":["acceptance_full","dependencies","lockfile","secrets","security","path-guard","scenarios (1)","exceptions"],"skipped":["mutation"],"failures":[],"out_of_scope":[]}
 ```
+
+`ok` dice si la puerta pasó, y `failures` dice por qué cuando no pasó. Aquí `mutation` está en
+`skipped` porque un Change amarillo no lo pide.
 
 ## 3. Decide qué recibe cada color
 
@@ -111,16 +143,10 @@ valores:
 | `g4_if_g1` | false | true | false | true | **true** |
 | `review` | quick | quick | quick | quick | **deep** |
 
-Las celdas en negrita son el núcleo de GDD: lo que te protege frente a los agentes. GDD tiene
-tres niveles:
-
-1. **El núcleo**, siempre activo: las puertas G1 a G4, los colores, Path Guard, los ejemplos
-   ocultos, un Reviewer de otra familia de modelos y, en los Changes rojos, mutation testing, el
-   Reviewer, una revisión profunda y la G4 humana.
-2. **Las comprobaciones del stack**, activas por defecto: los comandos de la ficha. Deja uno
-   vacío para desactivarlo.
-3. **Los extras**, desactivados hasta que añades su sección: `[learn]` en `gdd/commands.toml`,
-   `[session]` en `gdd/models.toml`, `[versions]` en `gdd/rules.toml`, y otros.
+Las celdas en negrita son el [núcleo](../glossary.md#núcleo) de GDD: ningún fichero de reglas
+puede desactivarlas. [El rojo tiene un núcleo que ningún fichero puede
+apagar](../explanation/risk.md#el-rojo-tiene-un-núcleo-que-ningún-fichero-puede-apagar) explica
+por qué.
 
 Para ejecutar mutation testing también en los Changes amarillos, actívalo en las dos tablas del
 amarillo:
@@ -134,9 +160,9 @@ g4_if_g1 = true
 review = "quick"
 ```
 
-`review = "deep"` pide una revisión profunda también en verde o en amarillo. Una revisión rápida
-(`quick`) mira los ficheros que tocó el Change, su paquete y sus escenarios; una profunda
-(`deep`) añade el código de alrededor del Change y lo que puede salir muy mal ahí.
+Para pedir una revisión profunda también en verde o en amarillo, pon `review = "deep"`. Una
+revisión rápida (`quick`) lee los ficheros que tocó el Change, su paquete y sus escenarios. Una
+profunda (`deep`) lee además el código de alrededor del Change.
 
 Todos los comandos que leen el fichero de reglas rechazan uno que desactive el núcleo en el rojo:
 
@@ -144,23 +170,24 @@ Todos los comandos que leen el fichero de reglas rechazan uno que desactive el n
 error: gdd/rules.toml: red changes always get mutation testing, the Reviewer and the human G4 (the core of GDD): remove color.red.full.mutation = false from gdd/rules.toml
 ```
 
-También se rechaza una profundidad distinta de `quick` o `deep`:
+También rechazan una profundidad distinta de `quick` o `deep`:
 
 ```text
 error: gdd/rules.toml: review must be quick or deep: color.yellow.full.review = "medium" in gdd/rules.toml
 ```
 
-Comprueba el resultado en un Change real:
+Comprueba el resultado en un Change real con
+[`gdd classify`](../reference/cli/classify.md):
 
 ```bash
-bin/gdd classify CHANGE
+gdd classify CHANGE
 ```
 
 El JSON muestra `tests_first`, `mutation`, `reviewer`, `review` y `g4` para ese Change.
 
 ## 4. Fija los reintentos y los límites de tiempo
 
-En `[limits]` de `gdd/rules.toml`:
+Los límites están en `[limits]` de `gdd/rules.toml`:
 
 ```toml
 [limits]
@@ -183,25 +210,20 @@ súbelo en vez de quitar comprobaciones. Las llamadas de agente tienen su propio
 
 ## 5. Mantén rápido el mutation testing
 
-El mutation testing modifica el código que tocó el Change y espera que algún test falle con cada
-mutante. Es la comprobación más lenta de G3, así que las fichas lo ejecutan solo sobre el diff
-del Change.
+El mutation testing (pruebas de mutación), que planta pequeños fallos y espera que un test
+detecte cada uno, es la comprobación más lenta de G3. Las fichas ya lo ejecutan solo sobre el
+diff del Change:
 
-- **Python** (mutmut): los módulos de `src/` que aparecen en `GDD_DIFF_FILES`.
-- **Rust** (cargo-mutants): el diff respecto a la rama main, con estas aceleraciones, todas en el
-  comando de la ficha:
-  - mutantes compilados sin información de depuración (`CARGO_PROFILE_TEST_DEBUG=0`);
-  - enlazados con mold cuando está instalado y `RUSTFLAGS` no está definida;
-  - cada proceso de test limitado a 2 GB donde existe `prlimit`, para que un mutante que
-    convierte un bucle en una reserva de memoria sin fin no pueda tumbar la máquina;
-  - una segunda oportunidad para los que agotan el tiempo. Cuando lo único que queda son
-    mutantes que agotaron el tiempo, se vuelven a ejecutar de uno en uno con al menos 120 s por
-    test. Un mutante que vuelve a colgarse cuenta como detectado; uno que ahora sobrevive es un
-    mutante no detectado y hace fallar la puerta. Los mutantes no detectados no tienen segunda
-    oportunidad.
+- Python (mutmut) muta los módulos de `src/` que aparecen en `GDD_DIFF_FILES`.
+- Rust (cargo-mutants) muta el diff respecto a la rama main. Va más rápido con mold instalado,
+  y da una segunda oportunidad a los mutantes que solo agotaron el tiempo; consulta la
+  [ficha de rust](../reference/stacks.md#rust).
+
+Si el mutation testing sigue pasándose del límite de tiempo, sube `command_seconds` (paso 4) o
+evita tener dos Changes en G3 a la vez.
 
 Cuando el proyecto no tiene comando de mutation testing, los Changes rojos pasan sin él, y
-`gdd status` lo advierte:
+[`gdd status`](../reference/cli/status.md) lo advierte:
 
 ```text
 no mutation testing command in [g3] of gdd/commands.toml: red changes go without it
@@ -209,10 +231,11 @@ no mutation testing command in [g3] of gdd/commands.toml: red changes go without
 
 ## 6. Cuenta la deuda conocida con el trinquete
 
-Un proyecto adoptado con `gdd adopt` tiene deuda conocida en `gdd/debt.toml`: comandos que
-fallaron el primer día. Avisan en vez de bloquear. `[count]` en `gdd/commands.toml` le dice a
-gdd cómo leer cuántos problemas ha encontrado un comando, para que la deuda no pueda crecer sin
-que se note:
+La [deuda conocida](../glossary.md#deuda-conocida) es lo que falló el primer día en un proyecto
+adoptado con [`gdd adopt`](../reference/cli/adopt.md), registrado en `gdd/debt.toml`; avisa en
+vez de bloquear. El [trinquete](../glossary.md#trinquete) deja que esa deuda baje, pero nunca que
+suba. Para que funcione, dile a gdd en `[count]` de `gdd/commands.toml` cómo leer cuántos
+problemas ha encontrado un comando:
 
 ```toml
 [count]
@@ -221,7 +244,7 @@ types = ["Found {n} error"]
 unit = ["{n} failed", "{n} error"]
 ```
 
-Un texto con `{n}` suma el número de cada sitio donde coincide; un texto sin `{n}` cuenta las
+Un texto con `{n}` suma el número de cada sitio donde coincide. Un texto sin `{n}` cuenta las
 líneas que lo contienen. Con un recuento registrado:
 
 - un Change que informa de más problemas hace fallar la puerta:
@@ -237,7 +260,7 @@ registra la deuda.
 
 ## 7. Permite una excepción de seguridad
 
-Una vulnerabilidad conocida bloquea G3. Para aceptar una bajo tu responsabilidad, escribe la
+Para aceptar bajo tu responsabilidad una vulnerabilidad conocida que bloquea G3, escribe la
 excepción en el propio fichero del escáner, con un motivo:
 
 ```toml
@@ -248,19 +271,22 @@ ignoreUntil = 2027-01-31   # it blocks again after this date
 reason = "dev tool only, never shipped; reviewed by the team"
 ```
 
-En Rust, `[advisories] ignore = [{ id = "RUSTSEC-...", reason = "..." }]` en `deny.toml`.
+En Rust, escribe `[advisories] ignore = [{ id = "RUSTSEC-...", reason = "..." }]` en
+`deny.toml`.
 
-- Estos ficheros son zona roja, así que añadir una excepción es un Change rojo, aprobado en una
-  sentada.
-- G3 rechaza una excepción sin motivo: `osv-scanner.toml: GHSA-... has no reason`.
-- G3 nombra las excepciones que añade un Change, para que las veas en G4.
-- `gdd status` lista todas las que están activas, con su fecha de fin o `expired`.
+gdd lleva la cuenta de cada excepción:
+
+- Rojo: los ficheros del escáner son una [zona roja](../glossary.md#zona-roja), así que añadir
+  una excepción es un Change rojo, aprobado en una sentada.
+- Motivo: G3 rechaza una excepción sin él (`osv-scanner.toml: GHSA-... has no reason`).
+- G4: G3 nombra las excepciones que añade un Change, para que las veas en G4.
+- Estado: `gdd status` lista todas las que están activas, con su fecha de fin o `expired`.
 
 ## 8. Añade herramientas de Learn
 
-Las herramientas que solo avisan, como las de código duplicado o sin usar, van en `[learn]`.
-Nunca bloquean una puerta; las ejecuta `gdd learn`. Consulta
-[Medir el trabajo](measure.md#5-ejecuta-learn).
+Para añadir una herramienta que solo avisa, como una que busca código duplicado o sin usar,
+ponla en `[learn]`. Nunca bloquea una puerta. La ejecuta [`gdd learn`](../reference/cli/learn.md):
+consulta [Ejecutar Learn](measure.md#5-ejecuta-learn).
 
 Todas las claves y sus valores por defecto están en
 [Configuración](../reference/configuration.md#commandstoml).
@@ -268,7 +294,8 @@ Todas las claves y sus valores por defecto están en
 ## Siguientes pasos
 
 - [Medir el trabajo](measure.md): qué comandos de las puertas se llevan el tiempo, por Change.
-- [Ejecutar las puertas en CI](ci.md): las mismas G2 y G3 en cada pull request.
+- [Ejecutar las puertas en CI](ci.md): las mismas G2 y G3 en cada pull request, en
+  integración continua (CI).
 - [Llevar gdd a un proyecto existente](adopt-existing-project.md): deuda conocida desde el
   principio.
 - [Mantener honestos a los agentes](../explanation/safety.md): por qué el núcleo no se puede

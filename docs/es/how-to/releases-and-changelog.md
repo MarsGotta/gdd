@@ -1,14 +1,16 @@
 # Publicar versiones y mantener un changelog
 
-Dale a cada Change una línea para las personas que usan tu proyecto, mantén `CHANGELOG.md` al
-día con lo que se ha fusionado, etiqueta versiones automáticamente o por lotes, y configura los
-pasos de publicación que llevan un Change a producción y lo revierten.
+Dale a cada Change una línea en el changelog, el fichero que cuenta a las personas que usan tu
+proyecto qué cambió en cada versión. Después publica versiones automáticamente o por lotes, y
+configura los pasos que llevan un Change a producción. Usa esta guía antes de tu primera
+publicación, o cuando quieras cambiar cómo se crean las versiones.
 
 ## Antes de empezar
 
-- Un proyecto GDD con al menos un Change fusionado: consulta [Ejecutar un Change](run-a-change.md).
+- Un proyecto GDD con al menos un Change fusionado: consulta [Describir un Change a tu
+  agente](run-a-change.md).
 - Conoces la puerta de salida (G4, *Release Gate*): consulta
-  [Responder a la puerta de salida](release-gate.md).
+  [Revisar un Change en G4](release-gate.md).
 
 ## 1. Dale a cada Change su línea del changelog
 
@@ -21,18 +23,19 @@ Breaking: no
 
 Si no tiene línea, el título del Change va a la sección de su tipo: Feature a `Added`, Hotfix a
 `Fixed`, Migration a `Changed`. Los Changes de tipo Refactor, Spike y No-code se quedan fuera.
-El Orchestrator propone una línea mejor en la sentada; también puedes fijarla tú antes de la
-fusión:
+Si el título no es la línea que quieres, pide a tu agente que fije una mejor antes de la fusión,
+o fíjala tú:
 
 ```bash
-bin/gdd changelog-line cart-total Added The cart shows its total
+gdd changelog-line cart-total Added The cart shows its total
 ```
 
 ```text
 Changelog line of cart-total: Added · The cart shows its total
 ```
 
-La sección es una de las de Keep a Changelog: `Added`, `Changed`, `Deprecated`, `Removed`,
+La sección es una de las de [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), un
+formato habitual de changelog: `Added`, `Changed`, `Deprecated`, `Removed`,
 `Fixed` o `Security`. Cualquier otra se rechaza:
 
 ```text
@@ -42,8 +45,8 @@ error: the section must be one of Added, Changed, Deprecated, Removed, Fixed, Se
 Marca un Change que rompe algo que antes funcionaba, o deja uno fuera a propósito:
 
 ```bash
-bin/gdd changelog-line export-csv Changed Orders export as CSV instead of JSON --breaking
-bin/gdd changelog-line tidy-cart --none
+gdd changelog-line export-csv Changed Orders export as CSV instead of JSON --breaking
+gdd changelog-line tidy-cart --none
 ```
 
 El commit de fusión de `export-csv` termina entonces con:
@@ -53,18 +56,25 @@ Changelog: Changed · Orders export as CSV instead of JSON
 Breaking: yes
 ```
 
-Los Builders y los Reviewers no pueden fijar la línea. En gdd 0.1.0, una línea cuyas palabras
-empiezan por `--` necesita un `--` antes de las palabras:
-`gdd changelog-line CHANGE Changed -- --time is faster`.
+Los Builders y los Reviewers no pueden fijar la línea. En gdd 0.1.0, si las palabras de una
+línea empiezan por `--`, pon un `--` delante de ellas:
+[`gdd changelog-line CHANGE Changed -- --time is faster`](../reference/cli/changelog-line.md).
 
 ## 2. Pon al día CHANGELOG.md
 
-`CHANGELOG.md` es tuyo: gdd nunca borra ni reescribe ni una palabra. `gdd changelog` compara el
-fichero con las líneas que llevan los commits de fusión de main, versión a versión, y muestra lo
-que falta. Lo que todavía no ha publicado ninguna etiqueta `v<semver>` va en Unreleased.
+`CHANGELOG.md` es tuyo: gdd nunca borra ni reescribe ni una palabra. En gdd 0.1.0,
+[`gdd init`](../reference/cli/init.md) no lo crea. Mientras el fichero no exista, cada línea vive
+solo en los trailers de su commit de fusión, y una versión automática etiqueta ese commit de
+fusión. Para empezar el fichero, pide a tu agente que empiece `CHANGELOG.md`, o créalo con
+`gdd changelog --write` como se muestra abajo y haz commit.
+
+[`gdd changelog`](../reference/cli/changelog.md) compara el fichero con las líneas que llevan los
+commits de fusión de main, versión a versión, y muestra lo que falta. Lo que todavía no ha
+publicado ninguna etiqueta `v<semver>` va en Unreleased. Sin fichero, lista todas las líneas
+fusionadas hasta ahora.
 
 ```bash
-bin/gdd changelog
+gdd changelog
 ```
 
 Deberías ver:
@@ -81,10 +91,11 @@ Missing from CHANGELOG.md:
 Nothing written: gdd changelog --write adds them.
 ```
 
-Añade lo que falta y después haz tú el commit:
+Para añadir lo que falta, o crear el fichero con la cabecera de Keep a Changelog, escríbelo y haz
+tú el commit:
 
 ```bash
-bin/gdd changelog --write
+gdd changelog --write
 git add CHANGELOG.md
 git commit -m "Update CHANGELOG.md"
 ```
@@ -97,7 +108,7 @@ Cada línea añadida lleva un comentario que nombra su commit, así que una lín
 más tarde sigue contando como presente. Una línea con las mismas palabras también cuenta. En una
 terminal, `gdd changelog` sin `--write` pregunta antes de escribir.
 
-gdd entiende los estilos de encabezado habituales y escribe con el estilo de tu fichero:
+Si tu fichero ya tiene versiones, gdd mantiene el estilo de sus encabezados:
 
 | Tu fichero tiene | gdd lo lee como |
 |---|---|
@@ -112,8 +123,10 @@ secciones `###` recibe líneas sueltas.
 
 ## 3. Elige cómo se crean las versiones
 
-Una versión es una etiqueta git `v<major>.<minor>.<patch>`. La siguiente sale de las líneas de
-los Changes desde la etiqueta más reciente:
+Una versión es una etiqueta git `v<major>.<minor>.<patch>` que sigue el versionado semántico
+(*semver*), una numeración en la que una patch corrige, una minor añade y una major rompe lo que
+funcionaba. La siguiente versión sale de las líneas de los Changes desde la etiqueta más
+reciente:
 
 | Línea | Siguiente versión |
 |---|---|
@@ -125,17 +138,20 @@ La primera versión de un proyecto es `0.1.0`. Elige uno de estos dos modos en `
 
 - **auto** (el predeterminado, sin sección `[versions]`): cada Change con línea de changelog
   recibe su versión cuando se promueve a producción. El paso de promoción la recibe en
-  `GDD_VERSION`; la etiqueta se crea solo cuando la promoción sale bien. Cuando el proyecto tiene
-  un `CHANGELOG.md` en git, su sección Unreleased se convierte en esa versión en un commit
-  `Release v<x.y.z>`, que es al que apunta la etiqueta.
-- **manual**: las promociones no crean etiquetas; publicas por lotes con `gdd release`.
+  `GDD_VERSION`, y gdd crea la etiqueta solo cuando la promoción sale bien. Si main tiene un
+  `CHANGELOG.md` en git, su sección Unreleased se convierte en esa versión en un commit
+  `Release v<x.y.z>`, que es al que apunta la etiqueta. Sin el fichero, la etiqueta apunta al
+  commit de fusión.
+- **manual**: las promociones no crean etiquetas; publicas por lotes con
+  [`gdd release`](../reference/cli/release.md).
 
   ```toml
   [versions]
   mode = "manual"   # release in batches with gdd release
   ```
 
-En modo auto, un Change promovido en un proyecto que tiene su changelog en git se ve así en main:
+En modo auto, un Change promovido en un proyecto que tiene su changelog en git se ve así en main
+(`Start CHANGELOG.md` es el commit que creó el fichero):
 
 ```text
 d78a276 Release v0.1.0
@@ -149,7 +165,7 @@ d78a276 Release v0.1.0
 etiqueta más reciente, y no publica nada:
 
 ```bash
-bin/gdd release
+gdd release
 ```
 
 ```text
@@ -169,21 +185,21 @@ Nothing released: gdd release --yes releases it.
 Publícala:
 
 ```bash
-bin/gdd release --yes
+gdd release --yes
 ```
 
 ```text
 Released v0.2.0
 ```
 
-Funciona en los dos modos. Añade a `CHANGELOG.md` las líneas que faltan, convierte Unreleased en
-`## [0.2.0] - <day>` en un commit propio (`Release v0.2.0`) cuando main tiene el fichero en git,
-y crea una etiqueta anotada `v0.2.0`. No se hace push de nada: sube tú el commit y la etiqueta.
+Funciona en los dos modos. Si main tiene `CHANGELOG.md` en git, gdd añade las líneas que faltan
+y convierte Unreleased en `## [0.2.0] - <day>` en un commit propio (`Release v0.2.0`). Después
+crea una etiqueta anotada `v0.2.0`. No se hace push de nada: sube tú el commit y la etiqueta.
 
 Para elegir la versión, añade `--version`. Sin `--yes`, muestra lo que publicaría:
 
 ```bash
-bin/gdd release --version 1.0.0
+gdd release --version 1.0.0
 ```
 
 ```text
@@ -196,7 +212,7 @@ Next version: v1.0.0 (from v0.2.0)
 Nothing released: gdd release --yes releases it.
 ```
 
-La versión tiene que ir después de la etiqueta más reciente. `bin/gdd release --version 0.1.0`
+La versión tiene que ir después de la etiqueta más reciente. `gdd release --version 0.1.0`
 en un proyecto que ya está en `v0.1.0` responde:
 
 ```text
@@ -226,9 +242,9 @@ flowchart TD
     classDef human fill:#e6e0f8,stroke:#6a4fc0,color:#213
 ```
 
-`gdd init` los escribe vacíos, con `simulated = true`: los pasos vacíos pasan y se registran
-como simulados hasta que tengas un pre y una producción reales. Rellénalos y pon
-`simulated = false`:
+[`gdd init`](../reference/cli/init.md) los escribe vacíos, con `simulated = true`: los pasos
+vacíos pasan y se registran como simulados hasta que tengas un pre y una producción reales.
+Rellénalos y pon `simulated = false`:
 
 ```toml
 [release]
@@ -243,22 +259,22 @@ rollback = "./deploy.sh production previous"
 rollback_pre = "./deploy.sh pre previous"                   # used by the self-test
 ```
 
-Arriba, `promote`, `observe` y `rollback` llaman a scripts propios; el resto es un ejemplo que
+Arriba, `promote`, `observe` y `rollback` llaman a scripts propios, y el resto es un ejemplo que
 funciona para un paquete Python. Promueve el mismo artefacto que construiste una vez: nunca lo
 vuelvas a construir para producción. Cada paso puede durar lo que marque `command_seconds` en
-`[limits]`. Además, cada paso se puede ejecutar por separado, y así es como se prueban:
+`[limits]`. Para probar un paso, ejecútalo por separado:
 
 ```bash
-bin/gdd release pre CHANGE
-bin/gdd release promote CHANGE
-bin/gdd release observe CHANGE
+gdd release pre CHANGE
+gdd release promote CHANGE
+gdd release observe CHANGE
 ```
 
 Un Change que necesita la G4 humana nunca se promueve sin ella
 (`This change needs a human G4 before promotion.`). Una promoción que falla deja producción
 intacta y el Change esperando en G4; el mismo OK la reintenta.
 
-Cuando `observe` falla, se ejecuta el `rollback` y el Change pide un Hotfix. Con un `observe`
+Si `observe` falla, se ejecuta el `rollback` y el Change pide un Hotfix. Con un `observe`
 que imprimió `error rate up` y salió con 1:
 
 ```text
@@ -287,14 +303,14 @@ Todas las claves están en [Configuración](../reference/configuration.md#comman
 error: CHANGELOG.md misses 1 line(s): gdd changelog shows them, gdd changelog --write adds them
 ```
 
-Cuando no falta nada, imprime `CHANGELOG.md covers every change on main.`. Añádelo como paso de
-tu workflow en main si mantienes el fichero a mano; consulta
+Cuando no falta nada, imprime `CHANGELOG.md covers every change on main.`. Si mantienes el
+fichero a mano, añádelo como paso de tu workflow en main: consulta
 [Ejecutar las puertas en CI](ci.md).
 
 ## Siguientes pasos
 
-- [Responder a la puerta de salida](release-gate.md): OK, KO o polish en G4, antes de la
-  promoción.
-- [Ejecutar las puertas en CI](ci.md): qué bloquea un Change antes de que se fusione.
-- [Medir el trabajo](measure.md): frecuencia de despliegue y tasa de fallo de los cambios
-  (*change fail rate*) con `--dora`.
+- [Revisar un Change en G4](release-gate.md): OK, KO o polish en G4, antes de la promoción.
+- [Ejecutar las puertas en CI](ci.md): qué bloquea un Change antes de que se fusione, en
+  integración continua (CI).
+- [Medir el trabajo](measure.md): frecuencia de despliegue y tasa de fallos de cambios
+  (*change fail rate*, la proporción de despliegues que fallan) con `--dora`.

@@ -1,8 +1,7 @@
 # Files gdd writes
 
-Every file and folder gdd writes in a project: what `gdd init` leaves, the local state in
-`.gdd/` (records, reports, the log, the Decision Inbox, the agents' outputs), which of them are
-committed, which only gdd may write, and what the merge commit of a change carries.
+Every file and folder gdd writes in a project, what each one holds, which are committed, and
+what the merge commit of a change carries.
 
 ## A project after gdd init
 
@@ -12,11 +11,10 @@ repository commits these files (the agents' commands are listed once per agent f
 ```text
 .agents/skills/gdd-<command>/SKILL.md   # Codex: the GDD commands and gdd-stack-python
 .claude/skills/gdd-<command>/SKILL.md   # Claude Code: the same
-.github/workflows/gdd.yml               # CI: the stack setup, gitleaks, gdd, bin/gdd ci
+.github/workflows/gdd.yml               # CI: the stack setup, gitleaks, gdd, gdd ci
 .gitignore                              # the stack's lines and .gdd/
 AGENTS.md                               # instructions for agents, when the project had none
 CLAUDE.md                               # @AGENTS.md, when the project had none
-bin/gdd                                 # entry point of the agents and CI
 docs/brief.md                           # the Project Brief
 features/.gitkeep                       # the scenario folder
 gdd/commands.toml
@@ -41,7 +39,6 @@ tests/unit/test_greeting.py
 | Path | What it is |
 |---|---|
 | `gdd/` | The configuration: see [Configuration](configuration.md). |
-| `bin/gdd` | A shell script that runs `${GDD_BIN:-gdd}` with its arguments: the gdd on the `PATH`, or the one `GDD_BIN` names. |
 | `docs/brief.md` | The Project Brief, from `--name`, `--description`, `--platform`, `--stack` and `--sensitive`. The Orchestrator completes it at Setup. |
 | `AGENTS.md`, `CLAUDE.md` | Written only when the project has none; otherwise gdd prints the line to add. |
 | `.gitignore` | gdd appends the stack's ignored paths and `.gdd/`. |
@@ -49,15 +46,21 @@ tests/unit/test_greeting.py
 | Skeleton | Per stack, only when the folder has no project of that stack: see [Stacks](stacks.md). |
 
 `gdd init` never overwrites a file, never writes through a link, and commits only what it
-wrote (`gdd init <version>`), in a new repository when the folder is in none. `gdd bootstrap`
-then commits the lock files (`gdd bootstrap`). `gdd adopt` commits `gdd/debt.toml`.
+wrote (`gdd init <version>`), in a new repository when the folder is in none. gdd writes no
+`bin/` folder: people, agents and CI all run the `gdd` on the `PATH`. The [`.gdd/bin/`](#gdd)
+folder listed further down is something else: a local folder for programs a project keeps out
+of git, which gdd protects but never writes.
+
+The Setup form of `gdd init` then runs the first install of each stack and commits the lock
+files, as `gdd bootstrap` does after `gdd init` with flags. `gdd adopt` commits
+`gdd/debt.toml`.
 
 ## Committed and local
 
 | Path | Committed | Written by |
 |---|---|---|
 | `gdd/*.toml` | yes | `gdd init`, `gdd adopt`, `gdd upgrade`, a person; see [Who may change them](configuration.md#who-may-change-them) |
-| `bin/gdd`, `.github/workflows/gdd.yml`, agent folders, `AGENTS.md`, `CLAUDE.md` | yes | `gdd init`, `gdd agents install` |
+| `.github/workflows/gdd.yml`, agent folders, `AGENTS.md`, `CLAUDE.md` | yes | `gdd init`, `gdd agents install` |
 | `docs/`, `features/`, code and tests | yes | the Orchestrator and the Builder, through changes |
 | `CHANGELOG.md` | yes, when the project keeps one | `gdd changelog --write`, `gdd release` |
 | `.gdd/` | no: `gdd init` adds `.gdd/` to `.gitignore` | gdd, and a few files the Orchestrator writes |
@@ -66,9 +69,10 @@ The record of each change reaches git only through its [merge commit](#the-merge
 
 ## .gdd/
 
-The local state. Every worktree of a repository shares the `.gdd/` of its main checkout (the
-state root): a change runs in its own worktree and still reads and writes the same records.
-gdd refuses to run in a worktree of a bare repository.
+The local state: what gdd knows about the project and each change. Every worktree of a
+repository shares the `.gdd/` of its main checkout (the state root), so a change runs in its own
+worktree and still reads and writes the same records. gdd refuses to run in a worktree of a
+bare repository.
 
 ```text
 .gdd/
@@ -126,8 +130,8 @@ gdd refuses to run in a worktree of a bare repository.
 ## change.json
 
 The record of a change: what it plans, what its gates decided, its notes and its state.
-Indented JSON. Only gdd writes it: the gdd commands an agent may run (`gdd note`, a gate in
-build mode) change only `inbox` and `out_of_scope`, and gdd puts back any other change an agent
+Indented JSON. Only gdd writes it. The gdd commands an agent may run (`gdd note`, a gate in
+build mode) change only `inbox` and `out_of_scope`, and gdd puts back any other edit an agent
 makes.
 
 The record of a change merged and promoted in a throwaway project, trimmed:
@@ -288,8 +292,9 @@ brief), `branch` (`change/<id>-v<n>`), and once built `state` (`ready` or `parke
 
 ## inbox.md
 
-The Decision Inbox: one message per change, rendered from the record and the gate reports each
-time they change. `gdd inbox <id>` prints it.
+The Decision Inbox: one message per change that gathers what the agents decided and what waits
+for you. gdd renders it again from the record and the gate reports each time they change.
+`gdd inbox <id>` prints it.
 
 ```text
 # Decision Inbox · cart-total · Show the cart total
@@ -307,10 +312,11 @@ Color yellow · lane full · state closed
 - Nothing.
 ```
 
-Its groups, in order, each only when it has something (the three note groups always show):
-`How it works` (from the Reviewer's OK), `Variants`, `Needs your decision`, `Decided without
-you`, `Parked`, `Security exceptions this change adds`, `Known debt`, `Known debt paid`,
-`Polish`; then how many earlier requests were resolved before the last launch.
+`Needs your decision` is the only group that waits for you. The groups, in order, each only
+when it has something (the three note groups always show): `How it works` (from the Reviewer's
+OK), `Variants`, `Needs your decision`, `Decided without you`, `Parked`,
+`Security exceptions this change adds`, `Known debt`, `Known debt paid`, `Polish`; then how
+many earlier requests were resolved before the last launch.
 
 ## Gate reports
 
@@ -350,15 +356,18 @@ you`, `Parked`, `Security exceptions this change adds`, `Known debt`, `Known deb
 
 ## log.jsonl
 
-One JSON object per line, appended under a lock, so the lines of two runs never mix. gdd writes
-a line for every agent call, gate decision, gate command, Path Guard run and machine step. `gdd
-session` adds the interactive Claude Code sessions. Reports leave out the lines that are not
-gdd's (not JSON, or a cost that is not a number of zero or more) and say how many.
+The log behind every report: one JSON object per line, appended under a lock, so the lines of
+two runs never mix. gdd writes a line for every agent call, gate decision, gate command, Path
+Guard run and machine step. `gdd session` adds the interactive Claude Code sessions. Reports
+leave out the lines that are not gdd's (not JSON, or a cost that is not a number of zero or
+more) and say how many.
 
 ```json
 {"ts":"2026-10-30T13:11:46+00:00","change":"cart-total","phase":"2-build","gate":"G2","role":"machine","agent":"lint","model":"-","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0.0,"duration_s":0.0,"result":"ok","retry":0,"note":""}
 {"ts":"2026-10-30T13:11:46+00:00","change":"cart-total","phase":"2-build","gate":"G2","role":"machine","agent":"checks","model":"-","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0.0,"duration_s":0.0,"result":"ok","retry":0,"note":""}
 ```
+
+The first line is the `lint` command of G2; the second is the gate as a whole (`checks`).
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -380,9 +389,9 @@ gdd's (not JSON, or a cost that is not a number of zero or more) and say how man
 
 ## The merge commit
 
-`gdd merge` merges a change into the main branch with a commit whose message carries its
-record, so what the change was and who approved it travels with the code while `.gdd/` stays
-local. The merge commit of the same change, trimmed:
+`.gdd/` never leaves your machine, so `gdd merge` puts what matters of the record into git:
+it merges a change into the main branch with a commit whose message says what the change was
+and who approved it. The merge commit of the same change, trimmed:
 
 ```text
 gdd(cart-total): G3 Merge Gate · Show the cart total

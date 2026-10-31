@@ -2,8 +2,8 @@
 
 Las palabras que usan estas páginas, por orden alfabético, cada una con una definición breve y
 un enlace a la página que la explica. Cuando gdd muestra un término en inglés distinto, va entre
-paréntesis. Si dos páginas parecen no coincidir en una palabra, mandan esta página y la página a
-la que enlaza.
+paréntesis. Consúltala cuando una página use una palabra que no conoces. Si dos páginas parecen
+no coincidir en una palabra, mandan esta página y la página a la que enlaza.
 
 ## ADR
 
@@ -25,8 +25,8 @@ alcanza un límite o falla una comprobación. Un nuevo `gdd launch` lo retoma. C
 
 ## Arnés
 
-Los ficheros que ejecutan y protegen el método (*harness*): `gdd/`, `bin/`, el workflow de CI y
-las carpetas de los agentes. Es una zona roja y está protegido frente a todos los roles. Consulta
+Los ficheros que ejecutan y protegen el método (*harness*): `gdd/`, el workflow de integración
+continua (CI) y las carpetas de los agentes. Es una zona roja y está protegido frente a todos los roles. Consulta
 [Mantener honestos a los agentes](explanation/safety.md#capa-1-path-guard).
 
 ## Autotest
@@ -38,8 +38,8 @@ máquinas abren G0 solo cuando pasan las cuatro. Consulta
 ## Board
 
 La pantalla de terminal, de solo lectura, que muestra todos los Changes por fase, con su color,
-su estado y sus puertas. Se abre con `gdd` sin argumentos en una terminal, o con `gdd board`.
-Consulta la [referencia de comandos](reference/cli.md#gdd-board).
+su estado y sus puertas. Se abre con [`gdd board`](reference/cli/board.md), o con `gdd` solo, en
+una terminal.
 
 ## Brief del proyecto
 
@@ -74,7 +74,7 @@ más alto de entre las rutas que toca, y el color decide sus puertas. También s
 ## Decision Inbox
 
 El único mensaje que un Change deja para la persona, en `.gdd/changes/<id>/inbox.md`: qué necesita
-su decisión, qué se decidió sin él y qué quedó aparcado. Consulta
+su decisión, qué se decidió sin ella y qué quedó aparcado. Consulta
 [Pocas paradas para la persona](explanation/human-stops.md#la-decision-inbox).
 
 ## Deuda conocida
@@ -140,6 +140,13 @@ comandos de las puertas, el ejecutor de escenarios, las rutas de pasos protegida
 instrucciones para los agentes. Un proyecto puede combinar varias. Consulta
 [Stacks](reference/stacks.md).
 
+## Fichero de lock
+
+El fichero en el que el gestor de paquetes de un stack fija las versiones exactas de las
+dependencias (*lock file*), como `uv.lock` en Python. `gdd init` hace su commit tras la primera
+instalación, `gdd bootstrap` lo escribe cuando falta y G3 lo comprueba. Consulta
+[Stacks](reference/stacks.md).
+
 ## G0, puerta de preparación
 
 La puerta que cierra la fase 0 (*G0 Setup Gate*). La abren las máquinas, una vez que existe el
@@ -153,9 +160,9 @@ La puerta en la que la persona aprueba los escenarios nuevos o modificados de un
 ficheros de escenarios con sus hashes. Consulta
 [Escribir y aprobar escenarios](how-to/write-scenarios.md).
 
-## G2, puertas del bucle
+## G2, puerta del bucle
 
-Las comprobaciones que se ejecutan después de cada vuelta del Builder (*G2 Loop Gates*): linter,
+Las comprobaciones que se ejecutan después de cada vuelta del Builder (*G2 Loop Gate*): linter,
 tipos, tests, los escenarios del Change, las reglas de arquitectura, Path Guard y la comprobación
 del alcance. Consulta
 [La vida de un Change](explanation/life-of-a-change.md#4-modo-build-y-g2).
@@ -177,17 +184,17 @@ Consulta [Responder a la puerta de salida](how-to/release-gate.md).
 
 Otro nombre para el [color](#color) de un Change.
 
+## Gherkin
+
+El formato en lenguaje llano de los escenarios: una `Feature` con `Scenario`s cuyos pasos
+empiezan por `Given`, `When` y `Then`. GDD exige Gherkin, no una herramienta; el Setup elige el
+ejecutor de escenarios del stack. Consulta [gdd-setup](reference/skills/setup.md).
+
 ## Hotfix
 
 El tipo de trabajo para algo roto en producción: primero se revierte y después se arregla por su
 vía, con un escenario de regresión. Su color sigue decidiendo sus puertas. Consulta
 [Tipo de trabajo](#tipo-de-trabajo).
-
-## Humano
-
-La persona que usa GDD (*human*): la parte interesada que aprueba escenarios, zonas rojas, planes
-rojos y salidas a producción, y no lee código para hacerlo. Consulta
-[Pocas paradas para la persona](explanation/human-stops.md).
 
 ## Instantánea
 
@@ -226,6 +233,14 @@ escenarios, con aserciones reales, y tests de caracterización en amarillo y en 
 escribir código de producción. Consulta
 [La vida de un Change](explanation/life-of-a-change.md#3-modo-test).
 
+## Mutation testing
+
+Una prueba de los tests (pruebas de mutación): una herramienta hace pequeñas ediciones en el
+código, llamadas mutantes, como invertir una comparación, y los tests tienen que fallar con cada
+una. Un mutante que ningún test detecta muestra un test que comprueba demasiado poco. gdd
+ejecuta los comandos `mutation*` en G2 y G3, siempre en los Changes rojos y en los demás colores
+cuando una regla los activa. Consulta [Puertas](reference/gates.md#puertas-por-color).
+
 ## No-code
 
 El tipo de trabajo para un Change que no añade código. Como un Spike o un Refactor invisible, no
@@ -234,8 +249,9 @@ recibe línea de changelog salvo que se le asigne una. Consulta [Tipo de trabajo
 ## Núcleo
 
 La parte de GDD que protege frente a los agentes y sigue activa diga lo que diga la
-configuración (*core*): las puertas G1 a G4, el semáforo, Path Guard, los ejemplos ocultos, un
-Reviewer de otra familia de modelos y mutation testing en los Changes rojos. Consulta
+configuración (*core*): las puertas G1 a G4, el semáforo (los tres [colores](#color)), Path
+Guard, los ejemplos ocultos, un Reviewer de otra familia de modelos y mutation testing en los
+Changes rojos. Consulta
 [Decisiones de diseño](explanation/design-decisions.md#mínimo-por-defecto-incremental-si-lo-eliges).
 
 ## Orchestrator
@@ -257,6 +273,12 @@ La comprobación de que un rol no ha tocado ninguna de sus rutas protegidas ni n
 sellado en G1 desde que empezó el build del Change. Se ejecuta antes y después de los comandos
 de cada puerta. Consulta
 [Mantener honestos a los agentes](explanation/safety.md#capa-1-path-guard).
+
+## Persona
+
+La persona que usa GDD (*human*): la parte interesada que aprueba escenarios, zonas rojas, planes
+rojos y salidas a producción, y no lee código para hacerlo. Consulta
+[Pocas paradas para la persona](explanation/human-stops.md).
 
 ## Plan rojo
 
@@ -301,7 +323,7 @@ un resumen a git. Consulta
 
 ## Regla de abandono
 
-Lo que tendría que pasar para abandonar un MVP (*kill rule*), escrito en Discover antes de que
+Lo que tendría que pasar para abandonar un producto mínimo viable, o MVP (*kill rule*), escrito en Discover antes de que
 empiece el trabajo y con números que los informes puedan mostrar. Consulta
 [Medir lo que importa](explanation/measuring.md#la-regla-de-abandono).
 
@@ -320,8 +342,8 @@ Consulta [Roles](reference/roles.md).
 
 ## Sentada
 
-El único momento antes de Build en el que la persona aprueba todo lo que un Change necesita de él
-(*sitting*): los escenarios, las zonas rojas y el plan rojo. G4 tiene su propia sentada.
+El único momento antes de Build en el que la persona aprueba todo lo que un Change necesita de
+ella (*sitting*): los escenarios, las zonas rojas y el plan rojo. G4 tiene su propia sentada.
 Consulta [Pocas paradas para la persona](explanation/human-stops.md#una-sentada-por-change).
 
 ## Setup
@@ -335,6 +357,13 @@ tecnología, el esqueleto y el arnés. Consulta
 Un Change que responde a una pregunta para que la persona pueda decidir: se construye rápido,
 dentro de un presupuesto fijo, y termina en un ADR. Solo el ADR llega a main; su código, nunca.
 Consulta [Explorar con un Spike](how-to/spikes.md).
+
+## Test de caracterización
+
+Un test que fija lo que hace hoy el código existente, esté bien o mal, para que cualquier cambio
+de ese comportamiento se note (*characterization test*). El modo test los escribe antes de que un
+Change amarillo o rojo toque código existente. Consulta
+[Skills de los agentes de gdd](reference/skills/agent-skills.md#gdd-build-test).
 
 ## Tipo de trabajo
 

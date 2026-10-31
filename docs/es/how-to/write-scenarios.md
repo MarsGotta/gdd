@@ -1,21 +1,24 @@
-# Escribir y aprobar escenarios
+# Aprobar los escenarios
 
-Los escenarios son el contrato de un Change: frases en Gherkin dentro de `features/` que dicen
-qué tiene que pasar. Esta página muestra cómo escribir buenos escenarios, cómo añadir ejemplos
-ocultos y cómo aprobarlos en la puerta de escenarios (G1, *Scenario Gate*), que los sella para
-que ningún agente pueda cambiarlos después.
+Usa esta página cuando el Orchestrator te enseñe los escenarios de un Change. Los escenarios
+son el contrato del Change: ejemplos breves que dicen lo que tiene que pasar, escritos en
+Gherkin, un formato sencillo de líneas `Given`, `When` y `Then`. Los lees, pides cambios con
+palabras normales y los apruebas en la puerta de escenarios (G1, *Scenario Gate*). Tu OK los
+sella, así que ningún agente puede cambiar a escondidas lo que has aprobado.
+
+<!-- The chat excerpts come from one real run of gdd 0.1.0 (main at e244577) on 2026-10-31 with
+Claude Code: the run of the tutorial. The sitting screens with the scenarios, the G1 refusal and
+the sealed-file message were reproduced the same day in throwaway copies of that project, with
+the same scenario files, without agents and without a launch. -->
 
 ## Antes de empezar
 
-- Un proyecto GDD con el Setup terminado (`bin/gdd status` dice `G0: ok`). Consulta
-  [Tu primer Change](../getting-started/tutorial.md).
-- Un Change que tenga previsto su fichero `.feature`. Consulta [Ejecutar un Change](run-a-change.md).
-- El listón de calidad de tu proyecto para los escenarios, en
-  [`docs/standards.md`](../../standards.md) (el del propio gdd sirve de ejemplo).
+- Un Change que el Orchestrator está preparando: consulta [Describir un Change a tu
+  agente](run-a-change.md).
+- El listón de calidad de tu proyecto para los escenarios, si lo tiene, en `docs/standards.md`
+  (el [de gdd](../../standards.md) sirve de ejemplo).
 
-Los ejemplos de esta página construyen el Change `export-csv` de una herramienta de notas de
-línea de comandos, `notes`, sobre el stack de Rust. Todos los comandos se ejecutan desde la raíz
-del proyecto, en la copia principal.
+Los ejemplos usan el Change `cart-total` de `shop`, una pequeña tienda online.
 
 ## Cómo recorren los escenarios un Change
 
@@ -25,99 +28,325 @@ ejecuta.
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant H as Persona
+    participant H as Tú
     participant T as Builder, modo test
     participant B as Builder, modo build
     participant G as Puertas
-    O->>O: features/ y features/hidden/ en la rama change/ID
-    O->>H: la sentada: escenarios visibles
-    H->>G: G1 ok: los archivos de escenarios quedan sellados (SHA-256)
+    O->>O: escenarios y ejemplos ocultos en la rama change/CHANGE
+    O->>H: la sentada: los escenarios visibles
+    H->>G: OK: G1 sella los ficheros de escenarios (SHA-256)
     T->>T: pasos solo para los escenarios visibles
     B->>B: código hasta que G2 está en verde
-    G->>G: G2 ejecuta los .feature del Change, G3 todos y también los ejemplos ocultos
+    G->>G: G2 ejecuta los escenarios del Change, G3 todos y los ejemplos ocultos
 ```
 
-## 1. Incluye el fichero de escenarios en el Change
+## 1. Lee lo que te enseña el Orchestrator
 
-Pon el fichero `.feature` en `--paths` al crear el Change, para que gdd sepa que el Change
-necesita G1:
-
-```bash
-bin/gdd new-change export-csv --title "Export notes as CSV" --paths src/export.rs features/export_csv.feature
-```
-
-Deberías ver, dentro de la clasificación:
+Después de crear el Change, el Orchestrator hace una [sentada](../glossary.md#sentada)
+contigo: un solo mensaje con todo lo que necesita tu aprobación. Es decir, los escenarios en
+texto llano, las zonas rojas cuando esperan y el plan cuando el Change es rojo. Para
+`cart-total`, el agente escribió:
 
 ```text
-  "color": "yellow",
-  "lane": "full",
-  ...
-  "g1": true,
-  "features": [
-    "features/export_csv.feature"
-  ],
-  ...
-  "g4": true,
+**The scenarios** (all prices are set by you, tax already included):
+
+> **Background:** the tax rate is 21%
+>
+> **1. The total adds up every piece in the cart**
+> A cart with 1 × Blue mug at 24.20 and 2 × Wide bowl at 36.30.
+> The total is **96.80**, and the tax included in it is **16.80**.
+>
+> **2. The tax is rounded to the cent**
+> A cart with 1 × Small cup at 25.00.
+> The total is **25.00**, and the tax included in it is **4.34**.
+>
+> **3. An empty cart costs nothing**
+> The total is **0.00**, and the tax included is **0.00**.
+
+I also wrote two hidden examples that the Builder won't see, to check it implemented the rule
+and didn't just match the visible numbers.
+
+**Questions:**
+1. **Do your prices already include tax?** I recommend yes: ...
+2. **Which tax rate, and which currency?** I used 21% as a placeholder (Spain's VAT rate) and
+   left out the currency. Tell me your rate and currency and I'll put them in.
+3. **Rounding:** I recommend working out the tax once on the cart total, rounded to the nearest
+   cent. ...
+
+**Next step:** reply "OK" if all my recommendations stand, or give your rate, currency and any
+corrections. I'll then commit the scenarios, approve G1 with your note, and launch the build.
 ```
 
-`"g1": true` significa que una persona aprueba los escenarios antes de construir, y
-`"g4": true`, que esa misma persona vuelve a encontrarse con el Change en la
-[puerta de salida](release-gate.md) (G4, *Release Gate*): con la tabla de reglas por defecto, un
-Change con escenarios nuevos se detiene en G4. Un Change que toca un fichero `.feature` que no
-tenía previsto recibe las mismas puertas: gdd también cuenta las rutas que el Change ha tocado
-de verdad.
-
-## 2. Escribe los escenarios en la rama del Change
-
-Los escenarios viven en la rama `change/<id>`, nunca en main, hasta que el Change se fusiona:
-
-```bash
-git switch change/export-csv
-```
-
-Escribe `features/export_csv.feature`:
+El agente cuenta los escenarios con palabras sencillas y añade sus preguntas. El fichero de
+escenarios que hay detrás dice:
 
 ```gherkin
-Feature: Export notes as CSV
-  `notes export --csv` writes the notes as CSV, one row per note under a header, so they open
-  in a spreadsheet. Private notes stay out unless the user asks for them.
+Feature: Cart total, taxes included
+  The customer sees what the cart costs in total, taxes included,
+  and how much of that total is tax.
+  Prices are set by the seller with tax already included.
 
   Background:
-    Given a notebook with the notes:
-      | title         | tags | written    | private |
-      | Groceries     | home | 2026-10-01 | no      |
-      | Rent, October | home | 2026-10-03 | no      |
-      | Salary review | work | 2026-10-12 | yes     |
+    Given the tax rate is 21%
 
-  Scenario: Every public note becomes one row
-    When I export the notebook as CSV
-    Then the CSV is:
-      """
-      title,tags,written
-      Groceries,home,2026-10-01
-      "Rent, October",home,2026-10-03
-      """
-    And the CSV leaves out "Salary review"
+  Scenario: The total adds up every piece in the cart
+    Given a cart with
+      | piece     | price | quantity |
+      | Blue mug  | 24.20 | 1        |
+      | Wide bowl | 36.30 | 2        |
+    When the customer looks at the cart
+    Then the total is 96.80
+    And the tax included in the total is 16.80
 
-  Scenario: Private notes join the export only when asked for
-    When I export the notebook as CSV with private notes
-    Then row 3 of the CSV starts with "Salary review"
+  Scenario: The tax is rounded to the cent
+    Given a cart with
+      | piece     | price | quantity |
+      | Small cup | 25.00 | 1        |
+    When the customer looks at the cart
+    Then the total is 25.00
+    And the tax included in the total is 4.34
+
+  Scenario: An empty cart costs nothing
+    Given an empty cart
+    When the customer looks at the cart
+    Then the total is 0.00
+    And the tax included in the total is 0.00
 ```
 
-Qué hace buenos a estos escenarios:
+- `Feature` nombra el comportamiento, y las líneas de debajo dicen para qué sirve.
+- `Background` fija el punto de partida que comparten todos los escenarios del fichero: aquí,
+  el tipo de impuesto.
+- Cada `Scenario` es un ejemplo. `Given` es el punto de partida, `When` lo que hace alguien,
+  `Then` lo que tiene que ser cierto después. `And` continúa la línea anterior. Una tabla bajo
+  un `Given` da los datos de un paso, aquí las piezas del carrito.
 
-- **Los pasos hablan el idioma del dominio.** Cuadernos, notas y exportaciones, nunca funciones,
-  ficheros ni opciones de la implementación. El Builder decide cómo llega un paso al código.
-- **Todo `Then` puede fallar.** `the CSV is:` compara la salida entera, y `leaves out` nombra la
-  nota que tiene que faltar. Un paso que no puede fallar es un bug, como dice
-  [`docs/standards.md`](../../standards.md).
-- **Ejemplos concretos, pocos escenarios.** Títulos y fechas reales muestran los casos límite
-  (una coma dentro de un título) mejor que una frase que hable de ellos.
-- **El Background deja claro todo aquello de lo que depende el comportamiento.** Aquí es el
-  cuaderno. Para un comportamiento que depende de la configuración, como la tabla de reglas o el
-  mapa de zonas, el Background fija esa configuración, para que el escenario no dependa de lo
-  que tenga el proyecto en ese momento. Los escenarios del propio gdd lo hacen en todas sus
-  features:
+Comprueba estas cinco cosas:
+
+- **Es lo que pediste.** Cada caso que te importa tiene un escenario, y no hay nada que no
+  quisieras.
+- **Las palabras son las del dominio.** Carritos, piezas, precios e impuestos, nunca funciones,
+  ficheros ni clases del código. El Builder decide cómo llega un paso al código.
+- **Cada `Then` puede fallar.** `the total is 96.80` nombra un importe exacto. Un `Then` que no
+  puede fallar no promete nada.
+- **Ejemplos concretos, pocos escenarios.** Los precios reales muestran los casos límite mejor
+  que una frase sobre ellos: el impuesto incluido en 25.00 al 21 % es 4.338..., así que el
+  ejemplo también fija cómo se redondea el céntimo.
+- **El punto de partida está completo.** Todo aquello de lo que depende el comportamiento está
+  en un `Given` o en el `Background`, no se da por supuesto: aquí el tipo de impuesto se fija,
+  no se toma del proyecto.
+
+Solo unos pocos escenarios pasan por la interfaz de usuario, con la etiqueta `@ui`. Los demás
+hablan con el núcleo de la aplicación, que es más rápido y menos frágil; la demo en pre
+comprueba la interfaz real.
+
+## 2. Pide cambios con palabras normales
+
+Di lo que falta o lo que está mal, como se lo dirías a alguien de tu equipo. Por ejemplo:
+
+```text
+My prices are without tax: add the tax on top, and show the subtotal too.
+Add a cart with three plates of the same kind, so I see a quantity above one.
+```
+
+El Orchestrator reescribe los escenarios en la rama del Change y te los vuelve a enseñar. No
+se registra nada hasta que dices OK, así que pide tantas veces como necesites. Un escenario que
+apruebas es difícil de cambiar después: sale más barato corregirlo ahora que después de la
+construcción.
+
+## 3. Entiende qué son los ejemplos ocultos
+
+Los ejemplos ocultos comprueban que el código hace lo que dicen los escenarios, no solo lo que
+muestran sus datos. Junto a los escenarios que lees, el Orchestrator escribe uno o dos en
+`features/hidden/`, y el Builder nunca los recibe. El Orchestrator no los enseña en el chat; la
+pantalla de la sentada sí, marcados como ocultos (consulta el paso 4). Uno de los de
+`cart-total`:
+
+```gherkin
+Feature: Cart total, taxes included (hidden examples)
+
+  Background:
+    Given the tax rate is 21%
+
+  Scenario: Several plates of the same kind
+    Given a cart with
+      | piece        | price | quantity |
+      | Dinner plate | 18.15 | 3        |
+    When the customer looks at the cart
+    Then the total is 54.45
+    And the tax included in the total is 9.45
+```
+
+Un ejemplo oculto reutiliza las frases de los escenarios visibles con datos nuevos. El Builder
+en modo test escribe un paso por cada frase visible, así que nunca podría escribir una frase
+que solo tiene un ejemplo oculto. G1 rechaza un ejemplo así y nombra las frases. Por ejemplo,
+una tarjeta regalo oculta con dos frases propias:
+
+```text
+error: G1 refused: hidden examples use step phrasings that no visible scenario has, so test mode can never write them. Reuse visible sentences with new data:
+  - no tax is charged on the gift card
+  - the cart holds a gift card worth #
+```
+
+Entonces el Orchestrator reescribe el ejemplo oculto, o añade la frase a un escenario visible
+para que la apruebes.
+
+> [!NOTE]
+> Un ejemplo oculto está oculto en las instrucciones de los agentes, no bajo llave: un Builder
+> que busque en el proyecto puede leerlo. Si un Builder informa de que los ha leído, el Orchestrator
+> escribe ejemplos ocultos nuevos antes de G4 y los ejecuta, y tú decides en G4 con ese
+> resultado ([`GDD.md`](../../../GDD.md)).
+
+## 4. Aprueba
+
+En el chat, di OK, con las respuestas a las preguntas que haya hecho el Orchestrator:
+
+```text
+OK, as they are. My prices include tax, 21% is my rate and I sell in euros.
+```
+
+El Orchestrator hace commit de los escenarios en la rama del Change y registra G1 con tus
+palabras, además de las zonas rojas y el plan cuando formaban parte de la sentada. Después
+lanza el Change. El agente responde:
+
+```text
+The **cart-total** change is now building on its own. I'll get a notification when it finishes
+or stops.
+
+**Approved and recorded:**
+- G1, with your note: prices include tax, the rate is 21%, amounts are in euros, and the tax is
+  worked out once on the cart total.
+...
+```
+
+Para leerlo todo antes en una pantalla, ejemplos ocultos incluidos, usa la pantalla de la
+sentada. Lee los escenarios de la rama del Change, y el Orchestrator solo les hace commit ahí
+después de tu OK. Hasta entonces la pantalla dice `No scenario files on change/cart-total`, así
+que pide al agente que haga primero commit de los escenarios. Después abre la sentada en una
+terminal:
+
+```bash
+gdd sitting cart-total
+```
+
+Con los ficheros ya en un commit, deberías ver:
+
+```text
+┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
+│cart-total · Show the cart total, taxes included · yellow                                         │
+│                                                                                                  │
+│Scenarios                                                                                         │
+│features/cart_total.feature                                                                       │
+│Feature: Cart total, taxes included                                                               │
+│  The customer sees what the cart costs in total, taxes included,                                 │
+│  and how much of that total is tax.                                                              │
+│  Prices are set by the seller with tax already included.                                         │
+│                                                                                                  │
+│  Background:                                                                                     │
+│    Given the tax rate is 21%                                                                     │
+│                                                                                                  │
+│  Scenario: The total adds up every piece in the cart                                             │
+│    Given a cart with                                                                             │
+...
+│↑↓ scroll · a approve · c ask for changes · q quit                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Las flechas desplazan hasta los ejemplos ocultos y después hasta las zonas rojas y el plan (sin
+las líneas en blanco):
+
+```text
+┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
+│features/hidden/cart_total.feature · hidden: the Builders never see it                            │
+│Feature: Cart total, taxes included (hidden examples)                                             │
+│  Background:                                                                                     │
+│    Given the tax rate is 21%                                                                     │
+│  Scenario: Several plates of the same kind                                                       │
+...
+│Red zones: approved                                                                               │
+│Plan: not needed for a yellow change                                                              │
+│↑↓ scroll · a approve · c ask for changes · q quit                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+`Red zones: approved` significa que se firmaron en la fase Setup; cuando esperan, la sentada
+las lista en `Red zones to approve` y tu aprobación también las cubre. `a` aprueba y `c` pide
+cambios: escribe qué cambiar y después `Enter`. Las dos muestran primero exactamente lo que van
+a registrar, en tu nombre, y no se escribe nada antes de `y`:
+
+```text
+┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
+│This records, as you:                                                                             │
+│- G1 ok on cart-total, sealing features/cart_total.feature, features/hidden/cart_total.feature    │
+│y to record · n to go back                                                                        │
+│↑↓ scroll · q quit                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Después de `y`:
+
+```text
+┌ gdd · Sitting · shop ────────────────────────────────────────────────────────────────────────────┐
+│Recorded                                                                                          │
+│G1 ok on cart-total (human).                                                                      │
+│Next: tell your agent it is approved (it runs gdd launch cart-total)                              │
+│↑↓ scroll · q quit                                                                                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Después dile al Orchestrator en el chat que has aprobado, para que siga con el lanzamiento.
+Todas las teclas de la sentada están en [Pantallas](../reference/screens.md).
+
+Solo una persona aprueba G1. A un Builder o un Reviewer que lo intente se le rechaza con
+`A Builder or Reviewer cannot open or close gates.`
+
+## 5. Cambia un escenario después de aprobarlo
+
+Los ficheros sellados se comparan en cada puerta. Tu OK guarda una huella de cada fichero de
+escenarios del Change, ejemplos ocultos incluidos, en el registro del Change. A partir de ahí,
+[Path Guard](../glossary.md#path-guard) compara cada fichero sellado con su huella en cada
+puerta. Si un fichero no coincide, sea quien sea quien lo editó, la puerta falla:
+
+```text
+{"ok":false,"failures":["features/cart_total.feature: scenario approved in G1 and modified afterwards"]}
+```
+
+Ninguna ronda del Builder puede arreglar eso, así que un Change así se aparca. Un escenario
+aprobado solo cambia con una G1 nueva. Si un escenario tiene que cambiar, dile al Orchestrator
+qué cambiar. Edita el escenario en la rama del Change y vuelve a hacer la sentada. Tu nuevo OK
+registra una G1 nueva, cuyas huellas sustituyen a las anteriores, así que la siguiente puerta
+comprueba la nueva versión. Si el Change está aparcado, lee antes [Volver a poner en marcha un
+Change aparcado](parked-change.md).
+
+El escenario de regresión de un Hotfix, en `features/regression/`, no necesita sentada: comprueba la
+corrección de un fallo, un comportamiento que ya estaba aprobado. Se ejecuta en G3 con todos
+los demás.
+
+## Escribir tú los escenarios
+
+Puedes escribir tú los escenarios y el Orchestrator sigue haciendo la sentada. Escríbelos en la
+rama del Change, nunca en `main`, haz commit y vuelve a `main`:
+
+```bash
+git switch change/cart-total
+# write features/cart_total.feature and features/hidden/cart_total.feature
+git add features/cart_total.feature features/hidden/cart_total.feature
+git commit -m "cart-total: scenarios"
+git switch main
+```
+
+Haz commit antes de aprobar: G1 sella los ficheros tal como están en el último commit de la
+rama, y una edición sin commit no queda sellada. Tres reglas más:
+
+- **Los ejemplos ocultos reutilizan frases visibles** con datos nuevos. G1 compara las frases
+  con los datos borrados: el texto entre comillas, los números y los marcadores de un outline
+  (`<name>`) cuentan como datos; las tablas y los doc strings se dejan fuera.
+- **Etiqueta los ficheros ocultos con `@hidden`.** La G2 de la ficha de TypeScript se salta los
+  escenarios `@hidden`; las fichas de Rust y Python dejan fuera `features/hidden/` por carpeta
+  y solo lo ejecutan en G3, con `GDD_HIDDEN=1`. Ahí la etiqueta no hace daño.
+- **Fija en el `Background` la configuración de la que depende un comportamiento.** Cuando el
+  comportamiento depende de la configuración, el `Background` la fija, para que el escenario no
+  dependa de lo que tenga hoy el proyecto. Los propios escenarios de gdd lo hacen en cada
+  feature:
 
   ```gherkin
   Background:
@@ -132,229 +361,28 @@ Qué hace buenos a estos escenarios:
       """
   ```
 
-  Cualquier cambio en la configuración protegida va antes del paso que arranca la construcción.
-  Si se escribe después, Path Guard culpa al Builder, con razón, y ninguna vuelta del Builder
-  puede arreglarlo.
+  Pon cualquier modificación de la configuración protegida antes del paso que arranca la
+  construcción. Si va después, Path Guard culpa con razón al Builder, y ninguna ronda del
+  Builder puede arreglar eso.
 
-Solo unos pocos escenarios pasan por la interfaz de usuario, etiquetados `@ui`. Por defecto los
-pasos hablan con el núcleo de la aplicación, que es más rápido y menos frágil; la demo en pre
-comprueba la interfaz real.
+## Por dentro
 
-## 3. Añade ejemplos ocultos
-
-Un ejemplo oculto es un escenario de `features/hidden/` que el Builder nunca recibe: comprueba
-que el código hace lo que dicen los escenarios, no solo lo que muestran sus datos. Escribe
-`features/hidden/export_csv.feature`:
-
-```gherkin
-@hidden
-Feature: Hidden examples for exporting notes as CSV
-
-  Scenario: Private notes stay out, with other notes
-    Given a notebook with the notes:
-      | title     | tags   | written    | private |
-      | Dentist   | health | 2026-09-30 | yes     |
-      | Book club | fun    | 2026-10-20 | no      |
-    When I export the notebook as CSV
-    Then the CSV is:
-      """
-      title,tags,written
-      Book club,fun,2026-10-20
-      """
-    And the CSV leaves out "Dentist"
-```
-
-Los ejemplos ocultos reutilizan las frases de los escenarios visibles con datos nuevos. El modo
-test nunca los ve, así que solo puede escribir sus pasos si sus frases ya están en un escenario
-visible. G1 compara las frases con sus datos en blanco: el texto entre comillas, los números y
-los marcadores de los Scenario Outline (`<name>`) cuentan como datos; las tablas y los doc
-strings se dejan fuera. Si una frase no aparece en ningún escenario visible, G1 se niega. Añade
-este escenario al fichero oculto:
-
-```gherkin
-  Scenario: A note without tags
-    Given a notebook with one note "Call mum" and no tags
-    When I export the notebook as CSV
-    Then the tags field of row 1 is empty
-```
-
-y G1 nombra las dos frases que el modo test nunca podría escribir:
-
-```text
-error: G1 refused: hidden examples use step phrasings that no visible scenario has, so test mode can never write them. Reuse visible sentences with new data:
-  - a notebook with one note "…" and no tags
-  - the tags field of row # is empty
-```
-
-La etiqueta `@hidden` importa en el stack de TypeScript: su comando de G2 se salta los
-escenarios `@hidden`. Las fichas de Rust y Python dejan fuera `features/hidden/` por carpeta, y
-solo la ejecutan en G3, con `GDD_HIDDEN=1`. Ahí la etiqueta no hace ningún daño.
-
-> [!NOTE]
-> Un ejemplo oculto está oculto en las instrucciones de los agentes, no guardado bajo llave: un
-> Builder que se ponga a buscarlo puede leerlo. Si un Builder informa de que los ha leído, el
-> Orchestrator escribe ejemplos ocultos nuevos antes de G4 y los ejecuta, y tú decides en G4 con
-> ese resultado ([`GDD.md`](../../../GDD.md)).
-
-## 4. Haz commit y vuelve a main
-
-```bash
-git add features/export_csv.feature features/hidden/export_csv.feature
-git commit -m "export-csv: scenarios"
-git switch main
-```
-
-Haz commit antes de aprobar. Al aprobar desde main, G1 sella los ficheros tal como están en el
-último commit de la rama; una edición sin commit no queda sellada, y después Path Guard la ve
-como un cambio en un escenario aprobado.
-
-## 5. Apruébalos en la sentada
-
-La sentada es una pantalla por Change con todo lo que necesita de ti antes de construir: los
-escenarios tal como están en la rama, los ejemplos ocultos (marcados con
-`hidden: the Builders never see it`), las zonas rojas que esperan aprobación con sus motivos y
-el plan de un Change rojo.
-
-```bash
-bin/gdd sitting export-csv
-```
-
-| Tecla | Qué hace |
-|---|---|
-| `↑` `↓` | Desplaza el contenido |
-| `a` | Aprueba: muestra exactamente lo que va a registrar en tu nombre |
-| `c` | Pide cambios: escribe qué cambiar y pulsa `Enter`; registra G1 KO con tus palabras |
-| `y` / `n` | Registra lo que muestra la confirmación, o vuelve atrás sin registrar nada |
-| `q` | Sale; no se ha escrito nada |
-
-Al aprobar se registran G1 desde la rama del Change (lo que sella sus ficheros de escenarios),
-las zonas rojas cuando están pendientes y el plan de un Change rojo. La sentada termina con
-`Next: gdd launch export-csv`. No se escribe nada antes de `y`.
-
-Sin terminal (desde un script o desde el chat de un agente), la sentada te dice qué ejecutar en
-su lugar:
-
-```text
-error: gdd sitting needs a terminal; without one, record the sitting with gdd gate G1 ok export-csv --by human (and gdd gate zones ok --by human, gdd gate plan ok export-csv --by human for a red change)
-```
-
-```bash
-bin/gdd gate G1 ok export-csv --by human --note "Two scenarios, one hidden example"
-```
-
-Deberías ver:
-
-```text
-G1 ok on export-csv (human).
-```
-
-Para pedir cambios, registra G1 KO con lo que tiene que cambiar:
-
-```bash
-bin/gdd gate G1 ko export-csv --by human --note "Say what happens to a note without tags"
-```
-
-Solo una persona aprueba G1: si un Builder o un Reviewer ejecuta `gdd gate`, se le rechaza con
-`A Builder or Reviewer cannot open or close gates.`
-
-## 6. Comprueba lo que selló G1
-
-El registro del Change guarda el SHA-256 de cada fichero de escenarios que selló, ejemplos
-ocultos incluidos. En `.gdd/changes/export-csv/change.json`:
-
-```json
-"G1": {
-  "by": "human",
-  "decision": "ok",
-  "hashes": {
-    "features/export_csv.feature": "0658d1978f1549c0b2a63c08b60b698c734f55206bef27a73c575aa868171fe3",
-    "features/hidden/export_csv.feature": "4cf81ea487a1ada4601534eb5aa7980c752f1e75888fa3eb9e681b1c10ec4f65"
-  },
-  "note": "Two scenarios, one hidden example",
-  "ts": "2026-10-30T13:15:22+00:00"
-}
-```
-
-`bin/gdd status` lista el Change con `G1:ok`. Ahora lánzalo: `bin/gdd launch export-csv`
-(consulta [Ejecutar un Change](run-a-change.md)).
-
-## 7. Deja que el Builder escriba los pasos
-
-El primer agente del lanzamiento es el Builder en modo test. Recibe un paquete de contexto con
-los escenarios visibles, nunca con los ocultos, y:
-
-- escribe una definición de paso por frase, en el lenguaje del dominio, con aserciones reales;
-- reutiliza un paso que ya dice lo mismo, y solo añade uno general (con los valores como
-  parámetros) cuando ninguno encaja;
-- conecta cada paso con la capa más baja que muestra el comportamiento: una función del dominio,
-  luego la línea de comandos, luego la pantalla;
-- comprueba con `bin/gdd g2 --role builder-test` que los tests nuevos fallan porque falta el
-  comportamiento, no por un error de sintaxis o de configuración.
-
-El modo test no puede escribir código de producción, y el modo build, que viene después, no
-puede tocar los ficheros `.feature` ni los pasos: ambos son rutas protegidas en
-`gdd/rules.toml` (`builder_test` y `builder_build`). El runner de cada ficha de stack se ejecuta
-en **modo estricto**: una frase sin paso, o un paso pendiente, hace fallar la ejecución, así que
-un escenario no puede pasar porque alguien se lo salte.
-
-Cada puerta ejecuta un conjunto distinto:
-
-| Puerta | Qué ejecuta | Cómo lo sabe |
-|---|---|---|
-| G2, en cada vuelta del Builder | los ficheros de escenarios del Change | `GDD_FEATURES`, una ruta por línea; vacío significa todos |
-| G3, antes de la fusión | todos los escenarios, ejemplos ocultos incluidos | `GDD_FEATURES` vacío y `GDD_HIDDEN=1` en las fichas de Rust y Python; sin filtro de etiquetas en TypeScript |
-
-## 8. Cambia un escenario después de aprobarlo
-
-Path Guard detiene a cualquiera que cambie un fichero sellado, tenga el rol que tenga. Edita
-`features/export_csv.feature` en la rama, y la siguiente puerta dice:
-
-```text
-{"ok":false,"failures":["features/export_csv.feature: scenario approved in G1 and modified afterwards"]}
-```
-
-Ninguna vuelta del Builder puede arreglar eso, así que un Change con un escenario aprobado que se
-ha modificado se aparca. Cuando lo que tiene que cambiar es el propio escenario, la decisión es
-tuya: edítalo en la rama, haz commit y vuelve a aprobar G1. La nueva aprobación sella los nuevos
-hashes:
-
-```bash
-git switch change/export-csv
-# edit features/export_csv.feature
-git commit -am "export-csv: clearer scenario title"
-bin/gdd gate G1 ok export-csv --by human --note "Reworded one title"
-git switch main
-```
-
-Deberías ver `G1 ok on export-csv (human).`, y Path Guard vuelve a pasar. Si el Change está
-aparcado, lee [Reactivar un Change aparcado](parked-change.md) antes de hacer commit de nada en
-su rama.
-
-## Escenarios de regresión: sin G1
-
-Un escenario de `features/regression/` deja fijado un bug que ya se ha corregido. Describe un
-comportamiento que ya estaba aprobado, así que no necesita sentada:
-
-```bash
-bin/gdd new-change empty-title --type Hotfix --title "An empty title no longer breaks the export" --paths src/export.rs features/regression/empty_title.feature
-```
-
-Deberías ver:
-
-```text
-  "g1": false,
-  "features": [],
-```
-
-La carpeta es `regression` en `[acceptance]` de `gdd/rules.toml`. Los escenarios de regresión se
-ejecutan en G3 con todos los demás, y no hacen que un Change salga de la vía rápida
-(*Fast Lane*).
+Aprobar ejecuta [`gdd gate G1 ok CHANGE --by human`](../reference/cli/gate.md) desde la rama
+del Change, más `gdd gate zones ok` y `gdd gate plan ok` cuando esperan; pedir cambios en la
+pantalla ejecuta `gdd gate G1 ko` con tus palabras. [`gdd sitting`](../reference/cli/sitting.md)
+registra lo mismo, y sin terminal dice qué líneas de `gdd gate` ejecutar en su lugar. Después
+de G1, el Builder en modo test escribe un paso por frase y comprueba que cada uno falla por el
+motivo correcto; el modo build no puede tocar los ficheros `.feature` ni los pasos
+(`builder_build` y `builder_test` en `gdd/rules.toml`). El runner se ejecuta en modo estricto,
+así que una frase sin paso falla. G2 ejecuta los ficheros de escenarios del Change
+(`GDD_FEATURES`); G3 los ejecuta todos, ejemplos ocultos incluidos.
 
 ## Siguientes pasos
 
-- [Ejecutar un Change](run-a-change.md): lanza el Change que acabas de aprobar y síguelo.
-- [Responder a la puerta de salida](release-gate.md): vuelves a encontrarte con este Change en
-  G4.
+- [Describir un Change a tu agente](run-a-change.md): qué pasa cuando apruebas.
+- [Revisar un Change en G4](release-gate.md): vuelves a encontrarte con este Change en la
+  puerta de salida.
 - [Mantener honestos a los agentes](../explanation/safety.md): por qué los hashes, los ejemplos
   ocultos y Path Guard funcionan juntos.
-- [Referencia de comandos: gdd gate](../reference/cli.md#gdd-gate): cada puerta y cada opción.
+- [La skill de Change](../reference/skills/change.md): cómo escribe y registra el Orchestrator
+  los escenarios.

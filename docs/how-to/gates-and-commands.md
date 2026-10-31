@@ -1,17 +1,45 @@
 # Tune the gates
 
-Choose the commands the Loop Gate (G2) and the Merge Gate (G3) run, what each risk color gets,
-how long a command may run and how mutation testing, known debt and security exceptions behave.
+Change what the Loop Gate (G2) and the Merge Gate (G3) check, how strict each risk color is and
+how long a check may run. Use this guide when a gate is too slow, misses a kind of bug your
+project has, or blocks something you have decided to accept.
 
 ## Before you start
 
-- A GDD project whose self-test passes: `bin/gdd selftest` says `harness 4/4`.
+- A GDD project whose self-test passes: [`gdd selftest`](../reference/cli/selftest.md) says
+  `harness 4/4`.
 - You know what each gate is for: see [Gates](../reference/gates.md) and
   [How risk picks the gates](../explanation/risk.md).
 
+## What each gate command protects
+
+Each command of a [gate](../glossary.md#gate) guards against one problem. G2 runs the fast
+ones after every round of the Builder, and G3 runs the slow ones before the merge:
+
+| Command | Gate | What it protects you from |
+|---|---|---|
+| `lint` | G2 | Inconsistent style and the simple bugs a linter (a tool that reads code without running it) spots |
+| `types` | G2 | Values of the wrong type, caught before anything runs |
+| `unit` | G2 | Breaking a function that worked |
+| `acceptance` | G2 | A change that does not do what its scenarios say |
+| `architecture` | G2 | Code reaching across a boundary it should not, such as the package importing its tests |
+| `acceptance_full` | G3 | Breaking another scenario, or passing only the examples the Builder could see |
+| `lockfile` | G3 | A lock file (the exact versions of every dependency) that does not match the manifest |
+| `security` | G3 | Unsafe code patterns and dependencies with known vulnerabilities |
+| `dependencies` | G3 | Shipping a dependency whose license you cannot use |
+| `secrets` | G3 | A password or token committed in the change |
+| `mutation` | G3 | Tests that run the code without checking what it does |
+
+Every [stack sheet](../reference/stacks.md), the tools gdd keeps for each language, uses these
+names. [Gates](../reference/gates.md) lists the checks a gate runs besides them.
+
 Two files hold the gates: `gdd/commands.toml` says what runs, and `gdd/rules.toml` says what
-each color gets. Both are harness, protected from every agent: change them on the main branch,
-as a person, and run `bin/gdd selftest` afterwards.
+each color gets. Both are [harness](../glossary.md#harness), the files gdd uses to check your
+project, so no agent may touch them. Change them yourself on the main branch, then run
+`gdd selftest`.
+
+In the diagram, follow a change from G2 to the Reviewer: the color decides whether the
+mutation commands run.
 
 ```mermaid
 flowchart TD
@@ -30,8 +58,8 @@ flowchart TD
 
 ## 1. See what the gates run today
 
-`gdd init` composed `gdd/commands.toml` from your stack sheets. Each key of `[g2]` and `[g3]`
-is a command name, each value a shell command:
+[`gdd init`](../reference/cli/init.md) composed `gdd/commands.toml` from your stack sheets.
+Each key of `[g2]` and `[g3]` is a command name, and each value is a shell command:
 
 ```toml
 [g2]
@@ -50,15 +78,16 @@ secrets = "BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) &
 mutation = "set -f; P=$(printf '%s\n' \"$GDD_DIFF_FILES\" | ...)"
 ```
 
-To compare with what a stack sheet gives, from inside the project:
+To compare your file with what a stack sheet gives, run
+[`gdd stacks`](../reference/cli/stacks.md) from inside the project:
 
 ```bash
-bin/gdd stacks show python
-bin/gdd stacks compose python typescript
+gdd stacks show python
+gdd stacks compose python typescript
 ```
 
-`compose` prints the commands several sheets give together, as TOML, and writes nothing. With
-more than one stack, each name gets its stack: `lint-python`, `lint-typescript`.
+`compose` prints, as TOML, the commands several sheets give together, and writes nothing. With
+more than one stack, each name carries its stack: `lint-python`, `lint-typescript`.
 
 ## 2. Change a gate command
 
@@ -74,26 +103,28 @@ more than one stack, each name gets its stack: `lint-python`, `lint-typescript`.
 
 2. Keep the rules a command name carries:
    - A command whose name starts with `mutation` runs only when the color asks for mutation
-     testing; otherwise the report lists it under `skipped`.
+     testing. Otherwise the report lists it under `skipped`.
    - Names starting with `acceptance`, `mutation` or `secrets` can never become known debt.
    - An empty command (`types = ""`) is not configured and does not run. A gate with no
      command at all fails.
-3. Try the command by hand, commit on main, then:
+3. Try the command by hand, commit on main, then run:
 
    ```bash
-   bin/gdd selftest
+   gdd selftest
    ```
 
-   The first check plants a failing test and expects G2 to turn red: a G2 that cannot fail is
+   The first check plants a failing test and expects G2 to turn red. A G2 that cannot fail is
    refused.
 
-G2 also runs Path Guard before and after the commands, and the scope check in build mode. G3
-adds Path Guard, the scenario count (`[acceptance] required = true` makes zero scenarios a
-failure) and the check of security exceptions. A gate prints its report as JSON:
+A gate prints its report as JSON. Besides your commands, it lists the checks of its own, such
+as `path-guard`:
 
 ```text
 {"ok":true,"gate":"G3","color":"yellow","passed":["acceptance_full","dependencies","lockfile","secrets","security","path-guard","scenarios (1)","exceptions"],"skipped":["mutation"],"failures":[],"out_of_scope":[]}
 ```
+
+`ok` says whether the gate passed, and `failures` says why when it did not. Here `mutation` is
+under `skipped` because a yellow change does not ask for it.
 
 ## 3. Decide what each color gets
 
@@ -107,14 +138,9 @@ failure) and the check of security exceptions. A gate prints its report as JSON:
 | `g4_if_g1` | false | true | false | true | **true** |
 | `review` | quick | quick | quick | quick | **deep** |
 
-The bold cells are the core of GDD: what guards against the agents. GDD has three levels:
-
-1. **The core**, always on: the gates G1 to G4, the colors, Path Guard, hidden examples, a
-   Reviewer of another model family, and for red changes mutation testing, the Reviewer, a deep
-   review and the human G4.
-2. **The stack's checks**, on by default: the commands of the sheet. Empty one to switch it off.
-3. **Extras**, off until you add their section: `[learn]` in `gdd/commands.toml`, `[session]`
-   in `gdd/models.toml`, `[versions]` in `gdd/rules.toml`, and others.
+The bold cells are the [core](../glossary.md#core) of GDD: no rules file can switch them off.
+[Red has a core that no file can switch
+off](../explanation/risk.md#red-has-a-core-that-no-file-can-switch-off) explains why.
 
 To run mutation testing on yellow changes too, set it in both yellow tables:
 
@@ -127,33 +153,33 @@ g4_if_g1 = true
 review = "quick"
 ```
 
-`review = "deep"` asks for a deep review in green or yellow too. A quick review looks at the
-files the change touched, its package and its scenarios; a deep one adds the code around the
-change and what can go badly wrong there.
+To ask for a deep review in green or yellow too, set `review = "deep"`. A quick review reads
+the files the change touched, its package and its scenarios. A deep one also reads the code
+around the change.
 
-A rules file that switches the core off for red is refused by every command that reads it:
+Every command that reads the rules file refuses one that switches the core off for red:
 
 ```text
 error: gdd/rules.toml: red changes always get mutation testing, the Reviewer and the human G4 (the core of GDD): remove color.red.full.mutation = false from gdd/rules.toml
 ```
 
-A depth other than `quick` or `deep` is refused too:
+It refuses a depth other than `quick` or `deep` too:
 
 ```text
 error: gdd/rules.toml: review must be quick or deep: color.yellow.full.review = "medium" in gdd/rules.toml
 ```
 
-Check the result on a real change:
+Check the result on a real change with [`gdd classify`](../reference/cli/classify.md):
 
 ```bash
-bin/gdd classify CHANGE
+gdd classify CHANGE
 ```
 
 The JSON shows `tests_first`, `mutation`, `reviewer`, `review` and `g4` for that change.
 
 ## 4. Set retries and time limits
 
-In `[limits]` of `gdd/rules.toml`:
+The limits live in `[limits]` of `gdd/rules.toml`:
 
 ```toml
 [limits]
@@ -170,27 +196,24 @@ gate fails with:
 timed out (1s): raise limits.command_seconds in gdd/rules.toml
 ```
 
-The value must be a whole number of seconds above 0. On a slow or busy machine, raise it rather
-than removing checks. Agent calls have their own limit, `agent_timeout_s` (3600 by default).
+The value must be a whole number of seconds above 0. On a slow or busy machine, raise it
+instead of removing checks. Agent calls have their own limit, `agent_timeout_s` (3600 by default).
 
 ## 5. Keep mutation testing fast
 
-Mutation testing changes the code the change touched and expects a test to fail for each
-mutant. It is the slowest check of G3, so the sheets run it on the change's diff only.
+Mutation testing, which plants small bugs and expects a test to catch each one, is the slowest
+check of G3. The sheets already run it on the change's diff only:
 
-- **Python** (mutmut): the modules of `src/` listed in `GDD_DIFF_FILES`.
-- **Rust** (cargo-mutants): the diff against the main branch, with these speed-ups, all in the
-  sheet's command:
-  - mutants built without debug info (`CARGO_PROFILE_TEST_DEBUG=0`);
-  - linked with mold when it is installed and `RUSTFLAGS` is not set;
-  - each test process capped at 2 GB where `prlimit` exists, so a mutant that turns a loop into
-    endless allocation cannot take the machine down;
-  - a second chance for timeouts. When the only problem left is mutants that timed out, they
-    run again one at a time with at least 120 s per test. A mutant that hangs again counts as
-    caught; one that now survives is a missed mutant and fails the gate. Missed mutants get no
-    second chance.
+- Python (mutmut) mutates the modules of `src/` listed in `GDD_DIFF_FILES`.
+- Rust (cargo-mutants) mutates the diff against the main branch. It is faster with mold
+  installed, and it gives mutants that only timed out a second chance; see the
+  [rust sheet](../reference/stacks.md#rust).
 
-When the project has no mutation command, red changes go without it, and `gdd status` says so:
+If mutation testing still runs past the time limit, raise `command_seconds` (step 4), or avoid
+two changes in G3 at once.
+
+When the project has no mutation command, red changes go without it, and
+[`gdd status`](../reference/cli/status.md) says so:
 
 ```text
 no mutation testing command in [g3] of gdd/commands.toml: red changes go without it
@@ -198,9 +221,11 @@ no mutation testing command in [g3] of gdd/commands.toml: red changes go without
 
 ## 6. Count known debt with the ratchet
 
-A project adopted with `gdd adopt` has known debt in `gdd/debt.toml`: commands that failed on
-day one. They warn instead of blocking. `[count]` in `gdd/commands.toml` tells gdd how to read
-how many problems a command reported, so the debt cannot grow unseen:
+[Known debt](../glossary.md#known-debt) is what failed on day one in a project adopted with
+[`gdd adopt`](../reference/cli/adopt.md), recorded in `gdd/debt.toml`; it warns instead of
+blocking. The [ratchet](../glossary.md#ratchet) lets that debt shrink but never grow. To make it
+work, tell gdd in `[count]` of `gdd/commands.toml` how to read how many problems a command
+reported:
 
 ```toml
 [count]
@@ -209,7 +234,7 @@ types = ["Found {n} error"]
 unit = ["{n} failed", "{n} error"]
 ```
 
-A text with `{n}` adds up the number at each place it matches; a text without it counts the
+A text with `{n}` adds up the number at each place it matches. A text without it counts the
 lines that contain it. With a count recorded:
 
 - a change that reports more fails the gate: `lint reports 5, the known debt is 3: 2 more`;
@@ -222,8 +247,8 @@ See [Bring gdd to an existing project](adopt-existing-project.md) for how debt i
 
 ## 7. Allow a security exception
 
-A known vulnerability blocks G3. To accept one under your responsibility, write the exception in
-the scanner's own file, with a reason:
+To accept a known vulnerability that blocks G3, under your responsibility, write the exception
+in the scanner's own file, with a reason:
 
 ```toml
 # osv-scanner.toml
@@ -233,23 +258,28 @@ ignoreUntil = 2027-01-31   # it blocks again after this date
 reason = "dev tool only, never shipped; reviewed by the team"
 ```
 
-For Rust, `[advisories] ignore = [{ id = "RUSTSEC-...", reason = "..." }]` in `deny.toml`.
+For Rust, write `[advisories] ignore = [{ id = "RUSTSEC-...", reason = "..." }]` in `deny.toml`.
 
-- These files are a red zone, so adding an exception is a red change, approved at a sitting.
-- G3 refuses an exception without a reason: `osv-scanner.toml: GHSA-... has no reason`.
-- G3 names the exceptions a change adds, so you see them at G4.
-- `gdd status` lists every active one, with its end date or `expired`.
+gdd keeps track of every exception:
+
+- Red: the scanner's files are a [red zone](../glossary.md#red-zone), so adding an exception
+  is a red change, approved at a sitting.
+- Reason: G3 refuses an exception without one (`osv-scanner.toml: GHSA-... has no reason`).
+- G4: G3 names the exceptions a change adds, so you see them at G4.
+- Status: `gdd status` lists every active one, with its end date or `expired`.
 
 ## 8. Add Learn tools
 
-Tools that only warn, such as duplication or unused code, go in `[learn]`. They never block a
-gate; `gdd learn` runs them. See [Measure the work](measure.md#5-run-learn).
+To add a tool that only warns, such as a finder of duplicated or unused code, put it in
+`[learn]`. It never blocks a gate. [`gdd learn`](../reference/cli/learn.md) runs it: see
+[Run Learn](measure.md#5-run-learn).
 
 Every key and its default is in [Configuration](../reference/configuration.md#commandstoml).
 
 ## Next steps
 
 - [Measure the work](measure.md): which gate commands take the time, per change.
-- [Run the gates in CI](ci.md): the same G2 and G3 on every pull request.
+- [Run the gates in CI](ci.md): the same G2 and G3 on every pull request, in continuous
+  integration (CI).
 - [Bring gdd to an existing project](adopt-existing-project.md): known debt from the start.
 - [Keeping agents honest](../explanation/safety.md): why the core cannot be switched off.

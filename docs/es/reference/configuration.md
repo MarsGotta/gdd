@@ -1,7 +1,15 @@
 # Configuración
 
-Cada fichero de `gdd/` y cada clave que gdd lee de él: su tipo, el valor que gdd usa cuando
-falta la clave y lo que hace. Los ficheros son TOML.
+Cada fichero de `gdd/`, la carpeta de los ajustes de un proyecto, y cada clave que gdd lee de
+él: su tipo, el valor que gdd usa cuando falta la clave y lo que hace. Los ficheros son TOML.
+
+## Cómo encajan los ficheros
+
+`project.toml` describe el proyecto. `zones.toml` da un color a cada ruta, y `rules.toml` da a
+cada color sus puertas, sus límites y sus rutas protegidas. `commands.toml` guarda los comandos
+que ejecutan esas puertas, y `models.toml` el agente y el modelo de cada rol. `generated.toml`
+sirve a las actualizaciones y `debt.toml` a los proyectos adoptados. El porqué de los colores está
+en [Cómo elige el riesgo las puertas](../explanation/risk.md).
 
 ## Los ficheros
 
@@ -20,37 +28,38 @@ falta la clave y lo que hace. Los ficheros son TOML.
 
 No existe `gdd/release.toml`: consulta [release.toml](#releasetoml).
 
-Un fichero que gdd no puede analizar detiene el comando con el nombre del fichero y el error de
-TOML. Las claves que gdd no lee se ignoran, salvo donde una sección de abajo diga otra cosa.
+Cuando gdd no puede analizar un fichero, el comando se detiene e imprime el nombre del fichero
+y el error de TOML. gdd ignora las claves que no lee, salvo donde una sección de abajo diga otra
+cosa.
 
 ## Quién puede cambiarlos
 
-Toda ruta bajo `gdd/` es arnés:
+Toda ruta bajo `gdd/` es [arnés](../glossary.md#arnés), los ficheros que gdd usa para
+comprobar el proyecto:
 
-- `gdd init` pone `gdd/**` en `[protected] all` de `gdd/rules.toml`, así que Path Guard hace
-  fallar a cualquier Builder o Reviewer que la toque, en G2 y en CI (`gdd ci` hace fallar una
-  rama de Change que cambia una ruta de `all`).
+- `gdd init` pone `gdd/**` en `[protected] all` de `gdd/rules.toml`, así que
+  [Path Guard](../glossary.md#path-guard) hace fallar a cualquier Builder o Reviewer que la
+  toque, en G2 y en CI (`gdd ci` hace fallar una rama de Change que cambia una ruta de `all`).
 - `gdd init` pone `gdd/**` en la zona roja del arnés de `gdd/zones.toml`, así que un Change que
   la planifica es rojo.
 
-Solo una persona cambia estos ficheros, en la rama principal, después de que la persona esté de
-acuerdo: el Orchestrator propone, la persona decide (las [zonas rojas](gates.md#zonas-rojas) y
-el plan de un Change rojo se aprueban en la sentada). Un Change que vuelve a editar
-`gdd/zones.toml` necesita que las zonas rojas se aprueben de nuevo.
+Estos ficheros cambian en la rama principal, fuera de cualquier Change, y solo cuando la
+persona está de acuerdo: el Orchestrator propone, la persona decide. Las
+[zonas rojas](gates.md#zonas-rojas) y el plan de un Change rojo se aprueban en la sentada. Una
+edición de las zonas rojas de `gdd/zones.toml` necesita que se aprueben de nuevo.
 
 Path Guard juzga un build con las listas `[protected]` de `gdd/rules.toml` tal como están ahora
-y tal como estaban en el commit donde empezó el build: borrar una protección, o el fichero
+y tal como estaban en el commit donde empezó el build. Borrar una protección, o el fichero
 entero, no libera de ella a ningún rol.
 
 ## project.toml
 
-Lo básico del proyecto. `gdd init` lo escribe a partir de sus flags. Es el fichero que marca la
-raíz del proyecto: gdd busca `gdd/project.toml` en la carpeta donde se ejecuta y en las
+Lo básico del proyecto. `gdd init` lo escribe a partir de sus flags. También marca la raíz del
+proyecto: gdd busca `gdd/project.toml` en la carpeta donde se ejecuta y en las
 carpetas superiores, y se niega a ejecutarse fuera de un proyecto (`not a GDD project`).
 
-Lo leen `gdd status` (`name`, `language`, `platform`), todo comando que necesita los stacks
-(`stack`) y los agentes, cuyos comandos les indican que lo lean (`language`,
-`scenario_runner`).
+`gdd status` lee `name`, `language` y `platform`. Todo comando que necesita los stacks lee
+`stack`. Los agentes leen `language` y `scenario_runner`, porque sus comandos se lo indican.
 
 ```toml
 name = "notes"
@@ -74,8 +83,8 @@ scenario_runner = "pytest-bdd"
 
 El mapa de zonas: qué rutas tienen qué color. Lo leen `gdd classify`, `gdd new-change`,
 `gdd prepare`, las puertas (para clasificar el Change y para la comprobación de alcance),
-`gdd status` y `gdd gate zones`. El Orchestrator mapea las zonas rojas al final de Discover; el
-humano las aprueba (`gdd gate zones ok`). Consulta [Cómo elige el riesgo las
+`gdd status` y `gdd gate zones`. El Orchestrator mapea las zonas rojas al final de Discover; la
+persona las aprueba (`gdd gate zones ok`). Consulta [Cómo elige el riesgo las
 puertas](../explanation/risk.md).
 
 El color de una ruta es el más alto entre las zonas que la cubren; una ruta que no cubre
@@ -103,13 +112,13 @@ color cubren una ruta, la primera da su motivo.
 | `paths` | array de cadenas | `[]` | Patrones de ruta, desde la raíz del proyecto. |
 | `reason` | cadena | `""` | Por qué estas rutas tienen este color. `gdd classify` y el registro lo muestran. |
 
-`gdd init` escribe tres zonas: `docs/**` y `*.md` en verde; el arnés (`gdd/**`, `bin/**`,
-`.github/**`, `.claude/**`, `.agents/**`, `.opencode/**`, `.gdd/bin/**`) en rojo; la cadena de
-suministro de los stacks (por ejemplo `pyproject.toml`, `uv.lock`, `osv-scanner.toml`,
+`gdd init` escribe tres zonas: `docs/**` y `*.md` en verde; el arnés (`gdd/**`, `.github/**`,
+`.claude/**`, `.agents/**`, `.opencode/**`, `.gdd/bin/**`) en rojo; la cadena de suministro de
+los stacks (por ejemplo `pyproject.toml`, `uv.lock`, `osv-scanner.toml`,
 `osv-scanner-licenses.toml`) en rojo.
 
 La aprobación de las zonas rojas guarda un hash de cada `[[zone]]` cuyo color es `red`, con
-todas sus claves. Cualquier cambio en una zona roja, incluida una clave añadida, pide una
+todas sus claves. Cualquier edición de una zona roja, incluida una clave añadida, pide una
 aprobación nueva.
 
 ## rules.toml
@@ -145,7 +154,7 @@ G3 cuenta las líneas de los ficheros `.feature` de `dir` y sus subcarpetas que 
 | `replans` | entero, 0 o más | `1` | Replanificaciones de un Change que sigue rojo en G2: cada una es una llamada al Orchestrator, otra vez el modo test cuando la replanificación dice `NEXT: test`, una ronda más de build y G2. Después el Change se aparca. |
 | `agent_timeout_s` | entero, 0 o más | `3600` | Segundos que puede durar una llamada de agente, hasta que se cierra su salida. Pasado ese tiempo se mata su grupo de procesos y el Change se aparca. `gdd init` no la escribe. |
 | `command_seconds` | entero mayor que 0 | `1800` | Segundos que puede durar cada comando de puerta y cada comando de release. Un comando que se queda sin tiempo se mata junto con todo lo que arrancó y termina con el código de salida 124. Cualquier otro valor es un error que nombra `limits.command_seconds`. |
-| `reviewer_fixes` | entero | `1` en el fichero que escribe `gdd init` | gdd 0.1.0 no la lee. El Builder recibe siempre una corrección tras un KO del Reviewer y otra tras un G3 rojo. |
+| `reviewer_fixes` | entero | `1` en el fichero que escribe `gdd init` | gdd 0.1.0 no la lee. El Builder recibe siempre una ronda de corrección tras un KO del Reviewer y otra tras un G3 rojo. Cuando un hallazgo del Reviewer nombra un fichero que solo escribe el modo test, esa ronda empieza en modo test. |
 
 ### [spike]
 
@@ -172,11 +181,12 @@ G3 cuenta las líneas de los ficheros `.feature` de `dir` y sus subcarpetas que 
 
 ### [color]
 
-Lo que pide cada color en cada vía. Un color tiene una tabla propia, `[color.<color>]`, y una
-por vía, `[color.<color>.fast]` y `[color.<color>.full]`. La regla de un color en una vía es su
-tabla de vía cuando la tiene, y si no, su tabla de color. Una tabla de vía no hereda de la
-tabla de color: una clave que omite toma el valor por defecto de abajo. Un color que el fichero
-no menciona recibe los valores por defecto.
+Lo que pide cada color en cada [vía](gates.md#vías), rápida o completa. Un color tiene una
+tabla propia, `[color.<color>]`, y una por vía, `[color.<color>.fast]` y
+`[color.<color>.full]`. La regla de un color en una vía es su tabla de vía cuando la tiene, y si
+no, su tabla de color. Una tabla de vía no hereda de la tabla de color: una clave que omite toma
+el valor por defecto de abajo. Un color que el fichero no menciona recibe los valores por
+defecto.
 
 Cuando el fichero no tiene ninguna sección `[color]`, gdd usa en su lugar la tabla que lleva
 incorporada:
@@ -200,15 +210,16 @@ todas las vías.
 | `g4_if_g1` | booleano | `true` | Un Change con escenarios nuevos (G1) espera a la persona en la puerta de salida (G4, *Release Gate*). Un Change rojo siempre espera. |
 | `review` | `"quick"` o `"deep"` | `"quick"`; rojo: siempre `"deep"` | Con qué profundidad mira el Reviewer. Quick: los ficheros que tocó el Change, su paquete y sus escenarios. Deep: eso, más el código alrededor del Change y lo que puede salir muy mal ahí. |
 
-El núcleo de GDD no se puede desactivar para el rojo. Una tabla roja (con o sin vía) que diga
-`mutation = false`, `reviewer = false`, `g4_if_g1 = false` o `review = "quick"` hace que se
-rechace el fichero entero:
+El mutation testing (pruebas de mutación: pequeños fallos plantados en el código para comprobar
+que los tests los detectan) forma parte del núcleo de GDD, que no se puede desactivar para el
+rojo. Una tabla roja (con o sin vía) que diga `mutation = false`, `reviewer = false`,
+`g4_if_g1 = false` o `review = "quick"` hace que se rechace el fichero entero:
 
 ```text
 error: gdd/rules.toml: red changes always get mutation testing, the Reviewer and the human G4 (the core of GDD): remove color.red.full.mutation = false from gdd/rules.toml
 ```
 
-También se rechazan una profundidad de revisión distinta de `quick` o `deep` y un color
+gdd también rechaza una profundidad de revisión distinta de `quick` o `deep` y un color
 distinto de `green`, `yellow` o `red`. El rojo nunca va por la vía rápida: `[color.red.fast]`
 no se usa nunca.
 
@@ -229,11 +240,11 @@ y en `gdd guard`.
 | `reviewer` | array de cadenas | `[]` | Rutas que el Reviewer no debe cambiar. `gdd init` escribe `["**"]`: todo. |
 | cualquier otra clave | array de cadenas | `[]` | Las rutas del rol con ese nombre, con `-` escrito como `_`. `builder` es el rol con el que juzgan por defecto `gdd g2`, `gdd g3` y `gdd guard`. |
 
-Un rol no debe tocar las rutas de `all` más las de su propia lista. Con independencia de estas
+Un rol no debe tocar las rutas de `all` más las de su propia lista. Digan lo que digan estas
 listas, cualquier rol falla Path Guard cuando un fichero de escenarios aprobado en G1 ha
 cambiado después de la aprobación.
 
-`gdd init` escribe `all` como `gdd/**`, `bin/**`, `.github/**`, `.claude/**`, `.agents/**`,
+`gdd init` escribe `all` como `gdd/**`, `.github/**`, `.claude/**`, `.agents/**`,
 `.opencode/**`, `.gdd/bin/**`, `AGENTS.md` y `CLAUDE.md`, y `builder_build` y `builder_test` a
 partir de las [fichas de stack](stacks.md).
 
@@ -279,9 +290,9 @@ effort = "high"
 ### [orchestrator], [builder.\<color\>], [builder_test], [reviewer]
 
 El modelo de cada rol. `[builder.<color>]` es el Builder en modo build para los Changes de ese
-color (`green`, `yellow`, `red`); `[builder_test]` es el Builder en modo test para todos los
-colores; `[orchestrator]` replanifica un Change atascado en G2; `[reviewer]` revisa cada Change
-que tiene Reviewer. Un rol sin tabla no tiene agente: su llamada falla.
+color (`green`, `yellow`, `red`). `[builder_test]` es el Builder en modo test para todos los
+colores. `[orchestrator]` replanifica un Change atascado en G2. `[reviewer]` revisa cada Change
+que tiene Reviewer. Un rol sin tabla no tiene agente, y su llamada falla.
 
 | Clave | Tipo | Por defecto | Significado |
 |---|---|---|---|
@@ -316,9 +327,9 @@ integración. `gdd init` escribe una clave por agente: `claude` es `anthropic`, 
 
 Un Change recibe una sesión compartida solo cuando `[builder_test]` y su `[builder.<color>]`
 usan la misma integración y la ficha de ese agente dice cómo reanudar una sesión (hoy, Claude
-Code); si no, se ejecuta con sesiones separadas y `gdd status` dice por qué. El Reviewer y el
-Orchestrator nunca se unen a ella. `gdd launch` y `gdd resume` leen esta tabla desde el
-checkout principal.
+Code). Si no, se ejecuta con sesiones separadas y `gdd status` dice por qué. El Reviewer y el
+Orchestrator nunca se unen a la sesión compartida. `gdd launch` y `gdd resume` leen esta tabla
+desde el checkout principal.
 
 ### [env]
 
@@ -347,7 +358,7 @@ presupuesto del Spike, guarda solo lo que informó el agente.
 Los comandos que ejecutan las máquinas: los comandos de las puertas, las herramientas de Learn,
 cómo contar la deuda conocida, el test que falla del autotest y los pasos de release. Cada
 comando es una línea de shell que se ejecuta con `sh -c` desde la raíz del proyecto, sin nada
-en su entrada estándar; pasa con el código de salida 0. `gdd init` escribe este fichero a
+en su entrada estándar. Pasa con el código de salida 0. `gdd init` escribe este fichero a
 partir de las [fichas de stack](stacks.md) (lo que imprime `gdd stacks compose`) seguidas de la
 sección `[release]`. El texto que escribe un agente nunca llega a un shell: solo llegan estos
 comandos.
@@ -373,7 +384,7 @@ Builder y con `gdd g2`.
   mutation testing (pruebas de mutación); si no, aparece en `skipped`.
 - Cada comando recibe `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` y `GDD_FEATURES`; consulta
   [Variables de entorno](environment.md#qué-reciben-los-comandos-de-las-puertas).
-- Un comando que falla conserva, en el informe de la puerta, las 40 primeras líneas de su
+- Cuando un comando falla, el informe de la puerta conserva las 40 primeras líneas de su
   salida que informan de un fallo (empiezan por `error` o contienen `FAILED`, `Failed`,
   `failed`, `panicked`, `Error:`, `Traceback` o `✘`), y después los últimos 2500 caracteres.
 
@@ -385,15 +396,16 @@ Las fichas de stack llaman a los comandos de G2 `lint`, `types`, `unit`, `accept
 Los comandos de la puerta de integración (G3, *Merge Gate*), que ejecuta la receta después de
 G2 y también `gdd g3`. Mismas reglas que [`[g2]`](#g2). Las fichas de stack los llaman
 `acceptance_full`, `lockfile`, `security`, `dependencies`, `secrets` y `mutation`. `gdd status`
-avisa cuando ningún comando de `[g3]` empieza por `mutation`: los Changes rojos se quedarían
-sin mutation testing.
+avisa cuando ningún comando de `[g3]` empieza por `mutation`, porque entonces los Changes rojos
+se quedarían sin mutation testing.
 
 `gdd adopt` ejecuta una vez cada comando de G2 y G3, salvo aquellos cuyo nombre empieza por
 `acceptance`, `mutation` o `secrets`.
 
 ### [learn]
 
-Las herramientas que `gdd learn` ejecuta una vez sobre el proyecto: avisos, nunca una puerta.
+Las herramientas que `gdd learn` ejecuta una vez sobre el proyecto. Solo avisan; nunca son una
+puerta.
 
 | Clave | Tipo | Por defecto | Significado |
 |---|---|---|---|
@@ -403,8 +415,8 @@ Las fichas de stack las llaman `duplication` y `unused`.
 
 ### [count]
 
-Cómo contar lo que informa un comando con deuda conocida, para que su deuda tenga un techo (un
-trinquete).
+Cómo contar lo que informa un comando con deuda conocida, para que su deuda tenga un techo que
+solo puede bajar (un trinquete).
 
 | Clave | Tipo | Por defecto | Significado |
 |---|---|---|---|
@@ -432,7 +444,7 @@ no la lee de este fichero: las listas que usa Path Guard están en
 ### [release]
 
 Los pasos de release. Los leen `gdd merge`, `gdd release` y `gdd selftest`. Cada paso ejecuta
-su comando, nunca otra cosa, dentro de `[limits] command_seconds`, con `GDD_CHANGE` y, cuando
+su comando y nada más, dentro de `[limits] command_seconds`, con `GDD_CHANGE` y, cuando
 el Change ya tiene versión, `GDD_VERSION`.
 
 | Clave | Tipo | Por defecto | Significado |
@@ -488,10 +500,10 @@ escribe `gdd init`; lo reescribe `gdd upgrade` en su rama `gdd-upgrade`. No lo e
 ## debt.toml
 
 La deuda conocida de un proyecto que ya tenía código: los comandos de puerta que fallaban
-cuando se ejecutó `gdd adopt`. Avisan en lugar de hacer fallar una puerta hasta que un Change
-consigue que cada uno pase. Lo escribe `gdd adopt`, que hace un commit solo con él y se niega a
-ejecutarse una vez que existe; una fusión elimina la deuda que sus puertas saldaron y rebaja
-los recuentos que sus puertas informaron más bajos.
+cuando se ejecutó `gdd adopt`. Cada uno avisa en lugar de hacer fallar su puerta hasta que un
+Change consigue que pase. `gdd adopt` escribe el fichero, hace un commit solo con él y se niega
+a ejecutarse una vez que existe. Después, una fusión elimina la deuda que sus puertas saldaron
+y rebaja los recuentos que sus puertas informaron más bajos.
 
 ```toml
 adopted = "2026-10-30"
@@ -527,4 +539,4 @@ primera comprobación de `gdd selftest`, que somete G2 a la misma deuda.
 - [Stacks](stacks.md): de dónde salen los comandos y las rutas protegidas de `gdd init`.
 - [Ajustar las puertas](../how-to/gates-and-commands.md): cambia comandos y límites paso a
   paso.
-- [Referencia de comandos](cli.md#gdd-init): los flags que rellenan estos ficheros.
+- [`gdd init`](cli/init.md): los flags que rellenan estos ficheros.

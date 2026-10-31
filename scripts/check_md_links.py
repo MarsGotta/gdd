@@ -13,7 +13,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path.cwd()
-SKIP = {".git", ".gdd", "target", "build", ".venv", "node_modules", "dist", ".claude", ".agents", ".opencode"}
+# cli_notes: the hand-written parts of the CLI reference, whose links are relative to the
+# generated pages in docs/reference/cli/, where they are checked.
+SKIP = {".git", ".gdd", "target", "build", ".venv", "node_modules", "dist", ".claude", ".agents", ".opencode",
+        "cli_notes"}
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)|<img[^>]+src=\"([^\"]+)\"")
 IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")

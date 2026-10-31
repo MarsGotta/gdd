@@ -1,8 +1,9 @@
 # Roles
 
 Quién hace qué en un proyecto GDD: la persona, el Orchestrator, el Builder y el Reviewer. Para
-cada uno: qué lee, qué puede escribir, qué no debe tocar, qué modelo lo desempeña y qué
-comandos ejecuta.
+cada uno, qué lee, qué puede escribir, qué no debe tocar, qué modelo lo desempeña y qué
+comandos ejecuta. Consúltala cuando necesites saber si un rol puede leer, escribir o ejecutar
+algo.
 
 ## Resumen
 
@@ -18,9 +19,40 @@ comandos ejecuta.
 Las máquinas solo dicen sí o no, y por qué: ejecutan las puertas, Path Guard y los pasos de
 release.
 
-gdd rechaza estos comandos cuando `GDD_ROLE` empieza por `builder` o `reviewer`: `gdd gate`,
-`gdd resume`, `gdd release`, `gdd changelog-line`, `gdd selftest`, `gdd learn` y `gdd upgrade`.
-Una ejecución de `gdd g2` o `gdd g3` con cualquier `GDD_ROLE` no se registra.
+## Qué puede ejecutar un agente
+
+Cuando gdd lanza un agente, define `GDD_ROLE` con el rol del agente. Con `GDD_ROLE` definido, gdd
+solo ejecuta lo que necesita el trabajo del agente:
+
+- `gdd g2`, `gdd guard`, `gdd note`, `gdd status`, `gdd classify`, `gdd inbox`, `gdd report`
+  y `gdd scope`;
+- `gdd --help`, `gdd help` y `gdd --version`.
+
+Cualquier otro comando falla antes de hacer nada, sea cual sea el rol y permitan lo que permitan
+los propios permisos del agente: ningún agente puede empezar, preparar, fusionar, aparcar ni
+sacar a producción un Change, preparar ni adoptar el proyecto, ni escribir el estado de GDD. Por
+ejemplo, un Builder que ejecuta `gdd selftest` recibe:
+
+```text
+error: Builders and Reviewers cannot run gdd selftest: an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd report and gdd scope.
+```
+
+El Orchestrator que replanifica (`GDD_ROLE=orchestrator`) recibe el mismo mensaje. El mensaje
+nombra a los Builders y a los Reviewers, pero se aplica a todo agente que haya lanzado gdd,
+Orchestrator incluido. Los comandos
+que ya rechazaban a un Builder o a un Reviewer con sus propias palabras las conservan: `gdd gate`,
+`gdd changelog-line`, `gdd resume`, `gdd release` sin un paso, `gdd learn` y `gdd upgrade`. Por
+ejemplo:
+
+```text
+error: A Builder or Reviewer cannot open or close gates.
+```
+
+Las pantallas (el Board, la sentada, el formulario de `gdd init`) nunca se abren para un agente.
+Una persona no tiene `GDD_ROLE` y ejecuta todos los comandos. Una ejecución de `gdd g2` con
+cualquier `GDD_ROLE` no se registra.
+
+## Comprobaciones en torno a cada llamada de agente
 
 Antes y después de cada llamada de agente de la receta, gdd comprueba dos cosas, y cualquiera
 de ellas que falle aparca el Change:
@@ -34,10 +66,10 @@ de ellas que falle aparca el Change:
 
 ## La persona
 
-El stakeholder. No lee código; decide lo que solo una persona puede decidir, en el menor número
+La parte interesada (*stakeholder*). No lee código; decide lo que solo una persona puede decidir, en el menor número
 de sentadas posible.
 
-**Lee:** el Project Brief (`docs/brief.md`), los escenarios de un Change (no los ejemplos
+**Lee:** el Brief del proyecto (`docs/brief.md`), los escenarios de un Change (no los ejemplos
 ocultos), las zonas rojas y sus motivos, el plan de un Change rojo, la Decision Inbox
 (`.gdd/changes/<id>/inbox.md`), la demo y la página de G4 (`gdd sitting`, el Board).
 
@@ -50,14 +82,15 @@ ocultos), las zonas rojas y sus motivos, el plan de un Change rojo, la Decision 
 | G4 | `gdd resume <id> --g4 ok`, `--g4 ko` o `--g4 polish --note "..."`. |
 | Un Change aparcado | Lee su Decision Inbox; un mensaje por Change. |
 
-**Escribe:** a través del Orchestrator, el arnés en la rama principal (`gdd/*.toml`, `bin/`,
+**Escribe:** a través del Orchestrator, el arnés en la rama principal (`gdd/*.toml`,
 `.github/`, las carpetas de los agentes); `docs/standards.md`, el listón de calidad del
 proyecto. Path Guard no juzga a la persona.
 
-**Ejecuta:** `gdd init`, `gdd bootstrap`, `gdd agents install`, `gdd upgrade` (y luego fusiona
-la rama `gdd-upgrade`), `gdd release` y `gdd changelog`, y, con el Orchestrator, los comandos
-de agente `gdd-status`, `gdd-setup`, `gdd-discover`, `gdd-change`, `gdd-learn`, `gdd-hotfix` y
-`gdd-report`.
+**Ejecuta:** `gdd init` (su formulario también ejecuta la primera instalación de cada stack),
+`gdd board` y `gdd sitting`, `gdd upgrade` (y luego fusiona la rama `gdd-upgrade`), y, con el
+Orchestrator, los comandos de agente `gdd-status`, `gdd-setup`, `gdd-discover`, `gdd-change`,
+`gdd-learn`, `gdd-hotfix` y `gdd-report`. Todos los demás comandos también están abiertos a una
+persona; el Orchestrator ejecuta la mayoría por ti.
 
 Paradas humanas por Change: 0 en la vía rápida (*Fast Lane*), de 0 a 2 en la vía completa
 (*Full Lane*), 2 para un Change rojo (la sentada y luego G4), 0 o 1 para un Hotfix; como mucho,
@@ -65,26 +98,26 @@ un mensaje por Change.
 
 ## El Orchestrator
 
-Tiene el mapa: arquitectura, ADR, zonas, contratos, escenarios, estado y registro. Trabaja con
-la persona (de forma interactiva), y sin él una vez por cada Change atascado (replanificación
-desatendida, *headless*).
+Tiene el mapa: arquitectura, ADR, zonas, contratos, escenarios, estado y log. Trabaja con
+la persona (de forma interactiva), y, sin ella, una vez por cada Change atascado
+(replanificación desatendida, *headless*).
 
-**Lee:** `gdd/project.toml`, `docs/brief.md`, `bin/gdd status`, `bin/gdd report`, los
-expedientes y las Decision Inbox de `.gdd/changes/`, y, para una replanificación, el paquete,
-`g2.json` y las salidas del Builder.
+**Lee:** `gdd/project.toml`, `docs/brief.md`, `gdd status`, `gdd report`, los registros
+(`change.json`) y las Decision Inbox de `.gdd/changes/`, y, para una replanificación, el paquete, `g2.json` y las
+salidas del Builder.
 
 **Escribe:**
 
 | Qué | Dónde | Cuándo |
 |---|---|---|
-| Project Brief, ADR de tecnología, esqueleto, comandos de las puertas, CI | `docs/brief.md`, `docs/adr/0001-technology.md`, `gdd/`, `.github/` | Setup, en main |
+| Brief del proyecto, ADR de tecnología, esqueleto, comandos de las puertas, CI | `docs/brief.md`, `docs/adr/0001-technology.md`, `gdd/`, `.github/` | Setup, en main |
 | Notas de Discover, ADR | `docs/discover/YYYY-MM-DD-<topic>.md`, `docs/adr/` | Discover |
 | Mapa de zonas | `gdd/zones.toml`, en main | Al final de Discover; se aprueba en la siguiente sentada |
-| Un Change | `bin/gdd new-change <id> ...` | Change |
+| Un Change | `gdd new-change <id> ...` | Change |
 | Escenarios y ejemplos ocultos | `features/`, `features/hidden/`, en la rama del Change | Antes de G1 |
 | Plan de un Change rojo | `.gdd/changes/<id>/plan.md` | Antes de la sentada |
 | Paquete de contexto mínimo | `.gdd/changes/<id>/package.md` | Antes del lanzamiento |
-| Decisiones tomadas, preguntas | `bin/gdd note <id> decided "..."`, `bin/gdd note <id> needs "..."` | En cualquier momento |
+| Decisiones tomadas, preguntas | `gdd note <id> decided "..."`, `gdd note <id> needs "..."` | En cualquier momento |
 | Replanificación | `.gdd/changes/<id>/replan.md`, terminada en `NEXT: test` o `NEXT: build` | Desatendida, con G2 todavía en rojo |
 | Propuestas de Learn | `docs/learn/YYYY-MM-DD.md` | Learn |
 
@@ -93,8 +126,9 @@ relajar una puerta, editar escenarios aprobados ni cambiar `gdd/` sin la persona
 replanificación, del estado de GDD solo escribe `replan.md`; la ficha de Claude Code además le
 deniega `.gdd/log.jsonl` y todos los `change.json`.
 
-**Ejecuta:** en una replanificación, `bin/gdd status`, `classify`, `note`, `report` y lecturas
-de git.
+**Ejecuta:** con la persona, todos los comandos de gdd que nombran las skills. En una
+replanificación, `gdd status`, `classify`, `note`, `report` y lecturas de git:
+`GDD_ROLE=orchestrator` rechaza el resto.
 
 **Comandos:** `gdd-status`, `gdd-setup`, `gdd-discover`, `gdd-change`, `gdd-learn`,
 `gdd-hotfix`, `gdd-report` (con la persona); `gdd-replan` (desatendido,
@@ -113,14 +147,16 @@ Los dos modos:
 
 - leen las instrucciones de cada stack del proyecto (`gdd-stack-<name>`) y su paquete,
   `<state>/.gdd/changes/<id>/package.md`;
-- comprueban su trabajo con `bin/gdd g2 --role <their role>`, que es lo que cuenta;
-- solo pueden ejecutar `bin/gdd g2`, `bin/gdd guard`, `bin/gdd note` y lecturas de git
-  (`git status`, `git diff`, `git log`, `git show`), cada comando por separado;
+- comprueban su trabajo con `gdd g2 --role <their role>`, que es lo que cuenta;
+- solo pueden ejecutar `gdd g2`, `gdd guard`, `gdd note` y lecturas de git (`git status`,
+  `git diff`, `git log`, `git show`), cada comando por separado; la ficha del agente no permite
+  más, y `GDD_ROLE` rechaza cualquier comando de gdd
+  [fuera de la lista](#qué-puede-ejecutar-un-agente);
 - nunca editan tests ni ficheros `.feature` aprobados, ni tocan rutas protegidas, ni silencian
   avisos o se saltan comprobaciones, ni escriben casos especiales para los ejemplos, ni añaden
   una dependencia sin anotarla;
-- anotan lo que han decidido con `bin/gdd note <id> decided "..."`, y lo que necesita a la persona
-  con `bin/gdd note <id> needs "..."`.
+- anotan lo que han decidido con `gdd note <id> decided "..."`, y lo que necesita a la persona
+  con `gdd note <id> needs "..."`.
 
 **Modelo:** `[builder.<color>]` de `gdd/models.toml` para el modo build, según el color del
 Change; `[builder_test]` para el modo test, en todos los colores. Barato o local en verde, más
@@ -128,11 +164,11 @@ capaz en rojo.
 
 ### Modo test
 
-**Comando:** `gdd-build-test`, con `change=<id>`, más `mode=test` (o `mode=test after=replan`)
-desde la receta. `GDD_ROLE=builder-test`.
+**Comando:** `gdd-build-test`, con `change=<id>`, más `mode=test` (o `mode=test after=replan`, o
+`mode=test fix=review`) desde la receta. `GDD_ROLE=builder-test`.
 
 **Lee:** el paquete, los ficheros `.feature` que nombra y el código bajo las rutas del paquete
-(solo para leerlo). Tras una replanificación, `replan.md`.
+(solo para leerlo). Tras una replanificación, `replan.md`; con `fix=review`, `review.md`.
 
 **Escribe:** las definiciones de pasos de los escenarios, en el lenguaje del dominio y con
 aserciones reales; tests de caracterización antes de tocar código amarillo o rojo ya existente.
@@ -141,9 +177,10 @@ Los tests nuevos deben fallar porque falta el comportamiento.
 **No debe tocar:** `[protected] all` y `builder_test`: el código de producción (`src/**` con
 las fichas de `gdd init`; también `crates/*/src/**` en Rust).
 
-Se ejecuta cuando el Change necesita primero los tests, antes del modo build, y otra vez cuando
-una replanificación dice `NEXT: test`. Después se ejecuta Path Guard: un fallo aparca el
-Change.
+Se ejecuta cuando el Change necesita primero los tests, antes del modo build; otra vez cuando
+una replanificación dice `NEXT: test`; y primero en la ronda de corrección tras un KO del
+Reviewer, cuando un hallazgo nombra un fichero que solo puede escribir el modo test. Después se
+ejecuta Path Guard: un fallo aparca el Change.
 
 ### Modo build
 
@@ -225,18 +262,19 @@ revisa (`gpt-6-astra`, esfuerzo `high`).
 
 ## Permisos de los agentes
 
-Las fichas de agente dan a cada rol sus argumentos. Ningún rol recibe servidores MCP. Cada uno
+Las fichas de agente dan a cada rol sus argumentos. Ningún rol recibe servidores MCP (*Model Context Protocol*). Cada uno
 se ejecuta en el worktree del Change y solo puede escribir en la carpeta de estado de su propio
-Change a través de `bin/gdd`.
+Change a través de `gdd`.
 
 | Rol | Claude Code | Codex | OpenCode |
 |---|---|---|---|
-| Builder, los dos modos | `--permission-mode acceptEdits`; permitido: leer, editar, escribir, `bin/gdd g2`, `guard`, `note`, lecturas de git, `ls`; denegado: `bin/gdd gate`, `launch`, `resume`, `merge`, `release`, `git commit`, `switch`, `checkout`, `push`, la web, editar `.gdd/` | `--sandbox workspace-write`, más la carpeta de estado de su Change | todavía sin flags |
+| Builder, los dos modos | `--permission-mode acceptEdits`; permitido: leer, editar, escribir, `gdd g2`, `guard`, `note`, lecturas de git, `ls`; denegado: `gdd gate`, `launch`, `resume`, `merge`, `release`, `git commit`, `switch`, `checkout`, `push`, la web, editar `.gdd/` | `--sandbox workspace-write`, más la carpeta de estado de su Change | todavía sin flags |
 | Reviewer | `--permission-mode plan`; permitido: leer y lecturas de git; las mismas denegaciones | `--sandbox read-only` | todavía sin flags |
-| Orchestrator (replanificación) | `--permission-mode acceptEdits`; permitido: leer, editar, escribir, `bin/gdd status`, `classify`, `note`, `report`, lecturas de git; denegado: editar `.gdd/log.jsonl` y cualquier `change.json` | `--sandbox workspace-write`, más la carpeta de estado de su Change | todavía sin flags |
+| Orchestrator (replanificación) | `--permission-mode acceptEdits`; permitido: leer, editar, escribir, `gdd status`, `classify`, `note`, `report`, lecturas de git; denegado: editar `.gdd/log.jsonl` y cualquier `change.json` | `--sandbox workspace-write`, más la carpeta de estado de su Change | todavía sin flags |
 
-Las comprobaciones propias de gdd (el estado de GDD y un Reviewer en solo lectura) se aplican a
-todos los agentes, OpenCode incluido.
+Las comprobaciones propias de gdd (el estado de GDD, un Reviewer en solo lectura y los
+[comandos que puede ejecutar un agente](#qué-puede-ejecutar-un-agente)) se aplican a todos los
+agentes, OpenCode incluido.
 
 ## Ver también
 

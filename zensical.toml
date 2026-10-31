@@ -12,40 +12,87 @@ docs_dir = "build/site-src"
 site_dir = "build/site"
 extra_css = ["assets/extra.css"]
 
+# The menu. Zensical lists only the pages named here: add each new page under
+# reference/cli/ and reference/skills/ to its section, after the section's index.md
+# (navigation.indexes makes that index the section's own page). A path with no page
+# behind it is not an error for Zensical, so build_site.py checks every path exists.
 nav = [
   { "Home" = "index.md" },
-  { "Learn" = [
+  { "Get started" = [
+    "getting-started/quickstart.md",
     "getting-started/tutorial.md",
     "explanation/method.md",
   ] },
-  { "Do" = [
-    { "Day to day" = [
-      "how-to/install.md",
-      "how-to/run-a-change.md",
-      "how-to/write-scenarios.md",
-      "how-to/release-gate.md",
-      "how-to/parked-change.md",
-    ] },
-    { "Shaping the work" = [
-      "how-to/red-zones.md",
-      "how-to/spikes.md",
-      "how-to/parallel-changes.md",
-    ] },
-    { "Setting up" = [
-      "how-to/adopt-existing-project.md",
-      "how-to/agents-and-models.md",
-      "how-to/gates-and-commands.md",
-      "how-to/ci.md",
-      "how-to/upgrade.md",
-    ] },
-    { "Shipping and measuring" = [
-      "how-to/releases-and-changelog.md",
-      "how-to/measure.md",
-    ] },
+  { "Guides" = [
+    "how-to/run-a-change.md",
+    "how-to/write-scenarios.md",
+    "how-to/release-gate.md",
+    "how-to/parked-change.md",
+    "how-to/install.md",
+    "how-to/adopt-existing-project.md",
+    "how-to/red-zones.md",
+    "how-to/spikes.md",
+    "how-to/parallel-changes.md",
+    "how-to/agents-and-models.md",
+    "how-to/gates-and-commands.md",
+    "how-to/ci.md",
+    "how-to/upgrade.md",
+    "how-to/releases-and-changelog.md",
+    "how-to/measure.md",
     "how-to/troubleshooting.md",
   ] },
-  { "Look up" = [
-    "reference/cli.md",
+  { "Reference" = [
+    { "Skills" = [
+      "reference/skills/index.md",
+      "reference/skills/setup.md",
+      "reference/skills/discover.md",
+      "reference/skills/change.md",
+      "reference/skills/status.md",
+      "reference/skills/report.md",
+      "reference/skills/learn.md",
+      "reference/skills/hotfix.md",
+      "reference/skills/agent-skills.md",
+    ] },
+    { "CLI" = [
+      "reference/cli/index.md",
+      "reference/cli/init.md",
+      "reference/cli/bootstrap.md",
+      "reference/cli/adopt.md",
+      "reference/cli/agents.md",
+      "reference/cli/agents-install.md",
+      "reference/cli/agents-check.md",
+      "reference/cli/stacks.md",
+      "reference/cli/stacks-show.md",
+      "reference/cli/stacks-compose.md",
+      "reference/cli/upgrade.md",
+      "reference/cli/new-change.md",
+      "reference/cli/classify.md",
+      "reference/cli/sitting.md",
+      "reference/cli/gate.md",
+      "reference/cli/note.md",
+      "reference/cli/changelog-line.md",
+      "reference/cli/launch.md",
+      "reference/cli/resume.md",
+      "reference/cli/park.md",
+      "reference/cli/prepare.md",
+      "reference/cli/merge.md",
+      "reference/cli/release.md",
+      "reference/cli/changelog.md",
+      "reference/cli/g2.md",
+      "reference/cli/g3.md",
+      "reference/cli/guard.md",
+      "reference/cli/snapshot.md",
+      "reference/cli/scope.md",
+      "reference/cli/selftest.md",
+      "reference/cli/ci.md",
+      "reference/cli/status.md",
+      "reference/cli/board.md",
+      "reference/cli/inbox.md",
+      "reference/cli/report.md",
+      "reference/cli/learn.md",
+      "reference/cli/session.md",
+    ] },
+    "reference/screens.md",
     "reference/configuration.md",
     "reference/gates.md",
     "reference/roles.md",
@@ -54,7 +101,7 @@ nav = [
     "reference/environment.md",
     "glossary.md",
   ] },
-  { "Understand" = [
+  { "Concepts" = [
     "explanation/life-of-a-change.md",
     "explanation/risk.md",
     "explanation/safety.md",

@@ -1,8 +1,20 @@
 # Stacks
 
-The stack sheets built into gdd: Python, Rust and TypeScript. A sheet gives a project its
-scenario runner, gate commands, Learn tools, self-test, protected paths, CI setup and a
-skeleton for a new project. This page lists every value of each sheet as gdd 0.1.0 ships it.
+A stack sheet is gdd's data for one technology: the gate commands and the first install that
+creates the lock file, plus the scenario runner, Learn tools, self-test, protected paths, CI
+setup and a skeleton for a new project. gdd 0.1.0 ships three: Python, Rust and TypeScript.
+This page lists every value of each.
+
+Tools each stack needs before `gdd init` (the first install and the gates run them):
+
+| Stack | Install before you start |
+|---|---|
+| [Python](#python) | uv, OSV-Scanner, gitleaks, Node.js (for `npx jscpd`) |
+| [Rust](#rust) | A stable Rust toolchain with rustfmt and clippy, cargo-deny, cargo-mutants, cargo-machete, gitleaks, Node.js (for `npx jscpd`) |
+| [TypeScript](#typescript) | Node.js and npm, OSV-Scanner, gitleaks |
+
+Python and TypeScript get their other tools from the first install. Details: *To install*
+under each stack, and [Install gdd](../how-to/install.md).
 
 ## Using sheets
 
@@ -15,7 +27,7 @@ one or more. `gdd init --stack` writes that list and fills the project from the 
 | `builder_build`, `builder_test` | `[protected]` of `gdd/rules.toml` (and a copy in `gdd/commands.toml`) |
 | Supply chain files | A red zone of `gdd/zones.toml` |
 | Ignored paths | `.gitignore`, with `.gdd/` |
-| CI setup | The steps of `.github/workflows/gdd.yml` before `bin/gdd ci` |
+| CI setup | The steps of `.github/workflows/gdd.yml` before `gdd ci` |
 | Skeleton | The files of a new project, when the folder has none of the sheet's detect files |
 | Instructions for agents | The `gdd-stack-<name>` command of each agent (`gdd agents install`) |
 
@@ -36,9 +48,10 @@ typescript · TypeScript · cucumber-js
 `gdd stacks`, `show` and `compose` run inside a GDD project only. `compose` writes nothing:
 it prints the shape of `gdd/commands.toml` plus a `[protected]` table for the sheets named.
 
-`gdd bootstrap` runs the first install (`bootstrap` below) of each stack, in order, stops at
-the first that fails, and commits the supply chain files it created or changed. `gdd init`
-installs nothing.
+`gdd bootstrap` runs the first install of each stack (the *First install* row of each sheet
+below), in order. It stops at the first that fails, and commits the supply chain files it
+created or changed. The Setup form of `gdd init` runs the same install once it has written the
+harness. `gdd init` with flags installs nothing, so `gdd bootstrap` comes next.
 
 ### Several stacks
 
@@ -58,8 +71,8 @@ installs nothing.
 
 Every runner is strict: a sentence with no step, or a pending step, fails. G2 gives the
 change's scenario files in `GDD_FEATURES`, one path per line; G3 runs all of them with the
-hidden examples (see [Environment
-variables](environment.md#variables-the-scenario-runners-read)).
+[hidden examples](../glossary.md#hidden-example), the extra examples left out of the Builder's
+package (see [Environment variables](environment.md#variables-the-scenario-runners-read)).
 
 | Stack | G2 runs | Hidden examples |
 |---|---|---|
@@ -351,7 +364,7 @@ its checksums.
 Whatever the stacks, the CI workflow `gdd init` writes checks out the repository with its whole
 history, runs the setup of each sheet, installs gitleaks 8.30.1 (checked against its checksums)
 and gdd itself (`cargo install --locked` from gdd's git repository, at the tag of the version that
-wrote the workflow), then runs `bin/gdd ci`.
+wrote the workflow), then runs `gdd ci`.
 
 The `secrets` command and the Rust `mutation` command take the main branch as `main`, or
 `origin/main` when there is no local `main`.
@@ -361,4 +374,4 @@ The `secrets` command and the Rust `mutation` command take the main branch as `m
 - [commands.toml](configuration.md#commandstoml): what gdd does with each command.
 - [Gates](gates.md): when each command runs.
 - [Install gdd](../how-to/install.md): the binary, the agents and the tools the gates use.
-- [Command reference](cli.md#gdd-stacks): `gdd stacks`, `show` and `compose`.
+- [`gdd stacks`](cli/stacks.md): `gdd stacks`, `show` and `compose`.

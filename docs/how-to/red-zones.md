@@ -1,20 +1,20 @@
 # Map and approve red zones
 
-A red zone is a set of paths where a mistake would be serious: every change that touches one is
-red, and red changes get the strictest gates. This page shows how to turn the sensitive areas of
-your Project Brief into zones in `gdd/zones.toml`, check the color a change gets, and approve
-the red zones so changes can be built.
+Use this page to tell gdd which parts of your project are risky. A red zone is a set of paths
+where a mistake would be serious, such as login or payments: every change that touches one is
+red and gets the strictest gates, so the strict checks go where the risk is. You name the
+sensitive areas in words, the Orchestrator turns them into zones, and you approve the red ones
+once.
 
 ## Before you start
 
-- A project set up with `gdd init`, with the sensitive areas written in words in
-  `docs/brief.md`. See [Bring gdd to an existing project](adopt-existing-project.md) or the
-  [tutorial](../getting-started/tutorial.md).
+- A project set up with `gdd init`, whose Brief (`docs/brief.md`) names the sensitive areas in
+  words. See the [quickstart](../getting-started/quickstart.md) or
+  [Bring gdd to an existing project](adopt-existing-project.md).
 - Real folders to map. GDD maps red zones at the end of Discover, once the architecture and the
   first scenarios exist; before that, unmapped code is yellow.
 
-The examples use `shop`, a small web shop on the TypeScript stack. Run every command from the
-project root, on main.
+The examples use `shop`, a small web shop on the TypeScript stack.
 
 ## How a path gets its color
 
@@ -28,7 +28,7 @@ flowchart TD
     M -- yes --> H[The highest color of the zones it matches]
     D --> C[The change: the highest color of all its paths]
     H --> C
-    MC["--min-color of gdd new-change"] -. raises, never lowers .-> C
+    MC[A declared minimum color] -. raises, never lowers .-> C
     C --> R[red]:::red
     C --> Y[yellow]:::yellow
     C --> G[green]:::green
@@ -37,9 +37,10 @@ flowchart TD
     classDef red fill:#fbdcdc,stroke:#c0392b,color:#311
 ```
 
-## 1. Read the sensitive areas in the Brief
+## 1. Name the sensitive areas
 
-`gdd init --sensitive` writes them in the Brief, one area each time. In `shop`:
+The last step of the Setup form asks what would be serious if it failed, and `/gdd-setup` asks
+again. The answers go to the Brief, in words. In `shop`:
 
 ```text
 ## What would be serious if it failed (sensitive areas, in words)
@@ -50,14 +51,19 @@ These become red zones at the end of Discover, once there are real folders:
 2. Charging a customer twice
 ```
 
-Each area becomes one red zone, with the area as its reason.
+Each area becomes one red zone, with the area as its reason. If you want to add one later, tell
+the Orchestrator.
 
-## 2. Write the zones in `gdd/zones.toml`
+## 2. Let the Orchestrator map them
 
-`gdd init` already writes two red zones that every project has: the harness itself (`gdd/**`,
-`bin/**`, the CI workflow and the agents' folders) and the supply chain of each stack (for
-TypeScript, `package.json`, `package-lock.json`, `.npmrc` and the osv-scanner files). Add yours
-at the end:
+At the end of `/gdd-discover`, once the architecture and the first scenarios exist, the
+Orchestrator translates the sensitive areas into paths in `gdd/zones.toml`: red, and green
+where it is obvious. When the Orchestrator is unsure between two colors, it picks the higher
+one; if you edit the map yourself, do the same. `gdd init` already wrote two red zones every
+project has: the harness, the files gdd uses to check your project (`gdd/**`, the continuous
+integration (CI) workflow and the agents' folders, among others) and the supply chain of each stack (for TypeScript,
+`package.json`, `package-lock.json`, `.npmrc` and the osv-scanner files). The Orchestrator adds
+yours at the end:
 
 ```toml
 [[zone]]
@@ -71,14 +77,17 @@ paths = ["src/payments/**"]
 reason = "Charging a customer twice"
 ```
 
+When it finds a new sensitive area while preparing a change, it adds the zone on main first, so
+you approve it at that change's sitting.
+
+How to read the map:
+
 | Key | Where | What it says |
 |---|---|---|
 | `default` | top of the file | The color of a path no zone matches. `yellow` by default: code without a zone is code without known tests. |
 | `color` | each `[[zone]]` | `green`, `yellow` or `red`. Any other word is an error. |
 | `paths` | each `[[zone]]` | Patterns from the project root. |
-| `reason` | each `[[zone]]` | Why the zone has its color, in words. `gdd classify` and the sitting show it. |
-
-The patterns follow three rules:
+| `reason` | each `[[zone]]` | Why the zone has its color, in words. The classification and the sitting show it. |
 
 | Pattern | Matches | Does not match |
 |---|---|---|
@@ -89,30 +98,21 @@ The patterns follow three rules:
 
 `?` matches one character other than `/`. When a path matches several zones, the highest color
 wins, whatever their order in the file: a green zone inside a red one does not make its paths
-green. When in doubt between two colors, pick the higher one.
-
-A color that is not one of the three stops every command that reads the map:
+green. A color that is not one of the three stops every command that reads the map:
 
 ```text
 error: gdd/zones.toml: unknown color "crimson" (use green, yellow or red)
 ```
 
-## 3. Check the color a change gets
+> [!NOTE]
+> The zone map is part of the harness: `gdd/**` is red and protected from every agent that
+> builds or reviews. It changes on main, outside any change. A change branch that edits it is
+> a red change, and Path Guard fails any Builder that touches it.
 
-Commit the map on main:
+## 3. See the color a change gets
 
-```bash
-git add gdd/zones.toml
-git commit -m "Zone map: red zones from the Brief"
-```
-
-Every `gdd new-change` prints its classification, with the reason for each path:
-
-```bash
-bin/gdd new-change login-rate-limit --title "Limit login attempts" --paths src/auth/login.ts src/ui/login-form.ts docs/security.md
-```
-
-You should see:
+When the Orchestrator creates a change, it tells you its color. Behind it, gdd gives a reason
+for each path; this is what it printed for `login-rate-limit`:
 
 ```text
 {
@@ -127,29 +127,18 @@ You should see:
   ...
 ```
 
-For a change that already exists, `bin/gdd classify login-rate-limit` prints the same, counting
-the paths the change really touched on its branch as well as the planned ones. A red change
-needs a plan the human approves, the Reviewer's deep review, mutation testing and the Release
-Gate (G4), whatever the rules table says: see [How risk picks the gates](../explanation/risk.md).
-
-> [!NOTE]
-> The zone map is part of the harness: `gdd/**` is red and protected from every agent. Change
-> it on main, outside any change. A change branch that edits it is a red change, and Path Guard
-> fails any Builder that touches it.
+A red change needs a plan you approve, the Reviewer's deep review, mutation testing and the
+Release Gate (G4), whatever the rules table says: see
+[How risk picks the gates](../explanation/risk.md). If you know a change is riskier than its
+paths say, tell the Orchestrator: it can raise the color, never lower it.
 
 ## 4. Approve the red zones
 
-Only a human approves red zones, once for the whole project. Usually this happens at the sitting
-of the first change: `gdd sitting CHANGE` shows the zones waiting, each with its reason, and
-approving there records them with the scenarios (see
-[Write and approve scenarios](write-scenarios.md#5-approve-them-at-the-sitting)). Without a
-sitting:
-
-```bash
-bin/gdd gate zones ok --by human --note "Mapped from the Brief"
-```
-
-You should see:
+Only a person approves red zones, once for the whole project. It happens at the sitting of the
+first change: the Orchestrator lists the zones waiting, each with its reason, next to the
+scenarios, and your OK records them too. On the sitting screen (`gdd sitting CHANGE`) they show
+under `Red zones to approve` (see [Approve the scenarios](write-scenarios.md#4-approve)).
+Approving records:
 
 ```text
 Red zones ok (4 red zone(s)).
@@ -162,24 +151,25 @@ says so:
 Red zones ok (4 red zone(s)): already approved, nothing changed.
 ```
 
-The machines cannot approve them: `--by machines` is refused with `error: Red zones are approved
-by a human (--by human).` The approval lives in `.gdd/zones.json`, with a hash of the red zones
-as they were.
+The machines cannot approve them: `--by machines` is refused with
+`error: Red zones are approved by a human (--by human).` The approval lives in
+`.gdd/zones.json`, with a hash of the red zones as they were.
 
 ## 5. Know what waits for the approval
 
-`bin/gdd status` shows where the zones stand:
+`/gdd-status` tells you when the red zones are pending: they go to you with the scenarios of
+the next change. `gdd status` says:
 
 ```text
 Red zones: pending · Red zones not approved yet: the Orchestrator proposes them at the end of Discover.
 ```
 
-Until a human approves them, only spikes can be built: a Spike explores and never merges its
-code (see [Explore with a spike](spikes.md)). Every other change is refused when it is prepared,
-before any agent runs:
+Until a person approves them, only spikes can be built: a Spike explores and never merges its
+code (see [Explore with a spike](spikes.md)). Every other change is refused before any agent
+runs:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (bin/gdd gate zones ok --by human)
+error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
 ```
 
 ## 6. Approve again when the red zones change
@@ -194,25 +184,31 @@ paths = ["src/payments/**", "src/refunds/**"]
 reason = "Charging a customer twice"
 ```
 
-`bin/gdd status` then says:
+`gdd status` then says:
 
 ```text
 Red zones: pending · Red zones changed after their approval: a human must approve them again.
 ```
 
-and no change but a spike starts until you run `bin/gdd gate zones ok --by human` again, or
-approve them at the next sitting. When the Orchestrator finds a new sensitive area while
-preparing a change, it adds the zone on main first, so you approve it in that change's sitting.
+and no change but a spike starts until you approve them again, at the next sitting.
 
 The approval covers the red zones only. Changing a green or yellow zone, or the `default`
 color, does not ask for it again, yet it can lower the color of paths: read those edits in the
 commit that makes them.
 
+## Under the hood
+
+The map is `gdd/zones.toml` ([every key](../reference/configuration.md#zonestoml)).
+[`gdd new-change`](../reference/cli/new-change.md) and
+[`gdd classify`](../reference/cli/classify.md) print the color and the reasons; `--min-color`
+is how the Orchestrator raises a color. Your OK runs
+[`gdd gate zones ok --by human`](../reference/cli/gate.md), and
+[`gdd status`](../reference/cli/status.md) says whether the red zones are approved.
+
 ## Next steps
 
-- [Write and approve scenarios](write-scenarios.md): the sitting where zones, scenarios and the
-  red plan are approved together.
+- [Approve the scenarios](write-scenarios.md): the sitting where zones, scenarios and the red
+  plan are approved together.
 - [How risk picks the gates](../explanation/risk.md): what each color gets, and why color wins.
 - [Explore with a spike](spikes.md): the only work that starts before the zones are approved.
-- [Configuration: zones.toml](../reference/configuration.md#zonestoml): every key of the zone
-  map.
+- [The discover skill](../reference/skills/discover.md): where the Orchestrator maps the zones.

@@ -1,9 +1,21 @@
 # Stacks
 
-Las fichas de stack que trae gdd: Python, Rust y TypeScript. Una ficha da a un proyecto su
-ejecutor de escenarios, los comandos de las puertas, las herramientas de Learn, el autotest,
-las rutas protegidas, la preparación de CI y un esqueleto para un proyecto nuevo. Esta página
-recoge cada valor de cada ficha tal como lo trae gdd 0.1.0.
+Una ficha de stack son los datos de gdd para una tecnología: los comandos de las puertas y la
+primera instalación, la que crea el lockfile, más el ejecutor de escenarios, las herramientas de
+Learn, el autotest, las rutas protegidas, la preparación de CI y un esqueleto para un proyecto
+nuevo. gdd 0.1.0 trae tres: Python, Rust y TypeScript. Esta página recoge cada valor de cada una.
+
+Herramientas que necesita cada stack antes de `gdd init` (las ejecutan la primera instalación y
+las puertas):
+
+| Stack | Instala antes de empezar |
+|---|---|
+| [Python](#python) | uv, OSV-Scanner, gitleaks, Node.js (para `npx jscpd`) |
+| [Rust](#rust) | Un toolchain estable de Rust con rustfmt y clippy, cargo-deny, cargo-mutants, cargo-machete, gitleaks, Node.js (para `npx jscpd`) |
+| [TypeScript](#typescript) | Node.js y npm, OSV-Scanner, gitleaks |
+
+Python y TypeScript obtienen sus demás herramientas de la primera instalación. Detalles: *Qué
+instalar* en cada stack e [Instalar gdd](../how-to/install.md).
 
 ## Usar las fichas
 
@@ -17,7 +29,7 @@ rellena el proyecto a partir de las fichas:
 | `builder_build`, `builder_test` | `[protected]` de `gdd/rules.toml` (y una copia en `gdd/commands.toml`) |
 | Ficheros de la cadena de suministro | Una zona roja de `gdd/zones.toml` |
 | Rutas ignoradas | `.gitignore`, junto con `.gdd/` |
-| Preparación de CI | Los pasos de `.github/workflows/gdd.yml` antes de `bin/gdd ci` |
+| Preparación de CI | Los pasos de `.github/workflows/gdd.yml` antes de `gdd ci` |
 | Esqueleto | Los ficheros de un proyecto nuevo, cuando la carpeta no tiene ninguno de los ficheros por los que se detecta la ficha |
 | Instrucciones para agentes | El comando `gdd-stack-<name>` de cada agente (`gdd agents install`) |
 
@@ -39,9 +51,11 @@ typescript · TypeScript · cucumber-js
 escribe nada: imprime la forma de `gdd/commands.toml` más una tabla `[protected]` para las
 fichas indicadas.
 
-`gdd bootstrap` ejecuta la primera instalación de cada stack (`bootstrap`, en las fichas de
-abajo), en orden, se detiene en la primera que falla y hace commit de los ficheros de la cadena
-de suministro que creó o cambió. `gdd init` no instala nada.
+`gdd bootstrap` ejecuta la primera instalación de cada stack (la fila *Primera instalación* de
+cada ficha de abajo), en orden. Se detiene en la primera que falla y hace commit de los ficheros
+de la cadena de suministro que creó o cambió. El formulario de Setup de `gdd init` ejecuta la
+misma instalación en cuanto ha escrito el arnés. `gdd init` con flags no instala nada, así que
+después toca `gdd bootstrap`.
 
 ### Varios stacks
 
@@ -62,7 +76,8 @@ de suministro que creó o cambió. `gdd init` no instala nada.
 
 Todos los ejecutores son estrictos: una frase sin paso, o un paso pendiente, falla. G2 pasa los
 ficheros de escenarios del Change en `GDD_FEATURES`, una ruta por línea; G3 los ejecuta todos
-con los ejemplos ocultos (consulta [Variables de
+con los [ejemplos ocultos](../glossary.md#ejemplo-oculto), los ejemplos extra que el paquete
+del Builder deja fuera (consulta [Variables de
 entorno](environment.md#variables-que-leen-los-ejecutores-de-escenarios)).
 
 | Stack | G2 ejecuta | Ejemplos ocultos |
@@ -367,7 +382,7 @@ Sean cuales sean los stacks, el workflow de CI que escribe `gdd init` hace check
 repositorio con todo su historial, ejecuta la preparación de cada ficha, instala gitleaks
 8.30.1 (verificado contra sus checksums) y el propio gdd (`cargo install --locked` desde el
 repositorio git de gdd, en la etiqueta de la versión que escribió el workflow), y después
-ejecuta `bin/gdd ci`.
+ejecuta `gdd ci`.
 
 El comando `secrets` y el comando `mutation` de Rust toman como rama principal `main`, o
 `origin/main` cuando no hay un `main` local.
@@ -378,4 +393,4 @@ El comando `secrets` y el comando `mutation` de Rust toman como rama principal `
 - [Puertas](gates.md): cuándo se ejecuta cada comando.
 - [Instalar gdd](../how-to/install.md): el binario, los agentes y las herramientas que usan
   las puertas.
-- [Referencia de comandos](cli.md#gdd-stacks): `gdd stacks`, `show` y `compose`.
+- [`gdd stacks`](cli/stacks.md): `gdd stacks`, `show` y `compose`.

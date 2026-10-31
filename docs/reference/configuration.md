@@ -1,7 +1,15 @@
 # Configuration
 
-Every file in `gdd/` and every key gdd reads from it: its type, the value gdd uses when the key
-is missing, and what it does. The files are TOML.
+Every file in `gdd/`, the folder of a project's settings, and every key gdd reads from it: its
+type, the value gdd uses when the key is missing, and what it does. The files are TOML.
+
+## How the files fit together
+
+`project.toml` describes the project. `zones.toml` gives each path a color, and `rules.toml`
+gives each color its gates, limits and protected paths. `commands.toml` holds the commands
+those gates run, and `models.toml` the agent and model of each role. `generated.toml` serves
+upgrades and `debt.toml` adopted projects. The reasons behind the colors are in
+[How risk picks the gates](../explanation/risk.md).
 
 ## The files
 
@@ -20,37 +28,37 @@ is missing, and what it does. The files are TOML.
 
 There is no `gdd/release.toml`: see [release.toml](#releasetoml).
 
-A file gdd cannot parse stops the command with the file's name and the TOML error. Keys gdd
-does not read are ignored, except where a section below says otherwise.
+When gdd cannot parse a file, the command stops and prints the file's name and the TOML error.
+gdd ignores keys it does not read, except where a section below says otherwise.
 
 ## Who may change them
 
-Every path under `gdd/` is harness:
+Every path under `gdd/` is [harness](../glossary.md#harness), the files gdd uses to check the
+project:
 
-- `gdd init` puts `gdd/**` in `[protected] all` of `gdd/rules.toml`, so Path Guard fails any
-  Builder or Reviewer that touches it, in G2 and in CI (`gdd ci` fails a change branch that
-  changes a path of `all`).
+- `gdd init` puts `gdd/**` in `[protected] all` of `gdd/rules.toml`, so
+  [Path Guard](../glossary.md#path-guard) fails any Builder or Reviewer that touches it, in G2
+  and in CI (`gdd ci` fails a change branch that changes a path of `all`).
 - `gdd init` puts `gdd/**` in the red harness zone of `gdd/zones.toml`, so a change that plans
   it is red.
 
-Only a person changes these files, on the main branch, after the human agrees: the Orchestrator
-proposes, the human decides (the [red zones](gates.md#red-zones) and the plan of a red change
-are approved at the sitting). A change that edits `gdd/zones.toml` again needs the red zones
+These files change on the main branch, outside any change, and only when the human agrees: the
+Orchestrator proposes, the human decides. The [red zones](gates.md#red-zones) and the plan of a
+red change are approved at the sitting. An edit to the red zones of `gdd/zones.toml` needs them
 approved again.
 
 Path Guard judges a build with the `[protected]` lists of `gdd/rules.toml` as it is now and as
-it was at the commit where the build started: deleting a protection, or the whole file, frees
-no role from it.
+it was at the commit where the build started. Deleting a protection, or the whole file, frees no
+role from it.
 
 ## project.toml
 
-The project basics. `gdd init` writes it from its flags. The file that marks the project root:
-gdd looks for `gdd/project.toml` in the folder it runs in and the folders above it, and refuses
-to run outside a project (`not a GDD project`).
+The project basics. `gdd init` writes it from its flags. It also marks the project root: gdd
+looks for `gdd/project.toml` in the folder it runs in and the folders above it, and refuses to
+run outside a project (`not a GDD project`).
 
-Read by `gdd status` (`name`, `language`, `platform`), by every command that needs the stacks
-(`stack`), and by the agents, whose commands tell them to read it (`language`,
-`scenario_runner`).
+`gdd status` reads `name`, `language` and `platform`. Every command that needs the stacks reads
+`stack`. The agents read `language` and `scenario_runner`, because their commands tell them to.
 
 ```toml
 name = "notes"
@@ -72,10 +80,10 @@ scenario_runner = "pytest-bdd"
 
 ## zones.toml
 
-The zone map: which paths have which color. Read by `gdd classify`, `gdd new-change`, `gdd
-prepare`, the gates (to classify the change and for the scope check), `gdd status` and `gdd
-gate zones`. The Orchestrator maps the red zones at the end of Discover; the human approves
-them (`gdd gate zones ok`). See [How risk picks the gates](../explanation/risk.md).
+The zone map: which paths have which color. Read by `gdd classify`, `gdd new-change`,
+`gdd prepare`, the gates (to classify the change and for the scope check), `gdd status` and
+`gdd gate zones`. The Orchestrator maps the red zones at the end of Discover; the human
+approves them (`gdd gate zones ok`). See [How risk picks the gates](../explanation/risk.md).
 
 The color of a path is the highest color among the zones that match it; a path no zone matches
 takes `default`. The color of a change is the highest color among its paths, raised to its
@@ -102,13 +110,12 @@ path, the first one gives its reason.
 | `paths` | array of strings | `[]` | Path patterns, from the project root. |
 | `reason` | string | `""` | Why these paths have this color. `gdd classify` and the record show it. |
 
-`gdd init` writes three zones: `docs/**` and `*.md` green; the harness (`gdd/**`, `bin/**`,
-`.github/**`, `.claude/**`, `.agents/**`, `.opencode/**`, `.gdd/bin/**`) red; the supply chain
-of the stacks (for example `pyproject.toml`, `uv.lock`, `osv-scanner.toml`,
-`osv-scanner-licenses.toml`) red.
+`gdd init` writes three zones: `docs/**` and `*.md` green; the harness (`gdd/**`, `.github/**`,
+`.claude/**`, `.agents/**`, `.opencode/**`, `.gdd/bin/**`) red; the supply chain of the stacks
+(for example `pyproject.toml`, `uv.lock`, `osv-scanner.toml`, `osv-scanner-licenses.toml`) red.
 
 The red zone approval keeps a hash of every `[[zone]]` whose color is `red`, with every key it
-has. Any change to a red zone, an added key included, asks for a new approval.
+has. Any edit to a red zone, an added key included, asks for a new approval.
 
 ## rules.toml
 
@@ -143,7 +150,7 @@ G3 counts the lines of the `.feature` files in `dir` and its subfolders that sta
 | `replans` | integer, 0 or more | `1` | Replans of a change still red in G2: each is one Orchestrator call, test mode again when the replan says `NEXT: test`, one more build round and G2. Then the change parks. |
 | `agent_timeout_s` | integer, 0 or more | `3600` | Seconds an agent call may take, until its output closes. Then its process group is killed and the change parks. `gdd init` does not write it. |
 | `command_seconds` | integer above 0 | `1800` | Seconds each gate command and each release command may take. A command that runs out of time is killed with everything it started and ends with exit code 124. Any other value is an error that names `limits.command_seconds`. |
-| `reviewer_fixes` | integer | `1` in the file `gdd init` writes | Not read by gdd 0.1.0. The Builder gets one fix after a Reviewer KO and one after a red G3, always. |
+| `reviewer_fixes` | integer | `1` in the file `gdd init` writes | Not read by gdd 0.1.0. The Builder always gets one fix round after a Reviewer KO and one after a red G3. When a Reviewer finding names a file only test mode writes, that fix round starts in test mode. |
 
 ### [spike]
 
@@ -170,11 +177,11 @@ Not written by `gdd init`.
 
 ### [color]
 
-What each color asks for in each lane. A color has a table of its own, `[color.<color>]`, and
-one per lane, `[color.<color>.fast]` and `[color.<color>.full]`. The rule of a color in a lane
-is its lane table when it has one, else its color table. A lane table does not inherit from the
-color table: a key it leaves out takes the default below. A color the file does not mention
-gets the defaults.
+What each color asks for in each [lane](gates.md#lanes), fast or full. A color has a table of
+its own, `[color.<color>]`, and one per lane, `[color.<color>.fast]` and `[color.<color>.full]`.
+The rule of a color in a lane is its lane table when it has one, else its color table. A lane
+table does not inherit from the color table: a key it leaves out takes the default below. A
+color the file does not mention gets the defaults.
 
 When the file has no `[color]` section at all, gdd uses the table built into it instead:
 
@@ -197,16 +204,17 @@ lane.
 | `g4_if_g1` | boolean | `true` | A change with new scenarios (G1) waits for the human at the Release Gate (G4). A red change always does. |
 | `review` | `"quick"` or `"deep"` | `"quick"`; red: always `"deep"` | How deep the Reviewer looks. Quick: the files the change touched, its package and its scenarios. Deep: that, plus the code around the change and what can go badly wrong there. |
 
-The core of GDD cannot be switched off for red. A red table (with or without a lane) that says
-`mutation = false`, `reviewer = false`, `g4_if_g1 = false` or `review = "quick"` refuses the
-whole file:
+Mutation testing (small bugs planted in the code to check that the tests catch them) is part of
+the core of GDD, which cannot be switched off for red. A red table (with or without a lane)
+that says `mutation = false`, `reviewer = false`, `g4_if_g1 = false` or `review = "quick"`
+refuses the whole file:
 
 ```text
 error: gdd/rules.toml: red changes always get mutation testing, the Reviewer and the human G4 (the core of GDD): remove color.red.full.mutation = false from gdd/rules.toml
 ```
 
-A review depth other than `quick` or `deep`, and a color other than `green`, `yellow` or `red`,
-are refused too. Red never travels the fast lane: `[color.red.fast]` is never used.
+gdd also refuses a review depth other than `quick` or `deep`, and a color other than `green`,
+`yellow` or `red`. Red never travels the fast lane: `[color.red.fast]` is never used.
 
 The lane of a change is `fast` when its color is not red, it has no new or changed scenarios
 and it was created with `--resumable`; `full` otherwise. See [Lanes](gates.md#lanes).
@@ -225,12 +233,12 @@ checks them in G2 and G3, before and after the commands, after each test-mode ro
 | `reviewer` | array of strings | `[]` | Paths the Reviewer must not change. `gdd init` writes `["**"]`: everything. |
 | any other key | array of strings | `[]` | The paths of the role with that name, `-` written as `_`. `builder` is the role `gdd g2`, `gdd g3` and `gdd guard` judge by default. |
 
-A role must not touch the paths of `all` plus its own list. Independently of these lists, every
+A role must not touch the paths of `all` plus its own list. Whatever these lists say, every
 role fails Path Guard when a scenario file approved at G1 changed after the approval.
 
-`gdd init` writes `all` as `gdd/**`, `bin/**`, `.github/**`, `.claude/**`, `.agents/**`,
-`.opencode/**`, `.gdd/bin/**`, `AGENTS.md` and `CLAUDE.md`, and `builder_build` and
-`builder_test` from the [stack sheets](stacks.md).
+`gdd init` writes `all` as `gdd/**`, `.github/**`, `.claude/**`, `.agents/**`, `.opencode/**`,
+`.gdd/bin/**`, `AGENTS.md` and `CLAUDE.md`, and `builder_build` and `builder_test` from the
+[stack sheets](stacks.md).
 
 ## models.toml
 
@@ -274,9 +282,9 @@ effort = "high"
 ### [orchestrator], [builder.\<color\>], [builder_test], [reviewer]
 
 The model of each role. `[builder.<color>]` is the Builder in build mode for changes of that
-color (`green`, `yellow`, `red`); `[builder_test]` is the Builder in test mode for every color;
-`[orchestrator]` replans a change stuck in G2; `[reviewer]` reviews every change that has a
-Reviewer. A role without a table has no agent: its call fails.
+color (`green`, `yellow`, `red`). `[builder_test]` is the Builder in test mode for every color.
+`[orchestrator]` replans a change stuck in G2. `[reviewer]` reviews every change that has a
+Reviewer. A role without a table has no agent, and its call fails.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -309,9 +317,9 @@ Not written by `gdd init`.
 | `builder` | `"separate"` or `"shared"` | `"separate"` | `separate`: each Builder call starts a session of its own; build mode reads what test mode wrote. `shared`: each Builder call of a run continues the session of the Builder call before it, in either mode. Any other value refuses the file. |
 
 A change gets a shared session only when `[builder_test]` and its `[builder.<color>]` use the
-same integration and that agent's sheet says how to resume a session (Claude Code today); else
-it runs separate and `gdd status` says why. The Reviewer and the Orchestrator never join it.
-`gdd launch` and `gdd resume` read this table from the main checkout.
+same integration and that agent's sheet says how to resume a session (Claude Code today).
+Otherwise it runs separate and `gdd status` says why. The Reviewer and the Orchestrator never
+join the shared session. `gdd launch` and `gdd resume` read this table from the main checkout.
 
 ### [env]
 
@@ -339,7 +347,7 @@ budget, keeps only what the agent reported.
 
 The commands the machines run: the gate commands, the Learn tools, how to count known debt, the
 self-test's failing test and the release steps. Every command is one line of shell, run with
-`sh -c` from the project root, with nothing on its standard input; it passes with exit code 0.
+`sh -c` from the project root, with nothing on its standard input. It passes with exit code 0.
 `gdd init` writes this file from the [stack sheets](stacks.md) (what `gdd stacks compose`
 prints) followed by the `[release]` section. Text an agent writes never reaches a shell: only
 these commands do.
@@ -364,7 +372,7 @@ The commands of the Loop Gate (G2), run on every Builder round and by `gdd g2`.
   otherwise it is listed under `skipped`.
 - Every command gets `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` and `GDD_FEATURES`; see
   [Environment variables](environment.md#what-gate-commands-get).
-- A failed command keeps, in the gate report, the first 40 lines of its output that report a
+- When a command fails, the gate report keeps the first 40 lines of its output that report a
   failure (they start with `error` or hold `FAILED`, `Failed`, `failed`, `panicked`, `Error:`,
   `Traceback` or `✘`), then the last 2,500 characters.
 
@@ -375,14 +383,14 @@ The stack sheets name G2 commands `lint`, `types`, `unit`, `acceptance` and `arc
 The commands of the Merge Gate (G3), run by the recipe after G2 and by `gdd g3`. Same rules as
 [`[g2]`](#g2). The stack sheets name them `acceptance_full`, `lockfile`, `security`,
 `dependencies`, `secrets` and `mutation`. `gdd status` warns when no `[g3]` command starts
-with `mutation`: red changes would go without mutation testing.
+with `mutation`, because red changes would then go without mutation testing.
 
 `gdd adopt` runs each G2 and G3 command once, except the ones whose name starts with
 `acceptance`, `mutation` or `secrets`.
 
 ### [learn]
 
-The tools `gdd learn` runs once on the project: warnings, never a gate.
+The tools `gdd learn` runs once on the project. They only warn; they are never a gate.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -392,7 +400,8 @@ The stack sheets name them `duplication` and `unused`.
 
 ### [count]
 
-How to count what a command with known debt reports, so its debt has a ceiling (a ratchet).
+How to count what a command with known debt reports, so its debt has a ceiling that can only go
+down (a ratchet).
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -420,8 +429,8 @@ read it from this file: the lists Path Guard uses are in
 ### [release]
 
 The release steps. Read by `gdd merge`, `gdd release` and `gdd selftest`. Each step runs its
-command, never anything else, within `[limits] command_seconds`, with `GDD_CHANGE` and, once
-the change has a version, `GDD_VERSION`.
+command and nothing else, within `[limits] command_seconds`, with `GDD_CHANGE` and, once the
+change has a version, `GDD_VERSION`.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
@@ -476,9 +485,9 @@ with a newer gdd and merge them with the project's edits. Written by `gdd init`;
 ## debt.toml
 
 The known debt of a project that already had code: the gate commands that failed when
-`gdd adopt` ran. They warn instead of failing a gate until a change makes each pass. Written by
-`gdd adopt`, which commits it alone and refuses to run once it exists; a merge removes the debt
-its gates paid and lowers the counts its gates reported lower.
+`gdd adopt` ran. Each one warns instead of failing its gate until a change makes it pass.
+`gdd adopt` writes the file, commits it alone, and refuses to run once it exists. After that, a
+merge removes the debt its gates paid and lowers the counts its gates reported lower.
 
 ```toml
 adopted = "2026-10-30"
@@ -513,4 +522,4 @@ which holds G2 to the same debt.
 - [Gates](gates.md): what each gate runs with these settings, by color.
 - [Stacks](stacks.md): where the commands and protected paths of `gdd init` come from.
 - [Tune the gates](../how-to/gates-and-commands.md): change commands and limits step by step.
-- [Command reference](cli.md#gdd-init): the flags that fill these files.
+- [`gdd init`](cli/init.md): the flags that fill these files.

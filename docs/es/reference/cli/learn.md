@@ -1,0 +1,60 @@
+# gdd learn
+
+<!--
+Generada por scripts/make_reference.py a partir de gdd 0.1.0. Edita el texto de ayuda en el
+código o scripts/cli_notes/learn.md, nunca esta página.
+-->
+
+Learn: runs the Learn tools of gdd/commands.toml ([learn]: warnings, never a gate), keeps what
+each one said in .gdd/learn/ and lists the polish notes the human gave at G4, to spot the ones
+that repeat, and the classes of finding that repeat in the Reviewer's reviews. Exits with 0
+whatever the tools found.
+
+## Uso
+
+```text
+Usage: gdd learn [OPTIONS]
+```
+
+## Opciones
+
+| Opción | Descripción |
+|---|---|
+| `--since <SINCE>` | Only the notes and reviews of the changes created on or after this day, YYYY-MM-DD (UTC). |
+
+## Quién lo ejecuta
+
+You, from time to time.
+An agent that gdd started cannot run it: see
+[What an agent may run](../roles.md#qué-puede-ejecutar-un-agente).
+
+## Ejemplos
+
+It runs the Learn tools and lists what repeats across changes. It is never a gate: it exits
+with 0 whatever its tools found.
+
+```bash
+gdd learn
+```
+
+You should see:
+
+<!-- REAL OUTPUT: gdd 0.1.0, sandbox project shop (python; claude and codex). -->
+
+```text
+duplication: nothing found
+...
+unused: found something (exit code 3)
+  src/shop/greeting.py:4: unused function 'greeting' (60% confidence)
+  All it said: .gdd/learn/unused.txt
+
+Polish notes at G4 (0)
+
+Reviewer findings that repeat: none
+Reviews whose findings name no class: none
+```
+
+## Ver también
+
+- [Referencia de la CLI](index.md): todos los comandos, por área, y lo que comparten.
+- [Measure the work](../../how-to/measure.md): Learn in practice.

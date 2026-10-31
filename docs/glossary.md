@@ -1,8 +1,8 @@
 # Glossary
 
 The words these pages use, in alphabetical order, each with a short definition and a link to
-the page that explains it. When two pages seem to disagree on a word, this page and the page it
-links to win.
+the page that explains it. Consult it when a page uses a word you do not know. When two pages
+seem to disagree on a word, this page and the page it links to win.
 
 ## ADR
 
@@ -19,8 +19,7 @@ read its tokens. See [Keeping agents honest](explanation/safety.md#layer-3-what-
 ## Board
 
 The read-only terminal screen that shows every change by phase, with its color, state and gates.
-It opens with `gdd` and no arguments in a terminal, or `gdd board`. See the
-[command reference](reference/cli.md#gdd-board).
+It opens with [`gdd board`](reference/cli/board.md), or `gdd` alone, in a terminal.
 
 ## Build mode
 
@@ -40,6 +39,12 @@ One small piece of value that goes through the gates as a unit, on its own branc
 It may cover one scenario, several or none. Always a *change*, never a task or a ticket. See
 [GDD in one page](explanation/method.md).
 
+## Characterization test
+
+A test that pins down what existing code does today, right or wrong, so that any change to that
+behavior shows up. Test mode writes them before a yellow or red change touches existing code.
+See [Skills of gdd's agents](reference/skills/agent-skills.md#gdd-build-test).
+
 ## Color
 
 The risk level of a path or a change: green, yellow or red. A change takes the highest color among
@@ -49,8 +54,8 @@ the paths it touches; the color decides its gates. Also called its Gate Level. S
 ## Core
 
 The part of GDD that guards against the agents and stays on whatever the configuration says: the
-gates G1 to G4, the traffic light, Path Guard, hidden examples, a Reviewer of another model family
-and mutation testing on red changes. See
+gates G1 to G4, the traffic light (the three [colors](#color)), Path Guard, hidden examples, a
+Reviewer of another model family and mutation testing on red changes. See
 [Design decisions](explanation/design-decisions.md#minimal-by-default-incremental-by-choice).
 
 ## Decision Inbox
@@ -90,7 +95,7 @@ The gate where the human approves a change's new or changed scenarios, in the sa
 red zones and the red plan. Approving seals the scenario files with their hashes. See
 [Write and approve scenarios](how-to/write-scenarios.md).
 
-## G2 Loop Gates
+## G2 Loop Gate
 
 The checks run after every Builder round: linter, types, tests, the change's scenarios,
 architecture rules, Path Guard and the scope check. See
@@ -117,10 +122,16 @@ A checkpoint a change must pass to move on. It answers yes or no, and says why. 
 
 Another name for a change's [color](#color).
 
+## Gherkin
+
+The plain-language format of the scenarios: a `Feature` with `Scenario`s whose steps start with
+`Given`, `When` and `Then`. GDD requires Gherkin, not a tool; the Setup picks the scenario
+runner for the stack. See [gdd-setup](reference/skills/setup.md).
+
 ## Harness
 
-The files that run and protect the method: `gdd/`, `bin/`, the CI workflow and the agents'
-folders. It is a red zone and protected from every role. See
+The files that run and protect the method: `gdd/`, the continuous integration (CI) workflow and
+the agents' folders. It is a red zone and protected from every role. See
 [Keeping agents honest](explanation/safety.md#layer-1-path-guard).
 
 ## Hidden example
@@ -142,7 +153,7 @@ releases, and does not read code to do it. See
 
 ## Kill rule
 
-What would have to happen to abandon an MVP, written in Discover before the work starts and in
+What would have to happen to abandon a minimum viable product (MVP), written in Discover before the work starts and in
 numbers the reports can show. See [Measuring what matters](explanation/measuring.md#the-kill-rule).
 
 ## Known debt
@@ -162,6 +173,12 @@ Phase 5, with no gate: repeated problems become rules, lints, hooks, tests and l
 `docs/standards.md`. `gdd learn` lists the repeats. See
 [Few stops for the human](explanation/human-stops.md#learn-turns-repeated-notes-into-rules).
 
+## Lock file
+
+The file where a stack's package manager pins the exact versions of the dependencies, such as
+`uv.lock` for Python. `gdd init` commits it after the first install, `gdd bootstrap` writes it
+when it is missing, and G3 checks it. See [Stacks](reference/stacks.md).
+
 ## Merge queue
 
 How changes reach main one at a time: under a merge lock, a change whose main moved takes the
@@ -178,6 +195,13 @@ a set number of days without use. See [Work type](#work-type).
 The provider family of a model, from `[families]` in `gdd/models.toml`. The Reviewer must be of
 another family than the Builder, so they do not share blind spots. See
 [Choose agents and models](how-to/agents-and-models.md).
+
+## Mutation testing
+
+A test of the tests: a tool makes small edits to the code, called mutants, such as flipping a
+comparison, and the tests must fail for each one. A mutant that no test catches shows a test
+that checks too little. gdd runs the `mutation*` commands in G2 and G3, always for red changes
+and for other colors when a rule turns them on. See [Gates](reference/gates.md#gates-by-color).
 
 ## No-code
 

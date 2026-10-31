@@ -1,8 +1,9 @@
-# Mide el trabajo
+# Medir el trabajo
 
-Averigua cuánto cuestan tus Changes en tokens, en qué se les va el tiempo, cómo va la entrega
-según las métricas de DORA y qué debería reforzar Learn a continuación, a partir del registro
-que lleva gdd.
+Averigua cuánto cuestan tus Changes en tokens, en qué se les va el tiempo, cómo va la entrega y
+qué conviene reforzar después, a partir del registro que lleva gdd. Usa esta guía cuando se
+hayan ejecutado unos cuantos Changes, y otra vez en cada Learn, la fase en la que conviertes los
+errores repetidos en comprobaciones.
 
 ## Antes de empezar
 
@@ -12,16 +13,22 @@ que lleva gdd.
 - Lee [Medir lo que importa](../explanation/measuring.md) para saber por qué se miden tokens y
   no líneas de código, y por qué las señales de GDD son indicios que leer, nunca objetivos.
 
+Tu agente puede sacar estos informes por ti: `/gdd-report` (`$gdd-report` en Codex) resume los
+tokens, y `/gdd-learn` ejecuta Learn y propone qué reforzar. Los informes solo leen el registro,
+así que también puedes ejecutarlos tú en un terminal. Los pasos de abajo muestran lo que imprime
+cada uno y cómo leerlo.
+
 Los ejemplos de esta página son salida real del repositorio de gdd, que se construye con GDD:
 50 Changes en una semana, más o menos.
 
 ## 1. Cuenta los tokens
 
 ```bash
-bin/gdd report
+gdd report
 ```
 
-Deberías ver una línea por rol y luego el total:
+Deberías ver una línea por rol y luego el total. Los tokens son las unidades de texto que un
+modelo lee y escribe:
 
 ```text
 role -> calls · tokens in · cache · out · cost USD · seconds
@@ -37,25 +44,24 @@ Lee las columnas en este orden:
 
 1. **tokens in** y **out**: los tokens de entrada nuevos y los tokens de salida. Son los que
    sirven para comparar Changes, modelos y roles.
-2. **cache**: los tokens de entrada leídos de la caché de prompts del agente. Son muchos (aquí,
-   unos 29 por cada token de entrada nuevo) y mucho más baratos, así que no los sumes a los
-   nuevos.
+2. **cache**: los tokens de entrada leídos de la caché de prompts del agente, texto que el
+   modelo ya vio. Son muchos (aquí, unos 29 por cada token de entrada nuevo) y mucho más baratos, así que no los sumes a los nuevos.
 3. **cost USD**: una estimación a precios de API, nunca una factura. Claude Code da su propia
-   estimación, calculada en el cliente; OpenCode da un coste; Codex no da ninguno, por eso el
-   Reviewer de arriba muestra 0 hasta que rellenes `[prices]` (consulta [Elige agentes y
-   modelos](agents-and-models.md#6-rellena-los-precios-para-las-estimaciones)). Con una suscripción, el
-   coste es teórico: compara tokens.
+   estimación, calculada en el cliente, y OpenCode da un coste. Codex no da ninguno, por eso el
+   Reviewer de arriba muestra 0 hasta que rellenes `[prices]` (consulta [Elegir agentes y
+   modelos](agents-and-models.md#6-rellena-los-precios-para-las-estimaciones)). Con una
+   suscripción, el coste es teórico: compara tokens.
 
 Agrupa y filtra:
 
 ```bash
-bin/gdd report --by agent,model
-bin/gdd report --by role --change CHANGE
-bin/gdd report --by model --json
+gdd report --by agent,model
+gdd report --by role --change CHANGE
+gdd report --by model --json
 ```
 
 `--by` admite cualquiera de los campos del registro, separados por comas (`change`, `phase`,
-`model`, `role`, `agent`...); por defecto es `role`. Con `--by agent,model`:
+`model`, `role`, `agent`...). Por defecto es `role`. Con `--by agent,model`:
 
 ```text
 agent · model -> calls · tokens in · cache · out · cost USD · seconds
@@ -70,16 +76,17 @@ Human stops logged: 201
 `tokens_out`, `cost_usd` y `duration_s`.
 
 Las conversaciones con tu agente fuera de la receta (el Setup, Discover) no están en el
-registro hasta que las añades. Para Claude Code:
+registro hasta que las añades. Esto funciona con Claude Code, y `/gdd-report` lo hace antes de
+su informe. A mano:
 
 ```bash
-bin/gdd session --phase 1-discover
+gdd session --phase 1-discover
 ```
 
 ## 2. Mira en qué se va el tiempo
 
 ```bash
-bin/gdd report --time --change ratchet
+gdd report --time --change ratchet
 ```
 
 ```text
@@ -91,15 +98,20 @@ ratchet · A ratchet for known debt: a change cannot add to it, and what it pays
   Waiting: at the sitting 9m, for the human at G4 2m, to start 8s
 ```
 
+En la segunda línea, lee las cuatro partes del tiempo del Change:
+
 - **Flow time** (tiempo de flujo) va desde la primera línea del Change en el registro hasta la
   última.
 - **Active** (tiempo activo) son las llamadas de agente, los comandos de las puertas y los
-  pasos de release; el porcentaje es la eficiencia del flujo (el tiempo activo dividido por el
-  tiempo de flujo).
+  pasos de release. El porcentaje es la eficiencia del flujo: el tiempo activo dividido por el
+  tiempo de flujo.
 - **Waiting** (espera) es el tiempo que se espera a una persona: en la sentada, en G4, aparcado
   hasta que se relanza, en la cola de fusión, antes de empezar.
 - **Between steps** (entre pasos) es el resto: el tiempo que gdd emplea entre un paso y otro, o
   un hueco en el registro.
+
+Las líneas de debajo dicen qué se llevó el tiempo activo: aquí, el comando de puerta
+`mutation`, con 15 minutos.
 
 Sin `--change`, el informe lista todos los Changes y termina con los totales del proyecto y sus
 mayores esperas:
@@ -113,12 +125,16 @@ Biggest waits: for the human at G4 32h 49m, at the sitting 18h 12m, to start 3h 
 Aquí el paso más lento fueron las personas, no los agentes: un tercio del tiempo de flujo
 fueron Changes esperando en G4. Agrupar las sentadas y responder antes en G4 ahorraría más que
 un modelo más rápido. `--since YYYY-MM-DD` deja solo los Changes creados ese día o después (en
-UTC); `--json` da un objeto por Change.
+UTC), y `--json` da un objeto por Change.
 
 ## 3. Comprueba la entrega con las métricas de DORA
 
+DORA (*DevOps Research and Assessment*) es un programa de investigación que define cinco métricas
+de entrega de software; [Las cinco de DORA](../explanation/measuring.md#las-cinco-de-dora)
+explica cada una.
+
 ```bash
-bin/gdd report --dora
+gdd report --dora
 ```
 
 ```text
@@ -140,10 +156,13 @@ GDD signals (signs to read, never targets)
   Tokens out: median 190,562 per change
 ```
 
-El primer bloque son las cinco métricas de entrega de DORA: dos de rendimiento (*throughput*) y
-tres de inestabilidad. Aquí los despliegues son simulados (este repositorio no tiene una
-producción real), y así lo indica la primera línea. El segundo bloque son las señales propias
-de GDD:
+El primer bloque son las cinco de DORA, donde un despliegue es una promoción a producción. El
+tiempo de entrega de un cambio (*change lead time*) es lo que tarda un Change desde que empieza
+su build hasta producción. La tasa de fallos de cambios (*change fail rate*) es la proporción de
+despliegues cuya observación falló o que se revirtieron. La primera línea dice que aquí los
+despliegues son simulados, porque este repositorio no tiene una producción real.
+
+El segundo bloque son las señales propias de GDD:
 
 | Señal | Qué sugiere un valor alto |
 |---|---|
@@ -155,37 +174,39 @@ de GDD:
 | Tokens out | El coste por Change, para comparar entre meses o entre modelos |
 
 Aquí `Human stops` cuenta una vez cada sentada y una vez cada respuesta de G4. La línea
-`Human stops logged` de `gdd report` cuenta cada decisión humana del registro, así que tres
-aprobaciones en una misma sentada cuentan allí tres veces.
+`Human stops logged` de [`gdd report`](../reference/cli/report.md) cuenta cada decisión humana
+del registro, así que tres aprobaciones en una misma sentada cuentan allí tres veces.
 
 Compara periodos con `--since`:
 
 ```bash
-bin/gdd report --dora --since 2026-10-29
+gdd report --dora --since 2026-10-29
 ```
 
 `--json` da un objeto con campos como `lead_time_s`, `change_fail_rate`, `polish_rate` y
 `reviewer_ko_rate`, para que montes tu propio panel.
 
-## 4. Aplica tu regla de corte
+## 4. Aplica tu regla de abandono
 
-Discover escribe una regla de corte en `docs/brief.md`: el resultado que te haría parar y
-revisar antes de seguir. La de gdd era esta: si gdd gasta más tokens o pide más paradas humanas
-que la herramienta anterior en el mismo tipo de Change, para y revisa antes de añadir más.
+Discover escribe una [regla de abandono](../glossary.md#regla-de-abandono) (*kill rule*) en
+`docs/brief.md`: el resultado que te haría parar y revisar antes de seguir. La de gdd era esta:
+si gdd gasta más tokens o pide más paradas humanas que la herramienta anterior en el mismo tipo
+de Change, para y revisa antes de añadir más.
 
 1. Escribe la regla con números que gdd da: tokens de salida por Change, paradas humanas por
    Change, tiempo de flujo.
-2. En cada Learn, ejecuta `bin/gdd report --dora --since DAY` para el periodo y compara.
+2. En cada Learn, ejecuta `gdd report --dora --since DAY` para el periodo y compara.
 3. Cuando la regla salte, deja de añadir trabajo y abre un Discover.
 
 ## 5. Ejecuta Learn
 
-Learn no tiene puerta: refuerza el proyecto. `gdd learn` ejecuta las herramientas de Learn de
-`[learn]` en `gdd/commands.toml` (solo dan avisos) y lista las notas de polish que dieron las
-personas en G4 y las clases de hallazgos del Reviewer que se repiten de un Change a otro.
+Learn no tiene puerta: refuerza el proyecto. [`gdd learn`](../reference/cli/learn.md) ejecuta las herramientas de Learn de
+`[learn]` en `gdd/commands.toml` (solo dan avisos). También lista las notas de polish que dieron
+las personas en G4 y las clases de hallazgos del Reviewer que se repiten de un Change a otro.
+`/gdd-learn` lo ejecuta por ti y propone un arreglo para cada cosa que se repite.
 
 ```bash
-bin/gdd learn
+gdd learn
 ```
 
 En un proyecto Python pequeño, deberías ver algo así:
@@ -206,7 +227,8 @@ Reviewer findings that repeat: none
 Reviews whose findings name no class: none
 ```
 
-Siempre termina con 0. Convierte lo que se repite en algo que se ejecute cada vez:
+`gdd learn` siempre termina con 0, encuentren lo que encuentren las herramientas. Convierte lo
+que se repite en algo que se ejecute cada vez:
 
 - una nota de polish que vuelve a aparecer se convierte en una línea de `docs/standards.md`,
   que leen el Builder y el Reviewer;
@@ -222,9 +244,9 @@ notas y las revisiones de los Changes recientes.
 
 ## Siguientes pasos
 
-- [Ajusta las puertas](gates-and-commands.md): convierte lo que encontró Learn en comandos de
+- [Ajustar las puertas](gates-and-commands.md): convierte lo que encontró Learn en comandos de
   puerta.
-- [Elige agentes y modelos](agents-and-models.md): actúa según lo que diga el informe de
+- [Elegir agentes y modelos](agents-and-models.md): actúa según lo que diga el informe de
   tokens.
 - [Medir lo que importa](../explanation/measuring.md): DORA, las señales de GDD y la regla de
-  corte.
+  abandono.

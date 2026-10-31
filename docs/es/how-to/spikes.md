@@ -1,17 +1,18 @@
 # Explorar con un Spike
 
-Un Spike responde a una pregunta antes del trabajo real, con un presupuesto fijo: el Builder
-escribe código desechable para averiguarlo, y lo único que llega a main es la decisión, en un
-ADR. Esta página muestra cómo ejecutar un Spike, mantenerlo dentro de su presupuesto y
-construir varias variantes en paralelo para elegir una.
+Usa un Spike cuando una pregunta bloquea una decisión, como "¿dónde se guardan las notas?". El
+Builder escribe código desechable para averiguarlo, con un presupuesto fijo, así que tienes la
+respuesta antes de construir nada que vayas a conservar. Lo único que llega a main es la
+decisión, en un registro de decisión de arquitectura (ADR, *architecture decision record*). Si
+la pregunta tiene varias opciones, puedes construir una variante por opción y elegir una.
 
 ## Antes de empezar
 
-- Un proyecto con la fase Setup terminada (`G0: ok` en `bin/gdd status`). Un Spike es el único
-  Change que se puede construir antes de que se aprueben las zonas rojas (consulta
-  [Mapear y aprobar zonas rojas](red-zones.md)).
-- Una pregunta que bloquea una decisión, como "¿dónde se guardan las notas?". Los Spikes nacen
-  en Discover: consulta [GDD en una página](../explanation/method.md).
+- Un proyecto con la fase Setup terminada: la puerta de preparación (G0, *Setup Gate*) está
+  abierta. Un Spike es el único Change que se puede construir antes de que se aprueben las
+  zonas rojas (consulta [Mapear y aprobar zonas rojas](red-zones.md)).
+- Una pregunta. Los Spikes nacen en Discover: `/gdd-discover` propone uno cuando una pregunta
+  bloquea una decisión. Consulta [GDD en una página](../explanation/method.md).
 
 Los ejemplos usan el proyecto `notes`.
 
@@ -29,7 +30,7 @@ código en su camino hacia main:
 | tiene un presupuesto, `[spike] max_usd` | un coste fijo, como pide Discover |
 | no necesita plan, ni siquiera cuando es rojo | conserva el Builder de un Change rojo, y tú apruebas el ADR en G4 |
 
-## 1. Fijar el presupuesto
+## 1. Fija el presupuesto
 
 `gdd init` escribe el presupuesto en `gdd/rules.toml`:
 
@@ -38,8 +39,8 @@ código en su camino hacia main:
 max_usd = 5   # a spike parks when its agent calls cost this much (USD)
 ```
 
-Cámbialo en main si 5 USD no encaja con tus Spikes (consulta
-[Configuración](../reference/configuration.md#spike)). Tiene que ser un número positivo: `0` se
+El presupuesto va en dólares estadounidenses (USD). Si 5 USD no encaja con tus Spikes, cámbialo
+en main (consulta [Configuración](../reference/configuration.md#spike)). Tiene que ser un número positivo: `0` se
 rechaza con `spike.max_usd must be a positive number of USD, not 0`.
 
 gdd guarda lo que ha gastado cada Change en su registro, que solo escribe gdd: después de cada
@@ -53,15 +54,18 @@ poco más.
 > El presupuesto cuenta lo que informan los agentes. Codex no informa de ningún coste: sus
 > llamadas cuentan como 0 USD salvo que `[prices.<model>]` en `gdd/models.toml` dé el precio de
 > su modelo. Con una suscripción, el coste es teórico, así que compara también los tokens
-> (`bin/gdd report --change <id>`).
+> (consulta [Medir el trabajo](measure.md)).
 
-## 2. Crear el Spike
+## 2. Pide el Spike
 
-```bash
-bin/gdd new-change notes-sync --type Spike --title "How notes sync between laptops" --paths "src/sync/**" docs/adr/0003-sync.md
+Para empezar un Spike, describe la pregunta al Orchestrator y dile que es un Spike:
+
+```text
+/gdd-change a spike: how should notes sync between laptops?
 ```
 
-Deberías ver:
+Crea un Change de tipo Spike, escribe en el paquete del Builder la pregunta y lo que la
+respondería, y te dice la clasificación. Por detrás, gdd imprimió esto para `notes-sync`:
 
 ```text
 {
@@ -84,15 +88,10 @@ Deberías ver:
   ...
 ```
 
-Escribe la pregunta y lo que la respondería en el paquete del Change
-(`.gdd/changes/notes-sync/package.md`), como en cualquier Change: el comando `gdd-change` del
-Orchestrator lo hace por ti.
+Un Spike no tiene escenarios ni plan que aprobar, así que el Orchestrator puede lanzarlo en el
+acto.
 
-## 3. Lanzarlo
-
-```bash
-bin/gdd launch notes-sync
-```
+## 3. Deja que se ejecute
 
 El Builder trabaja en la rama `change/notes-sync`, en su propio worktree, y escribe la decisión
 en un fichero nuevo bajo `docs/adr/`, con una sección `## Decision`. Cuando G2 pasa, el
@@ -110,36 +109,37 @@ En cambio, un Spike se aparca cuando:
 Consulta [Volver a poner en marcha un Change aparcado](parked-change.md) para saber qué hacer
 después.
 
-## 4. Responder a su puerta de salida
+## 4. Responde a su puerta de salida
 
-Lee el ADR en la rama del Spike y después responde, en la sentada
-(`bin/gdd sitting notes-sync`) o desde la línea de comandos:
+El Orchestrator te trae el Spike de vuelta en G4 con su ADR. Lee la decisión y responde con
+palabras, como en cualquier G4:
 
-```bash
-bin/gdd resume notes-sync --g4 ok --note "Plain files and git: no server to run"
+```text
+OK: plain files and git, no server to run.
 ```
 
-| Respuesta | Qué pasa |
+| Tu respuesta | Qué pasa |
 |---|---|
-| `--g4 ok` | Solo los ficheros ADR de la rama llegan a main, en un único commit `gdd(notes-sync): Spike ADR · How notes sync between laptops`. El código se queda en `change/notes-sync`, que gdd conserva. |
-| `--g4 ko --note ...` | main se queda como estaba. |
-| `--g4 polish --note ...` | Una ronda más del Builder con tus notas, sin reintentos ni replanificación, y después G2. Si sigue en rojo, el Change se aparca. |
+| OK | Solo los ficheros ADR de la rama llegan a main, en un único commit `gdd(notes-sync): Spike ADR · How notes sync between laptops`. El código se queda en `change/notes-sync`, que gdd conserva. |
+| KO, y por qué | main se queda como estaba. |
+| Polish, y qué pulir | Una ronda más del Builder con tus palabras, sin reintentos ni replanificación, y después G2. Si sigue en rojo, el Change se aparca. |
 
 No hay demo, ni promoción, ni línea de changelog: un Spike entrega una decisión, no una
 funcionalidad. El trabajo real viene después, como un Change nuevo construido con todas sus
 puertas.
 
-## 5. Probar varias opciones a la vez con variantes
+## 5. Prueba varias opciones a la vez con variantes
 
-Cuando la pregunta tiene de 2 a 4 opciones, construye una variante por opción y compáralas en
-una sola página (diseño basado en conjuntos, *set-based design*: explorar un conjunto de
-alternativas y después ir descartando). Indica cada opción con `--option`:
+Si la pregunta tiene de 2 a 4 opciones, pide una variante por opción y compáralas en una
+sola página (diseño basado en conjuntos, *set-based design*: explorar un conjunto de
+alternativas y después ir descartando):
 
-```bash
-bin/gdd new-change notes-storage --type Spike --title "Where the notes live" --paths "src/store/**" docs/adr/0002-storage.md --option SQLite --option "Plain files"
+```text
+/gdd-change a spike: where do the notes live? One variant for SQLite and one for plain files.
 ```
 
-El registro enumera las variantes, cada una con su rama:
+Si no hay opciones que distinguir, pide en su lugar un número de variantes del mismo encargo. El
+registro enumera las variantes, cada una con su rama:
 
 ```json
 "variants": [
@@ -154,28 +154,17 @@ El registro enumera las variantes, cada una con su rama:
 ]
 ```
 
-Si no hay opciones que distinguir, `--variants N` construye N variantes del mismo encargo. gdd
-rechaza todo lo demás antes de escribir nada. Por ejemplo, `--variants 5`, los dos flags a la
-vez y las variantes en un Change que no es un Spike
-(`gdd new-change x1 --title X --variants 2`):
-
-```text
-error: a spike has 2 to 4 variants, not 5
-error: --option and --variants do not go together: one variant for each option, or n variants of the same brief
-error: only a Spike has variants, and x1 is a Feature: add --type Spike, or leave out --option and --variants
-```
-
 Lee el diagrama de arriba abajo: un lanzamiento construye todas las variantes, y tú eliges en
 G4.
 
 ```mermaid
 flowchart TD
-    L[gdd launch notes-storage] --> V1["Variante 1 · SQLite<br/>rama change/notes-storage-v1"]
+    L[Lanzar notes-storage] --> V1["Variante 1 · SQLite<br/>rama change/notes-storage-v1"]
     V1 --> V2["Variante 2 · Plain files<br/>rama change/notes-storage-v2"]
     V2 --> P["Una página con todas las variantes"]
     P --> H{"Tu respuesta en G4"}:::human
-    H -- "ok --variant 2" --> M["Solo el ADR de la variante 2 llega a main,<br/>con una sección Variants"]
-    H -- ko --> N[main queda intacto]
+    H -- "OK, variante 2" --> M["Solo el ADR de la variante 2 llega a main,<br/>con una sección Variants"]
+    H -- KO --> N[main queda intacto]
     classDef human fill:#e6e0f8,stroke:#6a4fc0,color:#213
 ```
 
@@ -189,13 +178,16 @@ Lo que hace un lanzamiento con variantes:
 - Una variante que falla su puerta o llega a su presupuesto no detiene a las demás. Si no pasa
   ninguna, el Spike se aparca con `no variant passed its gate`.
 
-## 6. Comparar las variantes y elegir una
+gdd rechaza un Spike con 5 variantes (`error: a spike has 2 to 4 variants, not 5`), las opciones
+y un número de variantes a la vez, y las variantes en un Change que no es un Spike.
 
-Cuando se ha construido la última variante, el Spike espera en G4. Su página, en
-`bin/gdd sitting notes-storage` y en la Decision Inbox, tiene una línea por variante: si está
-lista o aparcada y por qué, sus ficheros ADR, la primera línea de su decisión, cuántos ficheros
-ha cambiado, sus minutos y su coste. Las líneas tienen este aspecto (ilustrativo, no sale de
-una ejecución real):
+## 6. Compara las variantes y elige una
+
+Cuando se ha construido la última variante, el Spike espera en G4. Su página, en la Decision
+Inbox que te trae el Orchestrator y en la pantalla de la sentada (`gdd sitting notes-storage`),
+tiene una línea por variante: si está lista o aparcada y por qué, sus ficheros ADR, la primera
+línea de su decisión, cuántos ficheros ha cambiado, sus minutos y su coste. Las líneas tienen
+este aspecto (ilustrativo, no sale de una ejecución real):
 
 ```text
 ## Variants
@@ -203,14 +195,14 @@ una ejecución real):
 - Variant 2 · Plain files · ready · ADR: docs/adr/0002-storage.md · decision: One Markdown file per note. · 3 files · 4.8 min · 0.52 USD
 ```
 
-Tú comparas y eliges; ningún agente juzga las variantes. En la sentada, `o` (OK) y `p` (polish)
-preguntan `Which variant? Its number:`. Desde la línea de comandos:
+Tú comparas y eliges; ningún agente juzga las variantes. Nombra la variante en tu respuesta:
 
-```bash
-bin/gdd resume notes-storage --g4 ok --variant 2 --note "Plain files keep working with git"
+```text
+OK, variant 2: plain files keep working with git.
 ```
 
-Solo los ficheros ADR de la variante 2 llegan a main, en el commit
+En la sentada, `o` (OK) y `p` (polish) preguntan `Which variant? Its number:`. Solo los ficheros
+ADR de la variante 2 llegan a main, en el commit
 `gdd(notes-storage): Spike ADR · Where the notes live`, y gdd añade al ADR una sección
 `## Variants` que nombra la elección y cada variante no elegida con su rama, por ejemplo:
 
@@ -220,15 +212,24 @@ Chosen: variant 2 (Plain files), branch change/notes-storage-v2. Plain files kee
 Variant 1 (SQLite): not chosen, branch change/notes-storage-v1
 ```
 
-El código de cada variante se queda en su rama. Sin `--variant`, OK se rechaza con
+El código de cada variante se queda en su rama. Un OK sin variante se rechaza con
 `pick a variant: gdd resume notes-storage --g4 ok --variant 1|2`, y no se puede elegir una
-variante que no ha pasado su puerta. `--g4 polish --variant <n> --note ...` vuelve a construir
-esa variante con tus notas; `--g4 ko` las rechaza todas.
+variante que no ha pasado su puerta. Un polish con una variante vuelve a construir esa variante
+con tus palabras; un KO las rechaza todas.
+
+## Por dentro
+
+El Orchestrator crea el Spike con
+[`gdd new-change --type Spike`](../reference/cli/new-change.md), añadiendo `--option` una vez
+por opción o `--variants N` para N variantes del mismo encargo, y después ejecuta
+[`gdd launch`](../reference/cli/launch.md). Tu respuesta se convierte en
+[`gdd resume CHANGE --g4 ok|ko|polish`](../reference/cli/resume.md), con `--variant N` para
+elegir una variante y `--note` para tus palabras.
 
 ## Siguientes pasos
 
-- [Responder a la puerta de salida](release-gate.md): la página de G4, OK, KO y polish.
+- [Revisar un Change en G4](release-gate.md): la página de G4, OK, KO y polish.
 - [Medir el trabajo](measure.md): lo que cuestan los Spikes y los Changes, en tokens y en USD.
-- [Ejecutar un Change](run-a-change.md): construye como un Change real lo que decide el ADR.
-- [Referencia de comandos: gdd new-change](../reference/cli.md#gdd-new-change): `--option` y
-  `--variants`.
+- [Describir un Change a tu agente](run-a-change.md): construye como un Change real lo que
+  decide el ADR.
+- [La skill discover](../reference/skills/discover.md): de dónde salen los Spikes.

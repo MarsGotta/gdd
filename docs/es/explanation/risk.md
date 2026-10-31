@@ -1,8 +1,9 @@
 # Cómo elige el riesgo las puertas
 
-Por qué el color de un Change decide cuántas puertas tiene que cruzar, cómo se calcula ese color
-a partir de las rutas que toca y qué cambia cada color. Con esta página puedes leer cualquier
-clasificación que imprima `gdd` y saber de dónde sale.
+¿Por qué GDD decide las puertas de un Change por el riesgo y no por el tamaño? Porque lo que
+costaría un error depende de dónde cae el Change, no de cuántas líneas tiene. Esta página explica
+cómo convierte gdd las rutas que toca un Change en un color, y qué enciende cada color. Después
+de leerla puedes leer cualquier clasificación que imprima `gdd` y saber de dónde sale.
 
 ## Antes de empezar
 
@@ -14,19 +15,19 @@ clasificación que imprima `gdd` y saber de dónde sale.
 ## Riesgo, no tamaño
 
 La mayoría de los procesos ajustan sus controles al tamaño del trabajo: una funcionalidad grande
-recibe una revisión larga y un arreglo de una línea, ninguna. GDD los ajusta al **riesgo**: lo
+recibe una revisión larga y un arreglo de una línea, ninguna. GDD los ajusta al **riesgo**, lo
 que costaría que el Change estuviera mal. Una sola línea cambiada en cómo se comparan las
 contraseñas merece más cuidado que cien líneas de texto de ayuda nuevo.
 
 El tamaño es barato de medir y mal indicador. El riesgo es más difícil de medir, así que GDD te
 pregunta una sola vez, durante Setup y Discover, qué partes del proyecto serían graves si
-fallaran, y apunta la respuesta como un mapa de rutas. A partir de ahí, una máquina clasifica
-cada Change, siempre de la misma manera.
+fallaran. Apunta tu respuesta como un mapa de rutas. A partir de ahí, una máquina clasifica cada
+Change, siempre de la misma manera.
 
 ## El mapa de zonas
 
 `gdd/zones.toml` da un color a las rutas. Cada zona tiene un color, sus patrones de rutas y un
-motivo en palabras; `**` cruza carpetas y `*` no.
+motivo en palabras. En los patrones, `**` cruza carpetas y `*` no.
 
 ```toml
 default = "yellow"   # code without a zone = code without known tests
@@ -44,16 +45,22 @@ reason = "Logins and sessions: a hole here exposes accounts"
 
 El mapa crece con el proyecto:
 
-- **En el Setup** todavía no hay mapa del producto. `gdd init` escribe uno inicial en el que solo
-  son rojos el arnés (`gdd/`, `bin/`, la CI, las carpetas de los agentes) y la cadena de
-  suministro (los ficheros de bloqueo, *lock files*, y la configuración de los escáneres), y la
-  documentación es verde. Las zonas sensibles que nombraste se quedan en palabras, en el
+- **En el Setup** todavía no hay mapa del producto. `gdd init` escribe un primer mapa en el que
+  solo hay dos cosas rojas: el arnés (`gdd/`, la CI y las carpetas de los agentes) y la cadena
+  de suministro (los ficheros de bloqueo, *lock files*, que fijan la versión de cada
+  dependencia, y la configuración de los escáneres). La documentación es verde. `/gdd-setup` te
+  pide que apruebes esas zonas rojas en una línea, así que tu primer Change puede empezar justo
+  después del Setup. Las zonas sensibles que nombraste se quedan en palabras, en el
   [Brief del proyecto](../glossary.md#brief-del-proyecto).
 - **Al final de Discover**, cuando ya existen carpetas reales, el Orchestrator traduce cada zona
-  sensible a rutas: las zonas rojas. Las apruebas en la misma sentada que los primeros
-  escenarios. Hasta que lo hagas, solo se pueden construir Spikes.
+  sensible a rutas: las zonas rojas del producto. Las apruebas en la misma sentada que los
+  primeros escenarios. Hasta que lo hagas, solo se pueden construir Spikes.
 - **Más adelante**, modificar una zona roja, o añadir una nueva, vuelve a necesitar tu
   aprobación.
+
+Las zonas rojas son de todo el proyecto, así que gdd siempre lee el mapa de la rama principal. Un
+Change se prepara, se clasifica y pasa sus puertas con el mapa de main, no con la copia de su
+propia rama. Una zona que apruebas hoy cuenta al momento para un Change creado antes.
 
 ## El color por defecto: el código sin tests es amarillo
 
@@ -62,9 +69,9 @@ amarillo: "code without a zone = code without known tests" (código sin zona = c
 conocidos). Si falta `default`, también es amarillo.
 
 El amarillo es el término medio honesto. El verde dejaría pasar código desconocido por la vía
-rápida (*Fast Lane*) con un Builder barato y sin Reviewer; el rojo haría que cada Change te
-costara dos paradas. El amarillo pide tests antes de tocar código existente y un Reviewer, y a ti
-no te pide nada.
+rápida (*Fast Lane*) con un Builder barato y sin Reviewer. El rojo haría que cada Change te
+costara dos paradas. El amarillo pide tests antes de tocar código existente, y un Reviewer, y a
+ti no te pide nada.
 
 ## Gana el color más alto
 
@@ -76,13 +83,13 @@ El escenario que lo comprueba lo dice sin rodeos: un Change que toca `docs/intro
 igual de grave con o sin la documentación al lado.
 
 Un Change sin ninguna ruta toma el color por defecto. Un Change también puede declarar un color
-mínimo con `--min-color`, que sube el color y nunca lo baja: el Orchestrator lo usa cuando sabe
+mínimo con `--min-color`, que sube el color y nunca lo baja. El Orchestrator lo usa cuando sabe
 algo que el mapa no sabe.
 
 El color cuenta lo que el Change **ha tocado de verdad**, no solo lo que planificó. Cuando el
 modo build escribe un fichero rojo que el plan no nombraba, `gdd classify` dice rojo.
 
-Ante la duda entre dos colores, elige el más alto. Esa es una regla para las personas y para el
+Ante la duda entre dos colores, elige el más alto. Esa regla es para las personas y para el
 Orchestrator, que son quienes dibujan el mapa; el clasificador nunca adivina.
 
 ## El color manda sobre el tipo de trabajo y la vía
@@ -92,13 +99,13 @@ cambia el color. Un Hotfix en una zona roja es rojo, con el plan, la revisión p
 Refactor de código amarillo es amarillo.
 
 El motivo es el mismo que con el tamaño: el tipo dice por qué cambias algo, no qué se rompe si el
-Change está mal. Un arreglo urgente en el código del login es justo donde una segunda mirada sale
-rentable. GDD abarata la urgencia de otra forma: un Hotfix primero revierte producción y después
+Change está mal. Un arreglo urgente en el código del login es justo donde una segunda mirada es más
+útil. GDD abarata la urgencia de otra forma: un Hotfix primero revierte producción, y después
 el arreglo recorre su vía sin prisa.
 
 La única excepción es el Spike, porque su código nunca llega a main. Un Spike conserva su color,
 y con él su Builder, pero no tiene modo test, ni mutation testing, ni Reviewer, ni G1, ni plan que
-aprobar; siempre termina en tu G4, donde solo su ADR puede llegar a main.
+aprobar. Siempre termina en tu G4, donde solo su ADR puede llegar a main.
 
 La vía tampoco puede bajar el color: la vía rápida solo está abierta a los Changes que no son
 rojos.
@@ -120,7 +127,7 @@ proyecto nuevo con `gdd init`, en `gdd/rules.toml` y `gdd/models.toml`.
 | Vía rápida | Posible | Posible | Nunca |
 | Tus paradas | 0, o 2 con escenarios nuevos | 0, o 2 con escenarios nuevos | 2 |
 
-Algunos términos de la tabla:
+Dos términos de la tabla necesitan una explicación:
 
 - **El mutation testing** (pruebas de mutación) cambia el código a propósito (un `>=` pasa a ser
   `>`, un `return true` pasa a ser `return false`) y vuelve a ejecutar los tests. Si siguen
@@ -135,9 +142,9 @@ Algunos términos de la tabla:
 ### El rojo tiene un núcleo que ningún fichero puede apagar
 
 En los Changes rojos, el mutation testing, el Reviewer, la revisión profunda y tu G4 son el
-núcleo de GDD. Un fichero de reglas que apague cualquiera de ellos para el rojo se rechaza al
-leerlo, y una clave que falte cuenta como encendida. Un equipo puede hacer el amarillo más
-estricto, nunca el rojo más laxo.
+núcleo de GDD. gdd rechaza en cuanto lo lee un fichero de reglas que apague cualquiera de ellos
+para el rojo, y una clave que el fichero no incluya cuenta como encendida. Un equipo puede hacer
+el amarillo más estricto, nunca el rojo más laxo.
 
 En los demás colores, los controles del stack vienen encendidos por defecto y se pueden apagar, y
 los extras, como el mutation testing en amarillo, son una línea que añades.
@@ -153,19 +160,20 @@ tres niveles.
 
 La **vía rápida** (*Fast Lane*) ejecuta G2 y G3 y no te pregunta nada. Un Change solo la toma
 cuando se cumplen las tres condiciones: no es rojo, no crea ni modifica ningún escenario, y es
-retomable (otro agente podría continuarlo solo con su ticket, cosa que el Orchestrator declara
-con `--resumable`). Todo lo demás va por la **vía completa** (*Full Lane*).
+retomable. Retomable quiere decir que otro agente podría continuarlo solo con su ticket, cosa
+que el Orchestrator declara con `--resumable`. Todo lo demás va por la **vía completa** (*Full
+Lane*).
 
-Cambiar solo escenarios de regresión, en `features/regression/`, no necesita G1, así que el
-arreglo de un bug que añade un escenario de regresión todavía puede ir por la vía rápida. El
-escenario fija el bug; no hay comportamiento nuevo que tengas que aprobar.
+Cambiar solo escenarios de regresión, en `features/regression/`, no necesita G1. Así que el
+arreglo de un bug que añade un escenario de regresión todavía puede ir por la vía rápida: el
+escenario fija el bug, y no hay comportamiento nuevo que tengas que aprobar.
 
 ## La regla del alcance
 
 Cada Change planifica las rutas que va a tocar. El modo build puede necesitar un fichero fuera
-del plan: una utilidad de tests, un tipo compartido. Rechazar todos esos ficheros aparcaría
-Changes para nada; aceptarlos todos dejaría que un Builder barato se metiera en una zona roja que
-nadie había planificado.
+del plan, como una utilidad de tests o un tipo compartido. Rechazar todos esos ficheros
+aparcaría Changes sin necesidad. Aceptarlos todos dejaría que un Builder barato escribiera en
+una zona roja que nadie había planificado.
 
 Así que la regla del alcance (*scope*) sigue al color:
 
@@ -176,8 +184,8 @@ Así que la regla del alcance (*scope*) sigue al color:
   que no se le dieron: un Builder más fuerte, un plan aprobado por ti, una revisión más profunda.
   Solo el Orchestrator amplía el alcance.
 
-Con el mapa de zonas de `features/scope.feature`, donde `docs/**` es verde, `src/storage/**` es
-rojo y el resto es amarillo, un Change amarillo que planifica `src/app.rs`:
+Toma el mapa de zonas de `features/scope.feature`, donde `docs/**` es verde, `src/storage/**` es
+rojo y el resto es amarillo, y un Change amarillo que planifica `src/app.rs`:
 
 | El Change también escribe | Resultado |
 |---|---|
@@ -196,10 +204,13 @@ proyecto recién creado clasifica así tres Changes:
 | `cart-total` | `src/shop/cart.py` | amarillo | completa | Modo test, modo build, G2, G3, una revisión rápida; sin paradas |
 | `login-rate-limit` | `src/shop/auth/**` y un `.feature` nuevo | rojo | completa | Una sentada, modo test, el Builder de rojo, mutation testing, una revisión profunda, G4 |
 
-`cart-total` no toca ninguna zona, así que es amarillo por defecto; no es retomable, así que va
+`cart-total` no toca ninguna zona, así que es amarillo por defecto. No es retomable, así que va
 por la vía completa, y como no tiene escenarios nuevos nunca se para a esperarte.
 `login-rate-limit` es rojo por una sola ruta, diga lo que diga el fichero de escenarios que tiene
 al lado.
+
+El diagrama resume todo el cálculo. Léelo desde arriba: cada ruta recibe un color, el Change toma
+el más alto, y solo un mínimo declarado puede subirlo.
 
 ```mermaid
 flowchart TD
@@ -219,9 +230,6 @@ flowchart TD
     class Y,D yellow
     class R red
 ```
-
-El diagrama se lee desde arriba: cada ruta recibe un color, el Change toma el más alto, y solo un
-mínimo declarado puede subirlo.
 
 ## Lo que se descartó
 

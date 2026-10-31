@@ -1,22 +1,23 @@
 # Decisiones de diseño
 
-Las decisiones que dan forma a GDD y a gdd, y las alternativas que se descartaron, con el
-motivo de cada una. Léela cuando algo de GDD te parezca más estricto o más simple de lo que
-esperabas y quieras saber si es a propósito.
+¿Por qué GDD está construido como está? Esta página reúne las decisiones que dan forma a GDD y a
+gdd, las alternativas que se valoraron y por qué perdió cada una. Léela cuando algo de GDD te
+parezca más estricto o más simple de lo que esperabas y quieras saber si es a propósito.
 
 ## Antes de empezar
 
 [GDD en una página](method.md) presenta el método. Los registros del propio proyecto guardan
-el razonamiento completo: la decisión de tecnología en el [ADR 0001](../../adr/0001-technology.md),
-las [notas de Discover](../../discover/) y la [hoja de ruta](../../../ROADMAP.md). Esta página
-reúne las decisiones por las que más pregunta quien llega nuevo.
+el razonamiento completo: la decisión de tecnología en el [ADR 0001](../../adr/0001-technology.md)
+(un ADR, registro de decisión de arquitectura, es un fichero corto que fija una decisión y sus
+motivos), las [notas de Discover](../../discover/) y la [hoja de ruta](../../../ROADMAP.md). Esta
+página reúne las decisiones por las que más pregunta quien llega nuevo.
 
 ## Un único binario en Rust
 
 **Elegido.** gdd es un único binario en Rust, construido como un workspace de Cargo: una
 biblioteca con el método (`gdd-core`, sin dependencias de terminal ni de línea de comandos),
-el binario con la CLI y la interfaz de terminal, y los escenarios de aceptación, que hablan con
-la biblioteca, no con la pantalla.
+el binario con la interfaz de línea de comandos (CLI) y las pantallas de terminal, y los
+escenarios de aceptación, que hablan con la biblioteca, no con la pantalla.
 
 **Por qué.** gdd lanza agentes, ejecuta los comandos de las puertas y guarda estado en disco, y
 se publica como código abierto, así que instalarlo tiene que llevar un solo paso. Un único
@@ -45,13 +46,13 @@ de Cucumber o el estándar de facto de su ecosistema. Sea cual sea el runner, ti
 
 **Por qué Gherkin.** Los escenarios son el contrato que apruebas sin leer código, así que tienen
 que ser frases que una persona pueda juzgar y, a la vez, el test que se ejecuta. Esa es la
-promesa del desarrollo guiado por comportamiento (BDD), en palabras de Cucumber: «documentación
-del sistema que se comprueba automáticamente contra el comportamiento del sistema»
-([Cucumber, BDD](https://cucumber.io/docs/bdd/)).
+promesa del desarrollo guiado por comportamiento (BDD, *behavior-driven development*), en
+palabras de Cucumber: «documentación del sistema que se comprueba automáticamente contra el
+comportamiento del sistema» ([Cucumber, BDD](https://cucumber.io/docs/bdd/)).
 
 **Por qué cualquier runner.** Un método que exigiera un runner concreto dejaría fuera todos los
 stacks en los que ese runner encaja mal. Los tres requisitos son lo que necesitan las puertas de
-GDD; el resto es cosa del proyecto.
+GDD; el resto lo elige el proyecto.
 
 **Descartado.** Una versión temprana del método exigía el propio Cucumber, lo que lo ataba a una
 sola familia de herramientas. También se descartó un «catálogo Gherkin»: tests normales con el
@@ -60,12 +61,13 @@ demuestra que un test *existe*, no que compruebe lo que dice la frase aprobada, 
 podría entregar un test más débil con el nombre correcto. Ejecutar el Gherkin aprobado forma
 parte del núcleo.
 
-**La crítica habitual, respondida.** La capa de pasos de BDD tiende a crecer y a pudrirse. GDD
-lo combate con instrucciones, no con herramientas: el modo test reutiliza un paso que ya dice lo
-mismo y solo añade uno cuando ninguno encaja, y conecta cada paso con la capa más baja que
-muestra el comportamiento (una función del dominio, luego la línea de comandos, luego la
-pantalla). El Reviewer señala un paso duplicado como hallazgo. Solo unos pocos escenarios,
-etiquetados `@ui`, pasan por la pantalla; la demo en pre comprueba la interfaz real.
+**La crítica habitual, respondida.** En BDD, la capa de definiciones de pasos tiende a crecer y a
+volverse difícil de mantener. GDD lo limita con instrucciones, no con herramientas: el modo test
+reutiliza un paso que ya dice lo mismo y solo añade uno cuando ninguno encaja, y conecta cada
+paso con la capa más baja que muestra el comportamiento (una función del dominio, luego la línea
+de comandos, luego la pantalla). El Reviewer señala un paso duplicado como hallazgo. Solo unos
+pocos escenarios, etiquetados `@ui`, pasan por la pantalla, y la demo en pre comprueba la
+interfaz real.
 
 ## Mínimo por defecto, incremental si lo eliges
 
@@ -73,9 +75,9 @@ etiquetados `@ui`, pasan por la pantalla; la demo en pre comprueba la interfaz r
 
 1. **El núcleo** que te protege de los agentes está siempre activo, y ningún Builder puede
    desactivarlo: las puertas G1 a G4, el semáforo, Path Guard, los ejemplos ocultos, un
-   Reviewer de otra familia de modelos y mutation testing en los Changes rojos. Se rechaza un
-   fichero de reglas que desactive el núcleo para los Changes rojos; una clave que se omita
-   cuenta como activa.
+   Reviewer de otra familia de modelos y mutation testing en los Changes rojos. gdd rechaza un
+   fichero de reglas que desactive el núcleo para los Changes rojos, y una clave que el fichero
+   no incluya cuenta como activa.
 2. **Las comprobaciones del stack** están activas por defecto y se pueden desactivar: el
    linter, los tipos, los tests unitarios, los escáneres de la ficha de stack del proyecto.
 3. **Los extras** son opcionales, y cada uno se activa añadiendo su sección a un
@@ -90,8 +92,8 @@ que cuesta tiempo o tokens lo añades tú cuando compensa.
 
 **Descartado.** Mutation testing en todos los Changes amarillos por defecto. Sigue siendo la
 regla en [`GDD.md`](../../../GDD.md#gate-level-traffic-light) y en el propio repositorio de gdd,
-pero es una puerta lenta (gdd necesitó un Change propio para acelerarla en Rust), y el principio
-de mínimo por defecto la movió: al núcleo para los Changes rojos, y a una línea
+pero es una puerta lenta (gdd necesitó un Change propio para acelerarla en Rust). El principio de
+mínimo por defecto la movió: al núcleo para los Changes rojos, y a una línea
 (`mutation = true`) para los amarillos.
 
 ## Roles con el contexto mínimo
@@ -107,13 +109,16 @@ seguridad: el paquete del Builder deja fuera los ejemplos ocultos.
 Separar los roles también pone un segundo modelo entre el trabajo y main. El Builder y el
 Reviewer forman lo que Anthropic llama un flujo *evaluator-optimizer* (evaluador-optimizador):
 «una llamada al LLM genera una respuesta mientras otra la evalúa y da retroalimentación en un
-bucle», que recomienda «cuando tenemos criterios de evaluación claros»
+bucle» (un LLM es un modelo de lenguaje grande). Anthropic lo recomienda «cuando tenemos
+criterios de evaluación claros»
 ([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)).
 En GDD los criterios son los escenarios, el paquete y `docs/standards.md`, y el bucle tiene un
 límite: una corrección.
 
-**La alternativa**, un solo agente que planifica, construye y revisa, es más simple, pero se
-pone nota a sí mismo, y su contexto crece con cada Change.
+**Las alternativas.** Un solo agente que planifica, construye y revisa es más simple, pero se
+pone nota a sí mismo, y su contexto crece con cada Change. Un segundo agente del mismo modelo es
+mejor, pero suele compartir los puntos ciegos del primero, y por eso GDD pide un Reviewer de otra
+familia de modelos.
 
 ## Herramientas deterministas antes que agentes
 
@@ -133,7 +138,7 @@ convierte en una regla, un lint, un hook o un test, para que la próxima vez lo 
 herramienta.
 
 **Descartado.** Un agente como revisor de seguridad de cada Change. Hoy solo los escáneres miran
-la seguridad por su cuenta; está prevista una revisión de seguridad aparte, hecha por un agente,
+la seguridad por su cuenta. Está prevista una revisión de seguridad aparte, hecha por un agente,
 para las zonas rojas de seguridad, y se sumará a los escáneres, no los sustituirá.
 
 ## Modos test y build separados
@@ -146,14 +151,16 @@ está en verde, y no puede tocar los pasos.
 **Por qué.** Si el agente que escribe el código también escribe los tests que lo juzgan, puede
 hacer que ambos cuadren de la forma equivocada. Separar los modos, y dejar que Path Guard
 compruebe cada uno contra su propia instantánea, hace que los tests existan antes que el código
-y que después no se puedan torcer para ajustarlos a él.
+y que después no se puedan torcer para ajustarlos a él. Cuando el Reviewer encuentra un fallo en
+un paso, el modo test lo arregla en su propia ronda, así que el modo build nunca necesita tocar
+los tests.
 
 **La sesión compartida opcional.** Dos sesiones pierden contexto en el relevo. Un experimento
 con los Changes del propio gdd lo midió: una única sesión compartida gastó alrededor de un 21 %
-menos de tokens nuevos y alrededor de un 7 % menos de tiempo, con una calidad dentro del ruido.
-No bastó para cambiar el valor por defecto, así que pasó a ser una opción:
-`[session] builder = "shared"` en `gdd/models.toml`, disponible para Claude Code. Path Guard
-sigue demostrando que los pasos no se editan después del modo test.
+menos de tokens nuevos y alrededor de un 7 % menos de tiempo, con una calidad dentro de la
+variación normal entre ejecuciones. No bastó para cambiar el valor por defecto, así que pasó a
+ser una opción: `[session] builder = "shared"` en `gdd/models.toml`, disponible para Claude Code.
+Path Guard sigue demostrando que los pasos no se editan después del modo test.
 [Medir lo que importa](measuring.md#un-ejemplo-una-sesión-de-builder-o-dos) tiene las cifras.
 
 **Descartado.** Un único modo que escriba los tests y el código juntos, de una vez y sin ninguna
@@ -163,16 +170,16 @@ comprobación entre medias.
 
 **Elegido.** Un **Spike** responde a una pregunta para que puedas decidir. Se construye rápido,
 sin tests primero, sin mutation testing y sin Reviewer, dentro de un presupuesto fijo
-(`[spike] max_usd`, 5 USD por defecto). Su puerta es Path Guard más un ADR con una sección
-`## Decision`. Un OK en G4 lleva a main solo el ADR; el código se queda en su rama. Un Spike
-puede construir de dos a cuatro variantes, una por opción, para que las compares en una sola
-página.
+(`[spike] max_usd`, 5 dólares estadounidenses por defecto). Su puerta es Path Guard más un ADR
+con una sección `## Decision`. Un OK en G4 lleva a main solo el ADR, y el código se queda en su
+rama. Un Spike puede construir de dos a cuatro variantes, una por opción, para que las compares
+en una sola página.
 
 **Por qué.** El código de exploración se escribe para aprender, no para durar. Si pudiera
 fusionarse, acabaría fusionándose, y el proyecto se quedaría con código que nadie ha probado de
 verdad. Quedarse solo con la decisión hace que el Spike sea barato de empezar y seguro de tirar.
 
-**Descartado.** Fusionar el código de un Spike tal cual; los [estándares](../../standards.md)
+**Descartado.** Fusionar el código de un Spike tal cual. Los [estándares](../../standards.md)
 del propio gdd lo dicen claramente: «El código de un Spike no entra en main tal cual». Lo que el
 Spike aprendió va a un Change nuevo, con sus propios escenarios y puertas.
 
@@ -202,30 +209,30 @@ habría dependido de una capa que gdd no controla.
 mal. Solo lo segundo debería decidir cuánto cuidado hay que poner.
 [Cómo elige el riesgo las puertas](risk.md) tiene el argumento completo.
 
-**Descartado.** Puertas más ligeras para los Hotfixes o para los Changes pequeños. La urgencia
-se resuelve revirtiendo primero, no comprobando menos.
+**Descartado.** Puertas más ligeras para los Hotfixes o para los Changes pequeños. GDD resuelve
+la urgencia revirtiendo primero, no comprobando menos.
 
 ## Una herramienta en inglés, agentes en tu idioma
 
 **Elegido.** La herramienta, sus ficheros, sus comandos y sus mensajes están en inglés. Los
 agentes te hablan en el idioma configurado en `gdd/project.toml` (`language`): sus preguntas,
-notas, resúmenes y entradas del Decision Inbox.
+notas, resúmenes y entradas de la Decision Inbox.
 
 **Por qué.** gdd es código abierto, y el inglés es el idioma común de su código, su
 configuración y sus issues. Pero la persona que aprueba los escenarios y responde a G4 debería
 hacerlo en el idioma en el que piensa. Separar las dos cosas mantiene la herramienta coherente y
-las decisiones cómodas.
+te deja decidir en tu propio idioma.
 
 **Descartado.** Una herramienta traducida. Cada mensaje existiría en muchas versiones, y los
 escenarios que los comprueban se multiplicarían.
 
 ## Decisiones menores
 
-- **Los Changes que se solapan avisan en vez de rechazarse.** Al principio se rechazaba un
+- **Los Changes que se solapan avisan en vez de rechazarse.** Al principio, gdd rechazaba un
   lanzamiento cuyas rutas previstas se solapaban con las de un Change en curso. En la historia
   del propio gdd todos los Changes tocaban el mismo fichero de pasos, así que nunca podían
   ejecutarse dos a la vez. Ahora los solapamientos solo avisan y git los resuelve en la fusión,
-  como hace una cola de fusión; un conflicto aparca el Change y explica cómo salir.
+  como hace una cola de fusión; un conflicto aparca el Change y explica cómo seguir.
 - **Worktrees en una carpeta hermana.** Cada Change se construye en `<repo>.worktrees/<id>`,
   junto al repositorio y no dentro, donde los runners de tests y los linters encontrarían las
   copias. Cambiarlo es una línea de configuración.

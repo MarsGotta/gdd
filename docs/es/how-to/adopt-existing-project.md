@@ -1,45 +1,53 @@
 # Llevar gdd a un proyecto existente
 
-Prepara GDD en un repositorio que ya tiene código, registra lo que hoy falla como deuda
-conocida para que avise en vez de bloquear, asigna tus carpetas a colores de riesgo y planifica
-los primeros Changes.
+Usa esta guía cuando un repositorio ya tiene código y quieres trabajar en él con GDD. Ejecutas
+`gdd init` una vez en el terminal y la skill de setup de tu agente hace el resto; las
+comprobaciones que hoy fallan pasan a ser deuda conocida, que avisa en vez de bloquear.
 
 ## Antes de empezar
 
-- gdd y las herramientas de tu stack están instalados: consulta [Instalar gdd](install.md).
+- gdd, tus agentes de programación y las herramientas de tu stack están instalados: consulta
+  [Instalar gdd](install.md).
 - El repositorio es un repositorio git con todo guardado en commits, en su rama main.
-- Sabes qué ficha de stack encaja con el proyecto: `python`, `rust` o `typescript` (consulta
-  [Stacks](../reference/stacks.md)).
-- Lee [GDD en una página](../explanation/method.md) si las palabras puerta, zona y Change son
-  nuevas para ti.
+- Si las palabras puerta, zona y Change son nuevas para ti, lee antes
+  [GDD en una página](../explanation/method.md).
 
-El recorrido completo es este. Los pasos de abajo lo siguen en orden.
+Los ejemplos usan `shop`, una pequeña tienda web en Python que ya tenía código: un catálogo, un
+carrito, un test de pytest, Ruff y un import sin usar del que avisa Ruff. El recorrido completo
+es este:
 
 ```mermaid
 flowchart TD
-    A[gdd init] --> B[Ajusta los comandos de las puertas a tu estructura]
-    B --> C[gdd bootstrap]
-    C --> D[gdd adopt: deuda conocida]
-    D --> E[gdd selftest y G0]
-    E --> F[Zonas para tus carpetas]:::human
-    F --> G["Primeros Changes: deuda y tests de caracterización"]
+    A[gdd init: arnés y primera instalación] --> B["/gdd-setup: Brief y comandos de las puertas"]
+    B --> C[Deuda conocida: gdd adopt]
+    C --> D[Autotest y G0]
+    D --> E["/gdd-discover: zonas para tus carpetas"]
+    E --> F["Primeros Changes: la deuda, de más a menos riesgo"]:::human
     classDef human fill:#e6e0f8,stroke:#6a4fc0,color:#213
 ```
 
+La skill de setup hace B, C y D en una sola conversación contigo.
+
 ## 1. Ejecuta gdd init
 
-`gdd init` escribe el arnés junto a tu código. Nunca sobrescribe un fichero, se niega a
-ejecutarse en una carpeta que ya es un proyecto GDD y solo hace commit de lo que ha escrito.
-Indica el stack con `--stack`: gdd usa el fichero de detección de un stack (`pyproject.toml`,
-`Cargo.toml`, `package.json`) solo para decidir si escribe un esqueleto, y se salta el
-esqueleto de cualquier stack del que la carpeta ya tenga un proyecto.
+Desde la raíz del repositorio:
 
 ```bash
-gdd init --name notes --platform cli --stack python --agents claude codex \
-  --description "A command-line notes tool" --sensitive "Losing notes"
+gdd init
 ```
 
-Deberías ver los ficheros que ha escrito y, después, el siguiente paso:
+El formulario de Setup hace siete preguntas: el nombre, una descripción, la plataforma, los
+stacks, los agentes de programación, el idioma en que te hablan y qué sería grave si fallara.
+En el stack, elige aquel en que está escrito el proyecto. Un resumen muestra todas las
+respuestas antes de escribir nada, y `Enter` prepara el proyecto.
+[Instalar gdd](install.md#4-prepara-un-proyecto) muestra el formulario.
+
+gdd escribe el [arnés](../glossary.md#arnés), los ficheros que usa para comprobar el proyecto,
+junto a tu código. Nunca sobrescribe un fichero, se niega a ejecutarse en una carpeta que ya es
+un proyecto GDD y solo hace commit de lo que ha escrito (`gdd init 0.1.0`). Después ejecuta la
+primera instalación del stack, que escribe el fichero de bloqueo (*lock file*), y hace commit de
+él (`gdd bootstrap`). Deberías ver los ficheros que ha escrito, la instalación y, después, el
+siguiente paso:
 
 ```text
 gdd/project.toml
@@ -49,7 +57,6 @@ gdd/zones.toml
 gdd/models.toml
 gdd/generated.toml
 docs/brief.md
-bin/gdd
 .github/workflows/gdd.yml
 AGENTS.md
 CLAUDE.md
@@ -57,160 +64,148 @@ CLAUDE.md
 .claude/skills/gdd-build/SKILL.md
 ...
 .agents/skills/gdd-stack-python/SKILL.md
-Next: run bin/gdd bootstrap (first install of each stack and its lock file), bin/gdd agents check, then start your agent and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
+python: uv lock && uv sync --locked
+Using CPython 3.13.15
+Resolved 8 packages in 3ms
+Using CPython 3.13.15
+Creating virtual environment at: .venv
+Resolved 8 packages in 0.91ms
+Installed 7 packages in 10ms
+Committed: uv.lock
+Next: start your coding agent here and run the gdd-setup command (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).
 ```
 
-En la lista no aparece ningún fichero de `src/` ni de `tests/`: el proyecto ya tenía un
-`pyproject.toml`, así que gdd no escribió ningún esqueleto. Los ficheros que ya tenías siguen
-siendo tuyos. Cuando el proyecto ya tiene un `AGENTS.md`, gdd no lo toca y te indica la línea
-que debes añadir:
+En la lista no hay ningún fichero de `src/` ni de `tests/`. El proyecto ya tenía un
+`pyproject.toml`, así que gdd no escribió ningún esqueleto, y los ficheros que ya tenías siguen
+siendo tuyos.
+
+- `AGENTS.md`: si el proyecto ya tiene uno, gdd no lo toca y te indica la línea que debes
+  añadir, la que envía a los agentes a GDD.
+- Fichero de bloqueo: si el proyecto ya tenía uno en un commit, obtienes
+  `Nothing new to commit.` en lugar de `Committed: uv.lock`.
+
+## 2. Ejecuta /gdd-setup
+
+Arranca tu agente en la carpeta del proyecto y ejecuta la skill de setup:
 
 ```text
-AGENTS.md is yours: add to AGENTS.md a line that sends agents to GDD:
-This project works with **GDD · Gate-Driven Development**: work moves forward by passing gates, and
-risk decides how many gates and how strict. `bin/gdd` runs the gates.
+/gdd-setup
 ```
 
-Todas las opciones de `gdd init` están en la [referencia de comandos](../reference/cli.md#gdd-init).
-Si todos tus agentes son de una sola familia de modelos, añade `--accept-same-family`; consulta
-[Elegir agentes y modelos](agents-and-models.md).
+En Codex, ejecuta `$gdd-setup`. El agente hace de Orchestrator, el rol que habla contigo. Lee
+tus respuestas al formulario en `gdd/project.toml` y `docs/brief.md`, después el código, y solo
+pregunta lo que esos ficheros no cuentan. En `shop` quedaba una pregunta: para quién es la
+tienda. Su mensaje, recortado:
 
-## 2. Ajusta los comandos de las puertas a tu estructura
+<!-- Real output: one headless Claude Code session (claude -p '/gdd-setup', then --resume with
+     the answer), gdd 0.1.0, on the example project. Trimmed with "..."; not edited. -->
 
-La ficha de stack da por hecha su propia estructura. En Python, eso es el código en
-`src/<package>/`, los tests unitarios en `tests/unit/`, los pasos de los escenarios en
-`tests/acceptance/` y las herramientas de las puertas (mypy, Bandit, import-linter, pytest-bdd,
-mutmut, vulture) en las dependencias de desarrollo. Un proyecto existente rara vez coincide en
-todo, y un comando que falle por ese motivo quedaría registrado como deuda en el paso 4.
+```text
+I've done all the technical setup. I need one answer from you before I can finish the Project Brief and open G0.
 
-1. Muestra lo que espera la ficha, desde dentro del proyecto:
+**What's ready**
+- **Test runner:** pytest-bdd runs the scenarios (plain-language descriptions of what the shop should do). It's actively maintained; its last release was a month ago. I checked by hand that it fails when a step has no code behind it, that it can run only some scenarios, and that it runs the hidden ones only when asked.
+...
+- **Gates:** I ran every check command by hand. While doing that I fixed two problems:
+  - The newest pytest (9.2) breaks pytest-bdd, so I held pytest below 9.2.
+  - Mutation testing (a check that your tests catch deliberately planted bugs) crashed on files that give it nothing to test. It now skips them.
+- **Existing debt:** the current code has one unused line, which fails the style check. I recorded it as known debt rather than fixing it now. It will get its own small Refactor later.
+- **Harness self-test:** 4/4.
+- **No real hosting yet:** there's no test or live server, so for now release steps are marked as simulated.
 
-   ```bash
-   bin/gdd stacks show python
-   ```
+**One question**
+- **Who is the shop for?** I'm guessing a small independent seller with customers buying online. Is that right, or is it something else, such as an internal tool or a demo?
 
-2. Para cada diferencia, cambia el proyecto o cambia el comando en `gdd/commands.toml`. Por
-   ejemplo, para mantener los tests unitarios en `tests/`, apunta a esa carpeta `unit` en
-   `[g2]` y el `file` de `[selftest]`. Las claves y las variables están en
-   [Configuración](../reference/configuration.md#commandstoml).
-3. Añade al proyecto las herramientas que llaman los comandos. El proyecto de ejemplo ya tenía
-   pytest y Ruff; añade las demás y mantiene pytest por debajo de 9.2, porque pytest 9.2 rompe
-   pytest-bdd 9.0.0 (issue 850 de pytest-bdd). El esqueleto de un proyecto nuevo tiene el mismo
-   límite.
+...
+**Next step:** answer the question. I'll then finish the Brief, open G0 and commit the setup on `main`.
+```
 
-   ```bash
-   uv add --dev mypy bandit import-linter pytest-bdd mutmut vulture "pytest>=9.1.1,<9.2"
-   ```
+Dos líneas importan más: `Existing debt`, la deuda registrada en vez de arreglada (paso 3), y la
+única pregunta del final (paso 4).
 
-   El proyecto de ejemplo tampoco tenía pasos de escenarios. Tomó `tests/acceptance/` del
-   esqueleto que recibe un proyecto Python nuevo (`__init__.py`, `steps/__init__.py` y
-   `test_features.py`, que vincula las features con los pasos), y la configuración de pytest
-   que necesitan, en `pyproject.toml`:
+Antes de preguntar, el Orchestrator ajusta los comandos de las puertas a tu estructura, para que
+ningún comando falle solo porque un fichero no está donde lo espera la
+[ficha de stack](../reference/stacks.md). Cambia `gdd/commands.toml` o el proyecto, y prueba
+cada comando a mano. En `shop`:
 
-   ```toml
-   [tool.pytest.ini_options]
-   pythonpath = ["."]
-   bdd_features_base_dir = "features/"
-   ```
+- añadió las herramientas que faltaban como dependencias de desarrollo, con pytest por debajo
+  de 9.2, porque pytest 9.2 rompe pytest-bdd 9.0.0 (issue 850 de pytest-bdd);
+- movió `tests/test_cart.py` a `tests/unit/` y escribió `tests/acceptance/` y un primer
+  escenario de humo (*smoke*), `features/smoke.feature`;
+- añadió a `pyproject.toml` la configuración que leen las herramientas (`[tool.mypy]`,
+  `[tool.mutmut]`, un contrato de import-linter);
+- cambió el comando `mutation` de `gdd/commands.toml` para que un fichero sin nada que mutar no
+  lo haga fallar.
 
-4. Haz commit en la rama main. Estos ficheros son arnés: los cambia una persona en main, nunca
-   dentro de un Change.
+Antes de responder, lee lo que ha cambiado el Orchestrator. Estos ficheros son arnés, así que
+cambian en main, nunca dentro de un Change.
 
 > [!NOTE]
-> Prueba cada comando a mano una vez (`uv run mypy src`, `cargo clippy ...`). Un comando que no
-> llega a arrancar no es deuda, es un error de preparación, y sale más barato arreglarlo ahora.
+> Un comando que no llega a arrancar no es deuda, es un error de preparación, y sale más barato
+> arreglarlo ahora. El Orchestrator los arregla antes de registrar la deuda.
 
-## 3. Ejecuta gdd bootstrap
+## 3. Deuda conocida: lo que hoy falla
 
-`gdd bootstrap` hace la primera instalación de cada stack, que escribe el fichero de bloqueo
-(*lock file*), y hace commit de los ficheros de la cadena de suministro que ha creado o
-cambiado, y de nada más.
-
-```bash
-bin/gdd bootstrap
-```
-
-Deberías ver:
+La [deuda conocida](../glossary.md#deuda-conocida) es la lista de comprobaciones que el código
+antiguo ya no pasa y que te comprometes a pagar con Refactors; hasta entonces, avisan en vez de
+bloquear. Cuando los comandos encajan, el Orchestrator ejecuta
+[`gdd adopt`](../reference/cli/adopt.md) para registrarla en
+[`gdd/debt.toml`](../reference/configuration.md#debttoml), en un commit aparte
+(`gdd adopt: known debt in lint`). En `shop`, gdd imprimió:
 
 ```text
-python: uv lock && uv sync --locked
-...
-Nothing new to commit.
-Next: bin/gdd selftest
-```
-
-Aquí `uv add` ya había escrito el fichero de bloqueo, que entró en el commit del paso 2, así que
-no había nada nuevo para hacer commit. Un proyecto sin fichero de bloqueo obtiene
-`Committed: uv.lock`. Ejecútalo una sola vez. Las instalaciones posteriores pasan por el comando
-`install` de `gdd/commands.toml`.
-
-## 4. Registra la deuda conocida con gdd adopt
-
-`gdd adopt` ejecuta una vez cada comando de G2 y G3 que juzga el proyecto entero. Los que fallan
-pasan a ser deuda conocida en [`gdd/debt.toml`](../reference/configuration.md#debttoml), en un
-commit aparte. Un comando con deuda conocida se ejecuta y avisa en cada puerta, pero no bloquea,
-hasta que un Change lo hace pasar.
-
-```bash
-bin/gdd adopt
-```
-
-Deberías ver algo parecido a esto (de un proyecto con tres imports sin usar, un `noqa` que su
-configuración de Ruff no necesita y sin configuración de import-linter):
-
-```text
-Passed: types, unit, dependencies, lockfile, security
-Known debt: architecture, lint (4)
+Passed: architecture, types, unit, dependencies, lockfile, security
+Known debt: lint (1)
 Proposed Refactors, riskiest first:
-  1. debt-architecture · Pay the known debt of architecture · .gdd/adoption/architecture.txt
-  2. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt
-Create one with: bin/gdd new-change debt-<name> --type Refactor --title "..." --paths ...
+  1. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt
+Ask your agent for each one: /gdd-change pay the debt of <name> ($gdd-change in Codex).
 ```
 
-Qué ha pasado:
+Fíjate en la segunda línea: `lint` es deuda, con un problema. Debajo, gdd propone un Refactor
+por cada deuda, de más a menos riesgo. Un Refactor es un Change que mejora el código sin cambiar
+lo que hace. El Orchestrator te cuenta en dos líneas qué ha pasado a ser deuda y propone un
+Refactor para cada una, como en su mensaje de arriba. La última línea es para el Orchestrator,
+no para ti.
 
-- Los comandos cuyo nombre empieza por `acceptance`, `mutation` o `secrets` nunca se convierten
-  en deuda. Juzgan el Change o sus escenarios, no el código antiguo, así que bloquean desde el
-  primer día.
-- `lint (4)` lleva un recuento: `[count]` en `gdd/commands.toml` le dice a gdd cómo leer el
-  número de problemas en lo que imprimió el comando. Ese recuento es un techo, un trinquete. Un
-  Change que informa de más problemas hace fallar la puerta con la diferencia; uno que informa de
-  menos baja el techo cuando se fusiona.
-- `architecture` no tiene recuento, porque la ficha no tiene textos de `[count]` para él. Un
-  Change puede aumentar esa deuda sin que se note, y `gdd status` lo advierte.
+- Los escenarios, el mutation testing y los secretos nunca se convierten en deuda: los comandos
+  cuyo nombre empieza por `acceptance`, `mutation` o `secrets` bloquean desde el principio.
+- El recuento que sigue a `lint` es un techo que solo puede bajar;
+  [Ajustar las puertas](gates-and-commands.md#6-cuenta-la-deuda-conocida-con-el-trinquete)
+  explica cómo lo cuenta gdd.
 - Lo que imprimió cada comando que falló está en `.gdd/adoption/<name>.txt`, para el Refactor
   que lo pague.
 
-Un proyecto se adopta una sola vez: un segundo `gdd adopt` se detiene con
-`this project was already adopted on <day> (gdd/debt.toml)`. Cuando todos los comandos pasan,
-adopt no escribe nada.
-
-Consulta la deuda en cualquier momento:
-
-```bash
-bin/gdd status
-```
+Un proyecto se adopta una sola vez. Un segundo `gdd adopt` se detiene y no escribe nada:
 
 ```text
-...
-Known debt: architecture (no count: a change can add to it unseen), lint (4)
-  - architecture · since 2026-10-30 · Refactor debt-architecture
-  - lint · since 2026-10-30 · Refactor debt-lint
-...
+error: this project was already adopted on 2026-10-31 (gdd/debt.toml)
 ```
 
-## 5. Ejecuta el autotest y abre G0
+Si todos los comandos pasan, adopt no escribe nada.
 
-La puerta de preparación (G0, *Setup Gate*) se abre cuando el Brief está escrito y el autotest
-del arnés pasa 4/4. Ejecuta las dos cosas justo después de la adopción: no hace falta pagar la
-deuda antes.
+## 4. Responde y deja que el setup termine
 
-```bash
-bin/gdd selftest
-bin/gdd gate G0 ok --by machines
+Responde a la pregunta en el chat. El Orchestrator termina el Brief y ejecuta el
+[autotest](../glossary.md#autotest). Con 4/4 abre la puerta de preparación (G0, *Setup Gate*),
+aunque la deuda siga abierta, hace commit del setup en main (`gdd: setup (G0)`) y te avisa de
+que el arnés está listo.
+
+En `shop`, la respuesta fue `Yes: a small independent seller, and their customers who buy
+online.` Su mensaje final, recortado:
+
+```text
+Setup is finished and G0 is open. The machines opened it because the Brief is written and the harness self-test passes 4/4.
+
+- **Project Brief (`docs/brief.md`):** now lists the shop's two audiences: the small independent seller who runs it, and their customers who buy online. It also records the platform, the technology, the sensitive areas (payments and customer data) and three open questions for Discover:
+...
+- **Known debt:** one style error in the existing code, which will be fixed by its own small Refactor.
+- **Release steps:** still simulated, because there is no real hosting yet.
+- **Commit:** everything is committed on `main` as `gdd: setup (G0)`, and the session is logged.
+
+**Next step:** run `/gdd-discover`. It starts from the open questions in the Brief and ends by proposing which parts of the code to protect around payments and customer data.
 ```
 
-Deberías ver:
+Lo que imprimieron el autotest y G0 en esa sesión:
 
 ```text
 OK a failing test turns G2 red
@@ -221,32 +216,29 @@ harness 4/4
 G0 ok (machines).
 ```
 
-La primera comprobación juzga G2 igual que lo hace G2: `architecture` y `lint` siguen fallando,
-pero cada uno se mide contra su deuda conocida, así que G2 sigue en verde hasta que el autotest
-planta su test que falla, y entonces se pone en rojo. La comprobación falla igualmente cuando un
-comando de G2 informa de más que su deuda conocida, o falla sin tener ninguna:
+La primera comprobación pasa aunque `lint` siga fallando, porque la comprobación mide `lint`
+contra su deuda conocida. Si un comando de G2 (puerta del bucle, *Loop Gate*) informa de más que
+su deuda conocida, o falla sin tener ninguna, la comprobación falla:
 
 ```text
 KO a failing test turns G2 red (G2 is red without it: lint)
 ```
 
-También falla, indicando el motivo, cuando no se puede leer `gdd/debt.toml`. Arregla el fichero
-y vuelve a ejecutar el autotest.
+La comprobación también falla, indicando el motivo, si no se puede leer `gdd/debt.toml`. En los
+dos casos, el Orchestrator arregla la causa y vuelve a ejecutar el autotest.
 
-También puedes dejar este paso a tu agente: el comando `gdd-setup` ejecuta el autotest y abre
-G0 por ti.
+## 5. Asigna tus carpetas a zonas
 
-## 6. Asigna tus carpetas a zonas
-
-El código que no coincide con ninguna zona es amarillo: código sin tests conocidos. Convierte en
-rutas, en `gdd/zones.toml`, las áreas sensibles que escribiste con `--sensitive`. Gana el color
-más alto, y una persona aprueba cada zona roja antes de que ningún Change pueda construir.
+El código que no coincide con ninguna zona es amarillo, código sin tests conocidos;
+[Cómo elige el riesgo las puertas](../explanation/risk.md) explica qué cambia cada color. Para
+asignar tus carpetas, ejecuta después `/gdd-discover`. Al final, el Orchestrator convierte las
+áreas sensibles del Brief en rutas de `gdd/zones.toml`. En `shop`, podría ser:
 
 ```toml
 [[zone]]
 color = "red"
-paths = ["src/notes/store.py"]
-reason = "Losing notes: the store writes the user's notes"
+paths = ["src/shop/cart.py"]
+reason = "Payments: the cart computes what the customer pays"
 
 [[zone]]
 color = "green"
@@ -254,59 +246,53 @@ paths = ["tests/**"]
 reason = "Tests: a wrong test fails loudly and costs nothing in production"
 ```
 
-Haz commit en main y después aprueba las zonas rojas:
-
-```bash
-bin/gdd gate zones ok --note "store.py red: it writes the notes"
-```
+Apruebas las zonas rojas en la [sentada](../glossary.md#sentada) del primer Change, junto con
+sus escenarios. Al aprobarlas se registra:
 
 ```text
 Red zones ok (3 red zone(s)).
 ```
 
 El recuento incluye las dos zonas rojas que escribió `gdd init`: el arnés y la cadena de
-suministro. El procedimiento completo, con cómo propone zonas el Orchestrator al final de
-Discover, está en [Mapear y aprobar zonas rojas](red-zones.md).
+suministro. Los detalles están en [Mapear y aprobar zonas rojas](red-zones.md).
 
-## 7. Planifica los primeros Changes
+## 6. Planifica los primeros Changes
 
 Empieza por la deuda, de más a menos riesgo, y por tests alrededor del código amarillo que vas
-a tocar.
+a tocar. Para pagar una deuda, pide al Orchestrator el Refactor que propuso la adopción:
 
-1. Crea un Refactor por cada deuda que propuso la adopción:
+```text
+/gdd-change pay the known debt of lint, as the adoption proposed (debt-lint)
+```
 
-   ```bash
-   bin/gdd new-change debt-lint --type Refactor --title "Pay the known debt of lint" --paths src/notes/store.py
-   ```
-
-   Planifica rutas concretas. En gdd 0.1.0, un patrón planificado como `src/**` se clasifica
-   por el propio patrón, no por los ficheros que abarca, así que sale amarillo aunque dentro
-   haya un fichero rojo. Las puertas vuelven a clasificar a partir de las rutas que el Change
-   tocó de verdad.
-
-2. Los Changes amarillos y rojos llevan `tests_first = true`: los tests de caracterización, que
-   fijan lo que hace hoy el código, se escriben antes de cambiar el código. Pídelos en el título
-   y en los escenarios del Change cuando el código no tenga ninguno.
-3. Añade el primer escenario. Un proyecto adoptado no tiene ninguno, y G3 falla hasta que haya
-   al menos uno:
-
-   ```text
-   {"name":"scenarios","tail":"Zero scenarios counts as a failure."}
-   ```
-
-   El primer Change que añade un fichero `.feature` pasa por la puerta de escenarios (G1,
-   *Scenario Gate*); consulta [Escribir y aprobar escenarios](write-scenarios.md).
+- Tests de caracterización: si un Change amarillo o rojo toca código sin tests, pídelos. Fijan
+  lo que hace hoy el código y se escriben antes de cambiarlo.
+- Escenarios: un proyecto adoptado empieza con el único escenario de humo que escribió la skill
+  de setup. Cada Change que añade un fichero `.feature` te trae sus escenarios para que los
+  apruebes; consulta [Aprobar los escenarios](write-scenarios.md).
 
 Mientras la deuda siga abierta, todas las puertas informan de ella. Un Change que mantiene lint
-en su techo pasa con `known_debt` en el informe. Uno que añade problemas falla:
+en su techo pasa con `known_debt` en el informe. Un Change que añade problemas falla, como aquí,
+en un proyecto cuya deuda de lint era 4:
 
 ```text
 lint reports 7, the known debt is 4: 3 more
 ```
 
+## Por dentro
+
+[`gdd init`](../reference/cli/init.md) escribe el arnés (su página de referencia lista las
+opciones que dan las respuestas del formulario sin un terminal), y su formulario ejecuta la
+primera instalación igual que [`gdd bootstrap`](../reference/cli/bootstrap.md). La
+[skill de setup](../reference/skills/setup.md) edita `docs/brief.md`, `gdd/commands.toml` y la
+configuración del proyecto, ejecuta `gdd bootstrap` si falta el fichero de bloqueo y después
+[`gdd adopt`](../reference/cli/adopt.md), [`gdd selftest`](../reference/cli/selftest.md) y
+[`gdd gate`](../reference/cli/gate.md) para G0. [`gdd status`](../reference/cli/status.md)
+muestra la deuda que sigue abierta.
+
 ## Siguientes pasos
 
-- [Ejecutar un Change](run-a-change.md): lanza el primer Refactor y síguelo en el Board.
+- [Describir un Change a tu agente](run-a-change.md): el primer Refactor, de principio a fin.
 - [Ajustar las puertas](gates-and-commands.md): qué ejecuta cada puerta, según el color, y cómo
   cuenta el trinquete.
 - [Ejecutar las puertas en CI](ci.md): CI avisa de la deuda conocida igual que las puertas.

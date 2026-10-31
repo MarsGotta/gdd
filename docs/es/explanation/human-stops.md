@@ -1,8 +1,10 @@
 # Pocas paradas para la persona
 
-Por qué GDD te pregunta tan poco, qué es lo que sí te pregunta y cómo agrupa las preguntas para
-que un Change te cueste como mucho dos sentadas cortas. Esta es la página que tienes que leer si
-te preocupa que los agentes te inunden a preguntas o que publiquen sin contar contigo.
+¿Por qué GDD te pregunta tan poco, y por qué en estos momentos y no en otros? Porque tu tiempo es
+el recurso más escaso del sistema, y casi todo lo que producen los agentes lo pueden comprobar
+las máquinas. Esta página explica qué es lo que sí te pregunta GDD y cómo agrupa las preguntas
+para que un Change te cueste como mucho dos sentadas cortas. Léela si te preocupa que los
+agentes te inunden a preguntas o que publiquen sin contar contigo.
 
 ## Antes de empezar
 
@@ -14,16 +16,17 @@ Inbox y las respuestas de G4 que se describen aquí las comprueban
 
 ## Tú eres la parte interesada, no quien lee el código
 
-Un agente escribe código más rápido de lo que tú puedes leerlo, y un agente que te espera es un
-agente que no está trabajando. Si cada Change necesitara tu revisión, serías la parte más lenta
-del sistema, y la revisión empeoraría a medida que te cansaras.
+Revisar tú cada Change no escala. Un agente escribe código más rápido de lo que tú puedes leerlo,
+y un agente que te espera es un agente que no está trabajando. Si cada Change necesitara tu
+revisión, serías la parte más lenta del sistema, y la revisión empeoraría a medida que te
+cansaras.
 
 Así que GDD te da el papel que tiene la parte interesada (*stakeholder*) en un buen equipo. Tú
 decides **qué** tiene que hacer el software, **dónde** sería grave un error y **si el resultado
-es lo bastante bueno para salir**. No decides si un bucle es correcto: eso lo deciden los tests,
+es lo bastante bueno para salir**. No decides si un bucle es correcto. Eso lo deciden los tests,
 los escenarios, el mutation testing (pruebas de mutación) y el Reviewer, que no se cansan.
 
-Tus tres decisiones se corresponden con tres cosas que puedes juzgar sin leer código:
+Cada una de tus decisiones se apoya en algo que puedes juzgar sin leer código:
 
 | Decides | Mirando | En |
 |---|---|---|
@@ -34,7 +37,8 @@ Tus tres decisiones se corresponden con tres cosas que puedes juzgar sin leer c�
 
 ## Cuántas paradas
 
-Una *parada* es un momento en que un Change te espera. Según [`GDD.md`](../../../GDD.md#human-stops):
+Una *parada* es un momento en que un Change te espera. El color y la vía de un Change deciden
+cuántas paradas tiene, como las enumera [`GDD.md`](../../../GDD.md#human-stops):
 
 | Tipo de Change | Tus paradas |
 |---|---|
@@ -44,8 +48,9 @@ Una *parada* es un momento en que un Change te espera. Según [`GDD.md`](../../.
 | Rojo | 2: una sentada (plan, escenarios y zonas) y después G4 |
 | Hotfix | 0 o 1 |
 
-Y como mucho un mensaje por Change. La mayoría de los Changes de un proyecto ya mapeado son
-amarillos y sin escenarios nuevos: van del lanzamiento a producción sin pararse ni una vez.
+Un Change, además, te deja como mucho un mensaje. La mayoría de los Changes de un proyecto ya
+mapeado son amarillos y sin escenarios nuevos, así que van del lanzamiento a producción sin
+pararse ni una vez.
 
 La regla para recordarlo: *las máquinas abren la 0; la persona abre la 1 y a veces la 4; las
 máquinas vigilan la 2 y la 3.*
@@ -53,8 +58,8 @@ máquinas vigilan la 2 y la 3.*
 ## Una sentada por Change
 
 Una **sentada** es el único momento, antes de Build, en que apruebas todo lo que un Change
-necesita de ti. El Orchestrator lo reúne en un solo mensaje, o `gdd sitting CHANGE` te lo enseña
-en una sola pantalla:
+necesita de ti. El Orchestrator lo reúne en un solo mensaje en el chat, y `gdd sitting CHANGE` te
+enseña lo mismo en una sola pantalla:
 
 - los escenarios de la rama del Change, con los ejemplos ocultos marcados como ocultos;
 - las zonas rojas que esperan tu aprobación, cada una con su motivo, o una nota que dice que ya
@@ -64,24 +69,25 @@ en una sola pantalla:
 En el mismo mensaje, el Orchestrator propone también la línea que el Change añadirá al changelog,
 así que ni eso te cuesta una parada más.
 
-Apruebas una vez. La pantalla te enseña primero exactamente lo que se va a registrar, y no se
-escribe nada hasta que confirmas: entonces registra G1, las zonas rojas y el plan a la vez. Si
-algo está mal, pides cambios con tus propias palabras, y eso se registra como un KO de G1 con
-esas palabras.
+Apruebas una vez. La pantalla te enseña primero exactamente lo que va a registrar, y no escribe
+nada hasta que confirmas. Entonces registra G1, las zonas rojas y el plan a la vez. Si algo está
+mal, pides cambios con tus propias palabras, y gdd lo registra como un KO de G1 con esas
+palabras.
 
-¿Por qué una sentada y no una aprobación por puerta? Porque cada aprobación es una interrupción,
-y una interrupción cuesta más que la decisión. Tres preguntas en una sentada llevan unos minutos;
-tres preguntas en tres tardes distintas suponen tres cambios de contexto.
+GDD agrupa las aprobaciones en una sentada porque cada aprobación es una interrupción, y una
+interrupción cuesta más que la decisión. Tres preguntas en una sentada llevan unos minutos. Tres
+preguntas en tres tardes distintas suponen tres cambios de contexto.
 
-¿Por qué antes de Build? Porque cambiar un escenario cuando la construcción ya ha empezado
-significa aprobarlo otra vez y volver a construir. Decidir primero sale más barato que decidir dos
-veces.
+La sentada va antes de Build porque cambiar un escenario cuando la construcción ya ha empezado
+significa aprobarlo otra vez y volver a construir. Decidir primero sale más barato que decidir
+dos veces.
 
 ## La sentada de G4
 
-G4 es la otra parada, y solo para los Changes que la necesitan: los rojos y los que tuvieron
-escenarios nuevos. El Change ya está fusionado y funcionando en pre. `gdd sitting CHANGE` te
-enseña con qué juzgarlo:
+G4 es la otra parada, y solo llegan a ella los Changes que la necesitan: los rojos y los que
+tuvieron escenarios nuevos. Para entonces el Change ya está fusionado y funcionando en pre, el
+entorno de preproducción. El Orchestrator lo trae al chat, y `gdd sitting CHANGE` te enseña con
+qué juzgarlo:
 
 - la demo: vídeos o capturas de los escenarios o, en una biblioteca o una herramienta sin
   pantalla, la ejecución legible de sus escenarios, con sus números;
@@ -92,20 +98,20 @@ enseña con qué juzgarlo:
 - la línea del changelog;
 - en qué se fue el tiempo del Change.
 
-Después respondes: `o` para OK, `k` para KO, `p` para polish. KO y polish necesitan tus palabras.
-Antes de ejecutar nada, la pantalla te enseña el comando `gdd resume` exacto y lo que viene a
-continuación.
+Después respondes, en el chat o en la pantalla. En la pantalla, `o` es OK, `k` es KO y `p` es
+polish. KO y polish necesitan tus palabras. Antes de ejecutar nada, la pantalla te enseña el
+comando `gdd resume` exacto y lo que viene a continuación.
 
 ## Hecho no es bueno
 
 Un Change que pasa todas las puertas todavía puede estar sin terminar. La IA llega muy rápido a
 algo que *parece* terminado, y la última parte, la que lo hace correcto y concreto, se queda sin
 hacer porque ya "funciona". GDD llama a este principio **hecho no es bueno** (*done is not
-good*), y sale de una sesión de Discover sobre el problema
+good*). Sale de una sesión de Discover sobre el problema
 ([`docs/discover/2026-10-26-done-is-not-good.md`](../../discover/2026-10-26-done-is-not-good.md)).
 
-Las máquinas cubren la mitad. Los ejemplos ocultos y el mutation testing pillan los tests que
-mienten; el Reviewer de otra familia es el crítico. La otra mitad es tuya: en G4 eres el
+Las máquinas cubren la mitad. Los ejemplos ocultos y el mutation testing detectan los tests que
+mienten, y el Reviewer de otra familia es el crítico. La otra mitad es tuya: en G4 eres el
 **editor**.
 
 Por eso G4 tiene tres respuestas, no dos:
@@ -120,7 +126,7 @@ pero su mensaje dice *Error 3*" es una nota de polish, no un motivo para tirar e
 
 El listón de calidad está escrito, para que no tengas que repetirlo. Cada proyecto tiene
 `docs/standards.md`: cómo es lo bueno aquí, en palabras, por ejemplo el tono, los nombres, los
-mensajes de error y lo que no quieres. El Builder lo lee antes de construir y el Reviewer juzga
+mensajes de error y lo que no quieres. El Builder lo lee antes de construir, y el Reviewer juzga
 con él. El Brief dice qué y para quién; los estándares dicen cómo de bueno. Los
 [estándares](../../standards.md) del propio gdd son un ejemplo.
 
@@ -140,20 +146,22 @@ dónde mirar (gdd escribe los títulos en inglés):
   su deuda conocida.
 
 "Decided without you" es lo que permite a los agentes seguir adelante. La regla para el
-Orchestrator y el Builder es: si una decisión es reversible y dudarías entre preguntar y decidir,
-decide y apúntalo. Tú lees la lista después, en un solo sitio, en lugar de contestar cada pregunta
-según llega.
+Orchestrator y el Builder es esta: si una decisión es reversible y dudarías entre preguntar y
+decidir, decide y apúntalo. Tú lees la lista después, en un solo sitio, en lugar de contestar
+cada pregunta según llega.
 
 ## Learn convierte las notas repetidas en reglas
 
 Si escribes la misma nota de polish dos veces, el método ya te ha fallado una. La fase 5, Learn,
 existe para evitarlo. `gdd learn` pone tus notas de polish de G4 una al lado de otra, para que el
-Orchestrator detecte las que se repiten, y enumera las clases de hallazgos del Reviewer que han
-vuelto a salir en dos Changes o más.
+Orchestrator encuentre las que se repiten. También enumera las clases de hallazgos del Reviewer
+que han vuelto a salir en dos Changes o más.
 
 Una nota repetida se convierte en algo que corta el problema antes de que vuelva a llegarte: una
-línea de `docs/standards.md`, una regla de lint, un test o un hook. Learn no tiene puerta. Solo
-endurece.
+línea de `docs/standards.md`, una regla de lint, un test o un hook. Learn no tiene puerta; solo
+hace más estrictas las demás. Con el tiempo, esto es lo que mantiene pocas tus paradas: las
+paradas humanas por Change son una de las señales que sigue
+[Medir lo que importa](measuring.md#las-señales-propias-de-gdd).
 
 ## Lo que se descartó
 
@@ -167,8 +175,8 @@ endurece.
 
 ## Ver también
 
-- [Escribir y aprobar escenarios](../how-to/write-scenarios.md): cómo es un buen escenario en G1.
-- [Responder a la puerta de salida](../how-to/release-gate.md): OK, KO o polish, paso a paso.
-- [Poner en marcha otra vez un Change aparcado](../how-to/parked-change.md): cómo leer la
+- [Aprobar los escenarios](../how-to/write-scenarios.md): cómo es un buen escenario en G1.
+- [Revisar un Change en G4](../how-to/release-gate.md): OK, KO o polish, paso a paso.
+- [Volver a poner en marcha un Change aparcado](../how-to/parked-change.md): cómo leer la
   Decision Inbox.
 - [Medir lo que importa](measuring.md): la tasa de polish y las paradas humanas como señales.

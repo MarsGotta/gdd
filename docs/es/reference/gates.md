@@ -1,8 +1,9 @@
 # Puertas
 
 Qué comprueba cada puerta de GDD, cuándo se ejecuta, quién decide, sus límites y qué aparca un
-Change, por color. Los valores son los del `gdd/rules.toml` que escribe `gdd init`; consulta
-[Configuración](configuration.md#rulestoml) para cada clave.
+Change, por color. Consúltala cuando necesites saber qué puertas pasa un Change, o por qué una
+puerta ha dicho que no. Los valores son los del `gdd/rules.toml` que escribe `gdd init`;
+consulta [Configuración](configuration.md#rulestoml) para cada clave.
 
 ## Puertas por color
 
@@ -43,6 +44,9 @@ el núcleo de GDD. El Orchestrator juzga si un Change es reanudable cuando lo cr
 
 ## G0 Setup Gate
 
+La comprobación de que el proyecto está listo para ser comprobado: existe un Brief y el arnés
+falla cuando debe.
+
 **Cuándo:** Una vez por proyecto, al final de Setup (fase 0), antes de que se pueda preparar
 ningún Change.
 
@@ -53,7 +57,8 @@ ningún Change.
    con el test que falla de `[selftest] content` colocado ahí, uno falla. Un `gdd/debt.toml`
    que gdd no puede leer hace fallar la comprobación, con el motivo.
 2. Editar un fichero protegido está bloqueado: `[protected] all` cubre `gdd/rules.toml` y
-   `.github/workflows/gdd.yml`, y ese workflow ejecuta `bin/gdd ci`.
+   `.github/workflows/gdd.yml`, y ese workflow ejecuta `gdd ci` (un proyecto preparado por un gdd
+   más antiguo puede ejecutar `bin/gdd ci`, que también cuenta).
 3. El rollback funciona en pre: `[release] rollback_pre` pasa, o el release es simulado.
 4. Cero escenarios cuentan como fallo: G3 no cuenta ninguno en una carpeta vacía, y
    `[acceptance] required` no es `false`.
@@ -97,7 +102,7 @@ harness 3/4
 Intentas abrir G0 cuando el último autotest no es 4/4:
 
 ```text
-error: G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest).
+error: G0 cannot open: the harness self-test is not 4/4 (gdd selftest).
 ```
 
 Falta el Brief:
@@ -107,6 +112,9 @@ error: G0 cannot open: docs/brief.md (Project Brief) is missing.
 ```
 
 ## G1 Scenario Gate
+
+La puerta en la que tú y el agente acordáis el comportamiento, en forma de escenarios, antes de
+cualquier código.
 
 **Cuándo:** En la sentada de un Change, cuando el Change crea o cambia un fichero `.feature`
 dentro de `[acceptance] dir` y fuera de `[acceptance] regression`. Cambiar solo escenarios de
@@ -133,7 +141,9 @@ Las zonas rojas de `gdd/zones.toml` necesitan una aprobación humana, una vez y 
 vez que cambia cualquier zona roja: `gdd gate zones ok --note "..."` (solo `--by human`). La
 aprobación guarda las zonas rojas y su hash en `.gdd/zones.json`; aprobarlas tal como ya están
 no escribe nada. Hasta que se aprueban, solo se puede preparar un Spike. `gdd status` dice
-`pending` o `changed`.
+`pending` o `changed`. La skill de Setup pide la primera aprobación; las zonas que mapea Discover
+esperan a la siguiente sentada. gdd juzga cada Change con el mapa de zonas aprobado en main, así
+que una aprobación dada después de crear un Change cuenta para él.
 
 ### El plan de un Change rojo
 
@@ -158,10 +168,10 @@ Lees los escenarios y pides cambios (`gdd gate G1 ko cart-total`):
 G1 ko on cart-total (human).
 ```
 
-Las zonas rojas del proyecto aún no están aprobadas, normalmente en su primer Change:
+Las zonas rojas del proyecto nunca se han aprobado:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (bin/gdd gate zones ok --by human)
+error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
 ```
 
 Un ejemplo oculto usa una frase que no tiene ningún escenario visible:
@@ -173,7 +183,10 @@ error: G1 refused: hidden examples use step phrasings that no visible scenario h
 
 ## G2 Loop Gate
 
-**Cuándo:** Después de cada ronda del modo build; cada vez que un Builder ejecuta `bin/gdd g2`
+La comprobación de las máquinas en cada ronda del Builder, sobre los escenarios y el código del
+propio Change.
+
+**Cuándo:** Después de cada ronda del modo build; cada vez que un Builder ejecuta `gdd g2`
 (el modo test lo ejecuta para ver que sus tests nuevos fallan por el motivo correcto); y en un
 relanzamiento, antes de que se ejecute ningún Builder.
 
@@ -241,6 +254,8 @@ El Builder toca una ruta roja que el plan no incluye:
 
 ## G3 Merge Gate
 
+La comprobación completa, y el Reviewer, antes de que un Change entre en main.
+
 **Cuándo:** En cuanto G2 está en verde, y otra vez sobre el último main cuando main ha avanzado
 mientras se construía el Change.
 
@@ -266,8 +281,10 @@ El informe va a `.gdd/changes/<id>/g3.json` y al log.
 `machines` y después fusiona.
 
 **Límites:** G3 en rojo: una corrección del Builder (`fix=g3`), G2, y G3 otra vez, que decide.
-KO del Reviewer: una corrección (`fix=review`), G2, G3 y una segunda revisión que comprueba
-solo los motivos de la primera. Las fusiones van de una en una; un Change cuyo main ha avanzado
+KO del Reviewer: una corrección, G2, G3 y una segunda revisión que comprueba solo los motivos de
+la primera. La corrección empieza en modo test (`mode=test fix=review`) cuando un hallazgo nombra
+un fichero que solo puede escribir el modo test, y después el modo build arregla el resto
+(`fix=review`). Las fusiones van de una en una; un Change cuyo main ha avanzado
 toma el último main y vuelve a pasar G3.
 
 **Qué aparca:** G3 todavía en rojo tras su corrección (`G3 still red after one fix`). Un KO, o
@@ -312,6 +329,8 @@ Main avanzó mientras se construía el Change, y la fusión tiene conflictos:
 ```
 
 ## G4 Release Gate
+
+La puerta en la que se juzga el Change, ya funcionando en pre, antes de que llegue a producción.
 
 **Cuándo:** En cuanto el Change está fusionado y en pre.
 

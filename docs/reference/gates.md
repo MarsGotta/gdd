@@ -1,7 +1,8 @@
 # Gates
 
 What each gate of GDD checks, when it runs, who decides, its limits and what parks a change,
-by color. The values are those of the `gdd/rules.toml` that `gdd init` writes; see
+by color. Consult it when you need to know which gates a change meets, or why a gate said no.
+The values are those of the `gdd/rules.toml` that `gdd init` writes; see
 [Configuration](configuration.md#rulestoml) for every key.
 
 ## Gates by color
@@ -42,6 +43,9 @@ the lane and why.
 
 ## G0 Setup Gate
 
+The check that the project is ready to be checked: a Brief exists and the harness fails when it
+must.
+
 **When:** Once per project, at the end of Setup (phase 0), before any change can be prepared.
 
 **What runs:** `gdd selftest`, the harness self-test, four checks:
@@ -51,7 +55,8 @@ the lane and why.
    failing test of `[selftest] content` planted there, one fails. A `gdd/debt.toml` gdd cannot
    read fails the check, with the reason.
 2. Editing a protected file is blocked: `[protected] all` covers `gdd/rules.toml` and
-   `.github/workflows/gdd.yml`, and that workflow runs `bin/gdd ci`.
+   `.github/workflows/gdd.yml`, and that workflow runs `gdd ci` (a project set up by an older gdd
+   may run `bin/gdd ci`, which counts too).
 3. Rollback works in pre: `[release] rollback_pre` passes, or the release is simulated.
 4. Zero scenarios counts as a failure: G3 counts none in an empty folder, and
    `[acceptance] required` is not `false`.
@@ -94,7 +99,7 @@ harness 3/4
 You try to open G0 while the last self-test is not 4/4:
 
 ```text
-error: G0 cannot open: the harness self-test is not 4/4 (bin/gdd selftest).
+error: G0 cannot open: the harness self-test is not 4/4 (gdd selftest).
 ```
 
 The Brief is missing:
@@ -104,6 +109,8 @@ error: G0 cannot open: docs/brief.md (Project Brief) is missing.
 ```
 
 ## G1 Scenario Gate
+
+The gate where you and the agent agree on the behavior, as scenarios, before any code.
 
 **When:** At the sitting of a change, when the change creates or changes a `.feature` file
 inside `[acceptance] dir` and outside `[acceptance] regression`. Changing only regression
@@ -129,7 +136,10 @@ and modified afterwards`).
 The red zones of `gdd/zones.toml` need a human approval, once and again whenever any red zone
 changes: `gdd gate zones ok --note "..."` (only `--by human`). The approval keeps the red zones
 and their hash in `.gdd/zones.json`; approving them as they already are writes nothing. Until
-they are approved, only a spike can be prepared. `gdd status` says `pending` or `changed`.
+they are approved, only a spike can be prepared. `gdd status` says `pending` or `changed`. The
+setup skill asks for the first approval; the zones Discover maps wait for the next sitting. gdd
+judges every change against the zone map approved on main, so an approval given after a change
+was created counts for it.
 
 ### The plan of a red change
 
@@ -153,10 +163,10 @@ You read the scenarios and ask for changes (`gdd gate G1 ko cart-total`):
 G1 ko on cart-total (human).
 ```
 
-The red zones of the project are not approved yet, usually on its first change:
+The red zones of the project were never approved:
 
 ```text
-error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (bin/gdd gate zones ok --by human)
+error: Red zones not approved yet: the Orchestrator proposes them at the end of Discover. (gdd gate zones ok --by human)
 ```
 
 A hidden example uses a sentence that no visible scenario has:
@@ -168,7 +178,9 @@ error: G1 refused: hidden examples use step phrasings that no visible scenario h
 
 ## G2 Loop Gate
 
-**When:** After every round of build mode; whenever a Builder runs `bin/gdd g2` (test mode
+The machines' check on each round of the Builder, on the change's own scenarios and code.
+
+**When:** After every round of build mode; whenever a Builder runs `gdd g2` (test mode
 runs it to see its new tests fail for the right reason); and on a relaunch, before any Builder
 runs.
 
@@ -234,6 +246,8 @@ The Builder touches a red path the plan does not list:
 
 ## G3 Merge Gate
 
+The full check, and the Reviewer, before a change joins main.
+
 **When:** Once G2 is green, and again on top of the latest main when main moved while the
 change was built.
 
@@ -258,8 +272,9 @@ The report goes to `.gdd/changes/<id>/g3.json` and the log.
 `machines`, then merges.
 
 **Limits:** Red G3: one fix by the Builder (`fix=g3`), G2, and G3 again, which decides.
-Reviewer KO: one fix (`fix=review`), G2, G3 and a second review that checks only the reasons of
-the first. Merges go one at a time; a change whose main moved takes the latest main and passes
+Reviewer KO: one fix, G2, G3 and a second review that checks only the reasons of the first.
+The fix starts in test mode (`mode=test fix=review`) when a finding names a file only test mode
+may write, then build mode fixes the rest (`fix=review`). Merges go one at a time; a change whose main moved takes the latest main and passes
 G3 again.
 
 **What parks:** G3 still red after its fix (`G3 still red after one fix`). A KO, or a red G3,
@@ -304,6 +319,8 @@ Main moved while the change was built, and the merge has conflicts:
 ```
 
 ## G4 Release Gate
+
+The gate where the change, running in pre, is judged before it reaches production.
 
 **When:** Once the change is merged and in pre.
 

@@ -1,14 +1,14 @@
 # Environment variables
 
-Every environment variable gdd reads, every one it sets for the commands and agents it starts,
-and what it strips from the agents' environment.
+The environment variables gdd reads, the ones it adds for the commands and agents it starts,
+and the ones it strips from the agents' environment because they hold secrets.
 
 ## What gdd reads
 
 | Variable | Read by | Meaning |
 |---|---|---|
 | `GDD_CHANGE` | `gdd classify`, `snapshot`, `inbox`, `prepare`, `merge`, `release`, `g2`, `g3`, `guard` | The change id when the command line gives none. Empty counts as unset. |
-| `GDD_ROLE` | every command | The role the run is for. A value that starts with `builder` or `reviewer` makes `gdd gate`, `resume`, `release`, `changelog-line`, `selftest`, `learn` and `upgrade` refuse. With any value, `gdd g2` and `gdd g3` do not log their run. Unset: a person. |
+| `GDD_ROLE` | every command | The role of an agent gdd started. With any value, gdd runs only `gdd g2`, `guard`, `note`, `status`, `classify`, `inbox`, `report` and `scope` (plus the help and the version); every other command fails before it does anything (see [Roles](roles.md#what-an-agent-may-run)), and no screen opens. `gdd g2` does not log its run. Unset: a person, who runs every command. |
 | `GITHUB_HEAD_REF` | `gdd ci` | The branch to check, as GitHub Actions sets it on a pull request; without it, the branch checked out. |
 | `HOME` | `gdd session` | Where the Claude Code transcripts are: `$HOME/.claude/projects/<project root>`, every character of the root outside `A-Za-z0-9` turned into `-`. |
 | `PATH` | `gdd init`, `gdd launch`, `gdd resume` | Where the agents' programs are (`claude`, `codex`, `opencode`): the first absolute folder that has the program, executable. `gdd init` without `--agents` sets up the agents it finds there. |
@@ -17,25 +17,19 @@ gdd does not read `GDD_ROOT` or `GDD_STATE`: it finds the project root by lookin
 `gdd/project.toml` from the folder it runs in upwards, and the state root by asking git for the
 main checkout.
 
-Every other variable passes through: gate commands, release steps, `gdd bootstrap` and git run
-in the environment gdd runs in, so git's own variables (`GIT_AUTHOR_NAME` and the rest) say who
-commits.
-
-`bin/gdd`, the script `gdd init` writes, reads one more:
-
-| Variable | Meaning | Example |
-|---|---|---|
-| `GDD_BIN` | The gdd program `bin/gdd` runs; `gdd` on the `PATH` without it. | `GDD_BIN=/home/me/.cargo/bin/gdd bin/gdd status` |
+Every other variable passes through unchanged: gate commands, release steps, `gdd bootstrap`
+and git run in the environment gdd runs in, so git's own variables (`GIT_AUTHOR_NAME` and the
+rest) say who commits.
 
 ```bash
-GDD_CHANGE=cart-total bin/gdd g2 --role builder-build
-GITHUB_HEAD_REF=change/cart-total bin/gdd ci
+GDD_CHANGE=cart-total gdd g2 --role builder-build
+GITHUB_HEAD_REF=change/cart-total gdd ci
 ```
 
 ## What gate commands get
 
-Each command of `[g2]` and `[g3]` runs with gdd's environment plus four variables. Lists hold
-one path per line, from the project root.
+Each command of `[g2]` and `[g3]` runs with gdd's environment plus four variables. They name the
+change the command checks. Lists hold one path per line, from the project root.
 
 | Variable | Value |
 |---|---|
@@ -81,9 +75,9 @@ acceptance_full = "GDD_FEATURES= GDD_HIDDEN=1 uv run pytest -q tests/acceptance 
 
 ## What agents get
 
-gdd starts each agent's own program, never through a shell, from the change's worktree, with
-nothing on its standard input and its standard error discarded. Its environment is gdd's own,
-cleared first and then rebuilt:
+gdd starts each agent's own program, never through a shell, from the change's worktree,
+with nothing on its standard input and its standard error discarded. Its environment is gdd's
+own, cleared first and then rebuilt:
 
 1. Every variable of gdd's environment, except those that
    [hold a secret](#which-variables-hold-a-secret), by their name or by their value.
@@ -95,16 +89,16 @@ cleared first and then rebuilt:
 | `GDD_CHANGE` | The change id. |
 | `GDD_ROOT` | The project root: the change's worktree, where the agent runs. |
 | `GDD_STATE` | The state root: the main checkout, whose `.gdd/` holds the change's records. The agents' commands tell them to read the state there. |
-| `GDD_ROLE` | `builder-test`, `builder-build`, `reviewer` or `orchestrator`. |
+| `GDD_ROLE` | `builder-test`, `builder-build`, `reviewer` or `orchestrator`: it limits the gdd commands the agent may run (see [Roles](roles.md#what-an-agent-may-run)). |
 
 ### Which variables hold a secret
 
 A variable holds a secret, and is stripped, in two cases.
 
-**Its name says so.** gdd splits the name into words at `_`, `-` and `.`, and reads them in any
-case. When one word is `KEY`, `KEYS`, `TOKEN`, `TOKENS`, `SECRET`, `SECRETS`, `PASSWORD`,
-`PASSWORDS`, `PASSWD`, `PASS`, `CREDENTIAL`, `CREDENTIALS`, `APIKEY` or `DSN`, the variable is
-stripped. Only whole words count:
+The first case is the name. gdd splits the name into words at `_`, `-` and `.`, and reads them
+in any case. When one word is `KEY`, `KEYS`, `TOKEN`, `TOKENS`, `SECRET`, `SECRETS`,
+`PASSWORD`, `PASSWORDS`, `PASSWD`, `PASS`, `CREDENTIAL`, `CREDENTIALS`, `APIKEY` or `DSN`, the
+variable is stripped. Only whole words count:
 
 | Name | Its words | Reaches the agent |
 |---|---|---|
@@ -116,7 +110,7 @@ stripped. Only whole words count:
 | `KEYBOARD_LAYOUT`, `TOKENIZER_PATH`, `PASSAGE_DIR`, `MONKEY`, `APITOKEN` | no such word | yes |
 | `PATH`, `HOME`, `PWD`, `EDITOR` | no such word | yes |
 
-**Its value says so.** A value that is a URL with a password in its user part,
+The second case is the value. A value that is a URL with a password in its user part,
 `scheme://user:password@host` or `scheme://:password@host`, holds a secret, whatever the name:
 
 | Value | Reaches the agent |
@@ -142,13 +136,13 @@ pass = ["MM_API_KEY", "DATABASE_URL"]
 > `APITOKEN`, which is one word) reaches the agents. Keep production credentials out of the
 > environment you launch changes from.
 
-The agents use their own logins (subscriptions), not keys gdd passes on. A `bin/gdd` command an
+The agents use their own logins (subscriptions), not keys gdd passes on. A `gdd` command an
 agent runs inherits the agent's environment, so its gate commands do not see the stripped
 variables either.
 
 ## See also
 
-- [Roles](roles.md): what each `GDD_ROLE` may do.
+- [Roles](roles.md#what-an-agent-may-run): what an agent with `GDD_ROLE` may run.
 - [models.toml](configuration.md#modelstoml): `[env] pass` and the other agent settings.
 - [Keeping agents honest](../explanation/safety.md): why secrets stay away from agents.
 - [Run the gates in CI](../how-to/ci.md): `gdd ci` and `GITHUB_HEAD_REF`.

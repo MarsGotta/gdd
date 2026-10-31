@@ -1,9 +1,7 @@
 # Ficheros que escribe gdd
 
-Todos los ficheros y carpetas que gdd escribe en un proyecto: lo que deja `gdd init`, el estado
-local en `.gdd/` (registros, informes, el log, la Decision Inbox, las salidas de los agentes),
-cuáles se versionan, cuáles solo puede escribir gdd y qué lleva el commit de fusión de un
-Change.
+Todos los ficheros y carpetas que gdd escribe en un proyecto, qué guarda cada uno, cuáles se
+versionan y qué lleva el commit de fusión de un Change.
 
 ## Un proyecto después de gdd init
 
@@ -14,11 +12,10 @@ carpeta de agente):
 ```text
 .agents/skills/gdd-<command>/SKILL.md   # Codex: the GDD commands and gdd-stack-python
 .claude/skills/gdd-<command>/SKILL.md   # Claude Code: the same
-.github/workflows/gdd.yml               # CI: the stack setup, gitleaks, gdd, bin/gdd ci
+.github/workflows/gdd.yml               # CI: the stack setup, gitleaks, gdd, gdd ci
 .gitignore                              # the stack's lines and .gdd/
 AGENTS.md                               # instructions for agents, when the project had none
 CLAUDE.md                               # @AGENTS.md, when the project had none
-bin/gdd                                 # entry point of the agents and CI
 docs/brief.md                           # the Project Brief
 features/.gitkeep                       # the scenario folder
 gdd/commands.toml
@@ -43,7 +40,6 @@ tests/unit/test_greeting.py
 | Ruta | Qué es |
 |---|---|
 | `gdd/` | La configuración: consulta [Configuración](configuration.md). |
-| `bin/gdd` | Un script de shell que ejecuta `${GDD_BIN:-gdd}` con sus argumentos: el gdd del `PATH`, o el que indique `GDD_BIN`. |
 | `docs/brief.md` | El Project Brief, a partir de `--name`, `--description`, `--platform`, `--stack` y `--sensitive`. El Orchestrator lo completa en Setup. |
 | `AGENTS.md`, `CLAUDE.md` | Solo se escriben cuando el proyecto no tiene ninguno; si no, gdd imprime la línea que hay que añadir. |
 | `.gitignore` | gdd añade al final las rutas ignoradas del stack y `.gdd/`. |
@@ -52,7 +48,13 @@ tests/unit/test_greeting.py
 
 `gdd init` nunca sobrescribe un fichero, nunca escribe a través de un enlace y solo hace commit
 de lo que escribió (`gdd init <version>`), en un repositorio nuevo si la carpeta no está en
-ninguno. Después, `gdd bootstrap` hace commit de los lockfiles (`gdd bootstrap`). `gdd adopt`
+ninguno. gdd no escribe ninguna carpeta `bin/`: las personas, los agentes y la CI ejecutan el
+`gdd` del `PATH`. La carpeta [`.gdd/bin/`](#gdd) que aparece más abajo es otra cosa: una
+carpeta local para programas que un proyecto deja fuera de git, que gdd protege pero nunca
+escribe.
+
+Después, el formulario de Setup de `gdd init` hace la primera instalación de cada stack y hace
+commit de los lockfiles, como hace `gdd bootstrap` después de `gdd init` con flags. `gdd adopt`
 hace commit de `gdd/debt.toml`.
 
 ## Versionado y local
@@ -60,7 +62,7 @@ hace commit de `gdd/debt.toml`.
 | Ruta | Versionado | Lo escribe |
 |---|---|---|
 | `gdd/*.toml` | sí | `gdd init`, `gdd adopt`, `gdd upgrade`, una persona; consulta [Quién puede cambiarlos](configuration.md#quién-puede-cambiarlos) |
-| `bin/gdd`, `.github/workflows/gdd.yml`, carpetas de agentes, `AGENTS.md`, `CLAUDE.md` | sí | `gdd init`, `gdd agents install` |
+| `.github/workflows/gdd.yml`, carpetas de agentes, `AGENTS.md`, `CLAUDE.md` | sí | `gdd init`, `gdd agents install` |
 | `docs/`, `features/`, código y tests | sí | el Orchestrator y el Builder, a través de Changes |
 | `CHANGELOG.md` | sí, cuando el proyecto lo mantiene | `gdd changelog --write`, `gdd release` |
 | `.gdd/` | no: `gdd init` añade `.gdd/` a `.gitignore` | gdd, y unos pocos ficheros que escribe el Orchestrator |
@@ -70,9 +72,10 @@ El registro de cada Change solo llega a git a través de su
 
 ## .gdd/
 
-El estado local. Todos los worktrees de un repositorio comparten la `.gdd/` de su checkout
-principal (la raíz del estado): un Change se ejecuta en su propio worktree y aun así lee y
-escribe los mismos registros. gdd se niega a ejecutarse en un worktree de un repositorio bare.
+El estado local: lo que gdd sabe del proyecto y de cada Change. Todos los worktrees de un
+repositorio comparten la `.gdd/` de su checkout principal (la raíz del estado), así que un
+Change se ejecuta en su propio worktree y aun así lee y escribe los mismos registros. gdd se
+niega a ejecutarse en un worktree de un repositorio bare.
 
 ```text
 .gdd/
@@ -130,7 +133,7 @@ escribe los mismos registros. gdd se niega a ejecutarse en un worktree de un rep
 ## change.json
 
 El registro de un Change: qué planea, qué decidieron sus puertas, sus notas y su estado. JSON
-indentado. Solo lo escribe gdd: los comandos de gdd que puede ejecutar un agente (`gdd note`,
+indentado. Solo lo escribe gdd. Los comandos de gdd que puede ejecutar un agente (`gdd note`,
 una puerta en modo build) solo cambian `inbox` y `out_of_scope`, y gdd deshace cualquier otra
 modificación que haga un agente.
 
@@ -239,7 +242,7 @@ tiene además `hashes`: cada fichero de escenarios sellado y su SHA-256.
 
 Cada nota tiene `kind`, `text` y `ts`, y además `resolved` (cuándo se resolvió) una vez que un
 relanzamiento la resolvió. `kind` es `needs` (una decisión para la persona), `decided` (tomada
-sin él), `parked` (por qué se detuvo) o `polish` (las notas de la persona en G4).
+sin ella), `parked` (por qué se detuvo) o `polish` (las notas de la persona en G4).
 
 ### decision
 
@@ -293,8 +296,9 @@ mismo brief), `branch` (`change/<id>-v<n>`) y, una vez construida, `state` (`rea
 
 ## inbox.md
 
-La Decision Inbox: un mensaje por Change, generado a partir del registro y de los informes de
-puerta cada vez que cambian. `gdd inbox <id>` la imprime.
+La Decision Inbox: un mensaje por Change que reúne lo que decidieron los agentes y lo que te
+espera. gdd la vuelve a generar a partir del registro y de los informes de puerta cada vez que
+cambian. `gdd inbox <id>` la imprime.
 
 ```text
 # Decision Inbox · cart-total · Show the cart total
@@ -312,11 +316,11 @@ Color yellow · lane full · state closed
 - Nothing.
 ```
 
-Sus grupos, en orden, cada uno solo cuando tiene algo (los tres grupos de notas aparecen
-siempre): `How it works` (del OK del Reviewer), `Variants`, `Needs your decision`,
-`Decided without you`, `Parked`, `Security exceptions this change adds`, `Known debt`,
-`Known debt paid`, `Polish`; después, cuántas peticiones anteriores se resolvieron antes del
-último lanzamiento.
+`Needs your decision` es el único grupo que te espera. Los grupos, en orden, cada uno solo
+cuando tiene algo (los tres grupos de notas aparecen siempre): `How it works` (del OK del
+Reviewer), `Variants`, `Needs your decision`, `Decided without you`, `Parked`,
+`Security exceptions this change adds`, `Known debt`, `Known debt paid`, `Polish`; después,
+cuántas peticiones anteriores se resolvieron antes del último lanzamiento.
 
 ## Informes de puerta
 
@@ -356,16 +360,19 @@ siempre): `How it works` (del OK del Reviewer), `Variants`, `Needs your decision
 
 ## log.jsonl
 
-Un objeto JSON por línea, añadido bajo un lock, para que las líneas de dos ejecuciones nunca se
-mezclen. gdd escribe una línea por cada llamada de agente, decisión de puerta, comando de
-puerta, ejecución de Path Guard y paso de máquina. `gdd session` añade las sesiones
-interactivas de Claude Code. Los informes dejan fuera las líneas que no son de gdd (no son
-JSON, o su coste no es un número mayor o igual que cero) e indican cuántas son.
+El log del que salen todos los informes: un objeto JSON por línea, añadido bajo un lock, para
+que las líneas de dos ejecuciones nunca se mezclen. gdd escribe una línea por cada llamada de
+agente, decisión de puerta, comando de puerta, ejecución de Path Guard y paso de máquina.
+`gdd session` añade las sesiones interactivas de Claude Code. Los informes dejan fuera las
+líneas que no son de gdd (no son JSON, o su coste no es un número mayor o igual que cero) e
+indican cuántas son.
 
 ```json
 {"ts":"2026-10-30T13:11:46+00:00","change":"cart-total","phase":"2-build","gate":"G2","role":"machine","agent":"lint","model":"-","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0.0,"duration_s":0.0,"result":"ok","retry":0,"note":""}
 {"ts":"2026-10-30T13:11:46+00:00","change":"cart-total","phase":"2-build","gate":"G2","role":"machine","agent":"checks","model":"-","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":0.0,"duration_s":0.0,"result":"ok","retry":0,"note":""}
 ```
+
+La primera línea es el comando `lint` de G2; la segunda, la puerta entera (`checks`).
 
 | Campo | Tipo | Significado |
 |---|---|---|
@@ -387,9 +394,9 @@ JSON, o su coste no es un número mayor o igual que cero) e indican cuántas son
 
 ## El commit de fusión
 
-`gdd merge` fusiona un Change en la rama principal con un commit cuyo mensaje lleva su
-registro, así que qué era el Change y quién lo aprobó viaja con el código mientras `.gdd/`
-sigue siendo local. El commit de fusión del mismo Change, recortado:
+`.gdd/` nunca sale de tu máquina, así que `gdd merge` lleva a git lo importante del registro:
+fusiona un Change en la rama principal con un commit cuyo mensaje dice qué era el Change y quién
+lo aprobó. El commit de fusión del mismo Change, recortado:
 
 ```text
 gdd(cart-total): G3 Merge Gate · Show the cart total
