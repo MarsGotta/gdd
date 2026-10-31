@@ -72,9 +72,9 @@ const UNKNOWN_SENTENCES: &str = "G1 refused: hidden examples use step phrasings 
                                  scenario has, so test mode can never write them. Reuse visible \
                                  sentences with new data:";
 
-/// What red zones no human approved yet mean.
-const NOT_APPROVED: &str =
-    "Red zones not approved yet: the Orchestrator proposes them at the end of Discover.";
+/// What red zones no human approved yet mean: the Setup asks the person to approve them.
+const NOT_APPROVED: &str = "Red zones not approved yet: the Setup asks you to approve them (the \
+                            gdd-setup command).";
 
 /// What red zones changed after their approval mean.
 const CHANGED: &str = "Red zones changed after their approval: a human must approve them again.";
@@ -1326,7 +1326,8 @@ mod tests {
         assert_eq!(ZonesState::Approved.message(), "red zones approved");
         assert_eq!(
             ZonesState::NotApproved.message(),
-            "Red zones not approved yet: the Orchestrator proposes them at the end of Discover."
+            "Red zones not approved yet: the Setup asks you to approve them (the gdd-setup \
+             command)."
         );
         assert_eq!(
             ZonesState::Changed.message(),
