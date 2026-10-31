@@ -2675,7 +2675,7 @@ fn g0_during_the_call_succeeded(w: &mut GddWorld) {
 //
 // API of the `gdd` crate these steps expect (the Builder in build mode implements it):
 // `gdd::board::Board::{load(&Path) -> Result<Board, String>, press(Key), render(w, h) -> String,
-// closed() -> bool}`, with the form's `Key`.
+// closed() -> bool, idle_for(std::time::Duration)}`, with the form's `Key`.
 
 /// The Board of the scenario, which has no `Debug` of its own.
 struct OpenBoard(gdd::board::Board);
@@ -2708,6 +2708,11 @@ fn i_open_the_board(w: &mut GddWorld) {
 #[when(expr = "I press {word} on the board")]
 fn i_press_on_the_board(w: &mut GddWorld, key: String) {
     board_of(w).press(key_named(&key));
+}
+
+#[when(expr = "{int} second(s) pass(es) on the board")]
+fn seconds_pass_on_the_board(w: &mut GddWorld, seconds: u64) {
+    board_of(w).idle_for(std::time::Duration::from_secs(seconds));
 }
 
 #[then(expr = "the board shows {string}")]

@@ -3,7 +3,8 @@
 //! [`in_terminal`] shows it in the terminal of the process. Nothing on it writes anything.
 
 use std::cell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use gdd_core::flow::{self, Flow};
 use gdd_core::log;
@@ -29,13 +30,16 @@ const NO_CHANGES: &str =
     "No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)";
 
 /// The keys of the list.
-const LIST_KEYS: &str = "↑↓ move · Enter details · d done · t time · q quit";
+const LIST_KEYS: &str = "↑↓ move · Enter details · d done · t time · r reload · q quit";
 
 /// The keys of the details.
-const DETAIL_KEYS: &str = "Esc to go back · q quit";
+const DETAIL_KEYS: &str = "Esc to go back · r reload · q quit";
 
 /// The keys of the time view.
-const TIME_KEYS: &str = "↑↓ scroll · Esc to go back · q quit";
+const TIME_KEYS: &str = "↑↓ scroll · Esc to go back · r reload · q quit";
+
+/// How long the Board idles after it loaded before it loads again by itself.
+const RELOAD_EVERY: Duration = Duration::from_secs(2);
 
 /// The title of the time view.
 const TIME_TITLE: &str = "Where the time goes";
@@ -127,11 +131,17 @@ pub struct Board {
     /// The room the body had when it was last painted; the details and the time scroll within it.
     body: cell::Cell<Rect>,
     closed: bool,
+    /// The folder the Board loaded from, to load again; none for a Board built by hand.
+    folder: Option<PathBuf>,
+    /// When the Board last loaded, or tried to.
+    loaded: Instant,
+    /// Why the last reload failed, until one works.
+    reload_problem: Option<String>,
 }
 
 impl Board {
     /// A Board of the project called `project` with its changes `cards` and no time in its log,
-    /// the first change selected, Done folded.
+    /// the first change selected, Done folded. It has no folder to load again from.
     pub fn new(project: &str, cards: Vec<Card>) -> Board {
         Board {
             project: project.to_string(),
@@ -143,12 +153,21 @@ impl Board {
             scrolled: 0,
             body: cell::Cell::new(Rect::new(0, 0, 80, 20)),
             closed: false,
+            folder: None,
+            loaded: Instant::now(),
+            reload_problem: None,
         }
     }
 
     /// This Board with `log` as the log its time comes from.
     fn with_log(self, log: TimeLog) -> Board {
         Board { log, ..self }
+    }
+
+    /// This Board with `folder` as the one it loaded from.
+    fn in_folder(self, folder: &Path) -> Board {
+        let folder = Some(folder.to_path_buf());
+        Board { folder, ..self }
     }
 
     /// The Board of the project that holds the folder `cwd`, with the changes under its state
@@ -160,13 +179,62 @@ impl Board {
         let basics =
             status::Basics::from_toml(&project).map_err(|e| format!("{}: {e}", crate::PROJECT))?;
         let board = Board::new(&basics.name, status::cards(&root, &state));
-        Ok(board.with_log(read_log(&state)))
+        Ok(board.with_log(read_log(&state)).in_folder(cwd))
     }
 
-    /// The human presses `key`: q or Ctrl-C closes the Board; on the list, Up and Down move the
-    /// selection within the changes that show, Enter opens the details of the selected one, `t`
-    /// the time of the project and `d` shows or folds Done; in the details and the time, Up and
-    /// Down scroll them and Esc goes back to the list. Once closed, keys do nothing.
+    /// The Board has been idle for `since_load` since it last loaded: from [`RELOAD_EVERY`] on, it
+    /// loads again; before, nothing.
+    pub fn idle_for(&mut self, since_load: Duration) {
+        if since_load >= RELOAD_EVERY {
+            self.reload();
+        }
+    }
+
+    /// Loads the project again from the folder the Board came from, keeping what the human was
+    /// looking at; when it cannot, everything stays and why shows on top. A Board with no folder
+    /// does nothing.
+    fn reload(&mut self) {
+        let Some(folder) = self.folder.clone() else {
+            return;
+        };
+        let kept = self.selected_card().map(|card| card.id.clone());
+        match Board::load(&folder) {
+            Ok(fresh) => self.adopt(fresh, kept.as_deref()),
+            Err(why) => self.reload_problem = Some(why),
+        }
+        self.loaded = Instant::now();
+    }
+
+    /// Takes the project, changes and log of `fresh`; the selected change stays by its id `kept`,
+    /// or the selection goes to the last that shows; the details of a change that is gone go back
+    /// to the list.
+    fn adopt(&mut self, fresh: Board, kept: Option<&str>) {
+        self.project = fresh.project;
+        self.cards = fresh.cards;
+        self.log = fresh.log;
+        self.reload_problem = None;
+        let shown = self.shown();
+        let at = kept.and_then(|id| shown.iter().position(|at| self.cards[*at].id == id));
+        match (kept, at) {
+            (Some(_), Some(at)) => self.selected = at,
+            (Some(_), None) => {
+                self.selected = shown.len().saturating_sub(1);
+                if self.view == View::Details {
+                    self.open(View::List);
+                }
+            }
+            (None, _) => self.selected = 0,
+        }
+        if self.view != View::List {
+            self.scrolled = self.scrolled.min(self.scroll_limit());
+        }
+    }
+
+    /// The human presses `key`: q or Ctrl-C closes the Board; `r` loads the project again; on the
+    /// list, Up and Down move the selection within the changes that show, Enter opens the details
+    /// of the selected one, `t` the time of the project and `d` shows or folds Done; in the
+    /// details and the time, Up and Down scroll them and Esc goes back to the list. Once closed,
+    /// keys do nothing.
     pub fn press(&mut self, key: Key) {
         if self.closed {
             return;
@@ -174,6 +242,7 @@ impl Board {
         let last = self.shown().len().saturating_sub(1);
         match (key, self.view) {
             (Key::CtrlC | Key::Char('q'), _) => self.closed = true,
+            (Key::Char('r'), _) => self.reload(),
             (Key::Esc, View::Details | View::Time) => self.view = View::List,
             (Key::Up, View::Details | View::Time) => {
                 self.scrolled = self.scrolled.saturating_sub(1);
@@ -275,9 +344,25 @@ impl Board {
         self.cards.get(at)
     }
 
+    /// `lines` with, first, why the last reload failed when it did.
+    fn with_reload_problem(&self, mut lines: Vec<Line<'static>>) -> Vec<Line<'static>> {
+        if let Some(why) = &self.reload_problem {
+            lines.insert(0, Line::from(format!("Cannot reload: {why}")).bold());
+        }
+        lines
+    }
+
     /// The list: a heading per section and a line per change that shows, and the position of
-    /// the line of the selected one.
+    /// the line of the selected one; the reload problem comes first.
     fn list_lines(&self) -> (Vec<Line<'static>>, Option<usize>) {
+        let (lines, at_selected) = self.list_body();
+        let above = usize::from(self.reload_problem.is_some());
+        let at_selected = at_selected.map(|at| at + above);
+        (self.with_reload_problem(lines), at_selected)
+    }
+
+    /// The list without the reload problem.
+    fn list_body(&self) -> (Vec<Line<'static>>, Option<usize>) {
         if self.cards.is_empty() {
             return (vec![Line::from(NO_CHANGES)], None);
         }
@@ -314,8 +399,13 @@ impl Board {
         }
     }
 
-    /// The details of the selected change.
+    /// The details of the selected change; the reload problem comes first.
     fn detail_lines(&self) -> Vec<Line<'static>> {
+        self.with_reload_problem(self.detail_body())
+    }
+
+    /// The details without the reload problem.
+    fn detail_body(&self) -> Vec<Line<'static>> {
         let Some(card) = self.selected_card() else {
             return vec![Line::from(NO_CHANGES)];
         };
@@ -361,10 +451,15 @@ impl Board {
             .collect()
     }
 
-    /// The time of the project: how many lines of the log it left out, when it left out any (see
-    /// [`log::left_out`]); then what the changes add up to, then each change, as the report
-    /// writes them.
+    /// The time of the project; the reload problem comes first.
     fn time_lines(&self) -> Vec<Line<'static>> {
+        self.with_reload_problem(self.time_body())
+    }
+
+    /// The time of the project without the reload problem: how many lines of the log it left out,
+    /// when it left out any (see [`log::left_out`]); then what the changes add up to, then each
+    /// change, as the report writes them.
+    fn time_body(&self) -> Vec<Line<'static>> {
         let mut lines = vec![Line::from(TIME_TITLE).bold(), Line::default()];
         let log = match &self.log {
             Ok(log) => log,
@@ -494,6 +589,10 @@ impl Screen for Board {
 
     fn done(&self) -> bool {
         self.closed()
+    }
+
+    fn idle(&mut self) {
+        self.idle_for(self.loaded.elapsed());
     }
 }
 
@@ -884,11 +983,18 @@ mod tests {
             Key::Esc,
             Key::Space,
             Key::Backspace,
+            Key::Char('r'),
+            Key::Enter,
+            Key::Char('r'),
+            Key::Esc,
+            Key::Char('t'),
+            Key::Char('r'),
             Key::Char('q'),
             Key::CtrlC,
         ];
         for key in keys {
             board.press(key);
+            board.idle_for(RELOAD_EVERY);
             board.render(100, 40);
         }
         assert!(board.closed());
@@ -1142,5 +1248,202 @@ mod tests {
         assert!(board.closed());
         let shown = tui::screen_text(terminal.backend().buffer());
         assert!(shown.contains("› b ·"), "{shown}");
+    }
+
+    /// A project with the changes `ids`, each created at its position, and its Board.
+    fn project_with(ids: &[&str]) -> (Project, Board) {
+        let project = Project::new();
+        for (at, id) in ids.iter().enumerate() {
+            add_change(&project, id, at, "open");
+        }
+        let board = Board::load(&project.0).unwrap();
+        (project, board)
+    }
+
+    /// Writes the change `id`, created at second `at`, in `state`.
+    fn add_change(project: &Project, id: &str, at: usize, state: &str) {
+        let record = format!(
+            r#"{{"title": "T {id}", "state": "{state}", "created": "2026-10-28T08:00:{at:02}+00:00"}}"#
+        );
+        project.write(&format!(".gdd/changes/{id}/change.json"), &record);
+    }
+
+    #[test]
+    fn r_on_the_list_shows_a_change_added_behind_the_board() {
+        let (project, mut board) = project_with(&["a"]);
+        add_change(&project, "b", 1, "open");
+        assert_hides(&board, &["T b"]);
+        board.press(Key::Char('r'));
+        assert_shows(&board, &["› a ·", "T b", "Discover (2)"]);
+    }
+
+    #[test]
+    fn r_in_the_details_shows_the_state_the_change_has_now() {
+        let (project, mut board) = project_with(&["a"]);
+        board.press(Key::Enter);
+        assert_shows(&board, &["State: open"]);
+        add_change(&project, "a", 0, "parked");
+        board.press(Key::Char('r'));
+        assert_shows(&board, &["State: parked", DETAIL_KEYS]);
+    }
+
+    #[test]
+    fn r_in_the_time_view_shows_a_line_added_to_the_log() {
+        let (project, mut board) = project_with(&["a"]);
+        board.press(Key::Char('t'));
+        assert_shows(&board, &[NO_TIME]);
+        let log = [log_line("a", "08:00:00", 0), log_line("a", "08:30:00", 600)];
+        project.write(log::PATH, &log.join("\n"));
+        board.press(Key::Char('r'));
+        assert_shows(&board, &["Flow time 30m", TIME_KEYS]);
+        assert_hides(&board, &[NO_TIME]);
+    }
+
+    #[test]
+    fn r_does_nothing_on_a_board_built_by_hand() {
+        let mut board = board(vec![card("a", "open")]);
+        board.press(Key::Char('r'));
+        board.idle_for(Duration::from_secs(60));
+        assert_shows(&board, &["› a ·"]);
+        assert_hides(&board, &["Cannot reload"]);
+    }
+
+    #[test]
+    fn the_board_reloads_by_itself_from_two_seconds_of_idleness() {
+        let (project, mut board) = project_with(&["a"]);
+        add_change(&project, "b", 1, "open");
+        board.idle_for(Duration::from_millis(1999));
+        assert_hides(&board, &["T b"]);
+        board.idle_for(RELOAD_EVERY);
+        assert_shows(&board, &["T b"]);
+    }
+
+    #[test]
+    fn the_idle_screen_reloads_once_two_seconds_have_passed_since_it_loaded() {
+        let (project, mut board) = project_with(&["a"]);
+        add_change(&project, "b", 1, "open");
+        Screen::idle(&mut board);
+        assert_hides(&board, &["T b"]);
+        board.loaded = Instant::now() - RELOAD_EVERY;
+        Screen::idle(&mut board);
+        assert_shows(&board, &["T b"]);
+        assert!(board.loaded.elapsed() < RELOAD_EVERY);
+    }
+
+    #[test]
+    fn a_reload_keeps_the_selected_change_by_its_id() {
+        let (project, mut board) = project_with(&["b", "c"]);
+        board.press(Key::Down);
+        add_change(&project, "a", 0, "open");
+        add_change(&project, "b", 5, "open");
+        board.press(Key::Char('r'));
+        assert_eq!(board.selected_card().map(|c| c.id.as_str()), Some("c"));
+        assert_eq!(board.shown().len(), 3);
+    }
+
+    #[test]
+    fn a_reload_clamps_the_selection_when_the_selected_change_is_gone() {
+        let (project, mut board) = project_with(&["a", "b", "c"]);
+        press(&mut board, &[Key::Down, Key::Down]);
+        fs::remove_dir_all(project.0.join(".gdd/changes/c")).unwrap();
+        board.press(Key::Char('r'));
+        assert_eq!(board.selected_card().map(|c| c.id.as_str()), Some("b"));
+        fs::remove_dir_all(project.0.join(".gdd/changes/a")).unwrap();
+        fs::remove_dir_all(project.0.join(".gdd/changes/b")).unwrap();
+        board.press(Key::Char('r'));
+        assert_eq!(board.selected, 0);
+        assert!(board.selected_card().is_none());
+        assert_shows(&board, &["No changes yet"]);
+    }
+
+    #[test]
+    fn the_details_of_a_change_that_is_gone_go_back_to_the_list() {
+        let (project, mut board) = project_with(&["a", "b"]);
+        press(&mut board, &[Key::Down, Key::Enter]);
+        assert_shows(&board, &[DETAIL_KEYS]);
+        fs::remove_dir_all(project.0.join(".gdd/changes/b")).unwrap();
+        board.press(Key::Char('r'));
+        assert_shows(&board, &[LIST_KEYS, "› a ·"]);
+        assert_hides(&board, &[DETAIL_KEYS]);
+    }
+
+    #[test]
+    fn a_reload_keeps_done_and_the_view_it_was_on() {
+        let (project, mut board) = project_with(&["a"]);
+        add_change(&project, "z", 9, "closed");
+        press(
+            &mut board,
+            &[Key::Char('d'), Key::Char('t'), Key::Char('r')],
+        );
+        assert_shows(&board, &[TIME_KEYS]);
+        board.press(Key::Esc);
+        board.press(Key::Char('r'));
+        assert_shows(&board, &["Done (1) · d to hide", "T z"]);
+    }
+
+    #[test]
+    fn a_reload_that_fails_says_why_on_every_view_until_one_works() {
+        let (project, mut board) = project_with(&["a"]);
+        project.write("gdd/project.toml", "name = ");
+        board.press(Key::Char('r'));
+        for view in [None, Some(Key::Enter), Some(Key::Char('t'))] {
+            board.press(Key::Esc);
+            if let Some(key) = view {
+                board.press(key);
+            }
+            let rows = lines(&board);
+            assert!(
+                rows.iter()
+                    .any(|row| row.contains("Cannot reload: gdd/project.toml: ")),
+                "{rows:?}"
+            );
+            assert_shows(&board, &["a"]);
+        }
+        project.write("gdd/project.toml", "name = \"demo\"\nstack = []\n");
+        board.press(Key::Char('r'));
+        assert_hides(&board, &["Cannot reload"]);
+    }
+
+    #[test]
+    fn the_reload_problem_is_the_first_line_and_the_list_still_follows_the_selection() {
+        let ids: Vec<String> = (0..30).map(|n| format!("c{n:02}")).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let (project, mut board) = project_with(&ids);
+        project.write("gdd/project.toml", "name = ");
+        board.press(Key::Char('r'));
+        let top = board.render(80, 24);
+        let rows: Vec<&str> = top.lines().collect();
+        assert!(rows[1].contains("Cannot reload: "), "{top}");
+        for _ in 0..29 {
+            board.press(Key::Down);
+        }
+        let screen = board.render(80, 24);
+        let bottom: Vec<&str> = screen.lines().collect();
+        assert!(bottom[bottom.len() - 3].contains("› c29 ·"), "{screen}");
+    }
+
+    #[test]
+    fn a_reload_keeps_following_the_selection_on_a_long_list() {
+        let ids: Vec<String> = (0..30).map(|n| format!("c{n:02}")).collect();
+        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let (_project, mut board) = project_with(&ids);
+        for _ in 0..29 {
+            board.press(Key::Down);
+        }
+        board.press(Key::Char('r'));
+        let screen = board.render(80, 24);
+        assert!(screen.contains("› c29 ·"), "{screen}");
+    }
+
+    #[test]
+    fn a_reload_clamps_the_scroll_of_the_details() {
+        let (_project, mut board) = project_with(&["a"]);
+        board.press(Key::Enter);
+        board.render(100, 8);
+        board.scrolled = 50;
+        let limit = board.scroll_limit();
+        assert!(0 < limit && limit < 50, "{limit}");
+        board.press(Key::Char('r'));
+        assert_eq!(board.scrolled, limit);
     }
 }

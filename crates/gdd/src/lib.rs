@@ -47,8 +47,8 @@ const TEST_ROLE: &str = "builder-test";
 /// Why a Builder or a Reviewer cannot run `gdd learn`.
 const LEARN_REFUSED: &str = "Builders and Reviewers cannot run gdd learn: it writes under .gdd/.";
 /// What an agent gdd started may run, after the command it cannot (see [`refused_to_agent`]).
-const FOR_AGENTS: &str = "an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd \
-                          status, gdd classify, gdd inbox, gdd report and gdd scope.";
+const FOR_AGENTS: &str = "they may only run gdd g2, gdd guard, gdd note, gdd status, gdd \
+                          classify, gdd inbox, gdd report and gdd scope.";
 /// Why a command that works on a change cannot run.
 const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
@@ -874,7 +874,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
         return Outcome::success(Cli::command().render_help().to_string());
     };
     if role.is_some_and(|role| refused_to_agent(&run, role)) {
-        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         return Outcome::error(&refused);
     }
     let command = match run {
@@ -3917,7 +3917,7 @@ mod tests {
 
     /// What an agent gdd started reads when it runs `gdd <name>`, which it may not run.
     fn agent_refusal(name: &str) -> Outcome {
-        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         Outcome::error(&refused)
     }
 
@@ -4560,7 +4560,7 @@ mod tests {
         let out = project.run("inbox c1");
         let expected = concat!(
             "# Decision Inbox · c1 · Drafts\n\n",
-            "Color ? · lane ? · state open\n\n",
+            "Color and lane not decided yet (gdd decides them at launch) · state open\n\n",
             "## Needs your decision\n- Pick a --name\n\n",
             "## Decided without you\n- Kept it\n\n",
             "## Parked\n- Nothing.\n"

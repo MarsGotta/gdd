@@ -3,6 +3,7 @@
 //! was drawn ([`screen_text`]).
 
 use std::io;
+use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::backend::Backend;
@@ -38,10 +39,16 @@ pub(crate) trait Screen {
 
     /// Whether the human is done with the screen.
     fn done(&self) -> bool;
+
+    /// No key came in a while: the screen may refresh itself. By default it does not change.
+    fn idle(&mut self) {}
 }
 
-/// Shows `screen` on `terminal` and gives it each key `next_key` reads (`None` for one the
-/// screen does not take) until it is done; else why it could not.
+/// How long the terminal waits for a key before the screen is told it is idle.
+const IDLE_AFTER: Duration = Duration::from_millis(250);
+
+/// Shows `screen` on `terminal` and gives it each key `next_key` reads until it is done; when
+/// `next_key` gives none (a timeout), the screen is idle. Else why it could not.
 pub(crate) fn run<S: Screen, B: Backend>(
     screen: &mut S,
     terminal: &mut Terminal<B>,
@@ -51,11 +58,24 @@ pub(crate) fn run<S: Screen, B: Backend>(
         let drawn = terminal.draw(|frame| screen.draw(frame));
         drawn.map_err(|e| format!("cannot draw {}: {e}", S::NAME))?;
         let key = next_key().map_err(|e| format!("cannot read a key: {e}"))?;
-        if let Some(key) = key {
-            screen.press(key);
+        match key {
+            Some(key) => screen.press(key),
+            None => screen.idle(),
         }
     }
     Ok(())
+}
+
+/// The next key, waiting at most [`IDLE_AFTER`] with `poll` and then taking the event with `read`:
+/// `None` on a timeout or for an event the screens do not take.
+fn next_key_with(
+    poll: impl FnOnce(Duration) -> io::Result<bool>,
+    read: impl FnOnce() -> io::Result<Event>,
+) -> io::Result<Option<Key>> {
+    if poll(IDLE_AFTER)? {
+        return read().map(key_of);
+    }
+    Ok(None)
 }
 
 /// Shows `screen` in the terminal of the process, in raw mode on the alternate screen, which are
@@ -65,7 +85,9 @@ pub(crate) fn in_terminal<S: Screen>(mut screen: S) -> Result<S, String> {
     let _restore = Restore(ratatui::restore);
     let cannot = |e: io::Error| format!("cannot use the terminal: {e}");
     let mut terminal = ratatui::try_init().map_err(cannot)?;
-    run(&mut screen, &mut terminal, || event::read().map(key_of))?;
+    run(&mut screen, &mut terminal, || {
+        next_key_with(event::poll, event::read)
+    })?;
     Ok(screen)
 }
 
@@ -135,6 +157,7 @@ mod tests {
     /// A screen that counts the keys it is given and is done at `q`.
     struct Counter {
         pressed: Vec<Key>,
+        idles: usize,
     }
 
     impl Screen for Counter {
@@ -152,12 +175,32 @@ mod tests {
         fn done(&self) -> bool {
             self.pressed.last() == Some(&Key::Char('q'))
         }
+
+        fn idle(&mut self) {
+            self.idles += 1;
+        }
     }
 
     fn counter() -> Counter {
         Counter {
             pressed: Vec::new(),
+            idles: 0,
         }
+    }
+
+    #[test]
+    fn run_tells_the_screen_it_is_idle_once_per_missing_key_and_never_after_done() {
+        let mut screen = counter();
+        let mut terminal = Terminal::new(TestBackend::new(20, 2)).unwrap();
+        let keys = [None, Some(Key::Down), None, None, Some(Key::Char('q'))];
+        let mut keys = keys.into_iter();
+        let no_more = || io::Error::other("no more keys");
+        let ended = run(&mut screen, &mut terminal, || {
+            keys.next().ok_or_else(no_more)
+        });
+        assert_eq!(ended, Ok(()));
+        assert_eq!(screen.idles, 3);
+        assert_eq!(screen.pressed, [Key::Down, Key::Char('q')]);
     }
 
     #[test]
@@ -175,6 +218,38 @@ mod tests {
         assert_eq!(screen.pressed, [Key::Down, Key::Char('q')]);
         let shown = screen_text(terminal.backend().buffer());
         assert!(shown.starts_with("keys: 1 "), "{shown}");
+    }
+
+    fn press_of(code: KeyCode) -> io::Result<Event> {
+        Ok(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+    }
+
+    #[test]
+    fn the_next_key_is_the_one_read_after_a_poll_that_found_an_event() {
+        let waited = std::cell::Cell::new(None);
+        let poll = |wait| {
+            waited.set(Some(wait));
+            Ok(true)
+        };
+        let key = next_key_with(poll, || press_of(KeyCode::Down));
+        assert_eq!(key.unwrap(), Some(Key::Down));
+        assert_eq!(waited.get(), Some(IDLE_AFTER));
+    }
+
+    #[test]
+    fn there_is_no_key_when_the_poll_times_out_and_nothing_is_read() {
+        let read = || Err(io::Error::other("read after a timeout"));
+        let key = next_key_with(|_| Ok(false), read);
+        assert_eq!(key.unwrap(), None);
+    }
+
+    #[test]
+    fn the_next_key_reports_a_poll_or_a_read_that_failed() {
+        let poll_failed =
+            next_key_with(|_| Err(io::Error::other("poll")), || press_of(KeyCode::Esc));
+        assert_eq!(poll_failed.unwrap_err().to_string(), "poll");
+        let read_failed = next_key_with(|_| Ok(true), || Err(io::Error::other("read")));
+        assert_eq!(read_failed.unwrap_err().to_string(), "read");
     }
 
     #[test]
