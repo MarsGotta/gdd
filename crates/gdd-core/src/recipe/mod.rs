@@ -10,7 +10,8 @@
 //! 3. G3. Red: one fix by the Builder, G2, and G3 again, which decides. Still red, it parks.
 //! 4. When the change has a Reviewer: its review, which the record of the change keeps with the
 //!    files that changed since the review before, relaunches included. KO: one fix, G2, G3 and a
-//!    second review. KO, or G3 red, it parks.
+//!    second review; the fix starts in test mode, with Path Guard for it, when a finding names a
+//!    file build mode must not touch and test mode writes. KO, or G3 red, it parks.
 //! 5. G3 opened by the machines, merge, pre. Merges go one at a time; when main moved since the
 //!    change was built, the change takes the latest main and passes G3 again on top of it before
 //!    it merges: a conflict, or G3 red, parks it.
@@ -58,13 +59,14 @@ use crate::agents::files::{self, Found};
 use crate::agents::invoke::{self, Call, Who};
 use crate::agents::models::{Model, Session};
 use crate::agents::usage::Usage;
-use crate::change::{self, Built, Note, Spent, Variant};
+use crate::change::{self, Built, Note, Record, Spent, Variant};
 use crate::classify::SPIKE;
 use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
 use crate::repo::merge;
+use crate::zones::glob_matches;
 use crate::{inbox, log};
 
 /// The arguments of a round of build mode.
@@ -217,6 +219,8 @@ pub trait Steps {
     /// The hashes of what the change touched, as they are now: what a snapshot records (see
     /// [`guard::snapshot`]).
     fn hashes(&mut self) -> Result<guard::Hashes, String>;
+    /// What the rules file says to Path Guard now (see [`guard::Settings`]).
+    fn rules(&mut self) -> Result<guard::Settings, String>;
     /// Runs `gate` for build mode, saved and logged: whether it passed.
     fn gate(&mut self, gate: Gate) -> Result<bool, String>;
     /// Records the decision `decision` (`ok` or `ko`) on `gate` of the change, by `by`, with
@@ -1490,10 +1494,15 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// The Reviewer; KO, one fix by the Builder, G2, G3 and a second review. KO, or G3 red, the
-    /// change parks.
+    /// change parks. The fix starts in test mode when a finding names a file only test mode may
+    /// fix (see [`Run::test_mode_fixes`]), judged by Path Guard since then; build mode follows.
     fn review(&mut self) -> Result<(), Stop> {
         if self.reviewed("round=1")? {
             return Ok(());
+        }
+        if self.test_mode_fixes()? {
+            self.steps.snapshot(Snapshot::Round)?;
+            self.test_mode("mode=test fix=review", true)?;
         }
         self.call(Who::BuilderBuild, "mode=build fix=review")?;
         self.steps.gate(Gate::G2)?;
@@ -1503,6 +1512,19 @@ impl<S: Steps> Run<'_, S> {
         } else {
             Err(Stop::Park(REVIEW_KO.to_string()))
         }
+    }
+
+    /// Whether a finding of the review of the change names a file only test mode may fix (see
+    /// [`for_test_mode`]), as the rules file says now and with the scenarios G1 sealed in the
+    /// record of the change.
+    fn test_mode_fixes(&mut self) -> Result<bool, String> {
+        let (state, id) = (self.project.state, self.id);
+        let files = verdict::review_files(state, id)?;
+        let text = change::read_record(state, id)?;
+        let path = change::record_path(id);
+        let record = Record::from_json(&text).map_err(|e| format!("{path}: {e}"))?;
+        let rules = self.steps.rules()?;
+        Ok(for_test_mode(&files, &rules, &record.approved))
     }
 
     /// The Reviewer with `args`, kept in the record of the change: its review right before the
@@ -1517,6 +1539,24 @@ impl<S: Steps> Run<'_, S> {
         review_ended(state, id, ok)?;
         Ok(ok)
     }
+}
+
+/// Whether one of `files`, which the findings of a review name, is a file only test mode may fix:
+/// one `settings` protects for build mode, but not for every role, and not a scenario file G1
+/// sealed, one of `sealed`: no Builder edits those.
+fn for_test_mode(
+    files: &[String],
+    settings: &guard::Settings,
+    sealed: &BTreeMap<String, String>,
+) -> bool {
+    // What `all` protects: no role is named `all`, so it has nothing of its own.
+    let every = settings.protected("all");
+    let build = settings.protected(Who::BuilderBuild.role());
+    let matches = |patterns: &[&str], file: &str| patterns.iter().any(|p| glob_matches(p, file));
+    let only_test = |file: &String| {
+        matches(&build, file) && !matches(&every, file) && !sealed.contains_key(file)
+    };
+    files.iter().any(only_test)
 }
 
 /// What the run of a variant of a spike did, for its record (see [`Run::variant_kept`]).
@@ -2001,8 +2041,9 @@ mod tests {
 
     /// The steps of the recipe, played: what ran, in order, with scripted answers, and the
     /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
-    /// says OK, and the replan build mode; what the change touched hashes to nothing; the work of
-    /// an earlier run passes the gates. Each call of an agent does what `acts` gives it to do,
+    /// says OK, and the replan build mode; the rules file, `rules`, protects nothing unless a test
+    /// says otherwise; what the change touched hashes to nothing; the work of an earlier run
+    /// passes the gates. Each call of an agent does what `acts` gives it to do,
     /// where the steps run (the project root until they move, see [`Steps::work_in`]), and a
     /// release step what `released` gives it, on the project root. Each call of a role in
     /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
@@ -2021,6 +2062,7 @@ mod tests {
         reviews: VecDeque<&'static str>,
         hashes: VecDeque<guard::Hashes>,
         replan: &'static str,
+        rules: &'static str,
         guard: Vec<String>,
         earlier: Option<Vec<String>>,
         stuck: Option<Who>,
@@ -2054,6 +2096,7 @@ mod tests {
             reviews: VecDeque::new(),
             hashes: VecDeque::new(),
             replan: "NEXT: build",
+            rules: "",
             guard: Vec::new(),
             earlier: Some(Vec::new()),
             stuck: None,
@@ -2153,6 +2196,10 @@ mod tests {
 
         fn hashes(&mut self) -> Result<guard::Hashes, String> {
             Ok(self.hashes.pop_front().unwrap_or_default())
+        }
+
+        fn rules(&mut self) -> Result<guard::Settings, String> {
+            guard::Settings::from_toml(self.rules).map_err(|e| e.to_string())
         }
 
         fn gate(&mut self, gate: Gate) -> Result<bool, String> {
@@ -2486,6 +2533,75 @@ mod tests {
             steps.g3 = VecDeque::from(g3);
             assert_eq!(launched(&mut steps, 1), park(REVIEW_KO));
             assert_eq!(last(&steps), "review r round=2");
+        }
+    }
+
+    /// Rules that keep the steps from build mode, the code from test mode, and gdd's own files
+    /// from every role.
+    const STEPS_PROTECTED: &str = "[protected]\nall = [\"gdd/**\"]\n\
+                                   builder_build = [\"features/**\", \"tests/steps/**\"]\n\
+                                   builder_test = [\"src/**\"]\n";
+
+    #[test]
+    fn a_finding_on_a_file_test_mode_writes_starts_the_fix_in_test_mode() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        let finding = "- **F1** · weak step · `tests/steps/a.rs:3` · vague\nVERDICT: KO";
+        steps.reviews = VecDeque::from([finding]);
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        let expected = [
+            "G3",
+            "review r round=1",
+            "snapshot Round",
+            "test t mode=test fix=review",
+            "guard since=true",
+            "snapshot Build",
+            "build b mode=build fix=review",
+            "G2",
+            "G3",
+            "review r round=2",
+            OPENED,
+        ];
+        assert_eq!(steps.ran[..11], expected);
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        steps.reviews = VecDeque::from([finding]);
+        steps.guard = vec!["src/a.rs: protected path for builder-test".into()];
+        let why = "Path Guard failed after test mode: src/a.rs: protected path for builder-test";
+        assert_eq!(launched(&mut steps, 1), park(why));
+        assert_eq!(last(&steps), "guard since=true");
+    }
+
+    #[test]
+    fn findings_test_mode_does_not_write_keep_the_one_build_mode_fix() {
+        let sealed = r#"{"gates": {"G1": {"hashes": {"features/a.feature": "ab12"}}}}"#;
+        // Only the code, a file every role must not touch, a sealed scenario, no finding.
+        for review in [
+            "F1 · off by one · src/a.rs:1 · drops a line\nVERDICT: KO",
+            "F1 · weak gate · gdd/rules.toml:3 · protects less\nVERDICT: KO",
+            "F1 · vague · features/a.feature:2 · says little\nVERDICT: KO",
+            "Nothing shaped as a finding.\nVERDICT: KO",
+        ] {
+            let folder = repo_folder();
+            folder.write(&change::record_path("c1"), sealed);
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.rules = STEPS_PROTECTED;
+            steps.reviews = VecDeque::from([review]);
+            assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed), "{review}");
+            let expected = [
+                "G3",
+                "review r round=1",
+                "build b mode=build fix=review",
+                "G2",
+                "G3",
+                "review r round=2",
+                OPENED,
+            ];
+            assert_eq!(steps.ran[..7], expected, "{review}");
         }
     }
 

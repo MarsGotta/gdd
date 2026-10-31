@@ -1177,23 +1177,27 @@ impl Decided {
 }
 
 /// The decision for change `id`, from its record under the state root `state`, and the zone
-/// map, the rules table and the models of the project at `root`. Its planned paths count, the
-/// ones it touched in git (see [`guard::touched`]) and the scenario files its record names; then
-/// its kind of work (see [`of_kind`]). A missing zone map, rules table or models file says
-/// nothing.
+/// map of the main branch (see [`main_zones`]), the rules table and the models of the project at
+/// `root`. Its planned paths count, the ones it touched in git (see [`guard::touched`]) and the
+/// scenario files its record names; then its kind of work (see [`of_kind`]). A missing zone map,
+/// rules table or models file says nothing.
 fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
+    decide_with(root, state, id, &main_zone_map(root)?)
+}
+
+/// The decision for change `id` as [`decide`] takes it, with the zone map `zones`.
+fn decide_with(root: &Path, state: &Path, id: &str, zones: &ZoneMap) -> Result<Decided, String> {
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
     let invalid = |e: serde_json::Error| format!("{path}: {e}");
     let record = Record::from_json(&text).map_err(invalid)?;
     let kind = change::kind(&text).map_err(invalid)?;
-    let zones = load_zones(root)?;
     let table = load_table(root)?;
     let touched = guard::touched(root, id, &load_settings(root)?).map_err(|e| e.to_string())?;
     let mut plan = record.plan;
     plan.paths.extend(touched);
     let classification =
-        classify_with(&zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
+        classify_with(zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
     let classification = of_kind(classification, &kind);
     let models = load_models_with_session(root, state)?;
     let roles = models.roles(classification.color);
@@ -1334,8 +1338,9 @@ fn import_session(
 }
 
 /// Runs `gate` on change `id` for `role`, as its kind of work has it (see
-/// [`gates::run_of_kind`]), writes in its record the paths the scope check accepted and saves the
-/// report next to it, under the state root `state`; `logged`, it logs the run too.
+/// [`gates::run_of_kind`]), with the zone map its preparation judged it with (see
+/// [`GateConfig::of_change`]), writes in its record the paths the scope check accepted and saves
+/// the report next to it, under the state root `state`; `logged`, it logs the run too.
 fn gate_report(
     root: &Path,
     state: &Path,
@@ -1346,7 +1351,7 @@ fn gate_report(
 ) -> Result<gates::Report, String> {
     let record = load_record(state, id)?;
     let kind = change_kind(state, id)?;
-    let config = GateConfig::load(root)?;
+    let config = GateConfig::of_change(root)?;
     let before = guard_snapshot(state, id, role, false)?;
     let project = config.project(root, state);
     let ran = gates::run_of_kind(&project, gate, id, &record, &kind, role, before.as_ref());
@@ -1371,7 +1376,17 @@ struct GateConfig {
 impl GateConfig {
     /// The configuration of the project at `root`; a missing file says nothing.
     fn load(root: &Path) -> Result<GateConfig, String> {
-        let zones = load_zones(root)?;
+        GateConfig::with_zones(root, load_zones(root)?)
+    }
+
+    /// The configuration of the project at `root` that judges one of its changes: with the zone
+    /// map of the main branch, the one its preparation judged it with (see [`main_zones`]).
+    fn of_change(root: &Path) -> Result<GateConfig, String> {
+        GateConfig::with_zones(root, main_zone_map(root)?)
+    }
+
+    /// The configuration of the project at `root`, with the zone map `zones`.
+    fn with_zones(root: &Path, zones: ZoneMap) -> Result<GateConfig, String> {
         let settings = load_settings(root)?;
         let rules = read(root, RULES)?.unwrap_or_default();
         let rules = gates::Rules::from_toml(&rules).map_err(|e| format!("{RULES}: {e}"))?;
@@ -1400,24 +1415,29 @@ impl GateConfig {
 }
 
 /// `gdd prepare`: checks that change `id` may enter Build and starts it (see
-/// [`prepare::prepare`]).
+/// [`prepare::prepare`]), judged and classified with the zone map of the main branch (see
+/// [`main_zones`]).
 fn prepare_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
-    prepare_decided(root, state, id, &decide(root, state, id)?)
+    let zones = main_zones(root)?;
+    let decided = decide_with(root, state, id, &zone_map(&zones)?)?;
+    prepare_decided(root, state, id, &decided, &zones)
 }
 
-/// Prepares change `id`, for which the tool decided `decided` (see [`prepare_change`]).
+/// Prepares change `id`, for which the tool decided `decided`, with `zones`, the text of the zone
+/// map whose red zones a human must have approved, which the G2 of a relaunch judges with too
+/// (see [`prepare_change`]).
 fn prepare_decided(
     root: &Path,
     state: &Path,
     id: &str,
     decided: &Decided,
+    zones: &str,
 ) -> Result<String, String> {
-    let config = GateConfig::load(root)?;
+    let config = GateConfig::with_zones(root, zone_map(zones)?)?;
     let project = config.project(root, state);
-    let zones = read(root, ZONES)?.unwrap_or_default();
     let setup = prepare::Setup {
         project: &project,
-        zones: &zones,
+        zones,
         models: &decided.models,
     };
     prepare::prepare(&setup, id, &decided.decision(id))
@@ -1760,9 +1780,10 @@ impl<'a> ProjectSteps<'a> {
 impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let decided = decide(&self.root, self.state, self.id)?;
+        let zones = main_zones(&self.root)?;
+        let decided = decide_with(&self.root, self.state, self.id, &zone_map(&zones)?)?;
         invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
-        let printed = prepare_decided(&self.root, self.state, self.id, &decided)?;
+        let printed = prepare_decided(&self.root, self.state, self.id, &decided, &zones)?;
         serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
     }
 
@@ -1797,6 +1818,10 @@ impl recipe::Steps for ProjectSteps<'_> {
 
     fn hashes(&mut self) -> Result<guard::Hashes, String> {
         touched_hashes(&self.root, self.state, self.id)
+    }
+
+    fn rules(&mut self) -> Result<Settings, String> {
+        load_settings(&self.root)
     }
 
     fn gate(&mut self, gate: Gate) -> Result<bool, String> {
@@ -1865,9 +1890,10 @@ fn save_snapshot(root: &Path, state: &Path, id: &str, path: &str) -> Result<(), 
 }
 
 /// The failures of Path Guard for build mode, judged from the build snapshot, and of the scope
-/// check on change `id` of the project at `root` since its build started, with its record and
-/// that snapshot under the state root `state`: what the gates of its run would find now. A check
-/// that cannot judge fails with the reason. `None` without a build snapshot.
+/// check, with the zone map of the main branch (see [`main_zones`]), on change `id` of the
+/// project at `root` since its build started, with its record and that snapshot under the state
+/// root `state`: what the gates of its run would find now. A check that cannot judge fails with
+/// the reason. `None` without a build snapshot.
 fn earlier_failures(root: &Path, state: &Path, id: &str) -> Result<Option<Vec<String>>, String> {
     let Some(before) = read_snapshot(state, &change::build_snapshot_path(id))? else {
         return Ok(None);
@@ -1879,7 +1905,7 @@ fn earlier_failures(root: &Path, state: &Path, id: &str) -> Result<Option<Vec<St
         let verdict = guard::path_guard(root, id, &record, &settings, role, Some(&before));
         Ok(verdict.map_err(said)?.failures)
     });
-    let scoped = load_zones(root).and_then(|zones| {
+    let scoped = main_zone_map(root).and_then(|zones| {
         let table = load_table(root)?;
         let scope = guard::scope(root, id, &record, &zones, &table);
         Ok(scope.map_err(said)?.failures)
@@ -1896,10 +1922,11 @@ fn touched_hashes(root: &Path, state: &Path, id: &str) -> Result<guard::Hashes, 
     guard::snapshot(root, id, &record).map_err(|e| e.to_string())
 }
 
-/// `gdd scope`: the scope check of change `id`, with the zone map and the rules table.
+/// `gdd scope`: the scope check of change `id`, with the zone map of the main branch (see
+/// [`main_zones`]) and the rules table.
 fn scope(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     let record = load_record(state, id)?;
-    let zones = load_zones(root)?;
+    let zones = main_zone_map(root)?;
     let table = load_table(root)?;
     let checked = guard::scope(root, id, &record, &zones, &table).map_err(|e| e.to_string())?;
     serde_json::to_string(&checked).map_err(|e| e.to_string())
@@ -2223,8 +2250,37 @@ fn read_snapshot(state: &Path, path: &str) -> Result<Option<Hashes>, String> {
 
 /// The zone map of the project.
 fn load_zones(root: &Path) -> Result<ZoneMap, String> {
-    let text = read(root, ZONES)?.unwrap_or_default();
-    ZoneMap::from_toml(&text).map_err(|e| format!("{ZONES}: {e}"))
+    zone_map(&read(root, ZONES)?.unwrap_or_default())
+}
+
+/// The zone map whose text is `text`.
+fn zone_map(text: &str) -> Result<ZoneMap, String> {
+    ZoneMap::from_toml(text).map_err(|e| format!("{ZONES}: {e}"))
+}
+
+/// The text of the zone map of the main branch of the project at `root`: red zones are approved
+/// for the whole project, on main, and the branch of a change made before keeps the map it had
+/// then, so a change is prepared, classified and gated with the map of main. When main has none,
+/// or there is no main branch (nor git) yet, the one at `root`.
+fn main_zones(root: &Path) -> Result<String, String> {
+    let main = load_settings(root)?.main_branch;
+    let git = Git::new(root);
+    let said = |e: gdd_core::git::Error| e.to_string();
+    let on_main = gdd_core::git::is_repository(root) && git.exists(&main).map_err(said)?;
+    let kept = if on_main {
+        git.file_at(&main, ZONES).map_err(said)?
+    } else {
+        None
+    };
+    match kept {
+        Some(bytes) => String::from_utf8(bytes).map_err(|e| format!("{ZONES} on {main}: {e}")),
+        None => Ok(read(root, ZONES)?.unwrap_or_default()),
+    }
+}
+
+/// The zone map of the main branch of the project at `root` (see [`main_zones`]).
+fn main_zone_map(root: &Path) -> Result<ZoneMap, String> {
+    zone_map(&main_zones(root)?)
 }
 
 /// The rules table the project classifies its changes with, the one the gates use (see
@@ -3623,6 +3679,33 @@ mod tests {
     }
 
     #[test]
+    fn the_gates_the_scope_and_classify_judge_a_change_with_the_zone_map_of_main() {
+        let project = started_with_commands("[g2]\nlint = \"true\"\n");
+        // Main maps src/sync/ red after the branch left it; the branch keeps the map it had.
+        git(&project, &["checkout", "-q", "main"]);
+        let red_sync = "[[zone]]\ncolor = \"red\"\npaths = [\"src/sync/**\"]\n";
+        project.write(ZONES, &format!("{ZONE_MAP}{red_sync}"));
+        git(&project, &["commit", "-q", "-am", "sync is red"]);
+        git(&project, &["checkout", "-q", "change/save"]);
+        project.write("src/sync/x.rs", "x\n");
+        let outside = "src/sync/x.rs: outside the package and red";
+        let checked = json(&project.run("scope save"));
+        assert_eq!(checked["accepted"], serde_json::json!([]), "{checked}");
+        let failure = checked["failures"][0].as_str().unwrap_or_default();
+        assert!(failure.starts_with(outside), "{checked}");
+        let printed = json(&project.run("g2 save --role builder-build"));
+        assert_eq!(printed["color"], "red", "{printed}");
+        let failures = printed["failures"].as_array().cloned().unwrap_or_default();
+        let scope = failures.iter().find(|failure| failure["name"] == "scope");
+        let tail = scope.and_then(|failure| failure["tail"].as_str());
+        assert!(
+            tail.is_some_and(|tail| tail.starts_with(outside)),
+            "{printed}"
+        );
+        assert_eq!(json(&project.run("classify save"))["color"], "red");
+    }
+
+    #[test]
     fn the_g2_of_a_spike_runs_no_command_and_wants_its_adr() {
         let project = started_with_commands("[g2]\nlint = \"touch ran\"\n");
         let path = ".gdd/changes/save/change.json";
@@ -4687,6 +4770,49 @@ mod tests {
     }
 
     #[test]
+    fn prepare_judges_and_classifies_with_the_zone_map_of_main() {
+        let project = launched_project();
+        let on_main = |run: &dyn Fn()| {
+            git(&project, &["checkout", "-q", "main"]);
+            run();
+            git(&project, &["checkout", "-q", "change/c1"]);
+        };
+        // Main maps src/ red after the change was made; its branch keeps the map approved before.
+        let red_src = "[[zone]]\ncolor = \"red\"\npaths = [\"src/**\"]\n";
+        let wider = format!("{ZONE_MAP}{red_src}");
+        on_main(&|| {
+            project.write(ZONES, &wider);
+            git(&project, &["commit", "-qam", "src is red"]);
+        });
+        let changed = "error: Red zones changed after their approval";
+        let out = project.run("prepare c1");
+        assert!(out.stderr.starts_with(changed), "{out:?}");
+        on_main(&|| assert_eq!(project.run("gate zones ok").code, 0));
+        let red = "error: Red change: a human must approve the plan (gate 'plan').\n";
+        assert_eq!(project.run("prepare c1"), Outcome::failure(red.into()));
+        // The G2 of a relaunch judges with the same map.
+        assert_eq!(project.run("gate plan ok c1").code, 0);
+        let log = fs::read_to_string(project.0.join(log::PATH)).unwrap();
+        let built = r#"{"change": "c1", "role": "builder-build"}"#;
+        project.write(log::PATH, &format!("{log}{built}\n"));
+        let out = project.run("prepare c1");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert_eq!(json(&out)["color"], "red");
+        let g2 = fs::read_to_string(project.0.join(".gdd/changes/c1/g2.json")).unwrap();
+        let g2: serde_json::Value = serde_json::from_str(&g2).unwrap();
+        assert_eq!(g2["color"], "red", "{g2}");
+        // Without a zone map on main, the one checked out counts.
+        on_main(&|| {
+            git(&project, &["rm", "-q", ZONES]);
+            git(&project, &["commit", "-qm", "no zones"]);
+        });
+        assert_eq!(project.run("gate zones ok").code, 0);
+        let out = project.run("prepare c1");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert_eq!(json(&out)["color"], "yellow");
+    }
+
+    #[test]
     fn merge_and_release_take_the_change_to_production() {
         let project = launched_project();
         assert_eq!(project.run("gate G3 ok c1 --by machines").code, 0);
@@ -4958,14 +5084,22 @@ mod tests {
         let unread = |failure: &String| failure.starts_with("gdd/rules.toml: ");
         assert!(failures.iter().all(unread), "{failures:?}");
         project.write(RULES, PROTECTED);
+        // The scope judges with the zone map of main, not the one of the branch.
         project.write(ZONES, "default = 1\n");
         let failures = earlier_failures(root, root, "save").unwrap().unwrap();
         let [_, guarded, scoped] = failures.as_slice() else {
             panic!("three failures: {failures:?}");
         };
         assert_eq!(guarded, "gdd/zones.toml: protected path for builder-build");
+        assert!(scoped.starts_with(outside), "{scoped}");
+        git(&project, &["checkout", "-q", "main"]);
+        git(&project, &["commit", "-q", "-m", "zones", "--", ZONES]);
+        git(&project, &["checkout", "-q", "change/save"]);
+        let failures = earlier_failures(root, root, "save").unwrap().unwrap();
+        let [_, scoped] = failures.as_slice() else {
+            panic!("two failures: {failures:?}");
+        };
         assert!(scoped.starts_with("gdd/zones.toml: "), "{scoped}");
-        assert_ne!(scoped, guarded);
         assert!(earlier_failures(root, root, "none").is_ok_and(|none| none.is_none()));
         project.write(&change::build_snapshot_path("none"), "{}");
         assert!(earlier_failures(root, root, "none").is_err());
