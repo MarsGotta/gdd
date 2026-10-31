@@ -1,0 +1,14 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "gdd · Gate-Driven Development",
+  "description": "gdd runs GDD, Gate-Driven Development: a method and a Rust CLI to build software with AI coding agents (Claude Code, Codex, OpenCode). Every change passes gates; its risk color decides how many and how strict. Machines run the checks (scenarios, tests, mutation, secrets) and the person approves the scenarios before the build and the result at the end.",
+  "folders": ["docs"],
+  "excludeFolders": ["docs/es", "docs/adr", "docs/discover", "docs/img"],
+  "excludeFiles": ["brief.md", "standards.md", "STYLE.md", "CHANGELOG.md", "LICENSE.md", "CODE_OF_CONDUCT.md"],
+  "rules": [
+    "The person types only the install and gdd init; everything else goes through the gdd agent skills (/gdd-setup, /gdd-change in Claude Code and OpenCode, $gdd-setup, $gdd-change in Codex).",
+    "Start a conversation in a gdd project with the gdd-status skill: it says where the project stands and the next step.",
+    "The approved scenarios, gdd/ and the agent folders are protected: change them only when a gdd skill says so.",
+    "gdd decides when a change is done: gdd g2 <change> must be green, and the person answers G4."
+  ]
+}
