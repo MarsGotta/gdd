@@ -124,11 +124,20 @@ change, stop and review before adding more.
 
 ## 0.1.1
 
+A polish version: a first change with no stumbles, and numbers gdd can stand behind (Mars, 2026-10-31).
+
+- A first change without friction (change `entry-polish`, next): the G4 inbox asks you to answer your agent instead of typing `gdd resume`; the Board refreshes by itself; `gdd init` starts a `CHANGELOG.md`; before the Setup, `status` and `launch` point to the setup skill for the red zones; the sitting shows the scenarios before your OK; the role guard's refusal names every agent gdd started, not only Builders and Reviewers; the inbox says a change is not classified yet instead of `Color ? · lane ?`.
+- Honest numbers (change `honest-numbers`, next): the merge commit counts agent calls only (it counted gate commands too); the Reviewer's and the Orchestrator's cost is estimated from the price table and marked as an estimate, never 0; a release lists each line once.
+- Gate details (change `gate-details`, next): mutation testing never passes on a project with no tests, and says so when there is nothing to mutate; the secrets check says where it found a secret, without printing it; the inbox stops naming a file that no longer exists; the note of a G1 KO reaches the inbox.
+- Test harness: scenarios no longer inherit `GDD_ROLE` from the agent that runs them; the flaky `A failed observation rolls back and the change no longer waits at G4` scenario and the flaky `versions` unit test are fixed.
+- Done in 0.1.0 by `fix-rounds`: after a Reviewer KO that only steps can fix, the fix round starts in test mode.
+
+## 0.1.2
+
 - Spike variants built at once, within the project's cap: `[spike] parallel` (1 to 4), each variant a sub-change through the queue (change `spike-parallel`, approved 2026-10-30).
-- When an agent sees a fault of gdd itself (gdd crashes, the self-test fails, a gate fails for the machine and not the code), it says so in the Decision Inbox under its own heading, and `gdd bug` writes a draft issue (gdd's version, the system and stack, the command and its output, the steps; only the names of environment variables, paths relative to the project) and, when the fix is in what gdd writes (agent instructions, stack sheets, init templates), the patch for a pull request to MarsGotta/gdd. gdd prints the `gh` commands; the person runs them. A CONTRIBUTING.md and an issue template for the public repository (Mars, 2026-10-30).
-- After a Reviewer KO that only steps can fix, a way back to test mode: today build mode cannot touch the steps, so the change parks (kit-cases, 2026-10-30).
+- When an agent sees a fault of gdd itself (gdd crashes, the self-test fails, a gate fails for the machine and not the code), it says so in the Decision Inbox under its own heading, and `gdd bug` writes a draft issue (gdd's version, the system and stack, the command and its output, the steps; only the names of environment variables, paths relative to the project) and, when the fix is in what gdd writes (agent instructions, stack sheets, init templates), the patch for a pull request to MarsGotta/gdd. gdd prints the `gh` commands; the person runs them. An issue template for the public repository (Mars, 2026-10-30).
 - A hand commit on a change branch that holds uncommitted work of the agents moves its build start, and Path Guard then blames build mode for test mode's steps: gdd could notice and say so (kit-cases, 2026-10-30).
-- A flaky scenario: three steps of `A failed observation rolls back and the change no longer waits at G4` failed in one of two runs (kit-cases, 2026-10-30).
+- Docs: the guides that still ask you to type commands (upgrade, CI, measure, releases) go through the agent; the changelog scenario says the Orchestrator proposes the line at the sitting, but no agent instruction does.
 
 ## 0.2
 
