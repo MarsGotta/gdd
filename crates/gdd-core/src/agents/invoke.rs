@@ -37,6 +37,7 @@ use crate::agents::models::{self, Model, Roles, Session};
 use crate::agents::sheets::{self, Place, Sheet};
 use crate::agents::usage::{self, Price, Said, Usage};
 use crate::gates::verdict;
+use crate::log::CostBasis;
 use crate::{config, exec, log};
 
 /// How often a running agent is checked.
@@ -161,12 +162,62 @@ pub struct Settings {
 impl Settings {
     /// Reads them from the text of a models file; the rest of the file is ignored, but a Builder
     /// session that is neither of its values refuses it, as it refuses the models (see
-    /// [`models::Models::from_toml`]).
+    /// [`models::Models::from_toml`]), and so does a price that is not a number of dollars (see
+    /// [`priceable`]).
     pub fn from_toml(text: &str) -> Result<Settings, config::Error> {
         let settings: Settings =
             toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
         Session::of(&settings.session)?;
+        for (model, price) in &settings.prices {
+            priceable(model, price)?;
+        }
         Ok(settings)
+    }
+
+    /// The price of `model`, by its exact name: `[prices.<model>]`; `None` without one.
+    pub fn price(&self, model: &str) -> Option<&Price> {
+        self.prices.get(model)
+    }
+
+    /// What a call of `model` that used `usage` costs in the log, and on what that stands: the
+    /// cost the agent reported, when above 0; else `usage` at the price of `model`, an estimate,
+    /// even 0 for a free model; else 0, unknown, never a cost. A cost that is not a finite number,
+    /// one an agent reported or one its tokens make at a price, is an error that says so: the log
+    /// would write it as `null`, which no report counts.
+    pub fn cost(&self, model: &str, usage: &Usage) -> Result<(f64, CostBasis), String> {
+        let (cost, basis) = if usage.cost_usd > 0.0 {
+            (usage.cost_usd, CostBasis::Reported)
+        } else {
+            match self.price(model) {
+                Some(price) => (usage.priced(price), CostBasis::Estimated),
+                None => (0.0, CostBasis::Unknown),
+            }
+        };
+        if cost.is_finite() {
+            Ok((cost, basis))
+        } else {
+            Err(format!(
+                "the cost of {model} is not a finite number: {cost}"
+            ))
+        }
+    }
+}
+
+/// Refuses the price of `model` unless each of its fields is a number of dollars, 0 or more. TOML
+/// takes `nan` and `inf`, which price a call at no number, and a price below 0 makes a cost below
+/// 0, a line the reports leave out as one gdd never writes (see [`log::read`]).
+fn priceable(model: &str, price: &Price) -> Result<(), config::Error> {
+    let fields = [
+        ("input", price.input),
+        ("cache", price.cache),
+        ("output", price.output),
+    ];
+    let dollars = |value: f64| value.is_finite() && value >= 0.0;
+    match fields.into_iter().find(|&(_, value)| !dollars(value)) {
+        Some((field, value)) => Err(config::Error::Toml(format!(
+            "prices.{model}.{field} must be a number 0 or more, not {value}"
+        ))),
+        None => Ok(()),
     }
 }
 
@@ -487,6 +538,7 @@ struct Line<'a> {
     tokens_cache: u64,
     tokens_out: u64,
     cost_usd: f64,
+    cost_basis: &'a str,
     duration_s: f64,
     result: &'a str,
     retry: usize,
@@ -497,11 +549,16 @@ struct Line<'a> {
 /// state root: its final text and its output as `outputs/<role>-<n>.md` and `.raw` next to the
 /// change, `n` after the earlier lines of its role on the change in the log; the Reviewer's text
 /// as its review; the session of a Claude Code call; and one line in the log, priced with the
-/// model's price when the agent reports no cost. A log that is not a file of its own stops it
-/// before it writes anything.
+/// model's price when the agent reports no cost, and saying on what its cost stands (see
+/// [`Settings::cost`]). A log that is not a file of its own, or a cost that is not a finite
+/// number, stops it before it writes anything.
 fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Result<(), Error> {
     let (state, id, role) = (project.state, project.id, who.role());
+    let unwritten = |e| Error::Write(log::PATH.to_string(), e);
     let earlier = earlier_lines(state, id, role)?;
+    let usage = said.usage;
+    let priced = project.settings.cost(start.model, &usage);
+    let (cost_usd, basis) = priced.map_err(|why| unwritten(io::Error::other(why)))?;
     let outputs = format!(".gdd/changes/{id}/outputs/{role}-{}", earlier + 1);
     save(state, &format!("{outputs}.md"), said.text.as_bytes())?;
     save(state, &format!("{outputs}.raw"), &ran.out)?;
@@ -510,11 +567,6 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
     }
     if let Some(session) = &said.session {
         append(state, SESSIONS, &format!("{session}\n"))?;
-    }
-    let mut usage = said.usage;
-    if usage.cost_usd == 0.0 {
-        let price = project.settings.prices.get(start.model);
-        usage.cost_usd = price.map_or(0.0, |price| usage.priced(price));
     }
     let result = match ran.ended {
         Ended::Code(0) => "ok".to_string(),
@@ -534,13 +586,13 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
         tokens_in: usage.tokens_in,
         tokens_cache: usage.tokens_cache,
         tokens_out: usage.tokens_out,
-        cost_usd: usage.cost_usd,
+        cost_usd,
+        cost_basis: basis.as_str(),
         duration_s: seconds(ran.duration),
         result: &result,
         retry: earlier,
         note: &note,
     };
-    let unwritten = |e| Error::Write(log::PATH.to_string(), e);
     let line = serde_json::to_string(&line).map_err(|e| unwritten(e.into()))?;
     log::append(state, &line).map_err(unwritten)
 }
@@ -862,6 +914,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_price_that_is_not_a_number_of_dollars_refuses_the_settings() {
+        for (field, value, shown) in [
+            ("input", "nan", "NaN"),
+            ("cache", "inf", "inf"),
+            ("output", "+inf", "inf"),
+            ("output", "-inf", "-inf"),
+            ("input", "-0.5", "-0.5"),
+        ] {
+            let text = format!("[prices.free]\n[prices.opus]\n{field} = {value}\n");
+            let err = Settings::from_toml(&text).unwrap_err();
+            let said = format!(
+                "invalid TOML: prices.opus.{field} must be a number 0 or more, not {shown}"
+            );
+            assert_eq!(err.to_string(), said, "{text}");
+        }
+        // 0 is a price, the one of a free model.
+        let free = "[prices.free]\ninput = 0\ncache = 0.0\noutput = 0\n";
+        let settings = Settings::from_toml(free).unwrap();
+        assert_eq!(settings.price("free"), Some(&Price::default()));
+    }
+
     /// A project whose `claude` is the shell script `script`, in its folder `bin`, the
     /// environment gdd runs in, with that folder first on the `PATH`, the settings of its
     /// agents, the Builder session of its change and the run of gdd its calls belong to.
@@ -1050,7 +1124,7 @@ mod tests {
         let fields = concat!(
             r#""change":"c1","phase":"2-build","gate":"G2","role":"builder-build","#,
             r#""agent":"claude","model":"opus","tokens_in":100,"tokens_cache":50,"#,
-            r#""tokens_out":20,"cost_usd":0.5,"duration_s":"#
+            r#""tokens_out":20,"cost_usd":0.5,"cost_basis":"reported","duration_s":"#
         );
         assert!(line.starts_with("{\"ts\":\""), "{line}");
         assert!(line.contains(fields), "{line}");
@@ -1097,16 +1171,83 @@ mod tests {
         faked.call(Who::BuilderBuild, LONG).unwrap();
         let cost = faked.logged().cost_usd;
         assert!((cost - 5.1).abs() < 1e-9, "{cost}");
+        assert_eq!(faked.logged().cost_basis(), CostBasis::Estimated);
         // A cost the agent reports stays.
         faked.write("said", RESULT);
         faked.call(Who::BuilderBuild, LONG).unwrap();
         assert_eq!(faked.logged().cost_usd, 0.5);
-        // A model without a price costs nothing.
+        assert_eq!(faked.logged().cost_basis(), CostBasis::Reported);
+        // A model without a price has a cost nobody knows: the line says 0 and unknown.
         faked.settings = Settings::default();
         faked.write("said", used);
         faked.call(Who::BuilderBuild, LONG).unwrap();
         assert_eq!(faked.logged().cost_usd, 0.0);
+        assert_eq!(faked.logged().text("cost_basis"), "unknown");
         assert_eq!(faked.logged().tokens_in, 1_000_000);
+    }
+
+    #[test]
+    fn a_cost_is_reported_estimated_from_the_price_of_its_model_or_unknown() {
+        let prices = "[prices.opus]\ninput = 3\ncache = 0.3\noutput = 15\n[prices.free]\n";
+        let settings = Settings::from_toml(prices).unwrap();
+        let opus = Price {
+            input: 3.0,
+            cache: 0.3,
+            output: 15.0,
+        };
+        assert_eq!(settings.price("opus"), Some(&opus));
+        for other in ["Opus", "opus-4", "", "gpt"] {
+            assert_eq!(settings.price(other), None, "{other}");
+        }
+        let used = |cost_usd| Usage {
+            tokens_in: 1_000_000,
+            tokens_cache: 0,
+            tokens_out: 0,
+            cost_usd,
+        };
+        let cost = |model: &str, reported: f64| settings.cost(model, &used(reported));
+        let (estimated, unknown) = (CostBasis::Estimated, CostBasis::Unknown);
+        let reported = Ok((0.5, CostBasis::Reported));
+        assert_eq!(cost("opus", 0.5), reported);
+        assert_eq!(cost("gpt", 0.5), reported);
+        assert_eq!(cost("opus", 0.0), Ok((3.0, estimated)));
+        // A free model is an estimate of nothing, not an unknown cost.
+        assert_eq!(cost("free", 0.0), Ok((0.0, estimated)));
+        assert_eq!(cost("gpt", 0.0), Ok((0.0, unknown)));
+        // A cost below zero, or one that is not a number, is no cost an agent reported.
+        assert_eq!(cost("gpt", -1.0), Ok((0.0, unknown)));
+        assert_eq!(cost("opus", f64::NAN), Ok((3.0, estimated)));
+        // A cost that is not a finite number is none the log can write: reported, or made by
+        // more tokens than a price can count.
+        let infinite = Err("the cost of gpt is not a finite number: inf".to_string());
+        assert_eq!(cost("gpt", f64::INFINITY), infinite);
+        let huge = Settings::from_toml("[prices.huge]\ninput = 1e308\n").unwrap();
+        let err = huge.cost("huge", &used(0.0)).unwrap_err();
+        assert_eq!(err, "the cost of huge is not a finite number: inf");
+    }
+
+    #[test]
+    fn a_call_whose_cost_is_not_a_finite_number_keeps_nothing() {
+        let mut faked = Faked::new(SAYS);
+        let said = r#"{"result":"done","session_id":"s-1","usage":{"output_tokens":1000000}}"#;
+        faked.write("said", said);
+        faked.settings = Settings::from_toml("[prices.opus]\noutput = 1e308\n").unwrap();
+        let (used, ended) = faked.used(Who::Reviewer, LONG);
+        let err = ended.unwrap_err();
+        let unwritten = "cannot write .gdd/log.jsonl: the cost of opus is not a finite number: inf";
+        assert_eq!(err.to_string(), unwritten);
+        assert!(!err.parks());
+        // What the agent reported still counts; nothing it said was kept.
+        assert_eq!(used.tokens_out, 1_000_000);
+        for path in [log::PATH, ".gdd/changes/c1/outputs", SESSIONS] {
+            assert!(!faked.has(path), "{path}");
+        }
+        assert!(!faked.has(&verdict::review_path("c1")));
+        // With a price gdd can stand behind, the next call is the first of its role.
+        faked.settings = Settings::from_toml("[prices.opus]\noutput = 15\n").unwrap();
+        faked.call(Who::Reviewer, LONG).unwrap();
+        assert_eq!(faked.logged().cost_usd, 15.0);
+        assert_eq!(faked.output("reviewer-1.md"), "done");
     }
 
     #[test]
