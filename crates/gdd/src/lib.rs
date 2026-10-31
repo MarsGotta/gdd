@@ -762,8 +762,8 @@ impl Command {
                 let message = change::park(state, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => return launch(root, state, &change, env, streams.out()),
-            Command::Resume(args) => return resume(root, state, &args, role, env, streams.out()),
+            Command::Launch { change } => return launch(root, state, &change, env, streams),
+            Command::Resume(args) => return resume(root, state, &args, role, env, streams),
             Command::Merge { change } => {
                 let id = change_id(change, env)?;
                 return merge_queued(root, state, &id, env, streams.err());
@@ -783,9 +783,12 @@ impl Command {
             Command::Scope { change } => scope(root, state, &change)?,
             Command::NewChange(args) => new_change(root, state, &args)?,
             Command::Gate(args) => {
-                let mut voice = streams.out();
-                let recorded = record_gate(root, state, &args, role, |line| voice.say(line))?;
-                format!("{}{recorded}", voice.kept())
+                let (mut voice, mut errors) = (streams.out(), streams.err());
+                let said = |line: &str| voice.say(line);
+                let recorded = record_gate(root, state, &args, role, said, |w| errors.say(w))?;
+                let mut outcome = Outcome::printed(format!("{}{recorded}", voice.kept()), 0);
+                outcome.stderr = errors.kept();
+                return Ok(outcome);
             }
             Command::Note(args) => note(state, &args)?,
             Command::ChangelogLine(args) => changelog_line(state, args, role)?,
@@ -1474,6 +1477,7 @@ fn merge_queued(
     let ran = recipe::merge(&at, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stderr.insert_str(0, &steps.voice.kept());
+    outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
 }
 
@@ -1612,27 +1616,33 @@ fn ask_release(
 }
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
-/// environment `env`, saying what it says on its way with `voice`.
-fn launch(root: &Path, state: &Path, id: &str, env: &Env, voice: Voice) -> Result<Outcome, String> {
-    in_worktree(root, state, id, env, voice, |project, steps| {
+/// environment `env`, saying what it says on its way as `streams` tell.
+fn launch(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    env: &Env,
+    streams: Streams,
+) -> Result<Outcome, String> {
+    in_worktree(root, state, id, env, streams, |project, steps| {
         recipe::launch(project, id, steps)
     })
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
-/// whose agents start in the environment `env`, saying what it says on its way with `voice`.
+/// whose agents start in the environment `env`, saying what it says on its way as `streams` tell.
 fn resume(
     root: &Path,
     state: &Path,
     args: &ResumeArgs,
     role: Option<&str>,
     env: &Env,
-    voice: Voice,
+    streams: Streams,
 ) -> Result<Outcome, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
-    in_worktree(root, state, id, env, voice, |project, steps| {
+    in_worktree(root, state, id, env, streams, |project, steps| {
         recipe::resume(project, id, answer, &note, role, args.variant, steps)
     })
 }
@@ -1642,14 +1652,14 @@ fn resume(
 /// of the worktrees the rules file names (see [`recipe::worktree`]), as many changes building at
 /// once as it allows (see [`queue::cap`]) and the budget of a spike it sets (see
 /// [`gdd_core::rules::spike_budget`]); the agents start in the environment `env`. What the run
-/// says on its way it says with `voice`: kept, it comes first in what it prints, however it
-/// ended.
+/// says on its way it says on the standard output, and its warnings on the standard error (see
+/// [`Streams`]): kept, they come first in what it prints, however it ended.
 fn in_worktree(
     root: &Path,
     state: &Path,
     id: &str,
     env: &Env,
-    voice: Voice,
+    streams: Streams,
     run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
 ) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
@@ -1671,10 +1681,12 @@ fn in_worktree(
         spike_usd,
     };
     let settings = agent_settings(root)?;
-    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, voice);
+    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, streams.out());
+    steps.errors = streams.err();
     let ran = run(&project, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stdout.insert_str(0, &steps.voice.kept());
+    outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
 }
 
@@ -1755,6 +1767,8 @@ struct ProjectSteps<'a> {
     builder_session: invoke::Ongoing,
     /// How the recipe says what it says on its way, a line each.
     voice: Voice,
+    /// How it says its warnings, a line each: on the standard error.
+    errors: Voice,
 }
 
 impl<'a> ProjectSteps<'a> {
@@ -1779,6 +1793,7 @@ impl<'a> ProjectSteps<'a> {
             settings,
             builder_session: invoke::Ongoing::default(),
             voice,
+            errors: Voice::Kept(String::new()),
         }
     }
 }
@@ -1844,8 +1859,10 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        let (root, state, voice) = (&self.root, self.state, &mut self.voice);
-        record_gate(root, state, &args, None, |line| voice.say(line)).map(drop)
+        let (root, state) = (&self.root, self.state);
+        let (voice, errors) = (&mut self.voice, &mut self.errors);
+        let warn = |line: &str| errors.say(line);
+        record_gate(root, state, &args, None, |line| voice.say(line), warn).map(drop)
     }
 
     /// The recipe holds the merge lock already.
@@ -2033,6 +2050,7 @@ fn record_gate(
     args: &DecisionArgs,
     role: Option<&str>,
     say: impl FnOnce(&str),
+    warn: impl FnOnce(&str),
 ) -> Result<String, String> {
     let gate = match args.gate.parse::<approve::Gate>() {
         Ok(gate) => gate,
@@ -2055,7 +2073,25 @@ fn record_gate(
         by: &args.by,
         note: &args.note,
     };
-    approve::record(&project, &request, role, say).map_err(|e| e.to_string())
+    let recorded = approve::record(&project, &request, role, say).map_err(|e| e.to_string())?;
+    if let Some(id) = args.change.as_deref().filter(|_| is_on_change(gate))
+        && let Err(why) = save_inbox(state, id)
+    {
+        warn(&format!(
+            "warning: the Decision Inbox of {id} was not saved: {why}"
+        ));
+    }
+    Ok(recorded)
+}
+
+/// Whether the decision on `gate` is about a change: the plan and the gates after it.
+fn is_on_change(gate: approve::Gate) -> bool {
+    !matches!(gate, approve::Gate::G0 | approve::Gate::Zones)
+}
+
+/// Saves the Decision Inbox of change `id`, under the state root `state`, from its record.
+fn save_inbox(state: &Path, id: &str) -> Result<(), String> {
+    decision_inbox(state, id).map(drop)
 }
 
 /// `gdd note`: adds a note to the record of a change, under the state root `state`, for its
@@ -4056,6 +4092,30 @@ mod tests {
     }
 
     #[test]
+    fn only_the_plan_and_the_gates_after_it_are_decisions_on_a_change() {
+        use approve::Gate as G;
+        for gate in [G::Plan, G::G1, G::G2, G::G3, G::G4] {
+            assert!(is_on_change(gate), "{gate}");
+        }
+        for gate in [G::G0, G::Zones] {
+            assert!(!is_on_change(gate), "{gate}");
+        }
+    }
+
+    #[test]
+    fn a_decision_on_a_change_saves_its_inbox_and_a_failed_save_only_warns() {
+        let project = selftest_project("true");
+        let root = project.0.as_path();
+        let record = r#"{"id": "c1", "gates": {"G1": {"decision": "ko", "by": "human"}}}"#;
+        project.write(".gdd/changes/c1/change.json", record);
+        assert!(save_inbox(root, "c1").is_ok());
+        let saved = fs::read_to_string(root.join(".gdd/changes/c1/inbox.md")).unwrap();
+        assert!(saved.contains("## Your decisions\n- G1 ko"), "{saved}");
+        let missing = save_inbox(root, "nope").unwrap_err();
+        assert!(missing.contains("change.json"), "{missing}");
+    }
+
+    #[test]
     fn a_person_at_a_terminal_reads_that_gdd_waits_for_the_agents_at_work_as_the_wait_starts() {
         let project = selftest_project("test ! -f t.txt");
         project.write(approve::BRIEF, "# Brief\n");
@@ -4081,7 +4141,7 @@ mod tests {
                 note: String::new(),
             };
             let (shown, (done, kept)) = shown_during_a_call(root, |mut voice| {
-                let done = record_gate(root, root, &args, None, |line| voice.say(line));
+                let done = record_gate(root, root, &args, None, |line| voice.say(line), |_| {});
                 (done, voice.kept())
             });
             assert_eq!(shown, waiting, "{gate}");
@@ -4990,6 +5050,23 @@ mod tests {
         assert_eq!(record_of(&project, "c1")["state"], "merged");
     }
 
+    #[test]
+    fn a_decision_whose_inbox_cannot_be_saved_stays_recorded_and_warns_only_on_the_standard_error()
+    {
+        let project = launched_project();
+        let inbox = project.0.join(change::inbox_path("c1"));
+        let _ = fs::remove_file(&inbox);
+        fs::create_dir_all(&inbox).unwrap();
+        let out = project.run("gate G3 ok c1 --by machines");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.starts_with("G3 ok"), "{out:?}");
+        assert!(!out.stdout.contains("warning"), "{out:?}");
+        let warning = "warning: the Decision Inbox of c1 was not saved: ";
+        assert!(out.stderr.starts_with(warning), "{out:?}");
+        assert_eq!(out.stderr.matches('\n').count(), 1, "{out:?}");
+        assert_eq!(record_of(&project, "c1")["gates"]["G3"]["decision"], "ok");
+    }
+
     /// Gate commands whose G3 fails once main has `docs/breaking.md`.
     const BREAKABLE: &str = "[g3]\nfresh = \"test ! -f docs/breaking.md\"\n\
                              [release]\nsimulated = true\nbuild = \"true\"\n";
@@ -5066,6 +5143,24 @@ mod tests {
         let said: Vec<String> = watch.try_iter().collect();
         assert_eq!(said, ["two\n", FLUSHED]);
         assert_eq!(shown.voice.kept(), "");
+    }
+
+    #[test]
+    fn a_decision_of_the_recipe_warns_about_its_inbox_on_the_errors_and_not_on_its_voice() {
+        let project = launched_project();
+        let inbox = project.0.join(change::inbox_path("c1"));
+        let _ = fs::remove_file(&inbox);
+        fs::create_dir_all(&inbox).unwrap();
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut steps = ProjectSteps::new(root, root, "c1", &limits, settings, &[], voice);
+        let decided = recipe::Steps::decide(&mut steps, "G3", "ok", "machines", "");
+        assert_eq!(decided, Ok(()));
+        assert_eq!(steps.voice.kept(), "");
+        let warning = "warning: the Decision Inbox of c1 was not saved: ";
+        let said = steps.errors.kept();
+        assert!(said.starts_with(warning) && said.ends_with('\n'), "{said}");
     }
 
     #[test]
