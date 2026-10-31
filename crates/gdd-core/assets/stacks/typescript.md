@@ -1,5 +1,5 @@
 ---
-description: "TypeScript in a GDD project: steps with cucumber-js, unit tests, what the gates catch"
+description: "Use when writing or reviewing TypeScript code, unit tests or cucumber-js scenario steps in this GDD project, before you start. Says where the tests and steps live and what the gates catch in TypeScript: StrykerJS, tsc, ESLint and dependency-cruiser."
 ---
 
 # GDD · TypeScript

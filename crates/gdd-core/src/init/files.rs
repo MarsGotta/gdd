@@ -33,12 +33,20 @@ const NO_SENSITIVE: &str = "(None named yet.)";
 /// What the output says when the project has its own AGENTS.md, before what to add to it.
 const AGENTS_YOURS: &str = "AGENTS.md is yours: add to AGENTS.md a line that sends agents to GDD:";
 
+/// What the line of AGENTS.md that says how to install says before the install command.
+const INSTALL: &str = "- Install: ";
+
+/// What the line of AGENTS.md that says how to install says after the install command.
+const FIRST_INSTALL: &str = " (the first time, `gdd bootstrap` writes the lock file).";
+
 /// A file of instructions for agents that gdd init writes when the project has none.
 pub(super) struct Instructions {
     /// The file, from the project root.
     pub(super) file: &'static str,
-    /// Its text.
+    /// Its template.
     pub(super) template: &'static str,
+    /// Its text from its template, for a project of the stacks given.
+    pub(super) text: fn(&str, &[String]) -> Result<String, String>,
     /// What the output says when the project has its own: what to add to it.
     pub(super) yours: fn() -> String,
 }
@@ -48,14 +56,54 @@ pub(super) const INSTRUCTIONS: [Instructions; 2] = [
     Instructions {
         file: "AGENTS.md",
         template: AGENTS,
+        text: agents,
         yours: agents_yours,
     },
     Instructions {
         file: "CLAUDE.md",
         template: CLAUDE,
+        text: as_it_is,
         yours: claude_yours,
     },
 ];
+
+/// AGENTS.md for a project of the `stacks`, from its `template`: with `{checks}` filled with how
+/// to install and the G2 commands, as `gdd/commands.toml` gets them (see [`stacks::checks`] and
+/// [`checks_section`]).
+fn agents(template: &str, stacks: &[String]) -> Result<String, String> {
+    let (install, g2) = stacks::checks(stacks).map_err(|e| e.to_string())?;
+    let checks = checks_section(&install, &g2);
+    Ok(fill(template, &[("checks", &checks)]))
+}
+
+/// What `{checks}` of AGENTS.md says: a line with the `install` command, when there is one, then
+/// a line with each of the `g2` commands, by name.
+fn checks_section(install: &str, g2: &[(String, String)]) -> String {
+    let mut lines = Vec::new();
+    if !install.is_empty() {
+        lines.push(format!("{INSTALL}{}{FIRST_INSTALL}", code(install)));
+    }
+    let check = |(name, command): &(String, String)| format!("- `{name}`: {}", code(command));
+    lines.extend(g2.iter().map(check));
+    lines.join("\n")
+}
+
+/// `text` as inline code in Markdown: between backticks, or, when it holds some, between more
+/// backticks than its longest run of them, with a space inside.
+fn code(text: &str) -> String {
+    let runs = text.split(|c| c != '`').map(str::len);
+    let longest = runs.max().unwrap_or_default();
+    if longest == 0 {
+        return format!("`{text}`");
+    }
+    let fence = "`".repeat(longest + 1);
+    format!("{fence} {text} {fence}")
+}
+
+/// A `template` that needs nothing of the project, as it is.
+fn as_it_is(template: &str, _stacks: &[String]) -> Result<String, String> {
+    Ok(template.to_string())
+}
 
 /// What to add to an AGENTS.md of the project's own: the second paragraph of the template.
 fn agents_yours() -> String {
@@ -393,5 +441,42 @@ mod tests {
         assert_eq!((agents.yours)(), expected);
         let claude_md = "CLAUDE.md is yours: add to CLAUDE.md: @AGENTS.md";
         assert_eq!((claude.yours)(), claude_md);
+    }
+
+    #[test]
+    fn agents_md_names_how_to_install_and_each_g2_command() {
+        let [agents, claude] = &INSTRUCTIONS;
+        let rust = ["rust".to_string()];
+        let text = (agents.text)(agents.template, &rust).unwrap();
+        let checks = "checks for you.\n\n\
+                      - Install: `cargo fetch --locked` (the first time, `gdd bootstrap` writes \
+                      the lock file).\n";
+        assert!(text.contains(checks), "{text}");
+        let unit = "\n- `unit`: `cargo test --workspace`\n- `acceptance`: `cargo test --test \
+                    acceptance`\n- Scenarios of one file: ";
+        assert!(text.contains(unit), "{text}");
+        assert!(!text.contains("{checks}"), "{text}");
+        assert!(text.starts_with(AGENTS.split("{checks}").next().unwrap()));
+        assert_eq!((claude.text)(claude.template, &rust).unwrap(), CLAUDE);
+        let unknown = (agents.text)(agents.template, &["cobol".to_string()]).unwrap_err();
+        let said = "unknown stack cobol (known: python, rust, typescript)";
+        assert_eq!(unknown, said);
+    }
+
+    #[test]
+    fn the_checks_have_an_install_line_only_when_there_is_an_install() {
+        let g2 = [("unit".to_string(), "u".to_string())];
+        assert_eq!(checks_section("", &g2), "- `unit`: `u`");
+        let both = "- Install: `i` (the first time, `gdd bootstrap` writes the lock file).\n\
+                    - `unit`: `u`";
+        assert_eq!(checks_section("i", &g2), both);
+        assert_eq!(checks_section("", &[]), "");
+    }
+
+    #[test]
+    fn code_takes_more_backticks_than_the_text_holds() {
+        assert_eq!(code("cargo test"), "`cargo test`");
+        assert_eq!(code("a`b"), "`` a`b ``");
+        assert_eq!(code("a``b`"), "``` a``b` ```");
     }
 }

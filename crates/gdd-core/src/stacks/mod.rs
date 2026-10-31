@@ -5,7 +5,8 @@
 //! install, its lines of `.gitignore` and the CI steps that set up its tools. Each stack also has
 //! its instructions for the agents and its skeleton, the files a new project of it starts with
 //! ([`skeleton`]). A project names the stacks it uses in `stack` of `gdd/project.toml`
-//! ([`of_project`]); [`compose()`] says what several sheets give together.
+//! ([`of_project`]); [`compose()`] says what several sheets give together, and [`checks()`] how
+//! they install and the G2 commands they run.
 
 mod compose;
 
@@ -17,7 +18,7 @@ use toml::Spanned;
 
 use crate::config;
 
-pub use compose::compose;
+pub use compose::{checks, compose};
 
 /// What the tool has built in for a stack.
 struct BuiltIn {

@@ -1,5 +1,5 @@
 ---
-description: "Reviewer from another model family: OK or KO on the change"
+description: "Started by gdd; do not run it yourself. gdd launch starts it headless as the Reviewer, of another model family than the Builder, after G3 passes, with change=[id] and round=1 or round=2. Reads the whole change and answers OK or KO with findings; changes no file."
 ---
 
 # GDD · Reviewer

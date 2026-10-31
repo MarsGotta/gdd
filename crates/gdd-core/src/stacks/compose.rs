@@ -18,8 +18,27 @@ const COUNT: &str = concat!(
 /// What the sheets of the stacks `names` give together, as TOML (see [`composed`]). A name
 /// given twice counts once, where it comes first.
 pub fn compose(names: &[String]) -> Result<String, Error> {
-    let sheets: Result<Vec<Sheet>, Error> = once(names).iter().map(|name| sheet(name)).collect();
-    composed(&sheets?)
+    composed(&sheets(names)?)
+}
+
+/// How a project of the stacks `names` installs and the G2 commands it runs, as [`compose`]
+/// writes them: the installs one after the other (see [`install`]), then each G2 command that is
+/// not empty, by its name, in order (see [`combined`]). A name given twice counts once; no name
+/// is an error.
+pub fn checks(names: &[String]) -> Result<(String, Vec<(String, String)>), Error> {
+    let sheets = sheets(names)?;
+    if sheets.is_empty() {
+        return Err(Error::NoName);
+    }
+    // G2 is the first section.
+    let g2 = combined(&sheets, 0).into_iter();
+    let g2 = g2.filter(|(_, command)| !command.is_empty()).collect();
+    Ok((install(&sheets), g2))
+}
+
+/// The sheets of the stacks `names`, each once, where it comes first.
+fn sheets(names: &[String]) -> Result<Vec<Sheet>, Error> {
+    once(names).iter().map(|name| sheet(name)).collect()
 }
 
 /// What `sheets` give together, as TOML without a line break at the end: their installs one
@@ -30,9 +49,7 @@ fn composed(sheets: &[Sheet]) -> Result<String, Error> {
     let [first, ..] = sheets else {
         return Err(Error::NoName);
     };
-    let installs = sheets.iter().map(|sheet| sheet.install.as_str());
-    let installs: Vec<&str> = installs.filter(|install| !install.is_empty()).collect();
-    let mut lines = vec![entry("install", installs.join(" && "))];
+    let mut lines = vec![entry("install", install(sheets))];
     for (at, section) in SECTIONS.iter().enumerate() {
         lines.extend([String::new(), format!("[{section}]")]);
         let commands = combined(sheets, at).into_iter();
@@ -52,6 +69,13 @@ fn composed(sheets: &[Sheet]) -> Result<String, Error> {
     lines.push(entry("builder_build", build));
     lines.push(entry("builder_test", test));
     Ok(lines.join("\n"))
+}
+
+/// The installs of `sheets` that are not empty, one after the other.
+fn install(sheets: &[Sheet]) -> String {
+    let installs = sheets.iter().map(|sheet| sheet.install.as_str());
+    let installs: Vec<&str> = installs.filter(|install| !install.is_empty()).collect();
+    installs.join(" && ")
 }
 
 /// `<key> = <value>`, the value written as TOML.
@@ -259,6 +283,42 @@ mod tests {
         assert_eq!(twice, compose(&names(&["rust"])).unwrap());
         assert!(twice.contains("\nacceptance_full = "), "{twice}");
         assert!(!twice.contains("-rust"), "{twice}");
+    }
+
+    /// The names of the G2 commands `checks` gives for the stacks `named`, and its install.
+    fn checked(named: &[&str]) -> (String, Vec<String>) {
+        let (install, g2) = checks(&names(named)).unwrap();
+        (install, g2.into_iter().map(|(name, _)| name).collect())
+    }
+
+    #[test]
+    fn the_checks_are_the_install_and_the_g2_commands_that_are_not_empty() {
+        let (install, g2) = checks(&names(&["rust"])).unwrap();
+        assert_eq!(install, "cargo fetch --locked");
+        // Rust leaves types and architecture empty in its sheet.
+        let named: Vec<&str> = g2.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(named, ["lint", "unit", "acceptance"]);
+        assert_eq!(g2[1].1, "cargo test --workspace");
+        let both = [
+            "lint-python",
+            "lint-rust",
+            "types",
+            "unit-python",
+            "unit-rust",
+            "acceptance-python",
+            "acceptance-rust",
+            "architecture",
+        ];
+        let install = "uv sync --locked && cargo fetch --locked".to_string();
+        assert_eq!(checked(&["python", "rust"]), (install, names(&both)));
+        assert_eq!(checked(&["rust", "rust"]), checked(&["rust"]));
+    }
+
+    #[test]
+    fn checking_needs_a_known_stack() {
+        assert_eq!(checks(&[]), Err(Error::NoName));
+        let unknown = checks(&names(&["rust", "cobol"]));
+        assert_eq!(unknown, Err(Error::Unknown("cobol".into())));
     }
 
     /// The text of `value`, which must be TOML text.

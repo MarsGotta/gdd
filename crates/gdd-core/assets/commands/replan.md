@@ -1,5 +1,5 @@
 ---
-description: "Orchestrator, headless: replans a task stuck in G2"
+description: "Started by gdd; do not run it yourself. gdd launch starts it headless as the Orchestrator when a Builder used up its retries and G2 is still red. Finds the cause and writes one new approach in replan.md, ending with NEXT: test or NEXT: build."
 ---
 
 # GDD · Replan

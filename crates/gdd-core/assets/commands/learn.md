@@ -1,5 +1,5 @@
 ---
-description: "Phase 5 · Learn: harden the gates from the log and the failures"
+description: "Use when several changes have closed or parked, or when the same G2 failure, Reviewer finding or polish note keeps coming back. Runs gdd learn, reads the log and the reports, and proposes one rule, lint, hook or test per repeated error. Never loosens a gate."
 ---
 
 # GDD · Phase 5 · Learn

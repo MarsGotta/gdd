@@ -4,7 +4,8 @@
 //! [`roles`]), the skeletons of the stacks (see [`skeletons`]), none of the files it writes
 //! already there, for it never overwrites one, no symbolic link on the way to what it writes and
 //! no other name (a hard link) for the file it appends to, for it never writes out of the folder.
-//! Then it writes the harness (see [`files`]), AGENTS.md and CLAUDE.md when the project has none,
+//! Then it writes the harness (see [`files`]), AGENTS.md (with how to install and the G2
+//! commands of the stacks) and CLAUDE.md when the project has none,
 //! the skeleton of each stack the folder has no project of, the lines of every stack and `.gdd/`
 //! in `.gitignore` and the agents' commands as `gdd agents install` does, and commits what it
 //! wrote, and only that, in a new repository when the folder is in none. It stays offline:
@@ -272,7 +273,8 @@ impl Plan {
             if exists(root, item.file)? {
                 notes.push((item.yours)());
             } else {
-                instructions.push((item.file.to_string(), item.template.to_string()));
+                let text = (item.text)(item.template, &stacks)?;
+                instructions.push((item.file.to_string(), text));
             }
         }
         let lines = sheets.iter().flat_map(stacks::Sheet::ignore);
@@ -613,6 +615,10 @@ mod tests {
         let rust = files::commands(&names(&["rust"])).unwrap();
         assert_eq!(commands, rust);
         assert_eq!(read(&folder, "CLAUDE.md"), "@AGENTS.md\n");
+        let agents = read(&folder, "AGENTS.md");
+        let unit = "\n- `unit`: `cargo test --workspace`\n";
+        assert!(agents.contains(unit), "{agents}");
+        assert!(!agents.contains("{checks}"), "{agents}");
         let brief = read(&folder, approve::BRIEF);
         let title = "# Project Brief · Notes\n";
         assert!(brief.starts_with(title), "{brief}");

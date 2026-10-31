@@ -330,6 +330,42 @@ mod tests {
         }
     }
 
+    /// The commands gdd starts itself, headless: their description says so.
+    const STARTED_BY_GDD: [&str; 4] = ["build", "build-test", "review", "replan"];
+
+    /// What the description of a command gdd starts begins with.
+    const STARTED: &str = "Started by gdd; do not run it yourself. ";
+
+    #[test]
+    fn every_description_says_what_it_does_and_when_to_use_it() {
+        let stacks = stacks::NAMES.split(", ").map(|name| {
+            let template = stacks::instructions(name).unwrap();
+            (format!("stack-{name}"), template)
+        });
+        let commands = COMMANDS.iter().map(|&(name, t)| (name.to_string(), t));
+        for (command, template) in commands.chain(stacks) {
+            let (description, _) = parts(template).unwrap();
+            let start = if STARTED_BY_GDD.contains(&command.as_str()) {
+                STARTED
+            } else {
+                "Use when "
+            };
+            assert!(description.starts_with(start), "{command}: {description}");
+            assert!(description.chars().count() <= 1024, "{command}");
+            // Claude Code shows < and > as entities; the render doubles '.
+            for wrong in ['\u{2014}', '\u{2013}', '<', '>', '\'', '"'] {
+                assert!(!description.contains(wrong), "{command}: {wrong}");
+            }
+            // A skill name as the Agent Skills specification asks, and the name of its folder.
+            let name = sheets::name(&command);
+            assert!(name.len() <= 64 && !name.contains("--"), "{name}");
+            let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-';
+            assert!(name.chars().all(allowed), "{name}");
+            let skill = sheet("claude").path(&command);
+            assert_eq!(skill, format!(".claude/skills/{name}/SKILL.md"));
+        }
+    }
+
     #[test]
     fn the_instructions_of_every_stack_render_for_every_agent() {
         for stack in stacks::NAMES.split(", ") {
