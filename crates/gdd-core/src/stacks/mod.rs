@@ -718,6 +718,163 @@ alternative = "other lint"
         assert_eq!((code, log.lines().count()), (2, 1), "{log}");
     }
 
+    /// Runs the `[g3]` command `name` of the sheet of `stack` from `root`, with `env` and, first
+    /// on the PATH, a fake of each `(program, body)`: a script that logs a line with its name and
+    /// arguments in `$log`, then runs `body` (sh). Returns the exit code, the output and the log.
+    fn g3_run(
+        stack: &str,
+        name: &str,
+        root: &std::path::Path,
+        fakes: &[(&str, &str)],
+        env: &[(&str, &str)],
+    ) -> (i32, String, String) {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+        let g3 = &of(stack).sections[1];
+        let (_, command) = g3.iter().find(|(known, _)| known == name).unwrap();
+        let programs = Folder::new();
+        let logs = "#!/bin/sh\nlog=\"$(dirname \"$0\")/log\"\n\
+                    echo \"$(basename \"$0\") $*\" >> \"$log\"\n";
+        for (program, body) in fakes {
+            let path = programs.0.join(program);
+            fs::write(&path, format!("{logs}{body}\n")).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let old = std::env::var("PATH").unwrap_or_default();
+        let found = format!("{}:{old}", programs.0.display());
+        let mut all = vec![("PATH", found.as_str())];
+        all.extend_from_slice(env);
+        let ran = exec::run(command, root, &all, exec::TIMEOUT).unwrap();
+        let log = fs::read_to_string(programs.0.join("log")).unwrap_or_default();
+        (ran.code, ran.output, log)
+    }
+
+    /// The body of a fake gitleaks: it reports `<line> fake-rule` for each line of its input with
+    /// `LEAK`, and fails when it reports one. Its input goes to the log, after its arguments.
+    const GITLEAKS: &str = "while [ $# -gt 0 ]; do [ \"$1\" = --report-path ] && out=$2; \
+                            shift; done\n\
+                            tee -a \"$log\" | grep -n LEAK | sed 's/:.*/ fake-rule/' > \"$out\"\n\
+                            [ ! -s \"$out\" ]";
+
+    /// A repository on change `c1` that adds lines with `LEAK`: committed on the branch or not,
+    /// in a file it edits, in lines that start with `++` (the diff writes them `+++ ...`, as a
+    /// file header), and in files whose path git quotes. It also removes a line with `LEAK`.
+    fn change_with_leaks() -> Repo {
+        let repo = Repo::new();
+        repo.write("old.py", "a = 1\nb = 2\n\nc = 3\nd = 4\n");
+        repo.write("gone.py", "LEAK = 0  # removed by the change\n");
+        repo.commit();
+        repo.start("c1");
+        repo.write("committed.py", "x = 1\nLEAK = 2\n");
+        repo.commit();
+        std::fs::remove_file(repo.root().join("gone.py")).unwrap();
+        repo.write("old.py", "a = 1\nb = 2\n\nc = 3\nLEAK = 5\nd = 4\n");
+        repo.write(
+            "plus.py",
+            "x = 1\n++ ID = \"LEAK\"\n++ b/elsewhere.py\ny = \"LEAK\"\n",
+        );
+        // A space (git ends the header with a tab), a letter that is not ASCII, a quote and a
+        // backslash.
+        for path in ["a b.py", "ñ.py", "q\"\\t.py"] {
+            repo.write(path, "LEAK = 1\n");
+        }
+        repo
+    }
+
+    /// A repository on a branch with no commit in common with `main`.
+    fn apart() -> Repo {
+        let repo = Repo::new();
+        repo.git(&["checkout", "-q", "--orphan", "apart"]);
+        // A tree of its own: the same tree in the same second would be main's very commit.
+        repo.write("apart.txt", "apart\n");
+        repo.commit();
+        repo
+    }
+
+    #[test]
+    fn secrets_names_the_path_and_line_of_each_added_line_never_the_value() {
+        let found = [
+            "a b.py:1",
+            "committed.py:2",
+            "old.py:5",
+            "plus.py:2",
+            "plus.py:4",
+            "q\"\\t.py:1",
+            "ñ.py:1",
+        ];
+        let said: String = found
+            .iter()
+            .map(|place| format!("secrets: {place}: fake-rule (value not shown)\n"))
+            .collect();
+        // Only the added lines reach gitleaks: no context, no removed line.
+        let read = "LEAK = 1\nx = 1\nLEAK = 2\nLEAK = 5\nx = 1\n++ ID = \"LEAK\"\n\
+                    ++ b/elsewhere.py\ny = \"LEAK\"\nLEAK = 1\nLEAK = 1\n";
+        let call = "gitleaks stdin --no-banner --redact ";
+        for stack in NAMES.split(", ") {
+            let repo = change_with_leaks();
+            let fakes = [("gitleaks", GITLEAKS)];
+            let (code, output, log) = g3_run(stack, "secrets", repo.root(), &fakes, &[]);
+            assert_eq!((code, output.as_str()), (1, said.as_str()), "{stack}");
+            let (called, input) = log.split_once('\n').unwrap_or_default();
+            assert!(called.starts_with(call), "{stack}: {called}");
+            assert_eq!(input, read, "{stack}");
+        }
+    }
+
+    #[test]
+    fn secrets_fails_without_calling_gitleaks_when_a_step_before_it_fails() {
+        let said = "secrets: the lines the change adds could not be read, so no secret was \
+                    checked\n";
+        // The index is locked, so git add fails.
+        let locked = Repo::new();
+        locked.write(".git/index.lock", "");
+        // There is no main, nor origin/main.
+        let trunk = Repo::new();
+        trunk.git(&["branch", "-m", "trunk"]);
+        // The branch has no commit in common with main.
+        let orphan = apart();
+        // No temporary folder can be made.
+        let (fine, none) = (Repo::new(), Folder::new());
+        let missing = none.0.join("missing").display().to_string();
+        let cases = [
+            (&locked, None),
+            (&trunk, None),
+            (&orphan, None),
+            (&fine, Some(("TMPDIR", missing.as_str()))),
+        ];
+        for (repo, env) in cases {
+            let vars: Vec<(&str, &str)> = env.into_iter().collect();
+            for stack in NAMES.split(", ") {
+                let fakes = [("gitleaks", GITLEAKS)];
+                let (code, output, log) = g3_run(stack, "secrets", repo.root(), &fakes, &vars);
+                assert_eq!((code, log.as_str()), (2, ""), "{stack}: {output}");
+                assert!(output.contains(said), "{stack}: {output}");
+            }
+        }
+    }
+
+    #[test]
+    fn mutation_fails_without_calling_the_tool_when_a_step_before_it_fails() {
+        // No temporary file can be made for what the tool reports.
+        let (project, none) = (Folder::new(), Folder::new());
+        let missing = none.0.join("missing").display().to_string();
+        let tools = [
+            ("python", "src/app.py", "uv"),
+            ("typescript", "src/app.ts", "npx"),
+        ];
+        for (stack, file, tool) in tools {
+            let env = [("GDD_DIFF_FILES", file), ("TMPDIR", missing.as_str())];
+            let fakes = [(tool, "exit 0")];
+            let (code, output, log) = g3_run(stack, "mutation", &project.0, &fakes, &env);
+            assert_eq!((code, log.as_str()), (1, ""), "{stack}: {output}");
+        }
+        // The branch has no commit in common with main: Rust mutates no other diff instead.
+        let repo = apart();
+        let fakes = [("cargo", "exit 0")];
+        let (code, output, log) = g3_run("rust", "mutation", repo.root(), &fakes, &[]);
+        assert_eq!((code, log.as_str()), (1, ""), "{output}");
+    }
+
     #[test]
     fn show_says_the_tools_the_commands_not_empty_and_the_protected_paths() {
         let expected = "Demo (demo) · scenarios: behave · detected by: a.toml, b.json\n\
