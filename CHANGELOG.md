@@ -6,6 +6,8 @@ All notable changes to gdd are documented in this file. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-31
+
 ### Added
 
 - The Board reloads by itself every 2 seconds and with r, keeping your place; gdd init starts a CHANGELOG.md; the Decision Inbox and the sitting say when a change's color and its scenarios come <!-- gdd: ded1190be0c2 -->
