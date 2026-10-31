@@ -25,6 +25,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 - `<state>/.gdd/changes/<id>/package.md`
 - The `.feature` files named in the package.
 - The code under the paths named in the package, for reading.
+- With `fix=review`: read `<state>/.gdd/changes/<id>/review.md` and fix only the findings on files test mode writes (the scenario steps and the tests written first), at every place of the same class; the build mode that follows fixes the rest. Never edit an approved `.feature` file.
 
 ## What you do
 

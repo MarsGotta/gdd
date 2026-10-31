@@ -35,6 +35,7 @@ All notable changes to gdd are documented in this file. The format follows
 - One command, gdd, for people, agents and CI: new projects get no bin/gdd, and every instruction, permission and message says gdd <!-- gdd: bf0b35c640d6 -->
 - The setup skill starts from what gdd init wrote, installs missing lock files and adopts a repository that already has code; the status and learn skills read and run what every project has <!-- gdd: 3187d97a4f82 -->
 - The Setup form also installs the stacks, the empty Board and the form point to your agent, a sitting with nothing to approve says so, and gdd alone opens the Board in a terminal <!-- gdd: 722042b659cc -->
+- Next steps after gdd bootstrap, the sitting and gdd adopt name your agent's command instead of a command to type <!-- gdd: 612c36cc8dac -->
 
 ### Fixed
 
@@ -42,6 +43,7 @@ All notable changes to gdd are documented in this file. The format follows
 - Changelogs in the common heading styles <!-- gdd: 855039356ee9 -->
 - A new Python project runs its scenarios, and its G3 writes nothing under .gdd <!-- gdd: 768c33f2b099 -->
 - An adopted project with known debt passes its self-test, so G0 can open <!-- gdd: 7e2cc0087fba -->
+- A Reviewer finding on a test-mode file gets a test-mode fix round instead of parking the change, red zones approved on main count for changes created before, and the setup skill asks for the red zones and ends with your first change <!-- gdd: e244577dc77a -->
 
 ### Security
 
