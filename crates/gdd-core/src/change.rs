@@ -524,6 +524,17 @@ pub fn with_request_resolved(
     resolved_where(text, ts, &["needs"], |said| said == request)
 }
 
+/// The record `text` with its requests for the human still open (`needs` notes) whose text
+/// `which` picks resolved at `ts`. They stay in the record, out of the Decision Inbox. Every other
+/// field keeps its value.
+pub fn with_requests_resolved_where(
+    text: &str,
+    ts: &str,
+    which: impl Fn(&str) -> bool,
+) -> Result<String, serde_json::Error> {
+    resolved_where(text, ts, &["needs"], which)
+}
+
 /// The record `text` with its open notes of one of `kinds` whose text `which` picks resolved at
 /// `ts`.
 fn resolved_where(
@@ -1294,6 +1305,27 @@ mod tests {
         assert_eq!(value["inbox"][6]["resolved"], Value::Null);
         assert!(with_request_resolved("{not json", "G4?", "now").is_err());
         assert_eq!(POLISH, "polish");
+    }
+
+    #[test]
+    fn the_requests_a_rule_picks_are_resolved_and_the_others_stay_open() {
+        let text = r#"{"id": "c1", "inbox": [
+            {"kind": "needs", "text": "G4 · old words"},
+            {"kind": "needs", "text": "Other"},
+            {"kind": "needs", "text": "G4 · new words"},
+            {"kind": "needs", "text": "G4 · done", "resolved": "2026-01-02"},
+            {"kind": "decided", "text": "G4 · kept"}
+        ]}"#;
+        let g4 = |said: &str| said.starts_with("G4 · ");
+        let written = with_requests_resolved_where(text, "now", g4).unwrap();
+        assert!(written.ends_with("}\n"), "{written}");
+        let value: Value = serde_json::from_str(&written).unwrap();
+        let notes = value["inbox"].as_array().unwrap();
+        let resolved: Vec<&Value> = notes.iter().map(|note| &note["resolved"]).collect();
+        let (now, done, null) = (Value::from("now"), Value::from("2026-01-02"), Value::Null);
+        assert_eq!(resolved, [&now, &null, &now, &done, &null]);
+        assert_eq!(value["id"], "c1");
+        assert!(with_requests_resolved_where("{not json", "now", g4).is_err());
     }
 
     #[test]

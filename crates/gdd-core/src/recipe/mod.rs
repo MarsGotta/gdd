@@ -114,6 +114,10 @@ const ON_LATEST_MAIN: &str = "automatic chain on top of the latest main";
 /// What the note on a promotion that failed after the human's OK starts with.
 const PROMOTION_FAILED: &str = "Promotion failed: ";
 
+/// What the request of G4 starts with, as every gdd writes it, this one and the ones before (see
+/// [`g4_request`] and [`answers_g4`]).
+const G4_REQUEST: &str = "G4 · Release Gate:";
+
 /// The state of a change in production (see [`release::promote`]).
 const IN_PRODUCTION: &str = "in-production";
 
@@ -587,7 +591,7 @@ pub fn resume(
     }
     picked(id, answer, variant, &variants_in(state_root, id)?)?;
     if record["state"] == release::PROMOTING {
-        answered(state_root, id, text, &record)?;
+        answered(state_root, id, &text)?;
         return unsure(
             state_root,
             id,
@@ -604,14 +608,14 @@ pub fn resume(
     match answer {
         Answer::Ok if record["type"] == SPIKE => {
             let answer = Picked { note, variant };
-            spike_ok(project, id, &answer, text, &record, steps)
+            spike_ok(project, id, &answer, &text, &record, steps)
         }
         Answer::Ok => {
-            answered(state_root, id, text, &record)?;
+            answered(state_root, id, &text)?;
             ok_at_g4(project, id, note, in_production, steps)
         }
         Answer::Ko => {
-            answered(state_root, id, text, &record)?;
+            answered(state_root, id, &text)?;
             state::clear(state_root, id)?;
             steps.decide("G4", "ko", "human", note)?;
             saved_in_state(state_root, id, "rejected")?;
@@ -621,7 +625,7 @@ pub fn resume(
         Answer::Polish => {
             // First, so a worktree that cannot be made leaves the change paused.
             let start = to_polish(project, id, variant)?;
-            answered(state_root, id, text, &record)?;
+            answered(state_root, id, &text)?;
             state::clear(state_root, id)?;
             // It no longer waits at G4: its pass runs without the lock.
             drop(lock);
@@ -682,16 +686,11 @@ fn picked(
     }
 }
 
-/// Writes `text`, the record of change `id` under the state root `root`, whose JSON is
-/// `record`, with the requests an answer to its G4 resolves resolved (see [`g4_requests`]).
-fn answered(root: &Path, id: &str, text: String, record: &Value) -> Result<(), String> {
+/// Writes `text`, the record of change `id` under the state root `root`, with the requests an
+/// answer to its G4 resolves resolved (see [`answers_g4`]).
+fn answered(root: &Path, id: &str, text: &str) -> Result<(), String> {
     let path = change::record_path(id);
-    let ts = log::now();
-    let answered = g4_requests(id, record)
-        .iter()
-        .try_fold(text, |text, request| {
-            change::with_request_resolved(&text, request, &ts)
-        })
+    let answered = change::with_requests_resolved_where(text, &log::now(), answers_g4)
         .map_err(|e| format!("{path}: {e}"))?;
     change::write(root, &path, &answered)
 }
@@ -719,18 +718,11 @@ fn variant_worktree(project: &Project, id: &str, number: usize) -> Result<PathBu
     worktree::path(folder, &change::variant_id(id, number))
 }
 
-/// The requests to the human that an answer to the G4 of change `id`, whose record is `record`,
-/// resolves: the request of G4, and the notes on promotions that failed.
-fn g4_requests(id: &str, record: &Value) -> Vec<String> {
-    let notes = record["inbox"].as_array().into_iter().flatten();
-    let failed = notes
-        .filter_map(|note| note["text"].as_str())
-        .filter(|text| text.starts_with(PROMOTION_FAILED));
-    let kind = record["type"].as_str().unwrap_or_default();
-    let variants = record["variants"].as_array().map_or(0, Vec::len);
-    let mut requests = vec![g4_request_of(id, kind, variants)];
-    requests.extend(failed.map(str::to_string));
-    requests
+/// Whether an answer to G4 resolves the request to the human that says `said`: the request of G4,
+/// in the words of this gdd or of an older one (a change paused before an upgrade), and the notes
+/// on promotions that failed.
+fn answers_g4(said: &str) -> bool {
+    said.starts_with(G4_REQUEST) || said.starts_with(PROMOTION_FAILED)
 }
 
 /// OK at G4 of change `id` of `project`, by the human with `note`: the decision recorded, the
@@ -768,7 +760,7 @@ fn spike_ok(
     project: &Project,
     id: &str,
     answer: &Picked,
-    text: String,
+    text: &str,
     record: &Value,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
@@ -787,7 +779,7 @@ fn spike_ok(
         appended: &section,
     };
     merge::adr_only(project.root, project.main, id, title, &from)?;
-    answered(state_root, id, text, record)?;
+    answered(state_root, id, text)?;
     steps.decide("G4", "ok", "human", answer.note)?;
     state::clear(state_root, id)?;
     saved_in_state(state_root, id, "closed")?;
@@ -931,21 +923,25 @@ fn saved_in_state(root: &Path, id: &str, state: &str) -> Result<(), String> {
 }
 
 /// The request to the human at G4 of change `id`, whose kind of work is `kind`, in its Decision
-/// Inbox. A spike has no demo and is never promoted: its request is for its ADR files.
+/// Inbox. A spike has no demo and is never promoted: its request is for its ADR files. The person
+/// answers their agent or the sitting screen; the `gdd resume` command at the end is what the
+/// agent runs.
 fn g4_request(id: &str, kind: &str) -> String {
     if kind == SPIKE {
         let branch = change::branch(id);
         return format!(
-            "G4 · Release Gate: read the ADR files the spike left under {ADR_FOLDER} on its \
-             branch {branch}, then answer with gdd resume {id} --g4 ok (bring only those files \
-             to main, in a commit of their own: its code stays on its branch), --g4 ko (reject: \
-             main untouched) or --g4 polish --note <what to polish> (one more Builder round)."
+            "{G4_REQUEST} read the ADR files the spike left under {ADR_FOLDER} on its branch \
+             {branch}, then answer your agent (or the sitting screen): OK brings only those \
+             files to main, in a commit of their own (its code stays on its branch), KO rejects \
+             it (main untouched), polish with your notes runs one more Builder round. Your agent \
+             runs gdd resume {id} --g4 ok, --g4 ko or --g4 polish --note <your notes>."
         );
     }
     format!(
-        "G4 · Release Gate: check the pre demo and the change message, then answer with \
-         gdd resume {id} --g4 ok (promote to production), --g4 ko (reject: production \
-         untouched) or --g4 polish --note <what to polish> (one more Builder round)."
+        "{G4_REQUEST} check the pre demo and the change message, then answer your agent (or the \
+         sitting screen): OK promotes to production, KO rejects it (production untouched), \
+         polish with your notes runs one more Builder round. Your agent runs gdd resume {id} \
+         --g4 ok, --g4 ko or --g4 polish --note <your notes>."
     )
 }
 
@@ -959,12 +955,14 @@ fn g4_request_of(id: &str, kind: &str, variants: usize) -> String {
     let first = change::variant_id(id, 1);
     let last = change::variant_id(id, variants);
     format!(
-        "G4 · Release Gate: compare the variants of the spike below, and read the ADR files each \
-         left under {ADR_FOLDER} on its branch (change/{first} to change/{last}), then answer \
-         with gdd resume {id} --g4 ok --variant <n> (bring only the ADR files of variant n to \
-         main, in a commit of their own that lists the variants not chosen: the code of every \
-         variant stays on its branch), --g4 ko (reject them all: main untouched) or --g4 polish \
-         --variant <n> --note <what to polish> (one more Builder round on that variant)."
+        "{G4_REQUEST} compare the variants of the spike below, and read the ADR files each left \
+         under {ADR_FOLDER} on its branch (change/{first} to change/{last}), then answer your \
+         agent (or the sitting screen) with the variant you pick: OK brings only the ADR files \
+         of that variant to main, in a commit of their own that lists the variants not chosen \
+         (the code of every variant stays on its branch), KO rejects them all (main untouched), \
+         polish with a variant and your notes runs one more Builder round on it. Your agent runs \
+         gdd resume {id} --g4 ok --variant <n>, --g4 ko or --g4 polish --variant <n> --note \
+         <your notes>."
     )
 }
 
@@ -4190,6 +4188,35 @@ mod tests {
         assert!(request["resolved"].is_string(), "{request}");
     }
 
+    /// The request of G4 of change `c1` in the words of gdd 0.1.0.
+    const G4_REQUEST_OF_0_1_0: &str = "G4 · Release Gate: check the pre demo and the change \
+        message, then answer with gdd resume c1 --g4 ok (promote to production), --g4 ko \
+        (reject: production untouched) or --g4 polish --note <what to polish> (one more Builder \
+        round).";
+
+    #[test]
+    fn ok_at_g4_resolves_the_request_an_older_gdd_wrote_and_no_other_request() {
+        let notes = format!(
+            r#""inbox": [{{"kind": "needs", "text": "{G4_REQUEST_OF_0_1_0}", "ts": "t"}},
+                         {{"kind": "needs", "text": "Which colour?", "ts": "t"}}]"#
+        );
+        let repo = repo_with_change(&RECORD.replace(r#""inbox": []"#, &notes));
+        let (root, here) = (repo.root(), repo.project());
+        state::pause_at_g4(root, "c1").unwrap();
+        let text = change::read_record(root, "c1").unwrap();
+        let inbox = inbox::save(root, "c1", &text).unwrap();
+        assert!(inbox.contains(G4_REQUEST_OF_0_1_0), "{inbox}");
+        let mut steps = played(root);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(open_requests(root), ["Which colour?"]);
+        let text = change::read_record(root, "c1").unwrap();
+        let inbox = inbox::save(root, "c1", &text).unwrap();
+        assert!(!inbox.contains("then answer with gdd resume"), "{inbox}");
+        assert!(inbox.contains("Which colour?"), "{inbox}");
+    }
+
     /// The texts of the requests to the human still open in the record of change `c1`.
     fn open_requests(root: &Path) -> Vec<String> {
         let record = record(root);
@@ -5068,10 +5095,13 @@ mod tests {
         let repo = spike_paused();
         assert_eq!(open_requests(repo.root()), [g4_request("c1", SPIKE)]);
         let request = g4_request("c1", SPIKE);
-        let start = "G4 · Release Gate: read the ADR files the spike left under docs/adr/ on its \
-                     branch change/c1, then answer with gdd resume c1 --g4 ok (bring only those \
-                     files to main, in a commit of their own: its code stays on its branch), ";
-        assert!(request.starts_with(start), "{request}");
+        let said = "G4 · Release Gate: read the ADR files the spike left under docs/adr/ on its \
+                    branch change/c1, then answer your agent (or the sitting screen): OK brings \
+                    only those files to main, in a commit of their own (its code stays on its \
+                    branch), KO rejects it (main untouched), polish with your notes runs one \
+                    more Builder round. Your agent runs gdd resume c1 --g4 ok, --g4 ko or --g4 \
+                    polish --note <your notes>.";
+        assert_eq!(request, said);
         for promised in ["demo", " pre", "production", "promot"] {
             assert!(!request.contains(promised), "{promised}: {request}");
         }
@@ -5079,7 +5109,12 @@ mod tests {
         assert!(inbox.contains("the ADR files the spike left"), "{inbox}");
         // Any other kind keeps the request of a release.
         let feature = g4_request("c1", "Feature");
-        assert!(feature.contains("check the pre demo"), "{feature}");
+        let said = "G4 · Release Gate: check the pre demo and the change message, then answer \
+                    your agent (or the sitting screen): OK promotes to production, KO rejects it \
+                    (production untouched), polish with your notes runs one more Builder round. \
+                    Your agent runs gdd resume c1 --g4 ok, --g4 ko or --g4 polish --note <your \
+                    notes>.";
+        assert_eq!(feature, said);
         assert_eq!(g4_request("c1", ""), feature);
     }
 
@@ -5339,14 +5374,16 @@ mod tests {
         let root = repo.root();
         assert_eq!(open_requests(root), [g4_request_of("c1", SPIKE, 2)]);
         let request = g4_request_of("c1", SPIKE, 2);
-        for said in [
-            "compare the variants of the spike",
-            "(change/c1-v1 to change/c1-v2)",
-            "gdd resume c1 --g4 ok --variant <n>",
-            "--g4 polish --variant <n> --note <what to polish>",
-        ] {
-            assert!(request.contains(said), "{said}: {request}");
-        }
+        let said = "G4 · Release Gate: compare the variants of the spike below, and read the ADR \
+                    files each left under docs/adr/ on its branch (change/c1-v1 to change/c1-v2), \
+                    then answer your agent (or the sitting screen) with the variant you pick: OK \
+                    brings only the ADR files of that variant to main, in a commit of their own \
+                    that lists the variants not chosen (the code of every variant stays on its \
+                    branch), KO rejects them all (main untouched), polish with a variant and \
+                    your notes runs one more Builder round on it. Your agent runs gdd resume c1 \
+                    --g4 ok --variant <n>, --g4 ko or --g4 polish --variant <n> --note <your \
+                    notes>.";
+        assert_eq!(request, said);
         for promised in ["demo", " pre", "production", "promot"] {
             assert!(!request.contains(promised), "{promised}: {request}");
         }
