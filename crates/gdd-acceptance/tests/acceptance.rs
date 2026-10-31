@@ -1147,6 +1147,19 @@ fn resolved_request(w: &mut GddWorld, id: String, text: String) {
     write_record(&root, &id, &record);
 }
 
+#[given(expr = "the change {string} has an open parked note {string}")]
+fn open_parked_note(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let mut record = read_record(&root, &id);
+    let inbox = record["inbox"].as_array_mut().expect("an inbox list");
+    inbox.push(serde_json::json!({
+        "kind": "parked",
+        "text": text,
+        "ts": "2026-01-01T00:00:00+00:00",
+    }));
+    write_record(&root, &id, &record);
+}
+
 #[then(expr = "the file {string} holds the same text as the output")]
 fn file_holds_output(w: &mut GddWorld, path: String) {
     let text = fs::read_to_string(project_root(w).join(&path))
