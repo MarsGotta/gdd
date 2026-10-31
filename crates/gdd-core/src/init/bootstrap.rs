@@ -23,7 +23,8 @@ const MESSAGE: &str = "gdd bootstrap";
 /// What it says when the run wrote nothing to commit.
 const NOTHING: &str = "Nothing new to commit.";
 /// What to do once the stacks are installed.
-const NEXT: &str = "Next: gdd selftest";
+const NEXT: &str = "Next: in your coding agent, the gdd-setup command finishes the Setup \
+                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
 
 /// Why gdd bootstrap stopped, and what it said until then.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,8 +206,9 @@ mod tests {
         let installs = [("a", "printf one"), ("b", "echo two >&2"), ("c", "true")];
         let (why, said) = ran(&folder, &installs, &[]);
         assert_eq!(why, "");
-        let expected = "a: printf one\none\nb: echo two >&2\ntwo\nc: true\n\
-                        Nothing new to commit.\nNext: gdd selftest";
+        let expected = format!(
+            "a: printf one\none\nb: echo two >&2\ntwo\nc: true\nNothing new to commit.\n{NEXT}"
+        );
         assert_eq!(said, expected);
         assert_eq!(last_commit(&folder), "first");
     }
@@ -236,8 +238,8 @@ mod tests {
         let supply_chain = ["a.lock", "b.lock", "c.lock", "d.lock", "e.lock"];
         let (why, said) = ran(&folder, &[("x", writes)], &supply_chain);
         assert_eq!(why, "");
-        let end = "\nCommitted: a.lock, b.lock\nNext: gdd selftest";
-        assert!(said.ends_with(end), "{said}");
+        let end = format!("\nCommitted: a.lock, b.lock\n{NEXT}");
+        assert!(said.ends_with(&end), "{said}");
         assert_eq!(last_commit(&folder), "gdd bootstrap");
         let last = git(&folder, &["show", "--name-only", "--format=", "HEAD"]);
         assert_eq!(last, "a.lock\nb.lock");
@@ -318,8 +320,7 @@ mod tests {
         let rust = ["rust".to_string()];
         let env = with_cargo(&programs, "echo lock > Cargo.lock");
         let said = bootstrap(&folder.0, &rust, &env).unwrap();
-        let expected = "rust: cargo generate-lockfile\n\
-                        Committed: Cargo.lock\nNext: gdd selftest";
+        let expected = format!("rust: cargo generate-lockfile\nCommitted: Cargo.lock\n{NEXT}");
         assert_eq!(said, expected);
         let env = with_cargo(&programs, "echo broken; exit 1");
         let stopped = bootstrap(&folder.0, &rust, &env).unwrap_err();

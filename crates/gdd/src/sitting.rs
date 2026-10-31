@@ -641,7 +641,7 @@ impl Sitting {
                 on_branch: false,
             });
         }
-        let next = format!("Next: gdd launch {id}");
+        let next = format!("Next: tell your agent it is approved (it runs gdd launch {id})");
         self.record(&steps, Some(next));
     }
 
@@ -1900,7 +1900,13 @@ mod tests {
         let mut sitting = open(&project, "rec");
         approve(&mut sitting);
         assert_shows(&sitting, &["Recorded", "G1 ok on rec"]);
-        assert_shows(&sitting, &["Next: gdd launch rec", SCROLL_KEYS]);
+        assert_shows(
+            &sitting,
+            &[
+                "Next: tell your agent it is approved (it runs gdd launch rec)",
+                SCROLL_KEYS,
+            ],
+        );
         let log = log(&project);
         for gate in ["\"G1\"", "\"zones\"", "\"plan\""] {
             assert!(log.contains(gate), "{gate} in {log}");
@@ -2087,7 +2093,13 @@ mod tests {
         assert_shows(&sitting, &["red zones ok: 2 red zone(s)"]);
         assert_hides(&sitting, &[CHANGED]);
         sitting.press(Key::Char('y'));
-        assert_shows(&sitting, &["Recorded", "Next: gdd launch chg"]);
+        assert_shows(
+            &sitting,
+            &[
+                "Recorded",
+                "Next: tell your agent it is approved (it runs gdd launch chg)",
+            ],
+        );
     }
 
     #[test]
