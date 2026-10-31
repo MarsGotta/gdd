@@ -1,5 +1,5 @@
 ---
-description: "Builder, test mode: acceptance steps and tests that fail for the right reason"
+description: "Started by gdd; do not run it yourself. gdd launch starts it headless as the Builder in test mode, with change=[id], before the build. Writes the scenario steps and the tests first, failing for the right reason, without touching the production code."
 ---
 
 # GDD · Builder, test mode

@@ -1,5 +1,5 @@
 ---
-description: "Python in a GDD project: steps with pytest-bdd, unit tests, what the gates catch"
+description: "Use when writing or reviewing Python code, unit tests or pytest-bdd scenario steps in this GDD project, before you start. Says where the tests and steps live and what the gates catch in Python: mutmut, mypy, Ruff, Bandit, import-linter and OSV-Scanner."
 ---
 
 # GDD · Python

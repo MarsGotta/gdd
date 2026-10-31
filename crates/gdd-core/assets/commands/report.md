@@ -1,5 +1,5 @@
 ---
-description: "Token report by change, phase, model and role"
+description: "Use when the person asks what the agents cost or where the time went: tokens, cost and time by change, phase, role, model or agent. Adds this session with gdd session, runs gdd report and sums it up in a few lines."
 ---
 
 # GDD · Report
