@@ -145,7 +145,7 @@ A polish version: a first change with no stumbles, and numbers gdd can stand beh
 - The G4 sitting says `Changelog: none set` while the merge commit carries the line; the Reviewer's absolute link path shows on the sitting; the inbox before launch does not list the pending G1; a closed change's inbox keeps a `Needs your decision` note.
 - Refusals that still name only Builders and Reviewers: `gdd learn`, `gdd gate`, `gdd changelog-line`, `gdd release` (the guard says `Agents that gdd started` since 0.1.1). The report skill still tells the agent to explain a cost of 0.
 - `g3.json` keeps gitleaks' colored log lines and mutmut's progress frames in the failure tail; mutmut's `mutants/` folder keeps copies of tests deleted on the branch; `gdd session --change` reads prices from the checkout it runs in; a spike's budget counts only costs the agents report.
-- Agent legibility (change `agent-legibility`): every skill gdd installs says what it does and when to use it (Agent Skills spec), and the AGENTS.md that `gdd init` writes names the install, check and scenario commands of the project's stacks.
+- Agent legibility (change `agent-legibility`, done 2026-10-31): every skill gdd installs says what it does and when to use it (Agent Skills spec), and the AGENTS.md that `gdd init` writes names the install, check and scenario commands of the project's stacks.
 - Docs: the guides that still ask you to type commands (upgrade, CI, measure, releases) go through the agent; the changelog scenario says the Orchestrator proposes the line at the sitting, but no agent instruction does.
 
 ## 0.2

@@ -6,6 +6,10 @@ All notable changes to gdd are documented in this file. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Agents read what gdd installs: skills say when to use them, AGENTS.md names the checks <!-- gdd: c89b9598d8c5 -->
+
 ## [0.1.1] - 2026-10-31
 
 ### Added
