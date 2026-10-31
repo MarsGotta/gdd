@@ -3196,7 +3196,34 @@ fn main_has_the_file(w: &mut GddWorld, step: &cucumber::gherkin::Step, path: Str
     );
 }
 
+/// The variables gdd sets for the agents it starts. A scenario never inherits them: when an agent
+/// runs the scenarios (`gdd g2` in its session), the runner starts itself again without them, so
+/// what reads the process environment (the sitting, the Setup form) runs as a person.
+const AGENT_VARIABLES: [&str; 4] = ["GDD_ROLE", "GDD_CHANGE", "GDD_ROOT", "GDD_STATE"];
+
+/// Runs the scenarios again in a process without [`AGENT_VARIABLES`], with the same arguments, and
+/// ends with its exit code; `None` when none of them is set.
+fn without_agent_variables() -> Option<i32> {
+    if AGENT_VARIABLES
+        .iter()
+        .all(|name| std::env::var_os(name).is_none())
+    {
+        return None;
+    }
+    let me = std::env::current_exe().expect("the path of the scenario runner");
+    let mut runner = std::process::Command::new(me);
+    runner.args(std::env::args_os().skip(1));
+    for name in AGENT_VARIABLES {
+        runner.env_remove(name);
+    }
+    let status = runner.status().expect("the scenario runner starts again");
+    Some(status.code().unwrap_or(1))
+}
+
 fn main() {
+    if let Some(code) = without_agent_variables() {
+        std::process::exit(code);
+    }
     let root = repo_root();
     let listed: HashSet<PathBuf> = std::env::var("GDD_FEATURES")
         .unwrap_or_default()

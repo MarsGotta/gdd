@@ -957,6 +957,16 @@ mod tests {
 
     const FIX_LINE: &str = r#""changelog": {"section": "Fixed", "line": "Crash"}"#;
 
+    /// What a promotion said, but waiting for the merge lock. A promotion that takes the lock
+    /// right after another one let it go may wait a moment: a process another test starts
+    /// meanwhile keeps the lock of the one before until it starts its program (a lock belongs to
+    /// the open file, see `File::lock`). The code is right to wait; the tests assert the rest.
+    fn heard(said: &[String]) -> Vec<String> {
+        let mut heard = said.to_vec();
+        heard.retain(|line| line.as_str() != queue::WAITING);
+        heard
+    }
+
     #[test]
     fn a_promotion_gets_its_version_and_releases_it_once_it_passed() {
         let repo = with_change(FIX_LINE);
@@ -977,7 +987,7 @@ mod tests {
             said.push(line.to_string())
         });
         assert!(promoted.unwrap().contains(r#""name":"promote""#));
-        assert_eq!(said, ["Released v1.2.4"]);
+        assert_eq!(heard(&said), ["Released v1.2.4"]);
         assert_eq!(named(&repo, "v1.2.4"), head(&repo));
         let record = record(&repo);
         assert_eq!(record["version"], "1.2.4");
