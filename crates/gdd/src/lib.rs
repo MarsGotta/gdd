@@ -1328,7 +1328,9 @@ fn run_ci(root: &Path, state: &Path, env: &Env) -> Result<Outcome, String> {
 }
 
 /// `gdd session`: the requests of the interactive Claude Code sessions of the project into the
-/// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`.
+/// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`,
+/// priced from `gdd/models.toml` of the project at `root` (see [`agent_settings`]): without it,
+/// every cost is unknown. A models file that cannot be read imports nothing.
 fn import_session(
     root: &Path,
     state: &Path,
@@ -1337,7 +1339,8 @@ fn import_session(
     env: &Env,
 ) -> Result<String, String> {
     let home = variable(env, "HOME").ok_or(NO_HOME)?;
-    session::import(root, state, Path::new(home), phase, change)
+    let settings = agent_settings(root)?;
+    session::import(root, state, Path::new(home), phase, change, &settings)
 }
 
 /// Runs `gate` on change `id` for `role`, as its kind of work has it (see
@@ -2893,8 +2896,8 @@ mod tests {
         assert_eq!(
             entries,
             serde_json::json!([
-                {"model": "gpt-x", "calls": 1, "tokens_in": 10, "tokens_cache": 0, "tokens_out": 2, "cost_usd": 0.0, "duration_s": 0.0},
-                {"model": "opus", "calls": 1, "tokens_in": 1200, "tokens_cache": 0, "tokens_out": 20, "cost_usd": 0.5, "duration_s": 4.0},
+                {"model": "gpt-x", "calls": 1, "tokens_in": 10, "tokens_cache": 0, "tokens_out": 2, "cost_usd": 0.0, "cost_estimated": false, "calls_without_price": 0, "duration_s": 0.0},
+                {"model": "opus", "calls": 1, "tokens_in": 1200, "tokens_cache": 0, "tokens_out": 20, "cost_usd": 0.5, "cost_estimated": false, "calls_without_price": 0, "duration_s": 4.0},
             ])
         );
         assert_eq!(
@@ -4159,6 +4162,53 @@ mod tests {
         let records = log_records(&project);
         assert_eq!(records[0].text("change"), "c1");
         assert_eq!(records[0].tokens_out, 4);
+        // Without gdd/models.toml there are no prices: its cost is unknown.
+        assert_eq!(records[0].text("cost_basis"), "unknown");
+    }
+
+    #[test]
+    fn session_prices_the_requests_from_the_models_of_the_project() {
+        let project = Project::new();
+        let home = Project::new();
+        let root = fs::canonicalize(&project.0).unwrap();
+        let named = |c: char| if c.is_ascii_alphanumeric() { c } else { '-' };
+        let folder: String = root.display().to_string().chars().map(named).collect();
+        let line = r#"{"uuid": "u1", "message": {"model": "m", "usage": {"output_tokens": 4}}}"#;
+        home.write(&format!(".claude/projects/{folder}/s1.jsonl"), line);
+        let env = [("HOME".to_string(), home.0.display().to_string())];
+        let session = words("session --phase 1-discover");
+        // A models file gdd cannot read, or cannot parse, imports nothing.
+        let models = project.0.join("gdd/models.toml");
+        fs::create_dir_all(&models).unwrap();
+        let out = run_with_env(&session, &project.0, &env);
+        assert_eq!(out.code, 1);
+        let unread = "error: cannot read gdd/models.toml: ";
+        assert!(out.stderr.starts_with(unread), "{}", out.stderr);
+        fs::remove_dir(&models).unwrap();
+        project.write("gdd/models.toml", "[prices.m\n");
+        let out = run_with_env(&session, &project.0, &env);
+        let invalid = "error: gdd/models.toml: invalid TOML";
+        assert!(out.stderr.starts_with(invalid), "{}", out.stderr);
+        assert!(!project.0.join(log::PATH).exists());
+        // A price that is not a number of dollars imports nothing and marks no request.
+        for (price, shown) in [("nan", "NaN"), ("inf", "inf"), ("-1", "-1")] {
+            let models = format!("[prices.m]\noutput = {price}\n");
+            project.write("gdd/models.toml", &models);
+            let out = run_with_env(&session, &project.0, &env);
+            let refused = format!(
+                "error: gdd/models.toml: invalid TOML: prices.m.output must be a number 0 or \
+                 more, not {shown}\n"
+            );
+            assert_eq!(out, Outcome::failure(refused));
+            assert!(!project.0.join(log::PATH).exists());
+            assert!(!project.0.join(".gdd/imported_requests.json").exists());
+        }
+        project.write("gdd/models.toml", "[prices.m]\noutput = 1000000\n");
+        let out = run_with_env(&session, &project.0, &env);
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        let records = log_records(&project);
+        assert_eq!(records[0].cost_usd, 4.0);
+        assert_eq!(records[0].text("cost_basis"), "estimated");
     }
 
     /// A project in a git repository, its files committed on `main`, without changes.

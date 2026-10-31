@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::agents::invoke::Settings;
+use crate::agents::usage::Usage;
 use crate::{change, log};
 
 /// The phases of the method: a session is counted in one of them.
@@ -91,6 +93,7 @@ struct Line<'a> {
     tokens_cache: u64,
     tokens_out: u64,
     cost_usd: f64,
+    cost_basis: &'a str,
     duration_s: f64,
     result: &'a str,
     retry: u64,
@@ -102,8 +105,10 @@ struct Line<'a> {
 /// one). The transcripts are the `.jsonl` files of `<home>/.claude/projects/<root>`, `<root>`
 /// being the canonical root with every character outside `A-Za-z0-9` turned into `-`, but those
 /// of the sessions in `.gdd/headless_sessions.txt`. The log gets the new requests, one line per
-/// model, and they join the ones in `.gdd/imported_requests.json`: a request is never counted
-/// twice, and when either file cannot be written both stay as they were, so the import can run
+/// model, priced with the price `settings` give its model, or unknown without one (a transcript
+/// reports no cost: see [`Settings::cost`]), and they join the ones in
+/// `.gdd/imported_requests.json`: a request is never counted twice, and when either file cannot
+/// be written, or a cost is not a finite number, both stay as they were, so the import can run
 /// again. What to tell the human, in one line. An id that cannot name a change is an error before
 /// anything is read.
 pub fn import(
@@ -112,6 +117,7 @@ pub fn import(
     home: &Path,
     phase: &str,
     id: Option<&str>,
+    settings: &Settings,
 ) -> Result<String, String> {
     if let Some(id) = id {
         change::check_id(id)?;
@@ -130,7 +136,7 @@ pub fn import(
         let used = models.entry(&request.model).or_default();
         used.count(&request.used);
     }
-    let lines = lines(phase, id.unwrap_or("-"), &models)?;
+    let lines = lines(phase, id.unwrap_or("-"), &models, settings)?;
     kept(state, &lines, &imported)?;
     Ok(format!(
         "Session imported: {} new requests across {} model(s), phase {phase}.",
@@ -251,13 +257,28 @@ fn kept(state: &Path, lines: &[String], imported: &BTreeSet<String>) -> Result<(
         .map_err(|e| format!("cannot write {IMPORTED}: {e}"))
 }
 
-/// The lines of the log for `models`, one per model with what its requests used: the
-/// Orchestrator's conversation with the human, in `phase`, for `change`.
-fn lines(phase: &str, change: &str, models: &BTreeMap<&str, Used>) -> Result<Vec<String>, String> {
+/// The lines of the log for `models`, one per model with what its requests used, priced with
+/// `settings`: the Orchestrator's conversation with the human, in `phase`, for `change`. A cost
+/// that is not a finite number is an error: the log cannot write it.
+fn lines(
+    phase: &str,
+    change: &str,
+    models: &BTreeMap<&str, Used>,
+    settings: &Settings,
+) -> Result<Vec<String>, String> {
     let ts = log::now();
     let mut lines = Vec::new();
     for (&model, used) in models {
         let note = format!("session with the human · {} requests", used.calls);
+        let usage = Usage {
+            tokens_in: used.tokens_in,
+            tokens_cache: used.tokens_cache,
+            tokens_out: used.tokens_out,
+            cost_usd: 0.0,
+        };
+        let priced = settings.cost(model, &usage);
+        let (cost_usd, basis) =
+            priced.map_err(|why| format!("cannot write {}: {why}", log::PATH))?;
         let line = Line {
             ts: &ts,
             change,
@@ -269,7 +290,8 @@ fn lines(phase: &str, change: &str, models: &BTreeMap<&str, Used>) -> Result<Vec
             tokens_in: used.tokens_in,
             tokens_cache: used.tokens_cache,
             tokens_out: used.tokens_out,
-            cost_usd: 0.0,
+            cost_usd,
+            cost_basis: basis.as_str(),
             duration_s: 0.0,
             result: "ok",
             retry: 0,
@@ -313,7 +335,13 @@ mod tests {
         }
 
         fn import(&self, id: Option<&str>) -> Result<String, String> {
-            import(&self.root.0, &self.root.0, &self.home.0, "1-discover", id)
+            self.priced(id, &Settings::default())
+        }
+
+        /// Imports with the prices of `settings`.
+        fn priced(&self, id: Option<&str>, settings: &Settings) -> Result<String, String> {
+            let (root, home) = (&self.root.0, &self.home.0);
+            import(root, root, home, "1-discover", id, settings)
         }
 
         fn log(&self) -> Vec<log::Record> {
@@ -379,6 +407,51 @@ mod tests {
     }
 
     #[test]
+    fn each_model_is_priced_from_the_table_or_its_cost_is_unknown() {
+        let sessions = Sessions::new();
+        sessions.said("s1", &request_line("r1", "opus", 40));
+        sessions.said("s1", &request_line("r2", "sonnet", 7));
+        let prices = "[prices.opus]\ninput = 20\ncache = 2\noutput = 50\n";
+        let settings = Settings::from_toml(prices).unwrap();
+        assert_eq!(sessions.priced(None, &settings), Ok(message(2, 2)));
+        let log = sessions.log();
+        // 13 in, 5 from the cache and 40 out at 20, 2 and 50 per million.
+        let opus = &log[0];
+        let cost = opus.cost_usd;
+        assert!((cost - 0.00227).abs() < 1e-12, "{cost}");
+        assert_eq!(opus.cost_basis(), log::CostBasis::Estimated);
+        let sonnet = &log[1];
+        assert_eq!(sonnet.cost_usd, 0.0);
+        assert_eq!(sonnet.text("cost_basis"), "unknown");
+        let path = sessions.root.0.join(log::PATH);
+        let text = fs::read_to_string(path).unwrap();
+        let order = r#","cost_usd":0.0,"cost_basis":"unknown","duration_s":0.0,"#;
+        assert!(text.contains(order), "{text}");
+    }
+
+    #[test]
+    fn a_cost_that_is_not_a_finite_number_imports_nothing() {
+        let sessions = Sessions::new();
+        sessions.said("s1", &request_line("r1", "opus", 40));
+        sessions.said("s1", &request_line("r2", "sonnet", 7));
+        // 40 output tokens at a price this large cost more than a number holds.
+        let huge = Settings::from_toml("[prices.opus]\noutput = 1.7e308\n").unwrap();
+        let err = sessions.priced(None, &huge).unwrap_err();
+        let said = "cannot write .gdd/log.jsonl: the cost of opus is not a finite number: inf";
+        assert_eq!(err, said);
+        for path in [log::PATH, IMPORTED, IMPORTING] {
+            assert!(!sessions.root.0.join(path).exists(), "{path}");
+        }
+        // No request was marked as imported: with a price gdd can stand behind, they all are.
+        let price = Settings::from_toml("[prices.opus]\noutput = 50\n").unwrap();
+        assert_eq!(sessions.priced(None, &price), Ok(message(2, 2)));
+        assert_eq!(sessions.imported(), serde_json::json!(["r1", "r2"]));
+        let log = sessions.log();
+        assert_eq!(log[0].cost_basis(), log::CostBasis::Estimated);
+        assert_eq!(log[0].cost_usd, 0.002);
+    }
+
+    #[test]
     fn the_transcripts_are_the_project_s_and_the_log_is_under_its_state_root() {
         let sessions = Sessions::new();
         let state = Folder::new();
@@ -391,6 +464,7 @@ mod tests {
             &sessions.home.0,
             "1-discover",
             None,
+            &Settings::default(),
         );
         assert_eq!(said, Ok(message(1, 1)));
         let text = fs::read_to_string(state.0.join(log::PATH)).unwrap();
