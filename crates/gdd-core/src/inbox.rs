@@ -48,6 +48,9 @@ const DEBT_PAID: &str = "Known debt paid";
 /// A group of the inbox from the gate reports: its title and one item per entry.
 pub type Group = (&'static str, Vec<String>);
 
+/// What the header says of a change that has neither a color nor a lane yet.
+const UNDECIDED: &str = "Color and lane not decided yet (gdd decides them at launch)";
+
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
 
@@ -157,9 +160,15 @@ pub fn render(
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
     let decision = raw.decision.unwrap_or_default();
-    let color = decision.color.unwrap_or_else(|| "?".into());
-    let lane = decision.lane.unwrap_or_else(|| "?".into());
     let state = raw.state.unwrap_or_else(|| "?".into());
+    let decided = match (decision.color, decision.lane) {
+        (None, None) => format!("{UNDECIDED} · state {state}"),
+        (color, lane) => {
+            let color = color.unwrap_or_else(|| "?".into());
+            let lane = lane.unwrap_or_else(|| "?".into());
+            format!("Color {color} · lane {lane} · state {state}")
+        }
+    };
     let explained = review.and_then(|review| explained(review, &state));
     let mut groups: [Vec<String>; 3] = Default::default();
     let mut polish = Vec::new();
@@ -182,10 +191,7 @@ pub fn render(
     if !accepted.is_empty() {
         groups[1].push(format!("{ACCEPTED} {}", accepted.join(", ")));
     }
-    let mut blocks = vec![
-        format!("# Decision Inbox · {id} · {title}"),
-        format!("Color {color} · lane {lane} · state {state}"),
-    ];
+    let mut blocks = vec![format!("# Decision Inbox · {id} · {title}"), decided];
     blocks.extend(explained);
     let variants = variant_lines(&raw.variants.unwrap_or_default());
     blocks.extend(listed(VARIANTS, &variants));
@@ -408,12 +414,18 @@ mod tests {
     fn a_record_that_says_little_gets_an_inbox_with_nothing() {
         let expected = concat!(
             "# Decision Inbox · c2 · \n\n",
-            "Color ? · lane ? · state ?\n\n",
+            "Color and lane not decided yet (gdd decides them at launch) · state ?\n\n",
             "## Needs your decision\n- Nothing.\n\n",
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
         );
         assert_eq!(render("c2", "{}", NO_REVIEW, &NONE).unwrap(), expected);
+        let one = r#"{"decision": {"color": "red"}}"#;
+        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        assert!(text.contains("\nColor red · lane ? · state ?\n"), "{text}");
+        let one = r#"{"decision": {"lane": "full"}}"#;
+        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        assert!(text.contains("\nColor ? · lane full · state ?\n"), "{text}");
         let nulls = r#"{"decision": null, "inbox": null, "out_of_scope": null}"#;
         assert_eq!(render("c2", nulls, NO_REVIEW, &NONE).unwrap(), expected);
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
@@ -672,7 +684,8 @@ mod tests {
             let record = format!(r#"{{"state": "{state}"}}"#);
             let text = render("c1", &record, Some(review), &NONE).unwrap();
             let start = format!(
-                "# Decision Inbox · c1 · \n\nColor ? · lane ? · state {state}\n\n\
+                "# Decision Inbox · c1 · \n\nColor and lane not decided yet (gdd decides them \
+                 at launch) · state {state}\n\n\
                  ## How it works\nThe export reads each note.\n  - As it is\n\n\
                  ## Needs your decision\n"
             );

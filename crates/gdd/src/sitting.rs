@@ -1150,7 +1150,9 @@ fn text_hash(text: &str) -> Result<String, String> {
 fn scenario_lines(id: &str, scenarios: &[Scenario]) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from("Scenarios").bold()];
     if scenarios.is_empty() {
-        let none = format!("No scenario files on {}", change::branch(id));
+        let branch = change::branch(id);
+        let none =
+            format!("No scenarios on {branch} yet: they show here once your agent commits them");
         lines.push(Line::from(none));
     }
     for scenario in scenarios {
@@ -1798,12 +1800,16 @@ mod tests {
         assert_shows(&sitting, &["    Scenario: Hid"]);
     }
 
+    /// What the sitting says of a change whose branch has no scenarios.
+    const NONE_YET: &str =
+        "No scenarios on change/c1 yet: they show here once your agent commits them";
+
     #[test]
     fn a_change_without_scenario_files_says_so_and_seals_nothing() {
         let project = repo();
         gdd(&project, "new-change c1 --title Drafts --paths src/a.rs");
         let mut sitting = open(&project, "c1");
-        assert_shows(&sitting, &["No scenario files on change/c1"]);
+        assert_shows(&sitting, &[NONE_YET]);
         sitting.press(Key::Char('a'));
         assert_shows(&sitting, &["This records, as you:"]);
         assert_shows(&sitting, &["red zones ok: 1 red zone(s)"]);
@@ -1816,7 +1822,7 @@ mod tests {
         gdd(&project, "new-change c1 --title Drafts --paths src/a.rs");
         git(&project.0, &["branch", "-D", "change/c1"]);
         let sitting = open(&project, "c1");
-        assert_shows(&sitting, &["No scenario files on change/c1"]);
+        assert_shows(&sitting, &[NONE_YET]);
     }
 
     #[test]

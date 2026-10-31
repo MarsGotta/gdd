@@ -18,9 +18,9 @@ Feature: Agents run only the commands their work needs (hidden examples)
 
   Scenario: A test-mode Builder cannot launch another change
     When the role "builder-test" runs "gdd launch c9"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd launch"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd launch"
 
   Scenario: A Reviewer cannot start a change
     When the role "reviewer" runs "gdd new-change c3 --title Import"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd new-change"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd new-change"
     And the branch "change/c3" does not exist

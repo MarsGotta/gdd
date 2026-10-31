@@ -55,6 +55,12 @@ const HEADER: &str = "# Changelog\n\n\
 /// The heading of what no version released yet.
 const UNRELEASED: &str = "## [Unreleased]";
 
+/// The changelog of a project that has none: the header and an empty Unreleased.
+#[must_use]
+pub fn started() -> String {
+    format!("{HEADER}\n\n{UNRELEASED}\n")
+}
+
 /// What starts the heading of a version, and of a section.
 const VERSION_MARK: &str = "## ";
 const SECTION_MARK: &str = "### ";
@@ -2275,6 +2281,24 @@ mod tests {
         assert!(err.starts_with(start), "{err}");
         let notes = fs::read_to_string(outside.0.join("notes.md")).unwrap();
         assert_eq!(notes, "# Outside\n\n## [Unreleased]\n");
+    }
+
+    #[test]
+    fn a_started_changelog_has_the_header_and_an_empty_unreleased_and_takes_a_release() {
+        let started = started();
+        assert_eq!(started, format!("{HEADER}\n\n## [Unreleased]\n"));
+        let repo = repository();
+        repo.write(PATH, &started);
+        // Nothing in it claims a line, so every merged line is still missing.
+        assert_eq!(missing(repo.root(), "main").unwrap().count(), 2);
+        release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap();
+        let text = read(&repo);
+        let start = format!("{started}\n## [1.1.0] - 2026-10-28\n\n### Changed\n\n");
+        assert!(text.starts_with(&start), "{text}");
+        assert!(
+            text.contains("- **Breaking:** One file per folder"),
+            "{text}"
+        );
     }
 
     #[test]
