@@ -1784,7 +1784,7 @@ case "$role" in
     text=$answer
     ;;
 esac
-text=$(printf '%s' "$text" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\n/\\n/g')
+text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 case "$integration" in
   claude)
     printf '{"type":"result","result":"%s","session_id":"fake-session","total_cost_usd":0.01,"usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":50,"output_tokens":20}}\n' "$text"
