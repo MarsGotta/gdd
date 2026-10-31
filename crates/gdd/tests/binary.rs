@@ -66,9 +66,9 @@ fn an_agent_named_in_gdd_role_records_no_gate() {
     let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
     assert_eq!(gate(Some(OsStr::new("reviewer"))), refused);
     assert_eq!(gate(Some(OsStr::new("builder-test"))), refused);
-    let not_for_agents = "error: Builders and Reviewers cannot run gdd gate: an agent gdd started \
-                          may only run gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd \
-                          inbox, gdd report and gdd scope.\n";
+    let not_for_agents = "error: Agents that gdd started cannot run gdd gate: they may only run \
+                          gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd \
+                          report and gdd scope.\n";
     assert_eq!(gate(Some(OsStr::new("orchestrator"))), not_for_agents);
     // A role that is not UTF-8 still names an agent.
     assert_eq!(gate(Some(OsStr::from_bytes(b"\xff\xfe"))), not_for_agents);

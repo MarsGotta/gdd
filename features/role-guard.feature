@@ -23,21 +23,21 @@ Feature: Agents run only the commands their work needs
 
   Scenario: A Builder cannot launch a change
     When the role "builder-build" runs "gdd launch c1"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd launch"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd launch"
 
   Scenario: A Reviewer cannot adopt the project
     When the role "reviewer" runs "gdd adopt"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd adopt"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd adopt"
     And the file "gdd/debt.toml" does not exist
 
   Scenario: The replanning Orchestrator cannot start a change
     When the role "orchestrator" runs "gdd new-change c2 --title Export"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd new-change"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd new-change"
     And the branch "change/c2" does not exist
 
   Scenario Outline: An agent cannot run <command>
     When the role "builder-test" runs "<line>"
-    Then it fails with a message that contains "Builders and Reviewers cannot run gdd <command>"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd <command>"
 
     Examples:
       | command   | line                   |

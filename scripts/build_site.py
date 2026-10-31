@@ -7,7 +7,8 @@
 docs/ is written for GitHub first, so each language is built from a staged copy:
 
 - docs/ (English, without docs/es/) goes to build/site-src, docs/es/ to build/site-src-es;
-- each README.md becomes the home page of its language, with a hero and four cards on top;
+- each README.md becomes the home page of its language: a hero, three ideas, four cards, then
+  the README from its "built with GDD" section on;
 - links that leave a language's folder (CONTRIBUTING.md, GDD.md, the project's records) point
   to the file on GitHub, and links to a folder's README.md point to its index page;
 - the project's own records (Brief, standards, ADRs, Discover notes) stay on GitHub;
@@ -80,21 +81,43 @@ HERO_EN = """\
 <div class="gd-hero" markdown>
 <div markdown>
 
-# gdd
+<p class="gd-eyebrow">gdd · Gate-Driven Development</p>
 
-<p class="gd-tagline">Build software with AI coding agents, one gate at a time. You talk to your
-agent; risk decides how many gates a change meets; machines check what can be checked, and you
-decide only what needs a person, in as few sittings as possible.</p>
+# Agents build.<br><span class="gd-grad">Gates check.</span><br>You decide.
+
+<p class="gd-tagline">Ship software with AI coding agents without reading every line they write. Risk decides how much checking each change gets.</p>
 
 [Quickstart](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD in one page](explanation/method.md){ .md-button }
 
 </div>
+<figure class="gd-chat" aria-label="A change in the chat, from your sentence to the release">
+<div class="gd-msg gd-you"><span class="gd-who">you</span><span>/gdd-change show the cart total, taxes included</span></div>
+<div class="gd-msg gd-agent"><span class="gd-who">agent</span><span><b>cart-total</b> is yellow. I drafted 3 scenarios. OK?</span></div>
+<div class="gd-msg gd-you"><span class="gd-who">you</span><span>OK</span></div>
+<div class="gd-msg gd-agent"><span class="gd-who">agent</span><span>Built and checked: G2 ✓ G3 ✓ Reviewer OK. Your G4 answer?</span></div>
+<div class="gd-msg gd-you"><span class="gd-who">you</span><span>OK</span></div>
+<div class="gd-msg gd-gdd"><span class="gd-who">gdd</span><span>Released v0.1.0</span></div>
+<figcaption>Abridged from the real Quickstart run.</figcaption>
+</figure>
+</div>
 
-![A change moves from G0 to G4: the harness, the scenarios you approve, the machines' gates,
-the Reviewer and your Release Gate. Green, yellow or red decides how strict each gate
-is.](assets/flow.svg)
-
+<div class="gd-pillars">
+<div class="gd-pillar gd-p1">
+<div class="gd-pillar-mark"><span class="gd-dot gd-g"></span><span class="gd-dot gd-y"></span><span class="gd-dot gd-r"></span></div>
+<h3>Risk sets the gates</h3>
+<p>A green change can take the fast lane. A red one, like payments or the gates themselves, meets every gate and a plan you approve.</p>
+</div>
+<div class="gd-pillar gd-p2">
+<div class="gd-pillar-mark">✓</div>
+<h3>The builder never judges itself</h3>
+<p>Tests, scanners, hidden examples and a Reviewer from another model family check every change.</p>
+</div>
+<div class="gd-pillar gd-p3">
+<div class="gd-pillar-mark">2</div>
+<h3>You stop twice, at most</h3>
+<p>Before the build you approve the scenarios. At the end you answer OK, KO or polish.</p>
+</div>
 </div>
 
 <div class="grid cards" markdown>
@@ -139,22 +162,43 @@ HERO_ES = """\
 <div class="gd-hero" markdown>
 <div markdown>
 
-# gdd
+<p class="gd-eyebrow">gdd · Gate-Driven Development</p>
 
-<p class="gd-tagline">Construye software con agentes de IA, puerta a puerta. Hablas con tu
-agente; el riesgo decide cuántas puertas pasa cada Change; las máquinas comprueban lo que se
-puede comprobar, y tú solo decides lo que necesita a una persona, en las menos sentadas
-posibles.</p>
+# Tus agentes construyen.<br><span class="gd-grad">Las puertas comprueban.</span><br>Tú decides.
+
+<p class="gd-tagline">Saca software con agentes de IA sin leer cada línea que escriben. El riesgo decide cuánto se comprueba cada Change.</p>
 
 [Inicio rápido](getting-started/quickstart.md){ .md-button .md-button--primary }
 [GDD en una página](explanation/method.md){ .md-button }
 
 </div>
+<figure class="gd-chat" aria-label="Un Change en el chat, de tu frase a la publicación">
+<div class="gd-msg gd-you"><span class="gd-who">tú</span><span>/gdd-change muestra el total del carrito, con impuestos</span></div>
+<div class="gd-msg gd-agent"><span class="gd-who">agente</span><span><b>cart-total</b> es amarillo. He escrito 3 escenarios. ¿Me das el OK?</span></div>
+<div class="gd-msg gd-you"><span class="gd-who">tú</span><span>OK</span></div>
+<div class="gd-msg gd-agent"><span class="gd-who">agente</span><span>Construido y comprobado: G2 ✓ G3 ✓ Reviewer OK. ¿Tu respuesta de G4?</span></div>
+<div class="gd-msg gd-you"><span class="gd-who">tú</span><span>OK</span></div>
+<div class="gd-msg gd-gdd"><span class="gd-who">gdd</span><span>Released v0.1.0</span></div>
+<figcaption>Resumido de la ejecución real del Inicio rápido.</figcaption>
+</figure>
+</div>
 
-![Un Change pasa de G0 a G4: el arnés, los escenarios que apruebas, las puertas de las
-máquinas, el Reviewer y tu puerta de salida. Verde, amarillo o rojo deciden lo estricta que es
-cada puerta.](assets/flow-es.svg)
-
+<div class="gd-pillars">
+<div class="gd-pillar gd-p1">
+<div class="gd-pillar-mark"><span class="gd-dot gd-g"></span><span class="gd-dot gd-y"></span><span class="gd-dot gd-r"></span></div>
+<h3>El riesgo pone las puertas</h3>
+<p>Un Change verde puede ir por la vía rápida. Uno rojo, como un cobro o las propias puertas, pasa por todas y por un plan que apruebas.</p>
+</div>
+<div class="gd-pillar gd-p2">
+<div class="gd-pillar-mark">✓</div>
+<h3>Quien construye no se juzga</h3>
+<p>Tests, escáneres, ejemplos ocultos y un Reviewer de otra familia de modelos comprueban cada Change.</p>
+</div>
+<div class="gd-pillar gd-p3">
+<div class="gd-pillar-mark">2</div>
+<h3>Paras dos veces, como mucho</h3>
+<p>Antes de construir apruebas los escenarios. Al final respondes OK, KO o polish.</p>
+</div>
 </div>
 
 <div class="grid cards" markdown>
@@ -193,6 +237,9 @@ cada puerta.](assets/flow-es.svg)
 
 </div>
 """
+
+HOME_FROM = {"en": "This project, built with GDD", "es": "Este proyecto, construido con GDD"}
+"""The home page shows the hero, then the README from this section on: the rest is in the nav."""
 
 HOME_TITLE = {"en": "Gate-Driven Development", "es": "Gate-Driven Development"}
 
@@ -241,7 +288,9 @@ def stage_page(text: str, source: Path, lang: str) -> str:
 
 def home_page(text: str, lang: str) -> str:
     """A README.md with the hero in place of its title and opening paragraphs."""
-    body = text.split("\n## ", 1)[1]
+    sections = text.split("\n## ")
+    keep = [i for i, part in enumerate(sections) if part.startswith(HOME_FROM[lang])][0]
+    body = "\n## ".join(sections[keep:])
     front = f"---\ntitle: {HOME_TITLE[lang]}\nhide:\n  - navigation\n  - toc\n---\n"
     hero = HERO_EN if lang == "en" else HERO_ES
     return front + "\n" + hero + "\n## " + body

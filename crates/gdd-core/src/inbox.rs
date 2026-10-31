@@ -3,6 +3,7 @@
 //! from the notes of its record; the security exceptions its last G3 named as added; and the
 //! known debt its latest G2 and G3 found still failing or paid.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -47,6 +48,9 @@ const DEBT_PAID: &str = "Known debt paid";
 /// A group of the inbox from the gate reports: its title and one item per entry.
 pub type Group = (&'static str, Vec<String>);
 
+/// What the header says of a change that has neither a color nor a lane yet.
+const UNDECIDED: &str = "Color and lane not decided yet (gdd decides them at launch)";
+
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
 
@@ -54,12 +58,26 @@ const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted
 const RESOLVED: &str =
     "earlier request(s) were resolved before the last launch (kept in change.json).";
 
+/// What follows the number of reasons to park that a later launch settled.
+const SETTLED: &str =
+    "earlier reason(s) to park were settled by a later launch (kept in change.json).";
+
+/// The kind of the notes that say why a change parked.
+const PARKED: &str = "parked";
+
+/// The title of the group of the KOs a human gave at a gate.
+const YOUR_DECISIONS: &str = "Your decisions";
+
+/// The gates of a change that keep a decision in its record, in the order of the method.
+const DECIDED_GATES: [&str; 5] = ["plan", "G1", "G2", "G3", "G4"];
+
 #[derive(Default, Deserialize)]
 #[serde(default)]
 struct Raw {
     title: Option<String>,
     state: Option<String>,
     decision: Option<RawDecision>,
+    gates: Option<BTreeMap<String, Value>>,
     inbox: Option<Vec<RawNote>>,
     out_of_scope: Option<Vec<String>>,
     variants: Option<Vec<Variant>>,
@@ -70,6 +88,46 @@ struct Raw {
 struct RawDecision {
     color: Option<String>,
     lane: Option<String>,
+}
+
+/// What a gate keeps of a decision: each field apart, so an odd one is left out.
+#[derive(Default)]
+struct RawGate {
+    decision: Option<String>,
+    by: Option<String>,
+    note: Option<String>,
+}
+
+impl RawGate {
+    /// The gate `value` says, or nothing for a value that is not an object.
+    fn of(value: &Value) -> Option<RawGate> {
+        let fields = value.as_object()?;
+        let text = |key: &str| fields.get(key)?.as_str().map(str::to_string);
+        Some(RawGate {
+            decision: text("decision"),
+            by: text("by"),
+            note: text("note"),
+        })
+    }
+
+    /// The line of a KO a human gave at the gate `name`; nothing for any other decision.
+    fn line(&self, name: &str) -> Option<String> {
+        if self.decision.as_deref() != Some("ko") || self.by.as_deref() != Some("human") {
+            return None;
+        }
+        let note = self.note.as_deref().unwrap_or_default().trim();
+        Some(if note.is_empty() {
+            format!("{name} ko")
+        } else {
+            format!("{name} ko: {note}")
+        })
+    }
+}
+
+/// The line of each KO a human gave at a gate of `gates`, in the order of [`DECIDED_GATES`].
+fn human_kos(gates: &BTreeMap<String, Value>) -> Vec<String> {
+    let line = |name: &&str| RawGate::of(gates.get(*name)?)?.line(name);
+    DECIDED_GATES.iter().filter_map(line).collect()
 }
 
 #[derive(Default, Deserialize)]
@@ -85,11 +143,14 @@ struct RawNote {
 /// gate reports (see [`save`]), without a line break at the end: its title, color, lane and
 /// state; then how the change works, when the review says it (see [`how_it_works`]), or that the
 /// Reviewer did not explain it while the change waits for its G4; then, for a spike with
-/// variants, the line of each (see [`Variant::line`]); then one group per kind of
+/// variants, the line of each (see [`Variant::line`]); then, when a human gave a KO at a gate
+/// (`plan`, `G1`, `G2`, `G3`, `G4`, in that order), `Your decisions` with `<gate> ko: <note>` for
+/// each (`<gate> ko` without a note); then one group per kind of
 /// note with the notes still open (`Nothing.` when there are none) and, among the decisions, the
 /// paths outside the package the scope check accepted; then each group of `reported` that has
 /// entries; then the human's notes at G4, when there are, under `Polish`; last, how many requests
-/// were resolved before the last launch, if any. Notes of other kinds are left out.
+/// were resolved before the last launch, if any, and how many reasons to park a later launch
+/// settled, if any. Notes of other kinds are left out.
 pub fn render(
     id: &str,
     record: &str,
@@ -99,17 +160,27 @@ pub fn render(
     let raw: Raw = serde_json::from_str(record)?;
     let title = raw.title.unwrap_or_default();
     let decision = raw.decision.unwrap_or_default();
-    let color = decision.color.unwrap_or_else(|| "?".into());
-    let lane = decision.lane.unwrap_or_else(|| "?".into());
     let state = raw.state.unwrap_or_else(|| "?".into());
+    let decided = match (decision.color, decision.lane) {
+        (None, None) => format!("{UNDECIDED} · state {state}"),
+        (color, lane) => {
+            let color = color.unwrap_or_else(|| "?".into());
+            let lane = lane.unwrap_or_else(|| "?".into());
+            format!("Color {color} · lane {lane} · state {state}")
+        }
+    };
     let explained = review.and_then(|review| explained(review, &state));
     let mut groups: [Vec<String>; 3] = Default::default();
     let mut polish = Vec::new();
-    let mut resolved = 0;
+    let (mut resolved, mut settled) = (0, 0);
     for note in raw.inbox.unwrap_or_default() {
         let group = NOTE_KINDS.iter().position(|kind| *kind == note.kind);
         if is_resolved(&note.resolved) {
-            resolved += 1;
+            if note.kind == PARKED {
+                settled += 1;
+            } else {
+                resolved += 1;
+            }
         } else if let Some(group) = group {
             groups[group].push(note.text);
         } else if note.kind == POLISH {
@@ -120,13 +191,14 @@ pub fn render(
     if !accepted.is_empty() {
         groups[1].push(format!("{ACCEPTED} {}", accepted.join(", ")));
     }
-    let mut blocks = vec![
-        format!("# Decision Inbox · {id} · {title}"),
-        format!("Color {color} · lane {lane} · state {state}"),
-    ];
+    let mut blocks = vec![format!("# Decision Inbox · {id} · {title}"), decided];
     blocks.extend(explained);
     let variants = variant_lines(&raw.variants.unwrap_or_default());
     blocks.extend(listed(VARIANTS, &variants));
+    blocks.extend(listed(
+        YOUR_DECISIONS,
+        &human_kos(&raw.gates.unwrap_or_default()),
+    ));
     for (heading, notes) in HEADINGS.iter().zip(groups) {
         let mut block = format!("## {heading}");
         if notes.is_empty() {
@@ -143,6 +215,9 @@ pub fn render(
     blocks.extend(listed("Polish", &polish));
     if resolved > 0 {
         blocks.push(format!("_{resolved} {RESOLVED}_"));
+    }
+    if settled > 0 {
+        blocks.push(format!("_{settled} {SETTLED}_"));
     }
     Ok(blocks.join("\n\n"))
 }
@@ -339,12 +414,18 @@ mod tests {
     fn a_record_that_says_little_gets_an_inbox_with_nothing() {
         let expected = concat!(
             "# Decision Inbox · c2 · \n\n",
-            "Color ? · lane ? · state ?\n\n",
+            "Color and lane not decided yet (gdd decides them at launch) · state ?\n\n",
             "## Needs your decision\n- Nothing.\n\n",
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
         );
         assert_eq!(render("c2", "{}", NO_REVIEW, &NONE).unwrap(), expected);
+        let one = r#"{"decision": {"color": "red"}}"#;
+        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        assert!(text.contains("\nColor red · lane ? · state ?\n"), "{text}");
+        let one = r#"{"decision": {"lane": "full"}}"#;
+        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        assert!(text.contains("\nColor ? · lane full · state ?\n"), "{text}");
         let nulls = r#"{"decision": null, "inbox": null, "out_of_scope": null}"#;
         assert_eq!(render("c2", nulls, NO_REVIEW, &NONE).unwrap(), expected);
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
@@ -389,6 +470,52 @@ mod tests {
         let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
         let end = "## Parked\n- Waiting for the API";
         assert!(text.ends_with(end), "{text}");
+    }
+
+    #[test]
+    fn a_human_ko_at_a_gate_shows_under_your_decisions_in_the_order_of_the_gates() {
+        let record = r#"{"gates": {
+            "G4": {"decision": "ko", "by": "human", "note": "  not yet  "},
+            "G1": {"decision": "ko", "by": "human", "note": "too vague"},
+            "plan": {"decision": "ko", "by": "human"},
+            "G2": {"decision": "ko", "by": "machines", "note": "x"},
+            "G3": {"decision": "ok", "by": "human", "note": "y"},
+            "zones": {"decision": "ko", "by": "human", "note": "z"}
+        }}"#;
+        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let group = "## Your decisions\n- plan ko\n- G1 ko: too vague\n- G4 ko: not yet\n\n\
+                     ## Needs your decision";
+        assert!(text.contains(group), "{text}");
+        let odd = r#"{"gates": {"G1": "ko", "G2": null, "G3": {"decision": 1, "by": "human"},
+            "G4": {"decision": "ko", "by": "human", "note": 3, "extra": true}}}"#;
+        let text = render("c1", odd, NO_REVIEW, &NONE).unwrap();
+        assert!(text.contains("## Your decisions\n- G4 ko\n\n"), "{text}");
+        for plain in ["{}", r#"{"gates": null}"#, r#"{"gates": {}}"#] {
+            let text = render("c1", plain, NO_REVIEW, &NONE).unwrap();
+            assert!(!text.contains(YOUR_DECISIONS), "{text}");
+        }
+        assert!(render("c1", r#"{"gates": []}"#, NO_REVIEW, &NONE).is_err());
+    }
+
+    #[test]
+    fn the_reasons_to_park_a_launch_settled_count_apart_from_the_requests() {
+        let record = r#"{"inbox": [
+            {"kind": "parked", "text": "Old", "resolved": "2026-01-02"},
+            {"kind": "parked", "text": "Older", "resolved": "2026-01-01"},
+            {"kind": "needs", "text": "Asked", "resolved": "2026-01-02"},
+            {"kind": "parked", "text": "Waiting"}
+        ]}"#;
+        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let end = concat!(
+            "## Parked\n- Waiting\n\n",
+            "_1 earlier request(s) were resolved before the last launch (kept in change.json)._\n\n",
+            "_2 earlier reason(s) to park were settled by a later launch (kept in change.json)._"
+        );
+        assert!(text.ends_with(end), "{text}");
+        let only = r#"{"inbox": [{"kind": "parked", "text": "Old", "resolved": "x"}]}"#;
+        let text = render("c1", only, NO_REVIEW, &NONE).unwrap();
+        assert!(!text.contains("earlier request"), "{text}");
+        assert!(text.contains("_1 earlier reason(s) to park"), "{text}");
     }
 
     #[test]
@@ -557,7 +684,8 @@ mod tests {
             let record = format!(r#"{{"state": "{state}"}}"#);
             let text = render("c1", &record, Some(review), &NONE).unwrap();
             let start = format!(
-                "# Decision Inbox · c1 · \n\nColor ? · lane ? · state {state}\n\n\
+                "# Decision Inbox · c1 · \n\nColor and lane not decided yet (gdd decides them \
+                 at launch) · state {state}\n\n\
                  ## How it works\nThe export reads each note.\n  - As it is\n\n\
                  ## Needs your decision\n"
             );

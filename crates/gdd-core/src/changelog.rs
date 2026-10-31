@@ -7,7 +7,7 @@
 //! record (see [`record`]); without one, its title goes under the section of its kind of work,
 //! and Refactors, Spikes and No-code changes are left out (see [`of_change`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::Permissions;
 use std::path::Path;
 
@@ -54,6 +54,12 @@ const HEADER: &str = "# Changelog\n\n\
 
 /// The heading of what no version released yet.
 const UNRELEASED: &str = "## [Unreleased]";
+
+/// The changelog of a project that has none: the header and an empty Unreleased.
+#[must_use]
+pub fn started() -> String {
+    format!("{HEADER}\n\n{UNRELEASED}\n")
+}
 
 /// What starts the heading of a version, and of a section.
 const VERSION_MARK: &str = "## ";
@@ -147,6 +153,24 @@ impl Line {
         let mark = if self.breaking { "**Breaking:** " } else { "" };
         format!("- {mark}{}", self.text)
     }
+}
+
+impl AsRef<Line> for Line {
+    fn as_ref(&self) -> &Line {
+        self
+    }
+}
+
+/// The lines of one version, newest first, each once: of those with the same section and words,
+/// the first, the newest. A change that merged twice, after a polish at G4, carries its line in
+/// both merge commits.
+pub(crate) fn once<T: AsRef<Line>>(mut lines: Vec<T>) -> Vec<T> {
+    let mut seen = BTreeSet::new();
+    lines.retain(|item| {
+        let line = item.as_ref();
+        seen.insert((line.section.clone(), line.text.clone()))
+    });
+    lines
 }
 
 /// The line of the change whose record is `record`: the one `gdd changelog-line` gave it, or
@@ -480,6 +504,12 @@ struct Carried {
     commit: String,
 }
 
+impl AsRef<Line> for Carried {
+    fn as_ref(&self) -> &Line {
+        &self.line
+    }
+}
+
 impl Carried {
     /// The item as gdd adds it: the line and a comment with the first [`ID_LEN`] characters of
     /// the commit.
@@ -508,7 +538,7 @@ impl Version {
 /// The versions of `history`, the commits of the main branch along its first parents, newest
 /// first: what no tag released yet, under Unreleased, then each version a tag of `tags`, each
 /// with the commit it names, released (see [`released`]), with the day of its commit. Each
-/// version has the lines its commits carry (see [`carried`]).
+/// version has the lines its commits carry (see [`carried`]), each once (see [`once`]).
 fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
     let released = released(tags);
     let mut versions = Vec::new();
@@ -526,6 +556,9 @@ fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
         current.lines.extend(carried(logged).map(carry));
     }
     versions.push(current);
+    for version in &mut versions {
+        version.lines = once(std::mem::take(&mut version.lines));
+    }
     versions
 }
 
@@ -1524,6 +1557,43 @@ mod tests {
         assert_eq!(versions(&[], &[]), [empty]);
     }
 
+    #[test]
+    fn a_line_two_commits_carry_is_listed_once_in_its_version() {
+        let history = [
+            commit("e", "2026-10-30", &["Added · Export"], &["yes"]),
+            commit("d", "2026-10-29", &["Fixed · Export"], &["no"]),
+            commit("c", "2026-10-28", &["Added · Export"], &["no"]),
+            commit("b", "2026-10-27", &["Added · Export"], &["no"]),
+            commit("a", "2026-10-26", &["Added · Import"], &["no"]),
+        ];
+        let split = versions(&history, &[tag("v1.0.0", "b")]);
+        // The newest of the same section and words stays; another section is another line.
+        let unreleased = [
+            by("e", line("Added", "Export", true)),
+            by("d", line("Fixed", "Export", false)),
+        ];
+        assert_eq!(split[0].lines, unreleased);
+        // Each version lists it: once in each.
+        let released = [
+            by("b", line("Added", "Export", false)),
+            by("a", line("Added", "Import", false)),
+        ];
+        assert_eq!(split[1].lines, released);
+        let lines = vec![
+            line("Added", "A", false),
+            line("Fixed", "A", false),
+            line("Added", "a", false),
+            line("Added", "A", true),
+            line("Added", "A", false),
+        ];
+        let kept = [
+            line("Added", "A", false),
+            line("Fixed", "A", false),
+            line("Added", "a", false),
+        ];
+        assert_eq!(once(lines), kept);
+    }
+
     const ID: &str = "0123456789abcdef0123456789abcdef01234567";
 
     fn by(commit: &str, line: Line) -> Carried {
@@ -2211,6 +2281,24 @@ mod tests {
         assert!(err.starts_with(start), "{err}");
         let notes = fs::read_to_string(outside.0.join("notes.md")).unwrap();
         assert_eq!(notes, "# Outside\n\n## [Unreleased]\n");
+    }
+
+    #[test]
+    fn a_started_changelog_has_the_header_and_an_empty_unreleased_and_takes_a_release() {
+        let started = started();
+        assert_eq!(started, format!("{HEADER}\n\n## [Unreleased]\n"));
+        let repo = repository();
+        repo.write(PATH, &started);
+        // Nothing in it claims a line, so every merged line is still missing.
+        assert_eq!(missing(repo.root(), "main").unwrap().count(), 2);
+        release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap();
+        let text = read(&repo);
+        let start = format!("{started}\n## [1.1.0] - 2026-10-28\n\n### Changed\n\n");
+        assert!(text.starts_with(&start), "{text}");
+        assert!(
+            text.contains("- **Breaking:** One file per folder"),
+            "{text}"
+        );
     }
 
     #[test]

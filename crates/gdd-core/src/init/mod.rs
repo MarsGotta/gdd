@@ -32,7 +32,7 @@ use crate::agents::render;
 use crate::agents::sheets::Sheet;
 use crate::gates::{self, approve};
 use crate::git::{self, Git};
-use crate::{VERSION, guard, log, stacks};
+use crate::{VERSION, changelog, guard, log, stacks};
 
 pub use bootstrap::{Stopped, bootstrap};
 pub use roles::{agents_on_path, family_of, strong_model};
@@ -300,6 +300,9 @@ impl Plan {
         // The harness: the files written once.
         let mut texts = render_once(&answers, env)?;
         texts.extend(instructions);
+        if !exists(root, changelog::PATH)? {
+            texts.push((changelog::PATH.to_string(), changelog::started()));
+        }
         texts.extend(skeleton);
         let appended = ignore.as_ref().map(|_| GITIGNORE);
         let paths = texts.iter().map(|(path, _)| path.as_str()).chain(appended);
@@ -536,6 +539,7 @@ mod tests {
             ".github/workflows/gdd.yml",
             "AGENTS.md",
             "CLAUDE.md",
+            "CHANGELOG.md",
             "Cargo.toml",
             "deny.toml",
             "features/.gitkeep",
@@ -563,6 +567,22 @@ mod tests {
         committed.sort_unstable();
         assert_eq!(committed, written);
         assert_eq!(git(&folder, &["status", "--porcelain"]), "");
+    }
+
+    #[test]
+    fn a_new_folder_starts_its_changelog_and_a_changelog_already_there_stays() {
+        let folder = Folder::new();
+        init_notes(&folder).unwrap();
+        assert_eq!(read(&folder, changelog::PATH), changelog::started());
+        let tracked = git(&folder, &["ls-files", changelog::PATH]);
+        assert_eq!(tracked, changelog::PATH);
+        let theirs = Folder::new();
+        theirs.write(changelog::PATH, "# Our notes\n");
+        let said = init_notes(&theirs).unwrap();
+        assert!(!said.lines().any(|line| line == changelog::PATH), "{said}");
+        assert_eq!(read(&theirs, changelog::PATH), "# Our notes\n");
+        let tracked = git(&theirs, &["ls-files", changelog::PATH]);
+        assert_eq!(tracked, "");
     }
 
     #[test]

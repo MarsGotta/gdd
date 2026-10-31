@@ -47,8 +47,8 @@ const TEST_ROLE: &str = "builder-test";
 /// Why a Builder or a Reviewer cannot run `gdd learn`.
 const LEARN_REFUSED: &str = "Builders and Reviewers cannot run gdd learn: it writes under .gdd/.";
 /// What an agent gdd started may run, after the command it cannot (see [`refused_to_agent`]).
-const FOR_AGENTS: &str = "an agent gdd started may only run gdd g2, gdd guard, gdd note, gdd \
-                          status, gdd classify, gdd inbox, gdd report and gdd scope.";
+const FOR_AGENTS: &str = "they may only run gdd g2, gdd guard, gdd note, gdd status, gdd \
+                          classify, gdd inbox, gdd report and gdd scope.";
 /// Why a command that works on a change cannot run.
 const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
@@ -762,8 +762,8 @@ impl Command {
                 let message = change::park(state, &change, &reason.join(" "))?;
                 return Ok(Outcome::failure(format!("{message}\n")));
             }
-            Command::Launch { change } => return launch(root, state, &change, env, streams.out()),
-            Command::Resume(args) => return resume(root, state, &args, role, env, streams.out()),
+            Command::Launch { change } => return launch(root, state, &change, env, streams),
+            Command::Resume(args) => return resume(root, state, &args, role, env, streams),
             Command::Merge { change } => {
                 let id = change_id(change, env)?;
                 return merge_queued(root, state, &id, env, streams.err());
@@ -783,9 +783,12 @@ impl Command {
             Command::Scope { change } => scope(root, state, &change)?,
             Command::NewChange(args) => new_change(root, state, &args)?,
             Command::Gate(args) => {
-                let mut voice = streams.out();
-                let recorded = record_gate(root, state, &args, role, |line| voice.say(line))?;
-                format!("{}{recorded}", voice.kept())
+                let (mut voice, mut errors) = (streams.out(), streams.err());
+                let said = |line: &str| voice.say(line);
+                let recorded = record_gate(root, state, &args, role, said, |w| errors.say(w))?;
+                let mut outcome = Outcome::printed(format!("{}{recorded}", voice.kept()), 0);
+                outcome.stderr = errors.kept();
+                return Ok(outcome);
             }
             Command::Note(args) => note(state, &args)?,
             Command::ChangelogLine(args) => changelog_line(state, args, role)?,
@@ -874,7 +877,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
         return Outcome::success(Cli::command().render_help().to_string());
     };
     if role.is_some_and(|role| refused_to_agent(&run, role)) {
-        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         return Outcome::error(&refused);
     }
     let command = match run {
@@ -1328,7 +1331,9 @@ fn run_ci(root: &Path, state: &Path, env: &Env) -> Result<Outcome, String> {
 }
 
 /// `gdd session`: the requests of the interactive Claude Code sessions of the project into the
-/// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`.
+/// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`,
+/// priced from `gdd/models.toml` of the project at `root` (see [`agent_settings`]): without it,
+/// every cost is unknown. A models file that cannot be read imports nothing.
 fn import_session(
     root: &Path,
     state: &Path,
@@ -1337,7 +1342,8 @@ fn import_session(
     env: &Env,
 ) -> Result<String, String> {
     let home = variable(env, "HOME").ok_or(NO_HOME)?;
-    session::import(root, state, Path::new(home), phase, change)
+    let settings = agent_settings(root)?;
+    session::import(root, state, Path::new(home), phase, change, &settings)
 }
 
 /// Runs `gate` on change `id` for `role`, as its kind of work has it (see
@@ -1471,6 +1477,7 @@ fn merge_queued(
     let ran = recipe::merge(&at, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stderr.insert_str(0, &steps.voice.kept());
+    outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
 }
 
@@ -1609,27 +1616,33 @@ fn ask_release(
 }
 
 /// `gdd launch`: the recipe of change `id` (see [`recipe::launch`]), whose agents start in the
-/// environment `env`, saying what it says on its way with `voice`.
-fn launch(root: &Path, state: &Path, id: &str, env: &Env, voice: Voice) -> Result<Outcome, String> {
-    in_worktree(root, state, id, env, voice, |project, steps| {
+/// environment `env`, saying what it says on its way as `streams` tell.
+fn launch(
+    root: &Path,
+    state: &Path,
+    id: &str,
+    env: &Env,
+    streams: Streams,
+) -> Result<Outcome, String> {
+    in_worktree(root, state, id, env, streams, |project, steps| {
         recipe::launch(project, id, steps)
     })
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
-/// whose agents start in the environment `env`, saying what it says on its way with `voice`.
+/// whose agents start in the environment `env`, saying what it says on its way as `streams` tell.
 fn resume(
     root: &Path,
     state: &Path,
     args: &ResumeArgs,
     role: Option<&str>,
     env: &Env,
-    voice: Voice,
+    streams: Streams,
 ) -> Result<Outcome, String> {
     let id = args.change.as_str();
     let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
-    in_worktree(root, state, id, env, voice, |project, steps| {
+    in_worktree(root, state, id, env, streams, |project, steps| {
         recipe::resume(project, id, answer, &note, role, args.variant, steps)
     })
 }
@@ -1639,14 +1652,14 @@ fn resume(
 /// of the worktrees the rules file names (see [`recipe::worktree`]), as many changes building at
 /// once as it allows (see [`queue::cap`]) and the budget of a spike it sets (see
 /// [`gdd_core::rules::spike_budget`]); the agents start in the environment `env`. What the run
-/// says on its way it says with `voice`: kept, it comes first in what it prints, however it
-/// ended.
+/// says on its way it says on the standard output, and its warnings on the standard error (see
+/// [`Streams`]): kept, they come first in what it prints, however it ended.
 fn in_worktree(
     root: &Path,
     state: &Path,
     id: &str,
     env: &Env,
-    voice: Voice,
+    streams: Streams,
     run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
 ) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
@@ -1668,10 +1681,12 @@ fn in_worktree(
         spike_usd,
     };
     let settings = agent_settings(root)?;
-    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, voice);
+    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, streams.out());
+    steps.errors = streams.err();
     let ran = run(&project, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stdout.insert_str(0, &steps.voice.kept());
+    outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
 }
 
@@ -1752,6 +1767,8 @@ struct ProjectSteps<'a> {
     builder_session: invoke::Ongoing,
     /// How the recipe says what it says on its way, a line each.
     voice: Voice,
+    /// How it says its warnings, a line each: on the standard error.
+    errors: Voice,
 }
 
 impl<'a> ProjectSteps<'a> {
@@ -1776,6 +1793,7 @@ impl<'a> ProjectSteps<'a> {
             settings,
             builder_session: invoke::Ongoing::default(),
             voice,
+            errors: Voice::Kept(String::new()),
         }
     }
 }
@@ -1841,8 +1859,10 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        let (root, state, voice) = (&self.root, self.state, &mut self.voice);
-        record_gate(root, state, &args, None, |line| voice.say(line)).map(drop)
+        let (root, state) = (&self.root, self.state);
+        let (voice, errors) = (&mut self.voice, &mut self.errors);
+        let warn = |line: &str| errors.say(line);
+        record_gate(root, state, &args, None, |line| voice.say(line), warn).map(drop)
     }
 
     /// The recipe holds the merge lock already.
@@ -2030,6 +2050,7 @@ fn record_gate(
     args: &DecisionArgs,
     role: Option<&str>,
     say: impl FnOnce(&str),
+    warn: impl FnOnce(&str),
 ) -> Result<String, String> {
     let gate = match args.gate.parse::<approve::Gate>() {
         Ok(gate) => gate,
@@ -2052,7 +2073,25 @@ fn record_gate(
         by: &args.by,
         note: &args.note,
     };
-    approve::record(&project, &request, role, say).map_err(|e| e.to_string())
+    let recorded = approve::record(&project, &request, role, say).map_err(|e| e.to_string())?;
+    if let Some(id) = args.change.as_deref().filter(|_| is_on_change(gate))
+        && let Err(why) = save_inbox(state, id)
+    {
+        warn(&format!(
+            "warning: the Decision Inbox of {id} was not saved: {why}"
+        ));
+    }
+    Ok(recorded)
+}
+
+/// Whether the decision on `gate` is about a change: the plan and the gates after it.
+fn is_on_change(gate: approve::Gate) -> bool {
+    !matches!(gate, approve::Gate::G0 | approve::Gate::Zones)
+}
+
+/// Saves the Decision Inbox of change `id`, under the state root `state`, from its record.
+fn save_inbox(state: &Path, id: &str) -> Result<(), String> {
+    decision_inbox(state, id).map(drop)
 }
 
 /// `gdd note`: adds a note to the record of a change, under the state root `state`, for its
@@ -2893,8 +2932,8 @@ mod tests {
         assert_eq!(
             entries,
             serde_json::json!([
-                {"model": "gpt-x", "calls": 1, "tokens_in": 10, "tokens_cache": 0, "tokens_out": 2, "cost_usd": 0.0, "duration_s": 0.0},
-                {"model": "opus", "calls": 1, "tokens_in": 1200, "tokens_cache": 0, "tokens_out": 20, "cost_usd": 0.5, "duration_s": 4.0},
+                {"model": "gpt-x", "calls": 1, "tokens_in": 10, "tokens_cache": 0, "tokens_out": 2, "cost_usd": 0.0, "cost_estimated": false, "calls_without_price": 0, "duration_s": 0.0},
+                {"model": "opus", "calls": 1, "tokens_in": 1200, "tokens_cache": 0, "tokens_out": 20, "cost_usd": 0.5, "cost_estimated": false, "calls_without_price": 0, "duration_s": 4.0},
             ])
         );
         assert_eq!(
@@ -3917,7 +3956,7 @@ mod tests {
 
     /// What an agent gdd started reads when it runs `gdd <name>`, which it may not run.
     fn agent_refusal(name: &str) -> Outcome {
-        let refused = format!("Builders and Reviewers cannot run gdd {name}: {FOR_AGENTS}");
+        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         Outcome::error(&refused)
     }
 
@@ -4053,6 +4092,30 @@ mod tests {
     }
 
     #[test]
+    fn only_the_plan_and_the_gates_after_it_are_decisions_on_a_change() {
+        use approve::Gate as G;
+        for gate in [G::Plan, G::G1, G::G2, G::G3, G::G4] {
+            assert!(is_on_change(gate), "{gate}");
+        }
+        for gate in [G::G0, G::Zones] {
+            assert!(!is_on_change(gate), "{gate}");
+        }
+    }
+
+    #[test]
+    fn a_decision_on_a_change_saves_its_inbox_and_a_failed_save_only_warns() {
+        let project = selftest_project("true");
+        let root = project.0.as_path();
+        let record = r#"{"id": "c1", "gates": {"G1": {"decision": "ko", "by": "human"}}}"#;
+        project.write(".gdd/changes/c1/change.json", record);
+        assert!(save_inbox(root, "c1").is_ok());
+        let saved = fs::read_to_string(root.join(".gdd/changes/c1/inbox.md")).unwrap();
+        assert!(saved.contains("## Your decisions\n- G1 ko"), "{saved}");
+        let missing = save_inbox(root, "nope").unwrap_err();
+        assert!(missing.contains("change.json"), "{missing}");
+    }
+
+    #[test]
     fn a_person_at_a_terminal_reads_that_gdd_waits_for_the_agents_at_work_as_the_wait_starts() {
         let project = selftest_project("test ! -f t.txt");
         project.write(approve::BRIEF, "# Brief\n");
@@ -4078,7 +4141,7 @@ mod tests {
                 note: String::new(),
             };
             let (shown, (done, kept)) = shown_during_a_call(root, |mut voice| {
-                let done = record_gate(root, root, &args, None, |line| voice.say(line));
+                let done = record_gate(root, root, &args, None, |line| voice.say(line), |_| {});
                 (done, voice.kept())
             });
             assert_eq!(shown, waiting, "{gate}");
@@ -4159,6 +4222,53 @@ mod tests {
         let records = log_records(&project);
         assert_eq!(records[0].text("change"), "c1");
         assert_eq!(records[0].tokens_out, 4);
+        // Without gdd/models.toml there are no prices: its cost is unknown.
+        assert_eq!(records[0].text("cost_basis"), "unknown");
+    }
+
+    #[test]
+    fn session_prices_the_requests_from_the_models_of_the_project() {
+        let project = Project::new();
+        let home = Project::new();
+        let root = fs::canonicalize(&project.0).unwrap();
+        let named = |c: char| if c.is_ascii_alphanumeric() { c } else { '-' };
+        let folder: String = root.display().to_string().chars().map(named).collect();
+        let line = r#"{"uuid": "u1", "message": {"model": "m", "usage": {"output_tokens": 4}}}"#;
+        home.write(&format!(".claude/projects/{folder}/s1.jsonl"), line);
+        let env = [("HOME".to_string(), home.0.display().to_string())];
+        let session = words("session --phase 1-discover");
+        // A models file gdd cannot read, or cannot parse, imports nothing.
+        let models = project.0.join("gdd/models.toml");
+        fs::create_dir_all(&models).unwrap();
+        let out = run_with_env(&session, &project.0, &env);
+        assert_eq!(out.code, 1);
+        let unread = "error: cannot read gdd/models.toml: ";
+        assert!(out.stderr.starts_with(unread), "{}", out.stderr);
+        fs::remove_dir(&models).unwrap();
+        project.write("gdd/models.toml", "[prices.m\n");
+        let out = run_with_env(&session, &project.0, &env);
+        let invalid = "error: gdd/models.toml: invalid TOML";
+        assert!(out.stderr.starts_with(invalid), "{}", out.stderr);
+        assert!(!project.0.join(log::PATH).exists());
+        // A price that is not a number of dollars imports nothing and marks no request.
+        for (price, shown) in [("nan", "NaN"), ("inf", "inf"), ("-1", "-1")] {
+            let models = format!("[prices.m]\noutput = {price}\n");
+            project.write("gdd/models.toml", &models);
+            let out = run_with_env(&session, &project.0, &env);
+            let refused = format!(
+                "error: gdd/models.toml: invalid TOML: prices.m.output must be a number 0 or \
+                 more, not {shown}\n"
+            );
+            assert_eq!(out, Outcome::failure(refused));
+            assert!(!project.0.join(log::PATH).exists());
+            assert!(!project.0.join(".gdd/imported_requests.json").exists());
+        }
+        project.write("gdd/models.toml", "[prices.m]\noutput = 1000000\n");
+        let out = run_with_env(&session, &project.0, &env);
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        let records = log_records(&project);
+        assert_eq!(records[0].cost_usd, 4.0);
+        assert_eq!(records[0].text("cost_basis"), "estimated");
     }
 
     /// A project in a git repository, its files committed on `main`, without changes.
@@ -4560,7 +4670,7 @@ mod tests {
         let out = project.run("inbox c1");
         let expected = concat!(
             "# Decision Inbox · c1 · Drafts\n\n",
-            "Color ? · lane ? · state open\n\n",
+            "Color and lane not decided yet (gdd decides them at launch) · state open\n\n",
             "## Needs your decision\n- Pick a --name\n\n",
             "## Decided without you\n- Kept it\n\n",
             "## Parked\n- Nothing.\n"
@@ -4940,6 +5050,23 @@ mod tests {
         assert_eq!(record_of(&project, "c1")["state"], "merged");
     }
 
+    #[test]
+    fn a_decision_whose_inbox_cannot_be_saved_stays_recorded_and_warns_only_on_the_standard_error()
+    {
+        let project = launched_project();
+        let inbox = project.0.join(change::inbox_path("c1"));
+        let _ = fs::remove_file(&inbox);
+        fs::create_dir_all(&inbox).unwrap();
+        let out = project.run("gate G3 ok c1 --by machines");
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.starts_with("G3 ok"), "{out:?}");
+        assert!(!out.stdout.contains("warning"), "{out:?}");
+        let warning = "warning: the Decision Inbox of c1 was not saved: ";
+        assert!(out.stderr.starts_with(warning), "{out:?}");
+        assert_eq!(out.stderr.matches('\n').count(), 1, "{out:?}");
+        assert_eq!(record_of(&project, "c1")["gates"]["G3"]["decision"], "ok");
+    }
+
     /// Gate commands whose G3 fails once main has `docs/breaking.md`.
     const BREAKABLE: &str = "[g3]\nfresh = \"test ! -f docs/breaking.md\"\n\
                              [release]\nsimulated = true\nbuild = \"true\"\n";
@@ -5016,6 +5143,24 @@ mod tests {
         let said: Vec<String> = watch.try_iter().collect();
         assert_eq!(said, ["two\n", FLUSHED]);
         assert_eq!(shown.voice.kept(), "");
+    }
+
+    #[test]
+    fn a_decision_of_the_recipe_warns_about_its_inbox_on_the_errors_and_not_on_its_voice() {
+        let project = launched_project();
+        let inbox = project.0.join(change::inbox_path("c1"));
+        let _ = fs::remove_file(&inbox);
+        fs::create_dir_all(&inbox).unwrap();
+        let (root, limits) = (project.0.as_path(), Limits::default());
+        let settings = invoke::Settings::default();
+        let voice = Streams::Outcome.out();
+        let mut steps = ProjectSteps::new(root, root, "c1", &limits, settings, &[], voice);
+        let decided = recipe::Steps::decide(&mut steps, "G3", "ok", "machines", "");
+        assert_eq!(decided, Ok(()));
+        assert_eq!(steps.voice.kept(), "");
+        let warning = "warning: the Decision Inbox of c1 was not saved: ";
+        let said = steps.errors.kept();
+        assert!(said.starts_with(warning) && said.ends_with('\n'), "{said}");
     }
 
     #[test]

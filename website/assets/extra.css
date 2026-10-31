@@ -145,31 +145,44 @@
   border-left: 2px solid var(--gd-line);
 }
 
-/* Home page hero. */
+/* Home page hero: the claim and the buttons on the left, a change in the chat on the right. */
 .gd-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
-  gap: 2.4rem;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 2.6rem;
   align-items: center;
-  margin: 0.6rem 0 2.2rem;
+  margin: 0.8rem 0 2rem;
 }
 .gd-hero h1 .headerlink {
   display: none;
 }
+.gd-hero .gd-eyebrow {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gd-green);
+}
 .gd-hero h1 {
-  margin: 0 0 0.6rem;
-  font-size: 3.4rem;
+  margin: 0 0 1rem;
+  font-size: 2.9rem;
   font-weight: 800;
-  line-height: 1.1;
-  background: linear-gradient(90deg, var(--gd-green), var(--gd-yellow) 45%, var(--gd-amber) 70%, var(--gd-red));
+  line-height: 1.12;
+  color: var(--md-default-fg-color);
+}
+.gd-grad {
+  background: linear-gradient(90deg, var(--gd-green), var(--gd-yellow) 50%, var(--gd-amber) 75%, var(--gd-red));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .gd-hero .gd-tagline {
   font-size: 1.05rem;
+  line-height: 1.55;
   color: var(--md-default-fg-color--light);
-  margin: 0 0 1.2rem;
+  margin: 0 0 1.4rem;
+  max-width: 34rem;
 }
 .gd-hero .md-button {
   margin: 0 0.4rem 0.6rem 0;
@@ -187,14 +200,115 @@
   color: var(--gd-amber);
   border-color: var(--gd-amber);
 }
-.gd-hero img {
-  width: 100%;
-  border-radius: 10px;
+
+/* The chat: your lines on the right, the agent's on the left, gdd's last word in green. */
+.md-typeset .gd-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 1.1rem 1.1rem 0.8rem;
   border: 1px solid var(--gd-line);
+  border-radius: 14px;
+  background: var(--gd-panel);
   box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.6);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
+.gd-msg {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  max-width: 88%;
+  padding: 0.45rem 0.75rem;
+  border-radius: 12px;
+}
+.gd-who {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.gd-you {
+  align-self: flex-end;
+  text-align: right;
+  background: color-mix(in srgb, var(--gd-amber) 22%, transparent);
+  border-bottom-right-radius: 4px;
+}
+.gd-agent {
+  align-self: flex-start;
+  background: color-mix(in srgb, var(--md-default-fg-color) 7%, transparent);
+  border-bottom-left-radius: 4px;
+}
+.gd-gdd {
+  align-self: flex-start;
+  font-family: var(--md-code-font-family);
+  color: var(--gd-green);
+  background: color-mix(in srgb, var(--gd-green) 12%, transparent);
+}
+.md-typeset .gd-chat figcaption {
+  margin: 0.2rem 0 0;
+  font-size: 0.68rem;
+  opacity: 0.6;
+  text-align: right;
+  max-width: none;
+}
+
+/* The three ideas of the method, under the hero. */
+.gd-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0 0 2rem;
+}
+.md-typeset .gd-pillar {
+  padding: 1rem 1.1rem;
+  border-top: 3px solid var(--gd-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--gd-panel) 60%, transparent);
+}
+.md-typeset .gd-p1 { border-top-color: var(--gd-yellow); }
+.md-typeset .gd-p2 { border-top-color: var(--gd-green); }
+.md-typeset .gd-p3 { border-top-color: var(--gd-amber); }
+.gd-pillar-mark {
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1;
+  height: 1.3rem;
+  color: var(--gd-amber);
+}
+.gd-p2 .gd-pillar-mark { color: var(--gd-green); }
+.md-typeset .gd-pillar h3 {
+  margin: 0.6rem 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.md-typeset .gd-pillar p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--md-default-fg-color--light);
+}
+.gd-dot {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  margin-right: 0.3rem;
+  border-radius: 50%;
+}
+.gd-dot.gd-g { background: var(--gd-green); }
+.gd-dot.gd-y { background: var(--gd-yellow); }
+.gd-dot.gd-r { background: var(--gd-red); }
+
 @media (max-width: 960px) {
   .gd-hero {
+    grid-template-columns: 1fr;
+    gap: 1.6rem;
+  }
+  .gd-hero h1 {
+    font-size: 2.2rem;
+  }
+  .gd-pillars {
     grid-template-columns: 1fr;
   }
 }
