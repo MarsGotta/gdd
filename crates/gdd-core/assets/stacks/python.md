@@ -26,8 +26,9 @@ Read this before writing tests, scenario steps or code in Python in a GDD projec
 ## What the gates usually catch in Python
 
 - **Mutation testing** (mutmut, G3) changes conditions, operators and returns in the modules the
-  change touched; any survivor fails the gate. Every branch, including each `except`, needs a test
-  that would fail without it; catching a broad `Exception` makes that hard: catch what you expect.
+  change touched; any mutant no test catches fails the gate, including one in code no unit test
+  runs. Every branch, including each `except`, needs a test that would fail without it; catching a
+  broad `Exception` makes that hard: catch what you expect.
 - **mypy**: type every public function; no `Any` leaking from input; handle `None`.
 - **Ruff** (with `C901` for complexity) and **Bandit**: small functions, no `shell=True`, no
   `eval`, no paths or commands built from input without checking them.

@@ -822,6 +822,13 @@ fn sheet_command(stack: &str, gate: &str, name: &str) -> String {
 #[given(expr = "the gate command {string} {string} is the one of the {string} sheet")]
 fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stack: String) {
     let root = project_root(w);
+    // On a change's branch the harness commits go to main and come in with a merge: they are
+    // state from before the build, so they must not show in the change's diff with main.
+    let branch = git(&root, &["branch", "--show-current"]);
+    let on_branch = branch != "main";
+    if on_branch {
+        git(&root, &["checkout", "-q", "main"]);
+    }
     let path = root.join("gdd/commands.toml");
     let toml = fs::read_to_string(&path).expect("gate commands to edit");
     // Gate commands run in the process environment, not the scenario's: the command puts the
@@ -843,6 +850,11 @@ fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stac
     let command = format!("PATH='{programs}':\"$PATH\"; export PATH; {command}");
     write_file(&path, &with_command(&toml, &gate, &name, &command));
     commit_harness_file(&root, "gdd/commands.toml", "gate commands");
+    if on_branch {
+        git(&root, &["checkout", "-q", &branch]);
+        git(&root, &["merge", "-q", "--no-edit", "main"]);
+        move_build_start(&root);
+    }
 }
 
 /// Commits a file of the harness and moves the start of the build there: a Given on the harness
@@ -850,6 +862,11 @@ fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stac
 fn commit_harness_file(root: &Path, file: &str, message: &str) {
     git(root, &["add", "--", file]);
     git(root, &["commit", "-q", "-m", message]);
+    move_build_start(root);
+}
+
+/// Moves to `HEAD` the start of the build of the change whose branch is checked out.
+fn move_build_start(root: &Path) {
     let head = git(root, &["rev-parse", "HEAD"]);
     let changes = root.join(".gdd/changes");
     let ids: Vec<String> = fs::read_dir(&changes)
@@ -3179,7 +3196,34 @@ fn main_has_the_file(w: &mut GddWorld, step: &cucumber::gherkin::Step, path: Str
     );
 }
 
+/// The variables gdd sets for the agents it starts. A scenario never inherits them: when an agent
+/// runs the scenarios (`gdd g2` in its session), the runner starts itself again without them, so
+/// what reads the process environment (the sitting, the Setup form) runs as a person.
+const AGENT_VARIABLES: [&str; 4] = ["GDD_ROLE", "GDD_CHANGE", "GDD_ROOT", "GDD_STATE"];
+
+/// Runs the scenarios again in a process without [`AGENT_VARIABLES`], with the same arguments, and
+/// ends with its exit code; `None` when none of them is set.
+fn without_agent_variables() -> Option<i32> {
+    if AGENT_VARIABLES
+        .iter()
+        .all(|name| std::env::var_os(name).is_none())
+    {
+        return None;
+    }
+    let me = std::env::current_exe().expect("the path of the scenario runner");
+    let mut runner = std::process::Command::new(me);
+    runner.args(std::env::args_os().skip(1));
+    for name in AGENT_VARIABLES {
+        runner.env_remove(name);
+    }
+    let status = runner.status().expect("the scenario runner starts again");
+    Some(status.code().unwrap_or(1))
+}
+
 fn main() {
+    if let Some(code) = without_agent_variables() {
+        std::process::exit(code);
+    }
     let root = repo_root();
     let listed: HashSet<PathBuf> = std::env::var("GDD_FEATURES")
         .unwrap_or_default()
@@ -3330,4 +3374,42 @@ fn file_on_branch_lacks(w: &mut GddWorld, path: String, branch: String, text: St
         !content.contains(&text),
         "{path} on {branch} contains {text:?}: {content}"
     );
+}
+
+// ---- features/gate-details.feature ---------------------------------------------------------
+
+#[given(expr = "the program {string} on the PATH prints {string} and exits with {int}")]
+fn program_prints_and_exits(w: &mut GddWorld, name: String, text: String, code: u8) {
+    // The same line on every call; a quoted heredoc needs no escaping of the text.
+    let body = format!("cat <<'GDD_EOF'\n{text}\nGDD_EOF\nexit {code}");
+    fake_program(w, &name, &body);
+}
+
+/// The fake AWS access key id, built at run time so this file holds no whole key.
+fn fake_aws_id() -> String {
+    ["AKIA", "Z7Q4RT2LMXK5VW3P"].concat()
+}
+
+#[given(expr = "the change {string} has the file {string} with a fake AWS key on line {int}")]
+fn change_has_file_with_fake_aws_key(w: &mut GddWorld, _id: String, path: String, line: usize) {
+    let root = project_root(w);
+    let mut text = String::new();
+    for k in 1..line {
+        text.push_str(&format!("x{k} = {k}\n"));
+    }
+    text.push_str(&format!("ID = \"{}\"\n", fake_aws_id()));
+    write_file(&root.join(&path), &text);
+}
+
+#[then("the output does not show the fake AWS key")]
+fn output_hides_the_fake_aws_key(w: &mut GddWorld) {
+    let ran = last_run(w);
+    let output = format!("{}{}", ran.stdout, ran.stderr);
+    for piece in [fake_aws_id().as_str(), "Z7Q4RT2LMXK5VW3P", "AKIAZ7Q4RT2L"] {
+        assert!(
+            !output.contains(piece),
+            "the output shows a piece of the fake key ({} characters)",
+            piece.len()
+        );
+    }
 }
