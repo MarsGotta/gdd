@@ -6,6 +6,8 @@ All notable changes to gdd are documented in this file. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-31
+
 ### Added
 
 - The cases of the old kit's end-to-end suite that only had unit tests, end to end <!-- gdd: fc8065e55c7a -->
