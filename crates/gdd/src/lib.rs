@@ -204,7 +204,10 @@ enum Run {
     /// workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent, the
     /// skeleton of each stack the folder has no project of, and the lines of each stack and
     /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file,
-    /// refuses inside a GDD project and installs nothing (gdd bootstrap does).
+    /// refuses inside a GDD project.
+    ///
+    /// The form also installs each stack (as gdd bootstrap does); with flags it installs nothing,
+    /// for scripts.
     Init(InitArgs),
     #[command(flatten)]
     InProject(Command),
@@ -2742,7 +2745,8 @@ mod tests {
         }
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
         let said = "rust: cargo generate-lockfile\nCommitted: Cargo.lock\n\
-                    Next: gdd selftest\n";
+                    Next: in your coding agent, the gdd-setup command finishes the Setup \
+                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).\n";
         assert_eq!(out, Outcome::success(said.to_string()));
         folder.write(cargo, "#!/bin/sh\necho broken\nexit 2\n");
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
@@ -4376,7 +4380,7 @@ mod tests {
         let start = "Passed: unit\nKnown debt: lint\nProposed Refactors, riskiest first:\n  \
                      1. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n";
         assert!(out.stdout.starts_with(start), "{out:?}");
-        assert!(out.stdout.ends_with("--paths ...\n"), "{out:?}");
+        assert!(out.stdout.ends_with("($gdd-change in Codex).\n"), "{out:?}");
         let kept = fs::read_to_string(project.0.join(".gdd/adoption/lint.txt")).unwrap();
         assert_eq!(kept, "unused import\n");
         let subject = git(&project, &["log", "-1", "--format=%s"]);

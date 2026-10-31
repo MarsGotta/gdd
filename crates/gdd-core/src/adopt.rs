@@ -25,9 +25,9 @@ const ENV: [(&str, &str); 4] = [
     ("GDD_FEATURES", ""),
 ];
 
-/// How to create the Refactor that pays a debt.
-const CREATE: &str =
-    "Create one with: gdd new-change debt-<name> --type Refactor --title \"...\" --paths ...";
+/// How to get the Refactor that pays a debt.
+const CREATE: &str = "Ask your agent for each one: /gdd-change pay the debt of <name> \
+                      ($gdd-change in Codex).";
 
 /// What `gdd adopt` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -250,8 +250,8 @@ mutation = "touch ran; exit 1"
             "Proposed Refactors, riskiest first:\n",
             "  1. debt-security · Pay the known debt of security · .gdd/adoption/security.txt\n",
             "  2. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n",
-            "Create one with: gdd new-change debt-<name> --type Refactor --title \"...\" ",
-            "--paths ..."
+            "Ask your agent for each one: /gdd-change pay the debt of <name> ",
+            "($gdd-change in Codex)."
         );
         assert_eq!(adopted.to_string(), printed);
         let said = |name: &str| fs::read_to_string(state.0.join(kept(name))).unwrap();
