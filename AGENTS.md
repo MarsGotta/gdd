@@ -17,7 +17,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --all --check
 ```
 
-- A change is done when `gdd g2 <change>` is green; G3 (`gdd g3 <change>`) adds mutation testing, dependencies, licences and secrets.
+- A change is done when `gdd g2 <change>` is green; G3 (`gdd g3 <change>`) adds every scenario, mutation testing, advisories, licenses, the lock file and secrets. The commands are in `gdd/commands.toml`.
 - `features/` is the executable specification (cucumber-rs, strict: an undefined step fails). Steps live in `crates/gdd-acceptance/tests/acceptance.rs`.
 
 ## Files you do not edit by hand
