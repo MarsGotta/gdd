@@ -18,13 +18,13 @@ Feature: One command, gdd
     And the file "AGENTS.md" contains "`gdd` runs the gates"
     And the file ".claude/skills/gdd-build/SKILL.md" contains "You may only run `gdd g2`, `gdd guard`, `gdd note`"
 
-  Scenario: Bootstrap points to gdd selftest
+  Scenario: Bootstrap points to the agent
     Given an empty folder
     And I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
     And the program "cargo" on the PATH writes the file "Cargo.lock"
     When I run "gdd bootstrap"
     Then it succeeds
-    And the output contains "Next: gdd selftest"
+    And the output contains "Next: in your coding agent, the gdd-setup command finishes the Setup"
     And the output does not contain "bin/gdd"
 
   Scenario: The self-test accepts a workflow that runs gdd ci
