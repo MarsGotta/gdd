@@ -1147,6 +1147,19 @@ fn resolved_request(w: &mut GddWorld, id: String, text: String) {
     write_record(&root, &id, &record);
 }
 
+#[given(expr = "the change {string} has an open parked note {string}")]
+fn open_parked_note(w: &mut GddWorld, id: String, text: String) {
+    let root = project_root(w);
+    let mut record = read_record(&root, &id);
+    let inbox = record["inbox"].as_array_mut().expect("an inbox list");
+    inbox.push(serde_json::json!({
+        "kind": "parked",
+        "text": text,
+        "ts": "2026-01-01T00:00:00+00:00",
+    }));
+    write_record(&root, &id, &record);
+}
+
 #[then(expr = "the file {string} holds the same text as the output")]
 fn file_holds_output(w: &mut GddWorld, path: String) {
     let text = fs::read_to_string(project_root(w).join(&path))
@@ -1267,6 +1280,15 @@ fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     w.models = docstring(step, "a models docstring");
     let root = project_root(w);
     write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
+}
+
+/// Appends more tables to the scenario's models (a price for another model, for instance).
+#[given("the models also say:")]
+fn models_also_say(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let more = docstring(step, "a models docstring");
+    w.models = format!("{}\n\n{}\n", w.models.trim_end(), more.trim_end());
+    let models = w.models.clone();
+    write_models(w, &models);
 }
 
 /// `models` with the `[reviewer]` table replaced by the given integration, model and effort.

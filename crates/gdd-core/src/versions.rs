@@ -273,7 +273,8 @@ impl Since {
 /// What `history`, the commits of a main branch along its first parents, newest first, has since
 /// its newest version among `tags`, each with the commit it names: the highest version of a tag
 /// `v<semver>` on one of those commits, pre-releases by their precedence; then the lines of the
-/// commits after it (see [`changelog::carried`]), all of them before the first version.
+/// commits after it (see [`changelog::carried`]), all of them before the first version, each
+/// once (see [`changelog::once`]).
 fn since(history: &[Logged], tags: &[(String, String)]) -> Since {
     let commits = history.iter().map(|logged| logged.commit.as_str());
     let on_main: BTreeSet<&str> = commits.collect();
@@ -294,7 +295,7 @@ fn since(history: &[Logged], tags: &[(String, String)]) -> Since {
         .take_while(after)
         .filter_map(changelog::carried);
     Since {
-        lines: lines.collect(),
+        lines: changelog::once(lines.collect()),
         newest: newest.map(|(rank, name, _)| (name.clone(), rank)),
     }
 }
@@ -737,6 +738,15 @@ mod tests {
         assert!(shown.starts_with(start), "{shown}");
         assert_eq!(found.nothing(), "Nothing to release since v0.1.0");
         assert_eq!(first.nothing(), NOTHING_YET);
+        // A change that merged twice, after a polish, is listed once.
+        let polished = [
+            logged("g", &["Added · Export"], &["no"]),
+            logged("f", &["Fixed · Crash"], &["no"]),
+            logged("e", &["Added · Export"], &["no"]),
+        ];
+        let listed = since(&polished, &[]).shown(FIRST);
+        assert_eq!(listed.matches("- Export").count(), 1, "{listed}");
+        assert_eq!(listed.matches("- Crash").count(), 1, "{listed}");
         let nothing_yet = "Nothing to release: no change on main carries a changelog line";
         assert_eq!(NOTHING_YET, nothing_yet);
     }
