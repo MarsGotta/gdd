@@ -99,7 +99,7 @@ Feature: The sitting
     And I press a at the sitting
     And I press y at the sitting
     Then the sitting shows "Recorded"
-    And the sitting shows "Next: gdd launch c1"
+    And the sitting shows "Next: tell your agent it is approved (it runs gdd launch c1)"
     And the record of "c1" seals "features/drafts.feature" with its current SHA-256
     And the log has a "G1" line for "c1" with result "ok"
     And the log has a "zones" line for "-" with result "ok"
