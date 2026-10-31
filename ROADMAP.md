@@ -141,6 +141,11 @@ A polish version: a first change with no stumbles, and numbers gdd can stand beh
 - A flaky unit test: `a_change_that_needs_g4_waits_and_production_getting_worse_rolls_it_back` (crates/gdd/src/lib.rs) sometimes hears `waiting for the merge of another change` under load; it should assert without the wait notice, as `versions` does now (found on inbox-notes' G3, 2026-10-31).
 - The secrets check reads the text lines a change adds: a binary file, or one marked `-diff` in `.gitattributes`, is not scanned (already so before 0.1.1).
 - `change::with_request_resolved` has no caller since entry-answers: remove it.
+- Recovering a parked change (found on the 0.1.1 Quickstart run, 2026-10-31): a Reviewer finding written as a Markdown link (`[path:line](/abs/path)`) is not read as a path by `verdict::finding_file`, so a fix of a step file goes to build mode and the change parks; a relaunch with build-mode code in the worktree and G2 red parks again, since Path Guard blames test mode for it; after `G2 already green: Builder skipped`, G3 Path Guard blames build mode for hand edits.
+- The G4 sitting says `Changelog: none set` while the merge commit carries the line; the Reviewer's absolute link path shows on the sitting; the inbox before launch does not list the pending G1; a closed change's inbox keeps a `Needs your decision` note.
+- Refusals that still name only Builders and Reviewers: `gdd learn`, `gdd gate`, `gdd changelog-line`, `gdd release` (the guard says `Agents that gdd started` since 0.1.1). The report skill still tells the agent to explain a cost of 0.
+- `g3.json` keeps gitleaks' colored log lines and mutmut's progress frames in the failure tail; mutmut's `mutants/` folder keeps copies of tests deleted on the branch; `gdd session --change` reads prices from the checkout it runs in; a spike's budget counts only costs the agents report.
+- Agent legibility (change `agent-legibility`): every skill gdd installs says what it does and when to use it (Agent Skills spec), and the AGENTS.md that `gdd init` writes names the install, check and scenario commands of the project's stacks.
 - Docs: the guides that still ask you to type commands (upgrade, CI, measure, releases) go through the agent; the changelog scenario says the Orchestrator proposes the line at the sitting, but no agent instruction does.
 
 ## 0.2
