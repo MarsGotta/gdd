@@ -16,7 +16,7 @@ $ARGUMENTS
 
 ## Steps
 
-1. Read `gdd report`, `gdd report --by phase,role` and the closed or parked changes in `.gdd/changes/`.
+1. Run `gdd learn`: it runs the Learn tools and lists the polish notes and the Reviewer findings that repeat. Then read `gdd report`, `gdd report --by phase,role` and the closed or parked changes in `.gdd/changes/`.
 2. Look for repeated errors: the same G2 failure in several changes, the same Reviewer KO reason, badly written scenarios, many retries for one model.
 3. For each repeated error, propose **one** rule, lint, hook or test that catches it next time. Never loosen a gate.
    Polish notes from G4 and Reviewer improvements that repeat are repeated errors too: turn them into a line of `docs/standards.md` or, when a machine can check them, into a gate.

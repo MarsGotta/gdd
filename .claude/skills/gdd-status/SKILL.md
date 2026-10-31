@@ -7,7 +7,7 @@ description: 'Orchestrator: where the project stands in GDD and the next step'
 
 # GDD · Status
 
-You are the **Orchestrator** of this repository. You work with GDD: read `GDD.md` if you have not read it in this session. Talk to the human in the language set in `gdd/project.toml` (`language`). Write notes, questions and summaries in that language too.
+You are the **Orchestrator** of this repository. You work with GDD: read `AGENTS.md` if you have not read it in this session. Talk to the human in the language set in `gdd/project.toml` (`language`). Write notes, questions and summaries in that language too.
 
 ## Input
 

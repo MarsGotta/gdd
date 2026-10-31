@@ -33,6 +33,8 @@ All notable changes to gdd are documented in this file. The format follows
 - The Reviewer gives every finding at once, by class, then looks only at what changed <!-- gdd: 84107843bd33 -->
 - CHANGELOG.md is the project's: gdd changelog shows what is missing and adds only that <!-- gdd: 3ef51bac9e34 -->
 - One command, gdd, for people, agents and CI: new projects get no bin/gdd, and every instruction, permission and message says gdd <!-- gdd: bf0b35c640d6 -->
+- The setup skill starts from what gdd init wrote, installs missing lock files and adopts a repository that already has code; the status and learn skills read and run what every project has <!-- gdd: 3187d97a4f82 -->
+- The Setup form also installs the stacks, the empty Board and the form point to your agent, a sitting with nothing to approve says so, and gdd alone opens the Board in a terminal <!-- gdd: 722042b659cc -->
 
 ### Fixed
 
@@ -44,3 +46,4 @@ All notable changes to gdd are documented in this file. The format follows
 ### Security
 
 - Secrets reach no agent under their other common names, nor inside a URL with a password <!-- gdd: 117485d97883 -->
+- Agents gdd starts can run only the commands their work needs: gdd refuses every other command, whatever the agent's own permissions allow <!-- gdd: 57fe4b7163bf -->
