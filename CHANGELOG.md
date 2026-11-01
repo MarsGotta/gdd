@@ -13,6 +13,7 @@ All notable changes to gdd are documented in this file. The format follows
 - A Reviewer finding whose file is a link goes to the right mode <!-- gdd: acebdd79070d -->
 - A parked change gets going again without parking for reasons that are not its own <!-- gdd: ac6fee0c9267 -->
 - The sitting, the Decision Inbox and the refusals say what is true <!-- gdd: 4c543f67275d -->
+- Prices come from main, even on an older branch <!-- gdd: 0d1ccba16a89 -->
 
 ## [0.1.1] - 2026-10-31
 
