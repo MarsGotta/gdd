@@ -801,7 +801,7 @@ mod tests {
         let project = Project::new();
         project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
         project.older("0.0.0", &[], &[]);
-        for role in ["builder-build", "builder-test", "reviewer"] {
+        for role in ["builder-build", "builder-test", "reviewer", "orchestrator"] {
             let refused = upgrade(&project.root, Some(role), &env());
             assert_eq!(refused, Err(NOT_FOR_AGENTS.to_string()), "{role}");
         }
@@ -822,7 +822,7 @@ mod tests {
                     them, add them as gdd init writes them now";
         assert_eq!(NO_ANSWERS, none);
         project.write(GENERATED, &generated);
-        // Then the main branch the rules name, for a person or the Orchestrator alike.
+        // Then the main branch the rules name; the replanning agent is still refused first.
         project.git(&["checkout", "-q", "-b", "other"]);
         let runs_on = |main: &str| -> Result<String, String> {
             let switch = format!("git switch {main}, then run it again");
@@ -830,7 +830,7 @@ mod tests {
         };
         assert_eq!(project.upgrade(), runs_on("main"));
         let orchestrator = upgrade(&project.root, Some("orchestrator"), &env());
-        assert_eq!(orchestrator, runs_on("main"));
+        assert_eq!(orchestrator, Err(NOT_FOR_AGENTS.to_string()));
         project.git(&["checkout", "-q", "--detach", "main"]);
         assert_eq!(project.upgrade(), runs_on("main"));
         project.git(&["checkout", "-q", "main"]);

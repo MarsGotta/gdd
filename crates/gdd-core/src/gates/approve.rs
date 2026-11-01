@@ -6,9 +6,10 @@
 //! one, and approving them as they are already approved writes nothing. G0 and the red zones are
 //! state every change shares: their writes wait for the agent calls under way, saying so as the
 //! wait starts (see [`queue::shared_write`]). The plan, G1, G2, G3 and G4 are recorded on a
-//! change. Approving G1 seals the scenario files of the change, as its branch has them, with their
-//! SHA-256, and refuses hidden examples with sentences no visible scenario has. A Builder or a
-//! Reviewer can never record anything.
+//! change: only a human records the plan, G1 (the scenarios) and G4 (the result); G2 and G3 take
+//! whoever ran them, the machines as a rule. Approving G1 seals the scenario files of the change,
+//! as its branch has them, with their SHA-256, and refuses hidden examples with sentences no
+//! visible scenario has. An agent gdd started can never record anything.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -48,8 +49,12 @@ pub const GATES: [&str; 7] = ["G0", "zones", "plan", "G1", "G2", "G3", "G4"];
 /// Sentences a refusal of G1 names, at most.
 const NAMED: usize = 10;
 
-/// Why a Builder or a Reviewer records nothing.
-const NOT_FOR_AGENTS: &str = "A Builder or Reviewer cannot open or close gates.";
+/// Why an agent gdd started records nothing.
+const NOT_FOR_AGENTS: &str = "An agent gdd started cannot open or close gates.";
+
+/// Why the plan, G1 and G4 are only recorded by a human, after the name of the gate.
+const BY_HUMAN: &str = "is decided by a human (--by human): neither the machines nor an agent \
+                        approve the scenarios, the plan or the result.";
 
 /// Why G0 is only opened by the machines.
 const G0_BY_MACHINES: &str =
@@ -118,6 +123,11 @@ impl Gate {
             Gate::G3 => "3-integrate",
             Gate::G4 => "4-release",
         }
+    }
+
+    /// Whether only a human decides it on a change: the plan, G1 and G4.
+    fn decided_by_human(self) -> bool {
+        matches!(self, Gate::Plan | Gate::G1 | Gate::G4)
     }
 }
 
@@ -252,7 +262,7 @@ fn unwritable(path: &str, e: io::Error) -> Error {
 }
 
 /// Records the decision `request` asks for, by the role `role` (`None` for a person or the
-/// Orchestrator), and logs it. A Builder or a Reviewer is refused before anything else; then a
+/// Orchestrator), and logs it. An agent gdd started is refused before anything else; then a
 /// decision other than `ok` or `ko`. A write that waits for the agent calls under way says
 /// [`queue::WAITING_AGENTS`] with `say` as the wait starts, before it blocks. What it returns
 /// says what was recorded, in one line.
@@ -272,14 +282,14 @@ pub fn record(
     }
 }
 
-/// `Ok` unless `role` is a Builder or a Reviewer: they can never record a decision, nor answer a
-/// gate in any other way.
+/// `Ok` unless `role` is an agent gdd started, whatever role it names (an empty one or `human`
+/// too): gdd sets a role only for the agents it starts, and they can never record a decision, nor
+/// answer a gate in any other way. `None` is a person, or the Orchestrator working with them.
 pub fn may_record(role: Option<&str>) -> Result<(), Error> {
-    let role = role.unwrap_or_default();
-    if role.starts_with("builder") || role.starts_with("reviewer") {
-        return Err(refused(NOT_FOR_AGENTS));
+    match role {
+        Some(_) => Err(refused(NOT_FOR_AGENTS)),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// G0: only the machines open it, and only with the Project Brief and a passing self-test. Its
@@ -375,8 +385,9 @@ fn shared_write(state: &Path, say: impl FnOnce(&str)) -> Result<SharedWrite, Err
     queue::shared_write(state, waiting).map_err(Error::Project)
 }
 
-/// The plan, G1, G2, G3 and G4: recorded on the change. Approving G1 also seals its scenario
-/// files (see [`seal`]).
+/// The plan, G1, G2, G3 and G4: recorded on the change. Only a human records the plan, G1 and
+/// G4, whatever the decision: any other `--by` is refused before anything is read. Approving G1
+/// also seals its scenario files (see [`seal`]).
 fn record_on_change(
     project: &Project,
     request: &Request,
@@ -384,6 +395,9 @@ fn record_on_change(
     ts: &str,
 ) -> Result<String, Error> {
     let gate = request.gate;
+    if gate.decided_by_human() && request.by != "human" {
+        return Err(Error::Refused(format!("{gate} {BY_HUMAN}")));
+    }
     let Some(id) = request.change else {
         let why = format!("Missing change id: {gate} is recorded on a change.");
         return Err(Error::Refused(why));
@@ -975,37 +989,133 @@ mod tests {
         }
     }
 
+    /// Roles gdd could set for an agent it started, or an agent could claim.
+    const AGENT_ROLES: [&str; 9] = [
+        "builder-build",
+        "builder-test",
+        "builder",
+        "reviewer",
+        "reviewer-2",
+        "orchestrator",
+        "",
+        "human",
+        "Human",
+    ];
+
     #[test]
-    fn builders_and_reviewers_record_nothing() {
+    fn no_agent_gdd_started_records_anything() {
         let project = fixture();
-        let roles = [
-            "builder-build",
-            "builder-test",
-            "builder",
-            "reviewer",
-            "reviewer-2",
-        ];
         let requests = [
             (Gate::G4, Some("c1"), "human"),
+            (Gate::G2, Some("c1"), "machines"),
             (Gate::Zones, None, "human"),
             (Gate::G0, None, "machines"),
         ];
-        for role in roles {
+        for role in AGENT_ROLES {
             for (gate, change, by) in requests {
                 let err = project.run_as(gate, "maybe", change, by, Some(role));
-                assert_eq!(err.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role}");
+                assert_eq!(err.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role:?}");
+                let err = project.run_as(gate, "ok", change, by, Some(role));
+                assert_eq!(err.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role:?}");
             }
         }
         assert_eq!(
             NOT_FOR_AGENTS,
-            "A Builder or Reviewer cannot open or close gates."
+            "An agent gdd started cannot open or close gates."
         );
         assert_eq!(project.log().len(), 0);
         assert_eq!(project.record_of("c1")["gates"], serde_json::json!({}));
-        for role in [None, Some("orchestrator"), Some(""), Some("human")] {
-            let done = project.run_as(Gate::G4, "ok", Some("c1"), "human", role);
-            assert_eq!(done.unwrap(), "G4 ok on c1 (human).", "{role:?}");
+        let done = project.run_as(Gate::G4, "ok", Some("c1"), "human", None);
+        assert_eq!(done.unwrap(), "G4 ok on c1 (human).");
+    }
+
+    #[test]
+    fn only_a_person_may_record() {
+        assert!(may_record(None).is_ok());
+        for role in AGENT_ROLES {
+            let err = may_record(Some(role)).unwrap_err();
+            assert!(matches!(&err, Error::Refused(_)), "{role:?}: {err:?}");
+            assert_eq!(err.to_string(), NOT_FOR_AGENTS, "{role:?}");
         }
+    }
+
+    /// What refusing `gate` to anyone but a human says.
+    fn by_human(gate: Gate) -> String {
+        format!(
+            "{gate} is decided by a human (--by human): neither the machines nor an agent \
+             approve the scenarios, the plan or the result."
+        )
+    }
+
+    #[test]
+    fn only_a_human_records_the_plan_g1_and_g4() {
+        let project = fixture();
+        let before = fs::read_to_string(project.root().join(change::record_path("c1"))).unwrap();
+        for gate in [Gate::G1, Gate::Plan, Gate::G4] {
+            for decision in ["ok", "ko", "approve", "reject"] {
+                for by in ["machines", "orchestrator", "Human", "", "human "] {
+                    let err = project.refused(gate, decision, Some("c1"), by);
+                    assert_eq!(err, by_human(gate), "{gate} {decision} --by {by:?}");
+                }
+            }
+            // Refused before the change is read: without one, or with one that does not exist.
+            let missing = project.refused(gate, "ok", None, "machines");
+            assert_eq!(missing, by_human(gate));
+            let unknown = project.refused(gate, "ok", Some("c9"), "machines");
+            assert_eq!(unknown, by_human(gate));
+            let invalid = project.refused(gate, "ok", Some("../c1"), "machines");
+            assert_eq!(invalid, by_human(gate));
+        }
+        assert_eq!(
+            by_human(Gate::Plan),
+            format!("plan {BY_HUMAN}"),
+            "the gate as Display writes it"
+        );
+        let after = fs::read_to_string(project.root().join(change::record_path("c1"))).unwrap();
+        assert_eq!(after, before);
+        assert_eq!(project.log().len(), 0);
+        // A human records each of them.
+        for gate in [Gate::G1, Gate::Plan, Gate::G4] {
+            let done = project.run(gate, "ko", Some("c1"), "human");
+            assert_eq!(done.unwrap(), format!("{gate} ko on c1 (human)."));
+            let entry = &project.record_of("c1")["gates"][gate.to_string()];
+            assert_eq!(entry["by"], "human", "{gate}");
+            assert_eq!(project.log().pop().unwrap().text("role"), "human");
+        }
+        assert_eq!(project.log().len(), 3);
+    }
+
+    #[test]
+    fn the_machines_and_anyone_else_still_record_g2_and_g3() {
+        let project = fixture();
+        for (gate, by) in [
+            (Gate::G2, "machines"),
+            (Gate::G3, "machines"),
+            (Gate::G2, "orchestrator"),
+            (Gate::G3, "human"),
+        ] {
+            let done = project.run(gate, "ok", Some("c1"), by);
+            assert_eq!(done.unwrap(), format!("{gate} ok on c1 ({by})."));
+            let entry = &project.record_of("c1")["gates"][gate.to_string()];
+            assert_eq!(entry["by"], by, "{gate}");
+        }
+        assert_eq!(project.log().len(), 4);
+    }
+
+    #[test]
+    fn g1_by_anyone_but_a_human_is_refused_before_it_seals() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        let hidden = "Feature: Hidden\n  Scenario: Other\n    Given a brand new sentence\n";
+        project.commit_on_branch("features/hidden/drafts.feature", hidden);
+        let err = project.refused(Gate::G1, "ok", Some("c1"), "machines");
+        assert_eq!(err, by_human(Gate::G1));
+        assert_eq!(project.record_of("c1")["gates"], serde_json::json!({}));
+        assert_eq!(project.record_of("c1").get("features"), None);
+        assert_eq!(project.log().len(), 0);
+        // A human gets to the seal, which refuses the unknown sentence.
+        let err = project.refused(Gate::G1, "ok", Some("c1"), "human");
+        assert!(err.starts_with(UNKNOWN_SENTENCES), "{err}");
     }
 
     #[test]
@@ -1255,11 +1365,11 @@ mod tests {
     }
 
     #[test]
-    fn a_builder_or_a_reviewer_is_refused_before_any_lock() {
+    fn an_agent_gdd_started_is_refused_before_any_lock() {
         let project = fixture();
         project.write(SELFTEST_PATH, r#"{"ok": true}"#);
         project.write(BRIEF, "# Brief\n");
-        for role in ["builder-build", "builder-test", "reviewer"] {
+        for role in ["builder-build", "builder-test", "reviewer", "orchestrator"] {
             let zones = project.run_as(Gate::Zones, "ok", None, "human", Some(role));
             assert_eq!(zones.unwrap_err().to_string(), NOT_FOR_AGENTS, "{role}");
             let g0 = project.run_as(Gate::G0, "ok", None, "machines", Some(role));
@@ -1470,20 +1580,20 @@ reason = "Look and copy of the TUI"
         );
         assert_eq!(log[0].text("ts"), plan["ts"].as_str().unwrap());
         let later = [
-            (Gate::G2, "2-build"),
-            (Gate::G3, "3-integrate"),
-            (Gate::G4, "4-release"),
+            (Gate::G2, "2-build", "machines"),
+            (Gate::G3, "3-integrate", "machines"),
+            (Gate::G4, "4-release", "human"),
         ];
-        for (gate, phase) in later {
-            let done = project.run(gate, "reject", Some("c1"), "machines");
-            assert_eq!(done.unwrap(), format!("{gate} ko on c1 (machines)."));
+        for (gate, phase, by) in later {
+            let done = project.run(gate, "reject", Some("c1"), by);
+            assert_eq!(done.unwrap(), format!("{gate} ko on c1 ({by})."));
             let record = project.record_of("c1");
             let entry = &record["gates"][gate.to_string()];
             assert_eq!(entry["decision"], "ko");
-            assert_eq!(entry["by"], "machines");
+            assert_eq!(entry["by"], by);
             let line = project.log().pop().unwrap();
             assert_eq!(line.text("phase"), phase);
-            assert_eq!(line.text("role"), "machines");
+            assert_eq!(line.text("role"), by);
         }
         let record = project.record_of("c1");
         assert_eq!(record["gates"]["plan"]["decision"], "ok");

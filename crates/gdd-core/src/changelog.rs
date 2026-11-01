@@ -233,7 +233,7 @@ fn one_line(text: &str) -> String {
 
 /// Records on change `id` of the project whose state root is `state` its line in the changelog,
 /// `line`, without the spaces around its words; with `None`, that it is left out. For the role
-/// `role` (`None` for a person or the Orchestrator), and logged. A Builder or a Reviewer is
+/// `role` (`None` for a person or the Orchestrator), and logged. An agent gdd started is
 /// refused before anything else (see [`approve::may_record`]), then a line that cannot be one as
 /// it was given, a line break at either end too (see [`Line::check`]). What it says, in one line.
 pub fn record(
@@ -1303,7 +1303,7 @@ mod tests {
         ] {
             assert_eq!(entry.text(key), value, "{key}");
         }
-        let said = record(&folder.0, "c1", None, Some("orchestrator")).unwrap();
+        let said = record(&folder.0, "c1", None, None).unwrap();
         assert_eq!(said, "Changelog line of c1: left out");
         let none = serde_json::json!({"none": true});
         assert_eq!(record_of(&folder)[FIELD], none);
@@ -1317,9 +1317,9 @@ mod tests {
         let before = record_of(&folder);
         let refused = approve::may_record(Some("reviewer")).unwrap_err();
         let refused = refused.to_string();
-        let start = "A Builder or Reviewer cannot";
+        let start = "An agent gdd started cannot";
         assert!(refused.starts_with(start), "{refused}");
-        for role in ["builder-build", "builder-test", "reviewer"] {
+        for role in ["builder-build", "builder-test", "reviewer", "orchestrator"] {
             let err = record(&folder.0, "c1", None, Some(role)).unwrap_err();
             assert_eq!(err, refused, "{role}");
         }
