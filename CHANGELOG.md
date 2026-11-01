@@ -11,6 +11,8 @@ All notable changes to gdd are documented in this file. The format follows
 - Agents read what gdd installs: skills say when to use them, AGENTS.md names the checks <!-- gdd: c89b9598d8c5 -->
 - What the gates keep of a failed command is clean, and Python mutation starts fresh <!-- gdd: a4253631b9af -->
 - A Reviewer finding whose file is a link goes to the right mode <!-- gdd: acebdd79070d -->
+- A parked change gets going again without parking for reasons that are not its own <!-- gdd: ac6fee0c9267 -->
+- The sitting, the Decision Inbox and the refusals say what is true <!-- gdd: 4c543f67275d -->
 
 ## [0.1.1] - 2026-10-31
 
