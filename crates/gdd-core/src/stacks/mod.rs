@@ -810,7 +810,7 @@ alternative = "other lint"
         // Only the added lines reach gitleaks: no context, no removed line.
         let read = "LEAK = 1\nx = 1\nLEAK = 2\nLEAK = 5\nx = 1\n++ ID = \"LEAK\"\n\
                     ++ b/elsewhere.py\ny = \"LEAK\"\nLEAK = 1\nLEAK = 1\n";
-        let call = "gitleaks stdin --no-banner --redact ";
+        let call = "gitleaks stdin --no-banner --redact --log-level error ";
         for stack in NAMES.split(", ") {
             let repo = change_with_leaks();
             let fakes = [("gitleaks", GITLEAKS)];
@@ -874,6 +874,33 @@ alternative = "other lint"
         let fakes = [("cargo", "exit 0")];
         let (code, output, log) = g3_run("rust", "mutation", repo.root(), &fakes, &[]);
         assert_eq!((code, log.as_str()), (1, ""), "{output}");
+    }
+
+    #[test]
+    fn python_mutation_starts_without_an_earlier_run_and_shows_mutmut_only_when_it_fails() {
+        // The fake mutmut logs whether it finds the copies of an earlier run, and says something
+        // of its own; `results` lists no mutant left.
+        let mutmut = |code: i32| {
+            format!(
+                "[ \"$3\" = run ] || exit 0\n\
+                 [ ! -e mutants ] || echo 'stale mutants/' >> \"$log\"\n\
+                 echo 'mutmut: 3/3 done'\nexit {code}"
+            )
+        };
+        let env = [("GDD_DIFF_FILES", "src/app.py")];
+        let caught = "mutation: every mutant of the changed Python code was caught\n";
+        for (code, said) in [(0, caught), (1, "mutmut: 3/3 done\n")] {
+            let project = Folder::new();
+            let stale = project.0.join("mutants/tests/unit");
+            std::fs::create_dir_all(&stale).unwrap();
+            std::fs::write(stale.join("test_gone.py"), "def test_gone(): pass\n").unwrap();
+            let uv = mutmut(code);
+            let fakes = [("uv", uv.as_str())];
+            let (ran, output, log) = g3_run("python", "mutation", &project.0, &fakes, &env);
+            assert_eq!((ran, output.as_str()), (code, said), "{log}");
+            assert!(!log.contains("stale"), "{log}");
+            assert!(!project.0.join("mutants").exists());
+        }
     }
 
     #[test]
