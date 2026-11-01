@@ -1312,7 +1312,7 @@ fn run_ci(root: &Path, state: &Path, env: &Env) -> Result<Outcome, String> {
 
 /// `gdd session`: the requests of the interactive Claude Code sessions of the project into the
 /// log (see [`session::import`]), from the transcripts under the `HOME` of the environment `env`,
-/// priced from `gdd/models.toml` of the project at `root` (see [`agent_settings`]): without it,
+/// priced from `gdd/models.toml` of the project at `root` (see [`main_agent_settings`]): without it,
 /// every cost is unknown. A models file that cannot be read imports nothing.
 fn import_session(
     root: &Path,
@@ -1322,7 +1322,7 @@ fn import_session(
     env: &Env,
 ) -> Result<String, String> {
     let home = variable(env, "HOME").ok_or(NO_HOME)?;
-    let settings = agent_settings(root)?;
+    let settings = main_agent_settings(root)?;
     session::import(root, state, Path::new(home), phase, change, &settings)
 }
 
@@ -1446,7 +1446,7 @@ fn merge_queued(
 ) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
-    let settings = agent_settings(root)?;
+    let settings = main_agent_settings(root)?;
     let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env, voice);
     let at = recipe::Merging {
         state,
@@ -1660,7 +1660,7 @@ fn in_worktree(
         max,
         spike_usd,
     };
-    let settings = agent_settings(root)?;
+    let settings = main_agent_settings(root)?;
     let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, streams.out());
     steps.errors = streams.err();
     let ran = run(&project, &mut steps);
@@ -1668,14 +1668,6 @@ fn in_worktree(
     outcome.stdout.insert_str(0, &steps.voice.kept());
     outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
-}
-
-/// What `gdd/models.toml` of the project at `root` says of the agents besides the model of each
-/// role.
-fn agent_settings(root: &Path) -> Result<invoke::Settings, String> {
-    let path = agents::models::PATH;
-    let text = read(root, path)?.unwrap_or_default();
-    invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// `gdd agents install` and `gdd agents check` (see [`render::install`] and [`render::check`]),
@@ -2363,19 +2355,37 @@ fn zone_map(text: &str) -> Result<ZoneMap, String> {
 /// then, so a change is prepared, classified and gated with the map of main. When main has none,
 /// or there is no main branch (nor git) yet, the one at `root`.
 fn main_zones(root: &Path) -> Result<String, String> {
+    Ok(main_file(root, ZONES)?.unwrap_or_default())
+}
+
+/// The text of the file `path` as the main branch of the project at `root` has it; when main has
+/// none, or there is no main branch (nor git) yet, the one at `root`; `None` without either.
+fn main_file(root: &Path, path: &str) -> Result<Option<String>, String> {
     let main = load_settings(root)?.main_branch;
     let git = Git::new(root);
     let said = |e: gdd_core::git::Error| e.to_string();
     let on_main = gdd_core::git::is_repository(root) && git.exists(&main).map_err(said)?;
     let kept = if on_main {
-        git.file_at(&main, ZONES).map_err(said)?
+        git.file_at(&main, path).map_err(said)?
     } else {
         None
     };
     match kept {
-        Some(bytes) => String::from_utf8(bytes).map_err(|e| format!("{ZONES} on {main}: {e}")),
-        None => Ok(read(root, ZONES)?.unwrap_or_default()),
+        Some(bytes) => {
+            let text = String::from_utf8(bytes).map_err(|e| format!("{path} on {main}: {e}"))?;
+            Ok(Some(text))
+        }
+        None => read(root, path),
     }
+}
+
+/// What `gdd/models.toml` of the main branch says of the agents besides the model of each role
+/// (see [`main_file`]): prices that a change's branch made before they were added still count,
+/// and a branch's own do not.
+fn main_agent_settings(root: &Path) -> Result<invoke::Settings, String> {
+    let path = agents::models::PATH;
+    let text = main_file(root, path)?.unwrap_or_default();
+    invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))
 }
 
 /// The zone map of the main branch of the project at `root` (see [`main_zones`]).
@@ -2399,7 +2409,7 @@ fn load_models(root: &Path) -> Result<Models, String> {
 
 /// The models of the project at `root` (see [`load_models`]), with the Builder session of the
 /// main checkout, under the state root `state`: the project's choice as main has it, as the
-/// agents' settings are (see [`agent_settings`]), whatever the branch of a change says.
+/// agents' settings are (see [`main_agent_settings`]), whatever the branch of a change says.
 fn load_models_with_session(root: &Path, state: &Path) -> Result<Models, String> {
     let session = load_models(state)?.session();
     Ok(load_models(root)?.with_session(session))
@@ -5635,6 +5645,7 @@ mod tests {
         assert_eq!(launch_in(&project, &env), Outcome::failure(claude.into()));
         let wrong = format!("{MODELS}{MORE_ROLES}[env]\npass = \"X\"\n");
         project.write("gdd/models.toml", &wrong);
+        git(&project, &["commit", "-q", "-am", "wrong models"]);
         let out = launch_in(&project, &env);
         let start = "error: gdd/models.toml: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
@@ -5748,7 +5759,11 @@ esac
         let project = launched_project();
         project.write(".gdd/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
         let before = record_of(&project, "c1");
+        // The models of main: a change's branch does not choose them.
+        git(&project, &["checkout", "-q", "main"]);
         project.write(agents::models::PATH, "[session]\nbuilder = \"joint\"\n");
+        git(&project, &["commit", "-q", "-am", "joint"]);
+        git(&project, &["checkout", "-q", "change/c1"]);
         for answer in ["ko --note No", "polish --note Shorter"] {
             let out = project.run(&format!("resume c1 --g4 {answer}"));
             let refused = "error: gdd/models.toml: invalid TOML: session.builder must be separate \
@@ -5756,6 +5771,46 @@ esac
             assert_eq!(out, Outcome::failure(refused.into()), "{answer}");
             assert_eq!(record_of(&project, "c1"), before, "{answer}");
         }
+    }
+
+    #[test]
+    fn main_file_is_the_text_main_has_not_the_one_of_the_branch() {
+        let project = launched_project();
+        git(&project, &["checkout", "-q", "-b", "other"]);
+        project.write("notes.txt", "on other\n");
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "notes"]);
+        project.write(ZONES, "# changed on other\n");
+        let kept = main_file(&project.0, ZONES).unwrap().unwrap();
+        assert_eq!(kept, ZONE_MAP);
+    }
+
+    #[test]
+    fn main_file_falls_back_to_the_checkout_when_main_lacks_the_file() {
+        let project = launched_project();
+        project.write("only-here.txt", "here\n");
+        let text = main_file(&project.0, "only-here.txt").unwrap();
+        assert_eq!(text.as_deref(), Some("here\n"));
+        assert_eq!(main_file(&project.0, "nowhere.txt").unwrap(), None);
+    }
+
+    #[test]
+    fn main_file_reads_the_checkout_without_git() {
+        let project = Project::new();
+        project.write("gdd/x.txt", "plain\n");
+        let text = main_file(&project.0, "gdd/x.txt").unwrap();
+        assert_eq!(text.as_deref(), Some("plain\n"));
+    }
+
+    #[test]
+    fn main_file_names_the_file_and_the_branch_when_main_has_it_not_utf8() {
+        let project = launched_project();
+        git(&project, &["checkout", "-q", "main"]);
+        fs::write(project.0.join("blob.bin"), [0xff, 0xfe, 0x00]).unwrap();
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "blob"]);
+        let error = main_file(&project.0, "blob.bin").unwrap_err();
+        assert!(error.starts_with("blob.bin on main: "), "{error}");
     }
 
     /// The paths `gdd agents install` said it wrote.
