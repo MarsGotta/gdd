@@ -59,7 +59,9 @@ fn answer(rest: &str) -> &str {
 
 /// The files the findings of a Reviewer's text name, in order: of each line shaped
 /// `F<n> · <class> · <file>:<line> · <what fails>`, the file, without its `:<line>`, which may be
-/// missing. A leading `-` or `*`, and Markdown bold or code marks around a field, are allowed.
+/// missing. A leading `-` or `*`, and Markdown bold or code marks around a field, are allowed. A
+/// file written as a Markdown link, `[<file>:<line>](<target>)`, is read as the link's text (see
+/// [`unlinked`]); a link without text names no file.
 pub fn finding_files(text: &str) -> Vec<String> {
     text.lines().filter_map(finding_file).collect()
 }
@@ -71,14 +73,43 @@ fn finding_file(line: &str) -> Option<String> {
     let mut fields = line.split('·');
     let number = bare(fields.next()?).strip_prefix('F').unwrap_or_default();
     let numbered = !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit());
-    let (_class, file) = (fields.next()?, fields.next()?);
-    let file = bare(file.split_once(':').map_or(file, |(path, _line)| path));
-    (numbered && !file.is_empty()).then(|| file.to_string())
+    let (_class, field) = (fields.next()?, unlinked(fields.next()?));
+    let file = bare(field.split(':').next().unwrap_or_default());
+    let named = !file.is_empty() && !file.contains("](");
+    (numbered && named).then(|| file.to_string())
 }
 
 /// A field of a finding without the blanks, Markdown bold and code marks around it.
 fn bare(field: &str) -> &str {
     field.trim().trim_matches(['*', '`']).trim()
+}
+
+/// `text` with each Markdown link, `[label](target)` with a label, replaced by its label.
+pub fn unlinked(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let close = after.find(']').filter(|&close| close > 0);
+        let link = close.and_then(|close| {
+            let target = after[close + 1..].strip_prefix('(')?;
+            let end = target.find(')')?;
+            Some((&after[..close], &target[end + 1..]))
+        });
+        match link {
+            Some((label, tail)) => {
+                out.push_str(label);
+                rest = tail;
+            }
+            None => {
+                out.push('[');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The verdict of the Reviewer of change `id`, of the project whose state root is `state` (see
@@ -185,10 +216,14 @@ mod tests {
             "**F4 · class · `src/a.rs:6` · what**",
             "F5 · class · **`src/a.rs`:7**",
             "F6 · class · src/a.rs:8:2 · what",
+            "- **F7 · class · [src/a.rs:9](/abs/wt/src/a.rs:9)** · what",
+            "F8 · class · [`src/a.rs`:10](/abs/wt/src/a.rs) · what",
+            "F9 · class · [src/a.rs](src/a.rs) · what",
         ] {
             assert_eq!(finding_files(line), ["src/a.rs"], "{line:?}");
         }
         for line in [
+            "F1 · class · [](x) · what",
             "F · class · src/a.rs:1 · what",
             "Fix · class · src/a.rs:1 · what",
             "F1x · class · src/a.rs:1 · what",
@@ -204,6 +239,21 @@ mod tests {
         }
         let text = "# Review\nF1 · a · x.rs:1 · y\n\nF2 · b · z.rs · w\nVERDICT: KO\n";
         assert_eq!(finding_files(text), ["x.rs", "z.rs"]);
+    }
+
+    #[test]
+    fn a_link_is_read_as_its_label() {
+        for (text, plain) in [
+            ("[a](b)", "a"),
+            ("x [the guard](a.rs) y [b]()", "x the guard y b"),
+            ("[a [b](c)", "a [b"),
+            ("[a] [b](c)", "[a] b"),
+            ("[](x) [a](b", "[](x) [a](b"),
+            ("[a]x(b)", "[a]x(b)"),
+            ("no links", "no links"),
+        ] {
+            assert_eq!(unlinked(text), plain, "{text}");
+        }
     }
 
     #[test]
