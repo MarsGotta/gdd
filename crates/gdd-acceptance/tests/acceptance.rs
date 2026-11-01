@@ -1221,6 +1221,16 @@ fn scenario_on_branch(w: &mut GddWorld, id: String, file: String) {
     commit_on_branch(&root, &id, &file, text);
 }
 
+#[given(expr = "the change {string} no longer has the scenario {string} on its branch")]
+fn scenario_removed_from_branch(w: &mut GddWorld, id: String, file: String) {
+    let root = project_root(w);
+    let back = git(&root, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    git(&root, &["checkout", "-q", &format!("change/{id}")]);
+    git(&root, &["rm", "-q", "--", &file]);
+    git(&root, &["commit", "-q", "-m", &format!("remove {file}")]);
+    git(&root, &["checkout", "-q", &back]);
+}
+
 #[given(expr = "the change {string} has the hidden example {string} with the step {string}")]
 fn hidden_example_on_branch(w: &mut GddWorld, id: String, file: String, sentence: String) {
     let root = project_root(w);

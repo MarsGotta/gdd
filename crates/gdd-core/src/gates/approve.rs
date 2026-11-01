@@ -7,8 +7,8 @@
 //! state every change shares: their writes wait for the agent calls under way, saying so as the
 //! wait starts (see [`queue::shared_write`]). The plan, G1, G2, G3 and G4 are recorded on a
 //! change. Approving G1 seals the scenario files of the change, as its branch has them, with their
-//! SHA-256, and refuses hidden examples with sentences no visible scenario has. A Builder or a
-//! Reviewer can never record anything.
+//! SHA-256, and refuses hidden examples with sentences no visible scenario has; [`unsealed`] says
+//! which of them changed since. A Builder or a Reviewer can never record anything.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -424,28 +424,30 @@ pub struct Sealed {
 }
 
 /// What approving G1 seals on change `id`, whose record is `record`. Its scenario files are the
-/// ones it touched against the main branch (or plans, while it touched nothing) that need
-/// approval; without any, the ones its record names. They are read as the change's branch has
-/// them: the working tree while it is checked out, or when the change has no branch; else its
-/// last commit, so approving from another branch seals them too. Hidden examples the change
-/// touched whose sentences no visible scenario has are refused: test mode could never write
-/// their steps.
+/// ones it touched against the main branch and the ones it plans that need approval, as the
+/// launch counts them (see [`unsealed`]); without any, the ones its record names. They are read
+/// as the change's branch has them: the working tree while it is checked out, or when the change
+/// has no branch; else its last commit, so approving from another branch seals them too. Hidden
+/// examples the change touched (or plans, while it touched nothing) whose sentences no visible
+/// scenario has are refused: test mode could never write their steps.
 pub fn seal(project: &Project, id: &str, record: &Record) -> Result<Sealed, Error> {
-    let mut changed = guard::touched(project.root, id, project.settings)?;
-    if changed.is_empty() {
-        changed = record.plan.paths.clone();
-        changed.sort();
-        changed.dedup();
-    }
+    let touched = guard::touched(project.root, id, project.settings)?;
+    let mut planned = record.plan.paths.clone();
+    planned.sort();
+    planned.dedup();
     let acceptance = project.acceptance;
-    let mut features: Vec<String> = changed
+    let mut features: Vec<String> = touched
         .iter()
+        .chain(&planned)
         .filter(|path| acceptance.needs_approval(path))
         .cloned()
         .collect();
+    features.sort();
+    features.dedup();
     if features.is_empty() {
         features = record.features.clone();
     }
+    let changed = if touched.is_empty() { planned } else { touched };
     let view = View::of(project.root, id)?;
     let mut unknown = unknown_sentences(&view, &changed, &acceptance.dir)?;
     if !unknown.is_empty() {
@@ -460,6 +462,62 @@ pub fn seal(project: &Project, id: &str, record: &Record) -> Result<Sealed, Erro
         }
     }
     Ok(Sealed { features, hashes })
+}
+
+/// What happened to a scenario file of a change after G1 sealed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drift {
+    /// G1 sealed no text for it, and the branch has it.
+    Added,
+    /// Its text is no longer the one G1 sealed.
+    Edited,
+    /// G1 sealed its text, and the branch no longer has it.
+    Removed,
+}
+
+impl fmt::Display for Drift {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Drift::Added => "added",
+            Drift::Edited => "edited",
+            Drift::Removed => "removed",
+        })
+    }
+}
+
+/// The scenario files of change `id` of the project at `root` that are no longer what G1 sealed
+/// in `record`, with what happened to each, in the order of their paths. The files are
+/// `features`, the ones `record` names and the ones G1 sealed, each read as [`seal`] reads them
+/// (see [`View`]): absent when the branch has no regular file there. A file with no sealed text
+/// that the branch has was added; one whose sealed text the branch no longer has was removed;
+/// one whose text differs from the sealed one was edited. The rest, sealed as they are or absent
+/// as they were, are not named.
+pub fn unsealed(
+    root: &Path,
+    id: &str,
+    record: &Record,
+    features: &[String],
+) -> Result<Vec<(String, Drift)>, Error> {
+    let mut files: Vec<&String> = features
+        .iter()
+        .chain(&record.features)
+        .chain(record.approved.keys())
+        .collect();
+    files.sort();
+    files.dedup();
+    let view = View::of(root, id)?;
+    let mut drifted = Vec::new();
+    for file in files {
+        let now = view.read(file)?.map(|bytes| sha256(&bytes));
+        let drift = match (record.approved.get(file), now) {
+            (None, Some(_)) => Drift::Added,
+            (Some(_), None) => Drift::Removed,
+            (Some(sealed), Some(now)) if *sealed != now => Drift::Edited,
+            _ => continue,
+        };
+        drifted.push((file.clone(), drift));
+    }
+    Ok(drifted)
 }
 
 /// The sentences of the hidden examples among `changed`, inside `<dir>/hidden/`, that no
@@ -858,6 +916,22 @@ mod tests {
             self.git(&["add", "--", path]);
             self.git(&["commit", "-q", "-m", path]);
             self.git(&["checkout", "-q", "main"]);
+        }
+
+        /// Removes `path` on the branch of `c1` with a commit, and goes back to `main`.
+        fn removed_on_branch(&self, path: &str) {
+            self.git(&["checkout", "-q", "change/c1"]);
+            self.git(&["rm", "-q", "--", path]);
+            self.git(&["commit", "-q", "-m", path]);
+            self.git(&["checkout", "-q", "main"]);
+        }
+
+        /// What [`unsealed`] says of `c1`, with `features` as its scenario files.
+        fn unsealed(&self, features: &[&str]) -> Vec<(String, Drift)> {
+            let text = change::read_record(self.root(), "c1").unwrap();
+            let record = Record::from_json(&text).unwrap();
+            let features: Vec<String> = features.iter().map(|f| f.to_string()).collect();
+            unsealed(self.root(), "c1", &record, &features).unwrap()
         }
 
         fn project(&self) -> Project<'_> {
@@ -1586,6 +1660,52 @@ reason = "Look and copy of the TUI"
         assert_eq!(record["gates"]["G1"]["hashes"], hashes);
     }
 
+    /// Commits `VISIBLE` as `features/drafts.feature`, which `c1` plans, on `main`, and starts
+    /// the branch of `c1` there: main has it, and the change did not touch it.
+    fn planned_on_main() -> Fixture {
+        let project = fixture();
+        project.write("features/drafts.feature", VISIBLE);
+        project.git(&["add", "--", "features/drafts.feature"]);
+        project.git(&["commit", "-q", "-m", "drafts"]);
+        project.git(&["branch", "-f", "change/c1"]);
+        project
+    }
+
+    #[test]
+    fn g1_seals_the_scenarios_the_change_plans_with_the_ones_it_touched() {
+        let project = planned_on_main();
+        project.commit_on_branch("features/export.feature", "Feature: Export\n");
+        project.ok(Gate::G1, Some("c1"));
+        let record = project.record_of("c1");
+        let features = serde_json::json!(["features/drafts.feature", "features/export.feature"]);
+        assert_eq!(record["features"], features);
+        let hashes = serde_json::json!({
+            "features/drafts.feature": sha256(VISIBLE.as_bytes()),
+            "features/export.feature": sha256(b"Feature: Export\n"),
+        });
+        assert_eq!(record["gates"]["G1"]["hashes"], hashes);
+        // The launch counts both, and finds them as G1 sealed them.
+        let counted = ["features/drafts.feature", "features/export.feature"];
+        assert_eq!(project.unsealed(&counted), NONE);
+    }
+
+    #[test]
+    fn a_change_that_touched_no_scenario_seals_the_ones_it_plans() {
+        let project = planned_on_main();
+        project.commit_on_branch("src/storage/db.rs", "fn main() {}\n");
+        project.ok(Gate::G1, Some("c1"));
+        let record = project.record_of("c1");
+        let features = serde_json::json!(["features/drafts.feature"]);
+        assert_eq!(record["features"], features);
+        let hashes = serde_json::json!({"features/drafts.feature": sha256(VISIBLE.as_bytes())});
+        assert_eq!(record["gates"]["G1"]["hashes"], hashes);
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), NONE);
+        // Edited after G1, it is unsealed.
+        project.commit_on_branch("features/drafts.feature", "Feature: Drafts\n");
+        let expected = [drift("features/drafts.feature", Drift::Edited)];
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), expected);
+    }
+
     #[test]
     fn without_git_g1_seals_the_working_tree() {
         let project = without_git();
@@ -1666,6 +1786,134 @@ reason = "Look and copy of the TUI"
         project.write("features/hidden/a.feature", new);
         let err = project.refused(Gate::G1, "ok", Some("c1"), "human");
         assert!(err.ends_with("\n  - a brand new sentence"), "{err}");
+    }
+
+    /// `file` with what happened to it, as [`unsealed`] says it.
+    fn drift(file: &str, drift: Drift) -> (String, Drift) {
+        (file.to_string(), drift)
+    }
+
+    const HIDDEN: &str = "Feature: Hidden\n  Scenario: Other\n    Given a draft \"z\"\n    \
+                          Then it is saved\n";
+
+    /// What [`unsealed`] says of scenarios as G1 sealed them.
+    const NONE: &[(String, Drift)] = &[];
+
+    #[test]
+    fn each_drift_says_what_happened() {
+        let said = [Drift::Added, Drift::Edited, Drift::Removed].map(|d| d.to_string());
+        assert_eq!(said, ["added", "edited", "removed"]);
+    }
+
+    #[test]
+    fn scenarios_as_g1_sealed_them_are_not_unsealed() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.commit_on_branch("features/hidden/drafts.feature", HIDDEN);
+        project.ok(Gate::G1, Some("c1"));
+        assert_eq!(project.unsealed(&[]), NONE);
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), NONE);
+        // On its branch, the working tree is read.
+        project.git(&["checkout", "-q", "change/c1"]);
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), NONE);
+    }
+
+    #[test]
+    fn a_scenario_edited_after_g1_is_unsealed_as_edited() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.ok(Gate::G1, Some("c1"));
+        let edited = format!("{VISIBLE}    And it is listed\n");
+        project.commit_on_branch("features/drafts.feature", &edited);
+        let expected = [drift("features/drafts.feature", Drift::Edited)];
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), expected);
+        assert_eq!(project.unsealed(&[]), expected);
+    }
+
+    #[test]
+    fn a_hidden_example_edited_after_g1_is_unsealed_as_edited() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.commit_on_branch("features/hidden/drafts.feature", HIDDEN);
+        project.ok(Gate::G1, Some("c1"));
+        let edited = HIDDEN.replace("\"z\"", "\"w\"");
+        project.commit_on_branch("features/hidden/drafts.feature", &edited);
+        let expected = [drift("features/hidden/drafts.feature", Drift::Edited)];
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), expected);
+    }
+
+    #[test]
+    fn a_scenario_added_after_g1_is_unsealed_as_added() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.ok(Gate::G1, Some("c1"));
+        project.commit_on_branch("features/extra.feature", "Feature: Extra\n");
+        let features = ["features/drafts.feature", "features/extra.feature"];
+        let expected = [drift("features/extra.feature", Drift::Added)];
+        assert_eq!(project.unsealed(&features), expected);
+        // Unless it is among the scenario files, the tool does not look for it.
+        assert_eq!(project.unsealed(&[]), NONE);
+    }
+
+    #[test]
+    fn a_scenario_sealed_without_text_and_still_absent_is_not_unsealed() {
+        let project = fixture();
+        // The branch has no scenarios yet: G1 seals the ones the change plans, without text.
+        project.ok(Gate::G1, Some("c1"));
+        let record = project.record_of("c1");
+        let features = serde_json::json!(["features/drafts.feature"]);
+        assert_eq!(record["features"], features);
+        assert_eq!(record["gates"]["G1"]["hashes"], serde_json::json!({}));
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), NONE);
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        let expected = [drift("features/drafts.feature", Drift::Added)];
+        assert_eq!(project.unsealed(&[]), expected);
+    }
+
+    #[test]
+    fn a_scenario_removed_after_g1_is_unsealed_as_removed() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.commit_on_branch("features/extra.feature", "Feature: Extra\n");
+        project.ok(Gate::G1, Some("c1"));
+        project.removed_on_branch("features/extra.feature");
+        let expected = [drift("features/extra.feature", Drift::Removed)];
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), expected);
+    }
+
+    #[test]
+    fn a_folder_where_g1_sealed_a_scenario_is_unsealed_as_removed() {
+        let project = without_git();
+        project.write("features/drafts.feature", VISIBLE);
+        project.ok(Gate::G1, Some("c1"));
+        assert_eq!(project.unsealed(&[]), NONE);
+        let file = project.root().join("features/drafts.feature");
+        fs::remove_file(&file).unwrap();
+        fs::create_dir_all(file.join("deep")).unwrap();
+        let expected = [drift("features/drafts.feature", Drift::Removed)];
+        assert_eq!(project.unsealed(&["features/drafts.feature"]), expected);
+    }
+
+    #[test]
+    fn several_unsealed_scenarios_are_named_once_in_the_order_of_their_paths() {
+        let project = fixture();
+        project.commit_on_branch("features/drafts.feature", VISIBLE);
+        project.commit_on_branch("features/hidden/drafts.feature", HIDDEN);
+        project.ok(Gate::G1, Some("c1"));
+        project.commit_on_branch("features/a.feature", "Feature: A\n");
+        project.commit_on_branch("features/drafts.feature", "Feature: Drafts\n");
+        project.removed_on_branch("features/hidden/drafts.feature");
+        let features = [
+            "features/drafts.feature",
+            "features/a.feature",
+            "features/a.feature",
+        ];
+        let expected = [
+            drift("features/a.feature", Drift::Added),
+            drift("features/drafts.feature", Drift::Edited),
+            drift("features/hidden/drafts.feature", Drift::Removed),
+        ];
+        assert_eq!(project.unsealed(&features), expected);
     }
 
     #[test]
