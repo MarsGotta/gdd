@@ -684,6 +684,12 @@ pub fn build_snapshot_path(id: &str) -> String {
     format!(".gdd/changes/{id}/snapshot-build.json")
 }
 
+/// Where the snapshot taken when a run of change `id` parked lives, from the state root: what
+/// changed after it, before the change runs again, a person changed by hand.
+pub fn parked_snapshot_path(id: &str) -> String {
+    format!(".gdd/changes/{id}/snapshot-parked.json")
+}
+
 /// The record `text` with `accepted`, the paths outside the plan the scope check accepted, as
 /// its `out_of_scope`; `None` when there is nothing to write: nothing accepted, or the record
 /// says it already. The other fields keep their values.
@@ -835,6 +841,8 @@ mod tests {
         assert_eq!(snapshot_path("save"), ".gdd/changes/save/snapshot.json");
         let build = ".gdd/changes/save/snapshot-build.json";
         assert_eq!(build_snapshot_path("save"), build);
+        let parked = ".gdd/changes/save/snapshot-parked.json";
+        assert_eq!(parked_snapshot_path("save"), parked);
         assert_eq!(branch("save"), "change/save");
     }
 

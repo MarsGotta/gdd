@@ -2455,6 +2455,24 @@ fn given_i_run_in_worktree(w: &mut GddWorld, command: String, id: String) {
     run_gdd(w, &command, &folder);
 }
 
+// ---- features/park-recovery.feature --------------------------------------------------------
+
+#[given(expr = "the file {string} in the worktree of {string} is written by hand saying {string}")]
+fn written_by_hand(w: &mut GddWorld, path: String, id: String, text: String) {
+    let folder = worktree_of(w, &id);
+    write_file(&folder.join(&path), &format!("{text}\n"));
+}
+
+#[given(
+    expr = "the file {string} in the worktree of {string} is committed by hand saying {string}"
+)]
+fn committed_by_hand(w: &mut GddWorld, path: String, id: String, text: String) {
+    let folder = worktree_of(w, &id);
+    write_file(&folder.join(&path), &format!("{text}\n"));
+    git(&folder, &["add", "--", &path]);
+    git(&folder, &["commit", "-q", "-m", "by hand", "--", &path]);
+}
+
 #[then(expr = "the worktree of {string} has no {string}")]
 fn worktree_has_no(w: &mut GddWorld, id: String, path: String) {
     let at = worktree_of(w, &id).join(&path);
