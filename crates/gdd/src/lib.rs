@@ -4561,8 +4561,12 @@ mod tests {
         assert_eq!(plan["decision"], "ok");
         assert_eq!(plan["by"], "human");
         assert_eq!(plan["note"], "Looks-fine");
-        let g4 = project.run("gate G4 reject c1 --by machines");
-        assert_eq!(g4.stdout, "G4 ko on c1 (machines).\n");
+        let by_machines = project.run("gate G4 reject c1 --by machines");
+        let refused = "error: G4 is decided by a human (--by human): neither the machines nor an \
+                       agent approve the scenarios, the plan or the result.\n";
+        assert_eq!(by_machines, Outcome::failure(refused.into()));
+        let g4 = project.run("gate G4 reject c1 --by human");
+        assert_eq!(g4.stdout, "G4 ko on c1 (human).\n");
         let maybe = project.run("gate G4 maybe c1");
         let expected = Outcome::failure("error: The decision is ok or ko.\n".into());
         assert_eq!(maybe, expected);

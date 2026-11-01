@@ -4617,8 +4617,8 @@ mod tests {
         let said = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         state::pause_at_g4(root, "c1").unwrap();
-        let refused = "A Builder or Reviewer cannot open or close gates.";
-        for role in ["builder-build", "reviewer"] {
+        let refused = "An agent gdd started cannot open or close gates.";
+        for role in ["builder-build", "reviewer", "orchestrator"] {
             let said = resume(&here, "c1", Answer::Ok, "", Some(role), None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{role}");
         }
@@ -4652,8 +4652,7 @@ mod tests {
         let here = repo.project();
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
-        let role = Some("orchestrator");
-        let said = resume(&here, "c1", Answer::Ok, "Fine", role, None, &mut steps);
+        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert!(!repo.work.exists(), "the worktree stays");
