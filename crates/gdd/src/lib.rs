@@ -44,8 +44,6 @@ const COMMANDS: &str = gates::COMMANDS;
 const CHANGES: &str = ".gdd/changes";
 /// The role of test mode, which Path Guard judges after it.
 const TEST_ROLE: &str = "builder-test";
-/// Why a Builder or a Reviewer cannot run `gdd learn`.
-const LEARN_REFUSED: &str = "Builders and Reviewers cannot run gdd learn: it writes under .gdd/.";
 /// What an agent gdd started may run, after the command it cannot (see [`refused_to_agent`]).
 const FOR_AGENTS: &str = "they may only run gdd g2, gdd guard, gdd note, gdd status, gdd \
                           classify, gdd inbox, gdd report and gdd scope.";
@@ -251,14 +249,14 @@ enum Command {
     NewChange(NewChangeArgs),
     /// Records a gate decision: G0 (by the machines), the red zones (by a human), or the plan,
     /// G1, G2, G3 or G4 of a change. Approving G1 seals the scenario files of the change.
-    /// Builders and Reviewers cannot record anything.
+    /// Agents that gdd started cannot record anything.
     Gate(DecisionArgs),
     /// Leaves a note on a change for its Decision Inbox.
     Note(NoteArgs),
     /// Sets the line of a change in the changelog, which its merge commit carries as trailers: a
     /// section of Keep a Changelog and its words, or --none to leave the change out. Without one,
     /// the title goes under the section of its type (Feature: Added, Hotfix: Fixed, Migration:
-    /// Changed), and the other types are left out. Builders and Reviewers cannot set it.
+    /// Changed), and the other types are left out. Agents that gdd started cannot set it.
     ChangelogLine(ChangelogLineArgs),
     /// Shows what CHANGELOG.md lacks of the lines the commits of the main branch carry (what no
     /// v<semver> tag released yet goes under Unreleased), and with --write adds only that, each
@@ -347,7 +345,7 @@ enum Command {
     /// changelog line the next v<x.y.z> version, in GDD_VERSION, and releases it once it passed.
     /// Without a step: the next version of what main merged since its newest tag, and its lines;
     /// --yes releases it, in any mode (CHANGELOG.md, when main tracks one, in a commit of its
-    /// own, and the tag), and --version chooses it. Builders and Reviewers cannot release.
+    /// own, and the tag), and --version chooses it. Agents that gdd started cannot release.
     Release(ReleaseArgs),
     /// Runs the recipe of a change in its own git worktree, on its branch change/<id>, while
     /// this checkout goes to the main branch: Build, G2, G3, the Reviewer, merge and pre; then it
@@ -361,8 +359,8 @@ enum Command {
         change: String,
     },
     /// Answers the G4 of a change paused at it: ok takes it to production, ko rejects it, and
-    /// polish runs one more Builder round with your notes and pauses at G4 again. Builders and
-    /// Reviewers cannot answer.
+    /// polish runs one more Builder round with your notes and pauses at G4 again. Agents that
+    /// gdd started cannot answer.
     Resume(ResumeArgs),
     /// The GDD commands, and the instructions of each stack in `stack` of gdd/project.toml, in
     /// the folders of the coding agents (claude, codex, opencode), as their agent sheets say.
@@ -379,7 +377,7 @@ enum Command {
     /// them) on the branch gdd-upgrade, merged three ways with what the project made of them:
     /// first what this gdd writes, then the merge, with the lines both changed marked as
     /// conflicts. Runs on the main branch with everything committed; nothing on it changes and
-    /// nothing is pushed. Builders and Reviewers cannot run it.
+    /// nothing is pushed. Agents that gdd started cannot run it.
     Upgrade,
 }
 
@@ -723,23 +721,6 @@ impl Command {
         )
     }
 
-    /// Whether the command refuses the role `role` itself, in its own words, before it writes
-    /// anything: the ones that record or answer a gate, release a version or write what a person
-    /// writes (`gate`, `changelog-line`, `resume`, `release` without a step, `learn` and
-    /// `upgrade`) refuse a Builder or a Reviewer (see [`approve::may_record`]).
-    fn refuses_itself(&self, role: &str) -> bool {
-        let own = match self {
-            Command::Gate(_)
-            | Command::ChangelogLine(_)
-            | Command::Resume(_)
-            | Command::Learn { .. }
-            | Command::Upgrade => true,
-            Command::Release(args) => args.step.is_none(),
-            _ => false,
-        };
-        own && approve::may_record(Some(role)).is_err()
-    }
-
     /// Runs the command on the project at `root`, whose state root is `state` (see
     /// [`state::root`]), for the role `role`, in the environment `env`: what it prints and its
     /// exit code. What it says on its way, it says on `streams`.
@@ -796,7 +777,7 @@ impl Command {
             Command::Inbox { change } => decision_inbox(state, &change_id(change, env)?)?,
             Command::Status => project_status(root, state, env)?,
             Command::Adopt => adopt_project(root, state)?,
-            Command::Learn { since } => learn_project(root, state, role, since)?,
+            Command::Learn { since } => learn_project(root, state, since)?,
             Command::Session { phase, change } => {
                 import_session(root, state, &phase, change.as_deref(), env)?
             }
@@ -851,8 +832,8 @@ fn role_in(env: &Env) -> Option<&str> {
 /// role `role` (`None` for a person), in the environment of the process. An agent gdd started,
 /// whatever its role, runs only `gdd g2`, `guard`, `note`, `status`, `classify`, `inbox`,
 /// `report` and `scope`, besides help and the version: any other command fails before it starts,
-/// in its own words when it refuses a Builder or a Reviewer itself, as the commands that record
-/// gate decisions do, and never opens a screen in a terminal (see [`asks_form`]). Help and
+/// in the same words for every command, and never opens a screen in a terminal (see
+/// [`asks_form`]). Help and
 /// version go to the standard output; every error goes to the standard error, with exit code 1.
 /// `gdd guard --strict` also exits with 1 when Path Guard fails, and `gdd g2 --strict` and `gdd
 /// g3 --strict` when the gate fails.
@@ -876,7 +857,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
     let Some(run) = cli.command else {
         return Outcome::success(Cli::command().render_help().to_string());
     };
-    if role.is_some_and(|role| refused_to_agent(&run, role)) {
+    if role.is_some() && refused_to_agent(&run) {
         let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         return Outcome::error(&refused);
     }
@@ -894,13 +875,12 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
 
 /// Whether an agent gdd started for the role `role`, any role, is refused `run`: it may run only
 /// what its work needs (see [`Command::for_agents`]), so a command added later is refused by
-/// default. A command that refuses `role` itself keeps its own words (see
-/// [`Command::refuses_itself`]).
-fn refused_to_agent(run: &Run, role: &str) -> bool {
-    let Run::InProject(command) = run else {
-        return true;
-    };
-    !(command.for_agents() || command.refuses_itself(role))
+/// default, in the same words for all of them.
+fn refused_to_agent(run: &Run) -> bool {
+    match run {
+        Run::InProject(command) => !command.for_agents(),
+        _ => true,
+    }
 }
 
 /// The command `gdd` with `args`, the words after the program name, as clap reads it.
@@ -1561,7 +1541,7 @@ fn release_change(
     }
 }
 
-/// `gdd release` without a step, for the role `role`: Builders and Reviewers are refused. The
+/// `gdd release` without a step, for the role `role`: agents that gdd started are refused. The
 /// next version of what the main branch of the main checkout, under the state root `state`,
 /// merged since its newest one, or the version `chosen` (see [`versions::Since::version`]). With
 /// `yes` it is released (see [`versions::by_hand`]), saying on `streams` that it waits for the
@@ -2229,15 +2209,9 @@ fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
 }
 
 /// `gdd learn`: the Learn tools of the project at `root`, whose state root is `state`, and the
-/// polish notes at G4 since the day `since` (see [`learn::learn`]). It writes under `.gdd/`, so a
-/// Builder or a Reviewer, the role `role`, is refused.
-fn learn_project(
-    root: &Path,
-    state: &Path,
-    role: Option<&str>,
-    since: Option<i64>,
-) -> Result<String, String> {
-    approve::may_record(role).map_err(|_| LEARN_REFUSED.to_string())?;
+/// polish notes at G4 since the day `since` (see [`learn::learn`]). An agent gdd started never
+/// gets here: [`run_in`] refuses it first.
+fn learn_project(root: &Path, state: &Path, since: Option<i64>) -> Result<String, String> {
     let commands = read(root, COMMANDS)?.unwrap_or_default();
     learn::learn(root, state, &commands, since).map(|learned| learned.to_string())
 }
@@ -3955,6 +3929,16 @@ mod tests {
     }
 
     /// What an agent gdd started reads when it runs `gdd <name>`, which it may not run.
+    /// `out` without the line that says the run waited for the merge lock. A process another
+    /// test starts meanwhile may keep the lock a moment (a lock belongs to the open file), so a
+    /// run may say it waited: not what the tests that use this check.
+    fn unwaited(out: Outcome) -> Outcome {
+        Outcome {
+            stderr: out.stderr.replace(&format!("{}\n", queue::WAITING), ""),
+            ..out
+        }
+    }
+
     fn agent_refusal(name: &str) -> Outcome {
         let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
         Outcome::error(&refused)
@@ -3983,13 +3967,10 @@ mod tests {
             out.stdout.starts_with("t: nothing found\n  hi\n"),
             "{out:?}"
         );
-        let refused = format!("error: {LEARN_REFUSED}\n");
-        for role in ["builder-build", "builder-test", "reviewer"] {
+        for role in ["builder-build", "builder-test", "reviewer", "orchestrator"] {
             let out = run_as(&words("learn"), &project.0, Some(role));
-            assert_eq!(out, Outcome::failure(refused.clone()), "{role}");
+            assert_eq!(out, agent_refusal("learn"), "{role}");
         }
-        let orchestrator = run_as(&words("learn"), &project.0, Some("orchestrator"));
-        assert_eq!(orchestrator, agent_refusal("learn"));
     }
 
     #[test]
@@ -4491,12 +4472,11 @@ mod tests {
         let maybe = project.run("gate G4 maybe c1");
         let expected = Outcome::failure("error: The decision is ok or ko.\n".into());
         assert_eq!(maybe, expected);
-        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
         let args = words("gate G4 ok c1");
-        let builder = run_as(&args, &project.0, Some("builder-build"));
-        assert_eq!(builder, Outcome::failure(refused.into()));
-        let orchestrator = run_as(&args, &project.0, Some("orchestrator"));
-        assert_eq!(orchestrator, agent_refusal("gate"));
+        for role in ["builder-build", "reviewer", "orchestrator"] {
+            let refused = run_as(&args, &project.0, Some(role));
+            assert_eq!(refused, agent_refusal("gate"), "{role}");
+        }
         assert_eq!(record_of(&project, "c1")["gates"]["G4"]["decision"], "ko");
         assert_eq!(log_records(&project).len(), 3);
     }
@@ -4720,8 +4700,7 @@ mod tests {
         assert_eq!(out, Outcome::failure(refused));
         let reviewer = words("changelog-line c1 Added x");
         let out = run_as(&reviewer, &project.0, Some("reviewer"));
-        let start = "error: A Builder or Reviewer cannot";
-        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_eq!(out, agent_refusal("changelog-line"));
         assert_eq!(record_of(&project, "c1")["changelog"], none);
         let broken = ["changelog-line", "c1", "Added", "Export notes\n"].map(str::to_string);
         let out = run_as(&broken, &project.0, None);
@@ -4965,8 +4944,7 @@ mod tests {
         let project = committed_project();
         identify(&project);
         let builder = run_as(&words("release --yes"), &project.0, Some("builder-build"));
-        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
-        assert_eq!(builder, Outcome::failure(refused.into()));
+        assert_eq!(builder, agent_refusal("release"));
         let nothing = "Nothing to release: no change on main carries a changelog line\n";
         assert_eq!(project.run("release"), Outcome::success(nothing.into()));
         let merge = "gdd(c1): G3 Merge Gate · App\n\nChangelog: Fixed · Crash\nBreaking: no";
@@ -4978,12 +4956,6 @@ mod tests {
         let start = "Next version: v1.0.0 (first version)\n";
         assert!(chosen.stdout.starts_with(start), "{chosen:?}");
         assert_eq!(git(&project, &["tag", "--list"]), "");
-        // A process another test starts meanwhile may keep the merge lock a moment (a lock
-        // belongs to the open file), so the run may say it waited: not what is checked here.
-        let unwaited = |out: Outcome| Outcome {
-            stderr: out.stderr.replace(&format!("{}\n", queue::WAITING), ""),
-            ..out
-        };
         let released = Outcome::success("Released v0.1.0\n".into());
         assert_eq!(unwaited(project.run("release --yes")), released);
         assert_eq!(git(&project, &["tag", "--list"]), "v0.1.0");
@@ -5273,10 +5245,10 @@ mod tests {
         project.write(COMMANDS, commands);
         project.run("new-change c1 --title Save --paths src/storage/db.rs");
         let refused = "error: This change needs a human G4 before promotion.\n";
-        let out = project.run("release promote c1");
+        let out = unwaited(project.run("release promote c1"));
         assert_eq!(out, Outcome::failure(refused.into()));
         let closed = Outcome::failure("error: G3 is not open.\n".into());
-        assert_eq!(project.run("merge c1"), closed);
+        assert_eq!(unwaited(project.run("merge c1")), closed);
         let out = project.run("release observe c1");
         assert_eq!(out.code, 1);
         let start = "error: release.observe failed (exit code 1)\nRollback: simulated\n";
@@ -5287,7 +5259,7 @@ mod tests {
         let start = "error: gdd/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
         // Merge reads its release commands once merged: G3 comes first.
-        assert_eq!(project.run("merge c1"), closed);
+        assert_eq!(unwaited(project.run("merge c1")), closed);
     }
 
     #[test]
@@ -5301,13 +5273,12 @@ mod tests {
         assert_eq!(out, Outcome::failure(polish.into()));
         let args = words("resume c1 --g4 ok --note Fine by me");
         let builder = run_as(&args, &project.0, Some("builder-test"));
-        let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
-        assert_eq!(builder, Outcome::failure(refused.into()));
+        assert_eq!(builder, agent_refusal("resume"));
         // The role of a run with an environment of its own is its GDD_ROLE.
         let role = |role: &str| ("GDD_ROLE".to_string(), role.to_string());
         let env = [role("human"), role("reviewer")];
         let reviewer = run_with_env(&args, &project.0, &env);
-        assert_eq!(reviewer, Outcome::failure(refused.into()));
+        assert_eq!(reviewer, agent_refusal("resume"));
         let person = run_with_env(&words("resume c1 --g4 ok"), &project.0, &[]);
         let not_paused = "error: Change c1 is not paused at G4.\n";
         assert_eq!(person, Outcome::failure(not_paused.into()));

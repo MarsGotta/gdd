@@ -63,16 +63,18 @@ fn an_agent_named_in_gdd_role_records_no_gate() {
         assert_eq!(out.status.code(), Some(1), "{role:?}");
         String::from_utf8_lossy(&out.stderr).into_owned()
     };
-    let refused = "error: A Builder or Reviewer cannot open or close gates.\n";
-    assert_eq!(gate(Some(OsStr::new("reviewer"))), refused);
-    assert_eq!(gate(Some(OsStr::new("builder-test"))), refused);
     let not_for_agents = "error: Agents that gdd started cannot run gdd gate: they may only run \
                           gdd g2, gdd guard, gdd note, gdd status, gdd classify, gdd inbox, gdd \
                           report and gdd scope.\n";
+    assert_eq!(gate(Some(OsStr::new("reviewer"))), not_for_agents);
+    assert_eq!(gate(Some(OsStr::new("builder-test"))), not_for_agents);
     assert_eq!(gate(Some(OsStr::new("orchestrator"))), not_for_agents);
     // A role that is not UTF-8 still names an agent.
     assert_eq!(gate(Some(OsStr::from_bytes(b"\xff\xfe"))), not_for_agents);
-    assert_eq!(gate(Some(OsStr::from_bytes(b"builder-\xff"))), refused);
+    assert_eq!(
+        gate(Some(OsStr::from_bytes(b"builder-\xff"))),
+        not_for_agents
+    );
     let untested = "error: G0 cannot open: the harness self-test is not 4/4 (gdd selftest).\n";
     assert_eq!(gate(None), untested);
     fs::remove_dir_all(&folder).unwrap();
