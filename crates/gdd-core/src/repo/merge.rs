@@ -26,6 +26,7 @@ use crate::classify::Classification;
 use crate::config::{self, Color};
 use crate::gates::release::{self, Passed, Steps};
 use crate::gates::spike::{self, ADR_FOLDER};
+use crate::gates::verdict::unlinked;
 use crate::gates::{self, Gate, approve, debt};
 use crate::git::Git;
 use crate::guard;
@@ -542,34 +543,6 @@ fn verdict(output: &str) -> &'static str {
         .unwrap_or("?")
 }
 
-/// `text` with each Markdown link, `[label](target)` with a label, replaced by its label.
-fn unlinked(text: &str) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('[') {
-        out.push_str(&rest[..open]);
-        let after = &rest[open + 1..];
-        let close = after.find(']').filter(|&close| close > 0);
-        let link = close.and_then(|close| {
-            let target = after[close + 1..].strip_prefix('(')?;
-            let end = target.find(')')?;
-            Some((&after[..close], &target[end + 1..]))
-        });
-        match link {
-            Some((label, tail)) => {
-                out.push_str(label);
-                rest = tail;
-            }
-            None => {
-                out.push('[');
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
 /// The tokens of the agent calls of change `id` in the log under the state root `state` (see
 /// [`log::Record::is_agent_call`]), what they cost (see [`cost`]) and how many they are, in one
 /// line: nothing when there are none.
@@ -916,23 +889,12 @@ mod tests {
     }
 
     #[test]
-    fn verdicts_links_and_numbers_are_read_as_the_kit_reads_them() {
+    fn verdicts_and_numbers_are_read_as_the_kit_reads_them() {
         assert_eq!(verdict("VERDICT: OK"), "OK");
         assert_eq!(verdict("x VERDICT:KO y"), "KO");
         assert_eq!(verdict("VERDICT: maybe\nVERDICT: \t OK"), "OK");
         assert_eq!(verdict("verdict: OK"), "?");
         assert_eq!(verdict(""), "?");
-        for (text, plain) in [
-            ("[a](b)", "a"),
-            ("x [the guard](a.rs) y [b]()", "x the guard y b"),
-            ("[a [b](c)", "a [b"),
-            ("[a] [b](c)", "[a] b"),
-            ("[](x) [a](b", "[](x) [a](b"),
-            ("[a]x(b)", "[a]x(b)"),
-            ("no links", "no links"),
-        ] {
-            assert_eq!(unlinked(text), plain, "{text}");
-        }
         let numbers = [(0, "0"), (999, "999"), (1_000, "1,000")];
         for (n, text) in numbers {
             assert_eq!(grouped(n), text);
