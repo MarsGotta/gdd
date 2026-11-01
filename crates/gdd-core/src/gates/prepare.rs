@@ -6,9 +6,12 @@
 //! its decision in the record, state `building`, the build starting at the commit checked out,
 //! the requests of the earlier run resolved and the snapshots of the earlier build removed.
 //!
-//! A relaunch whose code already passes G2 skips the Builder (`resume_green`): it would only
-//! spend tokens. A relaunch whose code touched protected paths starts its build where its branch
-//! left the main branch instead: starting at the commit checked out would hide them.
+//! A relaunch whose code already passes G2, and whose work Path Guard for build mode passes from
+//! the new start of its build, skips the Builder (`resume_green`): it would only spend tokens.
+//! Work left uncommitted that build mode may not touch (test mode's steps) runs the Builder
+//! instead, as G3 judges build mode from that start. A relaunch whose code touched protected
+//! paths starts its build where its branch left the main branch instead: starting at the commit
+//! checked out would hide them.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -22,6 +25,7 @@ use crate::change::{self, Decision, Record};
 use crate::gates::approve::{self, ZonesState};
 use crate::gates::{self, BUILD_ROLE, Gate};
 use crate::git::Git;
+use crate::guard;
 use crate::log;
 
 /// Why a change does not start before the Setup.
@@ -128,6 +132,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
     // The snapshots belong to the earlier build.
     remove(state, &change::snapshot_path(id))?;
     remove(state, &change::build_snapshot_path(id))?;
+    remove(state, &change::parked_snapshot_path(id))?;
     let mut note = format!("{} · {}", classification.color, classification.lane);
     if resume_green {
         note.push_str(" · G2 already green: Builder skipped");
@@ -218,7 +223,8 @@ fn built_before(state: &Path, id: &str) -> Result<bool, String> {
 /// Builder rewrote never run. The run is saved and logged like any G2. The build starts at the
 /// commit checked out, unless Path Guard failed: then it starts where the branch left the main
 /// branch, so the next G2 still sees the protected paths the code touched, even the ones
-/// committed.
+/// committed. The code passes only when Path Guard for build mode from that start passes too
+/// (see [`builder_may`]).
 fn relaunched(
     project: &gates::Project,
     id: &str,
@@ -241,7 +247,27 @@ fn relaunched(
     } else {
         git.head().map_err(|e| e.to_string())?
     };
-    Ok((report.ok, start))
+    let green = report.ok && builder_may(project, id, record, &start)?;
+    Ok((green, start))
+}
+
+/// Whether Path Guard for build mode, without a snapshot, passes on change `id`, whose record is
+/// `record`, from `start`, where its build starts again: G3 judges build mode from there, so work
+/// left uncommitted that build mode may not touch (test mode's steps) runs the Builder instead of
+/// parking at G3.
+fn builder_may(
+    project: &gates::Project,
+    id: &str,
+    record: &Record,
+    start: &str,
+) -> Result<bool, String> {
+    let from_start = Record {
+        build_start: Some(start.to_string()),
+        ..record.clone()
+    };
+    let settings = project.settings;
+    let guarded = guard::path_guard(project.root, id, &from_start, settings, BUILD_ROLE, None);
+    Ok(guarded.map_err(|e| e.to_string())?.ok)
 }
 
 /// Removes the file `path` under the state root `state`, if there is one.
@@ -633,6 +659,44 @@ mod tests {
         assert_eq!(gates[gates.len() - 2..], ["G2", "-"]);
         let note = log[log.len() - 1].text("note");
         assert_eq!(note, "yellow · full · G2 already green: Builder skipped");
+    }
+
+    #[test]
+    fn the_snapshot_of_the_earlier_park_goes_with_the_earlier_build() {
+        let project = fixture(RECORD);
+        project.ready();
+        let parked = change::parked_snapshot_path("c1");
+        project.repo.write(&parked, "{}");
+        assert_eq!(project.prepared()["ok"], true);
+        assert!(!project.root().join(&parked).exists());
+        // One that cannot go stops the start.
+        fs::create_dir_all(project.root().join(&parked).join("x")).unwrap();
+        let err = project.refused();
+        let start = format!("cannot remove {parked}: ");
+        assert!(err.starts_with(&start), "{err}");
+    }
+
+    #[test]
+    fn a_relaunch_skips_the_builder_only_when_build_mode_may_have_written_its_work() {
+        let project = fixture(RECORD);
+        project.ready();
+        project.builder_called("c1");
+        let steps = "[protected]\nall = [\"gdd/**\"]\nbuilder_build = [\"tests/steps/**\"]\n";
+        let project = Fixture {
+            settings: Settings::from_toml(steps).unwrap(),
+            ..project
+        };
+        // Work left uncommitted that build mode may write: G2 green is enough.
+        project.repo.write("docs/brief.md", "a brief\n");
+        assert_eq!(project.prepared()["resume_green"], true);
+        // A step left uncommitted, which build mode may not touch, runs the Builder.
+        project.repo.write("tests/steps/a.txt", "a step\n");
+        assert_eq!(project.prepared()["resume_green"], false);
+        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved: Value = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved["ok"], true, "the G2 of the relaunch passed");
+        let head = project.repo.git(&["rev-parse", "HEAD"]);
+        assert_eq!(project.record()["build_start"], head.as_str());
     }
 
     #[test]

@@ -30,7 +30,10 @@
 //! read the configuration of the project are [`Steps`]. Its agents and gates run in the
 //! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
 //! main branch and takes the merge: the worktree is kept while the change is parked or waits at
-//! G4, and goes when the change closes or is rejected. Several changes run at once, each in its
+//! G4, and goes when the change closes or is rejected. A run that parks keeps the hashes of what
+//! the change touched (see [`Snapshot::Parked`]): its relaunch commits what changed after them
+//! as the person's, and the rest only once the gates of the earlier run accept it, or parks
+//! before any agent call (see [`earlier_work`]). Several changes run at once, each in its
 //! worktree, as many as the cap allows; one that plans a path that overlaps one of a change in
 //! flight runs with a warning, and git settles the overlap when it merges (see [`queue`]).
 //!
@@ -201,6 +204,13 @@ pub enum Snapshot {
     Round,
     /// Build mode is judged from it: taken after test mode.
     Build,
+    /// The build snapshot again after a round of test mode judged since the round snapshot: it
+    /// moves only for what test mode changed in that round, so what build mode wrote before it
+    /// stays build mode's.
+    BuildAfterRound,
+    /// Taken when a run parks: what changed after it, before the change runs again, a person
+    /// changed by hand.
+    Parked,
 }
 
 /// The steps of the recipe that read the configuration of the project, on the change it runs.
@@ -216,10 +226,15 @@ pub trait Steps {
     /// Records what the change touched, as it is now, in `snapshot`.
     fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String>;
     /// Before a relaunch prepares the change again, Path Guard for build mode on what it touched
-    /// since its build started, judged from the build snapshot, and the scope check: their
-    /// failures, a check that cannot judge failing with the reason. `None` without a build
-    /// snapshot: test mode never passed its Path Guard, or did not run.
-    fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String>;
+    /// since its build started, judged from the build snapshot, and the scope check, but for the
+    /// paths `hand` a person changed by hand (see [`Steps::hand_edits`]): their failures, a check
+    /// that cannot judge failing with the reason. `None` without a build snapshot: test mode
+    /// never passed its Path Guard, or did not run.
+    fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String>;
+    /// Before a relaunch prepares the change again, the paths whose content changed since the
+    /// earlier run parked (see [`Snapshot::Parked`]): a person's, sorted. `None` without that
+    /// snapshot.
+    fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String>;
     /// The hashes of what the change touched, as they are now: what a snapshot records (see
     /// [`guard::snapshot`]).
     fn hashes(&mut self) -> Result<guard::Hashes, String>;
@@ -352,18 +367,28 @@ enum Ended {
 /// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only while the
 /// cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that judgement until
 /// prepare makes the change building, it holds the launch lock (see [`queue::admission`]): two
-/// launches at once never both pass it. Once prepared, it warns of the changes in flight the
-/// change overlaps (see [`warned`]).
+/// launches at once never both pass it. Earlier work the gates do not accept parks the change
+/// before prepare, with the requests of the earlier run resolved (see [`parked_unstarted`]); a
+/// launch refused before its build removes the worktree it made (see [`not_started`]). Once
+/// prepared, it warns of the changes in flight the change overlaps (see [`warned`]); a run that
+/// parks keeps what the change touched, for the next relaunch (see [`parked_snapshot`]).
 pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
     let record = change::read_record(project.state, id)?;
     let admitted = queue::admission(project.state)?;
     let warnings = queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
+    let made = fs::symlink_metadata(project.worktree).is_err();
     worktree::open(project.root, project.worktree, id)?;
-    earlier_work(project.work, id, steps)?;
-    state::clear(project.state, id)?;
-    let decided = steps.prepare()?;
+    let refused = earlier_work(project.state, project.work, id, steps)
+        .and_then(|refused| state::clear(project.state, id).map(|()| refused))
+        .map_err(|e| not_started(project, made, e))?;
+    if let Some(why) = refused {
+        let said = parked_unstarted(project, id, why);
+        drop(admitted);
+        return said;
+    }
+    let decided = steps.prepare().map_err(|e| not_started(project, made, e))?;
     drop(admitted);
     warned(project.state, id, &warnings, steps)?;
     let mut run = Run {
@@ -374,7 +399,52 @@ pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Sai
         variant: None,
     };
     let ended = run.launched();
+    let kept = !run.decided.spike();
+    let ended = parked_snapshot(ended, kept, &mut *run.steps);
     finish(project, id, ended)
+}
+
+/// `ended`, once a run that ended parking took the snapshot of what the change touched, when it
+/// is `kept` (see [`Snapshot::Parked`]): a spike, and a variant of one, keep none. A snapshot
+/// that cannot be taken stops the recipe, saying why with the reason to park.
+fn parked_snapshot(
+    ended: Result<Ended, Stop>,
+    kept: bool,
+    steps: &mut impl Steps,
+) -> Result<Ended, Stop> {
+    match ended {
+        Err(Stop::Park(why)) if kept => match steps.snapshot(Snapshot::Parked) {
+            Ok(()) => Err(Stop::Park(why)),
+            Err(e) => Err(Stop::Fail(format!("{why}; and its snapshot: {e}"))),
+        },
+        ended => ended,
+    }
+}
+
+/// What the launch of change `id` of `project` says when it was refused before its build
+/// started, with `why`: the worktree it `made` goes, so the branch of the change can be checked
+/// out again; one that cannot go is said too. A worktree it did not make stays, with its work.
+fn not_started(project: &Project, made: bool, why: String) -> String {
+    if !made {
+        return why;
+    }
+    match worktree::remove(project.root, project.worktree) {
+        Ok(()) => why,
+        Err(e) => format!("{why}\nIts worktree stays: {e}"),
+    }
+}
+
+/// The relaunch of change `id` of `project`, parked before prepare for `why`, the work of its
+/// earlier run its gates did not accept (see [`earlier_work`]): as at any start, the requests of
+/// the earlier run are resolved, so only this reason is left in the Decision Inbox. The snapshot
+/// of the earlier park stays as it is: nothing ran since.
+fn parked_unstarted(project: &Project, id: &str, why: String) -> Result<Said, String> {
+    let text = change::read_record(project.state, id)?;
+    let path = change::record_path(id);
+    let resolved = change::with_requests_resolved(&text, &log::now());
+    let resolved = resolved.map_err(|e| format!("{path}: {e}"))?;
+    change::write(project.state, &path, &resolved)?;
+    finish(project, id, Err(Stop::Park(why)))
 }
 
 /// Says each of `warnings`, one for each change in flight change `id` overlaps (see
@@ -460,20 +530,98 @@ fn work_committed(root: &Path, message: &str) -> Result<(), git::Error> {
     Ok(())
 }
 
-/// The work the agents of an earlier run of change `id` left in its worktree, at `work`,
-/// committed (see [`earlier_run`]) only once the gates of that run accept it, judged as they
-/// judged it, from its build snapshot (see [`Steps::guard_earlier`]). Otherwise it stays as it
-/// is, and the gates of the relaunch judge it from where its build starts: committed, it would
-/// fall behind that start, and a protected path no gate passed would leave their sight.
-fn earlier_work(work: &Path, id: &str, steps: &mut impl Steps) -> Result<(), String> {
+/// The work an earlier run of change `id` left in its worktree, at `work`. What a person changed
+/// by hand after it parked (see [`Steps::hand_edits`]) is committed as theirs (see
+/// [`hand_committed`]) and said in the record under the state root `state` (see [`hand_noted`]),
+/// never judged as a Builder's. The rest, the agents', is committed (see [`earlier_run`]) only
+/// once the gates of that run accept it, judged as they judged it, from its build snapshot (see
+/// [`Steps::guard_earlier`]). Without a build snapshot it stays as it is, for test mode, which
+/// wrote it, to answer for. When the gates do not accept it, nothing is committed: why the
+/// change parks before any agent call (see [`not_accepted`]).
+fn earlier_work(
+    state: &Path,
+    work: &Path,
+    id: &str,
+    steps: &mut impl Steps,
+) -> Result<Option<String>, String> {
     let said = |e: git::Error| e.to_string();
-    if !Git::new(work).has_work().map_err(said)? {
+    let git = Git::new(work);
+    if !git.has_work().map_err(said)? {
+        return Ok(None);
+    }
+    let known = steps.hand_edits()?;
+    let hand = known.clone().unwrap_or_default();
+    let accepted = match steps.guard_earlier(&hand)? {
+        Some(failures) if !failures.is_empty() => {
+            return Ok(Some(not_accepted(&failures, known.is_some())));
+        }
+        Some(_) => true,
+        None => false,
+    };
+    if !hand.is_empty() {
+        hand_committed(&git, id, &hand).map_err(said)?;
+        hand_noted(state, id, &hand)?;
+    }
+    if accepted {
+        earlier_run(work, id).map_err(said)?;
+    }
+    Ok(None)
+}
+
+/// Commits, on the branch of change `id` that `git` has checked out, those of `hand`, the paths
+/// a person changed by hand after the change parked, that are not committed yet: as theirs, in a
+/// commit of their own. Those they committed already stay as they are.
+fn hand_committed(git: &Git, id: &str, hand: &[String]) -> Result<(), git::Error> {
+    let changed = git.changed_since(&change::branch(id), "HEAD")?;
+    let uncommitted: Vec<String> = hand
+        .iter()
+        .filter(|path| changed.contains(path))
+        .cloned()
+        .collect();
+    if uncommitted.is_empty() {
         return Ok(());
     }
-    match steps.guard_earlier()? {
-        Some(failures) if failures.is_empty() => earlier_run(work, id).map_err(said),
-        Some(_) | None => Ok(()),
+    let message = format!("gdd({id}): changed by hand after the change parked");
+    git.commit_files(&uncommitted, &message)
+}
+
+/// Why a relaunch parks before any agent call when the gates of the earlier run do not accept
+/// the work it left, with `failures`; `known`, whether gdd knows what a person changed by hand
+/// since it parked (see [`Steps::hand_edits`]): when it does not, the work may be theirs.
+fn not_accepted(failures: &[String], known: bool) -> String {
+    let failures = failures.join("; ");
+    if known {
+        format!(
+            "Work of the earlier run that its gates did not accept: {failures}. Undo it in the \
+             worktree of the change, or remove the worktree to build the change again"
+        )
+    } else {
+        format!(
+            "Work in the worktree that no gate accepted: {failures}. If you changed it by hand, \
+             commit the agents' work first and yours after; otherwise undo it, or remove the \
+             worktree to build the change again"
+        )
     }
+}
+
+/// Says in the record of change `id`, under the state root `state`, as a decision taken without
+/// the human, that the paths `hand` were changed by hand after the change parked: the Decision
+/// Inbox shows them as the person's, not a Builder's.
+fn hand_noted(state: &Path, id: &str, hand: &[String]) -> Result<(), String> {
+    let text = change::read_record(state, id)?;
+    let path = change::record_path(id);
+    let said = format!(
+        "Changed by hand after the change parked, not a Builder's work: {}",
+        hand.join(", ")
+    );
+    let ts = log::now();
+    let note = Note {
+        kind: "decided",
+        text: &said,
+        ts: &ts,
+    };
+    let noted = change::with_note(&text, &note).map_err(|e| format!("{path}: {e}"))?;
+    change::write(state, &path, &noted)
 }
 
 /// A change at its merge.
@@ -843,7 +991,8 @@ fn promotion_failed(root: &Path, id: &str, failure: &str) -> String {
 /// A polish pass of change `id`, on its branch, or on the one of the variant of `answer`, from
 /// the commit `start` it is at: the note of `answer`, the human's notes at G4, kept for the
 /// Builder; then the recipe again from build mode, the notes in its first round, until it pauses
-/// at G4 again.
+/// at G4 again. A pass that parks keeps what the change touched, as a launch does (see
+/// [`parked_snapshot`]), but on a spike or a variant of one.
 fn polish_pass(
     project: &Project,
     id: &str,
@@ -861,6 +1010,8 @@ fn polish_pass(
         variant: None,
     };
     let ended = run.polished(answer.variant);
+    let kept = answer.variant.is_none() && !run.decided.spike();
+    let ended = parked_snapshot(ended, kept, &mut *run.steps);
     finish(project, id, ended)
 }
 
@@ -1369,7 +1520,9 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// The Builder in test mode with `args`, then Path Guard for it, since the round snapshot
-    /// with `since_snapshot`: a failure parks. Then the build snapshot.
+    /// with `since_snapshot`: a failure parks. Then the build snapshot; after a round judged
+    /// since the round snapshot, moved only for what test mode changed in it (see
+    /// [`Snapshot::BuildAfterRound`]), so what build mode wrote before stays its own.
     fn test_mode(&mut self, args: &str, since_snapshot: bool) -> Result<(), Stop> {
         self.call(Who::BuilderTest, args)?;
         let failures = self.steps.guard_test(since_snapshot)?;
@@ -1378,7 +1531,12 @@ impl<S: Steps> Run<'_, S> {
             let why = format!("Path Guard failed after test mode: {failures}");
             return Err(Stop::Park(why));
         }
-        Ok(self.steps.snapshot(Snapshot::Build)?)
+        let snapshot = if since_snapshot {
+            Snapshot::BuildAfterRound
+        } else {
+            Snapshot::Build
+        };
+        Ok(self.steps.snapshot(snapshot)?)
     }
 
     /// Build mode until G2 passes: the rounds in `mode`, the first with `first`, then the
@@ -2041,12 +2199,15 @@ mod tests {
     /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
     /// says OK, and the replan build mode; the rules file, `rules`, protects nothing unless a test
     /// says otherwise; what the change touched hashes to nothing; the work of an earlier run
-    /// passes the gates. Each call of an agent does what `acts` gives it to do,
-    /// where the steps run (the project root until they move, see [`Steps::work_in`]), and a
-    /// release step what `released` gives it, on the project root. Each call of a role in
+    /// passes the gates, and `hand` says what a person changed by hand since the run parked
+    /// (nothing known unless a test says otherwise); `judged` keeps the paths each judgement of
+    /// the earlier work left out as the person's. Each call of an agent does what `acts` gives
+    /// it to do, where the steps run (the project root until they move, see
+    /// [`Steps::work_in`]), and a release step what `released` gives it, on the project root.
+    /// Each call of a role in
     /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
-    /// ([`CENT`]); the others, nothing. A release step, or a
-    /// decision on a gate, named in `fails` fails with what it gives.
+    /// ([`CENT`]); the others, nothing. A release step, a decision on a gate, or a snapshot
+    /// (`snapshot`), named in `fails` fails with what it gives.
     struct Played<'a> {
         root: &'a Path,
         work: PathBuf,
@@ -2063,6 +2224,8 @@ mod tests {
         rules: &'static str,
         guard: Vec<String>,
         earlier: Option<Vec<String>>,
+        hand: Option<Vec<String>>,
+        judged: Vec<Vec<String>>,
         stuck: Option<Who>,
         acts: Vec<(Who, Act)>,
         released: Vec<(&'static str, Act)>,
@@ -2097,6 +2260,8 @@ mod tests {
             rules: "",
             guard: Vec::new(),
             earlier: Some(Vec::new()),
+            hand: None,
+            judged: Vec::new(),
             stuck: None,
             acts: Vec::new(),
             released: Vec::new(),
@@ -2147,7 +2312,7 @@ mod tests {
     impl Steps for Played<'_> {
         fn prepare(&mut self) -> Result<Decided, String> {
             self.ran.push("prepare".into());
-            Ok(self.decided.clone())
+            self.ended("prepare").map(|()| self.decided.clone())
         }
 
         fn agent(&mut self, call: &Call) -> (Usage, Result<(), invoke::Error>) {
@@ -2184,12 +2349,17 @@ mod tests {
 
         fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
             self.ran.push(format!("snapshot {snapshot:?}"));
-            Ok(())
+            self.ended("snapshot")
         }
 
-        fn guard_earlier(&mut self) -> Result<Option<Vec<String>>, String> {
+        fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String> {
             self.ran.push("guard earlier".into());
+            self.judged.push(hand.to_vec());
             Ok(self.earlier.clone())
+        }
+
+        fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String> {
+            Ok(self.hand.clone())
         }
 
         fn hashes(&mut self) -> Result<guard::Hashes, String> {
@@ -2458,7 +2628,7 @@ mod tests {
             "snapshot Round",
             "test t mode=test after=replan",
             "guard since=true",
-            "snapshot Build",
+            "snapshot BuildAfterRound",
             "build b mode=build after=replan",
             "G2",
         ];
@@ -2555,7 +2725,7 @@ mod tests {
             "snapshot Round",
             "test t mode=test fix=review",
             "guard since=true",
-            "snapshot Build",
+            "snapshot BuildAfterRound",
             "build b mode=build fix=review",
             "G2",
             "G3",
@@ -3668,14 +3838,315 @@ mod tests {
         let work = Git::new(&repo.work);
         let head = work.head().unwrap();
         change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
-        // Path Guard or the scope check failed on it, or test mode never passed its Path Guard.
-        let failed = vec!["gdd/commands.toml: protected path for builder-build".to_string()];
-        for earlier in [Some(failed), None] {
-            let ran = relaunched(&repo, earlier);
-            assert_eq!(ran[..2], ["guard earlier", "prepare"]);
+        // Test mode never passed its Path Guard: the relaunch prepares, and its gates judge it.
+        let ran = relaunched(&repo, None);
+        assert_eq!(ran[..2], ["guard earlier", "prepare"]);
+        assert_eq!(work.head().unwrap(), head);
+        assert!(work.has_changes().unwrap());
+    }
+
+    /// What the gates of the earlier run of `c1` found in the work it left.
+    const REFUSED: &str = "gdd/commands.toml: protected path for builder-build";
+
+    #[test]
+    fn earlier_work_its_gates_did_not_accept_parks_the_relaunch_before_any_agent_call() {
+        let earlier = r#""inbox": [{"kind": "parked", "text": "G2 still red", "ts": "x"}]"#;
+        let repo = repo_with_change(&RECORD.replace(r#""inbox": []"#, earlier));
+        let root = repo.root();
+        state::pause_at_g4(root, "c1").unwrap();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let work = Git::new(&repo.work);
+        let head = work.head().unwrap();
+        change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
+        // gdd knows what a person changed by hand since the park, or does not.
+        for (hand, why) in [
+            (Some(Vec::new()), not_accepted(&[REFUSED.into()], true)),
+            (None, not_accepted(&[REFUSED.into()], false)),
+        ] {
+            let mut steps = played(root);
+            steps.earlier = Some(vec![REFUSED.to_string()]);
+            steps.hand = hand;
+            let said = parked(launch(&repo.project(), "c1", &mut steps));
+            let start = format!("Change c1 parked: {why}.");
+            assert!(said.starts_with(&start), "{said}");
+            // No prepare, no agent, and the snapshot of the earlier park stays as it was.
+            assert_eq!(steps.ran, ["guard earlier"]);
             assert_eq!(work.head().unwrap(), head);
             assert!(work.has_changes().unwrap());
+            assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+            assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
+            // Only this reason is left in the Decision Inbox: the earlier ones are resolved.
+            let record = record(root);
+            assert_eq!(record["state"], "parked");
+            let notes = record["inbox"].as_array().cloned().unwrap();
+            let unresolved = |note: &&Value| note.get("resolved").is_none();
+            let open: Vec<&Value> = notes.iter().filter(unresolved).collect();
+            assert_eq!(open.len(), 1, "{notes:?}");
+            assert_eq!(open[0]["text"], why.as_str());
         }
+    }
+
+    #[test]
+    fn work_the_gates_refuse_says_what_to_do_whether_or_not_hand_edits_are_known() {
+        let failures = ["a: protected".to_string(), "b: outside".to_string()];
+        let known = "Work of the earlier run that its gates did not accept: a: protected; b: \
+                     outside. Undo it in the worktree of the change, or remove the worktree to \
+                     build the change again";
+        assert_eq!(not_accepted(&failures, true), known);
+        let unknown = "Work in the worktree that no gate accepted: a: protected; b: outside. If \
+                       you changed it by hand, commit the agents' work first and yours after; \
+                       otherwise undo it, or remove the worktree to build the change again";
+        assert_eq!(not_accepted(&failures, false), unknown);
+    }
+
+    /// The subject of the commit of the hand edits of `c1` on its branch.
+    const BY_HAND: &str = "gdd(c1): changed by hand after the change parked";
+
+    /// The subject of the commit of the work of an earlier run of `c1` on its branch.
+    const EARLIER_RUN: &str = "gdd(c1): work of the earlier run, before relaunch";
+
+    /// The notes the record of `c1` of the project at `root` keeps as decided.
+    fn decided_notes(root: &Path) -> Vec<String> {
+        let record = record(root);
+        let notes = record["inbox"].as_array().cloned().unwrap_or_default();
+        let text = |note: &Value| note["text"].as_str().unwrap_or_default().to_string();
+        let decided = notes.iter().filter(|note| note["kind"] == "decided");
+        decided.map(text).collect()
+    }
+
+    /// What the record of `c1` says of the paths `hand`, changed by hand.
+    fn by_hand_note(hand: &str) -> String {
+        let said = "Changed by hand after the change parked, not a Builder's work";
+        format!("{said}: {hand}")
+    }
+
+    /// The commits of the branch of `c1` of `repo` since `since`, newest first: the subject of
+    /// each, a blank line, then the files it changed, one a line.
+    fn commits_since(repo: &Checkout, since: &str) -> Vec<String> {
+        let range = format!("{since}..change/c1");
+        let count = repo.git(&["rev-list", "--count", &range]);
+        let shown = |back: usize| {
+            let commit = format!("change/c1~{back}");
+            repo.git(&["show", "--name-only", "--format=%s", &commit])
+        };
+        (0..count.parse::<usize>().unwrap()).map(shown).collect()
+    }
+
+    #[test]
+    fn earlier_work_without_work_left_judges_and_commits_nothing() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let mut steps = played(root);
+        steps.hand = Some(vec!["src/a.rs".into()]);
+        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+        assert!(steps.ran.is_empty());
+        assert!(decided_notes(root).is_empty());
+    }
+
+    #[test]
+    fn earlier_work_the_gates_accept_is_committed_after_the_hand_edits_as_the_person_s() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let start = Git::new(&repo.work).head().unwrap();
+        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
+        change::write(&repo.work, "src/b.rs", "by hand\n").unwrap();
+        change::write(&repo.work, "src/a.rs", "by hand too\n").unwrap();
+        let mut steps = played(root);
+        let hand = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
+        steps.hand = Some(hand.clone());
+        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+        assert_eq!(steps.judged, [hand]);
+        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
+        let person = format!("{BY_HAND}\n\nsrc/a.rs\nsrc/b.rs");
+        assert_eq!(commits_since(&repo, &start), [agents, person]);
+        assert_eq!(decided_notes(root), [by_hand_note("src/a.rs, src/b.rs")]);
+        assert!(!Git::new(&repo.work).has_changes().unwrap());
+    }
+
+    #[test]
+    fn earlier_work_the_gates_accept_without_hand_edits_is_the_agents_alone() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let start = Git::new(&repo.work).head().unwrap();
+        // None changed by hand since the park, or no park snapshot to tell.
+        for (hand, text) in [(Some(Vec::new()), "test mode\n"), (None, "again\n")] {
+            change::write(&repo.work, "tests/steps/a.txt", text).unwrap();
+            let mut steps = played(root);
+            steps.hand = hand;
+            assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+            assert_eq!(steps.judged, [Vec::<String>::new()]);
+        }
+        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
+        assert_eq!(commits_since(&repo, &start), [agents.clone(), agents]);
+        assert!(decided_notes(root).is_empty());
+    }
+
+    #[test]
+    fn hand_edits_a_person_committed_already_are_said_and_not_committed_again() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let start = Git::new(&repo.work).head().unwrap();
+        change::write(&repo.work, "tests/steps/helper.txt", "a helper\n").unwrap();
+        let helper = ["tests/steps/helper.txt".to_string()];
+        let work = Git::new(&repo.work);
+        work.commit_files(&helper, "by hand").unwrap();
+        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
+        let mut steps = played(root);
+        steps.hand = Some(helper.to_vec());
+        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
+        let person = "by hand\n\ntests/steps/helper.txt".to_string();
+        assert_eq!(commits_since(&repo, &start), [agents, person]);
+        let note = by_hand_note("tests/steps/helper.txt");
+        assert_eq!(decided_notes(root), [note]);
+    }
+
+    #[test]
+    fn earlier_work_the_gates_refuse_commits_nothing_not_even_the_hand_edits() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let start = Git::new(&repo.work).head().unwrap();
+        change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
+        change::write(&repo.work, "gdd/commands.toml", "[g2]\n").unwrap();
+        let mut steps = played(root);
+        steps.hand = Some(vec!["src/a.rs".into()]);
+        steps.earlier = Some(vec![REFUSED.to_string()]);
+        let refused = earlier_work(root, &repo.work, "c1", &mut steps);
+        assert_eq!(refused, Ok(Some(not_accepted(&[REFUSED.into()], true))));
+        assert_eq!(Git::new(&repo.work).head().unwrap(), start);
+        assert!(decided_notes(root).is_empty());
+    }
+
+    #[test]
+    fn without_a_build_snapshot_only_the_hand_edits_are_committed() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let start = Git::new(&repo.work).head().unwrap();
+        change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
+        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
+        let mut steps = played(root);
+        steps.hand = Some(vec!["src/a.rs".into()]);
+        steps.earlier = None;
+        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+        let person = format!("{BY_HAND}\n\nsrc/a.rs");
+        assert_eq!(commits_since(&repo, &start), [person]);
+        let work = Git::new(&repo.work);
+        assert!(work.has_changes().unwrap(), "test mode's work stays");
+        assert_eq!(decided_notes(root), [by_hand_note("src/a.rs")]);
+    }
+
+    #[test]
+    fn a_run_that_parks_keeps_what_the_change_touched_unless_it_is_not_kept() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        let ended = parked_snapshot(park(G3_RED), true, &mut steps);
+        assert_eq!(ended, park(G3_RED));
+        assert_eq!(steps.ran, ["snapshot Parked"]);
+        // A spike, or a variant of one, keeps none.
+        let mut steps = played(&folder.0);
+        let ended = parked_snapshot(park(G3_RED), false, &mut steps);
+        assert_eq!(ended, park(G3_RED));
+        assert!(steps.ran.is_empty());
+        // A run that closes, pauses or fails has nothing to keep.
+        let failed = Err(Stop::Fail("boom".into()));
+        for ended in [Ok(Ended::Closed), Ok(Ended::Paused), failed] {
+            let mut steps = played(&folder.0);
+            assert_eq!(parked_snapshot(ended.clone(), true, &mut steps), ended);
+            assert!(steps.ran.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_snapshot_of_a_park_that_cannot_be_taken_stops_the_recipe_saying_both() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.fails = vec![("snapshot", "cannot write it")];
+        let ended = parked_snapshot(park(G3_RED), true, &mut steps);
+        let why = format!("{G3_RED}; and its snapshot: cannot write it");
+        assert_eq!(ended, Err(Stop::Fail(why)));
+    }
+
+    #[test]
+    fn a_launch_that_parks_keeps_what_the_change_touched_but_for_a_spike() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.stuck = Some(Who::BuilderTest);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(parked(said).starts_with("Change c1 parked: "));
+        let ran = ["prepare", "test t mode=test", "snapshot Parked"];
+        assert_eq!(steps.ran, ran);
+        let mut steps = played(root);
+        steps.decided.kind = SPIKE.to_string();
+        steps.stuck = Some(Who::BuilderBuild);
+        let said = launch(&repo.project(), "c1", &mut steps);
+        assert!(parked(said).starts_with("Change c1 parked: "));
+        assert_eq!(steps.ran, ["prepare", "build b mode=spike"]);
+    }
+
+    #[test]
+    fn a_launch_refused_before_its_build_removes_the_worktree_it_made() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let project = repo.project();
+        assert_eq!(not_started(&project, true, "refused".into()), "refused");
+        assert!(!repo.work.exists());
+        assert!(worktree_branch(&repo).is_err());
+        repo.git(&["checkout", "-q", "change/c1"]);
+    }
+
+    #[test]
+    fn a_launch_refused_before_its_build_says_so_when_its_worktree_cannot_go() {
+        let repo = repo_with_change(RECORD);
+        // What is at the worktree is no worktree of git: it cannot go as one.
+        fs::create_dir_all(repo.work.join("mine")).unwrap();
+        let said = not_started(&repo.project(), true, "refused".into());
+        let stays = "refused\nIts worktree stays: git worktree remove --force -- ";
+        assert!(said.starts_with(stays), "{said}");
+        assert!(repo.work.join("mine").is_dir());
+        // A worktree the launch did not make stays as it is.
+        let said = not_started(&repo.project(), false, "refused".into());
+        assert_eq!(said, "refused");
+        assert!(repo.work.join("mine").is_dir());
+    }
+
+    #[test]
+    fn a_launch_that_prepare_refuses_leaves_no_worktree_it_made() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.fails = vec![("prepare", "not ready")];
+        let refused = launch(&repo.project(), "c1", &mut steps);
+        assert_eq!(refused, Err("not ready".to_string()));
+        assert!(!repo.work.exists());
+        assert_eq!(repo.tool().current_branch().unwrap(), "main");
+        // The worktree of a parked change stays.
+        worktree::open(root, &repo.work, "c1").unwrap();
+        let refused = launch(&repo.project(), "c1", &mut steps);
+        assert_eq!(refused, Err("not ready".to_string()));
+        assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+    }
+
+    #[test]
+    fn a_launch_whose_run_state_cannot_be_cleared_leaves_no_worktree_it_made() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        // A run state that cannot be cleared: a folder where its file goes.
+        let run = state::path("c1");
+        fs::create_dir_all(root.join(&run).join("x")).unwrap();
+        let mut steps = played(root);
+        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
+        let cannot = format!("cannot remove {run}: ");
+        assert!(refused.starts_with(&cannot), "{refused}");
+        assert!(!repo.work.exists());
+        assert!(steps.ran.is_empty());
     }
 
     #[test]
@@ -3694,7 +4165,9 @@ mod tests {
             root.display()
         );
         assert!(parked(said).starts_with(&why));
-        assert_eq!(last(&steps), OPENED);
+        // The change parks keeping what it touched, for its relaunch.
+        let end = steps.ran.len() - 2;
+        assert_eq!(steps.ran[end..], [OPENED, "snapshot Parked"]);
         assert_eq!(record(root)["state"], "parked");
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
     }
@@ -3824,7 +4297,7 @@ mod tests {
         // G3 stays closed: the change no longer merges as it passed it.
         assert_eq!(
             steps.ran[TO_OPENED.len()..],
-            [OPENED, UNOPENED, MOVED, "G3"]
+            [OPENED, UNOPENED, MOVED, "G3", "snapshot Parked"]
         );
         assert_eq!(record(root)["state"], "parked");
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
@@ -3855,7 +4328,8 @@ mod tests {
             repo.work.display()
         );
         assert!(parked(said).starts_with(&why));
-        assert_eq!(steps.ran[TO_OPENED.len()..], [OPENED, UNOPENED]);
+        let stopped = [OPENED, UNOPENED, "snapshot Parked"];
+        assert_eq!(steps.ran[TO_OPENED.len()..], stopped);
         assert_eq!(record(root)["state"], "parked");
         let work = Git::new(&repo.work);
         assert_eq!(work.head().unwrap(), branch);
@@ -4613,6 +5087,8 @@ mod tests {
         let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
         let why = "Change c1 parked: G3 still red after one fix.";
         assert!(parked(said).starts_with(why));
+        // As a launch that parks, it keeps what the change touched.
+        assert_eq!(last(&steps), "snapshot Parked");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         assert_eq!(record(root)["state"], "parked");
         let broken = repo_with_change(r#"{"id": "c1", "decision": {"g4": true}}"#);
