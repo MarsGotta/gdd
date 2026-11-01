@@ -1,5 +1,5 @@
 Feature: Where the time goes, on the Board
-  The Board shows where each change's time went (the report of `gdd report --time`): in the
+  The Board shows where each change's time went (the report of `tminus report --time`): in the
   details of a change, its flow time, active time, waiting and time between steps, by agent, gate
   command, release step and kind of waiting; with `t`, the whole project: what the changes add
   up to and the biggest waits first, then each change. The Board still writes nothing.
@@ -8,7 +8,7 @@ Feature: Where the time goes, on the Board
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -26,11 +26,11 @@ Feature: Where the time goes, on the Board
       reason = "Losing the user's drafts"
       """
     And everything is committed on main
-    And I run "gdd new-change a --title Drafts --paths src/storage/db.rs"
+    And I run "tminus new-change a --title Drafts --paths src/storage/db.rs"
     And the change "a" is in state "closed"
-    And I run "gdd new-change b --title Export --paths src/export.rs"
+    And I run "tminus new-change b --title Export --paths src/export.rs"
     And the change "b" is in state "building"
-    And I run "gdd new-change c --title Notes --paths src/notes.rs"
+    And I run "tminus new-change c --title Notes --paths src/notes.rs"
     And the change "c" is in state "closed"
     And the log says:
       """
@@ -88,7 +88,7 @@ Feature: Where the time goes, on the Board
     And the board shows "Waiting: parked 40m (G3 still red after one fix)"
 
   Scenario: A change with nothing measured yet says so
-    Given I run "gdd new-change z --title Guide --paths docs/guide.md"
+    Given I run "tminus new-change z --title Guide --paths docs/guide.md"
     When I open the board
     And I press Enter on the board
     Then the board shows "z · Guide"
@@ -115,9 +115,9 @@ Feature: Where the time goes, on the Board
     When I open the board
     Then the board shows "t time"
 
-  Scenario: A line of the log that is not gdd's is left out, said, and the list still works
+  Scenario: A line of the log that is not tminus's is left out, said, and the list still works
     Given the log line 1 is replaced by "{not json"
     When I open the board
     Then the board shows "Build (1)"
     When I press t on the board
-    Then the board shows "1 line of the log is not one of gdd's: left out"
+    Then the board shows "1 line of the log is not one of tminus's: left out"

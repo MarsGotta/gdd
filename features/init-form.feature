@@ -1,18 +1,18 @@
-Feature: The Setup form of gdd init
-  In a terminal, gdd init without flags opens a form for the deterministic part of the Setup,
+Feature: The Setup form of tminus init
+  In a terminal, tminus init without flags opens a form for the deterministic part of the Setup,
   one step at a time: the project's name, a description, the platform, its stacks from the
   catalog (or not sure), the coding agents (those found on the machine come preselected), the
   language the agents use with the human, and what would be serious if it failed. A summary
   shows every answer before anything is written; Enter sets the project up exactly as the flags
   would. Esc goes back one step and keeps what was typed. Without a terminal the flags are
-  needed. gdd status tells a project that accepted one model family when a second one shows up.
+  needed. tminus status tells a project that accepted one model family when a second one shows up.
 
   Background:
     Given an empty folder
     And the coding agents on this machine are "claude codex"
 
-  Scenario: Without a terminal gdd init asks for the flags
-    When I run "gdd init"
+  Scenario: Without a terminal tminus init asks for the flags
+    When I run "tminus init"
     Then it fails with a message that contains "in a terminal"
     And the output contains "--name"
 
@@ -79,7 +79,7 @@ Feature: The Setup form of gdd init
     Then the form shows "Stacks: rust, typescript"
     And the form shows "Sensitive: Payments; User data"
     And the form shows "Enter to set up"
-    And the file "gdd/project.toml" does not exist
+    And the file "tminus/project.toml" does not exist
 
   Scenario: Enter on the summary sets the project up
     Given the form is filled with:
@@ -91,9 +91,9 @@ Feature: The Setup form of gdd init
       | sensitive | Payments |
     And the program "cargo" on the PATH writes the file "Cargo.lock"
     When I press Enter
-    Then the file "gdd/project.toml" contains "Notes"
-    And the file "gdd/project.toml" contains "es"
-    And the last commit on main says "gdd bootstrap"
+    Then the file "tminus/project.toml" contains "Notes"
+    And the file "tminus/project.toml" contains "es"
+    And the last commit on main says "tminus bootstrap"
 
   Scenario: Not sure about the technology ends with the command to run later
     Given the form is filled with:
@@ -101,8 +101,8 @@ Feature: The Setup form of gdd init
       | name     | Notes    |
       | platform | cli      |
       | stacks   | not sure |
-    Then the form shows "gdd init --name Notes --platform cli"
-    And the form does not show "/gdd-setup"
+    Then the form shows "tminus init --name Notes --platform cli"
+    And the form does not show "/tminus-setup"
     And the form does not show "Enter to set up"
 
   Scenario: One model family needs an explicit yes
@@ -114,14 +114,14 @@ Feature: The Setup form of gdd init
       | stacks   | rust   |
     When I press Enter
     Then the form shows "same model family"
-    And the file "gdd/project.toml" does not exist
+    And the file "tminus/project.toml" does not exist
     When I press y
-    Then the file "gdd/models.toml" contains "same_family_accepted"
+    Then the file "tminus/models.toml" contains "same_family_accepted"
 
   Scenario: The status tells a one-family project when a second family shows up
     Given the coding agents on this machine are "claude"
-    And I run "gdd init --name Notes --platform cli --stack rust --agents claude --accept-same-family"
+    And I run "tminus init --name Notes --platform cli --stack rust --agents claude --accept-same-family"
     And the coding agents on this machine are "claude codex"
-    When I run "gdd status"
+    When I run "tminus status"
     Then the output contains "second model family"
     And the output contains "codex"

@@ -7,7 +7,7 @@ Feature: Each gate command in the log
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -37,7 +37,7 @@ Feature: Each gate command in the log
     And the change "c1" plans "src/app.rs" and "tests/steps/app.rs" and its build has started on its branch
 
   Scenario: Each command of a passing gate leaves its line
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate passes
     And the log has the gate command "lint" of "c1" in "G2" with result "ok"
     And the log has the gate command "unit" of "c1" in "G2" with result "ok"
@@ -45,24 +45,24 @@ Feature: Each gate command in the log
 
   Scenario: A failing command leaves a ko line
     Given the gate command "g2" "unit" is "echo boom-42; exit 3"
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate fails on "unit"
     And the log has the gate command "unit" of "c1" in "G2" with result "ko"
     And the log has the gate command "lint" of "c1" in "G2" with result "ok"
 
   Scenario: An empty command leaves no line
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the log has the gate command "unit" of "c1" in "G2" with result "ok"
     And the log has no gate command "types" of "c1"
 
   Scenario: The commands of G3 too
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the log has the gate command "mutation" of "c1" in "G3" with result "ok"
     And the log has the gate command "acceptance_full" of "c1" in "G3" with result "ok"
 
   Scenario: The time report splits the gate by its commands
-    Given I run "gdd g2 c1"
-    When I run "gdd report --time --change c1"
+    Given I run "tminus g2 c1"
+    When I run "tminus report --time --change c1"
     Then it succeeds
     And the output contains "Gates: "
     And the output contains "unit"

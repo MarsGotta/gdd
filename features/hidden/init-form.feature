@@ -1,5 +1,5 @@
 @hidden
-Feature: Hidden examples for the Setup form of gdd init
+Feature: Hidden examples for the Setup form of tminus init
 
   Background:
     Given an empty folder
@@ -28,6 +28,6 @@ Feature: Hidden examples for the Setup form of gdd init
     And the form shows "Sensitive: Stock counts"
 
   Scenario: A project with two families says nothing in the status
-    Given I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
-    When I run "gdd status"
+    Given I run "tminus init --name Notes --platform cli --stack rust --agents claude codex"
+    When I run "tminus status"
     Then the output does not contain "second model family"

@@ -1,15 +1,15 @@
 Feature: What a change spent lives in its record
   The spike budget used to add up the costs of the change's lines in the log, and an agent can add
-  lines to the log (one with a negative cost would lift the budget). gdd now keeps what each change
-  spent in its record, which only gdd writes: after each agent call it adds the cost the agent
-  reported. The budget reads it from there. The log stays a report: gdd learn and gdd report leave
-  out a line that is not one of gdd's (not JSON, or a cost below zero) and say how many they left out.
+  lines to the log (one with a negative cost would lift the budget). tminus now keeps what each change
+  spent in its record, which only tminus writes: after each agent call it adds the cost the agent
+  reported. The budget reads it from there. The log stays a report: tminus learn and tminus report leave
+  out a line that is not one of tminus's (not JSON, or a cost below zero) and say how many they left out.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -74,29 +74,29 @@ Feature: What a change spent lives in its record
     And the agents are fakes
 
   Scenario: A line an agent adds to the log does not lift the spike budget
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the spike budget is "0.02" USD
     And the Builder in build mode writes nothing
-    And the Builder in build mode appends to ".gdd/log.jsonl" the line:
+    And the Builder in build mode appends to ".tminus/log.jsonl" the line:
       """
       {"ts":"2026-10-30T10:00:00+00:00","change":"c1","phase":"2-build","gate":"G2","role":"builder-build","agent":"claude","model":"sonnet","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":-100.0,"duration_s":1.0,"result":"ok","retry":0,"note":"forged"}
       """
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: the spike spent 0.02 USD of its budget of 0.02 USD"
     And the record of "c1" is in state "parked"
 
   Scenario: The record keeps what the change spent
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the spike budget is "0.02" USD
     And the Builder in build mode writes nothing
-    When I run "gdd launch c1"
-    Then the file ".gdd/changes/c1/change.json" contains "spent_usd"
+    When I run "tminus launch c1"
+    Then the file ".tminus/changes/c1/change.json" contains "spent_usd"
 
-  Scenario: gdd learn leaves out a line of the log that is not one of gdd's, and says so
+  Scenario: tminus learn leaves out a line of the log that is not one of tminus's, and says so
     Given the log has the line:
       """
-      not a line of gdd
+      not a line of tminus
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
-    And the output contains "1 line of the log is not one of gdd's: left out"
+    And the output contains "1 line of the log is not one of tminus's: left out"

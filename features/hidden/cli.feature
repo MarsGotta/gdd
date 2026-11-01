@@ -12,7 +12,7 @@ Feature: Hidden examples for the CLI
       {"change": "a", "gate": "G1", "role": "human", "result": "ok"}
       {"change": "a", "gate": "G4", "role": "human", "result": "ok"}
       """
-    When I run "gdd report --by phase"
+    When I run "tminus report --by phase"
     Then the output contains "2-build -> 3 · 350 · 1,000 · 55 · 0.0310 · 14"
     And the output contains "3-integrate -> 1 · 1,000 · 0 · 40 · 0.0000 · 9"
 
@@ -20,7 +20,7 @@ Feature: Hidden examples for the CLI
     Given a GDD project with the log:
       """
       """
-    When I run "gdd report"
+    When I run "tminus report"
     Then the output is:
       """
       No agent calls in the log yet.
@@ -33,6 +33,6 @@ Feature: Hidden examples for the CLI
       """
     And the project's rules table is the default one
     And the planned change "x" touches "src/a.rs" and is not resumable
-    When I run "gdd classify x"
+    When I run "tminus classify x"
     Then the JSON field "color" is "yellow"
     And the JSON field "lane" is "full"

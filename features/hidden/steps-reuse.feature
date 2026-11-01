@@ -5,7 +5,7 @@ Feature: Steps that do not rot (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -47,7 +47,7 @@ Feature: Steps that do not rot (hidden examples)
       """
 
   Scenario: Every agent gets the same rule for steps
-    When I run "gdd agents install"
+    When I run "tminus agents install"
     Then it succeeds
-    And the file ".agents/skills/gdd-build-test/SKILL.md" contains "reuse a step that already says the same"
-    And the file ".agents/skills/gdd-review/SKILL.md" contains "a new step that says what an existing step already says"
+    And the file ".agents/skills/tminus-build-test/SKILL.md" contains "reuse a step that already says the same"
+    And the file ".agents/skills/tminus-review/SKILL.md" contains "a new step that says what an existing step already says"

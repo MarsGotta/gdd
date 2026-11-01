@@ -1,7 +1,7 @@
 Feature: Learn from the Reviewer
   The Reviewer names each finding with its class of bug (F1 · <class> · file:line ...). When the
   same class shows up in several changes, it is a lesson: a line for docs/standards.md, a check
-  or a test the Builder writes first. `gdd learn` lists, next to the polish notes at G4, the
+  or a test the Builder writes first. `tminus learn` lists, next to the polish notes at G4, the
   classes of findings that repeat across changes, and how many reviews named no class at all, so
   a Reviewer that does not follow the format is seen.
 
@@ -9,7 +9,7 @@ Feature: Learn from the Reviewer
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -33,103 +33,103 @@ Feature: Learn from the Reviewer
       """
 
   Scenario: A class of finding that repeats across changes is listed
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · unchecked input · src/import.rs:12 · a size from the file is used as is · src/export.rs:40
       F2 · error branch without a test · src/import.rs:30 · the error path is never run · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       F1 · Unchecked input · src/export.rs:8 · the name is not checked · none
       
       VERDICT: KO
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "Reviewer findings that repeat (1)"
     And the output contains "unchecked input · 2 changes (a, b)"
 
   Scenario: A class found in one change only is not listed
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · unchecked input · src/import.rs:12 · a size from the file is used as is · src/export.rs:40
       F2 · error branch without a test · src/import.rs:30 · the error path is never run · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       F1 · Unchecked input · src/export.rs:8 · the name is not checked · none
       
       VERDICT: KO
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output does not contain "error branch without a test"
 
   Scenario: A review that ends OK without findings counts as a review with nothing to name
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · unchecked input · src/import.rs:12 · a size from the file is used as is · src/export.rs:40
       F2 · error branch without a test · src/import.rs:30 · the error path is never run · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       F1 · Unchecked input · src/export.rs:8 · the name is not checked · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-2.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-2.md" says:
       """
       F1 fixed.
       
       VERDICT: OK
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "Reviews whose findings name no class: none"
 
   Scenario: Reviews whose findings name no class are counted
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · unchecked input · src/import.rs:12 · a size from the file is used as is · src/export.rs:40
       F2 · error branch without a test · src/import.rs:30 · the error path is never run · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       - [P2] src/export.rs:8: the name is not checked.
       
       VERDICT: KO
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "Reviews whose findings name no class: 1 of 2 (b)"
 
   Scenario: Only the changes created since a day
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · unchecked input · src/import.rs:12 · a size from the file is used as is · src/export.rs:40
       F2 · error branch without a test · src/import.rs:30 · the error path is never run · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       F1 · Unchecked input · src/export.rs:8 · the name is not checked · none
       
       VERDICT: KO
       """
-    When I run "gdd learn --since 2026-10-21"
+    When I run "tminus learn --since 2026-10-21"
     Then it succeeds
     And the output contains "Reviewer findings that repeat: none"
 
   Scenario: Without reviews there is nothing to learn from them
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "Reviewer findings that repeat: none"

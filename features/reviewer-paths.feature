@@ -1,5 +1,5 @@
 Feature: A Reviewer finding written as a link names its file
-  Reviewers often write the file of a finding as a Markdown link, `[path:line](/full/path)`. gdd
+  Reviewers often write the file of a finding as a Markdown link, `[path:line](/full/path)`. tminus
   reads the link's text as the file, as the merge commit already does, so a finding on a file only
   test mode may write still gets the test-mode fix round first.
 
@@ -7,7 +7,7 @@ Feature: A Reviewer finding written as a link names its file
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -72,9 +72,9 @@ Feature: A Reviewer finding written as a link names its file
     And the agents are fakes
 
   Scenario: A finding whose file is a link gets a test-mode fix first
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "- **F1 · weak step · [tests/steps/app.txt:3](/elsewhere/c1/tests/steps/app.txt:3)** · one step checks three sentences", says KO, and then OK
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                       |
@@ -87,9 +87,9 @@ Feature: A Reviewer finding written as a link names its file
     And the record of "c1" is in state "closed"
 
   Scenario: A finding whose link names the code keeps the one build-mode fix
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "F1 · off by one · [src/app.txt:1](/elsewhere/c1/src/app.txt:1) · the total drops the last line", says KO, and then OK
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                       |

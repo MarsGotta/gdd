@@ -4,7 +4,7 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -74,8 +74,8 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
     And the environment has "SMTP_PASSWD" set to "smtp-test"
     And the environment has "SENTRY_DSN" set to "https://k@o1.example/1"
     And the environment has "EDITOR" set to "nano"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 did not get "STRIPE_SECRET_KEY"
     And agent call 1 did not get "SMTP_PASSWD"
@@ -85,8 +85,8 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
   Scenario: A URL with a password in it never reaches the agents
     Given the environment has "REDIS_URL" set to "redis://:hunter2@cache.example:6379"
     And the environment has "API_BASE_URL" set to "https://api.example.com"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 did not get "REDIS_URL"
     And agent call 1 got "API_BASE_URL"

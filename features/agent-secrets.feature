@@ -1,17 +1,17 @@
 Feature: Secrets reach no agent under their other common names, nor inside a URL
-  gdd gives each agent the environment it runs in, without the variables that hold a secret.
+  tminus gives each agent the environment it runs in, without the variables that hold a secret.
   A name says so when one of its words, split at "_", "-" or ".", in any case, is KEY, KEYS,
   TOKEN, TOKENS, SECRET, SECRETS, PASSWORD, PASSWORDS, PASSWD, PASS, CREDENTIAL, CREDENTIALS,
   APIKEY or DSN: AWS_SECRET_ACCESS_KEY, DB_PASS and SENTRY_DSN are secrets, PWD and KEYBOARD_LAYOUT
   are not. A value says so when it is a URL with a password in it (scheme://user:password@host,
   or scheme://:password@host): DATABASE_URL usually is. A project still passes a variable to its
-  agents on purpose, by its exact name, in [env] pass of gdd/models.toml.
+  agents on purpose, by its exact name, in [env] pass of tminus/models.toml.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -81,8 +81,8 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
     And the environment has "DB_PASS" set to "pass-test"
     And the environment has "GOOGLE_APPLICATION_CREDENTIALS" set to "/home/me/key.json"
     And the environment has "EDITOR" set to "vim"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 did not get "AWS_SECRET_ACCESS_KEY"
     And agent call 1 did not get "DB_PASS"
@@ -92,8 +92,8 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
   Scenario: A URL with a password in it never reaches the agents
     Given the environment has "DATABASE_URL" set to "postgres://app:s3cret@db.example/app"
     And the environment has "DOCS_URL" set to "https://example.com/docs"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 did not get "DATABASE_URL"
     And agent call 1 got "DOCS_URL"
@@ -101,8 +101,8 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
   Scenario: A name that only looks like a secret reaches the agents
     Given the environment has "KEYBOARD_LAYOUT" set to "us"
     And the environment has "PASSAGE_DIR" set to "/home/me/passage"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 got "KEYBOARD_LAYOUT"
     And agent call 1 got "PASSAGE_DIR"
@@ -110,7 +110,7 @@ Feature: Secrets reach no agent under their other common names, nor inside a URL
   Scenario: A project can still pass a URL with a password on purpose
     Given the models pass "DATABASE_URL" to the agents
     And the environment has "DATABASE_URL" set to "postgres://app:s3cret@db.example/app"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 got "DATABASE_URL"

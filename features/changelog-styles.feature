@@ -1,5 +1,5 @@
 Feature: Changelogs in the common heading styles
-  Not every changelog writes its headings as Keep a Changelog does. gdd also reads
+  Not every changelog writes its headings as Keep a Changelog does. tminus also reads
   `## Unreleased`, `## 0.1.0 - <day>`, `## v0.1.0` and `## [0.1.0](<link>) (<day>)`, any case for
   Unreleased. It adds lines to the file's own Unreleased, writes new versions in the style of
   the file's newest version heading, and writes plain lines, without `###` sections, in a file
@@ -9,7 +9,7 @@ Feature: Changelogs in the common heading styles
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -75,9 +75,9 @@ Feature: Changelogs in the common heading styles
     And the versions are released by hand
 
   Scenario: An Unreleased heading without brackets is the file's Unreleased
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -90,7 +90,7 @@ Feature: Changelogs in the common heading styles
 
       - Something older
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## Unreleased" exactly 1 times
     And the file "CHANGELOG.md" does not contain "## [Unreleased]"
@@ -98,9 +98,9 @@ Feature: Changelogs in the common heading styles
     And in the file "CHANGELOG.md", "- Export notes as Markdown" comes before "## 0.1.0"
 
   Scenario: A changelog without sections gets plain lines
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -113,15 +113,15 @@ Feature: Changelogs in the common heading styles
 
       - Something older
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
-    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- tminus: "
     And the file "CHANGELOG.md" does not contain "### Added"
 
   Scenario: A changelog with sections keeps getting them
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -132,15 +132,15 @@ Feature: Changelogs in the common heading styles
 
       - Crash
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "### Added"
     And in the file "CHANGELOG.md", "### Added" comes before "### Fixed"
 
   Scenario: A missing version is written in the style of the file
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the tag "v0.2.0" is on main
     And the file "CHANGELOG.md" says:
       """
@@ -152,16 +152,16 @@ Feature: Changelogs in the common heading styles
 
       - Something older
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## 0.2.0 - "
     And the file "CHANGELOG.md" does not contain "## [0.2.0]"
     And in the file "CHANGELOG.md", "## 0.2.0" comes before "## 0.1.0"
 
   Scenario: Versions written with a v keep it
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the tag "v0.2.0" is on main
     And the file "CHANGELOG.md" says:
       """
@@ -171,14 +171,14 @@ Feature: Changelogs in the common heading styles
 
       - Something older
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## v0.2.0 - "
 
   Scenario: A version heading with a link counts as that version
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the tag "v0.2.0" is on main
     And the file "CHANGELOG.md" says:
       """
@@ -190,7 +190,7 @@ Feature: Changelogs in the common heading styles
 
       - Dark theme
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## [0.2.0](https://example.com/compare/v0.1.0...v0.2.0) (2026-10-25)" exactly 1 times
     And the file "CHANGELOG.md" does not contain "## [0.2.0] - "
@@ -208,9 +208,9 @@ Feature: Changelogs in the common heading styles
       - Something older
       """
     And the tag "v0.3.0" is on main
-    And I run "gdd new-change c1 --title Crash --type Hotfix --paths src/app.txt"
-    And I run "gdd launch c1"
-    When I run "gdd release --yes"
+    And I run "tminus new-change c1 --title Crash --type Hotfix --paths src/app.txt"
+    And I run "tminus launch c1"
+    When I run "tminus release --yes"
     Then it succeeds
     And the file "CHANGELOG.md" contains "## 0.3.1 - "
     And the file "CHANGELOG.md" does not contain "## [0.3.1]"

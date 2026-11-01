@@ -1,11 +1,11 @@
 @hidden
-Feature: gdd learn (hidden examples)
+Feature: tminus learn (hidden examples)
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -30,12 +30,12 @@ Feature: gdd learn (hidden examples)
 
   Scenario: A tool that cannot run says so and the others still run
     Given the gate command "learn" "duplication" is "no-such-dup-tool-abc"
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "duplication: could not run (exit code 127)"
     And the output contains "unused: found something (exit code 3)"
 
   Scenario: Only the changes created since a day
-    When I run "gdd learn --since 2026-10-22"
+    When I run "tminus learn --since 2026-10-22"
     Then it succeeds
     And the output contains "Polish notes at G4 (0)"

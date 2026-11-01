@@ -1,33 +1,33 @@
 @hidden
-Feature: gdd upgrade (hidden examples)
+Feature: tminus upgrade (hidden examples)
 
   Background:
     Given an empty folder
-    And I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
+    And I run "tminus init --name Notes --platform cli --stack rust --agents claude codex"
 
-  Scenario: A file the project edited keeps its changes and takes gdd's
-    And an older gdd "0.0.0" wrote ".github/workflows/gdd.yml" with "fetch-depth: 1" where this one writes "fetch-depth: 0"
-    And in the file ".github/workflows/gdd.yml", "components: rustfmt, clippy" is replaced by "components: rustfmt, clippy, llvm-tools"
+  Scenario: A file the project edited keeps its changes and takes tminus's
+    And an older tminus "0.0.0" wrote ".github/workflows/tminus.yml" with "fetch-depth: 1" where this one writes "fetch-depth: 0"
+    And in the file ".github/workflows/tminus.yml", "components: rustfmt, clippy" is replaced by "components: rustfmt, clippy, llvm-tools"
     And everything is committed on main
-    When I run "gdd upgrade"
+    When I run "tminus upgrade"
     Then it succeeds
-    And the output contains ".github/workflows/gdd.yml: merged with your changes"
-    And the file ".github/workflows/gdd.yml" on the branch "gdd-upgrade" contains "fetch-depth: 0"
-    And the file ".github/workflows/gdd.yml" on the branch "gdd-upgrade" contains "components: rustfmt, clippy, llvm-tools"
+    And the output contains ".github/workflows/tminus.yml: merged with your changes"
+    And the file ".github/workflows/tminus.yml" on the branch "tminus-upgrade" contains "fetch-depth: 0"
+    And the file ".github/workflows/tminus.yml" on the branch "tminus-upgrade" contains "components: rustfmt, clippy, llvm-tools"
 
   Scenario: Lines both changed are marked as a conflict
-    And an older gdd "0.0.0" wrote ".github/workflows/gdd.yml" with "fetch-depth: 1" where this one writes "fetch-depth: 0"
-    And in the file ".github/workflows/gdd.yml", "fetch-depth: 1" is replaced by "fetch-depth: 50"
+    And an older tminus "0.0.0" wrote ".github/workflows/tminus.yml" with "fetch-depth: 1" where this one writes "fetch-depth: 0"
+    And in the file ".github/workflows/tminus.yml", "fetch-depth: 1" is replaced by "fetch-depth: 50"
     And everything is committed on main
-    When I run "gdd upgrade"
+    When I run "tminus upgrade"
     Then it succeeds
-    And the output contains ".github/workflows/gdd.yml: conflict, settle the marks"
-    And the file ".github/workflows/gdd.yml" on the branch "gdd-upgrade" contains "fetch-depth: 50"
-    And the file ".github/workflows/gdd.yml" contains "fetch-depth: 50"
+    And the output contains ".github/workflows/tminus.yml: conflict, settle the marks"
+    And the file ".github/workflows/tminus.yml" on the branch "tminus-upgrade" contains "fetch-depth: 50"
+    And the file ".github/workflows/tminus.yml" contains "fetch-depth: 50"
 
-  Scenario: A file the older gdd did not write is added
-    Given an older gdd "0.0.0" did not write "docs/brief.md"
-    When I run "gdd upgrade"
+  Scenario: A file the older tminus did not write is added
+    Given an older tminus "0.0.0" did not write "docs/brief.md"
+    When I run "tminus upgrade"
     Then it succeeds
     And the output contains "docs/brief.md: added"
-    And the branch "gdd-upgrade" holds "docs/brief.md"
+    And the branch "tminus-upgrade" holds "docs/brief.md"

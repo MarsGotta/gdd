@@ -5,7 +5,7 @@ Feature: One Builder session, by choice (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,17 +70,17 @@ Feature: One Builder session, by choice (hidden examples)
     And the agents are fakes
 
   Scenario: The replan of the Orchestrator does not join the Builder's session
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Builder session is "shared"
     And the Builder in build mode writes nothing
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: G2 still red"
-    And agent call 5 starts with "-p /gdd-replan"
+    And agent call 5 starts with "-p /tminus-replan"
     And agent call 5 does not include "--resume"
     And agent call 6 includes "--resume fake-session"
 
   Scenario: Without a separate session set, the classification says separate
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd classify c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus classify c1"
     Then it succeeds
     And the JSON field "builder_session" is "separate"

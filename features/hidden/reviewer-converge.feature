@@ -5,7 +5,7 @@ Feature: A Reviewer that converges (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,16 +70,16 @@ Feature: A Reviewer that converges (hidden examples)
     And the agents are fakes
 
   Scenario: Every review is kept in the record
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer answers "VERDICT: OK" every time
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the record of "c1" lists the reviews "OK"
 
   Scenario: How many reviews a change needs
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer answers "VERDICT: OK" every time
-    And I run "gdd launch c1"
-    When I run "gdd report --dora"
+    And I run "tminus launch c1"
+    When I run "tminus report --dora"
     Then it succeeds
     And the output contains "Reviews to pass: median 1 per change · first review OK in 1 of 1 changes"

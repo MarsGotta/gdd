@@ -5,7 +5,7 @@ Feature: Agents run only the commands their work needs (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -17,10 +17,10 @@ Feature: Agents run only the commands their work needs (hidden examples)
     And everything is committed on main
 
   Scenario: A test-mode Builder cannot launch another change
-    When the role "builder-test" runs "gdd launch c9"
-    Then it fails with a message that contains "Agents that gdd started cannot run gdd launch"
+    When the role "builder-test" runs "tminus launch c9"
+    Then it fails with a message that contains "Agents that tminus started cannot run tminus launch"
 
   Scenario: A Reviewer cannot start a change
-    When the role "reviewer" runs "gdd new-change c3 --title Import"
-    Then it fails with a message that contains "Agents that gdd started cannot run gdd new-change"
+    When the role "reviewer" runs "tminus new-change c3 --title Import"
+    Then it fails with a message that contains "Agents that tminus started cannot run tminus new-change"
     And the branch "change/c3" does not exist

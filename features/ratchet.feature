@@ -1,18 +1,18 @@
 Feature: A ratchet for known debt
-  A project with code adopts gdd with the debt it has. Known debt warns and does not block, but
-  a change must not add to it unseen. When gdd/commands.toml says how to count what a command
-  reports ([count]: texts where {n} is a number), gdd adopt records the count of each command with
+  A project with code adopts tminus with the debt it has. Known debt warns and does not block, but
+  a change must not add to it unseen. When tminus/commands.toml says how to count what a command
+  reports ([count]: texts where {n} is a number), tminus adopt records the count of each command with
   known debt, and that count is a ceiling, like a ratchet that turns one way only: a change that
   reports more fails the gate with the difference, one that reports as much warns as before, and
   one that reports less lowers the ceiling for good when it merges. A failing command whose count
-  gdd cannot read fails the gate: an unread count would let anything through. Without [count],
-  known debt warns as before, and gdd status says that a change can add to it unseen.
+  tminus cannot read fails the gate: an unread count would let anything through. Without [count],
+  known debt warns as before, and tminus status says that a change can add to it unseen.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -37,10 +37,10 @@ Feature: A ratchet for known debt
       [count]
       lint = ["Found {n} error"]
       """
-    When I run "gdd adopt"
+    When I run "tminus adopt"
     Then it succeeds
     And the output contains "Known debt: lint (5)"
-    And the file "gdd/debt.toml" contains "count = 5"
+    And the file "tminus/debt.toml" contains "count = 5"
 
   Scenario: A change that adds to the known debt fails the gate
     Given the gate commands:
@@ -57,7 +57,7 @@ Feature: A ratchet for known debt
       [count]
       lint = ["Found {n} error"]
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the gate commands:
       """
       [g2]
@@ -73,7 +73,7 @@ Feature: A ratchet for known debt
       lint = ["Found {n} error"]
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate fails on "lint"
     And the output contains "lint reports 7, the known debt is 5: 2 more"
 
@@ -92,9 +92,9 @@ Feature: A ratchet for known debt
       [count]
       lint = ["Found {n} error"]
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the change "c1" plans "src/app.rs" and its build has started on its branch
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate passes
     And the output contains "known_debt"
 
@@ -113,7 +113,7 @@ Feature: A ratchet for known debt
       [count]
       lint = ["Found {n} error"]
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the gate commands:
       """
       [g2]
@@ -130,13 +130,13 @@ Feature: A ratchet for known debt
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
     When the change writes "src/app.rs"
-    And I run "gdd g2 c1"
-    And I run "gdd g3 c1"
-    And I run "gdd gate G3 ok c1 --by machines"
-    And I run "gdd merge c1"
+    And I run "tminus g2 c1"
+    And I run "tminus g3 c1"
+    And I run "tminus gate G3 ok c1 --by machines"
+    And I run "tminus merge c1"
     Then it succeeds
     And the last commit on main says "Known debt lowered: lint from 5 to 3"
-    And the file "gdd/debt.toml" contains "count = 3"
+    And the file "tminus/debt.toml" contains "count = 3"
 
   Scenario: A failing command whose count cannot be read fails the gate
     Given the gate commands:
@@ -153,7 +153,7 @@ Feature: A ratchet for known debt
       [count]
       lint = ["Found {n} error"]
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the gate commands:
       """
       [g2]
@@ -169,9 +169,9 @@ Feature: A ratchet for known debt
       lint = ["Found {n} error"]
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate fails on "lint"
-    And the output contains "lint failed and gdd cannot count what it reported"
+    And the output contains "lint failed and tminus cannot count what it reported"
 
   Scenario: Known debt without a count warns as before, and the status says so
     Given the gate commands:
@@ -185,13 +185,13 @@ Feature: A ratchet for known debt
       acceptance_full = "true"
       security = "true"
       """
-    And I run "gdd adopt"
-    When I run "gdd status"
+    And I run "tminus adopt"
+    When I run "tminus status"
     Then the output contains "Known debt: lint (no count: a change can add to it unseen)"
 
   Scenario: A new project gets the counts of its stack
     Given an empty folder
-    When I run "gdd init --name Notes --platform cli --stack python --agents claude codex"
+    When I run "tminus init --name Notes --platform cli --stack python --agents claude codex"
     Then it succeeds
-    And the file "gdd/commands.toml" contains "[count]"
-    And the file "gdd/commands.toml" contains "Found {n} error"
+    And the file "tminus/commands.toml" contains "[count]"
+    And the file "tminus/commands.toml" contains "Found {n} error"

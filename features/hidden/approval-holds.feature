@@ -5,7 +5,7 @@ Feature: An approval holds only for the scenarios the human saw (hidden examples
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,11 +70,11 @@ Feature: An approval holds only for the scenarios the human saw (hidden examples
     And the agents are fakes
 
   Scenario: A hidden example added after G1 stops the launch before any agent call
-    Given I run "gdd new-change c2 --title Notes --paths src/notes.txt"
+    Given I run "tminus new-change c2 --title Notes --paths src/notes.txt"
     And the change "c2" has the scenario "features/notes.feature" on its branch
-    And I run "gdd gate G1 ok c2 --by human"
+    And I run "tminus gate G1 ok c2 --by human"
     And the change "c2" has the hidden example "features/hidden/notes.feature" with the step "Then it is saved"
-    When I run "gdd launch c2"
+    When I run "tminus launch c2"
     Then it fails with a message that contains "features/hidden/notes.feature (added)"
     And it fails with a message that contains "approve the scenarios again"
     And the agents were called in this order:
@@ -82,13 +82,13 @@ Feature: An approval holds only for the scenarios the human saw (hidden examples
     And the change "c2" has no worktree
 
   Scenario: Two scenarios changed after G1 are both named
-    Given I run "gdd new-change c2 --title Notes --paths src/notes.txt"
+    Given I run "tminus new-change c2 --title Notes --paths src/notes.txt"
     And the change "c2" has the scenario "features/notes.feature" on its branch
     And the change "c2" has the scenario "features/tags.feature" on its branch
-    And I run "gdd gate G1 ok c2 --by human"
+    And I run "tminus gate G1 ok c2 --by human"
     And the change "c2" no longer has the scenario "features/tags.feature" on its branch
     And the change "c2" has the scenario "features/search.feature" on its branch
-    When I run "gdd launch c2"
+    When I run "tminus launch c2"
     Then it fails with a message that contains "features/tags.feature (removed)"
     And it fails with a message that contains "features/search.feature (added)"
     And the agents were called in this order:

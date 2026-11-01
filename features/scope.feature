@@ -8,7 +8,7 @@ Feature: Scope of a change
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -28,20 +28,20 @@ Feature: Scope of a change
 
   Scenario: Inside the plan
     When the change writes "src/app.rs"
-    And I run "gdd scope c1"
+    And I run "tminus scope c1"
     Then the scope passes with nothing accepted
 
   Scenario: Outside the plan, lower color, is accepted and listed
     When the change writes "docs/notes.md"
-    And I run "gdd scope c1"
+    And I run "tminus scope c1"
     Then the scope passes accepting "docs/notes.md"
 
   Scenario: Outside the plan, higher color, fails
     When the change writes "src/storage/db.rs"
-    And I run "gdd scope c1"
+    And I run "tminus scope c1"
     Then the scope fails naming "src/storage/db.rs" and "red"
 
   Scenario: Classify counts what the change really touched
     When the change writes "src/storage/db.rs"
-    And I run "gdd classify c1"
+    And I run "tminus classify c1"
     Then the JSON field "color" is "red"

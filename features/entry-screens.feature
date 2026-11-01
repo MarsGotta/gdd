@@ -1,7 +1,7 @@
 Feature: The screens point to the agent
-  A person starts work by talking to their coding agent, so the screens say so. gdd alone, in a
+  A person starts work by talking to their coding agent, so the screens say so. tminus alone, in a
   terminal, opens the Board; without one it prints the help, as before. The empty Board says to
-  ask the agent with the gdd-change command, not to type gdd new-change. A sitting whose
+  ask the agent with the tminus-change command, not to type tminus new-change. A sitting whose
   scenarios are already approved, with nothing else waiting, says that nothing waits for the
   person and offers no approval.
 
@@ -9,7 +9,7 @@ Feature: The screens point to the agent
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -31,20 +31,20 @@ Feature: The screens point to the agent
   Scenario: The empty Board says to ask the agent
     When I open the board
     Then the board shows "No changes yet"
-    And the board shows "ask your agent: /gdd-change"
-    And the board does not show "gdd new-change"
+    And the board shows "ask your agent: /tminus-change"
+    And the board does not show "tminus new-change"
 
   Scenario: A sitting already approved offers nothing to approve
-    Given I run "gdd gate zones ok --by human"
-    And I run "gdd new-change c1 --title Notes --paths docs/notes.md features/notes.feature"
+    Given I run "tminus gate zones ok --by human"
+    And I run "tminus new-change c1 --title Notes --paths docs/notes.md features/notes.feature"
     And the change "c1" has the scenario "features/notes.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     When I open the sitting of "c1"
     Then the sitting shows "Nothing waits for you"
     And the sitting does not show "a approve"
 
-  Scenario: Without a terminal, gdd alone still prints the help
-    When I run "gdd"
+  Scenario: Without a terminal, tminus alone still prints the help
+    When I run "tminus"
     Then it succeeds
-    And the output contains "Usage: gdd [COMMAND]"
+    And the output contains "Usage: tminus [COMMAND]"

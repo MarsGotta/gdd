@@ -5,7 +5,7 @@ Feature: Each gate command in the log (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -35,10 +35,10 @@ Feature: Each gate command in the log (hidden examples)
     And the change "c1" plans "src/app.rs" and "tests/steps/app.rs" and its build has started on its branch
 
   Scenario: Path Guard leaves its line too
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the log has the gate command "path-guard" of "c1" in "G2" with result "ok"
 
   Scenario: A failing G3 command leaves a ko line
     Given the gate command "g3" "mutation" is "echo survived; exit 2"
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the log has the gate command "mutation" of "c1" in "G3" with result "ko"

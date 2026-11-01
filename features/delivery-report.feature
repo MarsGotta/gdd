@@ -1,5 +1,5 @@
 Feature: Delivery: DORA's five and GDD's signals
-  `gdd report --dora` reads the log and the records and gives DORA's five software delivery
+  `tminus report --dora` reads the log and the records and gives DORA's five software delivery
   metrics (dora.dev): change lead time, deployment frequency and failed deployment recovery time
   (throughput), change fail rate and deployment rework rate (instability); then GDD's own signals,
   signs to read and never targets: polish at G4, parks, Reviewer KOs, mutation testing red in G3,
@@ -11,7 +11,7 @@ Feature: Delivery: DORA's five and GDD's signals
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -29,16 +29,16 @@ Feature: Delivery: DORA's five and GDD's signals
       reason = "Losing the user's drafts"
       """
     And everything is committed on main
-    And I run "gdd new-change a --title Drafts --type Feature --paths src/storage/db.rs"
-    And I run "gdd new-change b --title Crash --type Hotfix --paths src/app.rs"
-    And I run "gdd new-change c --title Sync --type Feature --paths src/sync.rs"
-    And I run "gdd new-change d --title Export --type Feature --paths src/export.rs"
-    And I run "gdd new-change e --title Guide --type Feature --paths docs/guide.md"
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says "VERDICT: KO"
-    And the file ".gdd/changes/a/outputs/reviewer-2.md" says "VERDICT: OK"
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says "VERDICT: OK"
-    And the file ".gdd/changes/c/outputs/reviewer-1.md" says "VERDICT: OK"
-    And the file ".gdd/changes/d/outputs/reviewer-1.md" says "VERDICT: OK"
+    And I run "tminus new-change a --title Drafts --type Feature --paths src/storage/db.rs"
+    And I run "tminus new-change b --title Crash --type Hotfix --paths src/app.rs"
+    And I run "tminus new-change c --title Sync --type Feature --paths src/sync.rs"
+    And I run "tminus new-change d --title Export --type Feature --paths src/export.rs"
+    And I run "tminus new-change e --title Guide --type Feature --paths docs/guide.md"
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says "VERDICT: KO"
+    And the file ".tminus/changes/a/outputs/reviewer-2.md" says "VERDICT: OK"
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says "VERDICT: OK"
+    And the file ".tminus/changes/c/outputs/reviewer-1.md" says "VERDICT: OK"
+    And the file ".tminus/changes/d/outputs/reviewer-1.md" says "VERDICT: OK"
     And the log says:
       """
       {"ts": "2026-10-20T09:00:00+00:00", "change": "a", "phase": "1-discover", "gate": "-", "role": "orchestrator", "agent": "-", "model": "-", "tokens_in": 0, "tokens_cache": 0, "tokens_out": 0, "cost_usd": 0.0, "duration_s": 0, "result": "change-created", "retry": 0, "note": "Drafts"}
@@ -82,7 +82,7 @@ Feature: Delivery: DORA's five and GDD's signals
       """
 
   Scenario: DORA's throughput
-    When I run "gdd report --dora"
+    When I run "tminus report --dora"
     Then it succeeds
     And the output contains "Delivery · 4 deployment(s) from 2026-10-20 to 2026-10-22"
     And the output contains "Change lead time: median 1h 00m, from the build's start to the promotion"
@@ -90,13 +90,13 @@ Feature: Delivery: DORA's five and GDD's signals
     And the output contains "Failed deployment recovery time: median 10m (1 failed)"
 
   Scenario: DORA's instability
-    When I run "gdd report --dora"
+    When I run "tminus report --dora"
     Then it succeeds
     And the output contains "Change fail rate: 25% (1 of 4)"
     And the output contains "Deployment rework rate: 25% (1 of 4 are Hotfixes)"
 
   Scenario: GDD's signals, never targets
-    When I run "gdd report --dora"
+    When I run "tminus report --dora"
     Then it succeeds
     And the output contains "GDD signals (signs to read, never targets)"
     And the output contains "Polish at G4: 33% (1 of 3 decisions)"
@@ -107,23 +107,23 @@ Feature: Delivery: DORA's five and GDD's signals
     And the output contains "Tokens out: median 400 per change"
 
   Scenario: Only the changes created since a day
-    When I run "gdd report --dora --since 2026-10-21"
+    When I run "tminus report --dora --since 2026-10-21"
     Then it succeeds
     And the output contains "Delivery · 3 deployment(s) from 2026-10-21 to 2026-10-22"
     And the output contains "Change fail rate: 33% (1 of 3)"
     And the output contains "Polish at G4: 0% (0 of 1 decisions)"
 
   Scenario: Without a deployment the signals still show
-    When I run "gdd report --dora --since 2026-10-22"
+    When I run "tminus report --dora --since 2026-10-22"
     Then it succeeds
     And the output contains "Delivery · 1 deployment(s) from 2026-10-22 to 2026-10-22"
-    When I run "gdd report --dora --since 2026-10-23"
+    When I run "tminus report --dora --since 2026-10-23"
     Then it succeeds
     And the output contains "No deployment in the log yet"
     And the output contains "GDD signals"
 
   Scenario: Machine-readable delivery
-    When I run "gdd report --dora --json"
+    When I run "tminus report --dora --json"
     Then it succeeds
     And the output contains "lead_time_s"
     And the output contains "change_fail_rate"

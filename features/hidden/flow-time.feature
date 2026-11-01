@@ -17,13 +17,13 @@ Feature: Where the time goes (hidden examples)
       """
 
   Scenario: Where the time of one change goes
-    When I run "gdd report --time --change d"
+    When I run "tminus report --time --change d"
     Then it succeeds
     And the output contains "d · Search · rejected"
     And the output contains "Flow time 3h 20m · active 40m (20%) · waiting 2h 40m · between steps 0s"
     And the output contains "Waiting: parked 1h 00m (G2 still red after 3 retries and 1 replan), for the human at G4 1h 00m, at the sitting 30m, to start 10m"
 
   Scenario: The project adds every change up and names the biggest waits
-    When I run "gdd report --time"
+    When I run "tminus report --time"
     Then it succeeds
     And the output contains "Project: 1 change(s) · flow time 3h 20m · active 40m (20%) · waiting 2h 40m · between steps 0s"

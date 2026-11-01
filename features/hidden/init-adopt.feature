@@ -5,7 +5,7 @@ Feature: Hidden examples for adopting a project that already has code
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -29,7 +29,7 @@ Feature: Hidden examples for adopting a project that already has code
       security = "true"
       dependencies = "echo GPL; false"
       """
-    When I run "gdd adopt"
+    When I run "tminus adopt"
     Then the output contains "1. debt-dependencies"
     And the output contains "2. debt-types"
     And the output contains "3. debt-lint"
@@ -46,9 +46,9 @@ Feature: Hidden examples for adopting a project that already has code
       acceptance_full = "true"
       security = "echo old openssl; false"
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the change "c1" plans "src/app.rs" and its build has started on its branch
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the gate passes
     And the output contains "known_debt"
 
@@ -64,7 +64,7 @@ Feature: Hidden examples for adopting a project that already has code
       acceptance_full = "true"
       security = "true"
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the gate commands:
       """
       [g2]
@@ -78,10 +78,10 @@ Feature: Hidden examples for adopting a project that already has code
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
     When the change writes "src/app.rs"
-    And I run "gdd g2 c1"
-    And I run "gdd g3 c1"
-    And I run "gdd gate G3 ok c1 --by machines"
-    And I run "gdd merge c1"
+    And I run "tminus g2 c1"
+    And I run "tminus g3 c1"
+    And I run "tminus gate G3 ok c1 --by machines"
+    And I run "tminus merge c1"
     Then it succeeds
     And the last commit on main says "Known debt paid: lint"
-    And the file "gdd/debt.toml" contains "unit"
+    And the file "tminus/debt.toml" contains "unit"

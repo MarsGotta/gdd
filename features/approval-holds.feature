@@ -11,7 +11,7 @@ Feature: An approval holds only for the scenarios the human saw
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -77,12 +77,12 @@ Feature: An approval holds only for the scenarios the human saw
 
   # Invariant: the human's approval is valid only for what was seen.
   Scenario: The human's approval holds only for what was seen: a scenario edited after G1 waits for a new one
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And I am on the branch "change/c1"
     When the change commits "features/app.feature"
-    And I run "gdd launch c1"
+    And I run "tminus launch c1"
     Then it fails with a message that contains "features/app.feature (edited)"
     And it fails with a message that contains "approve the scenarios again"
     And the agents were called in this order:
@@ -90,11 +90,11 @@ Feature: An approval holds only for the scenarios the human saw
     And the change "c1" has no worktree
 
   Scenario: A scenario added after G1 stops the launch before any agent call
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And the change "c1" has the scenario "features/extra.feature" on its branch
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "features/extra.feature (added)"
     And it fails with a message that contains "approve the scenarios again"
     And the agents were called in this order:
@@ -102,44 +102,44 @@ Feature: An approval holds only for the scenarios the human saw
     And the change "c1" has no worktree
 
   Scenario: A hidden example edited after G1 stops the launch before any agent call
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And the change "c1" has the hidden example "features/hidden/app.feature" with the step "Given a draft"
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And the change "c1" has the hidden example "features/hidden/app.feature" with the step "And a name"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "features/hidden/app.feature (edited)"
     And it fails with a message that contains "approve the scenarios again"
     And the agents were called in this order:
       | role | model | arguments |
 
   Scenario: A scenario removed after G1 stops the launch before any agent call
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And the change "c1" has the scenario "features/extra.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And the change "c1" no longer has the scenario "features/extra.feature" on its branch
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "features/extra.feature (removed)"
     And it fails with a message that contains "approve the scenarios again"
     And the agents were called in this order:
       | role | model | arguments |
 
   Scenario: Scenarios approved again after a change launch as before
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And the change "c1" has the scenario "features/extra.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
-    When I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    When I run "tminus launch c1"
     Then it succeeds
     And the record of "c1" is in state "in-pre"
 
   Scenario: A regression scenario added after G1 asks for no new approval
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    And I run "gdd gate G1 ok c1 --by human"
+    And I run "tminus gate G1 ok c1 --by human"
     And the change "c1" has the scenario "features/regression/app.feature" on its branch
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the record of "c1" is in state "in-pre"

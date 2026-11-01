@@ -5,7 +5,7 @@ Feature: The person answers G4 through their agent (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,11 +70,11 @@ Feature: The person answers G4 through their agent (hidden examples)
     And the agents are fakes
 
   Scenario: Another change waiting at G4 asks the same
-    Given I run "gdd new-change c2 --title Menu --paths src/app.txt"
+    Given I run "tminus new-change c2 --title Menu --paths src/app.txt"
     And the change "c2" has the scenario "features/menu.feature" on its branch
     And I am on the branch "change/c2"
-    And I run "gdd gate G1 ok c2 --by human"
-    When I run "gdd launch c2"
+    And I run "tminus gate G1 ok c2 --by human"
+    When I run "tminus launch c2"
     Then it succeeds
-    And the file ".gdd/changes/c2/inbox.md" contains "then answer your agent (or the sitting screen)"
-    And the file ".gdd/changes/c2/inbox.md" contains "Your agent runs gdd resume c2 --g4 ok, --g4 ko or --g4 polish --note"
+    And the file ".tminus/changes/c2/inbox.md" contains "then answer your agent (or the sitting screen)"
+    And the file ".tminus/changes/c2/inbox.md" contains "Your agent runs tminus resume c2 --g4 ok, --g4 ko or --g4 polish --note"

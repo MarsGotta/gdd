@@ -5,7 +5,7 @@ Feature: The Decision Inbox shows what still stands (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,16 +70,16 @@ Feature: The Decision Inbox shows what still stands (hidden examples)
     And the agents are fakes
 
   Scenario: A launch settles a conflict that named a worktree
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has an open parked note "main moved under it and the merge has conflicts in src/app.txt: merge main into change/c1 in its worktree (/var/tmp/gone/c1)"
-    When I run "gdd launch c1"
-    And I run "gdd inbox c1"
+    When I run "tminus launch c1"
+    And I run "tminus inbox c1"
     Then the output does not contain "(/var/tmp/gone/c1)"
     And the output contains "1 earlier reason(s) to park were settled by a later launch"
 
   Scenario: Another G1 KO note reaches the inbox
-    Given I run "gdd new-change c1 --title App --paths src/app.txt features/app.feature"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt features/app.feature"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    When I run "gdd gate G1 ko c1 --by human --note add-taxes"
+    When I run "tminus gate G1 ko c1 --by human --note add-taxes"
     Then it succeeds
-    And the file ".gdd/changes/c1/inbox.md" contains "- G1 ko: add-taxes"
+    And the file ".tminus/changes/c1/inbox.md" contains "- G1 ko: add-taxes"

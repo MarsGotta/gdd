@@ -5,7 +5,7 @@ Feature: Versions from the changes (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -71,9 +71,9 @@ Feature: Versions from the changes (hidden examples)
 
   Scenario Outline: The next version follows the line of the change
     Given the tag "<last>" is on main
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 <line>"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 <line>"
+    When I run "tminus launch c1"
     Then it succeeds
     And main has the tag "<next>"
 
@@ -86,19 +86,19 @@ Feature: Versions from the changes (hidden examples)
   Scenario: A version chosen by hand for the first stable release
     Given the versions are released by hand
     And the tag "v0.9.0" is on main
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
-    When I run "gdd release --yes --version 1.0.0"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
+    When I run "tminus release --yes --version 1.0.0"
     Then it succeeds
     And the output contains "Released v1.0.0"
     And main has the tag "v1.0.0"
 
   Scenario: A hotfix after a feature release is a patch
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    And I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.txt"
-    When I run "gdd launch c2"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    And I run "tminus new-change c2 --title Crash --type Hotfix --paths src/app.txt"
+    When I run "tminus launch c2"
     Then it succeeds
     And main has the tag "v0.1.0"
     And main has the tag "v0.1.1"
