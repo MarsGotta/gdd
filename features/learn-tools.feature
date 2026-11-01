@@ -78,4 +78,4 @@ Feature: gdd learn
 
   Scenario: A Builder cannot run Learn
     When the role "builder-build" runs "gdd learn"
-    Then it fails with a message that contains "Builders and Reviewers cannot"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd learn"

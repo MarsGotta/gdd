@@ -82,4 +82,4 @@ Feature: Record the approvals
 
   Scenario: A Builder cannot record an approval
     When the role "builder-build" runs "gdd gate G4 ok c1 --by human"
-    Then it fails with a message that contains "cannot open or close gates"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd gate"
