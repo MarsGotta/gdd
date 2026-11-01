@@ -84,6 +84,9 @@ const FAILURE_MARKS: [&str; 7] = [
     "Traceback",
 ];
 
+/// The character that starts every escape sequence of a terminal.
+const ESC: char = '\u{1b}';
+
 /// Keywords that start a scenario, in English and in Spanish.
 const SCENARIO_KEYWORDS: [&str; 4] = [
     "Scenario",
@@ -478,7 +481,8 @@ impl Report {
     /// Keeps the last line that is not blank of `output`, what the command `name` that passed
     /// printed, when it is a mutation command (see [`Report::summaries`]).
     fn summarize(&mut self, name: &str, output: &str) {
-        let last = output
+        let shown = as_shown(output);
+        let last = shown
             .lines()
             .map(str::trim_end)
             .rfind(|line| !line.is_empty());
@@ -775,9 +779,12 @@ impl Judged<'_> {
     }
 }
 
-/// What a failed command keeps of its output. Runners print failures early and their summary
-/// late: the first lines that report a failure, then the end of the output.
+/// What a failed command keeps of its output, as a terminal shows it (see [`as_shown`]). Runners
+/// print failures early and their summary late: the first lines that report a failure, then the
+/// end of the output.
 pub fn kept(output: &str) -> String {
+    let shown = as_shown(output);
+    let output = shown.as_str();
     let failures: Vec<&str> = output
         .lines()
         .filter(|line| reports_failure(line))
@@ -791,6 +798,59 @@ pub fn kept(output: &str) -> String {
         end.to_string()
     } else {
         format!("{}\n--- end of output ---\n{end}", failures.join("\n"))
+    }
+}
+
+/// `output` as a terminal shows it: without escape sequences (colors, cursor moves), and each
+/// line as its last carriage return left it, so a progress line drawn over itself keeps only its
+/// last state. A line that ends in a carriage return (`\r\n`) is a plain line.
+pub fn as_shown(output: &str) -> String {
+    let plain = without_escapes(output);
+    let lines = plain.split('\n').map(|line| {
+        let line = line.trim_end_matches('\r');
+        line.rsplit('\r').next().unwrap_or(line)
+    });
+    lines.collect::<Vec<_>>().join("\n")
+}
+
+/// `text` without its escape sequences: CSI (`ESC [`, up to a final byte from `@` to `~`), OSC
+/// (`ESC ]`, up to BEL or `ESC \`) and any other `ESC` with the character after it.
+fn without_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != ESC {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('[') => skip_csi(&mut chars),
+            Some(']') => skip_osc(&mut chars),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Skips the rest of a CSI sequence: its parameters, up to and with its final byte.
+fn skip_csi(chars: &mut impl Iterator<Item = char>) {
+    for c in chars.by_ref() {
+        if ('@'..='~').contains(&c) {
+            break;
+        }
+    }
+}
+
+/// Skips the rest of an OSC sequence: its text, up to and with BEL or `ESC \`.
+fn skip_osc<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) {
+    while let Some(c) = chars.next() {
+        if c == '\u{7}' {
+            break;
+        }
+        if c == ESC {
+            chars.next_if_eq(&'\\');
+            break;
+        }
     }
 }
 
@@ -1860,6 +1920,78 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         assert_eq!(end, output);
         assert_eq!(kept(&"é".repeat(3_000)), "é".repeat(2_500));
         assert_eq!(kept(&"é".repeat(2_500)), "é".repeat(2_500));
+    }
+
+    #[test]
+    fn a_failure_keeps_its_output_as_a_terminal_shows_it() {
+        let colored = kept("\x1b[31mFAILED\x1b[0m step 7\n");
+        let head = "FAILED step 7\n--- end of output ---\n";
+        assert_eq!(colored, format!("{head}FAILED step 7\n"));
+        let progress = kept("Running 1/3\rRunning 2/3\rRunning 3/3\n1 scenario failed\n");
+        let head = "1 scenario failed\n--- end of output ---\n";
+        assert_eq!(progress, format!("{head}Running 3/3\n1 scenario failed\n"));
+    }
+
+    #[test]
+    fn text_without_escapes_or_carriage_returns_is_shown_unchanged() {
+        for text in ["", "plain\n", "é ✘ [31m ]0;\nno escape\n\n", "a\tb ~ @"] {
+            assert_eq!(as_shown(text), text, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_color_sequence_is_not_shown() {
+        let colored = "\x1b[1;31mred\x1b[0m and \x1b[mplain";
+        assert_eq!(as_shown(colored), "red and plain");
+    }
+
+    #[test]
+    fn a_sequence_with_a_question_mark_hides_the_cursor_and_is_not_shown() {
+        assert_eq!(as_shown("\x1b[?25lworking\x1b[?25h"), "working");
+    }
+
+    #[test]
+    fn a_window_title_is_not_shown_whether_bel_or_esc_backslash_ends_it() {
+        assert_eq!(as_shown("\x1b]0;gdd: g3\x07done"), "done");
+        assert_eq!(as_shown("\x1b]0;gdd: g3\x1b\\done"), "done");
+        let linked = "\x1b]8;;https://a.b/\x1b\\link\x1b]8;;\x07!";
+        assert_eq!(as_shown(linked), "link!");
+    }
+
+    #[test]
+    fn any_other_escape_pair_and_a_lone_escape_at_the_end_are_not_shown() {
+        assert_eq!(as_shown("\x1b7saved\x1b8 \x1bMup"), "saved up");
+        assert_eq!(as_shown("done\x1b"), "done");
+        assert_eq!(as_shown("\x1b[31"), "");
+        assert_eq!(as_shown("\x1b]0;title"), "");
+    }
+
+    #[test]
+    fn lines_that_end_in_a_carriage_return_and_a_line_break_are_kept_as_lines() {
+        assert_eq!(as_shown("one\r\ntwo\r\n"), "one\ntwo\n");
+        assert_eq!(as_shown("one\r\r\ntwo"), "one\ntwo");
+    }
+
+    #[test]
+    fn a_line_drawn_over_itself_shows_its_last_frame() {
+        assert_eq!(as_shown("1/3\r2/3\r3/3\nend\n"), "3/3\nend\n");
+        assert_eq!(as_shown("50%\r100%\r\n"), "100%\n");
+        assert_eq!(as_shown("50%\r100%\r"), "100%");
+        let redrawn = "\x1b[2K\r\x1b[32m1/2\x1b[0m\x1b[2K\r\x1b[32m2/2\x1b[0m\ncaught\n";
+        assert_eq!(as_shown(redrawn), "2/2\ncaught\n");
+    }
+
+    #[test]
+    fn a_mutation_summary_is_its_last_line_as_a_terminal_shows_it() {
+        let commands = r#"
+[g3]
+acceptance = "true"
+mutation = "printf '\\033[32m1/12\\033[0m\\r\\033[32m12 caught\\033[0m\\n'"
+"#;
+        let project = started(&["src/app.rs"], commands);
+        let report = project.run(Gate::G3, "builder");
+        let said = BTreeMap::from([("mutation".to_string(), "12 caught".to_string())]);
+        assert_eq!(report.summaries, said);
     }
 
     #[test]
