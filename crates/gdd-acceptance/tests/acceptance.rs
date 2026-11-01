@@ -39,6 +39,8 @@ pub struct GddWorld {
     sitting: Option<OpenSitting>,
     /// The G0 opened during the Builder call: whether it succeeded, and its output.
     g0_during_call: Option<std::thread::JoinHandle<(bool, String)>>,
+    /// The key of the rules that a scenario switched off, as the refusal must name it.
+    switched_off: String,
 }
 
 #[given("the gdd tool")]
@@ -101,7 +103,12 @@ fn parse_change(text: &str) -> gdd_core::Change {
 
 #[given(expr = "the zone map:")]
 fn the_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
-    w.zone_map = docstring(step, "a zone map docstring");
+    let zone_map = docstring(step, "a zone map docstring");
+    set_zone_map(w, &zone_map);
+}
+
+fn set_zone_map(w: &mut GddWorld, zone_map: &str) {
+    w.zone_map = zone_map.to_string();
     // In a project (guard and scope features) the map also lives where the tool reads it.
     if w.project.is_some() {
         write_file(
@@ -545,8 +552,12 @@ fn touch(root: &Path, path: &str) {
 
 #[given(expr = "a GDD project in a git repository with the protected paths:")]
 fn git_project(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
-    let root = project_root(w);
     let rules = docstring(step, "a rules docstring");
+    init_git_project(w, &rules);
+}
+
+fn init_git_project(w: &mut GddWorld, rules: &str) {
+    let root = project_root(w);
     write_file(&root.join("gdd/rules.toml"), &format!("{rules}\n"));
     git(&root, &["init", "-q", "-b", "main"]);
     // Steps that make gdd commit need an author: repo-local, gdd never sets one.
@@ -765,8 +776,13 @@ fn scope_fails(w: &mut GddWorld, path: String, color: String) {
 
 #[given(expr = "the gate commands:")]
 fn gate_commands(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
+    let commands = docstring(step, "a commands docstring");
+    write_gate_commands(w, &commands);
+}
+
+fn write_gate_commands(w: &mut GddWorld, commands: &str) {
     let root = project_root(w);
-    let mut commands = docstring(step, "a commands docstring");
+    let mut commands = commands.to_string();
     // A scenario that merges says nothing about the release: it runs simulated, like `gdd init` leaves it.
     if !commands.contains("[release]") {
         commands.push_str("\n\n[release]\nsimulated = true");
@@ -1302,7 +1318,12 @@ fn record_has_gate(w: &mut GddWorld, id: String, gate: String, decision: String,
 
 #[given(expr = "the models:")]
 fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
-    w.models = docstring(step, "a models docstring");
+    let models = docstring(step, "a models docstring");
+    set_models(w, &models);
+}
+
+fn set_models(w: &mut GddWorld, models: &str) {
+    w.models = models.to_string();
     let root = project_root(w);
     write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
 }
@@ -3264,6 +3285,419 @@ fn main_has_the_file(w: &mut GddWorld, step: &cucumber::gherkin::Step, path: Str
         &root,
         &["commit", "-q", "-m", &format!("add {path}"), "--", &path],
     );
+}
+
+// ---- features/manifesto-core.feature -------------------------------------------------------
+//
+// The sentences are the method's; what runs under them is today's tool. One change, `c1`, sits
+// behind all of them. Each step drives the lowest layer that shows the behavior: the command line.
+
+const CORE_PROTECTED: &str = "[protected]\nall = [\"gdd/**\", \"bin/**\"]\nbuilder_build = [\"features/**\", \"tests/steps/**\"]\nbuilder_test = [\"src/**\"]";
+
+const CORE_MODELS: &str = r#"[orchestrator]
+integration = "claude"
+model = "opus"
+
+[builder.yellow]
+integration = "claude"
+model = "sonnet"
+
+[builder.red]
+integration = "claude"
+model = "opus"
+
+[builder_test]
+integration = "claude"
+model = "sonnet"
+
+[reviewer]
+integration = "codex"
+model = "gpt-6"
+
+[families]
+"opus" = "anthropic"
+"sonnet" = "anthropic"
+"gpt" = "openai""#;
+
+const CORE_COMMANDS: &str = r#"[g2]
+unit = "test -f src/app.txt"
+
+[g3]
+acceptance_full = "true"
+
+[release]
+simulated = true
+build = "true"
+deploy_pre = "true"
+tests_pre = "true"
+demo = ""
+promote = ""
+observe = ""
+rollback = """#;
+
+#[given(expr = "a project that follows the method, with the sensitive area {string}")]
+fn project_that_follows_the_method(w: &mut GddWorld, area: String) {
+    init_git_project(w, CORE_PROTECTED);
+    let zones = format!(
+        "default = \"yellow\"\n\n[[zone]]\ncolor = \"red\"\npaths = [\"{area}\"]\nreason = \"Losing the user's drafts\""
+    );
+    set_zone_map(w, &zones);
+    set_models(w, CORE_MODELS);
+    write_gate_commands(w, CORE_COMMANDS);
+    scenario_file(w, "features/base.feature".to_string(), 1);
+    everything_committed(w);
+    setup_done(w);
+    red_zones_approved(w);
+    agents_are_fakes(w);
+}
+
+/// The role that an agent named in a sentence plays.
+fn role_of_agent(agent: &str) -> &'static str {
+    match agent {
+        "Builder in build mode" => "builder-build",
+        "Builder in test mode" => "builder-test",
+        "Reviewer" => "reviewer",
+        "Orchestrator" => "orchestrator",
+        other => panic!("no agent is called {other:?}"),
+    }
+}
+
+/// Runs the guard of change `c1` for `agent`.
+fn guard_for(w: &mut GddWorld, agent: &str) {
+    let root = project_root(w);
+    let command = format!("gdd guard c1 --role {}", role_of_agent(agent));
+    run_gdd(w, &command, &root);
+}
+
+#[given(expr = "a change that plans {string} is at work")]
+fn change_is_at_work(w: &mut GddWorld, path: String) {
+    change_started(w, "c1".to_string(), format!("\"{path}\""));
+}
+
+#[when(expr = "the {string} changes the rules that decide risk")]
+fn agent_changes_the_rules(w: &mut GddWorld, agent: String) {
+    let root = project_root(w);
+    touch(&root, "gdd/zones.toml");
+    touch(&root, "gdd/rules.toml");
+    guard_for(w, &agent);
+}
+
+#[then("the agent's work is refused for touching the rules that decide risk")]
+fn refused_for_the_rules(w: &mut GddWorld) {
+    guard_fails(w, "\"gdd/zones.toml\" and \"gdd/rules.toml\"".to_string());
+}
+
+#[when(expr = "the {string} changes the project's locks")]
+fn agent_changes_the_locks(w: &mut GddWorld, agent: String) {
+    let root = project_root(w);
+    touch(&root, "gdd/commands.toml");
+    guard_for(w, &agent);
+}
+
+#[then("the agent's work is refused for touching the project's locks")]
+fn refused_for_the_locks(w: &mut GddWorld) {
+    guard_fails(w, "\"gdd/commands.toml\"".to_string());
+}
+
+#[when(expr = "the change also touches {string}")]
+fn change_also_touches(w: &mut GddWorld, path: String) {
+    change_writes(w, &path);
+}
+
+#[then("the change counts as sensitive")]
+fn change_counts_as_sensitive(w: &mut GddWorld) {
+    let root = project_root(w);
+    run_gdd(w, "gdd classify c1", &root);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+    assert_eq!(stdout_json(w)["color"], "red", "{}", last_run(w).stdout);
+}
+
+#[given(expr = "the rules that decide risk switch off {string} for sensitive changes")]
+fn rules_switch_off_the_core(w: &mut GddWorld, what: String) {
+    let (reviewer, g4_if_g1, key) = match what.as_str() {
+        "the guard" => (false, true, "color.red.full.reviewer"),
+        "the human's approval" => (true, false, "color.red.full.g4_if_g1"),
+        other => panic!("the core has nothing called {other:?}"),
+    };
+    let tables = format!(
+        "[color.green.full]\ntests_first = true\nmutation = false\nreviewer = true\ng4_if_g1 = true\n\n\
+         [color.yellow.full]\ntests_first = true\nmutation = true\nreviewer = true\ng4_if_g1 = true\n\n\
+         [color.red.full]\ntests_first = true\nmutation = true\nreviewer = {reviewer}\ng4_if_g1 = {g4_if_g1}\n"
+    );
+    let root = project_root(w);
+    write_file(
+        &root.join("gdd/rules.toml"),
+        &format!("{CORE_PROTECTED}\n\n{tables}"),
+    );
+    w.switched_off = key.to_string();
+}
+
+#[given(expr = "a change that plans {string} is opened")]
+#[when(expr = "a change that plans {string} is opened")]
+fn change_is_opened(w: &mut GddWorld, path: String) {
+    let root = project_root(w);
+    run_gdd(
+        w,
+        &format!("gdd new-change c1 --title App --paths {path}"),
+        &root,
+    );
+}
+
+#[then("the rules are refused for switching off the core")]
+fn rules_refused_for_switching_off_the_core(w: &mut GddWorld) {
+    w.exit_checked = true;
+    let ran = last_run(w);
+    assert!(!ran.succeeded, "gdd opened the change: {:?}", ran.stdout);
+    assert!(!w.switched_off.is_empty(), "no rule was switched off");
+    for text in [
+        w.switched_off.as_str(),
+        "red changes always get mutation testing, the Reviewer and the human G4",
+    ] {
+        assert!(
+            ran.stderr.contains(text),
+            "the message {:?} does not contain {text:?}",
+            ran.stderr
+        );
+    }
+}
+
+#[then("the change waits for the guard")]
+fn change_waits_for_the_guard(w: &mut GddWorld) {
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+    assert_eq!(stdout_json(w)["reviewer"], true, "{}", last_run(w).stdout);
+}
+
+#[then("the change waits for the human's approval")]
+fn change_waits_for_the_human(w: &mut GddWorld) {
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+    let json = stdout_json(w);
+    assert_eq!(json["g4"], true, "{json}");
+    assert_eq!(json["human_plan"], true, "{json}");
+}
+
+/// The gate that a sentence calls by its name.
+fn gate_named(approval: &str) -> &'static str {
+    match approval {
+        "the scenarios" => "G1",
+        "the plan" => "plan",
+        "the result" => "G4",
+        other => panic!("the human approves nothing called {other:?}"),
+    }
+}
+
+#[when(expr = "the {string} tries to record the human's approval of {string}")]
+fn agent_tries_to_approve(w: &mut GddWorld, agent: String, approval: String) {
+    let root = project_root(w);
+    let command = format!("gdd gate {} ok c1 --by human", gate_named(&approval));
+    run_gdd_as(w, &command, &root, Some(role_of_agent(&agent)));
+}
+
+#[then("the approval is refused and the record of the change has none")]
+fn approval_refused_and_none_recorded(w: &mut GddWorld) {
+    w.exit_checked = true;
+    assert!(!last_run(w).succeeded, "{}", last_run(w).stdout);
+    let record = read_record(&project_root(w), "c1");
+    for gate in ["G1", "plan", "G4"] {
+        assert!(record["gates"][gate].is_null(), "{gate} in {record}");
+    }
+}
+
+#[given(expr = "a change that plans {string} is ready to work")]
+fn change_is_ready_to_work(w: &mut GddWorld, path: String) {
+    change_is_opened(w, path);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+    assert_eq!(git(&project_root(w), &["branch", "--show-current"]), "main");
+}
+
+#[given("the Builder in build mode writes into the record of the change")]
+fn builder_writes_into_the_record(w: &mut GddWorld) {
+    builder_changes_record_file(w, "change.json".to_string(), "c1".to_string());
+}
+
+#[when("the change runs")]
+fn the_change_runs(w: &mut GddWorld) {
+    let root = project_root(w);
+    run_gdd(w, "gdd launch c1", &root);
+}
+
+#[then("the change parks")]
+fn the_change_parks(w: &mut GddWorld) {
+    w.exit_checked = true;
+    record_state(w, "c1".to_string(), "parked".to_string());
+}
+
+#[then("the record of the change is put back as it was before the agent's call")]
+fn record_put_back(w: &mut GddWorld) {
+    let text = fs::read_to_string(project_root(w).join(".gdd/changes/c1/change.json"))
+        .expect("the record of the change");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(&text).is_ok(),
+        "the record is not JSON: {text:?}"
+    );
+    assert!(
+        !text.contains("touched by the Builder"),
+        "the agent's line is still in the record: {text:?}"
+    );
+}
+
+#[given(expr = "the human approved its scenario {string}")]
+fn human_approved_its_scenario(w: &mut GddWorld, file: String) {
+    scenario_approved(w, file);
+}
+
+#[when(expr = "the {string} changes the approved scenario {string}")]
+fn agent_changes_approved_scenario(w: &mut GddWorld, agent: String, file: String) {
+    change_modifies(w, file);
+    guard_for(w, &agent);
+}
+
+#[then(expr = "the agent's work is refused because {string} changed after its approval")]
+fn refused_for_changing_after_approval(w: &mut GddWorld, file: String) {
+    guard_fails(w, format!("\"{file}\" and \"approved in G1\""));
+}
+
+#[given(expr = "the human approved the scenarios of a change that plans {string}")]
+fn human_approved_the_scenarios(w: &mut GddWorld, path: String) {
+    change_is_ready_to_work(w, path);
+    let root = project_root(w);
+    commit_on_branch(
+        &root,
+        "c1",
+        "features/app.feature",
+        "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    Then it is saved\n",
+    );
+    git(&root, &["checkout", "-q", "change/c1"]);
+    run_gdd(w, "gdd gate G1 ok c1 --by human", &root);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+}
+
+#[when("a scenario of the change changes after the approval")]
+fn scenario_changes_after_approval(w: &mut GddWorld) {
+    let root = project_root(w);
+    commit_on_branch(
+        &root,
+        "c1",
+        "features/app.feature",
+        "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    Then it is lost\n",
+    );
+}
+
+#[then("the change asks the human to approve its scenarios again")]
+fn change_asks_for_the_approval_again(w: &mut GddWorld) {
+    let root = project_root(w);
+    run_gdd(w, "gdd inbox c1", &root);
+    assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
+    let text = "G1 · Scenario Gate: read the scenarios of change/c1";
+    assert!(
+        last_run(w).stdout.contains(text),
+        "the inbox {:?} does not contain {text:?}",
+        last_run(w).stdout
+    );
+}
+
+#[given(expr = "the project allows {int} attempts before a replan")]
+fn project_allows_attempts(w: &mut GddWorld, attempts: u32) {
+    rules_have(
+        w,
+        "limits.builder_retries".to_string(),
+        attempts.to_string(),
+    );
+}
+
+/// The roles of the agent calls the fakes recorded, in order.
+fn called_roles(w: &GddWorld) -> Vec<String> {
+    let calls = fs::read_to_string(project_root_of(w).join(".gdd/fake/calls")).unwrap_or_default();
+    calls
+        .lines()
+        .filter_map(|line| line.split('|').next())
+        .map(str::to_string)
+        .collect()
+}
+
+#[then(expr = "the change parks after {int} attempts and {int} replan")]
+fn change_parks_after(w: &mut GddWorld, attempts: usize, replans: usize) {
+    w.exit_checked = true;
+    assert!(!last_run(w).succeeded, "{}", last_run(w).stdout);
+    record_state(w, "c1".to_string(), "parked".to_string());
+    let roles = called_roles(w);
+    let count = |role: &str| roles.iter().filter(|r| r.as_str() == role).count();
+    // The attempts, and one build more after each replan.
+    assert_eq!(count("builder-build"), attempts + replans, "{roles:?}");
+    assert_eq!(count("orchestrator"), replans, "{roles:?}");
+}
+
+#[then("the change's messages tell the human why it parked")]
+fn messages_tell_why_it_parked(w: &mut GddWorld) {
+    let root = project_root(w);
+    let record = read_record(&root, "c1");
+    let text = record["inbox"]
+        .as_array()
+        .and_then(|entries| entries.iter().find(|e| e["kind"] == "parked"))
+        .and_then(|entry| entry["text"].as_str())
+        .unwrap_or_else(|| panic!("no parked message in {record}"))
+        .to_string();
+    assert!(!text.trim().is_empty(), "the parked message is empty");
+    let inbox = fs::read_to_string(root.join(".gdd/changes/c1/inbox.md")).unwrap_or_default();
+    assert!(
+        inbox.contains(&text),
+        "inbox.md does not say {text:?}: {inbox:?}"
+    );
+}
+
+/// The lines of the log about change `c1`.
+fn log_lines_of_c1(w: &GddWorld) -> Vec<serde_json::Value> {
+    let text = fs::read_to_string(project_root_of(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    text.lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|r| r["change"] == "c1")
+        .collect()
+}
+
+#[then("the log names the role and the cost of every agent's call")]
+fn log_names_role_and_cost(w: &mut GddWorld) {
+    let calls = called_roles(w).len();
+    assert!(calls > 0, "no agent was called");
+    // The machines log their commands too (role `machine`), and `new-change` a line without an
+    // agent: neither is an agent's call.
+    let lines: Vec<_> = log_lines_of_c1(w)
+        .into_iter()
+        .filter(|r| r["agent"].as_str().is_some_and(|a| a != "-") && r["role"] != "machine")
+        .collect();
+    assert_eq!(lines.len(), calls, "log lines of agent calls: {lines:?}");
+    for line in &lines {
+        assert!(
+            line["role"].as_str().is_some_and(|r| !r.is_empty()),
+            "no role in {line}"
+        );
+        for field in ["cost_usd", "tokens_in", "tokens_out"] {
+            assert!(line[field].is_number(), "no number {field:?} in {line}");
+        }
+    }
+}
+
+#[then("the log names each gate that judged the change and who judged it")]
+fn log_names_each_gate(w: &mut GddWorld) {
+    let lines = log_lines_of_c1(w);
+    for gate in ["G2", "G3"] {
+        let line = lines
+            .iter()
+            .find(|r| r["gate"] == gate)
+            .unwrap_or_else(|| panic!("no {gate} line in {lines:?}"));
+        assert!(line["result"].is_string(), "no result in {line}");
+        assert!(
+            line["role"].as_str().is_some_and(|r| !r.is_empty()),
+            "no role in {line}"
+        );
+    }
+}
+
+#[then("the record of the change keeps what it spent")]
+fn record_keeps_what_it_spent(w: &mut GddWorld) {
+    let record = read_record(&project_root(w), "c1");
+    let spent = record["spent_usd"]
+        .as_f64()
+        .unwrap_or_else(|| panic!("no spent_usd in {record}"));
+    assert!(spent > 0.0, "spent_usd is {spent} in {record}");
 }
 
 /// The variables gdd sets for the agents it starts. A scenario never inherits them: when an agent
