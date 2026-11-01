@@ -2,7 +2,8 @@
 //! may enter Build, in this order: G0, the red zones (only a spike starts before a human
 //! approves them), G1 for new or changed scenarios, the plan of a red change, a Reviewer of
 //! another model family than the Builder (or of the same one, when the human accepted it at the
-//! Setup: the Decision Inbox says so), and its own branch checked out. Then it starts the build:
+//! Setup: the Decision Inbox says so), its own branch checked out, and, for a change in G1, its
+//! scenario files still the ones G1 sealed (see [`approve::unsealed`]). Then it starts the build:
 //! its decision in the record, state `building`, the build starting at the commit checked out,
 //! the requests of the earlier run resolved and the snapshots of the earlier build removed.
 //!
@@ -37,6 +38,12 @@ const APPROVE_ZONES: &str = "(gdd gate zones ok --by human)";
 /// Why a change with new or changed scenarios waits for G1.
 const G1_PENDING: &str =
     "New or changed scenarios without G1: a human must approve them (the gdd-change command).";
+
+/// What a refusal for scenarios that are no longer the ones G1 sealed says before naming them.
+const SCENARIOS_CHANGED: &str = "Scenarios changed after G1:";
+
+/// What a refusal for scenarios that are no longer the ones G1 sealed asks for.
+const APPROVE_AGAIN: &str = "A human must approve the scenarios again";
 
 /// Why a red change waits for its plan.
 const PLAN_PENDING: &str = "Red change: a human must approve the plan (gate 'plan').";
@@ -107,6 +114,10 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
             "Not on branch {branch}. Launch the change with gdd launch {id}."
         ));
     }
+    if classification.g1 {
+        let record = Record::from_json(&text).map_err(invalid)?;
+        sealed(setup.project.root, id, &record, &classification.features)?;
+    }
     let (resume_green, start) = if built_before(state, id)? {
         let record = Record::from_json(&text).map_err(invalid)?;
         relaunched(setup.project, id, &record, decision.kind, &git)?
@@ -153,6 +164,25 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         started: &started,
     };
     serde_json::to_string(&prepared).map_err(|e| e.to_string())
+}
+
+/// `Ok` when the scenario files of change `id` of the project at `root`, whose record is `record`
+/// and whose scenario files are `features`, are still the ones G1 sealed (see
+/// [`approve::unsealed`]). Otherwise a refusal that names each file and what happened to it, and
+/// asks a human to approve the scenarios again.
+fn sealed(root: &Path, id: &str, record: &Record, features: &[String]) -> Result<(), String> {
+    let drifted = approve::unsealed(root, id, record, features).map_err(|e| e.to_string())?;
+    if drifted.is_empty() {
+        return Ok(());
+    }
+    let named: Vec<String> = drifted
+        .iter()
+        .map(|(file, drift)| format!("{file} ({drift})"))
+        .collect();
+    Err(format!(
+        "{SCENARIOS_CHANGED} {}. {APPROVE_AGAIN} (gdd gate G1 ok {id} --by human).",
+        named.join(", ")
+    ))
 }
 
 /// The `decided` note for the Decision Inbox when the Reviewer of `decision` is of the Builder's
@@ -282,7 +312,7 @@ fn remove(state: &Path, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::classify::classify_with;
+    use crate::classify::{classify_with, of_kind};
     use crate::gates::{Commands, Rules};
     use crate::git::tests::Repo;
     use crate::guard::Settings;
@@ -369,6 +399,27 @@ mod tests {
             self.repo.git(&["commit", "-q", "-m", "work"]);
         }
 
+        /// Records G1 ok on `c1`, by a human, sealing its scenario files as they are.
+        fn g1_approved(&self) {
+            let read = approve::Project {
+                root: self.root(),
+                state: self.root(),
+                zones: ZONES,
+                settings: &self.settings,
+                acceptance: &self.rules.table.acceptance,
+            };
+            let request = approve::Request {
+                gate: approve::Gate::G1,
+                decision: "ok",
+                change: Some("c1"),
+                by: "human",
+                note: "",
+            };
+            if let Err(e) = approve::record(&read, &request, None, |_| {}) {
+                panic!("G1 not recorded: {e}");
+            }
+        }
+
         /// What the gates read from this project.
         fn gates(&self) -> gates::Project<'_> {
             gates::Project {
@@ -387,8 +438,9 @@ mod tests {
             let table = &self.rules.table;
             let classification =
                 classify_with(&self.zones, table, &record.plan, &record.features).unwrap();
-            let roles = self.models.roles(classification.color);
             let kind = change::kind(&text).unwrap();
+            let classification = of_kind(classification, &kind);
+            let roles = self.models.roles(classification.color);
             let decision = Decision {
                 change: "c1",
                 classification: &classification,
@@ -488,6 +540,80 @@ mod tests {
         let sealed = RECORD.replace("\"gates\": {}", features);
         project.repo.write(".gdd/changes/c1/change.json", &sealed);
         assert_eq!(project.refused(), G1_PENDING);
+    }
+
+    /// A G1 approved that sealed `features/a.feature` and `features/c.feature` with texts no file
+    /// has.
+    const SEALED: &str = concat!(
+        r#""features": ["features/c.feature"], "gates": {"G1": {"decision": "ok", "#,
+        r#""hashes": {"features/a.feature": "x", "features/c.feature": "y"}}}"#
+    );
+
+    #[test]
+    fn scenarios_changed_after_g1_stop_the_start_and_leave_the_record_untouched() {
+        let paths = "\"src/app.rs\", \"features/a.feature\", \"features/b.feature\"";
+        let record = RECORD
+            .replace("\"src/app.rs\"", paths)
+            .replace("\"gates\": {}", SEALED);
+        let project = fixture(&record);
+        project.ready();
+        project.repo.write("features/a.feature", "Feature: A\n");
+        project.repo.write("features/b.feature", "Feature: B\n");
+        let snapshot = change::snapshot_path("c1");
+        project.repo.write(&snapshot, "{}");
+        let before = change::read_record(project.root(), "c1").unwrap();
+        let expected = "Scenarios changed after G1: features/a.feature (edited), \
+                        features/b.feature (added), features/c.feature (removed). A human must \
+                        approve the scenarios again (gdd gate G1 ok c1 --by human).";
+        assert_eq!(project.refused(), expected);
+        assert_eq!(change::read_record(project.root(), "c1").unwrap(), before);
+        assert!(project.log().is_empty());
+        assert!(project.root().join(&snapshot).exists());
+        // A new G1 seals them as they are, and the change starts as before.
+        project.g1_approved();
+        assert_eq!(project.prepared()["g1"], true);
+        assert_eq!(project.record()["state"], "building");
+    }
+
+    #[test]
+    fn a_scenario_main_has_that_the_change_plans_but_did_not_touch_holds_its_approval() {
+        let paths = "\"src/app.rs\", \"features/base.feature\"";
+        let project = fixture(&RECORD.replace("\"src/app.rs\"", paths));
+        // Main has it before the branch leaves it, and the branch adds another scenario.
+        project.committed("features/base.feature", "Feature: Base\n");
+        project.repo.git(&["branch", "-f", "change/c1"]);
+        project.ready();
+        project.committed("features/app.feature", "Feature: App\n");
+        project.g1_approved();
+        let out = project.prepared();
+        assert_eq!(out["g1"], true);
+        assert_eq!(project.record()["state"], "building");
+        // Edited after G1, it no longer holds.
+        project.committed("features/base.feature", "Feature: Base edited\n");
+        let expected = "Scenarios changed after G1: features/base.feature (edited).";
+        assert!(project.refused().starts_with(expected));
+    }
+
+    #[test]
+    fn a_change_without_g1_starts_whatever_its_scenarios_say() {
+        // The seal names files, but the change has no scenarios of its own.
+        let sealed = SEALED.replace(r#""features": ["features/c.feature"], "#, "");
+        let project = fixture(&RECORD.replace("\"gates\": {}", &sealed));
+        project.ready();
+        project.repo.write("features/a.feature", "Feature: A\n");
+        assert_eq!(project.prepared()["g1"], false);
+        // A spike has no G1.
+        let planned = "\"src/app.rs\", \"features/a.feature\", \"features/b.feature\"";
+        let spike = RECORD
+            .replace("\"Feature\"", "\"Spike\"")
+            .replace("\"src/app.rs\"", planned)
+            .replace("\"gates\": {}", SEALED);
+        project.repo.write(".gdd/changes/c1/change.json", &spike);
+        project.repo.write("features/b.feature", "Feature: B\n");
+        let out = project.prepared();
+        assert_eq!(out["type"], "Spike");
+        assert_eq!(out["g1"], false);
+        assert_eq!(project.record()["state"], "building");
     }
 
     #[test]
