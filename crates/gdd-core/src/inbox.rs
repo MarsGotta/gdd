@@ -4,15 +4,21 @@
 //! known debt its latest G2 and G3 found still failing or paid.
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::change::{self, NOTE_KINDS, POLISH, Variant};
 use crate::gates::{Gate, debt, verdict};
+use crate::git::Git;
+use crate::guard;
+use crate::recipe::worktree;
+use crate::rules::RulesTable;
 
 /// The heading of the section of a review that says how the change works, and of its group.
 pub const HOW_IT_WORKS: &str = "How it works";
@@ -54,9 +60,17 @@ const UNDECIDED: &str = "Color and lane not decided yet (gdd decides them at lau
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
 
-/// What follows the number of requests resolved before the last launch.
-const RESOLVED: &str =
-    "earlier request(s) were resolved before the last launch (kept in change.json).";
+/// What follows the number of requests resolved.
+const RESOLVED: &str = "earlier request(s) were resolved (kept in change.json).";
+
+/// What follows the number of requests still open when the change ended.
+const LEFT_OPEN: &str = "request(s) were still open when the change ended (kept in change.json).";
+
+/// The states in which a change has ended: nothing waits for the human any more.
+const ENDED: [&str; 2] = ["closed", "rejected"];
+
+/// The state of a change that was never launched.
+const OPEN: &str = "open";
 
 /// What follows the number of reasons to park that a later launch settled.
 const SETTLED: &str =
@@ -139,7 +153,8 @@ struct RawNote {
 }
 
 /// The Decision Inbox of change `id`, from the text of its record, the text of its `review`
-/// (empty when there is none, `None` when it cannot be read) and `reported`, the groups from its
+/// (empty when there is none, `None` when it cannot be read), `asked`, the requests gdd adds
+/// first under `Needs your decision` (see [`g1_request`]), and `reported`, the groups from its
 /// gate reports (see [`save`]), without a line break at the end: its title, color, lane and
 /// state; then how the change works, when the review says it (see [`how_it_works`]), or that the
 /// Reviewer did not explain it while the change waits for its G4; then, for a spike with
@@ -149,12 +164,14 @@ struct RawNote {
 /// note with the notes still open (`Nothing.` when there are none) and, among the decisions, the
 /// paths outside the package the scope check accepted; then each group of `reported` that has
 /// entries; then the human's notes at G4, when there are, under `Polish`; last, how many requests
-/// were resolved before the last launch, if any, and how many reasons to park a later launch
-/// settled, if any. Notes of other kinds are left out.
+/// were resolved, if any, how many reasons to park a later launch settled, if any, and how many
+/// requests were still open when the change ended (state `closed` or `rejected`, whose open
+/// requests are not listed), if any. Notes of other kinds are left out.
 pub fn render(
     id: &str,
     record: &str,
     review: Option<&str>,
+    asked: &[String],
     reported: &[Group],
 ) -> Result<String, serde_json::Error> {
     let raw: Raw = serde_json::from_str(record)?;
@@ -171,11 +188,15 @@ pub fn render(
     };
     let explained = review.and_then(|review| explained(review, &state));
     let mut groups: [Vec<String>; 3] = Default::default();
+    groups[0].extend(asked.iter().cloned());
+    let ended = ENDED.contains(&state.as_str());
     let mut polish = Vec::new();
-    let (mut resolved, mut settled) = (0, 0);
+    let (mut resolved, mut settled, mut left) = (0, 0, 0);
     for note in raw.inbox.unwrap_or_default() {
         let group = NOTE_KINDS.iter().position(|kind| *kind == note.kind);
-        if is_resolved(&note.resolved) {
+        if ended && group == Some(0) && !is_resolved(&note.resolved) {
+            left += 1;
+        } else if is_resolved(&note.resolved) {
             if note.kind == PARKED {
                 settled += 1;
             } else {
@@ -218,6 +239,9 @@ pub fn render(
     }
     if settled > 0 {
         blocks.push(format!("_{settled} {SETTLED}_"));
+    }
+    if left > 0 {
+        blocks.push(format!("_{left} {LEFT_OPEN}_"));
     }
     Ok(blocks.join("\n\n"))
 }
@@ -309,11 +333,138 @@ pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
         (KNOWN_DEBT, known.owed.iter().map(still_failing).collect()),
         (DEBT_PAID, known.paid.iter().map(paid_in).collect()),
     ];
-    let review = review_of(state, id);
-    let rendered = render(id, record, review.as_deref(), &reported)
+    let review = review_of(state, id).map(|review| unlinked(&review, &roots(state, id)));
+    let asked: Vec<String> = g1_request(state, id, record).into_iter().collect();
+    let rendered = render(id, record, review.as_deref(), &asked, &reported)
         .map_err(|e| format!("{}: {e}", change::record_path(id)))?;
     change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
+}
+
+/// The request for G1 of change `id` of the project whose state root is `state`, whose record is
+/// `record`: only while the change was never launched (state `open`), when its branch adds or
+/// changes scenario files that G1 has not sealed as they are (same files, same SHA-256). What
+/// keeps them from being read, in its place. A record that is not JSON asks nothing.
+pub fn g1_request(state: &Path, id: &str, record: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(record).ok()?;
+    if value["state"].as_str() != Some(OPEN) {
+        return None;
+    }
+    match g1_waits(state, id, &value) {
+        Ok(false) => None,
+        Ok(true) => Some(format!(
+            "G1 · Scenario Gate: read the scenarios of change/{id}, then answer your agent (or the \
+             sitting screen, gdd sitting {id}): OK approves and seals them, KO with your words \
+             sends them back to be rewritten."
+        )),
+        Err(why) => Some(format!(
+            "G1 · Scenario Gate: the scenarios of change/{id} cannot be read: {why}"
+        )),
+    }
+}
+
+/// Whether the branch of change `id` adds or changes scenario files that G1 has not sealed as
+/// they are in `record`. A change without a branch, or without such files, waits for nothing.
+fn g1_waits(state: &Path, id: &str, record: &Value) -> Result<bool, String> {
+    let rules = match fs::read_to_string(state.join(guard::RULES)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("cannot read {}: {e}", guard::RULES)),
+    };
+    let table = RulesTable::of_project(&rules).map_err(|e| e.to_string())?;
+    let settings = guard::Settings::from_toml(&rules).map_err(|e| e.to_string())?;
+    let git = Git::new(state);
+    let branch = change::branch(id);
+    if !git.exists(&branch).map_err(|e| e.to_string())? {
+        return Ok(false);
+    }
+    let mut current = BTreeMap::new();
+    for path in git
+        .committed_from(&settings.main_branch, &branch)
+        .map_err(|e| e.to_string())?
+    {
+        if !table.acceptance.needs_approval(&path) {
+            continue;
+        }
+        // A file the branch deleted has nothing to seal.
+        let Some(bytes) = git.file_at(&branch, &path).map_err(|e| e.to_string())? else {
+            continue;
+        };
+        current.insert(path, sha256(&bytes));
+    }
+    let sealed = record["gates"]["G1"]["hashes"].as_object();
+    let hash = |(path, hash): (&String, &Value)| Some((path.clone(), hash.as_str()?.to_string()));
+    let sealed: BTreeMap<String, String> = sealed.into_iter().flatten().filter_map(hash).collect();
+    let approved = record["gates"]["G1"]["decision"] == "ok";
+    Ok(!current.is_empty() && !(approved && current == sealed))
+}
+
+/// The SHA-256 of `bytes`, in lowercase hex.
+fn sha256(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(64);
+    for byte in Sha256::digest(bytes).iter() {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+/// Where a link of a review of change `id` may point to a file of the project whose state root
+/// is `state`: the project folder inside the worktree of the change, then the project itself.
+pub fn roots(state: &Path, id: &str) -> Vec<PathBuf> {
+    let rules = fs::read_to_string(state.join(guard::RULES)).unwrap_or_default();
+    let mut roots = Vec::new();
+    if let Ok(folder) = worktree::folder(state, &rules) {
+        let tree = folder.join(id);
+        roots.push(worktree::project_root(state, &tree).unwrap_or(tree));
+    }
+    roots.push(state.to_path_buf());
+    roots
+}
+
+/// `text` with each Markdown link `[label](target)`, with a label and a closing `)`, replaced:
+/// by the path of its target from the first of `roots` that holds it (a `:<line>` after the path
+/// stays), when the target is an absolute path in one of them; else by its label. A `[` with no
+/// `](` after it, and `[](x)`, stay as written.
+pub fn unlinked(text: &str, roots: &[PathBuf]) -> String {
+    let prefixes: Vec<String> = roots
+        .iter()
+        .map(|root| format!("{}/", root.display()))
+        .collect();
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match link_at(after) {
+            Some((label, target, tail)) => {
+                let inside = prefixes
+                    .iter()
+                    .find_map(|prefix| target.strip_prefix(prefix.as_str()));
+                out.push_str(inside.unwrap_or(label));
+                rest = tail;
+            }
+            None => {
+                out.push('[');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The label, the target and what follows the link whose text starts at `after`, the text after
+/// its `[`: none without a label (`[](x)`), a `[` inside the label (the one inside is the link),
+/// a `](` or a closing `)`.
+fn link_at(after: &str) -> Option<(&str, &str, &str)> {
+    let close = after.find("](")?;
+    let label = &after[..close];
+    if label.is_empty() || label.contains('[') {
+        return None;
+    }
+    let target = &after[close + 2..];
+    let end = target.find(')')?;
+    Some((label, &target[..end], &target[end + 1..]))
 }
 
 /// The text of the review of change `id` of the project whose state root is `state`: empty when
@@ -375,7 +526,7 @@ pub(crate) fn is_resolved(resolved: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::Folder;
+    use crate::git::tests::{Folder, Repo};
 
     const NONE: [Group; 0] = [];
 
@@ -405,9 +556,12 @@ mod tests {
             "- Paths outside the package, same or lower color, accepted by rule: ",
             "docs/a.md, docs/b.md\n\n",
             "## Parked\n- Nothing.\n\n",
-            "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
+            "_1 earlier request(s) were resolved (kept in change.json)._"
         );
-        assert_eq!(render("c1", RECORD, NO_REVIEW, &NONE).unwrap(), expected);
+        assert_eq!(
+            render("c1", RECORD, NO_REVIEW, &[], &NONE).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -419,17 +573,23 @@ mod tests {
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
         );
-        assert_eq!(render("c2", "{}", NO_REVIEW, &NONE).unwrap(), expected);
+        assert_eq!(render("c2", "{}", NO_REVIEW, &[], &NONE).unwrap(), expected);
         let one = r#"{"decision": {"color": "red"}}"#;
-        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        let text = render("c2", one, NO_REVIEW, &[], &NONE).unwrap();
         assert!(text.contains("\nColor red · lane ? · state ?\n"), "{text}");
         let one = r#"{"decision": {"lane": "full"}}"#;
-        let text = render("c2", one, NO_REVIEW, &NONE).unwrap();
+        let text = render("c2", one, NO_REVIEW, &[], &NONE).unwrap();
         assert!(text.contains("\nColor ? · lane full · state ?\n"), "{text}");
         let nulls = r#"{"decision": null, "inbox": null, "out_of_scope": null}"#;
-        assert_eq!(render("c2", nulls, NO_REVIEW, &NONE).unwrap(), expected);
+        assert_eq!(
+            render("c2", nulls, NO_REVIEW, &[], &NONE).unwrap(),
+            expected
+        );
         let empty = r#"{"decision": {}, "inbox": [], "out_of_scope": []}"#;
-        assert_eq!(render("c2", empty, NO_REVIEW, &NONE).unwrap(), expected);
+        assert_eq!(
+            render("c2", empty, NO_REVIEW, &[], &NONE).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -443,7 +603,7 @@ mod tests {
                  "minutes": 1.26, "usd": 0.5},
                 {"option": "Files", "branch": "change/c1-v3"}
             ]}"#;
-        let text = render("c1", record, Some("VERDICT: OK"), &NONE).unwrap();
+        let text = render("c1", record, Some("VERDICT: OK"), &[], &NONE).unwrap();
         let group = concat!(
             "## How it works\n- The Reviewer did not explain the change.\n\n",
             "## Variants\n",
@@ -457,17 +617,17 @@ mod tests {
         assert!(text.contains(group), "{text}");
         assert_eq!(VARIANTS, "Variants");
         for plain in ["{}", r#"{"variants": null}"#, r#"{"variants": []}"#] {
-            let text = render("c1", plain, NO_REVIEW, &NONE).unwrap();
+            let text = render("c1", plain, NO_REVIEW, &[], &NONE).unwrap();
             assert!(!text.contains("## Variants"), "{text}");
         }
         let wrong = r#"{"variants": [{"option": "A"}]}"#;
-        assert!(render("c1", wrong, NO_REVIEW, &NONE).is_err());
+        assert!(render("c1", wrong, NO_REVIEW, &[], &NONE).is_err());
     }
 
     #[test]
     fn parked_notes_have_their_group() {
         let record = r#"{"inbox": [{"kind": "parked", "text": "Waiting for the API"}]}"#;
-        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &NONE).unwrap();
         let end = "## Parked\n- Waiting for the API";
         assert!(text.ends_with(end), "{text}");
     }
@@ -482,19 +642,19 @@ mod tests {
             "G3": {"decision": "ok", "by": "human", "note": "y"},
             "zones": {"decision": "ko", "by": "human", "note": "z"}
         }}"#;
-        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &NONE).unwrap();
         let group = "## Your decisions\n- plan ko\n- G1 ko: too vague\n- G4 ko: not yet\n\n\
                      ## Needs your decision";
         assert!(text.contains(group), "{text}");
         let odd = r#"{"gates": {"G1": "ko", "G2": null, "G3": {"decision": 1, "by": "human"},
             "G4": {"decision": "ko", "by": "human", "note": 3, "extra": true}}}"#;
-        let text = render("c1", odd, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", odd, NO_REVIEW, &[], &NONE).unwrap();
         assert!(text.contains("## Your decisions\n- G4 ko\n\n"), "{text}");
         for plain in ["{}", r#"{"gates": null}"#, r#"{"gates": {}}"#] {
-            let text = render("c1", plain, NO_REVIEW, &NONE).unwrap();
+            let text = render("c1", plain, NO_REVIEW, &[], &NONE).unwrap();
             assert!(!text.contains(YOUR_DECISIONS), "{text}");
         }
-        assert!(render("c1", r#"{"gates": []}"#, NO_REVIEW, &NONE).is_err());
+        assert!(render("c1", r#"{"gates": []}"#, NO_REVIEW, &[], &NONE).is_err());
     }
 
     #[test]
@@ -505,15 +665,15 @@ mod tests {
             {"kind": "needs", "text": "Asked", "resolved": "2026-01-02"},
             {"kind": "parked", "text": "Waiting"}
         ]}"#;
-        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &NONE).unwrap();
         let end = concat!(
             "## Parked\n- Waiting\n\n",
-            "_1 earlier request(s) were resolved before the last launch (kept in change.json)._\n\n",
+            "_1 earlier request(s) were resolved (kept in change.json)._\n\n",
             "_2 earlier reason(s) to park were settled by a later launch (kept in change.json)._"
         );
         assert!(text.ends_with(end), "{text}");
         let only = r#"{"inbox": [{"kind": "parked", "text": "Old", "resolved": "x"}]}"#;
-        let text = render("c1", only, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", only, NO_REVIEW, &[], &NONE).unwrap();
         assert!(!text.contains("earlier request"), "{text}");
         assert!(text.contains("_1 earlier reason(s) to park"), "{text}");
     }
@@ -526,14 +686,14 @@ mod tests {
             {"kind": "polish", "text": "Old", "resolved": "2026-01-02"},
             {"kind": "polish", "text": "Plainer words"}
         ]}"#;
-        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &NONE).unwrap();
         let end = concat!(
             "## Parked\n- Waiting\n\n",
             "## Polish\n- Shorter errors\n- Plainer words\n\n",
-            "_1 earlier request(s) were resolved before the last launch (kept in change.json)._"
+            "_1 earlier request(s) were resolved (kept in change.json)._"
         );
         assert!(text.ends_with(end), "{text}");
-        let text = render("c1", "{}", NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", "{}", NO_REVIEW, &[], &NONE).unwrap();
         assert!(!text.contains("Polish"), "{text}");
     }
 
@@ -542,7 +702,7 @@ mod tests {
         let record = r#"{"inbox": [{"kind": "polish", "text": "Shorter errors"}]}"#;
         let line = "exception added: A · deny.toml · no end date · r";
         let added = (EXCEPTIONS, vec![line.to_string()]);
-        let text = render("c1", record, NO_REVIEW, &[added, (KNOWN_DEBT, vec![])]).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &[added, (KNOWN_DEBT, vec![])]).unwrap();
         let end = concat!(
             "## Parked\n- Nothing.\n\n",
             "## Security exceptions this change adds\n",
@@ -550,7 +710,7 @@ mod tests {
             "## Polish\n- Shorter errors"
         );
         assert!(text.ends_with(end), "{text}");
-        let text = render("c1", record, NO_REVIEW, &NONE).unwrap();
+        let text = render("c1", record, NO_REVIEW, &[], &NONE).unwrap();
         assert!(!text.contains("Security exceptions"), "{text}");
     }
 
@@ -591,7 +751,7 @@ mod tests {
         assert!(saved.ends_with(group), "{saved}");
         folder.write(report, r#"{"ok": true}"#);
         let saved = save(&folder.0, "c1", "{}").unwrap();
-        assert_eq!(saved, render("c1", "{}", NO_REVIEW, &NONE).unwrap());
+        assert_eq!(saved, render("c1", "{}", NO_REVIEW, &[], &NONE).unwrap());
         folder.write(report, "{not json");
         let err = save(&folder.0, "c1", "{}").unwrap_err();
         assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
@@ -682,7 +842,7 @@ mod tests {
                       VERDICT: OK\n";
         for state in [IN_PRE, "building", "closed"] {
             let record = format!(r#"{{"state": "{state}"}}"#);
-            let text = render("c1", &record, Some(review), &NONE).unwrap();
+            let text = render("c1", &record, Some(review), &[], &NONE).unwrap();
             let start = format!(
                 "# Decision Inbox · c1 · \n\nColor and lane not decided yet (gdd decides them \
                  at launch) · state {state}\n\n\
@@ -699,14 +859,14 @@ mod tests {
         let waiting = r#"{"state": "in-pre"}"#;
         let group = format!("in-pre\n\n## How it works\n- {UNEXPLAINED}\n\n## Needs");
         for said in [Some(review), NO_REVIEW] {
-            let text = render("c1", waiting, said, &NONE).unwrap();
+            let text = render("c1", waiting, said, &[], &NONE).unwrap();
             assert!(text.contains(&group), "{text}");
         }
         for record in [r#"{"state": "building"}"#, r#"{"state": "closed"}"#, "{}"] {
-            let text = render("c1", record, Some(review), &NONE).unwrap();
+            let text = render("c1", record, Some(review), &[], &NONE).unwrap();
             assert!(!text.contains(HOW_IT_WORKS), "{text}");
         }
-        let text = render("c1", waiting, None, &NONE).unwrap();
+        let text = render("c1", waiting, None, &[], &NONE).unwrap();
         assert!(!text.contains(HOW_IT_WORKS), "{text}");
     }
 
@@ -728,7 +888,7 @@ mod tests {
         fs::remove_file(folder.0.join(review)).unwrap();
         fs::create_dir_all(folder.0.join(review)).unwrap();
         let saved = save(&folder.0, "c1", record).unwrap();
-        assert_eq!(saved, render("c1", record, None, &NONE).unwrap());
+        assert_eq!(saved, render("c1", record, None, &[], &NONE).unwrap());
         assert!(!saved.contains(HOW_IT_WORKS), "{saved}");
     }
 
@@ -746,7 +906,7 @@ mod tests {
     fn the_inbox_is_saved_next_to_the_record_as_it_is_rendered() {
         let folder = Folder::new();
         let saved = save(&folder.0, "c1", RECORD).unwrap();
-        assert_eq!(saved, render("c1", RECORD, NO_REVIEW, &NONE).unwrap());
+        assert_eq!(saved, render("c1", RECORD, NO_REVIEW, &[], &NONE).unwrap());
         let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
         assert_eq!(text, format!("{saved}\n"));
         let err = save(&folder.0, "c1", "{not json").unwrap_err();
@@ -766,7 +926,225 @@ mod tests {
             r#"{"inbox": [{"text": 3}]}"#,
             r#"{"title": 1}"#,
         ] {
-            assert!(render("c1", record, NO_REVIEW, &NONE).is_err(), "{record}");
+            assert!(
+                render("c1", record, NO_REVIEW, &[], &NONE).is_err(),
+                "{record}"
+            );
         }
+    }
+
+    const NEEDS: &str = r#""inbox": [
+        {"kind": "needs", "text": "Pick"},
+        {"kind": "needs", "text": "Old", "resolved": "x"},
+        {"kind": "needs", "text": "Two"},
+        {"kind": "decided", "text": "Kept"}
+    ]"#;
+
+    #[test]
+    fn the_requests_of_a_change_that_ended_are_not_listed_but_counted() {
+        for state in ["closed", "rejected"] {
+            let record = format!(r#"{{"state": "{state}", {NEEDS}}}"#);
+            let text = render("c1", &record, NO_REVIEW, &[], &NONE).unwrap();
+            let group = "## Needs your decision\n- Nothing.\n\n## Decided without you\n- Kept\n";
+            assert!(text.contains(group), "{text}");
+            let end = concat!(
+                "_1 earlier request(s) were resolved (kept in change.json)._\n\n",
+                "_2 request(s) were still open when the change ended (kept in change.json)._"
+            );
+            assert!(text.ends_with(end), "{text}");
+        }
+        for state in ["rolled-back", "building"] {
+            let record = format!(r#"{{"state": "{state}", {NEEDS}}}"#);
+            let text = render("c1", &record, NO_REVIEW, &[], &NONE).unwrap();
+            assert!(
+                text.contains("## Needs your decision\n- Pick\n- Two\n\n"),
+                "{text}"
+            );
+            assert!(!text.contains("still open when"), "{text}");
+        }
+        let parked = r#"{"state": "closed", "inbox": [{"kind": "parked", "text": "Waiting"}]}"#;
+        let text = render("c1", parked, NO_REVIEW, &[], &NONE).unwrap();
+        assert!(text.contains("## Parked\n- Waiting"), "{text}");
+    }
+
+    #[test]
+    fn the_requests_gdd_adds_come_first() {
+        let record = format!(r#"{{"state": "open", {NEEDS}}}"#);
+        let asked = ["Read it".to_string()];
+        let text = render("c1", &record, NO_REVIEW, &asked, &NONE).unwrap();
+        assert!(
+            text.contains("## Needs your decision\n- Read it\n- Pick\n- Two\n"),
+            "{text}"
+        );
+    }
+
+    const SCENARIO: &str = "Feature: A\n";
+
+    /// A repository on `main` with the files `on_main`, and the branch of change `c1` with the
+    /// files `on_branch`, a text of `None` deleting the file; back on `main`.
+    fn repo_with(on_main: &[(&str, &str)], on_branch: &[(&str, Option<&str>)]) -> Repo {
+        let repo = Repo::new();
+        for (path, text) in on_main {
+            repo.write(path, text);
+        }
+        repo.commit();
+        repo.start("c1");
+        for (path, text) in on_branch {
+            match text {
+                Some(text) => repo.write(path, text),
+                None => fs::remove_file(repo.root().join(path)).unwrap(),
+            }
+        }
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        repo
+    }
+
+    /// The record of a change in `state` whose G1 says `decision` for the files `sealed`.
+    fn record_of(state: &str, decision: &str, sealed: &[(&str, &str)]) -> String {
+        let hashes: serde_json::Map<String, Value> = sealed
+            .iter()
+            .map(|(path, text)| (path.to_string(), Value::from(sha256(text.as_bytes()))))
+            .collect();
+        let g1 = serde_json::json!({"decision": decision, "hashes": hashes});
+        serde_json::json!({"state": state, "gates": {"G1": g1}}).to_string()
+    }
+
+    fn asks_g1(repo: &Repo, record: &str) -> bool {
+        let asked = g1_request(repo.root(), "c1", record).unwrap_or_default();
+        asked.contains("read the scenarios")
+    }
+
+    #[test]
+    fn g1_is_asked_for_the_scenarios_it_has_not_sealed_as_they_are() {
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let repo = repo_with(&[], &on_branch);
+        let sealed = [("features/a.feature", SCENARIO)];
+        let text = g1_request(repo.root(), "c1", &record_of("open", "none", &[])).unwrap();
+        let expected = "G1 · Scenario Gate: read the scenarios of change/c1, then answer your \
+                        agent (or the sitting screen, gdd sitting c1): OK approves and seals \
+                        them, KO with your words sends them back to be rewritten.";
+        assert_eq!(text, expected);
+        assert!(!asks_g1(&repo, &record_of("open", "ok", &sealed)));
+        assert!(asks_g1(&repo, &record_of("open", "ko", &sealed)));
+        let other = [("features/a.feature", "Other")];
+        assert!(asks_g1(&repo, &record_of("open", "ok", &other)));
+        let more = [
+            ("features/a.feature", SCENARIO),
+            ("features/b.feature", SCENARIO),
+        ];
+        assert!(asks_g1(&repo, &record_of("open", "ok", &more)));
+        assert!(asks_g1(&repo, r#"{"state": "open"}"#));
+    }
+
+    #[test]
+    fn g1_is_asked_only_of_a_change_that_was_never_launched() {
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let repo = repo_with(&[], &on_branch);
+        for state in ["building", "in-pre", "closed"] {
+            let record = record_of(state, "none", &[]);
+            assert_eq!(g1_request(repo.root(), "c1", &record), None);
+        }
+        assert_eq!(g1_request(repo.root(), "c1", r#"{"gates": {}}"#), None);
+        assert_eq!(g1_request(repo.root(), "c1", "{not json"), None);
+    }
+
+    #[test]
+    fn g1_waits_for_nothing_without_a_branch_or_scenarios_on_it() {
+        let record = record_of("open", "none", &[]);
+        assert_eq!(g1_request(Repo::new().root(), "c1", &record), None);
+        let code = ("src/a.rs", Some("fn a() {}\n"));
+        let regression = ("features/regression/r.feature", Some(SCENARIO));
+        let repo = repo_with(&[], &[code, regression]);
+        assert_eq!(g1_request(repo.root(), "c1", &record), None);
+        let old = [("features/old.feature", SCENARIO)];
+        let repo = repo_with(&old, &[("features/old.feature", None)]);
+        assert_eq!(g1_request(repo.root(), "c1", &record), None);
+    }
+
+    #[test]
+    fn g1_says_what_keeps_the_scenarios_from_being_read() {
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let repo = repo_with(&[], &on_branch);
+        let record = record_of("open", "none", &[]);
+        repo.write("gdd/rules.toml", "[acceptance]\ndir = \"specs\"\n");
+        assert_eq!(g1_request(repo.root(), "c1", &record), None);
+        fs::write(repo.root().join("gdd/rules.toml"), "[acceptance").unwrap();
+        let text = g1_request(repo.root(), "c1", &record).unwrap();
+        let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: ";
+        assert!(text.starts_with(start), "{text}");
+        fs::remove_file(repo.root().join("gdd/rules.toml")).unwrap();
+        fs::create_dir_all(repo.root().join("gdd/rules.toml")).unwrap();
+        let text = g1_request(repo.root(), "c1", &record).unwrap();
+        let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: cannot read ";
+        assert!(text.starts_with(start), "{text}");
+        assert!(text.contains("gdd/rules.toml"), "{text}");
+    }
+
+    #[test]
+    fn the_request_for_g1_is_saved_first_among_the_needs() {
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let repo = repo_with(&[], &on_branch);
+        let record = r#"{"state": "open", "inbox": [{"kind": "needs", "text": "Pick"}]}"#;
+        let saved = save(repo.root(), "c1", record).unwrap();
+        let group = "## Needs your decision\n- G1 · Scenario Gate: read the scenarios of change/c1";
+        assert!(saved.contains(group), "{saved}");
+        assert!(saved.contains(".\n- Pick\n"), "{saved}");
+    }
+
+    fn roots_of(paths: &[&str]) -> Vec<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
+    }
+
+    #[test]
+    fn a_link_inside_the_project_becomes_its_path_and_any_other_its_label() {
+        let roots = roots_of(&["/w/c1", "/p"]);
+        let cases = [
+            ("[a.rs:3](/w/c1/src/a.rs:3): x", "src/a.rs:3: x"),
+            ("see [the doc](/p/docs/a.md) now", "see docs/a.md now"),
+            ("[a](/other/a.md)", "a"),
+            ("[a](/w/c1x/a.md)", "a"),
+            ("[a](docs/a.md)", "a"),
+            ("[a](/w/c1)", "a"),
+            ("[a](/p/x) and [b](/w/c1/y) and [c](z)", "x and y and c"),
+            ("[a [b](/p/c)", "[a c"),
+            ("[](x) [a](/p/y)", "[](x) y"),
+            ("[a](x", "[a](x"),
+            ("[a] (x) [b", "[a] (x) [b"),
+            ("no links", "no links"),
+            ("", ""),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(unlinked(text, &roots), expected, "{text}");
+        }
+        assert_eq!(unlinked("[a](/p/x)", &[]), "a");
+        let nested = roots_of(&["/p/wt/c1", "/p"]);
+        assert_eq!(unlinked("[a](/p/wt/c1/x) [b](/p/wt/x)", &nested), "x wt/x");
+    }
+
+    #[test]
+    fn links_are_looked_for_in_the_worktree_then_in_the_project() {
+        let folder = Folder::new();
+        let tree = worktree::folder(&folder.0, "").unwrap().join("c1");
+        assert_eq!(roots(&folder.0, "c1"), [tree, folder.0.clone()]);
+        folder.write("gdd/rules.toml", "[parallel]\nfolder = \"/trees\"\n");
+        let trees = [PathBuf::from("/trees/c1"), folder.0.clone()];
+        assert_eq!(roots(&folder.0, "c1"), trees);
+        folder.write("gdd/rules.toml", "[parallel");
+        assert_eq!(roots(&folder.0, "c1"), std::slice::from_ref(&folder.0));
+    }
+
+    #[test]
+    fn the_review_is_saved_with_its_links_as_project_paths() {
+        let folder = Folder::new();
+        let tree = worktree::folder(&folder.0, "").unwrap().join("c1");
+        let review = format!(
+            "## How it works\n- [a.rs:3]({}/src/a.rs:3) checks it\n\nVERDICT: OK\n",
+            tree.display()
+        );
+        folder.write(".gdd/changes/c1/review.md", &review);
+        let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
+        let shown = "## How it works\n- src/a.rs:3 checks it\n";
+        assert!(saved.contains(shown), "{saved}");
     }
 }

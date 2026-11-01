@@ -227,4 +227,4 @@ Feature: Versions from the changes
   Scenario: A Builder cannot release
     Given the versions are released by hand
     When the role "builder-build" runs "gdd release --yes"
-    Then it fails with a message that contains "A Builder or Reviewer cannot"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd release"

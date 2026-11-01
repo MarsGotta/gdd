@@ -102,4 +102,4 @@ Feature: gdd upgrade
   Scenario: A Builder cannot upgrade
     And an older gdd "0.0.0" wrote ".github/workflows/gdd.yml" with "actions/checkout@v3" where this one writes "actions/checkout@v4"
     When the role "builder-build" runs "gdd upgrade"
-    Then it fails with a message that contains "Builders and Reviewers cannot"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd upgrade"

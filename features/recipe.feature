@@ -245,5 +245,5 @@ Feature: gdd launch and gdd resume run the recipe
     And I run "gdd gate G1 ok c1 --by human"
     And I run "gdd launch c1"
     When the role "builder-build" runs "gdd resume c1 --g4 ok"
-    Then it fails with a message that contains "cannot open or close gates"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd resume"
     And the record of "c1" is in state "in-pre"
