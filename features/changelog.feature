@@ -154,4 +154,4 @@ Feature: The changelog from the changes
   Scenario: A Builder cannot write the line of its change
     Given I run "gdd new-change c1 --title App --paths src/app.txt"
     When the role "builder-build" runs "gdd changelog-line c1 Added Something"
-    Then it fails with a message that contains "A Builder or Reviewer cannot"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd changelog-line"

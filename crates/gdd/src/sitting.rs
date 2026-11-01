@@ -55,7 +55,7 @@ const UNEXPLAINED: &str = "How it works: the Reviewer did not explain the change
 const NO_DEMO: &str = "Demo: none, the project has no demo command";
 
 /// What the G4 page says when the record has no changelog line.
-const NO_CHANGELOG: &str = "Changelog: none set";
+const NO_CHANGELOG: &str = "Changelog: none, left out of the changelog";
 
 /// What the G4 page of a spike says where another change has its review, its demo and its
 /// changelog line.
@@ -881,6 +881,7 @@ fn variants_of(id: &str, record: &Value) -> Result<Vec<change::Variant>, String>
 fn review_lines(state: &Path, id: &str) -> Result<Vec<Line<'static>>, String> {
     let path = format!(".gdd/changes/{id}/review.md");
     let text = crate::read(state, &path)?.unwrap_or_default();
+    let text = inbox::unlinked(&text, &inbox::roots(state, id));
     let (explained, others) = inbox::how_it_works(&text);
     let mut lines = explained_lines(&explained);
     lines.push(Line::default());
@@ -1009,12 +1010,8 @@ fn is_resolved(resolved: &Value) -> bool {
 }
 
 /// The `Changelog:` line of the record: the line it sets, with `**Breaking:**` first when it is;
-/// else that none is set.
+/// else that the change is left out of the changelog, or why the line cannot be read.
 fn changelog_line(record: &Value) -> String {
-    let set = !record["changelog"].is_null() && record["changelog"]["none"] != true;
-    if !set {
-        return NO_CHANGELOG.to_string();
-    }
     match changelog::of_change(record) {
         Ok(Some(line)) => {
             let mark = if line.breaking { "**Breaking:** " } else { "" };
@@ -2409,6 +2406,9 @@ mod tests {
         (project, sitting)
     }
 
+    /// The changelog line of `waiting`: the title of a Feature that sets none, under Added.
+    const BY_TYPE: &str = "Changelog: Added · App";
+
     fn set_record(project: &Project, change: impl FnOnce(&mut Value)) {
         let mut record: Value = serde_json::from_str(&record(project, "c1")).unwrap();
         change(&mut record);
@@ -2433,7 +2433,7 @@ mod tests {
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["c1 · App · waiting for your G4", G4_KEYS]);
         assert_shows(&sitting, &["Reviewer: OK", "Fine work"]);
-        assert_shows(&sitting, &[NO_DEMO, NO_CHANGELOG]);
+        assert_shows(&sitting, &[NO_DEMO, BY_TYPE]);
         let gone = ["its sitting is over", "Decided without you", "VERDICT"];
         assert_hides(&sitting, &gone);
         assert_shows(&sitting, &["Flow time"]);
@@ -2584,6 +2584,33 @@ mod tests {
     }
 
     #[test]
+    fn a_change_without_a_line_says_what_the_merge_does_with_it() {
+        // A Feature goes under Added by its title; other types are left out.
+        let (project, _) = waiting(Value::Null);
+        assert_shows(&open(&project, "c1"), &[BY_TYPE]);
+        set_record(&project, |record| record["type"] = Value::from("Refactor"));
+        assert_shows(&open(&project, "c1"), &[NO_CHANGELOG]);
+        let none = serde_json::json!({"changelog": {"none": true}});
+        assert_eq!(changelog_line(&none), NO_CHANGELOG);
+    }
+
+    #[test]
+    fn the_links_of_the_review_show_as_project_paths() {
+        let (project, _) = waiting(Value::Null);
+        let tree = inbox::roots(&project.0, "c1").remove(0);
+        let review = format!(
+            "## How it works\n- [src/a.rs:3]({}/src/a.rs:3) is checked\n\n\
+             - **F1** · [b.rs:4]({}/b.rs:4): the name\n\nVERDICT: OK\n",
+            tree.display(),
+            project.0.display()
+        );
+        project.write(".gdd/changes/c1/review.md", &review);
+        let sitting = open(&project, "c1");
+        assert_shows(&sitting, &["- src/a.rs:3 is checked", "· b.rs:4: the name"]);
+        assert_hides(&sitting, &["](", &tree.display().to_string()]);
+    }
+
+    #[test]
     fn the_time_of_the_change_shows_when_it_was_measured() {
         let (project, _) = waiting(Value::Null);
         let entry = |ts: &str, change: &str| {
@@ -2598,8 +2625,8 @@ mod tests {
         project.write(".gdd/log.jsonl", &format!("{other}\n{start}\n{end}\n"));
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Flow time 1h 00m"]);
-        assert_before(&sitting.render(100, 40), "Changelog: none set", "Flow time");
-        assert_hides(&sitting, &["left out"]);
+        assert_before(&sitting.render(100, 40), BY_TYPE, "Flow time");
+        assert_hides(&sitting, &["is not one of gdd's"]);
         // A line that is not gdd's is left out, and the sitting says so.
         let text = format!("not gdd's\n{start}\n{end}\n");
         project.write(".gdd/log.jsonl", &text);
@@ -2619,7 +2646,7 @@ mod tests {
         fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
         let why = "the log cannot be read: cannot read .gdd/log.jsonl: ";
         assert_shows(&open(&project, "c1"), &[why]);
-        assert_hides(&open(&project, "c1"), &["Flow time", "left out"]);
+        assert_hides(&open(&project, "c1"), &["Flow time", "not one of gdd's"]);
     }
 
     #[test]
@@ -2688,7 +2715,7 @@ mod tests {
         assert_hides(&sitting, &["the demo"]);
         // Other kinds keep their page and their answers.
         let (_, mut feature) = waiting(Value::Null);
-        assert_shows(&feature, &[NO_DEMO, NO_CHANGELOG]);
+        assert_shows(&feature, &[NO_DEMO, BY_TYPE]);
         assert_hides(&feature, &["Spike:"]);
         feature.press(Key::Char('o'));
         assert_hides(&feature, &ok);
@@ -2915,7 +2942,7 @@ mod tests {
         }
         let end = sitting.render(80, 24);
         assert!(end.contains("note 59 "), "{end}");
-        assert!(end.contains("Changelog: none set"), "{end}");
+        assert!(end.contains(BY_TYPE), "{end}");
         assert!(!end.contains("Reviewer: OK"), "{end}");
         sitting.press(Key::Up);
         assert!(sitting.render(80, 24).contains("Demo: none"));

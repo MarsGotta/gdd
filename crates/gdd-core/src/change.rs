@@ -513,17 +513,6 @@ pub fn with_requests_resolved(text: &str, ts: &str) -> Result<String, serde_json
     resolved_where(text, ts, &["needs", "parked"], |_| true)
 }
 
-/// The record `text` with the request for the human `request` (a `needs` note that says it)
-/// resolved at `ts`, while it is still open. It stays in the record, out of the Decision Inbox.
-/// Every other field keeps its value.
-pub fn with_request_resolved(
-    text: &str,
-    request: &str,
-    ts: &str,
-) -> Result<String, serde_json::Error> {
-    resolved_where(text, ts, &["needs"], |said| said == request)
-}
-
 /// The record `text` with its requests for the human still open (`needs` notes) whose text
 /// `which` picks resolved at `ts`. They stay in the record, out of the Decision Inbox. Every other
 /// field keeps its value.
@@ -1285,7 +1274,7 @@ mod tests {
     }
 
     #[test]
-    fn one_request_is_resolved_by_its_text_and_the_others_stay_open() {
+    fn the_open_requests_and_reasons_to_park_are_resolved_and_other_notes_stay() {
         let text = r#"{"id": "c1", "inbox": [
             {"kind": "needs", "text": "G4?"},
             {"kind": "needs", "text": "Other"},
@@ -1295,9 +1284,9 @@ mod tests {
             {"kind": "parked", "text": "G4?"},
             {"text": "G4?"}
         ]}"#;
-        let written = with_request_resolved(text, "G4?", "now").unwrap();
-        assert!(written.ends_with("}\n"), "{written}");
-        let value: Value = serde_json::from_str(&written).unwrap();
+        let all = with_requests_resolved(text, "now").unwrap();
+        assert!(all.ends_with("}\n"), "{all}");
+        let value: Value = serde_json::from_str(&all).unwrap();
         let resolved: Vec<&Value> = value["inbox"]
             .as_array()
             .unwrap()
@@ -1305,13 +1294,7 @@ mod tests {
             .map(|note| &note["resolved"])
             .collect();
         let (now, done, null) = (Value::from("now"), Value::from("2026-01-02"), Value::Null);
-        assert_eq!(resolved, [&now, &null, &done, &null, &null, &null, &null]);
-        let all = with_requests_resolved(text, "now").unwrap();
-        let value: Value = serde_json::from_str(&all).unwrap();
-        assert_eq!(value["inbox"][4]["resolved"], "now");
-        assert_eq!(value["inbox"][5]["resolved"], "now");
-        assert_eq!(value["inbox"][6]["resolved"], Value::Null);
-        assert!(with_request_resolved("{not json", "G4?", "now").is_err());
+        assert_eq!(resolved, [&now, &now, &done, &null, &now, &now, &null]);
         assert_eq!(POLISH, "polish");
     }
 
@@ -1424,7 +1407,7 @@ mod tests {
         assert_eq!(note["text"], PARKED);
         assert!(note["ts"].as_str().unwrap().ends_with("+00:00"), "{note}");
         let inbox = fs::read_to_string(folder.0.join(saved)).unwrap();
-        let rendered = inbox::render("c1", &text, Some(""), &[]).unwrap();
+        let rendered = inbox::render("c1", &text, Some(""), &[], &[]).unwrap();
         assert_eq!(inbox, format!("{rendered}\n"));
         let parked = format!("## Parked\n- {PARKED}");
         assert!(inbox.contains(&parked), "{inbox}");

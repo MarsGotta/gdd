@@ -1212,6 +1212,21 @@ fn hidden_example_on_branch(w: &mut GddWorld, id: String, file: String, sentence
     commit_on_branch(&root, &id, &file, &text);
 }
 
+#[given(expr = "the review of {string} says, with its folders filled in:")]
+fn review_with_folders(w: &mut GddWorld, id: String, step: &cucumber::gherkin::Step) {
+    let root = project_root(w);
+    let rules = fs::read_to_string(root.join("gdd/rules.toml")).unwrap_or_default();
+    let folder = gdd_core::recipe::worktree::folder(&root, &rules).expect("a worktree folder");
+    let worktree = folder.join(&id);
+    let text = docstring(step, "the step needs a doc string with the review")
+        .replace("<worktree>", &worktree.display().to_string())
+        .replace("<project>", &root.display().to_string());
+    write_file(
+        &root.join(format!(".gdd/changes/{id}/review.md")),
+        &format!("{text}\n"),
+    );
+}
+
 #[when(expr = "the role {string} runs {string}")]
 fn role_runs(w: &mut GddWorld, role: String, command: String) {
     let root = project_root(w);

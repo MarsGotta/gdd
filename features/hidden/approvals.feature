@@ -27,7 +27,7 @@ Feature: Hidden examples for recording approvals
 
   Scenario: A Reviewer cannot record an approval
     When the role "reviewer" runs "gdd gate G1 ok c1 --by human"
-    Then it fails with a message that contains "cannot open or close gates"
+    Then it fails with a message that contains "Agents that gdd started cannot run gdd gate"
 
   Scenario: G1 accepts hidden examples that reuse a visible sentence
     Given the change "c1" has the scenario "features/drafts.feature" on its branch
