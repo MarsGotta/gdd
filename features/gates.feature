@@ -58,7 +58,7 @@ Feature: Run a gate
     Then the failure of "unit" shows "FAILED step-7"
 
   Scenario: Commands know the change
-    Given the gate command "g2" "unit" is "test \"$TMINUS_COLOR\" = yellow && test \"$TMINUS_CHANGE\" = c1"
+    Given the gate command "g2" "unit" is "test \"$TMINUS_COLOR\" = red && test \"$TMINUS_CHANGE\" = c1"
     When I run "tminus g2 c1"
     Then the gate passes
 
