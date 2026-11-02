@@ -484,8 +484,9 @@ fn gate_text((gate, entry): (&String, &Value)) -> String {
 }
 
 /// What the harness self-test said, from the text of its result: its summary, else whether it
-/// passed; one that did not pass says `failed` before its summary. `None` when the text is not a
-/// result.
+/// passed; one that did not pass says `failed` before its summary. When the result keeps what it
+/// saw of the gates (see [`crate::gates::selftest::closes`]), a second line names them by what it
+/// saw (see [`gates_seen`]). `None` when the text is not a result.
 pub fn selftest_summary(text: &str) -> Option<String> {
     let result: Map<String, Value> = serde_json::from_str(text).ok()?;
     let passed = result.get("ok") == Some(&Value::Bool(true));
@@ -496,7 +497,36 @@ pub fn selftest_summary(text: &str) -> Option<String> {
         (false, Some(summary)) => format!("failed · {summary}"),
         (false, None) => "failed".to_string(),
     };
-    Some(said)
+    let gates = result.get("gates").and_then(Value::as_array);
+    match gates.map(Vec::as_slice).and_then(gates_seen) {
+        Some(seen) => Some(format!("{said}\nGates: {seen}")),
+        None => Some(said),
+    }
+}
+
+/// What a self-test saw of `gates`, the ones it kept: `seen to close: <a, b> · does not close:
+/// <c> · unproven: <d>`, the gates whose close test ran and closed, the ones whose close test ran
+/// and did not close, and the ones whose close test did not run; each part only when it names a
+/// gate. `None` without gates.
+fn gates_seen(gates: &[Value]) -> Option<String> {
+    let mut parts: [(&str, Vec<&str>); 3] = [
+        ("seen to close", Vec::new()),
+        ("does not close", Vec::new()),
+        ("unproven", Vec::new()),
+    ];
+    for gate in gates {
+        let part = match (gate["tested"] == true, gate["closed"] == true) {
+            (true, true) => 0,
+            (true, false) => 1,
+            (false, _) => 2,
+        };
+        parts[part].1.push(gate["gate"].as_str().unwrap_or("?"));
+    }
+    let named = parts.iter().filter(|(_, gates)| !gates.is_empty());
+    let named: Vec<String> = named
+        .map(|(part, gates)| format!("{part}: {}", gates.join(", ")))
+        .collect();
+    (!named.is_empty()).then(|| named.join(" · "))
 }
 
 #[cfg(test)]
@@ -1064,5 +1094,41 @@ mod tests {
         for nothing in ["{not json", "[]", "true"] {
             assert_eq!(selftest_summary(nothing), None, "{nothing}");
         }
+    }
+
+    /// The summary of a self-test of `harness 4/4` that kept `gates`, each a gate, whether its
+    /// close test ran and whether it closed.
+    fn seen(gates: &[(&str, bool, bool)]) -> Option<String> {
+        let mut kept = Vec::new();
+        for (gate, tested, closed) in gates {
+            kept.push(serde_json::json!({"gate": gate, "tested": tested, "closed": closed}));
+        }
+        let result = serde_json::json!({"ok": true, "summary": "harness 4/4", "gates": kept});
+        selftest_summary(&result.to_string())
+    }
+
+    #[test]
+    fn the_self_test_names_the_gates_by_what_it_saw_of_them() {
+        let closed = seen(&[("works", true, true), ("quality", true, true)]);
+        let said = "harness 4/4\nGates: seen to close: works, quality";
+        assert_eq!(closed.as_deref(), Some(said));
+        let open = seen(&[("quality", true, false)]);
+        let said = "harness 4/4\nGates: does not close: quality";
+        assert_eq!(open.as_deref(), Some(said));
+        let unproven = seen(&[("security", false, false), ("other", false, true)]);
+        let said = "harness 4/4\nGates: unproven: security, other";
+        assert_eq!(unproven.as_deref(), Some(said));
+        let all = seen(&[
+            ("works", true, true),
+            ("quality", true, false),
+            ("security", false, false),
+        ]);
+        let said = "harness 4/4\nGates: seen to close: works · does not close: quality · \
+                    unproven: security";
+        assert_eq!(all.as_deref(), Some(said));
+        // Without gates, as before.
+        assert_eq!(seen(&[]).as_deref(), Some("harness 4/4"));
+        let odd = selftest_summary(r#"{"ok": true, "summary": "harness 4/4", "gates": 3}"#);
+        assert_eq!(odd.as_deref(), Some("harness 4/4"));
     }
 }

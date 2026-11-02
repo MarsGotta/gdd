@@ -1,7 +1,8 @@
 //! The Decision Inbox of a change: how the change works, as its Reviewer says; what each variant
 //! of a spike did; what the human must decide, what was decided without them and what was parked,
-//! from the notes of its record; the security exceptions its last G3 named as added; and the
-//! known debt its latest G2 and G3 found still failing or paid.
+//! from the notes of its record; the security exceptions its last G3 named as added; the known
+//! debt its latest G2 and G3 found still failing or paid; and, while it waits for the G4 of the
+//! human, the gates whose green proved nothing in them.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -13,6 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::agents::files;
 use crate::change::{self, NOTE_KINDS, POLISH, Variant};
 use crate::gates::{Gate, debt, verdict};
 use crate::git::Git;
@@ -51,6 +53,13 @@ const KNOWN_DEBT: &str = "Known debt";
 
 /// The title of the group of the commands with known debt the change paid.
 const DEBT_PAID: &str = "Known debt paid";
+
+/// The title of the group of the gates whose green proved nothing in the latest runs of the
+/// change, while it waits for the G4 of the human.
+const UNPROVEN: &str = "Gates not seen to close";
+
+/// What follows the name of a gate in that group.
+const NO_PROOF: &str = "not seen to close; its green proves nothing (tminus selftest)";
 
 /// A group of the inbox from the gate reports: its title and one item per entry.
 pub type Group = (&'static str, Vec<String>);
@@ -324,15 +333,22 @@ fn kept<'a>(lines: &[&'a str]) -> Vec<&'a str> {
 /// text of its record and its review (see [`render`]) and its gate reports: the security
 /// exceptions its last G3 named as added, then the commands with known debt its latest G2 and G3
 /// found still failing, with what their output keeps, then the ones they found paid (see
-/// [`debt::reported`]). It saves it next to the record, with a line break at the end. What it
-/// rendered.
+/// [`debt::reported`]), then, while the change waits for its G4, the gates whose green proved
+/// nothing (see [`unproven_gates`]). It saves it next to the record, with a line break at the
+/// end. What it rendered.
 pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
     let added = added_exceptions(state, id)?;
     let known = debt::reported(state, id)?;
+    let unproven = if waits_for_g4(record) {
+        unproven_gates(state, id)?
+    } else {
+        Vec::new()
+    };
     let reported = [
         (EXCEPTIONS, added),
         (KNOWN_DEBT, known.owed.iter().map(still_failing).collect()),
         (DEBT_PAID, known.paid.iter().map(paid_in).collect()),
+        (UNPROVEN, unproven),
     ];
     let review = review_of(state, id).map(|review| unlinked(&review, &roots(state, id)));
     let asked: Vec<String> = g1_request(state, id, record).into_iter().collect();
@@ -341,6 +357,43 @@ pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
         .map_err(|e| format!("{path}: {e}"))?;
     change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
+}
+
+/// Whether the change whose record is `record` waits for the G4 of the human: its state is
+/// `in-pre`. A record that is not JSON does not.
+fn waits_for_g4(record: &str) -> bool {
+    let value: Option<Value> = serde_json::from_str(record).ok();
+    value.is_some_and(|value| value["state"] == IN_PRE)
+}
+
+/// A line for each gate whose key, in the latest G2 or G3 report of change `id` under the state
+/// root `state`, does not count as proof (see [`crate::gates::decl::Key`]): its name and
+/// [`NO_PROOF`], each gate once, G2's first. A key that does not say counts as no proof. A report
+/// that is missing gives none; one that cannot be read, or is not JSON, is an error that names
+/// it.
+fn unproven_gates(state: &Path, id: &str) -> Result<Vec<String>, String> {
+    #[derive(Deserialize)]
+    struct Saved {
+        #[serde(default)]
+        keys: Vec<Value>,
+    }
+    let mut gates: Vec<String> = Vec::new();
+    for gate in [Gate::G2, Gate::G3] {
+        let path = verdict::change_file(state, id, &format!("{}.json", gate.key()));
+        let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
+        let Some(bytes) = bytes else {
+            continue;
+        };
+        let saved: Saved = serde_json::from_slice(&bytes).map_err(|e| format!("{path}: {e}"))?;
+        for key in saved.keys {
+            let name = key["gate"].as_str().unwrap_or("?").to_string();
+            if key["proven"] != true && !gates.contains(&name) {
+                gates.push(name);
+            }
+        }
+    }
+    let lines = gates.iter().map(|gate| format!("{gate}: {NO_PROOF}"));
+    Ok(lines.collect())
 }
 
 /// The request for G1 of change `id` of the project whose state root is `state`, whose record is
@@ -405,7 +458,7 @@ fn g1_waits(state: &Path, id: &str, record: &Value) -> Result<bool, String> {
 }
 
 /// The SHA-256 of `bytes`, in lowercase hex.
-fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     let mut hex = String::with_capacity(64);
     for byte in Sha256::digest(bytes).iter() {
         let _ = write!(hex, "{byte:02x}");
@@ -765,6 +818,64 @@ mod tests {
         let err = save(&folder.0, "c1", "{}").unwrap_err();
         let start = "cannot read .tminus/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn the_request_of_g4_names_the_gates_whose_green_proved_nothing() {
+        let folder = Folder::new();
+        let g2 = r#"{"keys": [{"gate": "works", "proven": true},
+                     {"gate": "quality", "proven": false}]}"#;
+        folder.write(".tminus/changes/c1/g2.json", g2);
+        let g3 = r#"{"keys": [{"gate": "works", "proven": true}, {"gate": "quality"},
+                     {"gate": "security", "proven": "yes"}]}"#;
+        folder.write(".tminus/changes/c1/g3.json", g3);
+        let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
+        let end = concat!(
+            "## Gates not seen to close\n",
+            "- quality: not seen to close; its green proves nothing (tminus selftest)\n",
+            "- security: not seen to close; its green proves nothing (tminus selftest)"
+        );
+        assert!(saved.ends_with(end), "{saved}");
+        // Only while the change waits for G4.
+        for record in [r#"{"state": "building"}"#, "{}"] {
+            let saved = save(&folder.0, "c1", record).unwrap();
+            assert!(!saved.contains(UNPROVEN), "{saved}");
+        }
+        // A missing report gives none.
+        fs::remove_file(folder.0.join(".tminus/changes/c1/g3.json")).unwrap();
+        let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
+        let end = "## Gates not seen to close\n- quality: not seen to close; its green proves \
+                   nothing (tminus selftest)";
+        assert!(saved.ends_with(end), "{saved}");
+        fs::remove_file(folder.0.join(".tminus/changes/c1/g2.json")).unwrap();
+        let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
+        assert!(!saved.contains(UNPROVEN), "{saved}");
+    }
+
+    #[test]
+    fn a_report_that_cannot_be_read_is_named_when_looking_for_the_gates_never_seen_to_close() {
+        let folder = Folder::new();
+        assert_eq!(unproven_gates(&folder.0, "c1"), Ok(vec![]));
+        let report = ".tminus/changes/c1/g2.json";
+        folder.write(report, "{not json");
+        let err = unproven_gates(&folder.0, "c1").unwrap_err();
+        assert!(err.starts_with(".tminus/changes/c1/g2.json: "), "{err}");
+        fs::remove_file(folder.0.join(report)).unwrap();
+        fs::create_dir_all(folder.0.join(report)).unwrap();
+        let err = unproven_gates(&folder.0, "c1").unwrap_err();
+        let start = "cannot read .tminus/changes/c1/g2.json: ";
+        assert!(err.starts_with(start), "{err}");
+        let err = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap_err();
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn a_change_waits_for_g4_only_in_pre() {
+        assert!(waits_for_g4(r#"{"state": "in-pre"}"#));
+        let building = r#"{"state": "building"}"#;
+        for record in [building, r#"{"state": 3}"#, "{}", "{not json"] {
+            assert!(!waits_for_g4(record), "{record}");
+        }
     }
 
     /// A project of the old layout: `gdd/project.toml`, its files in `gdd/` and its state in

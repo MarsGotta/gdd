@@ -41,7 +41,7 @@ use crate::change::{self, Record};
 use crate::classify::{Classification, SPIKE, classify_touched};
 use crate::config::{self, Color};
 use crate::exec;
-use crate::gates::decl::{Declared, Key};
+use crate::gates::decl::{Declared, Key, Validity};
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
 use crate::layout::{self, Layout};
@@ -179,13 +179,24 @@ impl fmt::Display for Gate {
     }
 }
 
-/// The gate commands of a project, `gdd/commands.toml`: lines of shell, by name; and how to
-/// count what each reports, `[count]` (see [`debt::count`]).
+/// The gate commands of a project, `gdd/commands.toml`: lines of shell, by name; how to count
+/// what each reports, `[count]` (see [`debt::count`]); and the failures it plants to see its gates
+/// close (see [`Commands::plant`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Commands {
     g2: BTreeMap<String, String>,
     g3: BTreeMap<String, String>,
     count: BTreeMap<String, Vec<String>>,
+    plants: BTreeMap<String, Plant>,
+}
+
+/// A failure a project plants to see a gate close: the text `content` written at `file`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Plant {
+    /// Where it goes, from the project root.
+    pub file: String,
+    /// What it says.
+    pub content: String,
 }
 
 #[derive(Deserialize)]
@@ -199,24 +210,35 @@ struct RawCommands {
 }
 
 impl Commands {
-    /// Reads the `[g2]`, `[g3]` and `[count]` sections of a commands file; the rest is ignored.
-    /// A command is text that is not blank: an empty one is not configured, and a value that is
-    /// not text is not a command. In `[count]`, each command has a list of texts that are not
-    /// empty, each with `{n}` once at most: anything else is an error that names it.
+    /// Reads the `[g2]`, `[g3]` and `[count]` sections of a commands file, and every table that
+    /// plants a failure (see [`Commands::plant`]); the rest is ignored. A command is text that is
+    /// not blank: an empty one is not configured, and a value that is not text is not a command.
+    /// In `[count]`, each command has a list of texts that are not empty, each with `{n}` once at
+    /// most: anything else is an error that names it.
     pub fn from_toml(text: &str) -> Result<Commands, config::Error> {
-        let raw: RawCommands =
-            toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
+        let invalid = |e: toml::de::Error| config::Error::Toml(e.to_string());
+        let raw: RawCommands = toml::from_str(text).map_err(invalid)?;
         let mut count = BTreeMap::new();
         for (name, value) in raw.count {
             let wrong = || config::Error::Toml(format!("[count] {name}: {COUNT_SHAPE}"));
             let texts = texts(value).ok_or_else(wrong)?;
             count.insert(name, texts);
         }
+        let mut plants = BTreeMap::new();
+        planted(&toml::from_str(text).map_err(invalid)?, "", &mut plants);
         Ok(Commands {
             g2: configured(raw.g2),
             g3: configured(raw.g3),
             count,
+            plants,
         })
+    }
+
+    /// The failure the table `table` of the commands file plants, by its dotted name
+    /// (`selftest`, `close_test.quality`): its `file` and `content`, when both are text that is
+    /// not blank.
+    pub fn plant(&self, table: &str) -> Option<&Plant> {
+        self.plants.get(table)
     }
 
     /// The commands of `gate`, by name.
@@ -230,6 +252,31 @@ impl Commands {
     /// The texts of `[count]` for the command `name`, when it has them.
     pub fn count(&self, name: &str) -> Option<&[String]> {
         self.count.get(name).map(Vec::as_slice)
+    }
+}
+
+/// Adds to `plants`, by its dotted name, every table at any depth of `table`, whose own dotted
+/// name is `prefix` (empty at the top), that plants a failure: it has a `file` and a `content`
+/// that are text that is not blank.
+fn planted(table: &toml::Table, prefix: &str, plants: &mut BTreeMap<String, Plant>) {
+    for (name, value) in table {
+        let Some(inner) = value.as_table() else {
+            continue;
+        };
+        let path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}.{name}")
+        };
+        let text = |key: &str| {
+            let text = inner.get(key).and_then(toml::Value::as_str);
+            let text = text.filter(|text| !text.trim().is_empty());
+            text.map(str::to_string)
+        };
+        if let (Some(file), Some(content)) = (text("file"), text("content")) {
+            plants.insert(path.clone(), Plant { file, content });
+        }
+        planted(inner, &path, plants);
     }
 }
 
@@ -692,7 +739,7 @@ pub fn run_of_kind(
 /// the reason. Each command that runs, then Path Guard, keeps its own time (see [`Timed`]).
 /// Which gate claims each command, and which are optional, come from the gates the blueprint
 /// declares, read first ([`blueprint::gates`]); last, the report gets the key of each of those
-/// gates (see [`Declared::keys`]).
+/// gates (see [`Declared::keys`]), proof only for a gate valid now (see [`proven`]).
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -766,8 +813,21 @@ pub fn run(
         }
     }
     report.keys = declared.keys(gate, project.commands.of(gate), &report);
+    proven(&declared, project, &mut report.keys);
     report.ok = report.failures.is_empty();
     Ok(report)
+}
+
+/// Marks as proof each of `keys` whose gate of `declared` is valid in `project` (see
+/// [`Declared::validity`]), from what its last self-test kept (see [`selftest::closes`]): when that
+/// cannot be read, none is.
+fn proven(declared: &Declared, project: &Project, keys: &mut [Key]) {
+    let closes = selftest::closes(project.state).unwrap_or_default();
+    for key in keys {
+        let gate = declared.gates().iter().find(|gate| gate.id == key.gate);
+        let valid = gate.map(|gate| declared.validity(gate, project.commands, &closes));
+        key.proven = valid == Some(Validity::Valid);
+    }
 }
 
 /// What a gate judges: a change, how it is classified, what it touched and its scenario files.
@@ -1085,6 +1145,7 @@ paths = ["src/storage/**"]
             gate: decl::GateId::new(gate).unwrap(),
             stage: stage.stage(),
             ok: true,
+            proven: false,
             passed: passed.iter().map(|p| p.to_string()).collect(),
             failed: vec![],
             skipped: vec![],
@@ -1170,6 +1231,44 @@ paths = ["src/storage/**"]
         );
         let wrong = Commands::from_toml("count = 3\n");
         assert!(matches!(wrong, Err(config::Error::Toml(_))), "{wrong:?}");
+    }
+
+    #[test]
+    fn a_planted_failure_is_a_table_with_a_file_and_a_content_at_any_depth() {
+        let text = "[g2]\nunit = 'u'\n\
+                    [selftest]\nfile = 'tests/failing.txt'\ncontent = 'fails'\n\
+                    [selftest.deeper]\nfile = 'd.txt'\ncontent = 'deep'\n\
+                    [close_test.quality]\nfile = 'src/bad.txt'\ncontent = 'fn  bad'\n\
+                    [close_test.blank]\nfile = '  '\ncontent = 'x'\n\
+                    [close_test.empty]\nfile = 'x'\ncontent = ''\n\
+                    [close_test.half]\nfile = 'x'\n\
+                    [close_test.number]\nfile = 'x'\ncontent = 3\n";
+        let commands = Commands::from_toml(text).unwrap();
+        let plant = |file: &str, content: &str| Plant {
+            file: file.to_string(),
+            content: content.to_string(),
+        };
+        let selftest = plant("tests/failing.txt", "fails");
+        assert_eq!(commands.plant("selftest"), Some(&selftest));
+        let quality = plant("src/bad.txt", "fn  bad");
+        assert_eq!(commands.plant("close_test.quality"), Some(&quality));
+        // A table under one that plants a failure is read too.
+        let deeper = plant("d.txt", "deep");
+        assert_eq!(commands.plant("selftest.deeper"), Some(&deeper));
+        for none in [
+            "close_test.blank",
+            "close_test.empty",
+            "close_test.half",
+            "close_test.number",
+            "close_test",
+            "quality",
+            "deeper",
+            ".selftest",
+            "g2",
+        ] {
+            assert_eq!(commands.plant(none), None, "{none}");
+        }
+        assert_eq!(Commands::default().plant("selftest"), None);
     }
 
     #[test]
@@ -1602,6 +1701,45 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
         assert!(!report.keys[0].ok);
     }
 
+    /// Each key of `report`: its gate, and whether it counts as proof.
+    fn proofs(report: &Report) -> Vec<(&str, bool)> {
+        let keys = report.keys.iter();
+        keys.map(|key| (key.gate.as_str(), key.proven)).collect()
+    }
+
+    #[test]
+    fn a_key_counts_as_proof_only_while_its_gate_closed_with_its_lock_as_it_is_now() {
+        let mut project = started(&["docs/a.md"], "[g2]\nlint = \"true\"\nunit = \"true\"\n");
+        let declared = blueprint::gates().unwrap();
+        let lock = |id: &str, commands: &Commands| {
+            let gate = declared.gates().iter().find(|gate| gate.id.as_str() == id);
+            declared.lock(gate.unwrap(), commands)
+        };
+        let seen = |id: &str, lock: &str| {
+            let fields = r#""tested": true, "closed": true, "said": "x""#;
+            format!(r#"{{"gate": "{id}", "lock": "{lock}", {fields}}}"#)
+        };
+        let works = seen("works", &lock("works", &project.commands));
+        let quality = seen("quality", "old");
+        let kept = format!(r#"{{"ok": true, "gates": [{works}, {quality}]}}"#);
+        project.repo.write(approve::SELFTEST_PATH, &kept);
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(proofs(&report), [("works", true), ("quality", false)]);
+        // Once its commands change, works must close again: its green proves nothing.
+        let changed = "[g2]\nlint = \"true\"\nunit = \"true; true\"\n";
+        project.commands = Commands::from_toml(changed).unwrap();
+        let report = project.run(Gate::G2, "builder");
+        assert!(report.ok, "{report:?}");
+        assert_eq!(proofs(&report), [("works", false), ("quality", false)]);
+        // A result of the self-test that cannot be read proves nothing, and the gate still runs.
+        let path = project.repo.root().join(approve::SELFTEST_PATH);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir_all(&path).unwrap();
+        let report = project.run(Gate::G2, "builder");
+        assert!(report.ok, "{report:?}");
+        assert_eq!(proofs(&report), [("works", false), ("quality", false)]);
+    }
+
     #[test]
     fn a_mutation_command_that_passes_leaves_its_last_line_in_the_report() {
         let commands = "[g3]\nacceptance = \"echo all green\"\n\
@@ -1946,8 +2084,8 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
         let json = serde_json::to_string(&keyed).unwrap();
         let end = concat!(
             r#""summaries":{"mutation":"3 caught"},"keys":[{"gate":"works","#,
-            r#""stage":"before_integrating","ok":true,"passed":["unit"],"failed":[],"#,
-            r#""skipped":[],"owed":[]}]}"#
+            r#""stage":"before_integrating","ok":true,"proven":false,"passed":["unit"],"#,
+            r#""failed":[],"skipped":[],"owed":[]}]}"#
         );
         assert!(json.ends_with(end), "{json}");
     }
