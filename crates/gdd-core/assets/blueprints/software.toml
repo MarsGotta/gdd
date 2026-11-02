@@ -2,7 +2,9 @@
 # the software blueprint's. A command's kind is its name up to its first -; the gate that claims
 # its kind runs it, and `works` takes the commands no gate claims. Optional commands run only
 # where the level of the change switches them on. The stages keep the commands file's old
-# names: every_round is [g2], before_integrating is [g3].
+# names: every_round is [g2], before_integrating is [g3]. A gate counts only once it was seen to
+# close: close names the stage its planted failure must turn red and the table of the commands
+# file where the project writes that failure (file and content); a gate without one is unproven.
 format = 1
 
 [[gate]]
@@ -11,12 +13,14 @@ checks = "the change does what its approved scenarios say and breaks no unit tes
 claims = ["unit", "acceptance"]
 rest = true
 named = { before_integrating = ["scenarios"] }
+close = { stage = "every_round", plant = "selftest" }
 
 [[gate]]
 id = "quality"
 checks = "the code stays clean: lint, types, architecture and mutation testing"
 claims = ["lint", "types", "architecture", "quality", "mutation"]
 optional = { mutation = ["mutation*"] }
+close = { stage = "every_round", plant = "close_test.quality" }
 
 [[gate]]
 id = "security"

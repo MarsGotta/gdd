@@ -18,6 +18,7 @@ pub fn gates() -> Result<Declared, config::Error> {
 mod tests {
     use super::*;
     use crate::gates::Gate;
+    use crate::gates::decl::CloseTest;
 
     /// The ids of the gates, in the order the blueprint declares them.
     fn ids(declared: &Declared) -> Vec<&str> {
@@ -76,5 +77,19 @@ mod tests {
         assert_eq!(named(Gate::G3, "exceptions"), Some("security"));
         assert_eq!(named(Gate::G2, "scenarios"), None);
         assert_eq!(named(Gate::G2, "exceptions"), None);
+    }
+
+    #[test]
+    fn works_and_quality_close_every_round_and_security_has_no_close_test_yet() {
+        let declared = gates().unwrap();
+        let close = |stage, plant: &str| {
+            let plant = plant.to_string();
+            Some(CloseTest { stage, plant })
+        };
+        let closes = declared.gates().iter().map(|gate| gate.close.clone());
+        let closes: Vec<_> = closes.collect();
+        let works = close(Gate::G2, "selftest");
+        let quality = close(Gate::G2, "close_test.quality");
+        assert_eq!(closes, [works, quality, None]);
     }
 }

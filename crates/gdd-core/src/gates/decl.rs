@@ -3,7 +3,10 @@
 //! could not run well. Then it tells which gate claims each command of a stage
 //! ([`Declared::claim`]), which commands are optional and the name a level switches each one on
 //! with ([`Declared::optional`]), which gate each named check belongs to ([`Declared::named`]),
-//! and what one run of a stage proved for each gate ([`Key`]).
+//! and what one run of a stage proved for each gate ([`Key`]). A gate counts only once it was
+//! seen to close: its close test ([`CloseTest`]) plants a failure that must turn it red, and what
+//! the self-test saw ([`Closed`]) holds while the gate's lock ([`Declared::lock`]) stays as it
+//! was then ([`Declared::validity`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -11,7 +14,8 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::config;
-use crate::gates::{Gate, Report};
+use crate::gates::{Commands, Gate, Report};
+use crate::inbox::sha256;
 
 /// What every refusal of a declaration starts with.
 const REFUSED: &str = "gate declarations";
@@ -24,6 +28,12 @@ const ID_SHAPE: &str = "lowercase ASCII letters, digits, - and _, starting with 
 
 /// Why a declaration has exactly one gate with `rest = true`.
 const REST: &str = "one gate, and only one, takes the commands no gate claims";
+
+/// What the table of the commands file that holds a planted failure is named with.
+const TABLE_SHAPE: &str = "names of lowercase ASCII letters, digits, - and _, joined by dots";
+
+/// Why a gate the self-test never saw is unproven.
+const NEVER_CLOSED: &str = "it was never seen to close";
 
 /// The id of a gate a blueprint declares: lowercase ASCII letters, digits, `-` and `_`,
 /// starting with a letter.
@@ -76,6 +86,19 @@ pub struct GateDecl {
     pub optional: BTreeMap<String, Vec<String>>,
     /// The checks it names that are not commands, by stage.
     pub named: BTreeMap<Gate, Vec<String>>,
+    /// How it is seen to close; without one, it is unproven.
+    pub close: Option<CloseTest>,
+}
+
+/// How a gate is seen to close: the failure in the table `plant` of the commands file must turn
+/// `stage` red, which is green without it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloseTest {
+    /// The stage its planted failure must turn red.
+    pub stage: Gate,
+    /// The table of the commands file that holds the failure, its `file` and `content`, by its
+    /// dotted name (`close_test.quality`).
+    pub plant: String,
 }
 
 /// The gates of a blueprint, checked when read.
@@ -110,16 +133,30 @@ struct RawGate {
     optional: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     named: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    close: Option<RawClose>,
+}
+
+/// A close test as a declaration holds it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawClose {
+    stage: String,
+    plant: String,
 }
 
 impl Declared {
     /// Reads a declaration: `format = 1` and one `[[gate]]` table per gate, with its `id` and
-    /// `checks` and, when it has them, `claims`, `rest`, `optional` and `named` (by stage, as
-    /// [`Gate::of_stage`] reads it). It refuses, naming the gate or the key: text that is not
+    /// `checks` and, when it has them, `claims`, `rest`, `optional`, `named` (by stage, as
+    /// [`Gate::of_stage`] reads it) and `close`, its close test: exactly a `stage` and the table
+    /// `plant` (see [`CloseTest`]). It refuses, naming the gate or the key: text that is not
     /// TOML or has a key it does not know, another format, no gate, an id not shaped as one (see
     /// [`GateId::new`]) or declared twice, `checks` blank, a kind claimed twice, not exactly one
-    /// gate with `rest = true`, a stage it does not know, a check named twice in one stage, and
-    /// an optional pattern that is empty or has a `*` anywhere but at its end.
+    /// gate with `rest = true`, a stage it does not know, a check named twice in one stage, an
+    /// optional pattern that is empty or has a `*` anywhere but at its end, a gate that runs
+    /// nothing (it claims no kind, has no optional command, names no check and does not take the
+    /// rest), and a close test in a stage it does not know or planted from a table not named as
+    /// one (see [`TABLE_SHAPE`]).
     pub fn from_toml(text: &str) -> Result<Declared, config::Error> {
         let raw: RawDeclared = toml::from_str(text).map_err(|e| refused(e.to_string()))?;
         let format = raw.format;
@@ -206,6 +243,84 @@ impl Declared {
         }
         keys
     }
+
+    /// The lock of `gate` in a project whose commands are `commands`: what decides whether it
+    /// passes, as the SHA-256, in lowercase hex, of a text in a fixed order made of its commands
+    /// in each stage, the optional ones too, by name and text; its close test, stage and table;
+    /// and the failure that table plants, `file` and `content`, when it plants one. It changes
+    /// when any of them does, and only then.
+    pub fn lock(&self, gate: &GateDecl, commands: &Commands) -> String {
+        let ours = |stage: Gate| {
+            let claimed = commands.of(stage).iter();
+            let claimed = claimed.filter(|(name, _)| self.claim(name).id == gate.id);
+            let claimed = claimed.map(|(name, text)| (name.as_str(), text.as_str()));
+            (stage.stage(), claimed.collect::<BTreeMap<&str, &str>>())
+        };
+        let stages: BTreeMap<&str, _> = [Gate::G2, Gate::G3].map(ours).into();
+        let close = gate.close.as_ref().map(|close| {
+            let planted = commands.plant(&close.plant);
+            let planted = planted.map(|plant| (plant.file.as_str(), plant.content.as_str()));
+            (close.stage.stage(), close.plant.as_str(), planted)
+        });
+        let locked = serde_json::json!({ "commands": stages, "close": close });
+        sha256(locked.to_string().as_bytes())
+    }
+
+    /// Whether `gate` counts in a project whose commands are `commands`, from `closes`, what the
+    /// last self-test kept of each gate: valid when its close test ran and it closed with its
+    /// lock as it is now (see [`Declared::lock`]); it must close before any change starts when it
+    /// closed with another lock, or when its close test ran and it did not close; unproven when
+    /// the self-test never saw it or did not run its close test, with what it said then.
+    pub fn validity(&self, gate: &GateDecl, commands: &Commands, closes: &[Closed]) -> Validity {
+        let id = &gate.id;
+        let Some(last) = closes.iter().find(|last| last.gate == id.as_str()) else {
+            return Validity::Unproven(NEVER_CLOSED.to_string());
+        };
+        if !last.tested {
+            return Validity::Unproven(last.said.clone());
+        }
+        if !last.closed {
+            return Validity::MustClose(format!(
+                "The gate {id} does not close ({}). No change starts until it closes: fix its \
+                 commands or its planted failure, then run tminus selftest.",
+                last.said
+            ));
+        }
+        if last.lock != self.lock(gate, commands) {
+            return Validity::MustClose(format!(
+                "The gate {id} must close again before any change starts: its commands or its \
+                 planted failure changed since it was seen to close. Run tminus selftest."
+            ));
+        }
+        Validity::Valid
+    }
+}
+
+/// Whether a gate counts (see [`Declared::validity`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Validity {
+    /// It was seen to close with its lock as it is now: its green is a key.
+    Valid,
+    /// It runs and its red blocks, but its green proves nothing; why.
+    Unproven(String),
+    /// No change starts until it closes; why, and what to do.
+    MustClose(String),
+}
+
+/// What a self-test kept of one gate: whether its close test ran and the gate closed, its lock
+/// then (see [`Declared::lock`]) and what the self-test said of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Closed {
+    /// The gate.
+    pub gate: String,
+    /// Whether its close test ran: without one, or without a failure to plant, it did not.
+    pub tested: bool,
+    /// Whether it closed: green without its planted failure, red with it.
+    pub closed: bool,
+    /// Its lock then.
+    pub lock: String,
+    /// What the self-test said of it.
+    pub said: String,
 }
 
 /// The kind of the command `name`: its name up to its first `-`.
@@ -262,6 +377,16 @@ impl Seen {
         self.claims(&id, &raw.claims)?;
         let named = self.named(&id, raw.named)?;
         patterns(&id, &raw.optional)?;
+        let optional = raw.optional.values().any(|patterns| !patterns.is_empty());
+        let runs = raw.rest || !raw.claims.is_empty() || optional || !named.is_empty();
+        if !runs {
+            let why = format!(
+                "gate \"{id}\" runs nothing: it claims no kind, has no optional command, names no \
+                 check and does not take the rest"
+            );
+            return Err(refused(why));
+        }
+        let close = raw.close.map(|close| close_test(&id, close)).transpose()?;
         Ok(GateDecl {
             id,
             checks: raw.checks,
@@ -269,6 +394,7 @@ impl Seen {
             rest: raw.rest,
             optional: raw.optional,
             named,
+            close,
         })
     }
 
@@ -329,6 +455,30 @@ fn patterns(id: &GateId, optional: &BTreeMap<String, Vec<String>>) -> Result<(),
     Ok(())
 }
 
+/// The close test `raw` of the gate `id`. A stage [`Gate::of_stage`] does not read, and a table
+/// not named as one (dot-joined parts, each shaped as a gate id: see [`TABLE_SHAPE`]), are
+/// refused.
+fn close_test(id: &GateId, raw: RawClose) -> Result<CloseTest, config::Error> {
+    let Some(stage) = Gate::of_stage(&raw.stage) else {
+        let why = format!(
+            "gate \"{id}\" closes in {:?}, which is not a stage: every_round or before_integrating",
+            raw.stage
+        );
+        return Err(refused(why));
+    };
+    if !raw.plant.split('.').all(|part| GateId::new(part).is_ok()) {
+        let why = format!(
+            "gate \"{id}\" plants its failure from {:?}, which is not a table: {TABLE_SHAPE}",
+            raw.plant
+        );
+        return Err(refused(why));
+    }
+    Ok(CloseTest {
+        stage,
+        plant: raw.plant,
+    })
+}
+
 /// The place of the one gate of `gates` that takes the rest; none, or more than one, is refused.
 fn the_rest(gates: &[GateDecl]) -> Result<usize, config::Error> {
     let rest: Vec<usize> = (0..gates.len()).filter(|&i| gates[i].rest).collect();
@@ -353,6 +503,8 @@ pub struct Key {
     pub stage: &'static str,
     /// Whether the gate holds after this run: none of its checks failed and all of them ran.
     pub ok: bool,
+    /// Whether its green counts as proof: the gate was valid when it ran (see [`Validity`]).
+    pub proven: bool,
     /// Its checks that passed.
     pub passed: Vec<String>,
     /// Its checks that failed.
@@ -368,12 +520,14 @@ pub struct Key {
 }
 
 impl Key {
-    /// The key of the gate `gate` in `stage`, whose checks are `checks`, from `report`.
+    /// The key of the gate `gate` in `stage`, whose checks are `checks`, from `report`; it proves
+    /// nothing until the engine knows the gate is valid.
     fn of(gate: &GateId, stage: Gate, checks: &[&str], report: &Report) -> Key {
         let mut key = Key {
             gate: gate.clone(),
             stage: stage.stage(),
             ok: false,
+            proven: false,
             passed: Vec::new(),
             failed: Vec::new(),
             skipped: Vec::new(),
@@ -489,6 +643,7 @@ rest = true
                     (Gate::G2, strings(&["tidy"])),
                     (Gate::G3, strings(&["count"])),
                 ]),
+                close: None,
             },
             GateDecl {
                 id: id("beta"),
@@ -497,6 +652,7 @@ rest = true
                 rest: false,
                 optional: BTreeMap::from([("wide".to_string(), wide)]),
                 named: BTreeMap::from([(Gate::G3, strings(&["ping"]))]),
+                close: None,
             },
             GateDecl {
                 id: id("gamma"),
@@ -505,6 +661,7 @@ rest = true
                 rest: true,
                 optional: BTreeMap::new(),
                 named: BTreeMap::new(),
+                close: None,
             },
         ];
         assert_eq!(declared().gates(), expected);
@@ -546,7 +703,8 @@ rest = true
     #[test]
     fn an_id_declared_twice_is_refused_naming_it() {
         let said = "gate \"gamma\" is declared twice";
-        assert_eq!(refusal(&with("id = \"gamma\"\nchecks = \"c\"")), said);
+        let twice = "id = \"gamma\"\nchecks = \"c\"\nclaims = [\"probe\"]";
+        assert_eq!(refusal(&with(twice)), said);
     }
 
     #[test]
@@ -568,7 +726,7 @@ rest = true
 
     #[test]
     fn a_declaration_without_a_gate_for_the_rest_is_refused() {
-        let text = format!("format = 1\n[[gate]]\n{ALPHA}rest = false\n");
+        let text = format!("format = 1\n[[gate]]\n{ALPHA}rest = false\nclaims = [\"fmt\"]\n");
         let said = format!("no gate has rest = true: {REST}");
         assert_eq!(refusal(&text), said);
     }
@@ -700,6 +858,7 @@ rest = true
             gate: id("alpha"),
             stage: "every_round",
             ok: false,
+            proven: false,
             passed: strings(&["fmt", "tidy"]),
             failed: strings(&["fmt-strict"]),
             skipped: vec![],
@@ -734,6 +893,7 @@ rest = true
             gate: id("alpha"),
             stage: "before_integrating",
             ok: true,
+            proven: false,
             passed: strings(&["fmt", "count"]),
             failed: vec![],
             skipped: vec![],
@@ -757,7 +917,7 @@ rest = true
     #[test]
     fn a_stage_without_commands_or_named_checks_gives_no_key() {
         let report = Report::new(Gate::G2, Color::Yellow);
-        let none = Declared::from_toml(&with(ALPHA)).unwrap();
+        let none = Declared::from_toml(&with(&format!("{ALPHA}claims = [\"fmt\"]"))).unwrap();
         assert!(none.keys(Gate::G2, &BTreeMap::new(), &report).is_empty());
         let keys = declared().keys(Gate::G2, &BTreeMap::new(), &report);
         assert_eq!(keys.len(), 1);
@@ -771,6 +931,7 @@ rest = true
             gate: id("alpha"),
             stage: Gate::G2.stage(),
             ok: true,
+            proven: false,
             passed: strings(&["fmt"]),
             failed: vec![],
             skipped: vec![],
@@ -778,7 +939,7 @@ rest = true
             not_run: vec![],
         };
         let said = concat!(
-            r#"{"gate":"alpha","stage":"every_round","ok":true,"passed":["fmt"],"#,
+            r#"{"gate":"alpha","stage":"every_round","ok":true,"proven":false,"passed":["fmt"],"#,
             r#""failed":[],"skipped":[],"owed":["style"]}"#
         );
         assert_eq!(serde_json::to_string(&key).unwrap(), said);
@@ -790,5 +951,222 @@ rest = true
         let json = serde_json::to_string(&not_run).unwrap();
         let end = r#""owed":["style"],"not_run":["probe"]}"#;
         assert!(json.ends_with(end), "{json}");
+    }
+
+    /// The lines of a gate `alpha` that claims `fmt`, closing as `close` says.
+    fn closing(close: &str) -> String {
+        with(&format!("{ALPHA}claims = [\"fmt\"]\nclose = {{ {close} }}"))
+    }
+
+    #[test]
+    fn a_close_test_is_read_with_its_stage_by_any_of_its_names_and_its_table() {
+        for (stage, gate) in [
+            ("every_round", Gate::G2),
+            ("g2", Gate::G2),
+            ("G3", Gate::G3),
+            ("before_integrating", Gate::G3),
+        ] {
+            let text = format!("stage = \"{stage}\", plant = \"close_test.alpha\"");
+            let declared = Declared::from_toml(&closing(&text)).unwrap();
+            let close = CloseTest {
+                stage: gate,
+                plant: "close_test.alpha".to_string(),
+            };
+            assert_eq!(declared.gates()[0].close, Some(close), "{stage}");
+            assert_eq!(declared.gates()[1].close, None, "{stage}");
+        }
+    }
+
+    #[test]
+    fn a_close_test_in_a_stage_that_is_not_one_is_refused_naming_the_gate() {
+        let text = closing("stage = \"every-round\", plant = \"selftest\"");
+        let said = "gate \"alpha\" closes in \"every-round\", which is not a stage: every_round or \
+                    before_integrating";
+        assert_eq!(refusal(&text), said);
+    }
+
+    #[test]
+    fn a_close_test_planted_from_a_table_not_named_as_one_is_refused_naming_the_gate() {
+        for wrong in ["", "a..b", ".a", "a.", "A.b", "a b", "a.1b"] {
+            let text = closing(&format!("stage = \"g2\", plant = {wrong:?}"));
+            let said = format!(
+                "gate \"alpha\" plants its failure from {wrong:?}, which is not a table: \
+                 {TABLE_SHAPE}"
+            );
+            assert_eq!(refusal(&text), said, "{wrong:?}");
+        }
+        for right in ["selftest", "close_test.alpha", "a-1.b_2.c"] {
+            let text = closing(&format!("stage = \"g2\", plant = {right:?}"));
+            assert!(Declared::from_toml(&text).is_ok(), "{right:?}");
+        }
+    }
+
+    #[test]
+    fn a_close_test_has_exactly_a_stage_and_a_table() {
+        let unknown = refusal(&closing("stage = \"g2\", plant = \"a\", file = \"x\""));
+        assert!(unknown.contains("file"), "{unknown}");
+        let missing = refusal(&closing("stage = \"g2\""));
+        assert!(missing.contains("plant"), "{missing}");
+        let missing = refusal(&closing("plant = \"a\""));
+        assert!(missing.contains("stage"), "{missing}");
+    }
+
+    #[test]
+    fn a_gate_that_runs_nothing_is_refused_naming_it() {
+        let said = "gate \"alpha\" runs nothing: it claims no kind, has no optional command, names \
+                    no check and does not take the rest";
+        assert_eq!(refusal(&with(ALPHA)), said);
+        let empty = format!(
+            "{ALPHA}claims = []\nrest = false\noptional = {{ deep = [] }}\nnamed = {{ g2 = [] }}"
+        );
+        assert_eq!(refusal(&with(&empty)), said);
+        // Each one alone is enough.
+        let alone = "format = 1\n[[gate]]\nid = \"alpha\"\nchecks = \"c\"\nrest = true\n";
+        assert!(Declared::from_toml(alone).is_ok());
+        for runs in [
+            "claims = [\"fmt\"]",
+            "optional = { deep = [\"slow*\"] }",
+            "named = { g2 = [\"tidy\"] }",
+        ] {
+            let text = with(&format!("{ALPHA}{runs}"));
+            assert!(Declared::from_toml(&text).is_ok(), "{runs}");
+        }
+    }
+
+    /// Three gates that close: `alpha` claims `fmt`, has the optional `slow*` and closes in G2
+    /// from `[close_test.alpha]`; `beta` takes the rest and closes in G3 from `[selftest]`;
+    /// `gamma` claims `probe` and has no close test.
+    const CLOSING: &str = r#"
+format = 1
+
+[[gate]]
+id = "alpha"
+checks = "the code is tidy"
+claims = ["fmt"]
+optional = { deep = ["slow*"] }
+close = { stage = "every_round", plant = "close_test.alpha" }
+
+[[gate]]
+id = "beta"
+checks = "the rest of the work holds"
+rest = true
+close = { stage = "g3", plant = "selftest" }
+
+[[gate]]
+id = "gamma"
+checks = "the probes answer"
+claims = ["probe"]
+"#;
+
+    /// Commands of each gate of [`CLOSING`] in both stages, and the failure `alpha` plants.
+    const PLANTED: &str = "[g2]\nfmt = 'fmt --check'\nslow = 'slow run'\nunit = 'unit run'\n\
+                           [g3]\nfmt-all = 'fmt all'\nprobe = 'probe run'\n\
+                           [close_test.alpha]\nfile = 'src/bad.txt'\ncontent = 'bad'\n";
+
+    /// The gate `id` of `declared`.
+    fn gate<'a>(declared: &'a Declared, id: &str) -> &'a GateDecl {
+        let found = declared.gates().iter().find(|gate| gate.id.as_str() == id);
+        found.unwrap_or_else(|| panic!("no gate {id}"))
+    }
+
+    /// The lock of the gate `id` of [`CLOSING`] when its commands file is `commands`.
+    fn lock_of(id: &str, commands: &str) -> String {
+        let declared = Declared::from_toml(CLOSING).unwrap();
+        let commands = Commands::from_toml(commands).unwrap();
+        declared.lock(gate(&declared, id), &commands)
+    }
+
+    #[test]
+    fn a_lock_is_the_same_for_the_same_commands_and_planted_failure() {
+        let lock = lock_of("alpha", PLANTED);
+        assert_eq!(lock.len(), 64, "{lock}");
+        let hex = |c: char| c.is_ascii_digit() || ('a'..='f').contains(&c);
+        assert!(lock.chars().all(hex), "{lock}");
+        assert_eq!(lock_of("alpha", PLANTED), lock);
+        // The order of the file does not count.
+        let table = "[close_test.alpha]\nfile = 'src/bad.txt'\ncontent = 'bad'\n";
+        let moved = format!("{table}{}", PLANTED.replace(table, ""));
+        assert_ne!(moved, PLANTED);
+        assert_eq!(lock_of("alpha", &moved), lock);
+        // Each gate has its own.
+        assert_ne!(lock_of("beta", PLANTED), lock);
+    }
+
+    #[test]
+    fn a_lock_changes_with_the_commands_of_its_gate_and_its_planted_failure_only() {
+        let lock = lock_of("alpha", PLANTED);
+        for (from, to) in [
+            ("fmt = 'fmt --check'", "fmt = 'fmt --check -v'"),
+            ("fmt = 'fmt --check'", "fmt-x = 'fmt --check'"),
+            ("fmt-all = 'fmt all'", "fmt-all = 'fmt every'"),
+            ("slow = 'slow run'", "slow = 'slower run'"),
+            ("file = 'src/bad.txt'", "file = 'src/worse.txt'"),
+            ("content = 'bad'", "content = 'worse'"),
+            ("[close_test.alpha]", "[close_test.other]"),
+        ] {
+            let changed = PLANTED.replace(from, to);
+            assert_ne!(lock_of("alpha", &changed), lock, "{to}");
+        }
+        for (from, to) in [
+            ("unit = 'unit run'", "unit = 'unit again'"),
+            ("probe = 'probe run'", "probe = 'probe again'"),
+        ] {
+            let changed = PLANTED.replace(from, to);
+            assert_eq!(lock_of("alpha", &changed), lock, "{to}");
+        }
+        // Its close test counts too: another gate with the same commands has another lock.
+        let declared = Declared::from_toml(CLOSING).unwrap();
+        let commands = Commands::from_toml(PLANTED).unwrap();
+        let mut moved = gate(&declared, "alpha").clone();
+        moved.close = Some(CloseTest {
+            stage: Gate::G3,
+            plant: "close_test.alpha".to_string(),
+        });
+        assert_ne!(declared.lock(&moved, &commands), lock);
+        moved.close = None;
+        assert_ne!(declared.lock(&moved, &commands), lock);
+    }
+
+    /// What a self-test kept of the gate `id`.
+    fn seen(id: &str, tested: bool, closed: bool, lock: &str) -> Closed {
+        Closed {
+            gate: id.to_string(),
+            tested,
+            closed,
+            lock: lock.to_string(),
+            said: format!("said of {id}"),
+        }
+    }
+
+    #[test]
+    fn a_gate_is_valid_only_once_it_closed_with_its_lock_as_it_is_now() {
+        let declared = Declared::from_toml(CLOSING).unwrap();
+        let commands = Commands::from_toml(PLANTED).unwrap();
+        let alpha = gate(&declared, "alpha");
+        let now = declared.lock(alpha, &commands);
+        let validity = |closes: &[Closed]| declared.validity(alpha, &commands, closes);
+        let never = Validity::Unproven("it was never seen to close".to_string());
+        assert_eq!(validity(&[]), never);
+        // What it kept of another gate does not count.
+        assert_eq!(validity(&[seen("beta", true, true, &now)]), never);
+        let beta = seen("beta", true, false, "x");
+        let untested = [beta.clone(), seen("alpha", false, false, &now)];
+        let said = Validity::Unproven("said of alpha".to_string());
+        assert_eq!(validity(&untested), said);
+        let valid = [beta, seen("alpha", true, true, &now)];
+        assert_eq!(validity(&valid), Validity::Valid);
+        let again = Validity::MustClose(
+            "The gate alpha must close again before any change starts: its commands or its \
+             planted failure changed since it was seen to close. Run tminus selftest."
+                .to_string(),
+        );
+        assert_eq!(validity(&[seen("alpha", true, true, "old")]), again);
+        let open = Validity::MustClose(
+            "The gate alpha does not close (said of alpha). No change starts until it closes: fix \
+             its commands or its planted failure, then run tminus selftest."
+                .to_string(),
+        );
+        assert_eq!(validity(&[seen("alpha", true, false, &now)]), open);
+        assert_eq!(validity(&[seen("alpha", true, false, "old")]), open);
     }
 }
