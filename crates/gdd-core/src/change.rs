@@ -677,6 +677,13 @@ pub fn build_snapshot_path(id: &str) -> String {
     format!(".tminus/changes/{id}/snapshot-build.json")
 }
 
+/// Where the snapshot taken right before a round of test mode of change `id` that comes after
+/// build mode lives, from the state root, in the new names: until the build snapshot moves after
+/// that round, what changed since it is that round's work.
+pub fn test_snapshot_path(id: &str) -> String {
+    format!(".tminus/changes/{id}/snapshot-test.json")
+}
+
 /// Where the snapshot taken when a run of change `id` parked lives, from the state root, in the
 /// new names: what changed after it, before the change runs again, a person changed by hand.
 pub fn parked_snapshot_path(id: &str) -> String {
@@ -836,6 +843,8 @@ mod tests {
         assert_eq!(build_snapshot_path("save"), build);
         let parked = ".tminus/changes/save/snapshot-parked.json";
         assert_eq!(parked_snapshot_path("save"), parked);
+        let test = ".tminus/changes/save/snapshot-test.json";
+        assert_eq!(test_snapshot_path("save"), test);
         assert_eq!(branch("save"), "change/save");
     }
 
