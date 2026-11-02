@@ -6,6 +6,7 @@ use serde::{Serialize, Serializer};
 
 use crate::config::{Color, Error, Lane};
 use crate::rules::{Depth, RulesTable};
+use crate::rules::{Level, LockStep, MUTATION, is_core_item};
 use crate::zones::ZoneMap;
 
 /// The kind of work of a spike: it answers one question, and only its ADR reaches main.
@@ -56,6 +57,116 @@ fn as_text<T: fmt::Display, S: Serializer>(value: &T, serializer: S) -> Result<S
     serializer.collect_str(value)
 }
 
+/// Why one of the core's own items is red when its zone leaves it lower.
+const CORE_REASON: &str = "the core's own items: always in the most sensitive area";
+
+/// The risk of a change, computed by the core from its paths and the approved zone map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Risk {
+    /// Risk color.
+    pub color: Color,
+    /// Lane it travels.
+    pub lane: Lane,
+    /// Whether it brings a new lock: lock items that need the human's approval (G1).
+    pub new_lock: bool,
+    /// Why: one line per path, plus the declared minimum when it raised the color.
+    pub reasons: Vec<String>,
+    /// The lock items it brings, sorted and each once.
+    pub features: Vec<String>,
+}
+
+/// The color of `path` and why: its zone's, or the default color. One of the core's own items
+/// (see [`is_core_item`]) is red whatever its zone says: when the zone is already red, its
+/// reason stays the zone's.
+fn color_of<'a>(zones: &'a ZoneMap, path: &str) -> (Color, &'a str) {
+    let (color, why) = match zones.zone_of(path) {
+        Some(zone) => (zone.color, zone.reason.as_str()),
+        None => (zones.default, "no zone: default color"),
+    };
+    if color < Color::Red && is_core_item(path) {
+        return (Color::Red, CORE_REASON);
+    }
+    (color, why)
+}
+
+/// What the core decided for a change: its risk and the level of its gates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Levels {
+    /// The risk it was decided from.
+    pub risk: Risk,
+    /// The level of its gates.
+    pub level: Level,
+    /// The optional commands that run (see [`MUTATION`]).
+    pub run: Vec<String>,
+    /// How deep the guard looks.
+    pub guard: Depth,
+    /// Tests are written before the code.
+    pub tests_first: bool,
+    /// The human approves the plan.
+    pub plan_approval: bool,
+}
+
+impl Levels {
+    /// The levels `table` gives `risk` (see [`RulesTable::level_rule`]): the level of its rule,
+    /// raised to the level for a new lock when it brings one; the tests first as the lock step
+    /// says; and the human's approval of the plan in red.
+    pub fn of(risk: Risk, table: &RulesTable) -> Levels {
+        let rule = table.level_rule(risk.color, risk.lane);
+        let level = match rule.new_lock {
+            Some(new_lock) if risk.new_lock => rule.level.max(new_lock),
+            _ => rule.level,
+        };
+        let tests_first = match rule.lock_step {
+            LockStep::Always => true,
+            LockStep::NewLock => risk.new_lock,
+            LockStep::Never => false,
+        };
+        let plan_approval = risk.color == Color::Red;
+        Levels {
+            risk,
+            level,
+            run: rule.run,
+            guard: rule.guard,
+            tests_first,
+            plan_approval,
+        }
+    }
+
+    /// The decision as `tminus classify` prints it: the Reviewer from [`Level::LockGuard`] up,
+    /// the human G4 at [`Level::LockGuardApproval`], mutation testing when it runs, and the rest
+    /// from the risk.
+    pub fn classification(self) -> Classification {
+        let Levels {
+            risk,
+            level,
+            run,
+            guard,
+            tests_first,
+            plan_approval,
+        } = self;
+        let Risk {
+            color,
+            lane,
+            new_lock,
+            reasons,
+            features,
+        } = risk;
+        Classification {
+            color,
+            lane,
+            reasons,
+            g1: new_lock,
+            features,
+            tests_first,
+            mutation: run.iter().any(|command| command == MUTATION),
+            reviewer: level >= Level::LockGuard,
+            review: guard,
+            g4: level == Level::LockGuardApproval,
+            human_plan: plan_approval,
+        }
+    }
+}
+
 /// Classifies a change: the highest color among its paths (or the default color when it has
 /// none), raised to its declared minimum, then the lane and gates the rules table gives it.
 /// Paths are taken sorted and without repeats; the scenario folders come from the table.
@@ -77,6 +188,16 @@ pub fn classify_with(
     change: &Change,
     features: &[String],
 ) -> Result<Classification, Error> {
+    let risk = risk(zones, table, change, features);
+    Ok(Levels::of(risk, table).classification())
+}
+
+/// The risk of `change`: the highest color among its paths (or the default color when it has
+/// none), raised to its declared minimum; its lock items, from its paths and `features`, the ones
+/// it already has; and its lane, fast only when it is not red, brings no new lock and can be
+/// resumed. Paths are taken sorted and without repeats; the folders of the lock items come from
+/// `table`.
+pub fn risk(zones: &ZoneMap, table: &RulesTable, change: &Change, features: &[String]) -> Risk {
     let mut paths = change.paths.clone();
     paths.sort();
     paths.dedup();
@@ -84,10 +205,7 @@ pub fn classify_with(
     let mut reasons = Vec::new();
     let mut highest = None;
     for path in &paths {
-        let (c, why) = match zones.zone_of(path) {
-            Some(zone) => (zone.color, zone.reason.as_str()),
-            None => (zones.default, "no zone: default color"),
-        };
+        let (c, why) = color_of(zones, path);
         reasons.push(format!("{path} -> {c} ({why})"));
         highest = highest.max(Some(c));
     }
@@ -110,27 +228,20 @@ pub fn classify_with(
         .collect();
     features.sort();
     features.dedup();
-    let g1 = !features.is_empty();
+    let new_lock = !features.is_empty();
 
-    let lane = if color != Color::Red && !g1 && change.resumable {
+    let lane = if color != Color::Red && !new_lock && change.resumable {
         Lane::Fast
     } else {
         Lane::Full
     };
-    let rule = table.rule(color, lane);
-    Ok(Classification {
+    Risk {
         color,
         lane,
+        new_lock,
         reasons,
-        g1,
         features,
-        tests_first: rule.tests_first.unwrap_or(g1) && (g1 || color != Color::Green),
-        mutation: rule.mutation,
-        reviewer: rule.reviewer,
-        review: rule.review,
-        g4: color == Color::Red || (g1 && rule.g4_if_g1),
-        human_plan: color == Color::Red,
-    })
+    }
 }
 
 /// `classification` for a change of the kind of work `kind`. A [`SPIKE`] keeps its color (and so
@@ -412,5 +523,275 @@ mod tests {
         assert_eq!(json["review"], "deep");
         let json = serde_json::to_value(review(&shipped, &yellow)).unwrap();
         assert_eq!(json["review"], "quick");
+    }
+
+    /// A lock item: a file of the folder whose items need the human's approval (G1).
+    const LOCK: &str = "features/a.feature";
+
+    /// Why one of the core's items is red, as a reason says it.
+    const CORE: &str = "red (the core's own items: always in the most sensitive area)";
+
+    /// A zone map with the three colors; the lock items are green.
+    const COLORS: &str = "default = \"yellow\"\n\
+                          [[zone]]\ncolor = \"green\"\npaths = [\"docs/**\", \"features/**\"]\n\
+                          [[zone]]\ncolor = \"red\"\npaths = [\"src/storage/**\"]\n";
+
+    /// One rule a color in a lane can write: `tests_first`, `mutation`, `reviewer`, `g4_if_g1`
+    /// and whether the review is deep.
+    type Keys = (Option<bool>, bool, bool, bool, bool);
+
+    /// Every rule a color in a lane can write.
+    fn every_rule() -> Vec<Keys> {
+        let mut all = Vec::new();
+        for tests_first in [None, Some(true), Some(false)] {
+            for bits in 0..16u8 {
+                let on = |n: u8| bits & (1 << n) != 0;
+                all.push((tests_first, on(0), on(1), on(2), on(3)));
+            }
+        }
+        all
+    }
+
+    /// `keys` as the TOML table `[color.<table>]`. A red table leaves out a key that would
+    /// switch off the core, as a rules file must.
+    fn written(table: &str, keys: Keys) -> String {
+        let (tests_first, mutation, reviewer, g4_if_g1, deep) = keys;
+        let red = table.starts_with("red");
+        let mut text = format!("[color.{table}]\n");
+        if let Some(first) = tests_first {
+            text += &format!("tests_first = {first}\n");
+        }
+        let gates = [
+            ("mutation", mutation),
+            ("reviewer", reviewer),
+            ("g4_if_g1", g4_if_g1),
+        ];
+        for (key, on) in gates {
+            if on || !red {
+                text += &format!("{key} = {on}\n");
+            }
+        }
+        if deep || !red {
+            let depth = if deep { "deep" } else { "quick" };
+            text += &format!("review = \"{depth}\"\n");
+        }
+        text
+    }
+
+    /// What `classify` decided before levels, copied: the lane and the gates of `classify_with`
+    /// and red's `mutation` and `review` forced on as `RulesTable::rule` did. The color, the
+    /// reasons and the lock items come from `risk`, which keeps that half as it was.
+    fn decided_before_levels(table: &RulesTable, change: &Change, risk: &Risk) -> Classification {
+        let Risk {
+            color,
+            reasons,
+            features,
+            ..
+        } = risk.clone();
+        let g1 = !features.is_empty();
+        let lane = if color != Color::Red && !g1 && change.resumable {
+            Lane::Fast
+        } else {
+            Lane::Full
+        };
+        let mut rule = table.rule(color, lane);
+        if color == Color::Red {
+            rule.mutation = true;
+            rule.review = Depth::Deep;
+        }
+        Classification {
+            color,
+            lane,
+            reasons,
+            g1,
+            features,
+            tests_first: rule.tests_first.unwrap_or(g1) && (g1 || color != Color::Green),
+            mutation: rule.mutation,
+            reviewer: rule.reviewer,
+            review: rule.review,
+            g4: color == Color::Red || (g1 && rule.g4_if_g1),
+            human_plan: color == Color::Red,
+        }
+    }
+
+    /// The tables of the equivalence: the one of the tool, an empty one, and one per rule of
+    /// [`every_rule`], each lane of green and yellow with a different rule.
+    fn every_table() -> Vec<RulesTable> {
+        let rules = every_rule();
+        let mut tables = vec![rules::default_table(), RulesTable::from_toml("").unwrap()];
+        for (&keys, &other) in rules.iter().zip(rules.iter().rev()) {
+            let text = [
+                written("green.fast", keys),
+                written("green.full", other),
+                written("yellow.fast", other),
+                written("yellow.full", keys),
+                written("red.full", keys),
+            ]
+            .concat();
+            tables.push(RulesTable::from_toml(&text).unwrap());
+        }
+        tables
+    }
+
+    #[test]
+    fn the_levels_decide_as_before_except_that_no_approval_comes_without_the_guard() {
+        let zones = ZoneMap::from_toml(COLORS).unwrap();
+        let colors = [
+            ("docs/a.md", Color::Green),
+            ("x.rs", Color::Yellow),
+            ("src/storage/db.rs", Color::Red),
+        ];
+        let cases = [(false, false), (false, true), (true, false), (true, true)];
+        let mut tightened = 0;
+        for (n, table) in every_table().iter().enumerate() {
+            for (path, color) in colors {
+                for (lock, resumable) in cases {
+                    let paths = if lock { vec![path, LOCK] } else { vec![path] };
+                    let ch = change(&paths, resumable);
+                    let c = classify(&zones, table, &ch).unwrap();
+                    let found = risk(&zones, table, &ch, &[]);
+                    let mut before = decided_before_levels(table, &ch, &found);
+                    // The one tightening: the human's approval brings the guard with it.
+                    if before.g4 && !before.reviewer {
+                        before.reviewer = true;
+                        tightened += 1;
+                    }
+                    assert_eq!(c, before, "table {n}, {paths:?}, resumable {resumable}");
+                    assert_eq!((c.color, c.g1), (color, lock), "table {n}, {paths:?}");
+                }
+            }
+        }
+        assert!(tightened > 0, "no rule left the guard out of an approval");
+    }
+
+    #[test]
+    fn the_core_items_are_red_whatever_their_zone_says() {
+        let table = rules::default_table();
+        let items = [
+            "tminus/rules.toml",
+            ".tminus/changes/c1.json",
+            "gdd/zones.toml",
+            ".gdd/x",
+        ];
+        let zone = |color: &str| {
+            let paths = rules::CORE_ITEMS.map(|p| format!("\"{p}\"")).join(", ");
+            let text = format!("[[zone]]\ncolor = \"{color}\"\npaths = [{paths}]\n");
+            text + "reason = \"Settings\"\n"
+        };
+        let maps = [
+            zone("green"),
+            zone("yellow"),
+            "default = \"green\"\n".to_string(),
+            "default = \"yellow\"\n".to_string(),
+        ];
+        for map in &maps {
+            let zones = ZoneMap::from_toml(map).unwrap();
+            for item in items {
+                let c = classify(&zones, &table, &change(&[item], true)).unwrap();
+                assert_eq!((c.color, c.lane), (Color::Red, Lane::Full), "{item}: {map}");
+                assert_eq!(c.reasons, [format!("{item} -> {CORE}")], "{map}");
+                let gates = c.reviewer && c.g4 && c.mutation && c.human_plan;
+                assert!(gates, "{item}: {map}");
+                assert_eq!(c.review, Depth::Deep);
+            }
+        }
+        // Other names, or the core's names somewhere else, keep their zone's color.
+        let zones = ZoneMap::from_toml("default = \"green\"\n").unwrap();
+        for path in ["tminus.md", "src/gdd/a.rs", "gdd", "docs/tminus/a.md"] {
+            let c = classify(&zones, &table, &change(&[path], true)).unwrap();
+            assert_eq!((c.color, c.lane), (Color::Green, Lane::Fast), "{path}");
+            let reason = format!("{path} -> green (no zone: default color)");
+            assert_eq!(c.reasons, [reason]);
+        }
+    }
+
+    #[test]
+    fn a_core_item_already_red_keeps_the_reason_of_its_zone() {
+        let text = "[[zone]]\ncolor = \"red\"\npaths = [\"gdd/**\"]\nreason = \"The harness\"\n";
+        let zones = ZoneMap::from_toml(text).unwrap();
+        let table = rules::default_table();
+        let ch = change(&["tminus/a.toml", "gdd/rules.toml"], false);
+        let c = classify(&zones, &table, &ch).unwrap();
+        let reasons = [
+            "gdd/rules.toml -> red (The harness)".to_string(),
+            format!("tminus/a.toml -> {CORE}"),
+        ];
+        assert_eq!(c.reasons, reasons);
+        let red = ZoneMap::from_toml("default = \"red\"\n").unwrap();
+        let c = classify(&red, &table, &change(&["tminus/a.toml"], true)).unwrap();
+        let reason = "tminus/a.toml -> red (no zone: default color)";
+        assert_eq!(c.reasons, [reason]);
+    }
+
+    /// The risk of a change of `color` in `lane`, with a new lock or not.
+    fn risk_of(color: Color, lane: Lane, new_lock: bool) -> Risk {
+        Risk {
+            color,
+            lane,
+            new_lock,
+            reasons: vec!["why".to_string()],
+            features: new_lock.then(|| LOCK.to_string()).into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn a_new_lock_raises_the_level_to_the_one_its_rule_gives_it() {
+        let table = rules::default_table();
+        let yellow = Levels::of(risk_of(Color::Yellow, Lane::Full, false), &table);
+        assert_eq!(yellow.level, Level::LockGuard);
+        assert_eq!((yellow.tests_first, yellow.plan_approval), (true, false));
+        assert_eq!(yellow.run, [MUTATION]);
+        assert_eq!(yellow.guard, Depth::Quick);
+        assert_eq!(yellow.risk, risk_of(Color::Yellow, Lane::Full, false));
+        let with_lock = Levels::of(risk_of(Color::Yellow, Lane::Full, true), &table);
+        assert_eq!(with_lock.level, Level::LockGuardApproval);
+        // Green writes the tests first only with a new lock; in its fast lane, the lock alone.
+        let green = Levels::of(risk_of(Color::Green, Lane::Full, false), &table);
+        assert_eq!((green.level, green.tests_first), (Level::LockGuard, false));
+        let green = Levels::of(risk_of(Color::Green, Lane::Full, true), &table);
+        assert_eq!(green.level, Level::LockGuardApproval);
+        assert!(green.tests_first);
+        let fast = Levels::of(risk_of(Color::Green, Lane::Fast, false), &table);
+        assert_eq!((fast.level, fast.tests_first), (Level::Lock, false));
+        assert!(fast.run.is_empty());
+        // Red: the floor, and the human approves the plan.
+        let red = Levels::of(risk_of(Color::Red, Lane::Full, false), &table);
+        assert_eq!(red.level, Level::LockGuardApproval);
+        assert_eq!(red.guard, Depth::Deep);
+        assert!(red.plan_approval);
+    }
+
+    #[test]
+    fn the_classification_reads_the_levels() {
+        let levels = |level, run: &[&str]| Levels {
+            risk: risk_of(Color::Yellow, Lane::Full, true),
+            level,
+            run: run.iter().map(|r| r.to_string()).collect(),
+            guard: Depth::Deep,
+            tests_first: true,
+            plan_approval: false,
+        };
+        let gates = |level, run: &[&str]| {
+            let c = levels(level, run).classification();
+            (c.reviewer, c.g4, c.mutation)
+        };
+        assert_eq!(gates(Level::Open, &[]), (false, false, false));
+        assert_eq!(gates(Level::Lock, &["lint"]), (false, false, false));
+        assert_eq!(gates(Level::LockGuard, &[MUTATION]), (true, false, true));
+        assert_eq!(gates(Level::LockGuardApproval, &[]), (true, true, false));
+        let expected = Classification {
+            color: Color::Yellow,
+            lane: Lane::Full,
+            reasons: vec!["why".to_string()],
+            g1: true,
+            features: vec![LOCK.to_string()],
+            tests_first: true,
+            mutation: false,
+            reviewer: false,
+            review: Depth::Deep,
+            g4: false,
+            human_plan: false,
+        };
+        assert_eq!(levels(Level::Lock, &[]).classification(), expected);
     }
 }

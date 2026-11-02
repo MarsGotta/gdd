@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{Color, Error, Lane};
 use crate::exec;
+use crate::zones::glob_matches;
 
 /// What the agent calls of a spike may cost, in USD, when the rules file says nothing.
 pub const SPIKE_USD: f64 = 5.0;
@@ -72,17 +73,17 @@ pub fn spike_budget(text: &str) -> Result<f64, Error> {
 }
 
 /// What one color in one lane asks for. A field the rules file leaves out takes the value of
-/// [`Rule::default`], except `mutation` and `review` for red (see [`RulesTable::rule`]).
+/// [`Rule::default`]; red gets the core's floor on top (see [`floor`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Rule {
-    /// Tests are written before the code. Unset: only when the change has new scenarios (G1).
+    /// Tests are written before the code. Unset: only when the change brings a new lock (G1).
     pub tests_first: Option<bool>,
     /// Mutation testing runs. Unset: no, except for red.
     pub mutation: bool,
     /// The Reviewer checks the change. Unset: yes.
     pub reviewer: bool,
-    /// New scenarios also need the human release gate (G4). Unset: yes.
+    /// A new lock also needs the human's approval (G4). Unset: yes.
     pub g4_if_g1: bool,
     /// How deep the Reviewer looks. Unset: quick, except for red.
     pub review: Depth,
@@ -220,27 +221,129 @@ impl RulesTable {
         Ok((table, has_colors))
     }
 
-    /// The rule for a color in a lane: the lane's own table, else the color's table, else
-    /// [`Rule::default`] when the table does not mention the color. Red always has the core of
-    /// GDD on: a `false` or a quick review is refused when reading, and a key left out counts
-    /// as on (`mutation` and `review`, whose defaults are off and quick, get `true` and deep).
+    /// The rule for a color in a lane as the table writes it: the lane's own table, else the
+    /// color's table, else [`Rule::default`] when the table does not mention the color. It has
+    /// no floor: red always has the core of GDD on because a `false` or a quick review is
+    /// refused when reading, and [`floor`] puts back what a key left out leaves off.
     pub fn rule(&self, color: Color, lane: Lane) -> Rule {
-        let rule = self.colors.get(&color).map_or_else(Rule::default, |c| {
+        self.colors.get(&color).map_or_else(Rule::default, |c| {
             match lane {
                 Lane::Fast => c.fast,
                 Lane::Full => c.full,
             }
             .unwrap_or(c.rule)
-        });
-        if color == Color::Red {
-            Rule {
-                mutation: true,
-                review: Depth::Deep,
-                ..rule
-            }
+        })
+    }
+
+    /// The rule of `color` in `lane` ([`RulesTable::rule`]) read as levels, with the floor
+    /// applied (see [`floor`]). The Reviewer is the guard: with it the level is
+    /// [`Level::LockGuard`], without it [`Level::Lock`]. In the full lane, `g4_if_g1` asks for
+    /// the human's approval when the change brings a new lock; the fast lane has no new lock.
+    /// `tests_first` set to true writes the tests first always, but in green only with a new
+    /// lock; unset, only with a new lock; false, never.
+    pub fn level_rule(&self, color: Color, lane: Lane) -> LevelRule {
+        let rule = self.rule(color, lane);
+        let level = if rule.reviewer {
+            Level::LockGuard
         } else {
-            rule
-        }
+            Level::Lock
+        };
+        let approval = lane == Lane::Full && rule.g4_if_g1;
+        let new_lock = approval.then_some(Level::LockGuardApproval);
+        let run = if rule.mutation {
+            vec![MUTATION.to_string()]
+        } else {
+            Vec::new()
+        };
+        let lock_step = match rule.tests_first {
+            Some(true) if color == Color::Green => LockStep::NewLock,
+            Some(true) => LockStep::Always,
+            None => LockStep::NewLock,
+            Some(false) => LockStep::Never,
+        };
+        floor(LevelRule {
+            color,
+            lane,
+            level,
+            new_lock,
+            run,
+            guard: rule.review,
+            lock_step,
+        })
+    }
+}
+
+/// How much the gates ask of a change. Ordered: a higher level is stricter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Level {
+    /// The gates do not run for this risk (no line of today's rules gives it).
+    Open,
+    /// The lock alone: the checks run, nobody else looks.
+    Lock,
+    /// The lock and the guard: the Reviewer looks too.
+    LockGuard,
+    /// The lock, the guard and the human's approval (G4).
+    LockGuardApproval,
+}
+
+/// When the tests are written before the code (was `tests_first`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockStep {
+    /// Never.
+    Never,
+    /// Only when the change brings a new lock.
+    NewLock,
+    /// Always.
+    Always,
+}
+
+/// The optional command that runs mutation testing, as [`LevelRule::run`] names it.
+pub const MUTATION: &str = "mutation";
+
+/// One line of the rules: the level of every gate for a color and a lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LevelRule {
+    /// The color the line is for.
+    pub color: Color,
+    /// The lane the line is for.
+    pub lane: Lane,
+    /// The level of the gates.
+    pub level: Level,
+    /// The level when the change brings a new lock (was `g4_if_g1`); never below `level`.
+    pub new_lock: Option<Level>,
+    /// Optional commands it switches on (was `mutation`): [`MUTATION`].
+    pub run: Vec<String>,
+    /// How deep the guard looks (was `review`).
+    pub guard: Depth,
+    /// When the tests are written before the code (was `tests_first`).
+    pub lock_step: LockStep,
+}
+
+/// The core's own items, in either layout: always red, and protected for every agent role.
+pub const CORE_ITEMS: [&str; 4] = ["tminus/**", ".tminus/**", "gdd/**", ".gdd/**"];
+
+/// Whether `path` is one of the core's own items: one a pattern of [`CORE_ITEMS`] matches.
+pub fn is_core_item(path: &str) -> bool {
+    CORE_ITEMS.iter().any(|p| glob_matches(p, path))
+}
+
+/// The core's floor, applied after the rules, which no rules file lowers: in red, `level` and
+/// `new_lock` are [`Level::LockGuardApproval`], the guard looks deep and `run` holds
+/// [`MUTATION`]. Other colors keep their rule as it is.
+pub fn floor(rule: LevelRule) -> LevelRule {
+    if rule.color != Color::Red {
+        return rule;
+    }
+    let mut run = rule.run;
+    if !run.iter().any(|command| command == MUTATION) {
+        run.push(MUTATION.to_string());
+    }
+    LevelRule {
+        level: Level::LockGuardApproval,
+        new_lock: Some(Level::LockGuardApproval),
+        run,
+        guard: Depth::Deep,
+        ..rule
     }
 }
 
@@ -354,12 +457,19 @@ mod tests {
         review: Depth::Quick,
     };
 
-    /// The same for red, which always has the core of GDD on.
-    const RED_UNSET: Rule = Rule {
-        mutation: true,
-        review: Depth::Deep,
-        ..UNSET
-    };
+    /// The rule of red in `lane` read as levels, whatever the table writes: the floor, with the
+    /// lock step `lock_step`.
+    fn red_floor(lane: Lane, lock_step: LockStep) -> LevelRule {
+        LevelRule {
+            color: Color::Red,
+            lane,
+            level: Level::LockGuardApproval,
+            new_lock: Some(Level::LockGuardApproval),
+            run: vec![MUTATION.to_string()],
+            guard: Depth::Deep,
+            lock_step,
+        }
+    }
 
     fn table(text: &str) -> RulesTable {
         RulesTable::from_toml(text).unwrap()
@@ -385,6 +495,7 @@ mod tests {
                 review: Depth::Quick,
             }
         );
+        // The table writes no depth for red: the floor gives it the deep one.
         assert_eq!(
             t.rule(Color::Red, Lane::Full),
             Rule {
@@ -392,9 +503,11 @@ mod tests {
                 mutation: true,
                 reviewer: true,
                 g4_if_g1: true,
-                review: Depth::Deep,
+                review: Depth::Quick,
             }
         );
+        let red = red_floor(Lane::Full, LockStep::Always);
+        assert_eq!(t.level_rule(Color::Red, Lane::Full), red);
     }
 
     #[test]
@@ -402,9 +515,9 @@ mod tests {
         let own = table("[color.yellow.full]\nmutation = true\n");
         for t in [default_table(), table(""), own] {
             for lane in [Lane::Fast, Lane::Full] {
-                assert_eq!(t.rule(Color::Green, lane).review, Depth::Quick);
-                assert_eq!(t.rule(Color::Yellow, lane).review, Depth::Quick);
-                assert_eq!(t.rule(Color::Red, lane).review, Depth::Deep);
+                assert_eq!(t.level_rule(Color::Green, lane).guard, Depth::Quick);
+                assert_eq!(t.level_rule(Color::Yellow, lane).guard, Depth::Quick);
+                assert_eq!(t.level_rule(Color::Red, lane).guard, Depth::Deep);
             }
         }
     }
@@ -418,7 +531,13 @@ mod tests {
         assert_eq!(t.rule(Color::Green, Lane::Full).review, Depth::Quick);
         assert_eq!(t.rule(Color::Yellow, Lane::Fast).review, Depth::Deep);
         assert_eq!(t.rule(Color::Yellow, Lane::Full).review, Depth::Deep);
-        assert_eq!(t.rule(Color::Red, Lane::Full), RED_UNSET);
+        let deep = Rule {
+            review: Depth::Deep,
+            ..UNSET
+        };
+        assert_eq!(t.rule(Color::Red, Lane::Full), deep);
+        let red = red_floor(Lane::Full, LockStep::NewLock);
+        assert_eq!(t.level_rule(Color::Red, Lane::Full), red);
         // A lane's own table replaces the color's, its depth too.
         let t = table("[color.yellow]\nreview = \"deep\"\n[color.yellow.full]\nmutation = true\n");
         assert_eq!(t.rule(Color::Yellow, Lane::Full).review, Depth::Quick);
@@ -495,7 +614,9 @@ mod tests {
         for lane in [Lane::Fast, Lane::Full] {
             assert_eq!(t.rule(Color::Green, lane), UNSET);
             assert_eq!(t.rule(Color::Yellow, lane), UNSET);
-            assert_eq!(t.rule(Color::Red, lane), RED_UNSET);
+            assert_eq!(t.rule(Color::Red, lane), UNSET);
+            let red = red_floor(lane, LockStep::NewLock);
+            assert_eq!(t.level_rule(Color::Red, lane), red);
         }
     }
 
@@ -602,8 +723,10 @@ mod tests {
         for name in ["color.red", "color.red.fast", "color.red.full"] {
             let text = format!("[{name}]\nreview = \"deep\"\n");
             let t = table(&text);
-            assert_eq!(t.rule(Color::Red, Lane::Fast), RED_UNSET, "{text}");
-            assert_eq!(t.rule(Color::Red, Lane::Full), RED_UNSET, "{text}");
+            for lane in [Lane::Fast, Lane::Full] {
+                let red = red_floor(lane, LockStep::NewLock);
+                assert_eq!(t.level_rule(Color::Red, lane), red, "{text}");
+            }
         }
         // Quick stays allowed outside red.
         let text = "[color.green]\nreview = \"quick\"\n[color.yellow.full]\nreview = \"quick\"\n";
@@ -613,23 +736,20 @@ mod tests {
     #[test]
     fn a_red_table_that_leaves_the_core_out_gets_it() {
         let t = table("[color.red.full]\ntests_first = false\n");
-        let expected = Rule {
-            tests_first: Some(false),
-            ..RED_UNSET
-        };
-        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
+        let red = red_floor(Lane::Full, LockStep::Never);
+        assert_eq!(t.level_rule(Color::Red, Lane::Full), red);
         let t = table("[color.red.fast]\nmutation = true\n");
-        assert_eq!(t.rule(Color::Red, Lane::Fast), RED_UNSET);
+        let red = red_floor(Lane::Fast, LockStep::NewLock);
+        assert_eq!(t.level_rule(Color::Red, Lane::Fast), red);
         // The table without a lane, and so both lanes, gets it too.
         let t = table("[color.red]\ntests_first = true\n");
-        let expected = Rule {
-            tests_first: Some(true),
-            ..RED_UNSET
-        };
-        assert_eq!(t.rule(Color::Red, Lane::Fast), expected);
-        assert_eq!(t.rule(Color::Red, Lane::Full), expected);
+        for lane in [Lane::Fast, Lane::Full] {
+            let red = red_floor(lane, LockStep::Always);
+            assert_eq!(t.level_rule(Color::Red, lane), red);
+        }
         let on = "[color.red.full]\nmutation = true\nreviewer = true\ng4_if_g1 = true\n";
-        assert_eq!(table(on).rule(Color::Red, Lane::Full), RED_UNSET);
+        let red = red_floor(Lane::Full, LockStep::NewLock);
+        assert_eq!(table(on).level_rule(Color::Red, Lane::Full), red);
         // Other colors keep the defaults.
         let t = table("[color.yellow.full]\ntests_first = false\n");
         let expected = Rule {
@@ -637,6 +757,131 @@ mod tests {
             ..UNSET
         };
         assert_eq!(t.rule(Color::Yellow, Lane::Full), expected);
+        let read = t.level_rule(Color::Yellow, Lane::Full);
+        assert_eq!((read.guard, read.run.len()), (Depth::Quick, 0));
+    }
+
+    /// The rule of `color` in `lane` that `text` writes, read as levels.
+    fn read_as_levels(text: &str, color: Color, lane: Lane) -> LevelRule {
+        table(text).level_rule(color, lane)
+    }
+
+    #[test]
+    fn each_key_of_a_rule_is_read_as_levels() {
+        let yellow = |text: &str, lane| read_as_levels(text, Color::Yellow, lane);
+        // Nothing written: the guard, and the human's approval with a new lock in the full lane.
+        let full = yellow("", Lane::Full);
+        let expected = LevelRule {
+            color: Color::Yellow,
+            lane: Lane::Full,
+            level: Level::LockGuard,
+            new_lock: Some(Level::LockGuardApproval),
+            run: vec![],
+            guard: Depth::Quick,
+            lock_step: LockStep::NewLock,
+        };
+        assert_eq!(full, expected);
+        let fast = LevelRule {
+            lane: Lane::Fast,
+            new_lock: None,
+            ..expected.clone()
+        };
+        assert_eq!(yellow("", Lane::Fast), fast);
+        // Each key on its own.
+        let off = "[color.yellow]\nreviewer = false\ng4_if_g1 = false\n";
+        let none = LevelRule {
+            level: Level::Lock,
+            new_lock: None,
+            ..expected.clone()
+        };
+        assert_eq!(yellow(off, Lane::Full), none);
+        let on = "[color.yellow]\nmutation = true\nreview = \"deep\"\n";
+        let more = LevelRule {
+            run: vec![MUTATION.to_string()],
+            guard: Depth::Deep,
+            ..expected
+        };
+        assert_eq!(yellow(on, Lane::Full), more);
+        for (tests_first, step) in [("true", LockStep::Always), ("false", LockStep::Never)] {
+            let text = format!("[color.yellow]\ntests_first = {tests_first}\n");
+            assert_eq!(yellow(&text, Lane::Full).lock_step, step, "{text}");
+            assert_eq!(yellow(&text, Lane::Fast).lock_step, step, "{text}");
+        }
+    }
+
+    #[test]
+    fn green_writes_the_tests_first_only_with_a_new_lock() {
+        for (line, step) in [
+            ("tests_first = true", LockStep::NewLock),
+            ("tests_first = false", LockStep::Never),
+            ("", LockStep::NewLock),
+        ] {
+            let text = format!("[color.green]\n{line}\n");
+            for lane in [Lane::Fast, Lane::Full] {
+                let read = read_as_levels(&text, Color::Green, lane);
+                assert_eq!(read.lock_step, step, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_floor_puts_red_at_the_top_and_leaves_the_other_colors_as_they_are() {
+        let rule = |color| LevelRule {
+            color,
+            lane: Lane::Fast,
+            level: Level::Lock,
+            new_lock: None,
+            run: vec!["lint".to_string()],
+            guard: Depth::Quick,
+            lock_step: LockStep::Never,
+        };
+        for color in [Color::Green, Color::Yellow] {
+            assert_eq!(floor(rule(color)), rule(color));
+        }
+        let red = floor(rule(Color::Red));
+        let expected = LevelRule {
+            run: vec!["lint".to_string(), MUTATION.to_string()],
+            ..red_floor(Lane::Fast, LockStep::Never)
+        };
+        assert_eq!(red, expected);
+        // Mutation testing is named once.
+        assert_eq!(floor(red.clone()), red);
+        assert_eq!(MUTATION, "mutation");
+    }
+
+    #[test]
+    fn a_higher_level_is_stricter() {
+        let levels = [
+            Level::Open,
+            Level::Lock,
+            Level::LockGuard,
+            Level::LockGuardApproval,
+        ];
+        assert!(levels.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn the_core_items_are_its_folders_in_either_layout() {
+        assert_eq!(CORE_ITEMS, ["tminus/**", ".tminus/**", "gdd/**", ".gdd/**"]);
+        let items = [
+            "tminus/rules.toml",
+            ".tminus/a/b.json",
+            "gdd/zones.toml",
+            ".gdd/x",
+        ];
+        for item in items {
+            assert!(is_core_item(item), "{item}");
+        }
+        let others = [
+            "tminus.md",
+            "src/gdd/a.rs",
+            "gdd",
+            "src/tminus/a.rs",
+            "docs/a.md",
+        ];
+        for other in others {
+            assert!(!is_core_item(other), "{other}");
+        }
     }
 
     #[test]
