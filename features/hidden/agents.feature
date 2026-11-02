@@ -1,11 +1,11 @@
 @hidden
-Feature: Hidden examples for agent sheets and gdd agents install
+Feature: Hidden examples for agent sheets and tminus agents install
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**"]
+      all = ["tminus/**"]
       """
     And the models:
       """
@@ -27,17 +27,17 @@ Feature: Hidden examples for agent sheets and gdd agents install
       """
 
   Scenario: Codex is told to call the setup its own way
-    When I run "gdd agents install"
-    Then the file ".agents/skills/gdd-status/SKILL.md" contains "`$gdd-setup`"
+    When I run "tminus agents install"
+    Then the file ".agents/skills/tminus-status/SKILL.md" contains "`$tminus-setup`"
 
   Scenario: Check names an edited Codex command
-    Given I run "gdd agents install"
-    When the change modifies ".agents/skills/gdd-build/SKILL.md"
-    And I run "gdd agents check"
-    Then it fails with a message that contains ".agents/skills/gdd-build/SKILL.md"
+    Given I run "tminus agents install"
+    When the change modifies ".agents/skills/tminus-build/SKILL.md"
+    And I run "tminus agents check"
+    Then it fails with a message that contains ".agents/skills/tminus-build/SKILL.md"
 
   Scenario: Naming one agent writes only its commands
-    When I run "gdd agents install --agent claude"
+    When I run "tminus agents install --agent claude"
     Then it succeeds
-    And the file ".claude/skills/gdd-replan/SKILL.md" contains "name: gdd-replan"
-    And the file ".agents/skills/gdd-build/SKILL.md" does not exist
+    And the file ".claude/skills/tminus-replan/SKILL.md" contains "name: tminus-replan"
+    And the file ".agents/skills/tminus-build/SKILL.md" does not exist

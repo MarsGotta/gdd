@@ -1,6 +1,6 @@
 Feature: A parked change gets going again
   A relaunch of a parked change finds work in its worktree: what the agents of the earlier run
-  wrote, and what a person changed by hand after it parked. gdd keeps the hashes of that work when
+  wrote, and what a person changed by hand after it parked. tminus keeps the hashes of that work when
   the change parks, so the relaunch knows which is which. The agents' work is committed once the
   gates of the earlier run accept it, as before; what changed by hand after the park is committed
   as the person's, said in the Decision Inbox, and never judged as a Builder's. A Builder is judged
@@ -13,7 +13,7 @@ Feature: A parked change gets going again
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -80,11 +80,11 @@ Feature: A parked change gets going again
   Scenario: A relaunch with the earlier code and G2 red judges test mode only on what it writes
     Given the gate command "g2" "unit" is "test -f src/app.txt && ! grep -q TODO tests/steps/app.txt"
     And the gate command "g3" "acceptance_full" is "test -f src/extra.txt"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
     And the file "src/extra.txt" in the worktree of "c1" is written by hand saying "the missing part"
     And the file "tests/steps/app.txt" in the worktree of "c1" is written by hand saying "TODO split this step"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                   |
@@ -95,14 +95,14 @@ Feature: A parked change gets going again
       | builder-build | sonnet | change=c1 mode=build        |
       | reviewer      | gpt-6  | change=c1 round=1           |
     And the record of "c1" is in state "closed"
-    And the file ".gdd/changes/c1/inbox.md" contains "not a Builder's work: src/extra.txt, tests/steps/app.txt"
+    And the file ".tminus/changes/c1/inbox.md" contains "not a Builder's work: src/extra.txt, tests/steps/app.txt"
 
   Scenario: A relaunch whose code passes G2 after a step fixed by hand skips the Builder and passes G3
     Given the gate command "g3" "acceptance_full" is "grep -q split tests/steps/app.txt"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
     And the file "tests/steps/app.txt" in the worktree of "c1" is written by hand saying "split in three steps"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                   |
@@ -115,10 +115,10 @@ Feature: A parked change gets going again
 
   Scenario: A hand commit on the branch over the agents' uncommitted work is kept as the person's
     Given the gate command "g3" "acceptance_full" is "test -f tests/steps/helper.txt"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
     And the file "tests/steps/helper.txt" in the worktree of "c1" is committed by hand saying "a helper step"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                   |
@@ -128,16 +128,16 @@ Feature: A parked change gets going again
       | reviewer      | gpt-6  | change=c1 round=1           |
     And the record of "c1" is in state "closed"
     And the branch "main" holds "tests/steps/app.txt"
-    And the file ".gdd/changes/c1/inbox.md" contains "not a Builder's work: tests/steps/helper.txt"
+    And the file ".tminus/changes/c1/inbox.md" contains "not a Builder's work: tests/steps/helper.txt"
 
   Scenario: Earlier work its gates did not accept parks the relaunch before any agent call
     Given the Builder in build mode also writes "tests/steps/sneaky.txt" with:
       """
       a step build mode wrote
       """
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: Work of the earlier run that its gates did not accept: tests/steps/sneaky.txt: protected path for builder-build"
     And the output does not contain "tests/steps/app.txt: protected"
     And the agents were called in this order:
@@ -149,7 +149,7 @@ Feature: A parked change gets going again
       | orchestrator  | opus   | change=c1 reason=g2               |
       | builder-build | sonnet | change=c1 mode=build after=replan |
     And the record of "c1" is in state "parked"
-    And the file ".gdd/changes/c1/inbox.md" does not contain "G2 still red after"
+    And the file ".tminus/changes/c1/inbox.md" does not contain "G2 still red after"
 
   Scenario: A file build mode wrote where it may not stays its own after the replan sends the change to test mode
     Given the Builder in build mode also writes "tests/steps/sneaky.txt" with:
@@ -157,8 +157,8 @@ Feature: A parked change gets going again
       a step build mode wrote
       """
     And the replan answers "NEXT: test"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: G2 still red after 3 retries and 1 replan"
     And the agents were called in this order:
       | role          | model  | arguments                         |
@@ -172,19 +172,19 @@ Feature: A parked change gets going again
     And the branch "main" does not hold "tests/steps/sneaky.txt"
 
   Scenario: A launch refused before the build leaves no worktree behind
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "New or changed scenarios without G1"
     And the change "c1" has no worktree
     And the current branch is "main"
 
   Scenario: A refused relaunch keeps the worktree of the parked change
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Builder in build mode writes nothing
-    And I run "gdd launch c1"
-    And main has the file "gdd/zones.toml" with:
+    And I run "tminus launch c1"
+    And main has the file "tminus/zones.toml" with:
       """
       default = "yellow"
 
@@ -193,6 +193,6 @@ Feature: A parked change gets going again
       paths = ["src/storage/**", "src/sync/**"]
       reason = "Losing the user's drafts"
       """
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "Red zones changed after their approval"
     And the change "c1" has a worktree next to the project

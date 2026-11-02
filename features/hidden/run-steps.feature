@@ -5,7 +5,7 @@ Feature: Hidden examples for the single steps of the recipe
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,23 +70,23 @@ Feature: Hidden examples for the single steps of the recipe
   Scenario: A red change with its plan approved gets the strong Builder
     Given the Setup is done
     And the red zones are approved
-    And I run "gdd new-change c2 --title Store --paths src/storage/files.rs"
-    And I run "gdd gate plan ok c2 --by human"
+    And I run "tminus new-change c2 --title Store --paths src/storage/files.rs"
+    And I run "tminus gate plan ok c2 --by human"
     And I am on the branch "change/c2"
-    When I run "gdd prepare c2"
+    When I run "tminus prepare c2"
     Then the JSON field "builder" is {"integration": "claude", "model": "opus"}
     And the record of "c2" is in state "building"
 
   Scenario: A red change is promoted after the human G4
-    Given I run "gdd new-change c2 --title Store --paths src/storage/files.rs"
-    And I run "gdd gate G4 ok c2 --by human"
-    When I run "gdd release promote c2"
+    Given I run "tminus new-change c2 --title Store --paths src/storage/files.rs"
+    And I run "tminus gate G4 ok c2 --by human"
+    When I run "tminus release promote c2"
     Then it succeeds
     And the record of "c2" is in state "in-production"
 
   Scenario: Merge refuses a G3 recorded as ko
-    Given I run "gdd new-change c2 --title Store --paths src/app.rs"
+    Given I run "tminus new-change c2 --title Store --paths src/app.rs"
     And I am on the branch "change/c2"
-    And I run "gdd gate G3 ko c2 --by machines"
-    When I run "gdd merge c2"
+    And I run "tminus gate G3 ko c2 --by machines"
+    When I run "tminus merge c2"
     Then it fails with a message that contains "G3 is not open"

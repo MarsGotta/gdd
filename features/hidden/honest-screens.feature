@@ -5,7 +5,7 @@ Feature: The screens say what is true (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -25,14 +25,14 @@ Feature: The screens say what is true (hidden examples)
     And everything is committed on main
 
   Scenario: A hotfix shows the line of its type at G4
-    Given I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.rs"
+    Given I run "tminus new-change c2 --title Crash --type Hotfix --paths src/app.rs"
     And the change "c2" is in state "in-pre"
     When I open the sitting of "c2"
     Then the sitting shows "Changelog: Fixed · Crash"
     And the sitting does not show "none set"
 
   Scenario: A finding linked to the project shows its path, and a link elsewhere its words
-    Given I run "gdd new-change c2 --title Export --paths src/export.rs"
+    Given I run "tminus new-change c2 --title Export --paths src/export.rs"
     And the change "c2" is in state "in-pre"
     And the review of "c2" says, with its folders filled in:
       """
@@ -47,17 +47,17 @@ Feature: The screens say what is true (hidden examples)
     And the sitting does not show "elsewhere"
 
   Scenario: A rejected change asks nothing more either
-    Given I run "gdd new-change c2 --title Export --paths src/export.rs"
-    And I run "gdd note c2 needs Which folder gets the files"
+    Given I run "tminus new-change c2 --title Export --paths src/export.rs"
+    And I run "tminus note c2 needs Which folder gets the files"
     And the change "c2" is in state "rejected"
-    When I run "gdd inbox c2"
+    When I run "tminus inbox c2"
     Then it succeeds
     And the output does not contain "- Which folder gets the files"
     And the output contains "1 request(s) were still open when the change ended (kept in change.json)"
 
   Scenario: A change without scenarios waits for no G1
-    Given I run "gdd new-change c2 --title Export --paths src/export.rs"
-    When I run "gdd inbox c2"
+    Given I run "tminus new-change c2 --title Export --paths src/export.rs"
+    When I run "tminus inbox c2"
     Then it succeeds
     And the output contains "## Needs your decision"
     And the output does not contain "G1 · Scenario Gate"

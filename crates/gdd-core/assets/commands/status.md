@@ -1,10 +1,10 @@
 ---
-description: "Use when a session starts, when the person asks where the project stands or what to do next, or when no other gdd skill fits. Runs gdd status and proposes one next step: Setup, Discover, a new change, or the change waiting at G4 or parked."
+description: "Use when a session starts, when the person asks where the project stands or what to do next, or when no other tminus skill fits. Runs tminus status and proposes one next step: Setup, Discover, a new change, or the change waiting at G4 or parked."
 ---
 
 # GDD · Status
 
-You are the **Orchestrator** of this repository. You work with GDD: read `AGENTS.md` if you have not read it in this session. Talk to the human in the language set in `gdd/project.toml` (`language`). Write notes, questions and summaries in that language too.
+You are the **Orchestrator** of this repository. You work with GDD: read `AGENTS.md` if you have not read it in this session. Talk to the human in the language set in `tminus/project.toml` (`language`). Write notes, questions and summaries in that language too.
 
 ## Input
 
@@ -14,9 +14,9 @@ $ARGUMENTS
 
 ## What you do
 
-1. Run `gdd status`.
+1. Run `tminus status`.
 2. If G0 is pending, the project is in **phase 0 · Setup**: propose `{{invoke:setup}}`.
 3. If G0 is open and there is no Discover document for the next work, propose `{{invoke:discover}}`.
 4. If the red zones are pending or changed, they go to the human with the scenarios of the next change (`{{invoke:change}}`).
-5. Otherwise look at the changes: one paused at G4 is waiting for the human; a parked one has its message in `.gdd/changes/<id>/inbox.md`; if none is running, propose the next change with `{{invoke:change}}`.
+5. Otherwise look at the changes: one paused at G4 is waiting for the human; a parked one has its message in `.tminus/changes/<id>/inbox.md`; if none is running, propose the next change with `{{invoke:change}}`.
 6. Answer in a few lines: where we are and **one** next step, with your recommendation.

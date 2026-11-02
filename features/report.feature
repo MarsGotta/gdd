@@ -1,5 +1,5 @@
 Feature: Report token usage
-  Every agent call leaves a line in .gdd/log.jsonl with its tokens, cost and time.
+  Every agent call leaves a line in .tminus/log.jsonl with its tokens, cost and time.
   The report adds them up by role, model, phase or change, so the human can see
   where the tokens go. Machine lines without tokens are not agent calls.
 
@@ -16,7 +16,7 @@ Feature: Report token usage
       """
 
   Scenario: Report by role
-    When I run "gdd report --by role"
+    When I run "tminus report --by role"
     Then the output is:
       """
       role -> calls · tokens in · cache · out · cost USD · seconds
@@ -27,34 +27,34 @@ Feature: Report token usage
       """
 
   Scenario: Report for one change
-    When I run "gdd report --by role --change a"
+    When I run "tminus report --by role --change a"
     Then the output contains "builder-build -> 2 · 300 · 1,000 · 50 · 0.0300 · 12"
     And the output contains "TOTAL -> in 1,300 · cache 1,000 · out 90 · 0.0300 USD"
 
   Scenario: Report by two keys
-    When I run "gdd report --by model,role"
+    When I run "tminus report --by model,role"
     Then the output contains "model · role -> calls · tokens in · cache · out · cost USD · seconds"
     And the output contains "opus · builder-build -> 2 · 300 · 1,000 · 50 · 0.0300 · 12"
     And the output contains "sonnet · builder-build -> 1 · 50 · 0 · 5 · 0.0010 · 2"
 
   Scenario: The default grouping is by role
-    When I run "gdd report"
+    When I run "tminus report"
     Then the output contains "builder-build -> 3 · 350 · 1,000 · 55 · 0.0310 · 14"
 
   Scenario: A change with no agent calls
-    When I run "gdd report --change zzz"
+    When I run "tminus report --change zzz"
     Then the output is:
       """
       No agent calls in the log yet.
       """
 
   Scenario: Machine-readable report
-    When I run "gdd report --by role --json"
+    When I run "tminus report --by role --json"
     Then the output is a JSON list of 2 entries
     And the entry with "role" "reviewer" has "tokens_in" 1000 and "calls" 1
 
   Scenario: A broken line in the log is left out, and the report says so
     Given the log line 3 is replaced by "{not json"
-    When I run "gdd report"
+    When I run "tminus report"
     Then it succeeds
-    And the output contains "1 line of the log is not one of gdd's: left out"
+    And the output contains "1 line of the log is not one of tminus's: left out"

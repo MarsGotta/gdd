@@ -43,7 +43,7 @@ pub struct GddWorld {
     switched_off: String,
 }
 
-#[given("the gdd tool")]
+#[given("the tminus tool")]
 fn the_tool(_w: &mut GddWorld) {}
 
 #[when("I ask for its version")]
@@ -112,7 +112,7 @@ fn set_zone_map(w: &mut GddWorld, zone_map: &str) {
     // In a project (guard and scope features) the map also lives where the tool reads it.
     if w.project.is_some() {
         write_file(
-            &project_root_of(w).join("gdd/zones.toml"),
+            &pj(&project_root_of(w), "tminus/zones.toml"),
             &format!("{}\n", w.zone_map),
         );
     }
@@ -222,12 +222,33 @@ fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("a written file");
 }
 
-/// The project root of the scenario, created on first use with its `gdd/project.toml`.
+/// True when the project at `root` was set up before the rename: it has `gdd/project.toml` and
+/// no `tminus/project.toml`. Its files are in `gdd/` and its state in `.gdd/`.
+fn old_layout(root: &Path) -> bool {
+    root.join("gdd/project.toml").is_file() && !root.join("tminus/project.toml").is_file()
+}
+
+/// `path`, written in the new names (`tminus/zones.toml`, `.tminus/log.jsonl`), as the project at
+/// `root` names it: the same in a new project, the `gdd` names in an old one.
+fn lay(root: &Path, path: &str) -> String {
+    if old_layout(root) {
+        path.replace("tminus", "gdd")
+    } else {
+        path.to_string()
+    }
+}
+
+/// `root` joined with `path` (written in the new names) in the layout of the project at `root`.
+fn pj(root: &Path, path: &str) -> PathBuf {
+    root.join(lay(root, path))
+}
+
+/// The project root of the scenario, created on first use with its `tminus/project.toml`.
 fn project_root(w: &mut GddWorld) -> PathBuf {
     if w.project.is_none() {
         let dir = scenario_folder();
         write_file(
-            &dir.0.join("project/gdd/project.toml"),
+            &dir.0.join("project/tminus/project.toml"),
             "name = \"demo\"\nlanguage = \"en\"\n",
         );
         w.project = Some(dir);
@@ -262,7 +283,14 @@ fn world_env(w: &mut GddWorld) -> &mut Vec<(String, String)> {
             .filter(|(name, _)| {
                 !matches!(
                     name.as_str(),
-                    "GDD_ROLE" | "GDD_CHANGE" | "GDD_ROOT" | "GDD_STATE"
+                    "GDD_ROLE"
+                        | "GDD_CHANGE"
+                        | "GDD_ROOT"
+                        | "GDD_STATE"
+                        | "TMINUS_ROLE"
+                        | "TMINUS_CHANGE"
+                        | "TMINUS_ROOT"
+                        | "TMINUS_STATE"
                 )
             })
             .collect()
@@ -277,17 +305,22 @@ fn set_env(w: &mut GddWorld, name: &str, value: &str) {
 
 /// Runs `command` as `role`, in the environment of the scenario.
 fn run_gdd_as(w: &mut GddWorld, command: &str, cwd: &Path, role: Option<&str>) {
-    let args: Vec<String> = command
-        .split_whitespace()
-        .skip_while(|word| *word == "gdd")
-        .map(str::to_string)
-        .collect();
+    // The first word names the program (`tminus` or `gdd`); without one, the program is `tminus`.
+    let mut words = command.split_whitespace().peekable();
+    let program = match words.peek() {
+        Some(&"gdd") => "gdd",
+        _ => "tminus",
+    };
+    if matches!(words.peek(), Some(&"gdd") | Some(&"tminus")) {
+        words.next();
+    }
+    let args: Vec<String> = words.map(str::to_string).collect();
     let mut env = world_env(w).clone();
     env.retain(|(name, _)| name != "GDD_ROLE");
     if let Some(role) = role {
         env.push(("GDD_ROLE".to_string(), role.to_string()));
     }
-    let out = gdd::run_with_env(&args, cwd, &env);
+    let out = gdd::run_named(program, &args, cwd, &env);
     // A check on the exit code belongs to the run it followed, never to a later one.
     w.exit_checked = false;
     w.ran = Some(Ran {
@@ -312,22 +345,22 @@ fn stdout_json(w: &GddWorld) -> serde_json::Value {
 fn project_with_log(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
     let log = docstring(step, "a log docstring");
-    write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
+    write_file(&pj(&root, ".tminus/log.jsonl"), &format!("{log}\n"));
 }
 
 #[given("the log says:")]
 fn the_log_says(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
     let log = docstring(step, "a log docstring");
-    write_file(&root.join(".gdd/log.jsonl"), &format!("{log}\n"));
+    write_file(&pj(&root, ".tminus/log.jsonl"), &format!("{log}\n"));
 }
 
 #[given("the log has the line:")]
 fn the_log_has_the_line(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     use std::io::Write;
-    let path = project_root(w).join(".gdd/log.jsonl");
+    let path = pj(&project_root(w), ".tminus/log.jsonl");
     let line = docstring(step, "a log line docstring");
-    fs::create_dir_all(path.parent().expect("a folder")).expect("the .gdd folder");
+    fs::create_dir_all(path.parent().expect("a folder")).expect("the state folder");
     let mut log = fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -338,7 +371,7 @@ fn the_log_has_the_line(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
 
 #[given(regex = r#"^the log line (\d+) is replaced by "(.*)"$"#)]
 fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
-    let path = project_root(w).join(".gdd/log.jsonl");
+    let path = pj(&project_root(w), ".tminus/log.jsonl");
     let log = fs::read_to_string(&path).expect("a log to edit");
     let mut lines: Vec<&str> = log.lines().collect();
     assert!(number >= 1 && number <= lines.len(), "no log line {number}");
@@ -350,14 +383,14 @@ fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
 fn project_with_zone_map(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
     let zones = docstring(step, "a zone map docstring");
-    write_file(&root.join("gdd/zones.toml"), &format!("{zones}\n"));
+    write_file(&pj(&root, "tminus/zones.toml"), &format!("{zones}\n"));
 }
 
 #[given("the project's rules table is the default one")]
 fn project_default_rules(w: &mut GddWorld) {
     let root = project_root(w);
     write_file(
-        &root.join("gdd/rules.toml"),
+        &pj(&root, "tminus/rules.toml"),
         &fs::read_to_string(repo_root().join("gdd/rules.toml")).expect("the repository's rules"),
     );
 }
@@ -375,7 +408,10 @@ fn planned_change(w: &mut GddWorld, id: String, text: String) {
         "gates": {},
         "inbox": [],
     });
-    let path = project_root(w).join(format!(".gdd/changes/{id}/change.json"));
+    let path = pj(
+        &project_root(w),
+        &format!(".tminus/changes/{id}/change.json"),
+    );
     write_file(&path, &record.to_string());
 }
 
@@ -530,14 +566,14 @@ fn commit_all(root: &Path, message: &str) {
 
 /// The record of change `id`, read and written back as JSON.
 fn read_record(root: &Path, id: &str) -> serde_json::Value {
-    let text = fs::read_to_string(root.join(format!(".gdd/changes/{id}/change.json")))
+    let text = fs::read_to_string(pj(root, &format!(".tminus/changes/{id}/change.json")))
         .expect("a change record");
     serde_json::from_str(&text).expect("a JSON record")
 }
 
 fn write_record(root: &Path, id: &str, record: &serde_json::Value) {
     write_file(
-        &root.join(format!(".gdd/changes/{id}/change.json")),
+        &pj(root, &format!(".tminus/changes/{id}/change.json")),
         &record.to_string(),
     );
 }
@@ -558,7 +594,7 @@ fn git_project(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
 
 fn init_git_project(w: &mut GddWorld, rules: &str) {
     let root = project_root(w);
-    write_file(&root.join("gdd/rules.toml"), &format!("{rules}\n"));
+    write_file(&pj(&root, "tminus/rules.toml"), &format!("{rules}\n"));
     git(&root, &["init", "-q", "-b", "main"]);
     // Steps that make gdd commit need an author: repo-local, gdd never sets one.
     git(&root, &["config", "--local", "user.name", "GDD Test"]);
@@ -787,7 +823,7 @@ fn write_gate_commands(w: &mut GddWorld, commands: &str) {
     if !commands.contains("[release]") {
         commands.push_str("\n\n[release]\nsimulated = true");
     }
-    write_file(&root.join("gdd/commands.toml"), &format!("{commands}\n"));
+    write_file(&pj(&root, "tminus/commands.toml"), &format!("{commands}\n"));
 }
 
 /// Replaces the command `name` of the `[gate]` section of a commands file.
@@ -817,12 +853,12 @@ fn with_command(toml: &str, gate: &str, name: &str, command: &str) -> String {
 #[given(regex = r#"^the gate command "([^"]+)" "([^"]+)" is "((?:[^"\\]|\\.)*)"$"#)]
 fn gate_command_is(w: &mut GddWorld, gate: String, name: String, command: String) {
     let root = project_root(w);
-    let path = root.join("gdd/commands.toml");
+    let path = pj(&root, "tminus/commands.toml");
     let toml = fs::read_to_string(&path).expect("gate commands to edit");
     // The step text escapes the quotes inside the command.
     let command = command.replace("\\\"", "\"");
     write_file(&path, &with_command(&toml, &gate, &name, &command));
-    commit_harness_file(&root, "gdd/commands.toml", "gate commands");
+    commit_harness_file(&root, &lay(&root, "tminus/commands.toml"), "gate commands");
 }
 
 /// The command `name` of the `gate` section of the sheet `stack`, as `gdd stacks show` prints it.
@@ -845,7 +881,7 @@ fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stac
     if on_branch {
         git(&root, &["checkout", "-q", "main"]);
     }
-    let path = root.join("gdd/commands.toml");
+    let path = pj(&root, "tminus/commands.toml");
     let toml = fs::read_to_string(&path).expect("gate commands to edit");
     // Gate commands run in the process environment, not the scenario's: the command puts the
     // folder of the scenario's fake programs first on its own PATH.
@@ -865,7 +901,7 @@ fn gate_command_is_the_sheets(w: &mut GddWorld, gate: String, name: String, stac
     let command = sheet_command(&stack, &gate, &name);
     let command = format!("PATH='{programs}':\"$PATH\"; export PATH; {command}");
     write_file(&path, &with_command(&toml, &gate, &name, &command));
-    commit_harness_file(&root, "gdd/commands.toml", "gate commands");
+    commit_harness_file(&root, &lay(&root, "tminus/commands.toml"), "gate commands");
     if on_branch {
         git(&root, &["checkout", "-q", &branch]);
         git(&root, &["merge", "-q", "--no-edit", "main"]);
@@ -884,7 +920,7 @@ fn commit_harness_file(root: &Path, file: &str, message: &str) {
 /// Moves to `HEAD` the start of the build of the change whose branch is checked out.
 fn move_build_start(root: &Path) {
     let head = git(root, &["rev-parse", "HEAD"]);
-    let changes = root.join(".gdd/changes");
+    let changes = pj(root, ".tminus/changes");
     let ids: Vec<String> = fs::read_dir(&changes)
         .map(|dir| {
             dir.flatten()
@@ -997,7 +1033,7 @@ fn file_says_passed(w: &mut GddWorld, path: String) {
 
 #[then(expr = "the log has a {string} line for {string} with result {string}")]
 fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) {
-    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let text = fs::read_to_string(pj(&project_root(w), ".tminus/log.jsonl")).unwrap_or_default();
     let found = text
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -1013,7 +1049,7 @@ fn log_has_line(w: &mut GddWorld, gate: String, change: String, result: String) 
 }
 
 fn log_lines_of_command(w: &mut GddWorld, command: &str, change: &str) -> Vec<serde_json::Value> {
-    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let text = fs::read_to_string(pj(&project_root(w), ".tminus/log.jsonl")).unwrap_or_default();
     text.lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .filter(|r| r["role"] == "machine" && r["agent"] == command && r["change"] == change)
@@ -1120,10 +1156,10 @@ fn output_contains_times(w: &mut GddWorld, text: String, times: usize) {
     );
 }
 
-/// Rewrites `gdd/project.toml` with `stack_line` first and the other lines kept, but for any
+/// Rewrites `tminus/project.toml` with `stack_line` first and the other lines kept, but for any
 /// earlier `stack` key.
 fn set_project_stack(w: &mut GddWorld, stack_line: &str) {
-    let path = project_root(w).join("gdd/project.toml");
+    let path = pj(&project_root(w), "tminus/project.toml");
     let current = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path:?}: {e}"));
     let kept: Vec<&str> = current
         .lines()
@@ -1194,13 +1230,13 @@ fn red_zone_paths_become(w: &mut GddWorld, first: String, second: String) {
     let zones = w
         .zone_map
         .replace(old, &format!("paths = [\"{first}\", \"{second}\"]"));
-    write_file(&root.join("gdd/zones.toml"), &format!("{zones}\n"));
+    write_file(&pj(&root, "tminus/zones.toml"), &format!("{zones}\n"));
 }
 
 #[given("the self-test passed")]
 fn self_test_passed(w: &mut GddWorld) {
     let root = project_root(w);
-    write_file(&root.join(".gdd/selftest.json"), r#"{"ok": true}"#);
+    write_file(&pj(&root, ".tminus/selftest.json"), r#"{"ok": true}"#);
 }
 
 /// Commits `content` as `path` on the branch of change `id`, and goes back to the branch we
@@ -1241,14 +1277,14 @@ fn hidden_example_on_branch(w: &mut GddWorld, id: String, file: String, sentence
 #[given(expr = "the review of {string} says, with its folders filled in:")]
 fn review_with_folders(w: &mut GddWorld, id: String, step: &cucumber::gherkin::Step) {
     let root = project_root(w);
-    let rules = fs::read_to_string(root.join("gdd/rules.toml")).unwrap_or_default();
+    let rules = fs::read_to_string(pj(&root, "tminus/rules.toml")).unwrap_or_default();
     let folder = gdd_core::recipe::worktree::folder(&root, &rules).expect("a worktree folder");
     let worktree = folder.join(&id);
     let text = docstring(step, "the step needs a doc string with the review")
         .replace("<worktree>", &worktree.display().to_string())
         .replace("<project>", &root.display().to_string());
     write_file(
-        &root.join(format!(".gdd/changes/{id}/review.md")),
+        &pj(&root, &format!(".tminus/changes/{id}/review.md")),
         &format!("{text}\n"),
     );
 }
@@ -1325,7 +1361,7 @@ fn the_models(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
 fn set_models(w: &mut GddWorld, models: &str) {
     w.models = models.to_string();
     let root = project_root(w);
-    write_file(&root.join("gdd/models.toml"), &format!("{}\n", w.models));
+    write_file(&pj(&root, "tminus/models.toml"), &format!("{}\n", w.models));
 }
 
 /// Appends more tables to the scenario's models (a price for another model, for instance).
@@ -1360,15 +1396,16 @@ fn with_reviewer(models: &str, integration: &str, model: &str, effort: Option<&s
     format!("{}\n", lines.join("\n"))
 }
 
-/// Writes `gdd/models.toml`. Harness state, as in the Background: when the project is committed
-/// already, commit it too.
+/// Writes `tminus/models.toml`. Harness state, as in the Background: when the project is
+/// committed already, commit it too.
 fn write_models(w: &mut GddWorld, models: &str) {
     let root = project_root(w);
-    write_file(&root.join("gdd/models.toml"), models);
-    let changed = git(&root, &["status", "--porcelain", "--", "gdd/models.toml"]);
-    let known = git(&root, &["log", "--oneline", "-1", "--", "gdd/models.toml"]);
+    let file = lay(&root, "tminus/models.toml");
+    write_file(&root.join(&file), models);
+    let changed = git(&root, &["status", "--porcelain", "--", &file]);
+    let known = git(&root, &["log", "--oneline", "-1", "--", &file]);
     if !changed.trim().is_empty() && !known.trim().is_empty() {
-        git(&root, &["add", "--", "gdd/models.toml"]);
+        git(&root, &["add", "--", &file]);
         git(&root, &["commit", "-q", "-m", "models"]);
     }
 }
@@ -1407,7 +1444,7 @@ fn environment_has(w: &mut GddWorld, name: String, value: String) {
 
 #[given("the local state is gone")]
 fn local_state_gone(w: &mut GddWorld) {
-    let state = project_root(w).join(".gdd");
+    let state = pj(&project_root(w), ".tminus");
     fs::remove_dir_all(&state).expect("the project had local state");
     assert!(!state.exists(), "the local state is still there");
 }
@@ -1449,15 +1486,15 @@ fn claude_session_used(w: &mut GddWorld, session: String, model: String, output:
 fn setup_done(w: &mut GddWorld) {
     let root = project_root(w);
     write_file(&root.join("docs/brief.md"), "# Project Brief\n");
-    write_file(&root.join(".gdd/selftest.json"), r#"{"ok": true}"#);
-    run_gdd(w, "gdd gate G0 ok --by machines", &root);
+    write_file(&pj(&root, ".tminus/selftest.json"), r#"{"ok": true}"#);
+    run_gdd(w, "tminus gate G0 ok --by machines", &root);
     assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
 }
 
 #[given("the red zones are approved")]
 fn red_zones_approved(w: &mut GddWorld) {
     let root = project_root(w);
-    run_gdd(w, "gdd gate zones ok --by human", &root);
+    run_gdd(w, "tminus gate zones ok --by human", &root);
     assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
 }
 
@@ -1468,7 +1505,7 @@ fn on_the_branch(w: &mut GddWorld, branch: String) {
 
 #[given(expr = "the log has a Builder call in build mode for {string}")]
 fn log_has_builder_call(w: &mut GddWorld, change: String) {
-    let path = project_root(w).join(".gdd/log.jsonl");
+    let path = pj(&project_root(w), ".tminus/log.jsonl");
     let old = fs::read_to_string(&path).unwrap_or_default();
     let line = serde_json::json!({
         "ts": "2026-01-01T00:00:00+00:00",
@@ -1649,7 +1686,7 @@ fn file_text_is_replaced(w: &mut GddWorld, path: String, old: String, new: Strin
 
 #[then(expr = "agent call {int} was {string}")]
 fn agent_call_was(w: &mut GddWorld, number: usize, arguments: String) {
-    let calls = fs::read_to_string(project_root(w).join(".gdd/fake/argv")).unwrap_or_default();
+    let calls = fs::read_to_string(pj(&project_root(w), ".tminus/fake/argv")).unwrap_or_default();
     let call = calls.lines().nth(number.saturating_sub(1));
     assert_eq!(call, Some(arguments.as_str()), "the calls were:\n{calls}");
 }
@@ -1701,16 +1738,22 @@ fn last_commit_does_not_say(w: &mut GddWorld, branch: String, text: String) {
 
 const FAKE_AGENT: &str = r##"#!/bin/sh
 integration=${0##*/}
-[ -n "$GDD_ROOT" ] || exit 90
-[ -n "$GDD_CHANGE" ] || exit 91
-[ -n "$GDD_ROLE" ] || exit 92
-[ -n "$GDD_STATE" ] || exit 97
-[ "$(pwd -P)" = "$(cd "$GDD_ROOT" && pwd -P)" ] || exit 93
-mkdir -p "$GDD_STATE/.gdd/fake/env"
-echo "$*" >> "$GDD_STATE/.gdd/fake/argv"
-pwd -P >> "$GDD_STATE/.gdd/fake/cwds"
-call=$(wc -l < "$GDD_STATE/.gdd/fake/argv" | tr -d ' ')
-env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' > "$GDD_STATE/.gdd/fake/env/$call"
+ROOT=${TMINUS_ROOT:-$GDD_ROOT}
+CHANGE=${TMINUS_CHANGE:-$GDD_CHANGE}
+ROLE=${TMINUS_ROLE:-$GDD_ROLE}
+STATE=${TMINUS_STATE:-$GDD_STATE}
+[ -n "$ROOT" ] || exit 90
+[ -n "$CHANGE" ] || exit 91
+[ -n "$ROLE" ] || exit 92
+[ -n "$STATE" ] || exit 97
+[ "$(pwd -P)" = "$(cd "$ROOT" && pwd -P)" ] || exit 93
+sd="$STATE/.gdd"
+[ -n "$TMINUS_STATE" ] && sd="$STATE/.tminus"
+mkdir -p "$sd/fake/env"
+echo "$*" >> "$sd/fake/argv"
+pwd -P >> "$sd/fake/cwds"
+call=$(wc -l < "$sd/fake/argv" | tr -d ' ')
+env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' > "$sd/fake/env/$call"
 prev=
 prompt=
 model=
@@ -1720,18 +1763,18 @@ for a in "$@"; do
   case "$prev" in
     -p) prompt=$a ;;
     --model|-m) model=$a ;;
-    --command) cmd=${a#gdd-} ;;
+    --command) cmd=${a#tminus-}; cmd=${cmd#gdd-} ;;
   esac
   case "$a" in
-    '$gdd-'*) prompt=$a ;;
+    '$tminus-'*|'$gdd-'*) prompt=$a ;;
   esac
   prev=$a
   last=$a
 done
 [ -n "$model" ] || exit 94
 case "$integration" in
-  claude) cmd=${prompt#/gdd-} ;;
-  codex) cmd=${prompt#'$gdd-'} ;;
+  claude) cmd=${prompt#/tminus-}; cmd=${cmd#/gdd-} ;;
+  codex) cmd=${prompt#'$tminus-'}; cmd=${cmd#'$gdd-'} ;;
   opencode) args=$last ;;
   *) exit 94 ;;
 esac
@@ -1747,8 +1790,8 @@ case "$cmd" in
   replan) role=orchestrator ;;
   *) exit 96 ;;
 esac
-[ "$GDD_ROLE" = "$role" ] || exit 92
-fake="$GDD_STATE/.gdd/fake"
+[ "$ROLE" = "$role" ] || exit 92
+fake="$sd/fake"
 echo "$role|$model|$args" >> "$fake/calls"
 n=$(grep -c "^$role|" "$fake/calls")
 text=done
@@ -1770,7 +1813,7 @@ case "$role" in
     fi
     write=yes
     case "$mode" in
-      nothing\ *) case " ${mode#nothing } " in *" $GDD_CHANGE "*) write=no ;; esac ;;
+      nothing\ *) case " ${mode#nothing } " in *" $CHANGE "*) write=no ;; esac ;;
       never)
         sleep 1000 &
         echo $! >> "$fake/pids"
@@ -1821,17 +1864,17 @@ case "$role" in
     fi
     if [ -f "$fake/record" ]; then
       record=$(cat "$fake/record")
-      mkdir -p "$(dirname "$GDD_STATE/.gdd/changes/$record")"
-      echo "touched by the Builder" >> "$GDD_STATE/.gdd/changes/$record"
+      mkdir -p "$(dirname "$sd/changes/$record")"
+      echo "touched by the Builder" >> "$sd/changes/$record"
     fi
     if [ -f "$fake/log_line" ]; then
       log_line=$(cat "$fake/log_line")
       if [ "$n" = "${log_line#*|}" ]; then
-        printf '{"ts":"2026-01-01T00:00:00+00:00","change":"%s","phase":"2-build","gate":"-","role":"builder-build","agent":"claude","model":"sonnet","result":"ok"}\n' "${log_line%%|*}" >> "$GDD_STATE/.gdd/log.jsonl"
+        printf '{"ts":"2026-01-01T00:00:00+00:00","change":"%s","phase":"2-build","gate":"-","role":"builder-build","agent":"claude","model":"sonnet","result":"ok"}\n' "${log_line%%|*}" >> "$sd/log.jsonl"
       fi
     fi
     if [ -f "$fake/append_path" ]; then
-      appended="$GDD_STATE/$(cat "$fake/append_path")"
+      appended="$STATE/$(cat "$fake/append_path")"
       mkdir -p "$(dirname "$appended")"
       cat "$fake/append_line" >> "$appended"
     fi
@@ -1853,19 +1896,19 @@ case "$role" in
     fi
     if [ -f "$fake/main_gets" ] && [ "$n" = 1 ]; then
       path=$(cat "$fake/main_gets")
-      mkdir -p "$(dirname "$GDD_STATE/$path")"
-      echo "main moved on" > "$GDD_STATE/$path"
+      mkdir -p "$(dirname "$STATE/$path")"
+      echo "main moved on" > "$STATE/$path"
       unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-      git -C "$GDD_STATE" add -- "$path"
-      git -C "$GDD_STATE" -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "main moves on" -- "$path"
+      git -C "$STATE" add -- "$path"
+      git -C "$STATE" -c user.name="GDD Test" -c user.email=test@example.com -c commit.gpgsign=false commit -q -m "main moves on" -- "$path"
     fi
     text=$answer
     ;;
   orchestrator)
     answer="NEXT: build"
     [ -f "$fake/replan" ] && answer=$(cat "$fake/replan")
-    mkdir -p "$GDD_STATE/.gdd/changes/$GDD_CHANGE"
-    printf '%s\n' "$answer" > "$GDD_STATE/.gdd/changes/$GDD_CHANGE/replan.md"
+    mkdir -p "$sd/changes/$CHANGE"
+    printf '%s\n' "$answer" > "$sd/changes/$CHANGE/replan.md"
     text=$answer
     ;;
 esac
@@ -1887,7 +1930,7 @@ exit 0
 "##;
 
 fn fake_file(w: &mut GddWorld, name: &str, content: &str) {
-    let path = project_root(w).join(".gdd/fake").join(name);
+    let path = pj(&project_root(w), ".tminus/fake").join(name);
     write_file(&path, content);
 }
 
@@ -1896,13 +1939,13 @@ fn agents_are_fakes(w: &mut GddWorld) {
     use std::os::unix::fs::PermissionsExt;
     let root = project_root(w);
     for integration in ["claude", "codex", "opencode"] {
-        let path = root.join(".gdd/bin").join(integration);
+        let path = pj(&root, ".tminus/bin").join(integration);
         write_file(&path, FAKE_AGENT);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("an executable");
     }
     // The fakes come first on the PATH of the environment gdd runs in.
     let path = std::env::var("PATH").unwrap_or_default();
-    let with_fakes = format!("{}:{path}", root.join(".gdd/bin").display());
+    let with_fakes = format!("{}:{path}", pj(&root, ".tminus/bin").display());
     set_env(w, "PATH", &with_fakes);
 }
 
@@ -1913,7 +1956,8 @@ fn reviewer_writes(w: &mut GddWorld, path: String) {
 
 /// The full arguments of agent call `number` (from 1), as the fakes recorded them.
 fn agent_call(w: &GddWorld, number: usize) -> String {
-    let calls = fs::read_to_string(project_root_of(w).join(".gdd/fake/argv")).unwrap_or_default();
+    let calls =
+        fs::read_to_string(pj(&project_root_of(w), ".tminus/fake/argv")).unwrap_or_default();
     calls
         .lines()
         .nth(number.saturating_sub(1))
@@ -1982,7 +2026,7 @@ fn yellow_builder_is(w: &mut GddWorld, integration: String, model: String) {
 /// Whether agent call `number` had the environment variable `name`.
 fn agent_got(w: &GddWorld, number: usize, name: &str) -> bool {
     agent_call(w, number); // fails when there is no such call
-    let path = project_root_of(w).join(format!(".gdd/fake/env/{number}"));
+    let path = pj(&project_root_of(w), &format!(".tminus/fake/env/{number}"));
     let names = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path:?}: {e}"));
     names.lines().any(|line| line == name)
 }
@@ -2002,12 +2046,14 @@ fn agent_call_did_not_get(w: &mut GddWorld, number: usize, name: String) {
 
 #[then(expr = "the log line of agent call {int} has {string} {int}")]
 fn log_line_of_call_has(w: &mut GddWorld, number: usize, field: String, value: i64) {
-    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let root = project_root(w);
+    let text = fs::read_to_string(pj(&root, ".tminus/log.jsonl")).unwrap_or_default();
     // The lines of agent calls say which command they ran in their note.
+    let prefix = lay(&root, "/tminus-");
     let lines: Vec<serde_json::Value> = text
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .filter(|r| r["note"].as_str().is_some_and(|n| n.starts_with("/gdd-")))
+        .filter(|r| r["note"].as_str().is_some_and(|n| n.starts_with(&prefix)))
         .collect();
     let line = lines
         .get(number.saturating_sub(1))
@@ -2018,7 +2064,7 @@ fn log_line_of_call_has(w: &mut GddWorld, number: usize, field: String, value: i
 #[given("the Builder in build mode writes nothing")]
 fn builder_writes_nothing(w: &mut GddWorld) {
     // Only for the changes that exist now: one that is created later builds as usual.
-    let folder = project_root(w).join(".gdd/changes");
+    let folder = pj(&project_root(w), ".tminus/changes");
     let mut ids: Vec<String> = fs::read_dir(&folder)
         .map(|entries| {
             entries
@@ -2029,7 +2075,7 @@ fn builder_writes_nothing(w: &mut GddWorld) {
         .unwrap_or_default();
     assert!(
         !ids.is_empty(),
-        "the Builder writes nothing for the changes that exist: this step goes after gdd new-change"
+        "the Builder writes nothing for the changes that exist: this step goes after tminus new-change"
     );
     ids.sort();
     fake_file(w, "build", &format!("nothing {}", ids.join(" ")));
@@ -2037,7 +2083,7 @@ fn builder_writes_nothing(w: &mut GddWorld) {
 
 #[given(expr = "the Builder in build mode writes nothing for variant {int}")]
 fn builder_writes_nothing_for_variant(w: &mut GddWorld, variant: usize) {
-    let path = project_root(w).join(".gdd/fake/nothing_variants");
+    let path = pj(&project_root(w), ".tminus/fake/nothing_variants");
     let before = fs::read_to_string(&path).unwrap_or_default();
     fake_file(w, "nothing_variants", &format!("{before}{variant}\n"));
 }
@@ -2094,7 +2140,7 @@ fn builder_commits_g2_command(w: &mut GddWorld, path: String, marker: String) {
 #[given(expr = "the spike budget is {string} USD")]
 fn spike_budget(w: &mut GddWorld, max_usd: String) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     assert!(
         !rules.contains("[spike]"),
@@ -2102,7 +2148,7 @@ fn spike_budget(w: &mut GddWorld, max_usd: String) {
     );
     write_file(&path, &format!("{rules}\n[spike]\nmax_usd = {max_usd}\n"));
     // Harness state from before the change: committed, so the working tree stays clean.
-    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["add", "--", &lay(&root, "tminus/rules.toml")]);
     git(&root, &["commit", "-q", "-m", "spike budget"]);
 }
 
@@ -2155,7 +2201,7 @@ fn reviewer_answers_always(w: &mut GddWorld, answer: String) {
 #[given(expr = "the agent time limit is {int} seconds")]
 fn agent_time_limit(w: &mut GddWorld, seconds: u64) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     assert!(!rules.contains("[limits]"), "the rules already have limits");
     write_file(
@@ -2163,7 +2209,7 @@ fn agent_time_limit(w: &mut GddWorld, seconds: u64) {
         &format!("{rules}\n[limits]\nagent_timeout_s = {seconds}\n"),
     );
     // Harness state from before the change: committed, so the working tree stays clean.
-    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["add", "--", &lay(&root, "tminus/rules.toml")]);
     git(&root, &["commit", "-q", "-m", "agent time limit"]);
 }
 
@@ -2179,7 +2225,7 @@ fn agents_called_in_order(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
             cells.join("|")
         })
         .collect();
-    let calls = fs::read_to_string(project_root(w).join(".gdd/fake/calls")).unwrap_or_default();
+    let calls = fs::read_to_string(pj(&project_root(w), ".tminus/fake/calls")).unwrap_or_default();
     let actual: Vec<String> = calls.lines().map(str::to_string).collect();
     assert_eq!(actual, expected, "the calls the agents recorded");
 }
@@ -2198,7 +2244,7 @@ fn process_is_gone(pid: &str) -> bool {
 
 #[then("no process the agent started is still running")]
 fn no_agent_process_left(w: &mut GddWorld) {
-    let pids = fs::read_to_string(project_root(w).join(".gdd/fake/pids"))
+    let pids = fs::read_to_string(pj(&project_root(w), ".tminus/fake/pids"))
         .expect("the agent recorded the processes it started");
     let pids: Vec<&str> = pids.split_whitespace().collect();
     assert!(!pids.is_empty(), "the agent recorded no process");
@@ -2323,7 +2369,7 @@ fn program_call_includes(w: &mut GddWorld, call: usize, name: String, text: Stri
 #[given(expr = "the rules have {string} = {string}")]
 fn rules_have(w: &mut GddWorld, key: String, value: String) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     let (table, name) = key.rsplit_once('.').expect("a dotted key");
     let value = if value.parse::<i64>().is_ok() {
@@ -2338,7 +2384,7 @@ fn rules_have(w: &mut GddWorld, key: String, value: String) {
         None => format!("{rules}\n{header}{name} = {value}\n"),
     };
     write_file(&path, &rules);
-    commit_harness_file(&root, "gdd/rules.toml", "rules");
+    commit_harness_file(&root, &lay(&root, "tminus/rules.toml"), "rules");
 }
 
 #[then(expr = "git tracks {string}")]
@@ -2605,13 +2651,13 @@ fn change_has_no_worktree(w: &mut GddWorld, id: String) {
 #[given(expr = "the project keeps its worktrees in {string}")]
 fn project_keeps_worktrees_in(w: &mut GddWorld, folder: String) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     write_file(
         &path,
         &format!("{rules}\n[parallel]\nfolder = \"{folder}\"\n"),
     );
-    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["add", "--", &lay(&root, "tminus/rules.toml")]);
     git(&root, &["commit", "-q", "-m", "worktrees folder"]);
 }
 
@@ -2630,7 +2676,7 @@ fn agents_worked_in_worktree(w: &mut GddWorld, id: String) {
     // The worktree may be gone by now: the physical folder is the project's plus its name.
     let root = project_root(w).canonicalize().expect("the project folder");
     let expected = worktrees_folder_of(&root).join(&id);
-    let cwds = fs::read_to_string(project_root(w).join(".gdd/fake/cwds")).unwrap_or_default();
+    let cwds = fs::read_to_string(pj(&project_root(w), ".tminus/fake/cwds")).unwrap_or_default();
     assert!(!cwds.is_empty(), "no agent recorded its working folder");
     for cwd in cwds.lines() {
         assert_eq!(Path::new(cwd), expected, "an agent worked in {cwd}");
@@ -2645,7 +2691,7 @@ fn agents_worked_in_worktree(w: &mut GddWorld, id: String) {
 #[given(expr = "the cap of changes building at once is {int}")]
 fn cap_of_changes_building(w: &mut GddWorld, cap: usize) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     // A `[parallel]` table already there (the worktrees folder) keeps its lines.
     let rules = match rules.split_once("[parallel]\n") {
@@ -2653,7 +2699,7 @@ fn cap_of_changes_building(w: &mut GddWorld, cap: usize) {
         None => format!("{rules}\n[parallel]\nmax = {cap}\n"),
     };
     write_file(&path, &rules);
-    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["add", "--", &lay(&root, "tminus/rules.toml")]);
     git(&root, &["commit", "-q", "-m", "cap of changes building"]);
 }
 
@@ -2670,9 +2716,9 @@ fn main_gets_file_during_review(w: &mut GddWorld, path: String) {
     fake_file(w, "main_gets", &path);
 }
 
-#[given(expr = "another gdd holds the merge lock for {int} seconds")]
-fn another_gdd_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
-    let file = project_root(w).join(".gdd/merge.lock");
+#[given(expr = "another tminus holds the merge lock for {int} seconds")]
+fn another_tminus_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
+    let file = pj(&project_root(w), ".tminus/merge.lock");
     write_file(&file, "");
     let (taken, wait_taken) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -2687,7 +2733,7 @@ fn another_gdd_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
     assert_eq!(
         wait_taken.recv(),
         Ok(true),
-        "the lock holder could not take .gdd/merge.lock"
+        "the lock holder could not take the merge lock"
     );
 }
 
@@ -2695,7 +2741,7 @@ fn another_gdd_holds_merge_lock(w: &mut GddWorld, seconds: u64) {
 
 #[given(expr = "an agent of another change is at work for {int} seconds")]
 fn agent_of_another_change_at_work(w: &mut GddWorld, seconds: u64) {
-    let file = project_root(w).join(".gdd/agents.lock");
+    let file = pj(&project_root(w), ".tminus/agents.lock");
     if !file.exists() {
         write_file(&file, "");
     }
@@ -2712,7 +2758,7 @@ fn agent_of_another_change_at_work(w: &mut GddWorld, seconds: u64) {
     assert_eq!(
         wait_taken.recv(),
         Ok(true),
-        "the agent could not take .gdd/agents.lock shared"
+        "the agent could not take the agents lock shared"
     );
 }
 
@@ -2720,7 +2766,7 @@ fn agent_of_another_change_at_work(w: &mut GddWorld, seconds: u64) {
 fn machines_open_g0_during_the_call(w: &mut GddWorld) {
     let root = project_root(w);
     fake_file(w, "linger", "3");
-    let in_call = root.join(".gdd/fake/in-call");
+    let in_call = pj(&root, ".tminus/fake/in-call");
     let mut env = world_env(w).clone();
     env.retain(|(name, _)| name != "GDD_ROLE");
     w.g0_during_call = Some(std::thread::spawn(move || {
@@ -2922,7 +2968,7 @@ fn the_sitting_chose_nothing(w: &mut GddWorld) {
 
 #[then(expr = "the log has no {string} line for {string}")]
 fn log_has_no_line(w: &mut GddWorld, gate: String, change: String) {
-    let text = fs::read_to_string(project_root(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let text = fs::read_to_string(pj(&project_root(w), ".tminus/log.jsonl")).unwrap_or_default();
     let found: Vec<_> = text
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
@@ -3237,10 +3283,10 @@ fn tag_exists(root: &Path, tag: &str) -> bool {
 #[given("the versions are released by hand")]
 fn versions_released_by_hand(w: &mut GddWorld) {
     let root = project_root(w);
-    let path = root.join("gdd/rules.toml");
+    let path = pj(&root, "tminus/rules.toml");
     let rules = fs::read_to_string(&path).expect("the project's rules");
     write_file(&path, &format!("{rules}\n[versions]\nmode = \"manual\"\n"));
-    git(&root, &["add", "--", "gdd/rules.toml"]);
+    git(&root, &["add", "--", &lay(&root, "tminus/rules.toml")]);
     git(&root, &["commit", "-q", "-m", "versions by hand"]);
 }
 
@@ -3292,7 +3338,7 @@ fn main_has_the_file(w: &mut GddWorld, step: &cucumber::gherkin::Step, path: Str
 // The sentences are the method's; what runs under them is today's tool. One change, `c1`, sits
 // behind all of them. Each step drives the lowest layer that shows the behavior: the command line.
 
-const CORE_PROTECTED: &str = "[protected]\nall = [\"gdd/**\", \"bin/**\"]\nbuilder_build = [\"features/**\", \"tests/steps/**\"]\nbuilder_test = [\"src/**\"]";
+const CORE_PROTECTED: &str = "[protected]\nall = [\"tminus/**\", \"bin/**\"]\nbuilder_build = [\"features/**\", \"tests/steps/**\"]\nbuilder_test = [\"src/**\"]";
 
 const CORE_MODELS: &str = r#"[orchestrator]
 integration = "claude"
@@ -3365,7 +3411,7 @@ fn role_of_agent(agent: &str) -> &'static str {
 /// Runs the guard of change `c1` for `agent`.
 fn guard_for(w: &mut GddWorld, agent: &str) {
     let root = project_root(w);
-    let command = format!("gdd guard c1 --role {}", role_of_agent(agent));
+    let command = format!("tminus guard c1 --role {}", role_of_agent(agent));
     run_gdd(w, &command, &root);
 }
 
@@ -3377,26 +3423,29 @@ fn change_is_at_work(w: &mut GddWorld, path: String) {
 #[when(expr = "the {string} changes the rules that decide risk")]
 fn agent_changes_the_rules(w: &mut GddWorld, agent: String) {
     let root = project_root(w);
-    touch(&root, "gdd/zones.toml");
-    touch(&root, "gdd/rules.toml");
+    touch(&root, "tminus/zones.toml");
+    touch(&root, "tminus/rules.toml");
     guard_for(w, &agent);
 }
 
 #[then("the agent's work is refused for touching the rules that decide risk")]
 fn refused_for_the_rules(w: &mut GddWorld) {
-    guard_fails(w, "\"gdd/zones.toml\" and \"gdd/rules.toml\"".to_string());
+    guard_fails(
+        w,
+        "\"tminus/zones.toml\" and \"tminus/rules.toml\"".to_string(),
+    );
 }
 
 #[when(expr = "the {string} changes the project's locks")]
 fn agent_changes_the_locks(w: &mut GddWorld, agent: String) {
     let root = project_root(w);
-    touch(&root, "gdd/commands.toml");
+    touch(&root, "tminus/commands.toml");
     guard_for(w, &agent);
 }
 
 #[then("the agent's work is refused for touching the project's locks")]
 fn refused_for_the_locks(w: &mut GddWorld) {
-    guard_fails(w, "\"gdd/commands.toml\"".to_string());
+    guard_fails(w, "\"tminus/commands.toml\"".to_string());
 }
 
 #[when(expr = "the change also touches {string}")]
@@ -3407,7 +3456,7 @@ fn change_also_touches(w: &mut GddWorld, path: String) {
 #[then("the change counts as sensitive")]
 fn change_counts_as_sensitive(w: &mut GddWorld) {
     let root = project_root(w);
-    run_gdd(w, "gdd classify c1", &root);
+    run_gdd(w, "tminus classify c1", &root);
     assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
     assert_eq!(stdout_json(w)["color"], "red", "{}", last_run(w).stdout);
 }
@@ -3426,7 +3475,7 @@ fn rules_switch_off_the_core(w: &mut GddWorld, what: String) {
     );
     let root = project_root(w);
     write_file(
-        &root.join("gdd/rules.toml"),
+        &pj(&root, "tminus/rules.toml"),
         &format!("{CORE_PROTECTED}\n\n{tables}"),
     );
     w.switched_off = key.to_string();
@@ -3438,7 +3487,7 @@ fn change_is_opened(w: &mut GddWorld, path: String) {
     let root = project_root(w);
     run_gdd(
         w,
-        &format!("gdd new-change c1 --title App --paths {path}"),
+        &format!("tminus new-change c1 --title App --paths {path}"),
         &root,
     );
 }
@@ -3488,7 +3537,7 @@ fn gate_named(approval: &str) -> &'static str {
 #[when(expr = "the {string} tries to record the human's approval of {string}")]
 fn agent_tries_to_approve(w: &mut GddWorld, agent: String, approval: String) {
     let root = project_root(w);
-    let command = format!("gdd gate {} ok c1 --by human", gate_named(&approval));
+    let command = format!("tminus gate {} ok c1 --by human", gate_named(&approval));
     run_gdd_as(w, &command, &root, Some(role_of_agent(&agent)));
 }
 
@@ -3517,7 +3566,7 @@ fn builder_writes_into_the_record(w: &mut GddWorld) {
 #[when("the change runs")]
 fn the_change_runs(w: &mut GddWorld) {
     let root = project_root(w);
-    run_gdd(w, "gdd launch c1", &root);
+    run_gdd(w, "tminus launch c1", &root);
 }
 
 #[then("the change parks")]
@@ -3528,7 +3577,7 @@ fn the_change_parks(w: &mut GddWorld) {
 
 #[then("the record of the change is put back as it was before the agent's call")]
 fn record_put_back(w: &mut GddWorld) {
-    let text = fs::read_to_string(project_root(w).join(".gdd/changes/c1/change.json"))
+    let text = fs::read_to_string(pj(&project_root(w), ".tminus/changes/c1/change.json"))
         .expect("the record of the change");
     assert!(
         serde_json::from_str::<serde_json::Value>(&text).is_ok(),
@@ -3567,7 +3616,7 @@ fn human_approved_the_scenarios(w: &mut GddWorld, path: String) {
         "Feature: Drafts\n\n  Scenario: One\n    Given a draft\n    Then it is saved\n",
     );
     git(&root, &["checkout", "-q", "change/c1"]);
-    run_gdd(w, "gdd gate G1 ok c1 --by human", &root);
+    run_gdd(w, "tminus gate G1 ok c1 --by human", &root);
     assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
 }
 
@@ -3585,7 +3634,7 @@ fn scenario_changes_after_approval(w: &mut GddWorld) {
 #[then("the change asks the human to approve its scenarios again")]
 fn change_asks_for_the_approval_again(w: &mut GddWorld) {
     let root = project_root(w);
-    run_gdd(w, "gdd inbox c1", &root);
+    run_gdd(w, "tminus inbox c1", &root);
     assert!(last_run(w).succeeded, "{}", last_run(w).stderr);
     let text = "G1 · Scenario Gate: read the scenarios of change/c1";
     assert!(
@@ -3606,7 +3655,8 @@ fn project_allows_attempts(w: &mut GddWorld, attempts: u32) {
 
 /// The roles of the agent calls the fakes recorded, in order.
 fn called_roles(w: &GddWorld) -> Vec<String> {
-    let calls = fs::read_to_string(project_root_of(w).join(".gdd/fake/calls")).unwrap_or_default();
+    let calls =
+        fs::read_to_string(pj(&project_root_of(w), ".tminus/fake/calls")).unwrap_or_default();
     calls
         .lines()
         .filter_map(|line| line.split('|').next())
@@ -3637,7 +3687,7 @@ fn messages_tell_why_it_parked(w: &mut GddWorld) {
         .unwrap_or_else(|| panic!("no parked message in {record}"))
         .to_string();
     assert!(!text.trim().is_empty(), "the parked message is empty");
-    let inbox = fs::read_to_string(root.join(".gdd/changes/c1/inbox.md")).unwrap_or_default();
+    let inbox = fs::read_to_string(pj(&root, ".tminus/changes/c1/inbox.md")).unwrap_or_default();
     assert!(
         inbox.contains(&text),
         "inbox.md does not say {text:?}: {inbox:?}"
@@ -3646,7 +3696,7 @@ fn messages_tell_why_it_parked(w: &mut GddWorld) {
 
 /// The lines of the log about change `c1`.
 fn log_lines_of_c1(w: &GddWorld) -> Vec<serde_json::Value> {
-    let text = fs::read_to_string(project_root_of(w).join(".gdd/log.jsonl")).unwrap_or_default();
+    let text = fs::read_to_string(pj(&project_root_of(w), ".tminus/log.jsonl")).unwrap_or_default();
     text.lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .filter(|r| r["change"] == "c1")
@@ -3703,7 +3753,16 @@ fn record_keeps_what_it_spent(w: &mut GddWorld) {
 /// The variables gdd sets for the agents it starts. A scenario never inherits them: when an agent
 /// runs the scenarios (`gdd g2` in its session), the runner starts itself again without them, so
 /// what reads the process environment (the sitting, the Setup form) runs as a person.
-const AGENT_VARIABLES: [&str; 4] = ["GDD_ROLE", "GDD_CHANGE", "GDD_ROOT", "GDD_STATE"];
+const AGENT_VARIABLES: [&str; 8] = [
+    "GDD_ROLE",
+    "GDD_CHANGE",
+    "GDD_ROOT",
+    "GDD_STATE",
+    "TMINUS_ROLE",
+    "TMINUS_CHANGE",
+    "TMINUS_ROOT",
+    "TMINUS_STATE",
+];
 
 /// Runs the scenarios again in a process without [`AGENT_VARIABLES`], with the same arguments, and
 /// ends with its exit code; `None` when none of them is set.
@@ -3805,7 +3864,7 @@ fn generated_with_version(text: &str, version: &str) -> String {
             }
         })
         .collect();
-    assert!(found, "gdd/generated.toml has no version line: {text}");
+    assert!(found, "tminus/generated.toml has no version line: {text}");
     format!("{}\n", lines.join("\n"))
 }
 
@@ -3830,30 +3889,38 @@ fn generated_without_file(text: &str, path: &str) -> String {
 
 fn commit_older_gdd(w: &mut GddWorld, version: &str) {
     scenario_git(w, &["add", "-A"]);
-    let message = format!("gdd init {version}");
+    let message = format!("tminus init {version}");
     scenario_git(w, &["commit", "-q", "--allow-empty", "-m", &message]);
 }
 
-#[given(expr = "an older gdd {string} wrote {string} with {string} where this one writes {string}")]
-fn an_older_gdd_wrote(w: &mut GddWorld, version: String, path: String, old: String, new: String) {
+#[given(
+    expr = "an older tminus {string} wrote {string} with {string} where this one writes {string}"
+)]
+fn an_older_tminus_wrote(
+    w: &mut GddWorld,
+    version: String,
+    path: String,
+    old: String,
+    new: String,
+) {
     let root = project_root(w);
     let file = root.join(&path);
     let content = fs::read_to_string(&file).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
     assert!(content.contains(&new), "{path} lacks {new:?}: {content}");
     write_file(&file, &content.replacen(&new, &old, 1));
-    let generated = root.join("gdd/generated.toml");
-    let text = fs::read_to_string(&generated).expect("gdd/generated.toml");
+    let generated = pj(&root, "tminus/generated.toml");
+    let text = fs::read_to_string(&generated).expect("tminus/generated.toml");
     write_file(&generated, &generated_with_version(&text, &version));
     commit_older_gdd(w, &version);
 }
 
-#[given(expr = "an older gdd {string} did not write {string}")]
-fn an_older_gdd_did_not_write(w: &mut GddWorld, version: String, path: String) {
+#[given(expr = "an older tminus {string} did not write {string}")]
+fn an_older_tminus_did_not_write(w: &mut GddWorld, version: String, path: String) {
     let root = project_root(w);
     fs::remove_file(root.join(&path)).unwrap_or_else(|e| panic!("cannot delete {path}: {e}"));
-    if path != "gdd/generated.toml" {
-        let generated = root.join("gdd/generated.toml");
-        let text = fs::read_to_string(&generated).expect("gdd/generated.toml");
+    if path != "tminus/generated.toml" {
+        let generated = pj(&root, "tminus/generated.toml");
+        let text = fs::read_to_string(&generated).expect("tminus/generated.toml");
         let text = generated_without_file(&text, &path);
         write_file(&generated, &generated_with_version(&text, &version));
     }

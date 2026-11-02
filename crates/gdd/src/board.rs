@@ -1,4 +1,4 @@
-//! The Board of `gdd board`: the changes of the project by phase, on a screen, read-only. The
+//! The Board of `tminus board`: the changes of the project by phase, on a screen, read-only. The
 //! Board is a state machine, keys in and a screen out ([`Board`]), drawn with Ratatui.
 //! [`in_terminal`] shows it in the terminal of the process. Nothing on it writes anything.
 
@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use gdd_core::flow::{self, Flow};
+use gdd_core::layout;
 use gdd_core::log;
 use gdd_core::state;
 use gdd_core::status::{self, Card};
@@ -25,9 +26,10 @@ const IN_PRE: &str = "in-pre";
 /// What a change in pre reads instead of its state.
 const WAITING: &str = "waiting for your G4";
 
-/// What the Board says of a project without changes.
+/// What the Board says of a project without changes, in the new names (see
+/// [`layout::Layout::localize`]).
 const NO_CHANGES: &str =
-    "No changes yet · ask your agent: /gdd-change <what you want> ($gdd-change in Codex)";
+    "No changes yet · ask your agent: /tminus-change <what you want> ($tminus-change in Codex)";
 
 /// The keys of the list.
 const LIST_KEYS: &str = "↑↓ move · Enter details · d done · t time · r reload · q quit";
@@ -137,11 +139,16 @@ pub struct Board {
     loaded: Instant,
     /// Why the last reload failed, until one works.
     reload_problem: Option<String>,
+    /// Where the project keeps its files: how the Board names its agents' commands.
+    layout: layout::Layout,
+    /// The folder of the changes under the state root, as the project names it.
+    changes: String,
 }
 
 impl Board {
     /// A Board of the project called `project` with its changes `cards` and no time in its log,
-    /// the first change selected, Done folded. It has no folder to load again from.
+    /// the first change selected, Done folded, in the new names (see [`layout::Layout`]). It has
+    /// no folder to load again from.
     pub fn new(project: &str, cards: Vec<Card>) -> Board {
         Board {
             project: project.to_string(),
@@ -156,6 +163,8 @@ impl Board {
             folder: None,
             loaded: Instant::now(),
             reload_problem: None,
+            layout: layout::Layout::Tminus,
+            changes: crate::CHANGES.to_string(),
         }
     }
 
@@ -171,14 +180,20 @@ impl Board {
     }
 
     /// The Board of the project that holds the folder `cwd`, with the changes under its state
-    /// root, as every command finds them.
+    /// root, as every command finds them, named where the project keeps them (see
+    /// [`layout::check`], which refuses a project that keeps both layouts).
     pub fn load(cwd: &Path) -> Result<Board, String> {
         let root = crate::project_root(cwd)?;
         let state = state::root(&root)?;
+        layout::check(&root, &state)?;
         let project = crate::read(&root, crate::PROJECT)?.unwrap_or_default();
-        let basics =
-            status::Basics::from_toml(&project).map_err(|e| format!("{}: {e}", crate::PROJECT))?;
-        let board = Board::new(&basics.name, status::cards(&root, &state));
+        let basics = status::Basics::from_toml(&project);
+        let basics = basics.map_err(|e| crate::in_file(&root, crate::PROJECT, e))?;
+        let board = Board {
+            layout: layout::Layout::at(&root),
+            changes: crate::named(&state, crate::CHANGES),
+            ..Board::new(&basics.name, status::cards(&root, &state))
+        };
         Ok(board.with_log(read_log(&state)).in_folder(cwd))
     }
 
@@ -212,6 +227,8 @@ impl Board {
         self.project = fresh.project;
         self.cards = fresh.cards;
         self.log = fresh.log;
+        self.layout = fresh.layout;
+        self.changes = fresh.changes;
         self.reload_problem = None;
         let shown = self.shown();
         let at = kept.and_then(|id| shown.iter().position(|at| self.cards[*at].id == id));
@@ -283,7 +300,7 @@ impl Board {
 
     /// Paints the screen on `buffer`, framed with the title, the keys at the bottom.
     fn paint(&self, area: Rect, buffer: &mut Buffer) {
-        let title = format!(" gdd · Board · {} ", self.project);
+        let title = format!(" tminus · Board · {} ", self.project);
         let block = Block::bordered().title(title);
         let inner = block.inner(area);
         block.render(area, buffer);
@@ -364,7 +381,7 @@ impl Board {
     /// The list without the reload problem.
     fn list_body(&self) -> (Vec<Line<'static>>, Option<usize>) {
         if self.cards.is_empty() {
-            return (vec![Line::from(NO_CHANGES)], None);
+            return (vec![self.no_changes()], None);
         }
         let mut at_selected = None;
         let selected = self.shown().get(self.selected).copied();
@@ -399,6 +416,12 @@ impl Board {
         }
     }
 
+    /// What the Board says of a project without changes, naming the agents' command as the
+    /// project does.
+    fn no_changes(&self) -> Line<'static> {
+        Line::from(self.layout.localize(NO_CHANGES))
+    }
+
     /// The details of the selected change; the reload problem comes first.
     fn detail_lines(&self) -> Vec<Line<'static>> {
         self.with_reload_problem(self.detail_body())
@@ -407,7 +430,7 @@ impl Board {
     /// The details without the reload problem.
     fn detail_body(&self) -> Vec<Line<'static>> {
         let Some(card) = self.selected_card() else {
-            return vec![Line::from(NO_CHANGES)];
+            return vec![self.no_changes()];
         };
         let mut lines = vec![Line::from(format!("{} · {}", card.id, card.title)).bold()];
         if let Some(problem) = &card.problem {
@@ -425,7 +448,7 @@ impl Board {
                 Line::from(format!("Paths: {paths}")),
             ]);
         }
-        let inbox = format!("Inbox: .gdd/changes/{}/inbox.md", card.id);
+        let inbox = format!("Inbox: {}/{}/inbox.md", self.changes, card.id);
         lines.push(Line::from(inbox));
         lines.push(Line::default());
         lines.extend(self.change_time_lines(&card.id));
@@ -666,7 +689,7 @@ mod tests {
     fn the_title_names_the_project_and_the_keys_are_at_the_bottom() {
         let board = board(vec![card("a", "open")]);
         let screen = board.render(100, 10);
-        assert!(screen.starts_with("┌ gdd · Board · demo "), "{screen}");
+        assert!(screen.starts_with("┌ tminus · Board · demo "), "{screen}");
         let rows: Vec<&str> = screen.lines().collect();
         assert!(rows[8].contains(LIST_KEYS), "{screen}");
         assert!(rows[9].starts_with('└'), "{screen}");
@@ -833,7 +856,7 @@ mod tests {
             "State: open",
             "Gates: plan:ok",
             "Paths: src/a.rs, src/b.rs",
-            "Inbox: .gdd/changes/c1/inbox.md",
+            "Inbox: .tminus/changes/c1/inbox.md",
             DETAIL_KEYS,
         ];
         assert_shows(&board, &details);
@@ -845,7 +868,8 @@ mod tests {
         assert_shows(&board, &["Discover (2)", "› c1 ·", LIST_KEYS]);
         press(&mut board, &[Key::Esc, Key::Down, Key::Enter]);
         assert_shows(&board, &["c2 · Title of c2", "Paths: none planned"]);
-        assert_shows(&board, &["State: open", "Inbox: .gdd/changes/c2/inbox.md"]);
+        let inbox = "Inbox: .tminus/changes/c2/inbox.md";
+        assert_shows(&board, &["State: open", inbox]);
     }
 
     #[test]
@@ -868,7 +892,7 @@ mod tests {
             board.press(Key::Down);
         }
         let end = board.render(80, 24);
-        assert!(end.contains("Inbox: .gdd/changes/c1/inbox.md"), "{end}");
+        assert!(end.contains("Inbox: .tminus/changes/c1/inbox.md"), "{end}");
         assert!(end.contains(NOT_MEASURED), "{end}");
         assert!(!end.contains("Type: Feature"), "{end}");
         press(&mut board, &[Key::Up, Key::Up, Key::Up]);
@@ -904,7 +928,7 @@ mod tests {
         let details = [
             "z · ",
             "Problem: change.json is not valid: x",
-            "Inbox: .gdd/changes/z/inbox.md",
+            "Inbox: .tminus/changes/z/inbox.md",
         ];
         assert_shows(&board, &details);
         assert_hides(&board, &["Type:", "Paths:"]);
@@ -969,9 +993,9 @@ mod tests {
     fn nothing_on_the_board_writes_a_file() {
         let project = Project::new();
         let a = r#"{"title": "A", "paths": ["x.rs"]}"#;
-        project.write(".gdd/changes/a/change.json", a);
-        project.write(".gdd/changes/b/change.json", r#"{"state": "closed"}"#);
-        project.write(".gdd/changes/c/change.json", "{not json");
+        project.write(".tminus/changes/a/change.json", a);
+        project.write(".tminus/changes/b/change.json", r#"{"state": "closed"}"#);
+        project.write(".tminus/changes/c/change.json", "{not json");
         let before = files(&project.0);
         let mut board = Board::load(&project.0).unwrap();
         let keys = [
@@ -1005,18 +1029,47 @@ mod tests {
     fn the_board_of_a_project_has_its_name_and_its_changes() {
         let project = Project::new();
         let record = r#"{"title": "Drafts", "state": "parked"}"#;
-        project.write(".gdd/changes/a/change.json", record);
+        project.write(".tminus/changes/a/change.json", record);
         let board = Board::load(&project.0).unwrap();
         let drafts = "› a · yellow · Drafts · parked";
-        assert_shows(&board, &["gdd · Board · demo", "Build (1)", drafts]);
+        assert_shows(&board, &["tminus · Board · demo", "Build (1)", drafts]);
         let nested = project.0.join("deep/er");
         fs::create_dir_all(&nested).unwrap();
         assert!(Board::load(&nested).is_ok());
         let outside = Board::load(Path::new("/")).unwrap_err();
         assert!(outside.starts_with("not a GDD project"), "{outside}");
+        project.write("tminus/project.toml", "name = ");
+        let invalid = Board::load(&project.0).unwrap_err();
+        assert!(invalid.starts_with("tminus/project.toml: "), "{invalid}");
+    }
+
+    #[test]
+    fn the_board_of_a_project_set_up_before_the_rename_names_its_folders_and_commands() {
+        let project = Project::old();
+        let mut board = Board::load(&project.0).unwrap();
+        let commands = ["tminus · Board · demo", "/gdd-change", "$gdd-change"];
+        assert_shows(&board, &commands);
+        assert_hides(&board, &["tminus-change"]);
+        project.write(".gdd/changes/a/change.json", r#"{"title": "Drafts"}"#);
+        board.press(Key::Char('r'));
+        board.press(Key::Enter);
+        assert_shows(&board, &["a · Drafts", "Inbox: .gdd/changes/a/inbox.md"]);
         project.write("gdd/project.toml", "name = ");
         let invalid = Board::load(&project.0).unwrap_err();
         assert!(invalid.starts_with("gdd/project.toml: "), "{invalid}");
+    }
+
+    #[test]
+    fn the_board_of_a_folder_that_keeps_both_layouts_is_refused() {
+        let project = Project::new();
+        project.write("gdd/project.toml", "name = \"demo\"\n");
+        let both = Board::load(&project.0).unwrap_err();
+        let said = "has both tminus/project.toml and gdd/project.toml: keep one of them";
+        assert!(both.ends_with(said), "{both}");
+        let new = Project::new();
+        new.write(".gdd/changes/a/change.json", "{}");
+        let state = Board::load(&new.0).unwrap_err();
+        assert!(state.contains("but has .gdd/"), "{state}");
     }
 
     /// A log line of `change` at `ts` (`2026-10-28T` and the rest), a run of the builder of
@@ -1137,7 +1190,7 @@ mod tests {
     #[test]
     fn a_missing_log_is_an_empty_one() {
         let project = Project::new();
-        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        project.write(".tminus/changes/a/change.json", r#"{"title": "A"}"#);
         let mut board = Board::load(&project.0).unwrap();
         board.press(Key::Enter);
         assert_shows(&board, &[NOT_MEASURED]);
@@ -1148,11 +1201,11 @@ mod tests {
     #[test]
     fn a_board_loads_the_log_of_the_state_root_once() {
         let project = Project::new();
-        project.write(".gdd/changes/b/change.json", r#"{"title": "B"}"#);
+        project.write(".tminus/changes/b/change.json", r#"{"title": "B"}"#);
         let log = [log_line("b", "08:00:00", 0), log_line("b", "08:30:00", 600)];
-        project.write(".gdd/log.jsonl", &format!("{}\n", log.join("\n")));
+        project.write(".tminus/log.jsonl", &format!("{}\n", log.join("\n")));
         let mut board = Board::load(&project.0).unwrap();
-        project.write(".gdd/log.jsonl", "{not json\n");
+        project.write(".tminus/log.jsonl", "{not json\n");
         board.press(Key::Enter);
         assert_shows(&board, &["Flow time 30m"]);
         press(&mut board, &[Key::Esc, Key::Char('t')]);
@@ -1160,25 +1213,25 @@ mod tests {
     }
 
     #[test]
-    fn a_line_of_the_log_that_is_not_gdds_is_left_out_and_the_time_says_so() {
+    fn a_line_of_the_log_that_is_not_tminuss_is_left_out_and_the_time_says_so() {
         let project = Project::new();
-        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
+        project.write(".tminus/changes/a/change.json", r#"{"title": "A"}"#);
         let log = [log_line("a", "08:00:00", 0), log_line("a", "08:30:00", 600)];
         let text = format!("{{not json\n{}\n", log.join("\n"));
-        project.write(".gdd/log.jsonl", &text);
+        project.write(".tminus/log.jsonl", &text);
         let mut board = Board::load(&project.0).unwrap();
         assert_shows(&board, &["Discover (1)", "› a ·"]);
         board.press(Key::Enter);
         assert_shows(&board, &["a · A", "Flow time 30m"]);
         assert_hides(&board, &["cannot be read"]);
         press(&mut board, &[Key::Esc, Key::Char('t')]);
-        let said = "1 line of the log is not one of gdd's: left out";
+        let said = "1 line of the log is not one of tminus's: left out";
         assert_shows(&board, &[TIME_TITLE, said, "Project: 1 change(s)"]);
         let rows = lines(&board);
         let at = |start: &str| rows.iter().position(|row| row.starts_with(start)).unwrap();
         assert!(at(said) < at("Project: "), "{rows:?}");
-        // A log whose lines are all gdd's says nothing of it.
-        project.write(".gdd/log.jsonl", &format!("{}\n", log.join("\n")));
+        // A log whose lines are all tminus's says nothing of it.
+        project.write(".tminus/log.jsonl", &format!("{}\n", log.join("\n")));
         let mut board = Board::load(&project.0).unwrap();
         board.press(Key::Char('t'));
         assert_hides(&board, &["left out"]);
@@ -1187,11 +1240,11 @@ mod tests {
     #[test]
     fn a_log_that_cannot_be_read_shows_where_the_time_would_and_the_list_works() {
         let project = Project::new();
-        project.write(".gdd/changes/a/change.json", r#"{"title": "A"}"#);
-        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
+        project.write(".tminus/changes/a/change.json", r#"{"title": "A"}"#);
+        fs::create_dir_all(project.0.join(".tminus/log.jsonl")).unwrap();
         let mut board = Board::load(&project.0).unwrap();
         assert_shows(&board, &["Discover (1)", "› a ·"]);
-        let why = "the log cannot be read: cannot read .gdd/log.jsonl: ";
+        let why = "the log cannot be read: cannot read .tminus/log.jsonl: ";
         board.press(Key::Enter);
         assert_shows(&board, &["a · A", why]);
         assert_hides(&board, &[NOT_MEASURED]);
@@ -1265,7 +1318,7 @@ mod tests {
         let record = format!(
             r#"{{"title": "T {id}", "state": "{state}", "created": "2026-10-28T08:00:{at:02}+00:00"}}"#
         );
-        project.write(&format!(".gdd/changes/{id}/change.json"), &record);
+        project.write(&format!(".tminus/changes/{id}/change.json"), &record);
     }
 
     #[test]
@@ -1345,11 +1398,11 @@ mod tests {
     fn a_reload_clamps_the_selection_when_the_selected_change_is_gone() {
         let (project, mut board) = project_with(&["a", "b", "c"]);
         press(&mut board, &[Key::Down, Key::Down]);
-        fs::remove_dir_all(project.0.join(".gdd/changes/c")).unwrap();
+        fs::remove_dir_all(project.0.join(".tminus/changes/c")).unwrap();
         board.press(Key::Char('r'));
         assert_eq!(board.selected_card().map(|c| c.id.as_str()), Some("b"));
-        fs::remove_dir_all(project.0.join(".gdd/changes/a")).unwrap();
-        fs::remove_dir_all(project.0.join(".gdd/changes/b")).unwrap();
+        fs::remove_dir_all(project.0.join(".tminus/changes/a")).unwrap();
+        fs::remove_dir_all(project.0.join(".tminus/changes/b")).unwrap();
         board.press(Key::Char('r'));
         assert_eq!(board.selected, 0);
         assert!(board.selected_card().is_none());
@@ -1361,7 +1414,7 @@ mod tests {
         let (project, mut board) = project_with(&["a", "b"]);
         press(&mut board, &[Key::Down, Key::Enter]);
         assert_shows(&board, &[DETAIL_KEYS]);
-        fs::remove_dir_all(project.0.join(".gdd/changes/b")).unwrap();
+        fs::remove_dir_all(project.0.join(".tminus/changes/b")).unwrap();
         board.press(Key::Char('r'));
         assert_shows(&board, &[LIST_KEYS, "› a ·"]);
         assert_hides(&board, &[DETAIL_KEYS]);
@@ -1384,7 +1437,7 @@ mod tests {
     #[test]
     fn a_reload_that_fails_says_why_on_every_view_until_one_works() {
         let (project, mut board) = project_with(&["a"]);
-        project.write("gdd/project.toml", "name = ");
+        project.write("tminus/project.toml", "name = ");
         board.press(Key::Char('r'));
         for view in [None, Some(Key::Enter), Some(Key::Char('t'))] {
             board.press(Key::Esc);
@@ -1394,12 +1447,12 @@ mod tests {
             let rows = lines(&board);
             assert!(
                 rows.iter()
-                    .any(|row| row.contains("Cannot reload: gdd/project.toml: ")),
+                    .any(|row| row.contains("Cannot reload: tminus/project.toml: ")),
                 "{rows:?}"
             );
             assert_shows(&board, &["a"]);
         }
-        project.write("gdd/project.toml", "name = \"demo\"\nstack = []\n");
+        project.write("tminus/project.toml", "name = \"demo\"\nstack = []\n");
         board.press(Key::Char('r'));
         assert_hides(&board, &["Cannot reload"]);
     }
@@ -1409,7 +1462,7 @@ mod tests {
         let ids: Vec<String> = (0..30).map(|n| format!("c{n:02}")).collect();
         let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
         let (project, mut board) = project_with(&ids);
-        project.write("gdd/project.toml", "name = ");
+        project.write("tminus/project.toml", "name = ");
         board.press(Key::Char('r'));
         let top = board.render(80, 24);
         let rows: Vec<&str> = top.lines().collect();

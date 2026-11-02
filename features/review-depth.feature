@@ -3,13 +3,13 @@ Feature: Review depth by risk
   same. Each change gets a review depth from its color: quick for green and yellow, deep for red.
   The classification says it (`review`), the record keeps it, and the Reviewer reads it and is
   told what each depth means. A project can ask for a deep review on yellow changes too with one
-  line in gdd/rules.toml; a red change always gets the deep one, as the rest of the core.
+  line in tminus/rules.toml; a red change always gets the deep one, as the rest of the core.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       """
     And the zone map:
       """
@@ -33,22 +33,22 @@ Feature: Review depth by risk
 
 
   Scenario: A yellow change gets a quick review
-    Given I run "gdd new-change c1 --title App --paths src/app.rs"
-    When I run "gdd classify c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.rs"
+    When I run "tminus classify c1"
     Then it succeeds
     And the JSON field "review" is "quick"
 
   Scenario: A red change gets a deep review
-    Given I run "gdd new-change c1 --title Drafts --paths src/storage/db.rs"
-    When I run "gdd classify c1"
+    Given I run "tminus new-change c1 --title Drafts --paths src/storage/db.rs"
+    When I run "tminus classify c1"
     Then it succeeds
     And the JSON field "review" is "deep"
 
   Scenario: A project asks for a deep review on yellow changes too
-    Given the file "gdd/rules.toml" says:
+    Given the file "tminus/rules.toml" says:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
 
       [color.yellow.full]
       tests_first = true
@@ -63,16 +63,16 @@ Feature: Review depth by risk
       reviewer = true
       g4_if_g1 = true
       """
-    And I run "gdd new-change c1 --title App --paths src/app.rs"
-    When I run "gdd classify c1"
+    And I run "tminus new-change c1 --title App --paths src/app.rs"
+    When I run "tminus classify c1"
     Then it succeeds
     And the JSON field "review" is "deep"
 
   Scenario: A rules file cannot make the review of red changes quick
-    Given the file "gdd/rules.toml" says:
+    Given the file "tminus/rules.toml" says:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
 
       [color.yellow.full]
       tests_first = true
@@ -87,15 +87,15 @@ Feature: Review depth by risk
       g4_if_g1 = true
       review = "quick"
       """
-    When I run "gdd new-change c1 --title Drafts --paths src/storage/db.rs"
+    When I run "tminus new-change c1 --title Drafts --paths src/storage/db.rs"
     Then it fails with a message that contains "red changes always get mutation testing, the Reviewer and the human G4"
     And it fails with a message that contains "color.red.full.review"
 
   Scenario: A review depth that is neither quick nor deep is refused
-    Given the file "gdd/rules.toml" says:
+    Given the file "tminus/rules.toml" says:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
 
       [color.yellow.full]
       tests_first = true
@@ -110,7 +110,7 @@ Feature: Review depth by risk
       reviewer = true
       g4_if_g1 = true
       """
-    When I run "gdd new-change c1 --title App --paths src/app.rs"
+    When I run "tminus new-change c1 --title App --paths src/app.rs"
     Then it fails with a message that contains "review must be quick or deep"
 
   Scenario: The Reviewer is told what each depth means
@@ -141,16 +141,16 @@ Feature: Review depth by risk
       "sonnet" = "anthropic"
       "gpt" = "openai"
       """
-    When I run "gdd agents install"
+    When I run "tminus agents install"
     Then it succeeds
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "Quick review"
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "Deep review"
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "only the files the change touched"
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "the code that calls what changed"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "Quick review"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "Deep review"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "only the files the change touched"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "the code that calls what changed"
 
   Scenario: A new project writes the depth of each color
     Given an empty folder
-    When I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
+    When I run "tminus init --name Notes --platform cli --stack rust --agents claude codex"
     Then it succeeds
-    And the TOML file "gdd/rules.toml" has "color.yellow.full.review" = "quick"
-    And the TOML file "gdd/rules.toml" has "color.red.full.review" = "deep"
+    And the TOML file "tminus/rules.toml" has "color.yellow.full.review" = "quick"
+    And the TOML file "tminus/rules.toml" has "color.red.full.review" = "deep"

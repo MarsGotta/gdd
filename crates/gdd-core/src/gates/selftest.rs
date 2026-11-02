@@ -1,15 +1,17 @@
-//! The harness self-test (`gdd selftest`): four checks that the gates of a project fail when
+//! The harness self-test (`tminus selftest`): four checks that the gates of a project fail when
 //! they must. The machines open G0 only once all four pass.
 //!
 //! 1. A failing test turns G2 red: the file at the path of the test `[selftest]` describes is
 //!    set aside, and G2 must be green without it; then the test is planted, and G2 must turn
 //!    red. G2 is judged as the gate judges it: a command red when it fails and is not held to its
 //!    known debt (see [`debt`]). The file is given back as it was, from a copy kept in
-//!    `.gdd/selftest/kept/` meanwhile. Neither planting nor giving back writes through a link,
+//!    `.tminus/selftest/kept/` meanwhile. Neither planting nor giving back writes through a link,
 //!    not even one the G2 commands made: when one stops the file from going back, the copy stays.
 //! 2. Editing a protected file is blocked (Path Guard and CI): the harness covers the rules file
-//!    and the CI workflow, and the workflow runs `gdd ci`. The `bin/gdd ci` of a project set up
-//!    by an earlier gdd contains it, so it still counts.
+//!    and the CI workflow, and the workflow runs `tminus ci` or `gdd ci`, both this program. The
+//!    `bin/tminus ci` or `bin/gdd ci` of a project set up by an earlier version contains it, so it
+//!    still counts. The rules file and the workflow are the ones of the project's layout (see
+//!    [`crate::layout`]).
 //! 3. Rollback works in pre: `[release] rollback_pre` passes or, without it, the release is
 //!    simulated.
 //! 4. Zero scenarios counts as a failure: G3 counts none in an empty folder, and the rules keep
@@ -27,6 +29,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::render::first_link;
 use crate::gates::{Gate, Project, approve, configured, count_scenarios, debt};
+use crate::layout::{self, Layout};
 use crate::zones::glob_matches;
 use crate::{change, config, exec, guard, log};
 
@@ -45,17 +48,23 @@ const ROLLBACK_SIMULATED: &str = "rollback works in pre (simulated)";
 /// The fourth check.
 const ZERO_SCENARIOS: &str = "zero scenarios counts as a failure";
 
-/// The CI workflow, from the project root.
-const WORKFLOW: &str = ".github/workflows/gdd.yml";
+/// The CI workflow, from the project root, in the new names: a project of the old layout keeps
+/// it as `gdd.yml` (see [`crate::layout`]).
+const WORKFLOW: &str = ".github/workflows/tminus.yml";
 
-/// What the CI workflow must run; `bin/gdd ci`, which contains it, counts too.
-const RUNS_CI: &str = "gdd ci";
+/// What the CI workflow must run, one of them in either layout: both names run this program.
+/// `bin/tminus ci` and `bin/gdd ci`, which contain them, count too.
+const RUNS_CI: [&str; 2] = ["tminus ci", "gdd ci"];
 
 /// Where the file at the path of the failing test is kept while it is set aside, under its own
-/// path, from the state root (see [`crate::state::root`]).
-const KEPT: &str = ".gdd/selftest/kept";
+/// path, from the state root (see [`crate::state::root`]), in the new names.
+const KEPT: &str = ".tminus/selftest/kept";
 
-/// What the self-test reads from `gdd/commands.toml` besides the G2 commands.
+/// The variable the commands of the self-test get with the change, in the new names: a project
+/// of the old layout gets it as it names it (see [`Layout::localize`]).
+const CHANGE: &str = "TMINUS_CHANGE";
+
+/// What the self-test reads from `tminus/commands.toml` besides the G2 commands.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Config {
     /// `[selftest] file`: where the failing test goes, from the project root.
@@ -133,7 +142,7 @@ impl fmt::Display for Selftest {
     }
 }
 
-/// What `.gdd/selftest.json` keeps.
+/// What `.tminus/selftest.json` keeps.
 #[derive(Serialize)]
 struct Saved<'a> {
     ok: bool,
@@ -143,9 +152,10 @@ struct Saved<'a> {
 }
 
 /// Runs the four checks on `project`, whose commands file says `config`. The commands run from
-/// the project root with `GDD_CHANGE=selftest`. Not being able to read, set aside, write or give
-/// back the failing test, or to make the empty folder, is an error; a file that a link keeps from
-/// going back fails the first check instead (see [`failing_test_caught`]).
+/// the project root with `TMINUS_CHANGE=selftest`, as the project names it (see [`CHANGE`]). Not
+/// being able to read, set aside, write or give back the failing test, or to make the empty
+/// folder, is an error; a file that a link keeps from going back fails the first check instead
+/// (see [`failing_test_caught`]).
 pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
     let rollback = match config.rollback_pre {
         Some(_) => ROLLBACK,
@@ -161,8 +171,9 @@ pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
     Ok(Selftest { checks })
 }
 
-/// Saves `selftest` in `.gdd/selftest.json` under the state root `state`, as indented JSON with
-/// `ok`, `summary`, `detail` and `ts`, and logs it: a machine step of G0.
+/// Saves `selftest` in `.tminus/selftest.json` under the state root `state`, where the project
+/// keeps it (see [`crate::layout`]), as indented JSON with `ok`, `summary`, `detail` and `ts`, and
+/// logs it: a machine step of G0.
 pub fn save(state: &Path, selftest: &Selftest) -> Result<(), String> {
     let (summary, ts) = (selftest.summary(), log::now());
     let saved = Saved {
@@ -252,13 +263,14 @@ fn planted_and_red(
 }
 
 /// Sets aside what was at `file` of the project at `root`: a copy of it, bytes and permissions,
-/// is kept at its path under [`KEPT`] of the state root `state`, and it goes. Where the copy is,
-/// from the state root, or `None` when there was no file. A symbolic link on the way to the file
-/// or to its copy, a file with other names (a hard link) or a copy already there is refused
-/// before anything is written: the self-test would write out of the project, could not give the
-/// file back as it was, or would lose the copy an earlier run kept.
+/// is kept at its path under [`KEPT`] of the state root `state`, as the project names it, and it
+/// goes. Where the copy is, from the state root, or `None` when there was no file. A symbolic
+/// link on the way to the file or to its copy, a file with other names (a hard link) or a copy
+/// already there is refused before anything is written: the self-test would write out of the
+/// project, could not give the file back as it was, or would lose the copy an earlier run kept.
 fn set_aside(root: &Path, state: &Path, file: &str) -> Result<Option<String>, String> {
-    let kept = format!("{KEPT}/{file}");
+    // Only the folder is named as the project names it: the path of the test stays as it is.
+    let kept = format!("{}/{file}", layout::named(state, KEPT));
     for (base, path) in [(root, file), (state, kept.as_str())] {
         let link = first_link(base, path).map_err(|e| format!("cannot read {path}: {e}"))?;
         if let Some(link) = link {
@@ -393,11 +405,13 @@ fn removed(path: &Path) -> io::Result<()> {
     }
 }
 
-/// What `command` printed, run from the root of `project` with `GDD_CHANGE=selftest`, within the
-/// time limit of its rules (see [`exec::run_limited`]), when it fails: it ends with a code other
-/// than 0, or it cannot run, and then it printed nothing. `None` when it passes.
+/// What `command` printed, run from the root of `project` with `TMINUS_CHANGE=selftest`, as the
+/// project names it, within the time limit of its rules (see [`exec::run_limited`]), when it
+/// fails: it ends with a code other than 0, or it cannot run, and then it printed nothing. `None`
+/// when it passes.
 fn failed(command: &str, project: &Project) -> Option<String> {
-    let env = [("GDD_CHANGE", "selftest")];
+    let change = Layout::at(project.root).localize(CHANGE);
+    let env = [(change.as_str(), "selftest")];
     let limit = project.rules.command_limit;
     match exec::run_limited(command, project.root, &env, limit) {
         Ok(ran) if ran.ok() => None,
@@ -411,14 +425,17 @@ fn fails(command: &str, project: &Project) -> bool {
     failed(command, project).is_some()
 }
 
-/// Whether the harness of `project` covers the rules file and the CI workflow, and the workflow
-/// runs `gdd ci`, or `bin/gdd ci`, which contains it. A workflow that cannot be read runs nothing.
+/// Whether the harness of `project` covers the rules file and the CI workflow of its layout, and
+/// the workflow runs `tminus ci` or `gdd ci` (see [`RUNS_CI`]). A workflow that cannot be read
+/// runs nothing.
 fn harness_protected(project: &Project) -> bool {
     let harness = &project.rules.harness;
     let protected = |path: &str| harness.iter().any(|p| glob_matches(p, path));
-    let workflow = fs::read_to_string(project.root.join(WORKFLOW));
-    let runs_ci = workflow.is_ok_and(|text| text.contains(RUNS_CI));
-    protected(guard::RULES) && protected(WORKFLOW) && runs_ci
+    let rules = layout::named(project.root, guard::RULES);
+    let workflow = layout::named(project.root, WORKFLOW);
+    let text = fs::read_to_string(project.root.join(&workflow));
+    let runs_ci = text.is_ok_and(|text| RUNS_CI.iter().any(|ci| text.contains(ci)));
+    protected(&rules) && protected(&workflow) && runs_ci
 }
 
 /// Whether the rollback in pre works: its command passes, in `project` (see [`fails`]); without
@@ -459,7 +476,7 @@ mod tests {
     use crate::guard::Settings;
     use crate::zones::ZoneMap;
 
-    const RULES: &str = "[protected]\nall = [\"gdd/**\", \".github/**\"]\n";
+    const RULES: &str = "[protected]\nall = [\"tminus/**\", \".github/**\"]\n";
 
     const COMMANDS: &str = "[g2]\nunit = 'test ! -f tests/failing.txt'\n\
                             [selftest]\nfile = 'tests/failing.txt'\ncontent = 'fails'\n\
@@ -469,7 +486,7 @@ mod tests {
     const UNIT: &str = "unit = 'test ! -f tests/failing.txt'";
 
     /// A CI workflow that runs the gates.
-    const RUNS_THE_GATES: &str = "steps:\n  - run: gdd ci\n";
+    const RUNS_THE_GATES: &str = "steps:\n  - run: tminus ci\n";
 
     /// A project with a CI workflow that runs the gates, and what the self-test reads from it.
     struct Harness {
@@ -536,7 +553,9 @@ mod tests {
 
         /// Where the file at the path of the test is kept while it is set aside.
         fn kept(&self) -> PathBuf {
-            self.folder.0.join(".gdd/selftest/kept/tests/failing.txt")
+            self.folder
+                .0
+                .join(".tminus/selftest/kept/tests/failing.txt")
         }
     }
 
@@ -623,7 +642,8 @@ mod tests {
     fn the_test_goes_back_to_what_was_there() {
         use std::os::unix::fs::PermissionsExt;
         // Its copy, kept while it is set aside, goes once it is back.
-        let copies = "test ! -f tests/failing.txt || cp -p .gdd/selftest/kept/tests/failing.txt c";
+        let kept = ".tminus/selftest/kept/tests/failing.txt";
+        let copies = format!("test ! -f tests/failing.txt || cp -p {kept} c");
         let copy = format!("copy = '{copies}'\n{UNIT}");
         let harness = Harness::new(&COMMANDS.replace(UNIT, &copy));
         harness.folder.write("tests/failing.txt", "mine\n");
@@ -644,7 +664,7 @@ mod tests {
     #[test]
     fn the_test_is_kept_aside_under_the_state_root() {
         let state = Folder::new();
-        let copy = state.0.join(".gdd/selftest/kept/tests/failing.txt");
+        let copy = state.0.join(".tminus/selftest/kept/tests/failing.txt");
         // Green only while the copy is there, under the state root, and the test is not.
         let unit = format!("test ! -f tests/failing.txt && test -f {}", copy.display());
         let harness = Harness::with_unit(&unit);
@@ -653,7 +673,7 @@ mod tests {
         assert!(selftest.ok(), "{selftest}");
         assert_eq!(fs::read_to_string(harness.planted()).unwrap(), "mine\n");
         assert!(!copy.exists());
-        assert!(!harness.folder.0.join(".gdd").exists());
+        assert!(!harness.folder.0.join(".tminus").exists());
     }
 
     #[test]
@@ -696,7 +716,7 @@ mod tests {
     fn a_g2_command_above_its_known_debt_or_without_it_turns_g2_red() {
         let unit = "test ! -f tests/failing.txt";
         let named = "a failing test turns G2 red (G2 is red without it: lint)".to_string();
-        // More than its count, or nothing gdd can count.
+        // More than its count, or nothing tminus can count.
         for lint in ["echo Found 7 errors.; false", "echo panicked; false"] {
             let harness = owing_lint(lint, unit, Some(5));
             assert_eq!(first(&harness), (named.clone(), false), "{lint}");
@@ -726,7 +746,7 @@ mod tests {
         harness.folder.write("tests/failing.txt", "mine\n");
         harness.folder.write(debt::PATH, "[[debt]");
         let (named, ok) = first(&harness);
-        let start = "a failing test turns G2 red (gdd/debt.toml: invalid TOML: ";
+        let start = "a failing test turns G2 red (tminus/debt.toml: invalid TOML: ";
         assert!(named.starts_with(start) && named.ends_with(')'), "{named}");
         assert!(!ok);
         assert!(!harness.folder.0.join("runs").exists());
@@ -750,7 +770,7 @@ mod tests {
         let harness = Harness::with_unit(swapped);
         harness.folder.write("tests/failing.txt", "mine\n");
         let err = harness.run().unwrap_err();
-        let end = ": a copy is in .gdd/selftest/kept/tests/failing.txt";
+        let end = ": a copy is in .tminus/selftest/kept/tests/failing.txt";
         assert!(err.starts_with(start) && err.ends_with(end), "{err}");
         assert_eq!(fs::read_to_string(harness.kept()).unwrap(), "mine\n");
         // A path under a file is not a missing one.
@@ -803,11 +823,11 @@ mod tests {
         // So does one on the way to the copy of the file.
         let harness = Harness::with_unit("echo ran >> runs; test ! -f tests/failing.txt");
         harness.folder.write("tests/failing.txt", "mine\n");
-        fs::create_dir_all(harness.folder.0.join(".gdd/selftest")).unwrap();
-        let kept = harness.folder.0.join(".gdd/selftest/kept");
+        fs::create_dir_all(harness.folder.0.join(".tminus/selftest")).unwrap();
+        let kept = harness.folder.0.join(".tminus/selftest/kept");
         std::os::unix::fs::symlink(&elsewhere.0, kept).unwrap();
         let err = harness.run().unwrap_err();
-        let start = "cannot set tests/failing.txt aside: .gdd/selftest/kept is a symbolic link";
+        let start = "cannot set tests/failing.txt aside: .tminus/selftest/kept is a symbolic link";
         assert!(err.starts_with(start), "{err}");
         assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 1);
         assert_eq!(fs::read_to_string(harness.planted()).unwrap(), "mine\n");
@@ -881,11 +901,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let elsewhere = Folder::new();
         let not_back = "a failing test turns G2 red (tests/failing.txt was not given back: a copy \
-                        is in .gdd/selftest/kept/tests/failing.txt)";
+                        is in .tminus/selftest/kept/tests/failing.txt)";
         // A link left by G2 with the test on the way to the file, or to its copy.
         let ways = [
-            ("tests", ".gdd/selftest/kept/tests/failing.txt"),
-            (".gdd/selftest/kept", "moved/tests/failing.txt"),
+            ("tests", ".tminus/selftest/kept/tests/failing.txt"),
+            (".tminus/selftest/kept", "moved/tests/failing.txt"),
         ];
         for (way, copy) in ways {
             let leaves = format!(
@@ -912,10 +932,10 @@ mod tests {
     fn a_copy_an_earlier_self_test_kept_is_never_overwritten() {
         let harness = Harness::with_unit("echo ran >> runs; test ! -f tests/failing.txt");
         harness.folder.write("tests/failing.txt", "mine\n");
-        let earlier = ".gdd/selftest/kept/tests/failing.txt";
+        let earlier = ".tminus/selftest/kept/tests/failing.txt";
         harness.folder.write(earlier, "earlier\n");
         let err = harness.run().unwrap_err();
-        let why = "cannot set tests/failing.txt aside: .gdd/selftest/kept/tests/failing.txt is \
+        let why = "cannot set tests/failing.txt aside: .tminus/selftest/kept/tests/failing.txt is \
                    already there, kept by a self-test that could not give tests/failing.txt \
                    back: once tests/failing.txt is as it should be, remove the copy and run it \
                    again";
@@ -928,7 +948,13 @@ mod tests {
     #[test]
     fn the_harness_must_cover_the_rules_and_a_ci_that_runs_the_gates() {
         let mut harness = Harness::new(COMMANDS);
-        for all in ["[]", "[\"gdd/**\"]", "[\".github/**\"]"] {
+        // The rules of a project of the new layout are in tminus/.
+        for all in [
+            "[]",
+            "[\"tminus/**\"]",
+            "[\".github/**\"]",
+            "[\"gdd/**\", \".github/**\"]",
+        ] {
             let rules = format!("[protected]\nall = {all}\n");
             harness.rules = Rules::from_toml(&rules).unwrap();
             assert_eq!(harness.passed(), [true, false, true, true], "{all}");
@@ -944,18 +970,65 @@ mod tests {
     }
 
     #[test]
-    fn a_ci_that_runs_gdd_ci_or_the_bin_gdd_ci_of_an_earlier_gdd_runs_the_gates() {
+    fn a_ci_that_runs_tminus_ci_or_gdd_ci_or_their_bin_entry_runs_the_gates() {
         let harness = Harness::new(COMMANDS);
         let workflow = harness.folder.0.join(WORKFLOW);
+        assert_eq!(WORKFLOW, ".github/workflows/tminus.yml");
         for (runs, passes) in [
+            ("tminus ci", true),
+            ("bin/tminus ci", true),
             ("gdd ci", true),
             ("bin/gdd ci", true),
+            ("echo tminus", false),
             ("echo gdd", false),
+            ("tminus selftest", false),
             ("gdd selftest", false),
         ] {
             fs::write(&workflow, format!("steps:\n  - run: {runs}\n")).unwrap();
             assert_eq!(harness.passed()[1], passes, "{runs}");
         }
+    }
+
+    /// The harness of `COMMANDS` in a project set up before the rename: its rules protect `gdd/`
+    /// and its workflow, `gdd.yml`, runs `runs`.
+    fn old_harness(runs: &str) -> Harness {
+        let mut harness = Harness::new(COMMANDS);
+        fs::remove_file(harness.folder.0.join(WORKFLOW)).unwrap();
+        harness.folder.write("gdd/project.toml", "");
+        let workflow = format!("steps:\n  - run: {runs}\n");
+        harness.folder.write(".github/workflows/gdd.yml", &workflow);
+        let rules = "[protected]\nall = [\"gdd/**\", \".github/**\"]\n";
+        harness.rules = Rules::from_toml(rules).unwrap();
+        harness
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_is_tested_in_its_own_layout() {
+        for runs in ["gdd ci", "bin/gdd ci", "tminus ci"] {
+            assert_eq!(old_harness(runs).passed(), [true; 4], "{runs}");
+        }
+        assert!(!old_harness("echo gdd").passed()[1]);
+        // Its rules are in gdd/: protecting tminus/ does not cover them.
+        let mut harness = old_harness("gdd ci");
+        let rules = "[protected]\nall = [\"tminus/**\", \".github/**\"]\n";
+        harness.rules = Rules::from_toml(rules).unwrap();
+        assert!(!harness.passed()[1]);
+        // The file of the test is kept aside in .gdd, and the commands get GDD_CHANGE alone.
+        let mut harness = old_harness("gdd ci");
+        let copy = ".gdd/selftest/kept/tests/failing.txt";
+        let seen = "printf \"%s|%s\" \"$GDD_CHANGE\" \"${TMINUS_CHANGE-none}\" > seen";
+        let unit = format!("{seen}; test ! -f tests/failing.txt && test -f {copy}");
+        let commands = COMMANDS.replace(UNIT, &format!("unit = '{unit}'"));
+        harness.commands = Commands::from_toml(&commands).unwrap();
+        harness.folder.write("tests/failing.txt", "mine\n");
+        let selftest = harness.run().unwrap();
+        assert!(selftest.ok(), "{selftest}");
+        let seen = fs::read_to_string(harness.folder.0.join("seen")).unwrap();
+        assert_eq!(seen, "selftest|none");
+        assert!(!harness.folder.0.join(copy).exists());
+        save(&harness.folder.0, &selftest).unwrap();
+        assert!(harness.folder.0.join(".gdd/selftest.json").is_file());
+        assert!(!harness.folder.0.join(".tminus").exists());
     }
 
     #[test]
@@ -965,7 +1038,7 @@ mod tests {
             let commands = COMMANDS.replace(empty, &format!("rollback_pre = '{command}'"));
             Harness::new(&commands)
         };
-        let ours = with_rollback("test \"$GDD_CHANGE\" = selftest");
+        let ours = with_rollback("test \"$TMINUS_CHANGE\" = selftest");
         assert_eq!(ours.rollback(), (ROLLBACK, true));
         assert_eq!(with_rollback("exit 1").rollback(), (ROLLBACK, false));
         let harness = with_rollback("test -f gdd.flag");
@@ -1035,7 +1108,7 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::create_dir_all(&path).unwrap();
         let err = save(root, &selftest).unwrap_err();
-        let start = "cannot write .gdd/selftest.json: ";
+        let start = "cannot write .tminus/selftest.json: ";
         assert!(err.starts_with(start), "{err}");
     }
 }

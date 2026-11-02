@@ -5,7 +5,7 @@ Feature: The G4 page says how the change works (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,12 +70,12 @@ Feature: The G4 page says how the change works (hidden examples)
     And the agents are fakes
 
   Scenario: The explanation ends at the next heading
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    And the file ".gdd/changes/c1/review.md" says:
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    And the file ".tminus/changes/c1/review.md" says:
       """
       ## How it works
       The parser keeps the old format and adds the new one beside it.
@@ -85,18 +85,18 @@ Feature: The G4 page says how the change works (hidden examples)
 
       VERDICT: OK
       """
-    When I run "gdd inbox c1"
+    When I run "tminus inbox c1"
     Then it succeeds
     And the output contains "The parser keeps the old format"
     And the output does not contain "shorter names"
 
   Scenario: A heading of another level or case still counts
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    And the file ".gdd/changes/c1/review.md" says:
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    And the file ".tminus/changes/c1/review.md" says:
       """
       ### how it works
       One cache per project, cleared when the rules change.

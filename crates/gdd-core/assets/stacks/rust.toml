@@ -1,5 +1,5 @@
 # Stack sheet · Rust. Tools checked 2026-10-25 (docs/discover/2026-10-24-mvp.md); commands as in
-# gdd's own repository, where they run every day; first real run on a new project 2026-10-27
+# tminus's own repository, where they run every day; first real run on a new project 2026-10-27
 # (docs/discover/2026-10-27-gdd-init.md). Layout: unit tests next to the code, the scenario
 # steps in tests/acceptance/ (a cucumber-rs test target named acceptance, declared in Cargo.toml with
 # harness = false and test = false: plain cargo test skips it, cargo test --test acceptance runs it).
@@ -7,7 +7,7 @@ name = "rust"
 title = "Rust"
 scenario_runner = "cucumber-rs"
 detect = ["Cargo.toml"]
-supply_chain = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]   # red zone written by gdd init: dependencies and toolchain
+supply_chain = ["Cargo.lock", "deny.toml", "rust-toolchain.toml"]   # red zone written by tminus init: dependencies and toolchain
 install = '''cargo fetch --locked'''
 bootstrap = '''cargo generate-lockfile'''   # the first install: writes the lock file
 ignore = ["/target"]
@@ -16,22 +16,22 @@ ignore = ["/target"]
 lint = '''cargo fmt --all --check && cargo clippy --all-targets --test acceptance -- -D warnings -W clippy::cognitive_complexity'''   # --all-targets skips a target with test = false
 types = ""   # clippy type-checks every target
 unit = '''cargo test --workspace'''   # lib, bins, doc tests and every target in tests/ (the self-test file too) but acceptance (test = false)
-acceptance = '''cargo test --test acceptance'''   # cucumber-rs, strict, only GDD_FEATURES (all if empty)
+acceptance = '''cargo test --test acceptance'''   # cucumber-rs, strict, only TMINUS_FEATURES (all if empty)
 architecture = ""   # written per project: a cargo tree rule between its crates
 
 [g3]
-acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 cargo test --test acceptance --locked'''
+acceptance_full = '''TMINUS_FEATURES= TMINUS_HIDDEN=1 cargo test --test acceptance --locked'''
 lockfile = '''cargo metadata --locked --format-version 1 > /dev/null'''
 security = '''cargo deny --locked check advisories bans sources'''   # exceptions: [advisories] ignore in deny.toml, with a reason
 dependencies = '''cargo deny --locked check licenses'''
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && git add -A --intent-to-add && D=$(mktemp -d) && trap 'rm -rf "$D"' EXIT && git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$M" > "$D/diff" && awk -v w="$D/where" 'function unq(s,r,c,i){r="";s=substr(s,2,length(s)-2);while((i=index(s,"\\"))>0){c=substr(s,i+1,1);if(c!="\""&&c!="\\")c="\\" c;r=r substr(s,1,i-1) c;s=substr(s,i+2)}return r s} /^diff /{h=0;next} /^@@ /{h=1;split($3,a,",");n=substr(a[1],2)+0;next} !h{if(/^\+\+\+ /){f=substr($0,5);sub(/\t$/,"",f);if(f~/^"/)f=unq(f);sub(/^b\//,"",f)}next} /^\+/{print substr($0,2);print f":"n > w;n++;next} !/^-/&&!/^\\/{n++}' "$D/diff" > "$D/added" && printf '{{range .}}{{.StartLine}} {{.RuleID}}\n{{end}}' > "$D/report" || { echo 'secrets: the lines the change adds could not be read, so no secret was checked'; exit 2; }; gitleaks stdin --no-banner --redact --log-level error --report-format template --report-template "$D/report" --report-path "$D/found" < "$D/added" && exit 0; s=$?; [ ! -f "$D/found" ] || sort -n "$D/found" | while read -r n rule; do printf 'secrets: %s: %s (value not shown)\n' "$(sed -n "${n}p" "$D/where")" "$rule"; done; exit $s'''   # secrets in the lines the change adds (gitleaks logs errors only): gitleaks reads only those, and the gate prints path:line and the rule of each finding, never the value; a +++ line names the file only before the file's first @@ (an added line may start with ++), a path git quotes is read unquoted, and a step that fails before gitleaks fails the gate
-mutation = '''export CARGO_PROFILE_TEST_DEBUG=0; if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; if command -v mold >/dev/null && [ -z "${RUSTFLAGS:-}" ]; then export RUSTFLAGS='-C link-arg=-fuse-ld=mold'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && mkdir -p target && git add -A --intent-to-add && git diff "$M" > target/gdd-change.diff && { missed_too() { if [ $code -eq 3 ] && [ -s target/mutants.out/missed.txt ]; then echo "$(wc -l < target/mutants.out/missed.txt | tr -d ' ') mutant(s) missed besides the timeouts"; code=2; fi; }; cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle -j 2; code=$?; missed_too; if [ $code -eq 3 ]; then cargo mutants --in-diff target/gdd-change.diff --output target --no-shuffle --iterate -j 1 --minimum-test-timeout 120; code=$?; missed_too; if [ $code -eq 3 ]; then if [ -f target/mutants.out/timeout.txt ]; then n=$(wc -l < target/mutants.out/timeout.txt | tr -d ' '); else n=some; fi; echo "$n mutant(s) hung again: counted as caught"; code=0; fi; fi; exit $code; }'''   # mutants built without debug info and linked with mold when it is installed (unless RUSTFLAGS is set); each test process capped at 2 GB where prlimit exists (a mutant can turn a loop into endless allocation), MALLOC_ARENA_MAX=2 so glibc's arenas do not fill that cap; cargo-mutants exits 3 when a mutant timed out even if others were missed, so after each run a missed.txt that is not empty turns 3 into 2 (missed mutants fail the gate); a 3 with none missed gets a second chance (--iterate retries the missed and timed-out ones), one at a time with at least 120 s per test: a mutant that hangs again counts as caught, as Stryker counts it
+mutation = '''export CARGO_PROFILE_TEST_DEBUG=0; if command -v prlimit >/dev/null; then export CARGO_TARGET_$(rustc -vV | sed -n 's/^host: //p' | tr a-z- A-Z_)_RUNNER='prlimit --as=2147483648 --' MALLOC_ARENA_MAX=2; fi; if command -v mold >/dev/null && [ -z "${RUSTFLAGS:-}" ]; then export RUSTFLAGS='-C link-arg=-fuse-ld=mold'; fi; BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && mkdir -p target && git add -A --intent-to-add && git diff "$M" > target/tminus-change.diff && { missed_too() { if [ $code -eq 3 ] && [ -s target/mutants.out/missed.txt ]; then echo "$(wc -l < target/mutants.out/missed.txt | tr -d ' ') mutant(s) missed besides the timeouts"; code=2; fi; }; cargo mutants --in-diff target/tminus-change.diff --output target --no-shuffle -j 2; code=$?; missed_too; if [ $code -eq 3 ]; then cargo mutants --in-diff target/tminus-change.diff --output target --no-shuffle --iterate -j 1 --minimum-test-timeout 120; code=$?; missed_too; if [ $code -eq 3 ]; then if [ -f target/mutants.out/timeout.txt ]; then n=$(wc -l < target/mutants.out/timeout.txt | tr -d ' '); else n=some; fi; echo "$n mutant(s) hung again: counted as caught"; code=0; fi; fi; exit $code; }'''   # mutants built without debug info and linked with mold when it is installed (unless RUSTFLAGS is set); each test process capped at 2 GB where prlimit exists (a mutant can turn a loop into endless allocation), MALLOC_ARENA_MAX=2 so glibc's arenas do not fill that cap; cargo-mutants exits 3 when a mutant timed out even if others were missed, so after each run a missed.txt that is not empty turns 3 into 2 (missed mutants fail the gate); a 3 with none missed gets a second chance (--iterate retries the missed and timed-out ones), one at a time with at least 120 s per test: a mutant that hangs again counts as caught, as Stryker counts it
 
 [learn]   # warnings for Learn, never a gate
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''cargo machete'''
 
-# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)
+# [count]: how to count what each command reports, to hold its known debt (tminus/debt.toml)
 # to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at
 # each place it matches; a text without it counts the lines that contain it. A change that
 # reports more than the count recorded fails the gate; one that reports less lowers it.
@@ -41,7 +41,7 @@ unused = '''cargo machete'''
 lint = ["Diff in ", "due to {n} previous error"]
 unit = ["{n} failed;"]
 
-[ci]   # steps of .github/workflows/gdd.yml before gdd ci
+[ci]   # steps of .github/workflows/tminus.yml before tminus ci
 setup = '''
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -55,7 +55,7 @@ setup = '''
 file = "tests/gdd_selftest_failing.rs"
 content = '''#[test]
 fn gdd_selftest_must_fail() {
-    panic!("gdd selftest");
+    panic!("tminus selftest");
 }
 '''
 

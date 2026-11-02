@@ -1,15 +1,18 @@
-//! What several stack sheets give together, as `gdd stacks compose` prints it: the shape of
-//! `gdd/commands.toml` plus a `[protected]` table. Every gate runs the commands of every sheet;
-//! a command that is the same in all of them runs once; the protected paths add up. How to
-//! count what each command reports, `[count]`, goes with its command.
+//! What several stack sheets give together, as `tminus stacks compose` prints it: the shape of
+//! `tminus/commands.toml` plus a `[protected]` table, in the new names as the sheets are (a
+//! project of the old layout gets it as it names things, see [`crate::layout::Layout::localize`]).
+//! Every gate runs the commands of every sheet; a command that is the same in all of them runs
+//! once; the protected paths add up. How to count what each command reports, `[count]`, goes
+//! with its command.
 
 use toml::Value;
 
 use super::{Commands, Error, SECTIONS, Sheet, once, sheet};
 
-/// What `gdd/commands.toml` says above `[count]`.
+/// What `tminus/commands.toml` says above `[count]`.
 const COUNT: &str = concat!(
-    "# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)\n",
+    "# [count]: how to count what each command reports, to hold its known debt ",
+    "(tminus/debt.toml)\n",
     "# to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at\n",
     "# each place it matches; a text without it counts the lines that contain it. A change that\n",
     "# reports more than the count recorded fails the gate; one that reports less lowers it.",

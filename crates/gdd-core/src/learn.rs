@@ -1,8 +1,9 @@
-//! Learn (`gdd learn`): the phase has no gate, it only hardens. The Learn tools of
-//! `gdd/commands.toml` (`[learn]`: duplication, unused code) run once on the project; what each
-//! one said stays in `.gdd/learn/` and a few lines of it are shown. Next to them, the polish notes
-//! the human gave at G4, so the Orchestrator can spot the ones that repeat. A tool that finds
-//! something is a warning, never a failure.
+//! Learn (`tminus learn`): the phase has no gate, it only hardens. The Learn tools of
+//! `tminus/commands.toml` (`[learn]`: duplication, unused code) run once on the project; what
+//! each one said stays in `.tminus/learn/` and a few lines of it are shown. Next to them, the
+//! polish notes the human gave at G4, so the Orchestrator can spot the ones that repeat. A tool
+//! that finds something is a warning, never a failure. A project of the old layout keeps its
+//! files in `gdd/` and `.gdd/` (see [`crate::layout`]).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,17 +20,16 @@ use crate::agents::files;
 use crate::config;
 use crate::exec;
 use crate::flow::{self, DAY};
+use crate::gates::COMMANDS;
+use crate::layout::{self, Layout};
 use crate::log;
 
-/// Where what each tool said is kept, from the state root.
-pub const FOLDER: &str = ".gdd/learn";
+/// Where what each tool said is kept, from the state root, in the new names (see
+/// [`crate::layout`]).
+pub const FOLDER: &str = ".tminus/learn";
 
-/// What `gdd learn` says when the project has no Learn tools.
-pub const NO_TOOLS: &str = "No Learn tools in gdd/commands.toml: add a [learn] section (gdd stacks \
-                            lists the stack sheets, whose [learn] has them).";
-
-/// Where the changes keep their files, from the state root.
-const CHANGES: &str = ".gdd/changes";
+/// Where the changes keep their files, from the state root, in the new names.
+const CHANGES: &str = ".tminus/changes";
 
 /// Lines of what a tool said that are shown; the file keeps all of it.
 const SHOWN: usize = 10;
@@ -38,13 +38,25 @@ const SHOWN: usize = 10;
 const NOT_EXECUTABLE: i32 = 126;
 const NOT_FOUND: i32 = 127;
 
-/// The variables the tools get: the ones of the gates, without a change (as `gdd adopt`).
-const ENV: [(&str, &str); 4] = [
-    ("GDD_CHANGE", ""),
-    ("GDD_COLOR", ""),
-    ("GDD_DIFF_FILES", ""),
-    ("GDD_FEATURES", ""),
+/// The variables the tools get, empty: the ones of the gates, without a change (as `tminus
+/// adopt`). In the new names: a project of the old layout gets them as it names them, and never
+/// their twins (see [`exec::run`]).
+const ENV: [&str; 4] = [
+    "TMINUS_CHANGE",
+    "TMINUS_COLOR",
+    "TMINUS_DIFF_FILES",
+    "TMINUS_FEATURES",
 ];
+
+/// What `tminus learn` says when the project, of `layout`, has no Learn tools: the commands file
+/// as the project names it.
+pub fn no_tools(layout: Layout) -> String {
+    format!(
+        "No Learn tools in {}: add a [learn] section (tminus stacks lists the stack sheets, whose \
+         [learn] has them).",
+        layout.path(COMMANDS)
+    )
+}
 
 /// The exit code of cargo when it fails, also when it has no such subcommand.
 const CARGO_FAILED: i32 = 101;
@@ -110,6 +122,8 @@ pub struct Tool {
     pub verdict: Verdict,
     /// The first lines of what it said, without colors.
     pub shown: Vec<String>,
+    /// Where all it said is kept, from the state root, as the state root names it.
+    kept: String,
 }
 
 impl fmt::Display for Tool {
@@ -123,7 +137,7 @@ impl fmt::Display for Tool {
         for line in &self.shown {
             write!(f, "\n  {line}")?;
         }
-        write!(f, "\n  All it said: {}", kept(&self.name))
+        write!(f, "\n  All it said: {}", self.kept)
     }
 }
 
@@ -183,7 +197,7 @@ impl fmt::Display for Reviews {
     }
 }
 
-/// What `gdd learn` found.
+/// What `tminus learn` found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Learned {
     /// The Learn tools, in the order of the file; none when the project has none.
@@ -192,17 +206,19 @@ pub struct Learned {
     pub notes: Vec<Note>,
     /// What the reviews of the Reviewer say.
     pub reviews: Reviews,
-    /// How many lines of the log are not gdd's, and were left out (see [`flow::read`]).
+    /// How many lines of the log are not tminus's, and were left out (see [`flow::read`]).
     pub left_out: usize,
+    /// The layout of the project, whose commands file it names (see [`no_tools`]).
+    project: Layout,
 }
 
 impl fmt::Display for Learned {
-    /// What `gdd learn` prints, without a line break at the end: the tools, or how to add them,
-    /// then the polish notes and the reviews; last, how many lines of the log it left out, when
-    /// it left out any (see [`log::left_out`]).
+    /// What `tminus learn` prints, without a line break at the end: the tools, or how to add
+    /// them, then the polish notes and the reviews; last, how many lines of the log it left out,
+    /// when it left out any (see [`log::left_out`]).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.tools.is_empty() {
-            writeln!(f, "{NO_TOOLS}")?;
+            writeln!(f, "{}", no_tools(self.project))?;
         }
         for tool in &self.tools {
             writeln!(f, "{tool}")?;
@@ -219,9 +235,9 @@ impl fmt::Display for Learned {
     }
 }
 
-/// Where what the tool `name` said is kept, from the state root.
-fn kept(name: &str) -> String {
-    format!("{FOLDER}/{name}.txt")
+/// Where what the tool `name` said is kept, from a state root of `layout`.
+fn kept(layout: Layout, name: &str) -> String {
+    format!("{}/{name}.txt", layout.path(FOLDER))
 }
 
 #[derive(Deserialize)]
@@ -273,12 +289,12 @@ fn learn_within(
     since: Option<i64>,
     timeout: Duration,
 ) -> Result<Learned, String> {
-    let found = tools_of(commands).map_err(|e| format!("{}: {e}", crate::gates::COMMANDS))?;
+    let file = layout::named(root, COMMANDS);
+    let found = tools_of(commands).map_err(|e| format!("{file}: {e}"))?;
     if let Some((name, _)) = found.iter().find(|(name, _)| !names_a_file(name)) {
         return Err(format!(
-            "{}: [learn] {name:?}: gdd learn keeps what a tool says in a file named after it, so \
-             its name takes only letters, digits, - and _",
-            crate::gates::COMMANDS
+            "{file}: [learn] {name:?}: tminus learn keeps what a tool says in a file named after \
+             it, so its name takes only letters, digits, - and _"
         ));
     }
     let log = log_lines(state)?;
@@ -298,10 +314,12 @@ fn learn_within(
         notes,
         reviews,
         left_out: log.left_out,
+        project: Layout::at(root),
     })
 }
 
-/// Runs one tool and keeps all it said.
+/// Runs one tool from the project root `root`, with the variables of the gates as the project
+/// names them, and keeps all it said under the state root `state`, as that root names it.
 fn run_tool(
     root: &Path,
     state: &Path,
@@ -309,17 +327,21 @@ fn run_tool(
     command: &str,
     timeout: Duration,
 ) -> Result<Tool, String> {
-    let (code, output) = match exec::run(command, root, &ENV, timeout) {
+    let project = Layout::at(root);
+    let names = ENV.map(|name| project.localize(name));
+    let env: Vec<(&str, &str)> = names.iter().map(|name| (name.as_str(), "")).collect();
+    let (code, output) = match exec::run(command, root, &env, timeout) {
         Ok(ran) => (ran.code, ran.output),
         Err(e) => (NOT_FOUND, format!("cannot run sh: {e}")),
     };
-    let path = kept(&name);
+    let path = kept(Layout::at(state), &name);
     files::replace(state, &path, output.as_bytes())
         .map_err(|e| format!("cannot write {path}: {e}"))?;
     Ok(Tool {
         verdict: Verdict::of(code, command, &output),
         shown: first_lines(&output),
         name,
+        kept: path,
     })
 }
 
@@ -347,13 +369,14 @@ fn without_colors(text: &str) -> String {
     plain
 }
 
-/// The lines of the log under `state` that are gdd's, and how many are not (see
-/// [`flow::read`]). No log is no lines.
+/// The lines of the log under `state`, where that root keeps it, that are tminus's, and how many
+/// are not (see [`flow::read`]). No log is no lines.
 fn log_lines(state: &Path) -> Result<log::Read<flow::Line>, String> {
-    let text = match fs::read_to_string(state.join(log::PATH)) {
+    let path = layout::named(state, log::PATH);
+    let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
+        Err(e) => return Err(format!("cannot read {path}: {e}")),
     };
     Ok(flow::read(&text))
 }
@@ -386,26 +409,26 @@ fn polish_notes(lines: &[flow::Line], wanted: &dyn Fn(&str) -> bool) -> Vec<Note
 }
 
 /// The text of each review file `reviewer-*.md` in the outputs of the changes under `state` that
-/// are `wanted`, with the id of its change. No changes folder, or a change without outputs, has
-/// none; a file that cannot be read as text is skipped.
+/// are `wanted`, with the id of its change, where that root keeps them. No changes folder, or a
+/// change without outputs, has none; a file that cannot be read as text is skipped.
 fn review_texts(
     state: &Path,
     wanted: &dyn Fn(&str) -> bool,
 ) -> Result<Vec<(String, String)>, String> {
-    let changes = state.join(CHANGES);
-    let entries = match fs::read_dir(&changes) {
+    let named = layout::named(state, CHANGES);
+    let entries = match fs::read_dir(state.join(&named)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("cannot read {CHANGES}: {e}")),
+        Err(e) => return Err(format!("cannot read {named}: {e}")),
     };
     let mut texts = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|e| format!("cannot read {CHANGES}: {e}"))?;
+        let entry = entry.map_err(|e| format!("cannot read {named}: {e}"))?;
         let id = entry.file_name().to_string_lossy().into_owned();
         if !entry.path().is_dir() || !wanted(&id) {
             continue;
         }
-        let outputs = format!("{CHANGES}/{id}/outputs");
+        let outputs = format!("{named}/{id}/outputs");
         let files = match fs::read_dir(state.join(&outputs)) {
             Ok(files) => files,
             Err(e) if e.kind() == ErrorKind::NotFound => continue,
@@ -528,7 +551,7 @@ mod tests {
 
     /// What the tool `name` said, as kept under the state root `state`.
     fn said_by(state: &Folder, name: &str) -> String {
-        fs::read_to_string(state.0.join(kept(name))).unwrap()
+        fs::read_to_string(state.0.join(kept(Layout::Tminus, name))).unwrap()
     }
 
     fn run(tools: &[(&str, &str)]) -> Learned {
@@ -585,10 +608,11 @@ mod tests {
             name: "unused".into(),
             verdict: Verdict::of(101, "cargo machete", NO_SUCH),
             shown: first_lines(NO_SUCH),
+            kept: kept(Layout::Tminus, "unused"),
         };
         let said = "unused: could not run (cargo has no such command: install it, e.g. cargo \
                     install cargo-machete)\n  error: no such command: `machete`\n  All it said: \
-                    .gdd/learn/unused.txt";
+                    .tminus/learn/unused.txt";
         assert_eq!(tool.to_string(), said);
     }
 
@@ -660,7 +684,7 @@ mod tests {
             let learned = learn(&root.0, &state.0, text, None).unwrap();
             assert!(learned.tools.is_empty(), "{text}");
             let said = learned.to_string();
-            assert!(said.starts_with(NO_TOOLS), "{said}");
+            assert!(said.starts_with(&no_tools(Layout::Tminus)), "{said}");
             assert!(said.contains("\nPolish notes at G4 (0)\n"), "{said}");
         }
         assert!(!state.0.join(FOLDER).exists());
@@ -670,9 +694,9 @@ mod tests {
     fn a_commands_file_that_is_not_toml_is_an_error() {
         let (root, state) = project();
         let err = learn(&root.0, &state.0, "[learn", None).unwrap_err();
-        assert!(err.starts_with("gdd/commands.toml: "), "{err}");
+        assert!(err.starts_with("tminus/commands.toml: "), "{err}");
         let err = learn(&root.0, &state.0, "learn = 3", None).unwrap_err();
-        assert!(err.starts_with("gdd/commands.toml: "), "{err}");
+        assert!(err.starts_with("tminus/commands.toml: "), "{err}");
     }
 
     #[test]
@@ -691,7 +715,7 @@ mod tests {
         for name in ["\"a/b\"", "\"..\"", "\"\"", "\"x.y\""] {
             let text = format!("[learn]\nfirst = \"touch ran\"\n{name} = \"true\"\n");
             let err = learn(&root.0, &state.0, &text, None).unwrap_err();
-            let start = format!("gdd/commands.toml: [learn] {name}: gdd learn keeps");
+            let start = format!("tminus/commands.toml: [learn] {name}: tminus learn keeps");
             assert!(err.starts_with(&start), "{name}: {err}");
         }
         assert!(!root.0.join("ran").exists());
@@ -702,10 +726,54 @@ mod tests {
     fn the_tools_run_from_the_root_with_the_variables_of_the_gates_and_no_change() {
         let (root, state) = project();
         root.write("README.md", "");
-        let vars = "$GDD_CHANGE$GDD_COLOR$GDD_DIFF_FILES$GDD_FEATURES";
+        let vars = "$TMINUS_CHANGE$TMINUS_COLOR$TMINUS_DIFF_FILES$TMINUS_FEATURES";
         let check = format!("test -f README.md && test -z \"{vars}\"");
         let learned = learn(&root.0, &state.0, &commands(&[("here", &check)]), None).unwrap();
         assert_eq!(learned.tools[0].verdict, Verdict::Nothing);
+        // Set, empty, and without their old twins.
+        let set = "test \"${TMINUS_CHANGE-unset}|${GDD_CHANGE-none}\" = \"|none\"";
+        let learned = learn(&root.0, &state.0, &commands(&[("set", set)]), None).unwrap();
+        assert_eq!(learned.tools[0].verdict, Verdict::Nothing);
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_learns_where_it_keeps_its_files() {
+        let (root, state) = project();
+        root.write("gdd/project.toml", "");
+        state.write("gdd/project.toml", "");
+        let learned = learn(&root.0, &state.0, "", None).unwrap();
+        let said = learned.to_string();
+        assert!(said.starts_with(&no_tools(Layout::Gdd)), "{said}");
+        let none = "No Learn tools in gdd/commands.toml: add a [learn] section (tminus stacks";
+        assert!(said.starts_with(none), "{said}");
+        // The variables of the gates as it names them, without their new twins.
+        let set = "test \"${GDD_CHANGE-unset}|${TMINUS_CHANGE-none}\" = \"|none\" && echo ok";
+        let learned = learn(&root.0, &state.0, &commands(&[("set", set)]), None).unwrap();
+        assert_eq!(learned.tools[0].verdict, Verdict::Nothing);
+        let shown = "set: nothing found\n  ok\n  All it said: .gdd/learn/set.txt";
+        assert_eq!(learned.tools[0].to_string(), shown);
+        let kept = fs::read_to_string(state.0.join(".gdd/learn/set.txt")).unwrap();
+        assert_eq!(kept, "ok\n");
+        assert!(!state.0.join(".tminus").exists());
+        // Its log and its reviews are in .gdd/.
+        let text = log_text();
+        state.write(".gdd/log.jsonl", &text);
+        let ko = "F1 · shared · x · y · z\nVERDICT: KO\n";
+        state.write(".gdd/changes/a/outputs/reviewer-1.md", ko);
+        state.write(".gdd/changes/b/outputs/reviewer-1.md", ko);
+        let learned = learn(&root.0, &state.0, "", None).unwrap();
+        assert_eq!(learned.notes.len(), 3);
+        assert_eq!(learned.reviews.repeated[0].changes, ["a", "b"]);
+        let err = learn(&root.0, &state.0, "[learn", None).unwrap_err();
+        assert!(err.starts_with("gdd/commands.toml: "), "{err}");
+        let other = Folder::new();
+        other.write("gdd/project.toml", "");
+        other.write(".gdd/changes", "not a folder");
+        let err = learn(&root.0, &other.0, "", None).unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/changes: "), "{err}");
+        fs::create_dir_all(other.0.join(".gdd/log.jsonl")).unwrap();
+        let err = learn(&root.0, &other.0, "", None).unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
     }
 
     #[test]
@@ -716,19 +784,19 @@ mod tests {
         let tool = &learned.tools[0];
         assert_eq!(tool.shown, ["old.py:3 unused", "more"]);
         let shown = "unused: found something (exit code 3)\n  old.py:3 unused\n  more\n  \
-                     All it said: .gdd/learn/unused.txt";
+                     All it said: .tminus/learn/unused.txt";
         assert_eq!(tool.to_string(), shown);
         assert_eq!(said_by(&state, "unused"), "old.py:3 unused\nmore\n");
         let again = commands(&[("unused", "echo fixed")]);
         learn(&root.0, &state.0, &again, None).unwrap();
         assert_eq!(said_by(&state, "unused"), "fixed\n");
-        assert!(!root.0.join(".gdd").exists());
+        assert!(!root.0.join(".tminus").exists());
     }
 
     #[test]
     fn a_tool_that_said_nothing_has_no_indented_lines_but_its_file_is_replaced() {
         let (root, state) = project();
-        state.write(".gdd/learn/quiet.txt", "from a past run\n");
+        state.write(".tminus/learn/quiet.txt", "from a past run\n");
         let learned = learn(&root.0, &state.0, &commands(&[("quiet", "true")]), None).unwrap();
         assert_eq!(learned.tools[0].to_string(), "quiet: nothing found");
         assert_eq!(said_by(&state, "quiet"), "");
@@ -782,7 +850,7 @@ mod tests {
 
     fn notes(since: Option<i64>) -> Vec<String> {
         let (root, state) = project();
-        state.write(".gdd/log.jsonl", &log_text());
+        state.write(".tminus/log.jsonl", &log_text());
         let learned = learn(&root.0, &state.0, "", since).unwrap();
         let notes = learned.notes.iter();
         notes.map(|n| format!("{}: {}", n.change, n.text)).collect()
@@ -797,7 +865,7 @@ mod tests {
         ];
         assert_eq!(notes(None), all);
         let (root, state) = project();
-        state.write(".gdd/log.jsonl", &log_text());
+        state.write(".tminus/log.jsonl", &log_text());
         let said = learn(&root.0, &state.0, "", None).unwrap().to_string();
         let tail = "Polish notes at G4 (3)\n- a: Shorter error messages\n- b: Shorter, again\n- \
                     a: Later note of a";
@@ -818,7 +886,7 @@ mod tests {
         let (root, state) = project();
         let log = line("2026-10-20T23:59:59+00:00", "a", "G4", "polish", "early")
             + &line("2026-10-21T00:00:00+00:00", "b", "G4", "polish", "on time");
-        state.write(".gdd/log.jsonl", &log);
+        state.write(".tminus/log.jsonl", &log);
         let since = flow::day("2026-10-21");
         let learned = learn(&root.0, &state.0, "", since).unwrap();
         assert_eq!(learned.notes.len(), 1);
@@ -844,7 +912,7 @@ mod tests {
             "polish",
             "by a person",
         );
-        state.write(".gdd/log.jsonl", &(machine + &agent + &human));
+        state.write(".tminus/log.jsonl", &(machine + &agent + &human));
         let learned = learn(&root.0, &state.0, "", None).unwrap();
         let texts: Vec<&str> = learned.notes.iter().map(|n| n.text.as_str()).collect();
         assert_eq!(texts, ["by a person"]);
@@ -1001,21 +1069,21 @@ mod tests {
 
     fn write_review(state: &Folder, change: &str, n: u32, text: &str) {
         state.write(
-            &format!(".gdd/changes/{change}/outputs/reviewer-{n}.md"),
+            &format!(".tminus/changes/{change}/outputs/reviewer-{n}.md"),
             text,
         );
     }
 
     fn reviewed(since: Option<i64>) -> String {
         let (root, state) = project();
-        state.write(".gdd/log.jsonl", &log_text());
+        state.write(".tminus/log.jsonl", &log_text());
         let ko = |class: &str| format!("F1 · {class} · x · y · z\n\nVERDICT: KO\n");
         write_review(&state, "a", 1, &ko("shared"));
         write_review(&state, "b", 1, &ko("Shared"));
         write_review(&state, "b", 2, "- [P2] bare\nVERDICT: KO\n");
-        state.write(".gdd/changes/b/outputs/builder-1.md", "VERDICT: KO\n");
-        state.write(".gdd/changes/b/outputs/reviewer-3.raw", "VERDICT: KO\n");
-        state.write(".gdd/changes/c/outputs/reviewer-1.md", &ko("shared"));
+        state.write(".tminus/changes/b/outputs/builder-1.md", "VERDICT: KO\n");
+        state.write(".tminus/changes/b/outputs/reviewer-3.raw", "VERDICT: KO\n");
+        state.write(".tminus/changes/c/outputs/reviewer-1.md", &ko("shared"));
         learn(&root.0, &state.0, "", since)
             .unwrap()
             .reviews
@@ -1047,10 +1115,10 @@ mod tests {
     #[test]
     fn a_review_file_that_is_not_text_is_skipped() {
         let (root, state) = project();
-        let path = state.0.join(".gdd/changes/a/outputs/reviewer-1.md");
+        let path = state.0.join(".tminus/changes/a/outputs/reviewer-1.md");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
-        fs::create_dir_all(state.0.join(".gdd/changes/a/outputs/reviewer-2.md")).unwrap();
+        fs::create_dir_all(state.0.join(".tminus/changes/a/outputs/reviewer-2.md")).unwrap();
         let reviews = learn(&root.0, &state.0, "", None).unwrap().reviews;
         assert_eq!(reviews, Reviews::default());
     }
@@ -1058,14 +1126,14 @@ mod tests {
     #[test]
     fn a_folder_of_changes_or_outputs_that_cannot_be_read_is_an_error_naming_it() {
         let (root, state) = project();
-        state.write(".gdd/changes", "not a folder");
+        state.write(".tminus/changes", "not a folder");
         let err = learn(&root.0, &state.0, "", None).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/changes: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/changes: "), "{err}");
         let (root, state) = project();
-        state.write(".gdd/changes/a/outputs", "not a folder");
+        state.write(".tminus/changes/a/outputs", "not a folder");
         let err = learn(&root.0, &state.0, "", None).unwrap_err();
         assert!(
-            err.starts_with("cannot read .gdd/changes/a/outputs: "),
+            err.starts_with("cannot read .tminus/changes/a/outputs: "),
             "{err}"
         );
     }
@@ -1073,37 +1141,37 @@ mod tests {
     #[test]
     fn a_file_among_the_changes_and_a_change_without_outputs_are_not_reviews() {
         let (root, state) = project();
-        state.write(".gdd/changes/stray", "a file, not a change");
-        fs::create_dir_all(state.0.join(".gdd/changes/empty")).unwrap();
+        state.write(".tminus/changes/stray", "a file, not a change");
+        fs::create_dir_all(state.0.join(".tminus/changes/empty")).unwrap();
         let reviews = learn(&root.0, &state.0, "", None).unwrap().reviews;
         assert_eq!(reviews, Reviews::default());
     }
 
     #[test]
-    fn a_log_line_that_is_not_gdds_is_left_out_and_said_once() {
+    fn a_log_line_that_is_not_tminuss_is_left_out_and_said_once() {
         let (root, state) = project();
-        state.write(".gdd/log.jsonl", &(log_text() + "not a line of gdd\n"));
+        state.write(".tminus/log.jsonl", &(log_text() + "not a line of ours\n"));
         let learned = learn(&root.0, &state.0, "", None).unwrap();
         assert_eq!((learned.notes.len(), learned.left_out), (3, 1));
         let said = learned.to_string();
-        let one = "\n\n1 line of the log is not one of gdd's: left out";
+        let one = "\n\n1 line of the log is not one of tminus's: left out";
         assert!(said.ends_with(one), "{said}");
         assert_eq!(said.matches("left out").count(), 1, "{said}");
-        // A time that is not one, or a cost below zero, is no line of gdd's either.
+        // A time that is not one, or a cost below zero, is no line of tminus's either.
         let bad_time = line("yesterday", "a", "G4", "polish", "x");
         let polish = line("2026-10-20T12:00:00+00:00", "a", "G4", "polish", "forged");
         let forged = polish.replacen('{', r#"{"cost_usd": -100.0, "#, 1);
-        state.write(".gdd/log.jsonl", &(log_text() + &bad_time + &forged));
+        state.write(".tminus/log.jsonl", &(log_text() + &bad_time + &forged));
         let learned = learn(&root.0, &state.0, "", None).unwrap();
         assert_eq!((learned.notes.len(), learned.left_out), (3, 2));
-        let two = "\n\n2 lines of the log are not one of gdd's: left out";
+        let two = "\n\n2 lines of the log are not one of tminus's: left out";
         assert!(learned.to_string().ends_with(two), "{learned}");
         // Without them, nothing is said.
-        state.write(".gdd/log.jsonl", &log_text());
+        state.write(".tminus/log.jsonl", &log_text());
         let said = learn(&root.0, &state.0, "", None).unwrap().to_string();
         assert!(!said.contains("left out"), "{said}");
-        // A line that opens an object but is not JSON is no line of gdd's either.
-        state.write(".gdd/log.jsonl", &(log_text() + "{not json\n"));
+        // A line that opens an object but is not JSON is no line of tminus's either.
+        state.write(".tminus/log.jsonl", &(log_text() + "{not json\n"));
         let learned = learn(&root.0, &state.0, "", None).unwrap();
         assert_eq!((learned.notes.len(), learned.left_out), (3, 1));
     }
@@ -1112,14 +1180,14 @@ mod tests {
     fn a_log_that_cannot_be_read_is_an_error_not_an_empty_log() {
         let (root, state) = project();
         // A folder where the log goes.
-        fs::create_dir_all(state.0.join(".gdd/log.jsonl")).unwrap();
+        fs::create_dir_all(state.0.join(".tminus/log.jsonl")).unwrap();
         let err = learn(&root.0, &state.0, "", None).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/log.jsonl: "), "{err}");
         // A file where the folder of the log goes: not a folder, not a missing file.
         let (root, state) = project();
-        state.write(".gdd", "");
+        state.write(".tminus", "");
         let err = learn(&root.0, &state.0, "", None).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/log.jsonl: "), "{err}");
         assert!(err.contains("Not a directory"), "{err}");
     }
 
@@ -1129,7 +1197,7 @@ mod tests {
         let long = "x".repeat(300);
         let text = commands(&[(long.as_str(), "true")]);
         let err = learn(&root.0, &state.0, &text, None).unwrap_err();
-        let start = format!("cannot write .gdd/learn/{long}.txt: ");
+        let start = format!("cannot write .tminus/learn/{long}.txt: ");
         assert!(err.starts_with(&start), "{err}");
         assert!(err.contains("File name too long"), "{err}");
     }
@@ -1139,25 +1207,25 @@ mod tests {
         let (root, state) = project();
         let outside = Folder::new();
         outside.write("t.txt", "outside");
-        fs::create_dir_all(state.0.join(".gdd")).unwrap();
+        fs::create_dir_all(state.0.join(".tminus")).unwrap();
         symlink(&outside.0, state.0.join(FOLDER)).unwrap();
         let text = commands(&[("t", "echo x")]);
         learn(&root.0, &state.0, &text, None).unwrap();
         let untouched = fs::read_to_string(outside.0.join("t.txt")).unwrap();
         assert_eq!(untouched, "outside");
-        let kept = fs::read_to_string(state.0.join(".gdd/learn/t.txt")).unwrap();
+        let kept = fs::read_to_string(state.0.join(".tminus/learn/t.txt")).unwrap();
         assert_eq!(kept, "x\n");
-        let link = state.0.join(".gdd/learn/t.txt");
+        let link = state.0.join(".tminus/learn/t.txt");
         assert!(!fs::symlink_metadata(link).unwrap().is_symlink());
     }
 
     #[test]
     fn a_file_in_the_place_of_the_folder_of_the_tools_is_replaced() {
         let (root, state) = project();
-        state.write(".gdd/learn", "in the way");
+        state.write(".tminus/learn", "in the way");
         let text = commands(&[("t", "echo x")]);
         learn(&root.0, &state.0, &text, None).unwrap();
-        let kept = fs::read_to_string(state.0.join(".gdd/learn/t.txt")).unwrap();
+        let kept = fs::read_to_string(state.0.join(".tminus/learn/t.txt")).unwrap();
         assert_eq!(kept, "x\n");
     }
 }

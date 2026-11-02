@@ -8,7 +8,7 @@ Feature: Path Guard
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -28,47 +28,52 @@ Feature: Path Guard
 
   Scenario: Build mode inside its paths passes
     When the change writes "src/app.rs"
-    And I run "gdd guard c1 --role builder-build"
+    And I run "tminus guard c1 --role builder-build"
     Then Path Guard passes
 
   Scenario: The harness is protected from every role
-    When the change writes "gdd/rules.toml"
-    And I run "gdd guard c1 --role builder-build"
-    Then Path Guard fails naming "gdd/rules.toml"
+    When the change writes "tminus/rules.toml"
+    And I run "tminus guard c1 --role builder-build"
+    Then Path Guard fails naming "tminus/rules.toml"
 
   Scenario: Build mode cannot touch the steps written in test mode
     When the change writes "tests/steps/app.rs"
-    And I run "gdd guard c1 --role builder-build"
+    And I run "tminus guard c1 --role builder-build"
     Then Path Guard fails naming "tests/steps/app.rs"
 
   Scenario: Test mode cannot touch production code
     When the change writes "src/app.rs"
-    And I run "gdd guard c1 --role builder-test"
+    And I run "tminus guard c1 --role builder-test"
     Then Path Guard fails naming "src/app.rs"
 
   Scenario: Committed files count, not only the working tree
     When the change commits "bin/tool"
-    And I run "gdd guard c1 --role builder-build"
+    And I run "tminus guard c1 --role builder-build"
     Then Path Guard fails naming "bin/tool"
 
   Scenario: A scenario approved in G1 cannot change afterwards
     Given the scenario "features/app.feature" was approved in G1
     When the change modifies "features/app.feature"
-    And I run "gdd guard c1 --role builder-test"
+    And I run "tminus guard c1 --role builder-test"
     Then Path Guard fails naming "features/app.feature" and "approved in G1"
 
   Scenario: Only strict mode turns a failure into an exit code
-    When the change writes "gdd/rules.toml"
-    And I run "gdd guard c1 --role builder-build"
+    When the change writes "tminus/rules.toml"
+    And I run "tminus guard c1 --role builder-build"
     Then the exit code is 0
-    When I run "gdd guard c1 --role builder-build --strict"
+    When I run "tminus guard c1 --role builder-build --strict"
     Then the exit code is not 0
 
   Scenario: After a snapshot, only the new round counts
     Given the change wrote "src/app.rs"
-    And I run "gdd snapshot c1"
+    And I run "tminus snapshot c1"
     When the change writes "tests/steps/app.rs"
-    And I run "gdd guard c1 --role builder-test --since-snapshot"
+    And I run "tminus guard c1 --role builder-test --since-snapshot"
     Then Path Guard passes
-    When I run "gdd guard c1 --role builder-test"
+    When I run "tminus guard c1 --role builder-test"
     Then Path Guard fails naming "src/app.rs"
+
+  Scenario: A change whose build has not started cannot be judged
+    Given the change "c3" plans "docs/a.md" and its build has not started
+    When I run "tminus guard c3 --role builder-test"
+    Then Path Guard fails naming "not been prepared"

@@ -5,7 +5,7 @@ Feature: Hidden examples for retrying a failed promotion
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -71,25 +71,25 @@ Feature: Hidden examples for retrying a failed promotion
 
 
   Scenario: Two failed promotions in a row still leave the change paused
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
     And the gate command "release" "promote" is "exit 2"
-    And I run "gdd resume c1 --g4 ok"
-    When I run "gdd resume c1 --g4 ok"
+    And I run "tminus resume c1 --g4 ok"
+    When I run "tminus resume c1 --g4 ok"
     Then it fails with a message that contains "the change is still paused at G4"
     And the record of "c1" is in state "in-pre"
 
   Scenario: Polishing after a failed promotion runs one more round
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
     And the gate command "release" "promote" is "exit 1"
-    And I run "gdd resume c1 --g4 ok"
-    When I run "gdd resume c1 --g4 polish --note Shorter title"
+    And I run "tminus resume c1 --g4 ok"
+    When I run "tminus resume c1 --g4 polish --note Shorter title"
     Then it succeeds
     And the record of "c1" is in state "in-pre"

@@ -1,7 +1,7 @@
 //! What an agent says when it ends, read from its JSON output as the agent wrapper read it
 //! (ported from the bootstrap kit; the pilot repository keeps it): the tokens, the cost and its
 //! final text. Each agent sheet names its reader (`usage`). An agent that reports no cost is
-//! priced with `[prices.<model>]` of `gdd/models.toml`.
+//! priced with `[prices.<model>]` of `tminus/models.toml`.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -48,7 +48,7 @@ pub struct Said {
 }
 
 /// The price of a model, in US dollars per million tokens: `[prices.<model>]` of
-/// `gdd/models.toml`. What it leaves out costs nothing.
+/// `tminus/models.toml`. What it leaves out costs nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Price {

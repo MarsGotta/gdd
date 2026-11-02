@@ -1,11 +1,11 @@
 @hidden
-Feature: Hidden examples for gdd launch and gdd resume
+Feature: Hidden examples for tminus launch and tminus resume
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,26 +70,26 @@ Feature: Hidden examples for gdd launch and gdd resume
     And the agents are fakes
 
   Scenario: A Reviewer without a readable verdict counts as KO
-    Given I run "gdd new-change c2 --title Menu --paths src/app.txt"
+    Given I run "tminus new-change c2 --title Menu --paths src/app.txt"
     And the Reviewer answers "Looks fine to me" every time
-    When I run "gdd launch c2"
+    When I run "tminus launch c2"
     Then it fails with a message that contains "parked: Reviewer KO or G3 red after one fix"
     And the record of "c2" is in state "parked"
 
   Scenario: Polishing needs the human's notes
-    Given I run "gdd new-change c2 --title Menu --paths src/app.txt"
+    Given I run "tminus new-change c2 --title Menu --paths src/app.txt"
     And the change "c2" has the scenario "features/menu.feature" on its branch
     And I am on the branch "change/c2"
-    And I run "gdd gate G1 ok c2 --by human"
-    And I run "gdd launch c2"
-    When I run "gdd resume c2 --g4 polish"
+    And I run "tminus gate G1 ok c2 --by human"
+    And I run "tminus launch c2"
+    When I run "tminus resume c2 --g4 polish"
     Then it fails with a message that contains "polish needs your notes"
     And the record of "c2" is in state "in-pre"
 
   Scenario: A red change gets the strong Builder and stops at G4
-    Given I run "gdd new-change c2 --title Store --paths src/storage/files.txt"
-    And I run "gdd gate plan ok c2 --by human"
-    When I run "gdd launch c2"
+    Given I run "tminus new-change c2 --title Store --paths src/storage/files.txt"
+    And I run "tminus gate plan ok c2 --by human"
+    When I run "tminus launch c2"
     Then it succeeds
     And the output contains "Paused at G4"
     And the agents were called in this order:

@@ -9,7 +9,7 @@ Read this before writing tests, scenario steps or code in Rust in a GDD project.
 ## Scenario steps (cucumber-rs)
 
 - The steps live in `tests/acceptance/` (the `acceptance` test target); the `.feature` files in
-  `features/`. When the project keeps them elsewhere, `builder_build` in `gdd/rules.toml` says
+  `features/`. When the project keeps them elsewhere, `builder_build` in `tminus/rules.toml` says
   where. The runner is strict: a sentence with no step fails the run. Never skip, comment out or
   loosen a scenario to make it pass.
 - Declare the target in `Cargo.toml` with `test = false`, so the unit gate (`cargo test
@@ -26,8 +26,8 @@ Read this before writing tests, scenario steps or code in Rust in a GDD project.
 - Steps talk to the library (the crate's public API), never to the terminal or a shell. Each
   scenario builds its own temporary project or state; nothing is shared between scenarios, and no
   step changes the process environment (pass it explicitly).
-- Run only `GDD_FEATURES` (one path per line; all when empty) and `features/hidden/` only with
-  `GDD_HIDDEN=1`. Never read the hidden examples.
+- Run only `TMINUS_FEATURES` (one path per line; all when empty) and `features/hidden/` only with
+  `TMINUS_HIDDEN=1`. Never read the hidden examples.
 
 ## Unit tests
 
@@ -47,6 +47,6 @@ Read this before writing tests, scenario steps or code in Rust in a GDD project.
 
 ## Never by hand
 
-Do not run `cargo test`, `cargo clippy` or `cargo mutants` yourself to decide whether you are done: run `gdd g2 --role <your role>`.
+Do not run `cargo test`, `cargo clippy` or `cargo mutants` yourself to decide whether you are done: run `tminus g2 --role <your role>`.
 It runs the same tools with the project's flags, Path Guard and the scope, and it is what counts.
-Read its report (`.gdd/changes/<id>/g2.json`) when it fails.
+Read its report (`.tminus/changes/<id>/g2.json`) when it fails.

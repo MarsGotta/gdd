@@ -5,7 +5,7 @@ Feature: Hidden examples for security exceptions
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -42,7 +42,7 @@ Feature: Hidden examples for security exceptions
       [advisories]
       ignore = [{ id = "RUSTSEC-2026-0003", reason = "b" }]
       """
-    When I run "gdd status"
+    When I run "tminus status"
     Then the output contains "Security exceptions: 2"
 
   Scenario: An override that ignores a package entirely is an exception
@@ -52,7 +52,7 @@ Feature: Hidden examples for security exceptions
       name = "lodash"
       ignore = true
       """
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the failure of "exceptions" shows "osv-scanner.toml: package lodash has no reason"
 
   Scenario: A reason made of spaces is no reason
@@ -61,5 +61,5 @@ Feature: Hidden examples for security exceptions
       [advisories]
       ignore = [{ id = "RUSTSEC-2026-0004", reason = "   " }]
       """
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the failure of "exceptions" shows "deny.toml: RUSTSEC-2026-0004 has no reason"

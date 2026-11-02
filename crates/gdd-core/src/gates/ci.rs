@@ -1,6 +1,7 @@
-//! What CI runs (`gdd ci`): on the branch of a change, no harness path changed against the main
-//! branch, and G2 and G3 green. CI has only what the repository holds: the local state of the
-//! tool (`.gdd/`) never travels with it, so CI reads nothing there and writes nothing there.
+//! What CI runs (`tminus ci`): on the branch of a change, no harness path changed against the
+//! main branch, and G2 and G3 green. CI has only what the repository holds: the local state of
+//! the tool (`.tminus/`, or `.gdd/` in a project of the old layout) never travels with it, so CI
+//! reads nothing there and writes nothing there.
 //! Without a change record there is no Path Guard per role: the harness paths stand for it.
 //! A command with known debt only warns, as in the gates (see [`debt`]).
 
@@ -85,10 +86,10 @@ fn ended(report: &Report) -> String {
 
 /// Checks the branch `head_ref` names, else the current branch, of the project `project`. On
 /// the branch `change/<id>`: what `HEAD` committed since it left the main branch (`origin/<main>`
-/// when the repository has it, else `<main>`), `.gdd/` included, whose harness paths fail CI;
-/// then G2 and G3, run as `gdd g2` and `gdd g3` run them on a change classified from those
-/// paths (see [`Judged`]), without Path Guard. Any other branch has nothing to check. An id that cannot name a change,
-/// and a failure of git, are errors.
+/// when the repository has it, else `<main>`), the state folder included, whose harness paths
+/// fail CI; then G2 and G3, run as `tminus g2` and `tminus g3` run them on a change classified
+/// from those paths (see [`Judged`]), without Path Guard. Any other branch has nothing to check.
+/// An id that cannot name a change, and a failure of git, are errors.
 pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, String> {
     let git = Git::new(project.root);
     let said = |e: git::Error| e.to_string();
@@ -143,8 +144,7 @@ pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, Strin
 /// `gate` on the change `judged`, as CI runs it: its commands, the ones with known debt only
 /// warning, and, in G3, the scenario count and the check of the security exceptions.
 fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
-    let commands = project.commands.of(gate);
-    let mut report = judged.report(gate, commands);
+    let mut report = judged.report(gate, project);
     let owed = debt::owed(&mut report, project.root, gate);
     judged.run_commands(&mut report, project, &owed);
     if gate == Gate::G3 {
@@ -164,15 +164,15 @@ mod tests {
     use crate::guard::Settings;
     use crate::zones::ZoneMap;
 
-    const RULES: &str = "[protected]\nall = [\"gdd/**\", \"bin/**\", \".gdd/bin/**\"]\n";
+    const RULES: &str = "[protected]\nall = [\"tminus/**\", \"bin/**\", \".tminus/bin/**\"]\n";
 
     const ZONES: &str = "default = \"yellow\"\n\
                          [[zone]]\ncolor = \"green\"\npaths = [\"docs/**\"]\n";
 
     /// G2 checks the failing test and shows what its commands know; G3 always passes.
     const COMMANDS: &str = "[g2]\nunit = 'test ! -f tests/failing.txt'\n\
-                            show = 'printf \"%s|%s|%s|%s\" \"$GDD_CHANGE\" \"$GDD_COLOR\" \
-                            \"$GDD_DIFF_FILES\" \"$GDD_FEATURES\" > shown'\n\
+                            show = 'printf \"%s|%s|%s|%s\" \"$TMINUS_CHANGE\" \"$TMINUS_COLOR\" \
+                            \"$TMINUS_DIFF_FILES\" \"$TMINUS_FEATURES\" > shown'\n\
                             [g3]\nacceptance = 'true'\nmutation = 'true'\n";
 
     /// A project in a git repository, its rules and one scenario committed on `main`.
@@ -186,8 +186,14 @@ mod tests {
 
     impl Ci {
         fn new() -> Ci {
+            Ci::in_folder("tminus")
+        }
+
+        /// The project with its files in `folder`: `gdd` for one set up before the rename.
+        fn in_folder(folder: &str) -> Ci {
             let repo = Repo::new();
-            repo.write("gdd/rules.toml", RULES);
+            repo.write(&format!("{folder}/project.toml"), "name = \"x\"\n");
+            repo.write(&format!("{folder}/rules.toml"), RULES);
             repo.write("features/a.feature", "Feature: a\n  Scenario: one\n");
             repo.commit();
             Ci {
@@ -267,7 +273,27 @@ mod tests {
         assert!(checked.ok());
         let said = "G2 green\nG3 green\nCI passed";
         assert_eq!(checked.to_string(), said);
+        assert!(!ci.repo.root().join(".tminus").exists());
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_gets_the_variables_as_it_names_them() {
+        let mut ci = Ci::in_folder("gdd");
+        let show = "[g2]\nshow = 'printf \"%s|%s|%s\" \"$GDD_CHANGE\" \"$GDD_COLOR\" \
+                    \"${TMINUS_CHANGE-none}\" > shown'\n[g3]\nacceptance = 'true'\n";
+        ci.commands = Commands::from_toml(show).unwrap();
+        ci.repo.start("c1");
+        ci.commits("src/app.rs");
+        let checked = ci.check(None).unwrap();
+        assert!(checked.ok(), "{checked:?}");
+        assert_eq!(ci.shown(), "c1|yellow|none");
         assert!(!ci.repo.root().join(".gdd").exists());
+        assert!(!ci.repo.root().join(".tminus").exists());
+        // A gate without commands names the commands file of the project.
+        ci.commands = Commands::from_toml("[g3]\nacceptance = 'true'\n").unwrap();
+        let g2 = found(&ci.check(None).unwrap()).g2.clone();
+        let said = "gdd/commands.toml has no commands for this gate. The Setup fills them in.";
+        assert_eq!(g2.failures[0].tail, said);
     }
 
     #[test]
@@ -287,18 +313,18 @@ mod tests {
         let ci = Ci::new();
         ci.repo.start("c1");
         ci.commits("bin/tool");
-        ci.commits("gdd/zones.toml");
-        ci.commits(".gdd/bin/tool");
-        ci.repo.write("gdd/loose.toml", "x\n");
+        ci.commits("tminus/zones.toml");
+        ci.commits(".tminus/bin/tool");
+        ci.repo.write("tminus/loose.toml", "x\n");
         let checked = ci.check(None).unwrap();
         let found = found(&checked);
-        let harness = [".gdd/bin/tool", "bin/tool", "gdd/zones.toml"];
+        let harness = [".tminus/bin/tool", "bin/tool", "tminus/zones.toml"];
         assert_eq!(found.harness, harness);
         assert!(found.g2.ok && found.g3.ok, "{checked:?}");
         assert!(!checked.ok());
-        let said = ".gdd/bin/tool: harness path changed inside a change\n\
+        let said = ".tminus/bin/tool: harness path changed inside a change\n\
                     bin/tool: harness path changed inside a change\n\
-                    gdd/zones.toml: harness path changed inside a change\n\
+                    tminus/zones.toml: harness path changed inside a change\n\
                     G2 green\nG3 green\nCI failed";
         assert_eq!(checked.to_string(), said);
     }

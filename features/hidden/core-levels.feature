@@ -5,7 +5,7 @@ Feature: Minimal by default, a core that stays on (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       """
     And the zone map:
       """
@@ -28,10 +28,10 @@ Feature: Minimal by default, a core that stays on (hidden examples)
     And everything is committed on main
 
   Scenario: A rules file cannot take the Reviewer from red changes
-    Given the file "gdd/rules.toml" says:
+    Given the file "tminus/rules.toml" says:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
 
       [color.green.full]
       tests_first = true
@@ -51,7 +51,7 @@ Feature: Minimal by default, a core that stays on (hidden examples)
       reviewer = false
       g4_if_g1 = true
       """
-    When I run "gdd new-change c1 --title Sync --paths src/storage/sync.rs"
+    When I run "tminus new-change c1 --title Sync --paths src/storage/sync.rs"
     Then it fails with a message that contains "red changes always get mutation testing, the Reviewer and the human G4"
 
   Scenario: The status says when red changes would go without mutation testing
@@ -64,6 +64,6 @@ Feature: Minimal by default, a core that stays on (hidden examples)
       acceptance_full = "true"
       mutation = ""
       """
-    When I run "gdd status"
+    When I run "tminus status"
     Then it succeeds
-    And the output contains "no mutation testing command in [g3] of gdd/commands.toml: red changes go without it"
+    And the output contains "no mutation testing command in [g3] of tminus/commands.toml: red changes go without it"

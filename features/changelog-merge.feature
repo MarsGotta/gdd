@@ -1,16 +1,16 @@
 Feature: The changelog is the project's
-  CHANGELOG.md belongs to the people of the project: gdd never removes or rewrites a word of it.
-  `gdd changelog` compares it with the lines the merge commits on main carry, version by
+  CHANGELOG.md belongs to the people of the project: tminus never removes or rewrites a word of it.
+  `tminus changelog` compares it with the lines the merge commits on main carry, version by
   version, and shows what is missing: a whole version, or single lines of a version that is
-  there. `gdd changelog --write` adds only that, each line with a comment naming the commit that
+  there. `tminus changelog --write` adds only that, each line with a comment naming the commit that
   carries it, so a line reworded later still counts. A line with the same words counts too.
-  `gdd changelog --check` fails when something is missing, for CI.
+  `tminus changelog --check` fails when something is missing, for CI.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -75,32 +75,32 @@ Feature: The changelog is the project's
     And the agents are fakes
     And the versions are released by hand
 
-  Scenario: Without a changelog, gdd shows the whole of it and writes nothing
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    When I run "gdd changelog"
+  Scenario: Without a changelog, tminus shows the whole of it and writes nothing
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    When I run "tminus changelog"
     Then it succeeds
     And the output contains "Missing from CHANGELOG.md"
     And the output contains "- Export notes as Markdown"
-    And the output contains "gdd changelog --write adds them"
+    And the output contains "tminus changelog --write adds them"
     And the file "CHANGELOG.md" does not exist
 
   Scenario: Writing creates it, each line with the commit that carries it
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    When I run "gdd changelog --write"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the output contains "CHANGELOG.md: 1 line(s) added"
     And the file "CHANGELOG.md" contains "# Changelog"
     And the file "CHANGELOG.md" contains "## [Unreleased]"
-    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- tminus: "
 
   Scenario: The changelog of the project keeps every word and gets only what is missing
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Release notes
@@ -113,28 +113,28 @@ Feature: The changelog is the project's
 
       - Dark theme
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "# Release notes"
     And the file "CHANGELOG.md" contains "Written by the team."
-    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- tminus: "
     And in the file "CHANGELOG.md", "- Dark theme" comes before "- Export notes as Markdown"
 
   Scenario: A line reworded by hand still counts, by its commit
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    And I run "gdd changelog --write"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    And I run "tminus changelog --write"
     And in the file "CHANGELOG.md", "Export notes as Markdown" is replaced by "Export your notes as Markdown files"
-    When I run "gdd changelog"
+    When I run "tminus changelog"
     Then it succeeds
     And the output contains "CHANGELOG.md covers every change on main"
     And the file "CHANGELOG.md" does not contain "- Export notes as Markdown"
 
   Scenario: The same words written by hand count too
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -145,17 +145,17 @@ Feature: The changelog is the project's
 
       - Export notes as Markdown
       """
-    When I run "gdd changelog"
+    When I run "tminus changelog"
     Then it succeeds
     And the output contains "CHANGELOG.md covers every change on main"
 
   Scenario: A version missing from the file gets its own section, in order
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
     And the tag "v0.1.0" is on main
-    And I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.txt"
-    And I run "gdd launch c2"
+    And I run "tminus new-change c2 --title Crash --type Hotfix --paths src/app.txt"
+    And I run "tminus launch c2"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -166,19 +166,19 @@ Feature: The changelog is the project's
 
       - Crash
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the output contains "CHANGELOG.md: 1 line(s) added"
     And the file "CHANGELOG.md" contains "## [0.1.0] - "
-    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- tminus: "
     And in the file "CHANGELOG.md", "## [Unreleased]" comes before "## [0.1.0]"
 
   Scenario: A version that is there gets only its missing line, under its section
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    And I run "gdd new-change c2 --title Crash --type Hotfix --paths src/app.txt"
-    And I run "gdd launch c2"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    And I run "tminus new-change c2 --title Crash --type Hotfix --paths src/app.txt"
+    And I run "tminus launch c2"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -189,16 +189,16 @@ Feature: The changelog is the project's
 
       - Crash
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the output contains "CHANGELOG.md: 1 line(s) added"
-    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Export notes as Markdown <!-- tminus: "
     And in the file "CHANGELOG.md", "### Added" comes before "### Fixed"
 
   Scenario: A breaking line keeps its mark when it is added
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Changed --breaking Notes are stored in one file per folder"
-    And I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Changed --breaking Notes are stored in one file per folder"
+    And I run "tminus launch c1"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -209,25 +209,25 @@ Feature: The changelog is the project's
 
       - Dark theme
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
-    And the file "CHANGELOG.md" contains "- **Breaking:** Notes are stored in one file per folder <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- **Breaking:** Notes are stored in one file per folder <!-- tminus: "
     And in the file "CHANGELOG.md", "### Added" comes before "### Changed"
 
   Scenario: The check for CI fails when a line is missing
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    When I run "gdd changelog --check"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    When I run "tminus changelog --check"
     Then it fails with a message that contains "CHANGELOG.md misses 1 line(s)"
-    And it fails with a message that contains "gdd changelog --write"
+    And it fails with a message that contains "tminus changelog --write"
     And the file "CHANGELOG.md" does not exist
 
   Scenario: The check passes when every change is there
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c1 Added Export notes as Markdown"
-    And I run "gdd launch c1"
-    And I run "gdd changelog --write"
-    When I run "gdd changelog --check"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c1 Added Export notes as Markdown"
+    And I run "tminus launch c1"
+    And I run "tminus changelog --write"
+    When I run "tminus changelog --check"
     Then it succeeds
     And the output contains "CHANGELOG.md covers every change on main"

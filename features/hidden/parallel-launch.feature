@@ -5,7 +5,7 @@ Feature: Hidden examples for each change running in its own worktree
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,28 +70,28 @@ Feature: Hidden examples for each change running in its own worktree
     And the agents are fakes
 
   Scenario: Resuming with KO removes the worktree too
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    When I run "gdd resume c1 --g4 ko --note Not what I asked"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    When I run "tminus resume c1 --g4 ko --note Not what I asked"
     Then it succeeds
     And the record of "c1" is in state "rejected"
     And the change "c1" has no worktree
 
   Scenario: A parked change keeps its worktree in the chosen folder
     Given the project keeps its worktrees in "../elsewhere"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Builder in build mode writes nothing
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then the record of "c1" is in state "parked"
     And the change "c1" has a worktree in "../elsewhere/c1"
 
   Scenario: An agent that changes the shared state parks the change
-    Given I run "gdd new-change c2 --title Other --paths src/other.txt"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c2 --title Other --paths src/other.txt"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Builder in build mode changes the record file "change.json" of the change "c1"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "changed GDD state"
     And the record of "c2" is in state "open"

@@ -1,4 +1,4 @@
-# Zone map · GDD (written by gdd init {version})
+# Zone map · GDD (written by tminus init {version})
 # The highest color wins. Paths that match no zone take the default color.
 # Patterns: "**" crosses folders, "*" does not.
 
@@ -11,7 +11,7 @@ reason = "Documentation"
 
 [[zone]]
 color = "red"
-paths = ["gdd/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**"]
+paths = ["tminus/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".tminus/bin/**"]
 reason = "The harness itself: touching the gates is touching the safety of the method"
 
 [[zone]]

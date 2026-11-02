@@ -16,4 +16,4 @@ Feature: The Setup form also installs the stacks (hidden examples)
     Then it succeeds
     And the output contains "python: uv lock && uv sync --locked"
     And git tracks "uv.lock"
-    And the last commit on main says "gdd bootstrap"
+    And the last commit on main says "tminus bootstrap"

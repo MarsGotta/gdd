@@ -1,5 +1,5 @@
 Feature: Where the time goes
-  `gdd report --time` reads the log and splits each change's flow time, from its creation to its
+  `tminus report --time` reads the log and splits each change's flow time, from its creation to its
   last line, into active time (the agents' calls by role and model, the gates by command, the
   release steps) and waiting (at the sitting, until it starts, parked until relaunched, for the
   human at G4); what is left is the time between steps. Flow efficiency is active time over
@@ -46,7 +46,7 @@ Feature: Where the time goes
       """
 
   Scenario: Where the time of one change goes
-    When I run "gdd report --time --change a"
+    When I run "tminus report --time --change a"
     Then it succeeds
     And the output contains "a · Drafts · closed"
     And the output contains "Flow time 2h 30m · active 47m (31%) · waiting 1h 40m · between steps 3m"
@@ -56,37 +56,37 @@ Feature: Where the time goes
     And the output contains "Waiting: parked 40m (G3 still red after one fix), for the human at G4 30m, at the sitting 21m, to start 9m"
 
   Scenario: A change still in progress counts until its last line
-    When I run "gdd report --time --change b"
+    When I run "tminus report --time --change b"
     Then it succeeds
     And the output contains "b · Export · in progress"
     And the output contains "Flow time 32m · active 22m (69%) · waiting 10m · between steps 0s"
     And the output contains "Waiting: at the sitting 5m, to start 5m"
 
   Scenario: A change created without a sitting waits only to start
-    When I run "gdd report --time --change c"
+    When I run "tminus report --time --change c"
     Then it succeeds
     And the output contains "Flow time 21m · active 11m (52%) · waiting 10m · between steps 0s"
     And the output contains "Waiting: to start 10m"
 
   Scenario: The project adds every change up and names the biggest waits
-    When I run "gdd report --time"
+    When I run "tminus report --time"
     Then it succeeds
     And the output contains "Project: 3 change(s) · flow time 3h 23m · active 1h 20m (39%) · waiting 2h 00m · between steps 3m"
     And the output contains "Biggest waits: parked 40m, for the human at G4 30m, at the sitting 26m"
 
   Scenario: Only the changes created since a day
-    When I run "gdd report --time --since 2026-10-28"
+    When I run "tminus report --time --since 2026-10-28"
     Then it succeeds
     And the output contains "Project: 2 change(s)"
     And the output does not contain "c · Notes"
 
   Scenario: Machine-readable time
-    When I run "gdd report --time --change a --json"
+    When I run "tminus report --time --change a --json"
     Then it succeeds
     And the output is a JSON list of 1 entries
     And the entry with "change" "a" has "flow_s" 9000 and "active_s" 2800
 
   Scenario: A change not in the log
-    When I run "gdd report --time --change zzz"
+    When I run "tminus report --time --change zzz"
     Then it succeeds
     And the output contains "No change zzz in the log."

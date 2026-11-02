@@ -1,4 +1,4 @@
-//! Recording the gates a person or the machines decide (`gdd gate`): who may record what, and
+//! Recording the gates a person or the machines decide (`tminus gate`): who may record what, and
 //! what each record keeps.
 //!
 //! The machines open G0, once the Project Brief is written and the harness self-test passed. A
@@ -9,8 +9,9 @@
 //! change: only a human records the plan, G1 (the scenarios) and G4 (the result); G2 and G3 take
 //! whoever ran them, the machines as a rule. Approving G1 seals the scenario files of the change,
 //! as its branch has them, with their SHA-256, and refuses hidden examples with sentences no
-//! visible scenario has; [`unsealed`] says which of them changed since. An agent gdd started can
-//! never record anything.
+//! visible scenario has; [`unsealed`] says which of them changed since. An agent tminus started
+//! can never record anything. The decisions live where the project keeps its state (see
+//! [`crate::layout`]).
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -24,34 +25,39 @@ use sha2::{Digest, Sha256};
 
 use crate::change::{self, Approval, Record};
 use crate::config;
-use crate::gates::phrasing;
+use crate::gates::{phrasing, verdict};
 use crate::git::{self, Git};
 use crate::guard::{self, Settings};
+use crate::layout;
 use crate::log;
 use crate::recipe::queue::{self, SharedWrite};
 use crate::rules::Acceptance;
 use crate::zones::ZoneMap;
 
-/// Where the decision on G0 lives, from the state root (see [`crate::state::root`]).
-pub const G0_PATH: &str = ".gdd/g0.json";
+/// Where the decision on G0 lives, from the state root (see [`crate::state::root`]), in the new
+/// names: a project of the old layout keeps it in `.gdd/` (see [`crate::layout`]).
+pub const G0_PATH: &str = ".tminus/g0.json";
 
-/// Where the approval of the red zones lives, from the state root.
-pub const ZONES_PATH: &str = ".gdd/zones.json";
+/// Where the approval of the red zones lives, from the state root, in the new names.
+pub const ZONES_PATH: &str = ".tminus/zones.json";
 
-/// Where the result of the harness self-test lives, from the state root.
-pub const SELFTEST_PATH: &str = ".gdd/selftest.json";
+/// Where the result of the harness self-test lives, from the state root, in the new names.
+pub const SELFTEST_PATH: &str = ".tminus/selftest.json";
 
 /// The Project Brief, from the project root.
 pub const BRIEF: &str = "docs/brief.md";
 
-/// The gates `gdd gate` records, by name.
+/// The zone map, from the project root, in the new names: what an error of the map names.
+const ZONE_MAP: &str = "tminus/zones.toml";
+
+/// The gates `tminus gate` records, by name.
 pub const GATES: [&str; 7] = ["G0", "zones", "plan", "G1", "G2", "G3", "G4"];
 
 /// Sentences a refusal of G1 names, at most.
 const NAMED: usize = 10;
 
-/// Why an agent gdd started records nothing.
-const NOT_FOR_AGENTS: &str = "An agent gdd started cannot open or close gates.";
+/// Why an agent tminus started records nothing.
+const NOT_FOR_AGENTS: &str = "An agent tminus started cannot open or close gates.";
 
 /// Why the plan, G1 and G4 are only recorded by a human, after the name of the gate.
 const BY_HUMAN: &str = "is decided by a human (--by human): neither the machines nor an agent \
@@ -62,7 +68,7 @@ const G0_BY_MACHINES: &str =
     "G0 is opened by the machines (--by machines): Brief written and harness 4/4.";
 
 /// Why G0 does not open without a passing self-test.
-const G0_UNTESTED: &str = "G0 cannot open: the harness self-test is not 4/4 (gdd selftest).";
+const G0_UNTESTED: &str = "G0 cannot open: the harness self-test is not 4/4 (tminus selftest).";
 
 /// Why G0 does not open without the Project Brief.
 const G0_NO_BRIEF: &str = "G0 cannot open: docs/brief.md (Project Brief) is missing.";
@@ -78,14 +84,16 @@ const UNKNOWN_SENTENCES: &str = "G1 refused: hidden examples use step phrasings 
                                  scenario has, so test mode can never write them. Reuse visible \
                                  sentences with new data:";
 
-/// What red zones no human approved yet mean: the Setup asks the person to approve them.
+/// What red zones no human approved yet mean: the Setup asks the person to approve them. In the
+/// new names: a project of the old layout names its agent command as it does (see
+/// [`crate::layout::Layout::localize`]).
 const NOT_APPROVED: &str = "Red zones not approved yet: the Setup asks you to approve them (the \
-                            gdd-setup command).";
+                            tminus-setup command).";
 
 /// What red zones changed after their approval mean.
 const CHANGED: &str = "Red zones changed after their approval: a human must approve them again.";
 
-/// A gate `gdd gate` records.
+/// A gate `tminus gate` records.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gate {
     /// The project is ready: opened by the machines.
@@ -187,7 +195,7 @@ impl fmt::Display for Decision {
     }
 }
 
-/// A decision to record, as `gdd gate` takes it.
+/// A decision to record, as `tminus gate` takes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Request<'a> {
     /// The gate.
@@ -207,7 +215,7 @@ pub struct Request<'a> {
 pub struct Project<'a> {
     /// The project root.
     pub root: &'a Path,
-    /// The state root, whose `.gdd/` holds the decisions (see [`crate::state::root`]).
+    /// The state root, whose `.tminus/` holds the decisions (see [`crate::state::root`]).
     pub state: &'a Path,
     /// The text of the zone map; empty when there is none.
     pub zones: &'a str,
@@ -226,8 +234,19 @@ pub enum Error {
     Project(String),
     /// Reading git failed.
     Git(git::Error),
-    /// The zone map is not valid.
+    /// The zone map is not valid: it names the map in the new names (see [`Error::named_in`]).
     Zones(config::Error),
+}
+
+impl Error {
+    /// This error as the project at `root` names its files: an error of the zone map names the
+    /// map where the project keeps it (see [`crate::layout`]). The others stay as they are.
+    pub fn named_in(self, root: &Path) -> Error {
+        match self {
+            Error::Zones(e) => Error::Project(format!("{}: {e}", layout::named(root, ZONE_MAP))),
+            other => other,
+        }
+    }
 }
 
 impl fmt::Display for Error {
@@ -235,7 +254,7 @@ impl fmt::Display for Error {
         match self {
             Error::Refused(message) | Error::Project(message) => f.write_str(message),
             Error::Git(e) => write!(f, "{e}"),
-            Error::Zones(e) => write!(f, "gdd/zones.toml: {e}"),
+            Error::Zones(e) => write!(f, "{ZONE_MAP}: {e}"),
         }
     }
 }
@@ -263,10 +282,11 @@ fn unwritable(path: &str, e: io::Error) -> Error {
 }
 
 /// Records the decision `request` asks for, by the role `role` (`None` for a person or the
-/// Orchestrator), and logs it. An agent gdd started is refused before anything else; then a
+/// Orchestrator), and logs it. An agent tminus started is refused before anything else; then a
 /// decision other than `ok` or `ko`. A write that waits for the agent calls under way says
 /// [`queue::WAITING_AGENTS`] with `say` as the wait starts, before it blocks. What it returns
-/// says what was recorded, in one line.
+/// says what was recorded, in one line; an error names the files as the project does (see
+/// [`Error::named_in`]).
 pub fn record(
     project: &Project,
     request: &Request,
@@ -276,16 +296,17 @@ pub fn record(
     may_record(role)?;
     let decision = Decision::parse(request.decision)?;
     let ts = log::now();
-    match request.gate {
+    let recorded = match request.gate {
         Gate::G0 => open_g0(project, request, decision, &ts, say),
         Gate::Zones => approve_zones(project, request, decision, &ts, say),
         _ => record_on_change(project, request, decision, &ts),
-    }
+    };
+    recorded.map_err(|e| e.named_in(project.root))
 }
 
-/// `Ok` unless `role` is an agent gdd started, whatever role it names (an empty one or `human`
-/// too): gdd sets a role only for the agents it starts, and they can never record a decision, nor
-/// answer a gate in any other way. `None` is a person, or the Orchestrator working with them.
+/// `Ok` unless `role` is an agent tminus started, whatever role it names (an empty one or `human`
+/// too): tminus sets a role only for the agents it starts, and they can never record a decision,
+/// nor answer a gate in any other way. `None` is a person, or the Orchestrator working with them.
 pub fn may_record(role: Option<&str>) -> Result<(), Error> {
     match role {
         Some(_) => Err(refused(NOT_FOR_AGENTS)),
@@ -404,7 +425,7 @@ fn record_on_change(
         return Err(Error::Refused(why));
     };
     let text = change::read_record(project.state, id).map_err(Error::Project)?;
-    let path = change::record_path(id);
+    let path = verdict::change_file(project.state, id, "change.json");
     let invalid = |e: serde_json::Error| Error::Project(format!("{path}: {e}"));
     let sealed = if gate == Gate::G1 && decision == Decision::Ok {
         let record = Record::from_json(&text).map_err(invalid)?;
@@ -793,26 +814,30 @@ fn sha256(bytes: &[u8]) -> String {
     hex
 }
 
-/// The JSON a file of the tool under the state root `state` holds; `None` when there is no file
-/// or it is not JSON.
+/// The JSON the file `path` of the tool, in the new names, holds under the state root `state`,
+/// where the project keeps it (see [`crate::layout`]); `None` when there is no file or it is not
+/// JSON.
 fn saved(state: &Path, path: &str) -> Result<Option<serde_json::Value>, Error> {
-    match fs::read_to_string(state.join(path)) {
+    let path = layout::named(state, path);
+    match fs::read_to_string(state.join(&path)) {
         Ok(text) => Ok(serde_json::from_str(&text).ok()),
         Err(e) if e.kind() == NotFound => Ok(None),
-        Err(e) => Err(unreadable(path, e)),
+        Err(e) => Err(unreadable(&path, e)),
     }
 }
 
-/// Writes `value` as indented JSON, with a line break at the end, to a file of the tool under the
-/// state root `state`.
+/// Writes `value` as indented JSON, with a line break at the end, to the file `path` of the tool,
+/// in the new names, under the state root `state` (see [`write`]).
 fn write_json(state: &Path, path: &str, value: &impl Serialize) -> Result<(), Error> {
+    let path = layout::named(state, path);
     match serde_json::to_string_pretty(value) {
-        Ok(text) => write(state, path, &format!("{text}\n")),
+        Ok(text) => write(state, &path, &format!("{text}\n")),
         Err(e) => Err(Error::Project(format!("{path}: {e}"))),
     }
 }
 
-/// Writes `text` to a file of the tool under the state root `state`, creating its folder.
+/// Writes `text` to the file `path` of the tool, as the project names it, under the state root
+/// `state`, creating its folder.
 fn write(state: &Path, path: &str, text: &str) -> Result<(), Error> {
     let file = state.join(path);
     file.parent()
@@ -841,9 +866,10 @@ fn logged(
         duration_s: 0.0,
         note: request.note.to_string(),
     };
+    let path = layout::named(state, log::PATH);
     match entry.line(ts) {
-        Ok(line) => log::append(state, &line).map_err(|e| unwritable(log::PATH, e)),
-        Err(e) => Err(Error::Project(format!("{}: {e}", log::PATH))),
+        Ok(line) => log::append(state, &line).map_err(|e| unwritable(&path, e)),
+        Err(e) => Err(Error::Project(format!("{path}: {e}"))),
     }
 }
 
@@ -884,7 +910,7 @@ mod tests {
     fn fixture() -> Fixture {
         let repo = Repo::new();
         repo.git(&["branch", "change/c1"]);
-        repo.write(".gdd/changes/c1/change.json", RECORD);
+        repo.write(".tminus/changes/c1/change.json", RECORD);
         Fixture {
             root: repo.root().to_path_buf(),
             repo: Some(repo),
@@ -898,7 +924,7 @@ mod tests {
     /// The project without git.
     fn without_git() -> Fixture {
         let folder = Folder::new();
-        folder.write(".gdd/changes/c1/change.json", RECORD);
+        folder.write(".tminus/changes/c1/change.json", RECORD);
         Fixture {
             root: folder.0.clone(),
             repo: None,
@@ -1064,7 +1090,7 @@ mod tests {
         }
     }
 
-    /// Roles gdd could set for an agent it started, or an agent could claim.
+    /// Roles tminus could set for an agent it started, or an agent could claim.
     const AGENT_ROLES: [&str; 9] = [
         "builder-build",
         "builder-test",
@@ -1096,7 +1122,7 @@ mod tests {
         }
         assert_eq!(
             NOT_FOR_AGENTS,
-            "An agent gdd started cannot open or close gates."
+            "An agent tminus started cannot open or close gates."
         );
         assert_eq!(project.log().len(), 0);
         assert_eq!(project.record_of("c1")["gates"], serde_json::json!({}));
@@ -1198,7 +1224,7 @@ mod tests {
         let (project, state) = (Folder::new(), Folder::new());
         project.write(BRIEF, "# Brief\n");
         state.write(SELFTEST_PATH, r#"{"ok": true}"#);
-        state.write(".gdd/changes/c1/change.json", RECORD);
+        state.write(".tminus/changes/c1/change.json", RECORD);
         let settings = Settings::from_toml("").unwrap();
         let acceptance = Acceptance::default();
         let at = Project {
@@ -1224,7 +1250,7 @@ mod tests {
         assert!(saved.contains("\"G4\""), "{saved}");
         let log = fs::read_to_string(state.0.join(log::PATH)).unwrap();
         assert_eq!(log.lines().count(), 3);
-        assert!(!project.0.join(".gdd").exists());
+        assert!(!project.0.join(".tminus").exists());
     }
 
     #[test]
@@ -1279,7 +1305,7 @@ mod tests {
         );
         assert_eq!(
             G0_UNTESTED,
-            "G0 cannot open: the harness self-test is not 4/4 (gdd selftest)."
+            "G0 cannot open: the harness self-test is not 4/4 (tminus selftest)."
         );
         assert_eq!(
             G0_NO_BRIEF,
@@ -1460,11 +1486,12 @@ mod tests {
     #[test]
     fn a_lock_that_cannot_be_taken_records_nothing() {
         let project = without_git();
-        project.write(".gdd/state.lock/x", "");
+        project.write(".tminus/state.lock/x", "");
+        let unopened = "cannot open .tminus/state.lock: ";
         let err = project.refused(Gate::G0, "ko", None, "machines");
-        assert!(err.starts_with("cannot open .gdd/state.lock: "), "{err}");
+        assert!(err.starts_with(unopened), "{err}");
         let err = project.refused(Gate::Zones, "ok", None, "human");
-        assert!(err.starts_with("cannot open .gdd/state.lock: "), "{err}");
+        assert!(err.starts_with(unopened), "{err}");
         assert!(!project.root().join(G0_PATH).exists());
         assert!(!project.root().join(ZONES_PATH).exists());
         assert_eq!(project.log().len(), 0);
@@ -1476,10 +1503,47 @@ mod tests {
         project.zones = "default = \"blue\"\n".into();
         let err = project.refused(Gate::Zones, "ok", None, "human");
         let unknown = "unknown color \"blue\" (use green, yellow or red)";
+        assert_eq!(err, format!("tminus/zones.toml: {unknown}"));
+        // A project set up before the rename keeps its zone map in gdd/.
+        project.write("gdd/project.toml", "");
+        let err = project.refused(Gate::Zones, "ok", None, "human");
         assert_eq!(err, format!("gdd/zones.toml: {unknown}"));
         project.zones = String::new();
         let done = project.run(Gate::Zones, "ok", None, "human");
         assert_eq!(done.unwrap(), "Red zones ok (0 red zone(s)).");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_keeps_its_decisions_in_gdd() {
+        let project = without_git();
+        project.write("gdd/project.toml", "");
+        project.write(".gdd/changes/c1/change.json", RECORD);
+        fs::remove_dir_all(project.root().join(".tminus")).unwrap();
+        project.write(".gdd/selftest.json", r#"{"ok": true}"#);
+        project.write(BRIEF, "# Brief\n");
+        project.ok(Gate::Zones, None);
+        let opened = project.run(Gate::G0, "ok", None, "machines");
+        assert_eq!(opened.unwrap(), "G0 ok (machines).");
+        project.ok(Gate::G4, Some("c1"));
+        assert!(g0_open(project.root()).unwrap());
+        assert!(zones_state(project.root(), ZONES).unwrap().approved());
+        assert_eq!(project.json(".gdd/g0.json")["decision"], "ok");
+        assert_eq!(project.json(".gdd/zones.json")["decision"], "ok");
+        let record = project.json(".gdd/changes/c1/change.json");
+        assert_eq!(record["gates"]["G4"]["decision"], "ok");
+        let log = fs::read_to_string(project.root().join(".gdd/log.jsonl")).unwrap();
+        assert_eq!(log.lines().count(), 3);
+        assert!(!project.root().join(".tminus").exists());
+        // Its errors name its files.
+        let g0 = project.root().join(".gdd/g0.json");
+        fs::remove_file(&g0).unwrap();
+        fs::create_dir_all(&g0).unwrap();
+        let err = g0_open(project.root()).unwrap_err().to_string();
+        assert!(err.starts_with("cannot read .gdd/g0.json: "), "{err}");
+        project.write(".gdd/changes/c2/change.json", "{\"gates\": []}");
+        let wrong = project.refused(Gate::G2, "ok", Some("c2"), "machines");
+        let start = ".gdd/changes/c2/change.json: ";
+        assert!(wrong.starts_with(start), "{wrong}");
     }
 
     #[test]
@@ -1511,7 +1575,7 @@ mod tests {
         assert_eq!(ZonesState::Approved.message(), "red zones approved");
         assert_eq!(
             ZonesState::NotApproved.message(),
-            "Red zones not approved yet: the Setup asks you to approve them (the gdd-setup \
+            "Red zones not approved yet: the Setup asks you to approve them (the tminus-setup \
              command)."
         );
         assert_eq!(
@@ -1680,18 +1744,18 @@ reason = "Look and copy of the TUI"
         let missing = project.refused(Gate::G4, "ok", None, "human");
         assert_eq!(missing, "Missing change id: G4 is recorded on a change.");
         let unknown = project.refused(Gate::Plan, "ok", Some("c9"), "human");
-        let path = ".gdd/changes/c9/change.json";
+        let path = ".tminus/changes/c9/change.json";
         let expected = format!("change c9 does not exist: there is no {path}");
         assert_eq!(unknown, expected);
         let invalid = project.refused(Gate::G1, "ok", Some("C1"), "human");
         assert_eq!(invalid, change::check_id("C1").unwrap_err());
-        project.write(".gdd/changes/c2/change.json", "{\"gates\": []}");
+        project.write(".tminus/changes/c2/change.json", "{\"gates\": []}");
         let wrong = project.refused(Gate::Plan, "ok", Some("c2"), "human");
         let field = "the field \"gates\" of the record is not an object";
-        assert_eq!(wrong, format!(".gdd/changes/c2/change.json: {field}"));
-        project.write(".gdd/changes/c3/change.json", "{\"paths\": 3}");
+        assert_eq!(wrong, format!(".tminus/changes/c2/change.json: {field}"));
+        project.write(".tminus/changes/c3/change.json", "{\"paths\": 3}");
         let broken = project.refused(Gate::G1, "ok", Some("c3"), "human");
-        let start = ".gdd/changes/c3/change.json: invalid type";
+        let start = ".tminus/changes/c3/change.json: invalid type";
         assert!(broken.starts_with(start), "{broken}");
         assert_eq!(project.log().len(), 0);
     }
@@ -1751,7 +1815,7 @@ reason = "Look and copy of the TUI"
             r#"{"paths": ["features/b.feature", "src/a.rs", "features/b.feature", "#,
             r#""features/missing.feature"]}"#
         );
-        project.write(".gdd/changes/c2/change.json", planned);
+        project.write(".tminus/changes/c2/change.json", planned);
         project.write("features/b.feature", "Feature: B\n");
         project.ok(Gate::G1, Some("c2"));
         let record = project.record_of("c2");
@@ -1760,7 +1824,7 @@ reason = "Look and copy of the TUI"
         let hashes = serde_json::json!({"features/b.feature": sha256(b"Feature: B\n")});
         assert_eq!(record["gates"]["G1"]["hashes"], hashes);
         let named = r#"{"paths": ["src/a.rs"], "features": ["features/hidden/x.feature"]}"#;
-        project.write(".gdd/changes/c3/change.json", named);
+        project.write(".tminus/changes/c3/change.json", named);
         project.write("features/hidden/x.feature", "Given a draft \"y\"\n");
         project.ok(Gate::G1, Some("c3"));
         let record = project.record_of("c3");
@@ -2050,21 +2114,22 @@ reason = "Look and copy of the TUI"
     #[test]
     fn files_that_cannot_be_written_or_read_are_errors_that_name_them() {
         let project = fixture();
-        project.write(".gdd/log.jsonl/x", "");
+        project.write(".tminus/log.jsonl/x", "");
         let err = project.refused(Gate::Zones, "ok", None, "human");
-        let start = "cannot write .gdd/log.jsonl: ";
+        let start = "cannot write .tminus/log.jsonl: ";
         assert!(err.starts_with(start), "{err}");
         fs::create_dir_all(project.root().join(G0_PATH)).unwrap();
         let err = project.refused(Gate::G0, "ko", None, "machines");
-        let start = "cannot write .gdd/g0.json: ";
+        let start = "cannot write .tminus/g0.json: ";
         assert!(err.starts_with(start), "{err}");
         let err = g0_open(project.root()).unwrap_err().to_string();
-        assert!(err.starts_with("cannot read .gdd/g0.json: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/g0.json: "), "{err}");
         fs::remove_file(project.root().join(ZONES_PATH)).unwrap();
         fs::create_dir_all(project.root().join(ZONES_PATH)).unwrap();
         let state = zones_state(project.root(), ZONES);
         let err = state.unwrap_err().to_string();
-        assert!(err.starts_with("cannot read .gdd/zones.json: "), "{err}");
+        let start = "cannot read .tminus/zones.json: ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]
@@ -2075,6 +2140,24 @@ reason = "Look and copy of the TUI"
         let git = Error::from(git::Error::Revision("-x".into()));
         assert_eq!(git.to_string(), "\"-x\" is not a revision git can take");
         let zones = Error::Zones(config::Error::Toml("bad".into()));
-        assert_eq!(zones.to_string(), "gdd/zones.toml: invalid TOML: bad");
+        assert_eq!(zones.to_string(), "tminus/zones.toml: invalid TOML: bad");
+    }
+
+    #[test]
+    fn an_error_of_the_zone_map_names_it_as_the_project_does() {
+        let (new, old) = (Folder::new(), Folder::new());
+        old.write("gdd/project.toml", "");
+        let said = |root: &Path| {
+            let zones = Error::Zones(config::Error::Toml("bad".into()));
+            zones.named_in(root).to_string()
+        };
+        assert_eq!(said(&new.0), "tminus/zones.toml: invalid TOML: bad");
+        assert_eq!(said(&old.0), "gdd/zones.toml: invalid TOML: bad");
+        // The others stay as they are.
+        let refused = Error::Refused("tminus/x".into()).named_in(&old.0);
+        let kept = matches!(&refused, Error::Refused(why) if why == "tminus/x");
+        assert!(kept, "{refused:?}");
+        let project = Error::Project("tminus/y".into()).named_in(&old.0);
+        assert_eq!(project.to_string(), "tminus/y");
     }
 }

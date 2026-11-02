@@ -12,6 +12,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::layout;
+
 /// How long a command may run, with its output, when the rules file says nothing: the gate and
 /// release commands take their limit from it (see [`crate::rules::command_seconds`]).
 pub const TIMEOUT: Duration = Duration::from_secs(1800);
@@ -23,8 +25,8 @@ pub const TIMED_OUT: i32 = 124;
 const POLL: Duration = Duration::from_millis(20);
 
 /// What a gate or release command that ran out of time says after how long it had: how to give
-/// it more.
-const RAISE: &str = ": raise limits.command_seconds in gdd/rules.toml";
+/// it more, in the rules file of the project (see [`crate::guard::RULES`]).
+const RAISE: &str = ": raise limits.command_seconds in ";
 
 /// What a command did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,7 +65,8 @@ pub fn run_limited(
     env: &[(&str, &str)],
     limit: Duration,
 ) -> io::Result<Ran> {
-    run_saying(command, root, env, limit, RAISE)
+    let raise = format!("{RAISE}{}", layout::named(root, crate::guard::RULES));
+    run_saying(command, root, env, limit, &raise)
 }
 
 /// Runs `command` (see [`run`]); after a timeout, its last line is `timed out (<n>s)` followed by
@@ -76,7 +79,11 @@ fn run_saying(
     after: &str,
 ) -> io::Result<Ran> {
     let start = Instant::now();
-    let mut child = Command::new("sh")
+    let mut shell = Command::new("sh");
+    for twin in twins(env) {
+        shell.env_remove(twin);
+    }
+    let mut child = shell
         .arg("-c")
         .arg(command)
         .current_dir(root)
@@ -125,6 +132,15 @@ fn run_saying(
         output,
         duration: start.elapsed(),
     })
+}
+
+/// The variables a command run with `env` must not inherit: the twin of each one `env` sets, of
+/// the other layout (see [`layout::twin`]), so an inherited `GDD_CHANGE` never overrides the
+/// `TMINUS_CHANGE` the tool set, or the reverse.
+pub(crate) fn twins(env: &[(&str, &str)]) -> Vec<String> {
+    env.iter()
+        .filter_map(|(name, _)| layout::twin(name))
+        .collect()
 }
 
 /// Reads `pipe`, an output of the command, to its end in a thread of its own, so a full pipe
@@ -233,15 +249,35 @@ mod tests {
         let folder = Folder::new();
         let ran = run_limited("echo started; sleep 5", &folder.0, &[], SHORT).unwrap();
         assert_eq!(ran.code, TIMED_OUT);
-        let said = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        let said = "started\ntimed out (0.3s): raise limits.command_seconds in tminus/rules.toml";
         assert_eq!(ran.output, said);
         // A whole number of seconds is shown without decimals.
         let ran = run_limited("sleep 5", &folder.0, &[], Duration::from_secs(1)).unwrap();
-        let said = "timed out (1s): raise limits.command_seconds in gdd/rules.toml";
+        let said = "timed out (1s): raise limits.command_seconds in tminus/rules.toml";
         assert_eq!((ran.code, ran.output.as_str()), (TIMED_OUT, said));
         // In time, it is the command as it ran.
         let ran = run_limited("echo done; exit 2", &folder.0, &[], TIMEOUT).unwrap();
         assert_eq!((ran.code, ran.output.as_str()), (2, "done\n"));
+        // A project set up before the rename keeps its rules in gdd/.
+        folder.write("gdd/project.toml", "");
+        let ran = run_limited("sleep 5", &folder.0, &[], Duration::from_secs(1)).unwrap();
+        let said = "timed out (1s): raise limits.command_seconds in gdd/rules.toml";
+        assert_eq!(ran.output, said);
+    }
+
+    #[test]
+    fn a_variable_set_for_a_command_comes_without_its_twin() {
+        let env = [
+            ("TMINUS_CHANGE", "c2"),
+            ("GDD_COLOR", "red"),
+            ("PATH", "/bin"),
+        ];
+        assert_eq!(twins(&env), ["GDD_CHANGE", "TMINUS_COLOR"]);
+        assert!(twins(&[]).is_empty());
+        let folder = Folder::new();
+        let check = "test \"$TMINUS_CHANGE\" = c2 && test \"$GDD_COLOR\" = red";
+        let ran = run(check, &folder.0, &env[..2], TIMEOUT).unwrap();
+        assert_eq!(ran.code, 0, "{}", ran.output);
     }
 
     #[test]

@@ -6,7 +6,7 @@ Feature: The recipe starts each agent as its sheet says
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -72,21 +72,21 @@ Feature: The recipe starts each agent as its sheet says
 
 
   Scenario: Claude Code and Codex are started as their sheets say
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
-    And agent call 2 starts with "-p /gdd-build change=c1 mode=build --model sonnet --output-format json --strict-mcp-config"
-    And agent call 3 was "exec --sandbox read-only -c mcp_servers={} $gdd-review change=c1 round=1 --model gpt-6 --json"
+    And agent call 2 starts with "-p /tminus-build change=c1 mode=build --model sonnet --output-format json --strict-mcp-config"
+    And agent call 3 was "exec --sandbox read-only -c mcp_servers={} $tminus-review change=c1 round=1 --model gpt-6 --json"
 
   Scenario: OpenCode gets the command apart from its arguments
     Given the reviewer is "opencode" "kimi-k3"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
-    And agent call 3 was "run --command gdd-review -m kimi-k3 --format json change=c1 round=1"
+    And agent call 3 was "run --command tminus-review -m kimi-k3 --format json change=c1 round=1"
 
   Scenario: A model whose agent has no sheet stops the launch
     Given the reviewer is "gemini" "g-3"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "has no agent sheet"

@@ -5,7 +5,7 @@ Feature: A ratchet for known debt (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -30,9 +30,9 @@ Feature: A ratchet for known debt (hidden examples)
       [count]
       lint = ["error TS", "{n} files would be reformatted"]
       """
-    When I run "gdd adopt"
+    When I run "tminus adopt"
     Then it succeeds
-    And the file "gdd/debt.toml" contains "count = 4"
+    And the file "tminus/debt.toml" contains "count = 4"
 
   Scenario: A change that adds to the known debt of G3 fails it
     Given the gate commands:
@@ -49,7 +49,7 @@ Feature: A ratchet for known debt (hidden examples)
       [count]
       security = ["Found {n} vulnerabilit"]
       """
-    And I run "gdd adopt"
+    And I run "tminus adopt"
     And the gate commands:
       """
       [g2]
@@ -66,7 +66,7 @@ Feature: A ratchet for known debt (hidden examples)
       """
     And the change "c1" plans "src/app.rs" and its build has started on its branch
     When the change writes "src/app.rs"
-    And I run "gdd g2 c1"
-    And I run "gdd g3 c1"
+    And I run "tminus g2 c1"
+    And I run "tminus g3 c1"
     Then the gate fails on "security"
     And the output contains "security reports 3, the known debt is 2: 1 more"

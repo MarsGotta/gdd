@@ -1,5 +1,5 @@
-Feature: gdd starts the agents itself
-  gdd starts each agent's own program (found on the PATH of the environment gdd runs in), with the
+Feature: tminus starts the agents itself
+  tminus starts each agent's own program (found on the PATH of the environment tminus runs in), with the
   arguments its sheet gives each role, an environment without API keys, and reads the agent's own
   JSON output for the tokens, the final text and the log line. Its own checks hold for every agent:
   no agent changes GDD state, and the Reviewer only reads. The Python wrapper is no longer needed.
@@ -13,7 +13,7 @@ Feature: gdd starts the agents itself
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -79,27 +79,27 @@ Feature: gdd starts the agents itself
 
 
   Scenario: A Claude Code Builder may edit but never approve, merge or write GDD state
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 2 includes "--permission-mode acceptEdits"
-    And agent call 2 includes "Bash(gdd gate:*)"
-    And agent call 2 does not include "bin/gdd"
-    And agent call 2 includes "Write(.gdd/**)"
+    And agent call 2 includes "Bash(tminus gate:*)"
+    And agent call 2 does not include "bin/tminus"
+    And agent call 2 includes "Write(.tminus/**)"
 
   Scenario: Codex gets the reasoning effort of its role
     Given the reviewer is "codex" "gpt-6" with effort "high"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
-    And agent call 3 was "exec --sandbox read-only -c mcp_servers={} -c model_reasoning_effort=high $gdd-review change=c1 round=1 --model gpt-6 --json"
+    And agent call 3 was "exec --sandbox read-only -c mcp_servers={} -c model_reasoning_effort=high $tminus-review change=c1 round=1 --model gpt-6 --json"
 
   Scenario: API keys never reach the agents
     Given the environment has "OPENAI_API_KEY" set to "sk-test"
     And the environment has "GITHUB_TOKEN" set to "ghp-test"
     And the environment has "EDITOR" set to "vim"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 did not get "OPENAI_API_KEY"
     And agent call 1 did not get "GITHUB_TOKEN"
@@ -108,51 +108,51 @@ Feature: gdd starts the agents itself
   Scenario: A project can pass one key to its agents on purpose
     Given the models pass "MINIMAX_API_KEY" to the agents
     And the environment has "MINIMAX_API_KEY" set to "mm-test"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it succeeds
     And agent call 1 got "MINIMAX_API_KEY"
 
   Scenario: The tokens of Claude Code go to the log
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then the log line of agent call 2 has "tokens_out" 20
     And the log line of agent call 2 has "tokens_cache" 50
 
   Scenario: The tokens of Codex count its reasoning and leave out the cached input
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then the log line of agent call 3 has "tokens_out" 25
     And the log line of agent call 3 has "tokens_in" 50
 
   Scenario: The tokens of OpenCode count its reasoning
     Given the reviewer is "opencode" "kimi-k3"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
     Then the log line of agent call 3 has "tokens_out" 25
 
   Scenario: The Reviewer's answer is kept with the change
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    When I run "gdd launch c1"
-    Then the file ".gdd/changes/c1/outputs/reviewer-1.md" contains "VERDICT: OK"
-    And the file ".gdd/changes/c1/review.md" contains "VERDICT: OK"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    When I run "tminus launch c1"
+    Then the file ".tminus/changes/c1/outputs/reviewer-1.md" contains "VERDICT: OK"
+    And the file ".tminus/changes/c1/review.md" contains "VERDICT: OK"
 
   Scenario: An agent that changes GDD state parks the change and the state is put back
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And the Builder in build mode writes ".gdd/changes/c1/change.json" from call 1
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And the Builder in build mode writes ".tminus/changes/c1/change.json" from call 1
+    When I run "tminus launch c1"
     Then it fails with a message that contains "changed GDD state"
     And the record of "c1" is in state "parked"
 
   Scenario: A Reviewer that changes files parks the change
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer writes "src/app.txt"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "Reviewers only read"
     And the record of "c1" is in state "parked"
 
   Scenario: Messages name the GDD commands, not Spec Kit
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
-    When I run "gdd launch c1"
-    Then it fails with a message that contains "gdd-change"
+    When I run "tminus launch c1"
+    Then it fails with a message that contains "tminus-change"

@@ -5,7 +5,7 @@ Feature: The changelog from the changes (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -71,24 +71,24 @@ Feature: The changelog from the changes (hidden examples)
     And the versions are released by hand
 
   Scenario: A migration goes under Changed
-    Given I run "gdd new-change c4 --title Storage --type Migration --paths src/app.txt"
-    When I run "gdd launch c4"
+    Given I run "tminus new-change c4 --title Storage --type Migration --paths src/app.txt"
+    When I run "tminus launch c4"
     Then it succeeds
     And the last commit on main says "Changelog: Changed · Storage"
     And the last commit on main says "Breaking: no"
 
   Scenario: A security line
-    Given I run "gdd new-change c4 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c4 Security Notes shared by link expire after a day"
-    And I run "gdd launch c4"
-    When I run "gdd changelog --write"
+    Given I run "tminus new-change c4 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c4 Security Notes shared by link expire after a day"
+    And I run "tminus launch c4"
+    When I run "tminus changelog --write"
     Then it succeeds
     And the file "CHANGELOG.md" contains "### Security"
     And the file "CHANGELOG.md" contains "- Notes shared by link expire after a day"
 
   Scenario: A refactor with a visible effect gets its line
-    Given I run "gdd new-change c4 --title Tidy --type Refactor --paths src/app.txt"
-    And I run "gdd changelog-line c4 Changed Notes open twice as fast"
-    When I run "gdd launch c4"
+    Given I run "tminus new-change c4 --title Tidy --type Refactor --paths src/app.txt"
+    And I run "tminus changelog-line c4 Changed Notes open twice as fast"
+    When I run "tminus launch c4"
     Then it succeeds
     And the last commit on main says "Changelog: Changed · Notes open twice as fast"

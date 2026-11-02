@@ -5,7 +5,7 @@ Feature: Hidden examples for running a gate
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -30,18 +30,18 @@ Feature: Hidden examples for running a gate
     And the change "c1" plans "src/storage/db.rs" and its build has started on its branch
 
   Scenario: Commands know the color of a red change
-    Given the gate command "g2" "unit" is "test \"$GDD_COLOR\" = red"
-    When I run "gdd g2 c1"
+    Given the gate command "g2" "unit" is "test \"$TMINUS_COLOR\" = red"
+    When I run "tminus g2 c1"
     Then the gate passes
 
   Scenario: Two failing commands are both reported
     Given the gate command "g2" "lint" is "exit 1"
     And the gate command "g2" "unit" is "exit 2"
-    When I run "gdd g2 c1"
+    When I run "tminus g2 c1"
     Then the gate fails on "lint"
     And the gate fails on "unit"
 
   Scenario: G3 failures are saved too
     Given the gate command "g3" "acceptance_full" is "echo nope; exit 1"
-    When I run "gdd g3 c1"
+    When I run "tminus g3 c1"
     Then the failure of "acceptance_full" shows "nope"

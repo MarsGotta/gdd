@@ -4,10 +4,11 @@
 //! Fixed and Security, a patch; Added, Changed, Deprecated and Removed, a minor; a breaking line,
 //! a major, or a minor while the major is 0. The first version of a project is 0.1.0.
 //!
-//! By default (`[versions] mode = "auto"` of `gdd/rules.toml`) a change with a changelog line
-//! gets its version when it is promoted: the promotion gets it in `GDD_VERSION`, and it is
-//! released only once the promotion passed (see [`promote`]). With `mode = "manual"` promotions
-//! release nothing, and `gdd release` releases what is merged (see [`by_hand`]). A release turns
+//! By default (`[versions] mode = "auto"` of `tminus/rules.toml`) a change with a changelog line
+//! gets its version when it is promoted: the promotion gets it in `TMINUS_VERSION` (`GDD_VERSION`
+//! in a project of the old layout, see [`crate::layout`]), and it is released only once the
+//! promotion passed (see [`promote`]). With `mode = "manual"` promotions release nothing, and
+//! `tminus release` releases what is merged (see [`by_hand`]). A release turns
 //! the Unreleased section of the CHANGELOG.md the main branch keeps into the version, in a commit
 //! of its own, and tags it (see [`release`]); a tag is never moved or deleted.
 
@@ -24,6 +25,7 @@ use crate::changelog::{self, Line, Pre, Rank};
 use crate::gates::{exceptions, release};
 use crate::git::{self, Git, Logged};
 use crate::guard;
+use crate::layout;
 use crate::log;
 use crate::recipe::queue;
 
@@ -34,26 +36,26 @@ pub const FIRST: Version = Version {
     patch: 0,
 };
 
-/// What `gdd release` says after what it would release, without releasing it.
-const NOT_RELEASED: &str = "Nothing released: gdd release --yes releases it.";
+/// What `tminus release` says after what it would release, without releasing it.
+const NOT_RELEASED: &str = "Nothing released: tminus release --yes releases it.";
 
-/// What `gdd release` says when a person answers anything but a yes.
+/// What `tminus release` says when a person answers anything but a yes.
 const NOT_RELEASED_ASKED: &str = "Nothing released.";
 
-/// What `gdd release` says when the project has no version yet and nothing to release.
+/// What `tminus release` says when the project has no version yet and nothing to release.
 const NOTHING_YET: &str = "Nothing to release: no change on main carries a changelog line";
 
 /// Why a version chosen by hand is refused, after what was given.
 const NOT_A_VERSION: &str = "is not a version: MAJOR.MINOR.PATCH, such as 1.0.0";
 
-/// How a project releases its versions: `[versions] mode` of `gdd/rules.toml`.
+/// How a project releases its versions: `[versions] mode` of `tminus/rules.toml`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     /// Each change with a changelog line gets its version when it is promoted.
     #[default]
     Auto,
-    /// Promotions release nothing: `gdd release` does.
+    /// Promotions release nothing: `tminus release` does.
     Manual,
 }
 
@@ -69,7 +71,7 @@ pub struct Rules {
 impl Rules {
     /// Reads `[versions] mode` and `push_main` of the text of a rules file; the rest is ignored.
     /// Without them, auto and no push. A mode that is neither `auto` nor `manual` is an error
-    /// that names the file.
+    /// that names the file, in the new names (see [`guard::RULES`]).
     pub fn from_toml(text: &str) -> Result<Rules, String> {
         #[derive(Default, Deserialize)]
         #[serde(default)]
@@ -90,7 +92,7 @@ impl Rules {
     }
 }
 
-/// A version gdd releases: `major.minor.patch`, without pre-release or build.
+/// A version tminus releases: `major.minor.patch`, without pre-release or build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
     pub major: u64,
@@ -226,7 +228,7 @@ impl Since {
         Ok((!self.lines.is_empty()).then_some(version))
     }
 
-    /// What `gdd release` says when there is nothing to release.
+    /// What `tminus release` says when there is nothing to release.
     pub fn nothing(&self) -> String {
         match &self.newest {
             Some((tag, _)) => format!("Nothing to release since {tag}"),
@@ -234,14 +236,14 @@ impl Since {
         }
     }
 
-    /// What `gdd release` shows of `version` without releasing it: the version and where it
+    /// What `tminus release` shows of `version` without releasing it: the version and where it
     /// comes from, its lines by section, then how to release it.
     pub fn shown(&self, version: Version) -> String {
         format!("{}\n\n{NOT_RELEASED}", self.listed(version))
     }
 
-    /// What `gdd release` shows of `version` before it asks whether to release it (see [`yes`]),
-    /// without a line break at the end.
+    /// What `tminus release` shows of `version` before it asks whether to release it (see
+    /// [`yes`]), without a line break at the end.
     pub fn offered(&self, version: Version) -> String {
         let tag = version.tag();
         format!("{}\n\nRelease {tag}? [y/N] ", self.listed(version))
@@ -324,7 +326,7 @@ pub fn answered(
 
 /// Whether the main checkout at `root` can release `version` on the main branch `main` now:
 /// `true` when main tracks a CHANGELOG.md, which the release commits. An error when the tag of
-/// the version exists already, as gdd never moves or deletes one; and, with a CHANGELOG.md, when
+/// the version exists already, as tminus never moves or deletes one; and, with a CHANGELOG.md, when
 /// the checkout is not on main or its CHANGELOG.md is not the one main has, in the working tree
 /// or in the index, as the release commit would carry what nobody committed, or overwrite what
 /// was added to the index. The file is read with the rules of [`files`].
@@ -334,7 +336,7 @@ pub fn ready(root: &Path, main: &str, version: Version) -> Result<bool, String> 
     let (tag, path) = (version.tag(), changelog::PATH);
     if git.exists(&format!("refs/tags/{tag}")).map_err(said)? {
         return Err(format!(
-            "the tag {tag} exists already: gdd never moves or deletes a tag"
+            "the tag {tag} exists already: tminus never moves or deletes a tag"
         ));
     }
     let Some(committed) = git.file_at(main, path).map_err(said)? else {
@@ -389,8 +391,8 @@ pub fn release(root: &Path, main: &str, version: Version, push: bool) -> Result<
 pub struct Promotion<'a> {
     /// The project root, where the promote step runs.
     pub root: &'a Path,
-    /// The state root: its `.gdd/` holds the record of the change, and its main checkout takes
-    /// the release.
+    /// The state root: its `.tminus/` (`.gdd/` in the old layout) holds the record of the change,
+    /// and its main checkout takes the release.
     pub state: &'a Path,
     /// The main branch.
     pub main: &'a str,
@@ -404,11 +406,12 @@ pub struct Promotion<'a> {
     pub rules: Rules,
 }
 
-/// `gdd release promote` (see [`release::promote`]) under the merge lock, which the merge or the
-/// promotion of another change makes it wait for, saying so with `say` (see [`queue::lock`]): two
-/// promotions never take the same version. In auto mode, a change with a changelog line (see
-/// [`changelog::of_change`]) gets the next version of the main branch in `GDD_VERSION`, once it
-/// may be released (see [`ready`]); only when the promotion passed is it released (see
+/// `tminus release promote` (see [`release::promote`]) under the merge lock, which the merge or
+/// the promotion of another change makes it wait for, saying so with `say` (see [`queue::lock`]):
+/// two promotions never take the same version. In auto mode, a change with a changelog line (see
+/// [`changelog::of_change`]) gets the next version of the main branch in `TMINUS_VERSION`
+/// (`GDD_VERSION` in the old layout), once it may be released (see [`ready`]); only when the
+/// promotion passed is it released (see
 /// [`release`]), kept in the record of the change (`version`) and logged, and `say` says
 /// `Released v<version>`. What the promotion printed.
 pub fn promote(at: &Promotion, mut say: impl FnMut(&str)) -> Result<String, String> {
@@ -449,7 +452,7 @@ fn due(at: &Promotion) -> Result<Option<Version>, String> {
 /// was released.
 fn recorded(state: &Path, id: &str, version: Version) -> Result<(), String> {
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = layout::named(state, &change::record_path(id));
     let fields = vec![("version", Value::from(version.to_string()))];
     let kept = change::with_fields(&text, fields).map_err(|e| format!("{path}: {e}"))?;
     change::write(state, &path, &kept)?;
@@ -466,7 +469,7 @@ fn recorded(state: &Path, id: &str, version: Version) -> Result<(), String> {
     change::logged(state, &entry)
 }
 
-/// `gdd release --yes`: releases what the main branch `main` of the project whose main checkout
+/// `tminus release --yes`: releases what the main branch `main` of the project whose main checkout
 /// is at `root` has since its newest version (see [`release`]), as `chosen` asks (see
 /// [`Since::version`]), with `push`. It runs no promote step. All of it under the merge lock;
 /// `waiting` is called while the merge or the promotion of a change holds it. What it says.
@@ -490,6 +493,7 @@ pub fn by_hand(
 mod tests {
     use super::*;
     use crate::git::tests::{Folder, Repo};
+    use crate::layout::Layout;
     use std::fs;
     use std::os::unix::fs::symlink;
 
@@ -527,7 +531,7 @@ mod tests {
             "[versions",
         ] {
             let err = Rules::from_toml(wrong).unwrap_err();
-            assert!(err.starts_with("gdd/rules.toml: "), "{wrong:?}: {err}");
+            assert!(err.starts_with("tminus/rules.toml: "), "{wrong:?}: {err}");
         }
         let err = Rules::from_toml("[versions]\nmode = \"weekly\"\n").unwrap_err();
         assert!(err.contains("weekly") && err.contains("manual"), "{err}");
@@ -713,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn gdd_release_shows_the_next_version_and_its_lines_by_section() {
+    fn tminus_release_shows_the_next_version_and_its_lines_by_section() {
         let history = [
             logged("e", &["Fixed · Crash"], &["no"]),
             logged("d", &["Changed · One file"], &["yes"]),
@@ -725,7 +729,7 @@ mod tests {
         let next = found.next().unwrap();
         let expected = "Next version: v0.2.0 (from v0.1.0)\n\n### Added\n\n- Export\n- Import\n\n\
                         ### Changed\n\n- **Breaking:** One file\n\n### Fixed\n\n- Crash\n\n\
-                        Nothing released: gdd release --yes releases it.";
+                        Nothing released: tminus release --yes releases it.";
         assert_eq!(found.shown(next), expected);
         let offered = found.offered(next);
         let start = "Next version: v0.2.0 (from v0.1.0)\n\n### Added\n\n";
@@ -764,8 +768,17 @@ mod tests {
     /// A repository with an author of its own and the record of change `c1`, a Feature, with
     /// `field` among its fields when it is not empty.
     fn with_change(field: &str) -> Repo {
+        with_change_in(Layout::Tminus, field)
+    }
+
+    /// [`with_change`], for a project of `layout`: one set up before the rename has its
+    /// `gdd/project.toml`, and the record in its `.gdd/`.
+    fn with_change_in(layout: Layout, field: &str) -> Repo {
         let repo = Repo::new();
         repo.identify();
+        if layout == Layout::Gdd {
+            repo.write("gdd/project.toml", "name = \"x\"\n");
+        }
         let field = if field.is_empty() {
             String::new()
         } else {
@@ -775,15 +788,15 @@ mod tests {
             r#"{{"id": "c1", "title": "App", "type": "Feature", "state": "in-pre", "gates": {{}},
                 "inbox": []{field}}}"#
         );
-        repo.write(".gdd/changes/c1/change.json", &record);
-        repo.write(".gitignore", ".gdd/\n");
+        repo.write(&layout.path(".tminus/changes/c1/change.json"), &record);
+        repo.write(".gitignore", &layout.path(".tminus/\n"));
         repo.commit();
         repo
     }
 
     /// The merge commit of a change on main, carrying `trailers`.
     fn merge(repo: &Repo, trailers: &str) {
-        let message = format!("gdd(c1): G3 Merge Gate · App\n\nRecord: x\n\n{trailers}");
+        let message = format!("tminus(c1): G3 Merge Gate · App\n\nRecord: x\n\n{trailers}");
         repo.git(&["commit", "-q", "--allow-empty", "-m", &message]);
     }
 
@@ -812,7 +825,7 @@ mod tests {
         let subject = ["tag", "-l", "--format=%(contents:subject)", "v0.1.0"];
         assert_eq!(repo.git(&subject), "Release v0.1.0");
         let last = repo.git(&["log", "-1", "--format=%s", "main"]);
-        assert_eq!(last, "gdd(c1): G3 Merge Gate · App");
+        assert_eq!(last, "tminus(c1): G3 Merge Gate · App");
         // Off main, without a changelog, the tag still names the head of main.
         let main = head(&repo);
         repo.git(&["checkout", "-q", "-b", "other"]);
@@ -839,7 +852,7 @@ mod tests {
         let day = exceptions::today();
         let start = format!(
             "# Changelog\n\nOur words.\n\n## [Unreleased]\n\n## [0.1.0] - {day}\n\n### Fixed\n\n\
-             - Crash <!-- gdd: "
+             - Crash <!-- tminus: "
         );
         assert!(text.starts_with(&start), "{text}");
     }
@@ -852,7 +865,7 @@ mod tests {
         let err = release(repo.root(), "main", FIRST, false).unwrap_err();
         assert_eq!(
             err,
-            "the tag v0.1.0 exists already: gdd never moves or deletes a tag"
+            "the tag v0.1.0 exists already: tminus never moves or deletes a tag"
         );
         assert_eq!(named(&repo, "v0.1.0"), before);
         repo.write(changelog::PATH, "# Changelog\n");
@@ -992,7 +1005,8 @@ mod tests {
         assert!(!has_tag(&repo, "v1.2.4"));
         assert_eq!(record(&repo)["version"], Value::Null);
         // The retry takes the same version: nothing was tagged.
-        let seen = steps("test \"$GDD_VERSION\" = 1.2.4");
+        let check = "test \"$TMINUS_VERSION\" = 1.2.4 && test -z \"${GDD_VERSION+set}\"";
+        let seen = steps(check);
         let promoted = promote(&promotion(&repo, &seen, Rules::default()), |line| {
             said.push(line.to_string())
         });
@@ -1012,8 +1026,26 @@ mod tests {
     }
 
     #[test]
+    fn a_promotion_in_a_project_set_up_before_the_rename_gets_its_version_in_gdd_version() {
+        let repo = with_change_in(Layout::Gdd, FIX_LINE);
+        merge(&repo, FIXED);
+        let check = "test \"$GDD_VERSION\" = 0.1.0 && test -z \"${TMINUS_VERSION+set}\"";
+        let seen = steps(check);
+        let mut said = Vec::new();
+        let at = promotion(&repo, &seen, Rules::default());
+        promote(&at, |line| said.push(line.to_string())).unwrap();
+        assert_eq!(heard(&said), ["Released v0.1.0"]);
+        // Its record and its log stay in .gdd/.
+        assert_eq!(record(&repo)["version"], "0.1.0");
+        let kept = repo.root().join(".gdd/changes/c1/change.json");
+        assert!(fs::read_to_string(kept).unwrap().contains("\"0.1.0\""));
+        assert!(repo.root().join(".gdd/log.jsonl").is_file());
+        assert!(!repo.root().join(".tminus").exists());
+    }
+
+    #[test]
     fn manual_mode_a_change_left_out_and_nothing_new_promote_without_a_version() {
-        let unversioned = steps("test -z \"${GDD_VERSION+set}\"");
+        let unversioned = steps("test -z \"${TMINUS_VERSION+set}\"");
         let manual = Rules {
             mode: Mode::Manual,
             push: false,
@@ -1053,15 +1085,16 @@ mod tests {
         let err = promote(&at, |_| {}).unwrap_err();
         assert_eq!(
             err,
-            "the tag v0.1.0 exists already: gdd never moves or deletes a tag"
+            "the tag v0.1.0 exists already: tminus never moves or deletes a tag"
         );
         assert!(!repo.root().join("promoted").exists());
         assert_eq!(record(&repo)["state"], "in-pre");
         // A record that cannot be read, nor a changelog line in it: nothing runs either.
-        repo.write(".gdd/changes/c1/change.json", "[]");
+        let path = ".tminus/changes/c1/change.json";
+        repo.write(path, "[]");
         let err = promote(&at, |_| {}).unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
-        repo.write(".gdd/changes/c1/change.json", r#"{"changelog": "Fixed"}"#);
+        assert!(err.starts_with(&format!("{path}: ")), "{err}");
+        repo.write(path, r#"{"changelog": "Fixed"}"#);
         assert!(promote(&at, |_| {}).is_err());
         assert!(!repo.root().join("promoted").exists());
     }

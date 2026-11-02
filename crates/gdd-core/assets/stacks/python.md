@@ -9,9 +9,9 @@ Read this before writing tests, scenario steps or code in Python in a GDD projec
 ## Scenario steps (pytest-bdd)
 
 - The steps live in `tests/acceptance/`; the `.feature` files in `features/`. When the project keeps them elsewhere, `builder_build`
-  in `gdd/rules.toml` says where. The test module
-  binds the features with `scenarios(...)`, on `GDD_FEATURES` (one path per line; all when empty)
-  and on `features/hidden/` only when `GDD_HIDDEN=1`. A sentence with no step fails
+  in `tminus/rules.toml` says where. The test module
+  binds the features with `scenarios(...)`, on `TMINUS_FEATURES` (one path per line; all when empty)
+  and on `features/hidden/` only when `TMINUS_HIDDEN=1`. A sentence with no step fails
   (`StepDefinitionNotFoundError`). Never skip, comment out or loosen a scenario to make it pass.
 - One step per sentence with `@given`, `@when`, `@then` and `parsers.parse(...)` for values; share
   state through fixtures (`target_fixture`), not globals.
@@ -39,6 +39,6 @@ Read this before writing tests, scenario steps or code in Python in a GDD projec
 
 ## Never by hand
 
-Do not run `pytest`, `ruff`, `mypy` or `mutmut` yourself to decide whether you are done: run `gdd g2 --role <your role>`.
+Do not run `pytest`, `ruff`, `mypy` or `mutmut` yourself to decide whether you are done: run `tminus g2 --role <your role>`.
 It runs the same tools with the project's flags, Path Guard and the scope, and it is what counts.
-Read its report (`.gdd/changes/<id>/g2.json`) when it fails.
+Read its report (`.tminus/changes/<id>/g2.json`) when it fails.

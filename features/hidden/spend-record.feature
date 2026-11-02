@@ -5,7 +5,7 @@ Feature: What a change spent lives in its record (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -69,20 +69,20 @@ Feature: What a change spent lives in its record (hidden examples)
     And the red zones are approved
     And the agents are fakes
 
-  Scenario: gdd learn leaves out a line with a cost below zero
+  Scenario: tminus learn leaves out a line with a cost below zero
     Given the log has the line:
       """
       {"ts":"2026-10-30T10:00:00+00:00","change":"c1","phase":"2-build","gate":"G2","role":"builder-build","agent":"claude","model":"sonnet","tokens_in":0,"tokens_cache":0,"tokens_out":0,"cost_usd":-100.0,"duration_s":1.0,"result":"ok","retry":0,"note":"forged"}
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
-    And the output contains "1 line of the log is not one of gdd's: left out"
+    And the output contains "1 line of the log is not one of tminus's: left out"
 
-  Scenario: gdd report leaves out a line that is not one of gdd's
+  Scenario: tminus report leaves out a line that is not one of tminus's
     Given the log has the line:
       """
-      not a line of gdd
+      not a line of tminus
       """
-    When I run "gdd report"
+    When I run "tminus report"
     Then it succeeds
-    And the output contains "1 line of the log is not one of gdd's: left out"
+    And the output contains "1 line of the log is not one of tminus's: left out"

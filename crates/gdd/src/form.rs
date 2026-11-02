@@ -1,5 +1,5 @@
-//! The Setup form of `gdd init`: the deterministic part of the Setup, one step at a time. The form
-//! is a state machine, keys in and a screen out ([`Form`]), drawn with Ratatui. [`in_terminal`]
+//! The Setup form of `tminus init`: the deterministic part of the Setup, one step at a time. The
+//! form is a state machine, keys in and a screen out ([`Form`]), drawn with Ratatui. [`in_terminal`]
 //! asks it in the terminal of the process; [`finish`] does what the human answered, exactly as
 //! the flags would.
 
@@ -44,15 +44,15 @@ const SAME_FAMILY: &str =
 const ASK_AGENT: &str = "Your coding agent can help you choose it.";
 
 /// The last line once the project is set up and its stacks installed.
-const NEXT_AGENT: &str = "Next: start your coding agent here and run the gdd-setup command \
-                          (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+const NEXT_AGENT: &str = "Next: start your coding agent here and run the tminus-setup command \
+                          (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).";
 
 /// What the human does when the install of the stacks failed after the setup.
 const INSTALL_FAILED: &str =
-    "The harness is set up and committed. Fix the install, then run gdd bootstrap.";
+    "The harness is set up and committed. Fix the install, then run tminus bootstrap.";
 
 /// Why the form ended without writing anything.
-const QUIT: &str = "gdd init stopped: nothing was written";
+const QUIT: &str = "tminus init stopped: nothing was written";
 
 /// The keys of the steps that take text.
 const TEXT_KEYS: &str = "Enter: next · Esc: back · Ctrl-C: quit";
@@ -258,7 +258,7 @@ impl Form {
         }
     }
 
-    /// The form with the answers the flags of `gdd init` already gave in `given`, to change as
+    /// The form with the answers the flags of `tminus init` already gave in `given`, to change as
     /// any other: the coding agents they name come checked instead of those found (in the order
     /// of the list), and the language, the description and the sensitive areas are theirs. The
     /// name, the platform and the stacks are left to answer, and the yes to one model family to
@@ -376,7 +376,7 @@ impl Form {
         families.windows(2).all(|pair| pair[0] == pair[1])
     }
 
-    /// The answers as gdd init takes them: the text as typed, which it escapes, and the stacks
+    /// The answers as tminus init takes them: the text as typed, which it escapes, and the stacks
     /// without Not sure.
     fn options(&self, accept_same_family: bool) -> init::Options {
         let stacks = self.stacks.picked().into_iter();
@@ -402,11 +402,11 @@ impl Form {
     }
 
     /// The flags command with every answer but the stacks, to run once the human knows them;
-    /// gdd init reads each answer from it as typed (see [`flag`]).
+    /// tminus init reads each answer from it as typed (see [`flag`]).
     fn command(&self) -> String {
         let options = self.options(false);
         let mut flags = vec![
-            "gdd init".to_string(),
+            "tminus init".to_string(),
             flag("--name", &options.name),
             flag("--platform", &options.platform),
             format!("--agents {}", options.agents.join(" ")),
@@ -425,7 +425,7 @@ impl Form {
     /// needs and its keys.
     fn screen(&self) -> Paragraph<'static> {
         let step = self.step;
-        let title = format!(" gdd init · {} ", step.title());
+        let title = format!(" tminus init · {} ", step.title());
         let mut lines = vec![Line::from(step.asks()), Line::default()];
         lines.extend(self.body().into_iter().map(Line::from));
         if let Some(problem) = self.problem {
@@ -534,7 +534,7 @@ fn without_next(text: &str) -> Vec<String> {
     lines.map(str::to_string).collect()
 }
 
-/// `gdd init` in a terminal: asks the form (see [`ask`]), with the coding agents on the `PATH`
+/// `tminus init` in a terminal: asks the form (see [`ask`]), with the coding agents on the `PATH`
 /// of the process checked and the answers its flags already gave in `given` (see
 /// [`Form::answered`]), then does what the human answered in the folder `cwd` (see [`finish`]),
 /// in the environment of the process.
@@ -602,7 +602,7 @@ fn or_none(text: &str) -> &str {
     if text.is_empty() { "none" } else { text }
 }
 
-/// The option `name` with `value` as one word of the shell (see [`shell_word`]), which gdd init
+/// The option `name` with `value` as one word of the shell (see [`shell_word`]), which tminus init
 /// reads whole as its value: after `=` when it starts with `-`, which it would take for an
 /// option.
 fn flag(name: &str, value: &str) -> String {
@@ -705,7 +705,7 @@ mod tests {
     #[test]
     fn the_form_starts_with_the_project_name() {
         let form = Form::new(Vec::new());
-        let title = " gdd init · Step 1 of 7 · Project name ";
+        let title = " tminus init · Step 1 of 7 · Project name ";
         assert_shows(&form, &[title, "What is the project called?"]);
         assert_shows(&form, &["\n│> █", "Enter: next · Ctrl-C: quit"]);
         assert_hides(&form, &["Esc"]);
@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn esc_goes_back_one_step_and_keeps_the_answers() {
         let mut form = on_the_summary(&["claude", "codex"]);
-        assert_shows(&form, &[" gdd init · Summary ", "Ctrl-C: quit"]);
+        assert_shows(&form, &[" tminus init · Summary ", "Ctrl-C: quit"]);
         for title in [
             "Step 7 of 7 · Sensitive areas",
             "Step 6 of 7 · Language",
@@ -930,7 +930,7 @@ mod tests {
             "Enter to set up · Esc to go back",
         ];
         assert_shows(&form, &answers);
-        assert_hides(&form, &[SAME_FAMILY, "gdd init --name"]);
+        assert_hides(&form, &[SAME_FAMILY, "tminus init --name"]);
         press(&mut form, &[Key::Char('y'), Key::Char('n')]);
         assert_eq!(form.outcome(), None);
         form.press(Key::Enter);
@@ -967,7 +967,7 @@ mod tests {
         let keys = [Key::Space, Key::Down, Key::Down, Key::Down, Key::Space];
         press(&mut form, &keys);
         press(&mut form, &[Key::Enter; 4]);
-        let command = "gdd init --name Notes --platform cli --agents claude --language en \
+        let command = "tminus init --name Notes --platform cli --agents claude --language en \
                        --description 'Personal notes' --stack <pick one>";
         let wide = form.render(140, 40);
         assert!(wide.contains(&format!("│{command} ")), "{wide}");
@@ -1018,7 +1018,7 @@ mod tests {
         form.press(Key::Enter);
         type_text(&mut form, "-  it's");
         press(&mut form, &[Key::Enter, Key::Enter, Key::Enter]);
-        let command = "gdd init --name '2nd  Brain!' --platform mobile --agents claude codex \
+        let command = "tminus init --name '2nd  Brain!' --platform mobile --agents claude codex \
                        --language en --description='-x --help' --sensitive 'R&D' \
                        --sensitive='-  it'\\''s' --stack <pick one>";
         let not_sure = Outcome::NotSure(command.to_string());
@@ -1065,7 +1065,7 @@ mod tests {
         let small = form.render(20, 3);
         let rows: Vec<usize> = small.lines().map(|row| row.chars().count()).collect();
         assert_eq!(rows, [20, 20, 20]);
-        assert!(small.starts_with("┌ gdd init · Step 1"), "{small}");
+        assert!(small.starts_with("┌ tminus init · St"), "{small}");
         assert_eq!(form.render(0, 0), "");
     }
 
@@ -1078,24 +1078,43 @@ mod tests {
 
     #[test]
     fn finish_does_what_the_human_answered() {
-        let said = finish(Path::new("/"), &Outcome::NotSure("gdd init x".into()), &[]);
-        let ask = "gdd init x\nYour coding agent can help you choose it.".to_string();
+        let said = finish(
+            Path::new("/"),
+            &Outcome::NotSure("tminus init x".into()),
+            &[],
+        );
+        let ask = "tminus init x\nYour coding agent can help you choose it.".to_string();
         assert_eq!(said, Ok(ask));
-        let quit = Err("gdd init stopped: nothing was written".to_string());
+        let quit = Err("tminus init stopped: nothing was written".to_string());
         assert_eq!(finish(Path::new("/"), &Outcome::Quit, &[]), quit);
         let folder = plain_folder();
         let one = Outcome::SetUp(notes(&["claude"], false));
         let refused = finish(&folder.0, &one, &init_env()).unwrap_err();
         let one_family = "error: one model family only";
         assert!(refused.starts_with(one_family), "{refused}");
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         let two = Outcome::SetUp(notes(&["claude", "codex"], false));
         let (_bin, env) = with_cargo("echo locked > Cargo.lock");
         let said = finish(&folder.0, &two, &env).unwrap();
-        assert!(said.starts_with("gdd/project.toml\n"), "{said}");
-        let path = folder.0.join("gdd/project.toml");
+        assert!(said.starts_with("tminus/project.toml\n"), "{said}");
+        let path = folder.0.join("tminus/project.toml");
         let project = std::fs::read_to_string(path).unwrap();
         assert!(project.contains("name = \"Notes\"\n"), "{project}");
+    }
+
+    #[test]
+    fn the_form_sets_up_nothing_where_the_state_of_the_old_layout_is() {
+        let folder = plain_folder();
+        folder.write(".gdd/log.jsonl", "");
+        let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
+        let (_bin, env) = with_cargo("echo locked > Cargo.lock");
+        let refused = finish(&folder.0, &set_up, &env).unwrap_err();
+        let mixed = format!(
+            "error: {} keeps its files in tminus/ but has .gdd/, the state of the old layout",
+            folder.0.display()
+        );
+        assert!(refused.starts_with(&mixed), "{refused}");
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
     }
 
     /// A folder with a `cargo` that runs `script`, and the environment of [`init_env`] with it
@@ -1127,13 +1146,13 @@ mod tests {
         let (_bin, env) = with_cargo("echo locked > Cargo.lock");
         let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
         let said = finish(&folder.0, &set_up, &env).unwrap();
-        assert!(said.starts_with("gdd/project.toml\n"), "{said}");
+        assert!(said.starts_with("tminus/project.toml\n"), "{said}");
         assert!(said.contains("\nrust: cargo generate-lockfile\n"), "{said}");
         assert!(said.contains("\nCommitted: Cargo.lock\n"), "{said}");
         assert_eq!(said.lines().last(), Some(NEXT_AGENT));
         assert_eq!(said.matches("Next:").count(), 1, "{said}");
-        assert!(!said.contains("run gdd bootstrap"), "{said}");
-        assert_eq!(last_subject(&folder.0), "gdd bootstrap");
+        assert!(!said.contains("run tminus bootstrap"), "{said}");
+        assert_eq!(last_subject(&folder.0), "tminus bootstrap");
     }
 
     #[test]
@@ -1142,15 +1161,15 @@ mod tests {
         let (_bin, env) = with_cargo("exit 3");
         let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
         let said = finish(&folder.0, &set_up, &env).unwrap_err();
-        assert!(said.starts_with("gdd/project.toml\n"), "{said}");
+        assert!(said.starts_with("tminus/project.toml\n"), "{said}");
         let failed = "rust: cargo generate-lockfile failed (exit 3)";
         assert!(said.contains(&format!("\nerror: {failed}\n")), "{said}");
         assert!(said.ends_with(INSTALL_FAILED), "{said}");
         assert!(!said.contains("Next:"), "{said}");
-        assert!(folder.0.join("gdd/project.toml").is_file());
+        assert!(folder.0.join("tminus/project.toml").is_file());
         assert_eq!(
             last_subject(&folder.0),
-            format!("gdd init {}", gdd_core::VERSION)
+            format!("tminus init {}", gdd_core::VERSION)
         );
     }
 

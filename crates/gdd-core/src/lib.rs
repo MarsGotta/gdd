@@ -17,6 +17,7 @@ pub mod git;
 pub mod guard;
 pub mod inbox;
 pub mod init;
+pub mod layout;
 pub mod learn;
 pub mod log;
 pub mod recipe;
@@ -37,12 +38,12 @@ pub use report::Report;
 pub use rules::RulesTable;
 pub use zones::ZoneMap;
 
-/// Version of the `gdd` tool.
+/// Version of the tool, `tminus` (also called `gdd`).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// One line that identifies the tool, used by `gdd --version`.
+/// One line that identifies the tool by its name, `tminus`, and its version.
 pub fn version_line() -> String {
-    format!("gdd {VERSION}")
+    format!("tminus {VERSION}")
 }
 
 #[cfg(test)]
@@ -51,7 +52,7 @@ mod tests {
 
     #[test]
     fn version_line_names_the_tool() {
-        assert_eq!(version_line(), format!("gdd {VERSION}"));
-        assert!(version_line().starts_with("gdd "));
+        assert_eq!(version_line(), format!("tminus {VERSION}"));
+        assert!(version_line().starts_with("tminus "));
     }
 }

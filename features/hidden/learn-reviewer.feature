@@ -5,7 +5,7 @@ Feature: Learn from the Reviewer (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -29,19 +29,19 @@ Feature: Learn from the Reviewer (hidden examples)
       """
 
   Scenario: The same class twice in one change counts once for that change
-    And the file ".gdd/changes/a/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/a/outputs/reviewer-1.md" says:
       """
       F1 · path followed through a link · src/a.rs:1 · x · none
       F2 · path followed through a link · src/b.rs:2 · y · none
       
       VERDICT: KO
       """
-    And the file ".gdd/changes/b/outputs/reviewer-1.md" says:
+    And the file ".tminus/changes/b/outputs/reviewer-1.md" says:
       """
       F3 · path followed through a link · src/c.rs:3 · z · none
       
       VERDICT: KO
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "path followed through a link · 2 changes (a, b)"

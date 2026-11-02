@@ -10,7 +10,7 @@ Feature: The G4 page says how the change works
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -75,12 +75,12 @@ Feature: The G4 page says how the change works
     And the agents are fakes
 
   Scenario: The G4 page shows how the change works
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    And the file ".gdd/changes/c1/review.md" says:
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    And the file ".tminus/changes/c1/review.md" says:
       """
       No blocking findings.
 
@@ -96,21 +96,21 @@ Feature: The G4 page says how the change works
     And the sitting does not show "## How it works"
 
   Scenario: The G4 page says when the Reviewer did not explain the change
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
     When I open the sitting of "c1"
     Then the sitting shows "How it works: the Reviewer did not explain the change"
 
   Scenario: The Decision Inbox says how the change works
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    And the file ".gdd/changes/c1/review.md" says:
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    And the file ".tminus/changes/c1/review.md" says:
       """
       No blocking findings.
 
@@ -120,13 +120,13 @@ Feature: The G4 page says how the change works
 
       VERDICT: OK
       """
-    When I run "gdd inbox c1"
+    When I run "tminus inbox c1"
     Then it succeeds
     And the output contains "## How it works"
     And the output contains "It follows the pattern of the import"
 
   Scenario: The Reviewer is told to explain the change it approves
-    When I run "gdd agents install"
+    When I run "tminus agents install"
     Then it succeeds
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "## How it works"
-    And the file ".claude/skills/gdd-review/SKILL.md" contains "for the human who approves without reading every line"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "## How it works"
+    And the file ".claude/skills/tminus-review/SKILL.md" contains "for the human who approves without reading every line"

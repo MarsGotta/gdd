@@ -4,14 +4,14 @@ Feature: A first change reaches G4
   and one of its findings (`F<n> · <class> · <file>:<line> · ...`) names a file protected for
   build mode, the fix round starts with the Builder in test mode (`mode=test fix=review`), Path
   Guard checks it as after any test mode, and then build mode fixes the rest as before. And the red
-  zones are approved on main for the whole project: gdd judges a change against the zone map of
+  zones are approved on main for the whole project: tminus judges a change against the zone map of
   main, so zones approved after the change was created count for it.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -75,9 +75,9 @@ Feature: A first change reaches G4
     And the red zones are approved
     And the agents are fakes
   Scenario: A finding on a step file gets a test-mode fix first
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "F1 · weak step · tests/steps/app.txt:3 · one step checks three sentences", says KO, and then OK
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                       |
@@ -90,9 +90,9 @@ Feature: A first change reaches G4
     And the record of "c1" is in state "closed"
 
   Scenario: A finding only on the code keeps the one build-mode fix
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "F1 · off by one · src/app.txt:1 · the total drops the last line", says KO, and then OK
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                       |
@@ -103,14 +103,14 @@ Feature: A first change reaches G4
       | reviewer      | gpt-6  | change=c1 round=2               |
 
   Scenario: A finding on a step file that is KO twice still parks
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "F1 · weak step · tests/steps/app.txt:3 · one step checks three sentences", says KO, and then KO
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: Reviewer KO or G3 red after one fix"
 
   Scenario: Red zones approved on main after the change was created count for it
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And main has the file "gdd/zones.toml" with:
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And main has the file "tminus/zones.toml" with:
       """
       default = "yellow"
 
@@ -119,15 +119,15 @@ Feature: A first change reaches G4
       paths = ["src/storage/**", "src/sync/**"]
       reason = "Losing the user's drafts"
       """
-    And I run "gdd gate zones ok --by human"
-    When I run "gdd launch c1"
+    And I run "tminus gate zones ok --by human"
+    When I run "tminus launch c1"
     Then it succeeds
     And the output does not contain "Red zones changed after their approval"
     And the record of "c1" is in state "closed"
 
   Scenario: Red zones changed on main and not approved again still stop the change
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And main has the file "gdd/zones.toml" with:
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And main has the file "tminus/zones.toml" with:
       """
       default = "yellow"
 
@@ -136,5 +136,5 @@ Feature: A first change reaches G4
       paths = ["src/storage/**", "src/sync/**"]
       reason = "Losing the user's drafts"
       """
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "Red zones changed after their approval"

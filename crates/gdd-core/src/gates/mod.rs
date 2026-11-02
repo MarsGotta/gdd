@@ -38,6 +38,7 @@ use crate::config::{self, Color};
 use crate::exec;
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
+use crate::layout::{self, Layout};
 use crate::log;
 use crate::rules::{self, RulesTable};
 use crate::zones::ZoneMap;
@@ -45,8 +46,9 @@ use crate::zones::ZoneMap;
 /// The role of build mode: in a gate, the scope check judges it too.
 pub const BUILD_ROLE: &str = "builder-build";
 
-/// The gate and release commands of a project, from its root.
-pub const COMMANDS: &str = "gdd/commands.toml";
+/// The gate and release commands of a project, from its root, in the new names (see
+/// [`crate::layout`]).
+pub const COMMANDS: &str = "tminus/commands.toml";
 
 /// The name of the Path Guard check in a report.
 pub(crate) const PATH_GUARD: &str = "path-guard";
@@ -54,9 +56,19 @@ pub(crate) const PATH_GUARD: &str = "path-guard";
 /// What a command of `[count]` must have.
 const COUNT_SHAPE: &str = "give a list of texts that are not empty, each with {n} once at most";
 
-/// Why a gate without commands fails.
+/// Why a gate without commands fails, in the new names: a project names its own commands file.
 const NOT_CONFIGURED: &str =
-    "gdd/commands.toml has no commands for this gate. The Setup fills them in.";
+    "tminus/commands.toml has no commands for this gate. The Setup fills them in.";
+
+/// The variables each gate command gets, in the new names: a project of the old layout gets them
+/// as it names them (see [`Layout::localize`]). The change, its color, what it touched and its
+/// scenario files.
+const VARIABLES: [&str; 4] = [
+    "TMINUS_CHANGE",
+    "TMINUS_COLOR",
+    "TMINUS_DIFF_FILES",
+    "TMINUS_FEATURES",
+];
 
 /// Why G3 fails without scenarios.
 const NO_SCENARIOS: &str = "Zero scenarios counts as a failure.";
@@ -123,9 +135,9 @@ impl Gate {
     }
 
     /// Where the report of its last run on change `id` lives, from the state root (see
-    /// [`crate::state::root`]).
+    /// [`crate::state::root`]), in the new names (see [`crate::layout`]).
     pub fn report_path(self, id: &str) -> String {
-        format!(".gdd/changes/{id}/{}.json", self.key())
+        format!(".tminus/changes/{id}/{}.json", self.key())
     }
 }
 
@@ -589,7 +601,8 @@ pub fn save(state: &Path, id: &str, report: &Report) -> Result<(), String> {
 /// `state` (see [`Gate::report_path`]), as indented JSON; the log is left as it is.
 pub fn keep(state: &Path, id: &str, report: &Report) -> Result<(), String> {
     let saved = serde_json::to_string_pretty(report).map_err(|e| e.to_string())?;
-    change::write(state, &report.gate.report_path(id), &format!("{saved}\n"))
+    let path = layout::named(state, &report.gate.report_path(id));
+    change::write(state, &path, &format!("{saved}\n"))
 }
 
 /// Runs `gate` on change `id`, whose record is `record` and whose kind of work is `kind`, for
@@ -620,8 +633,9 @@ pub fn run_of_kind(
 /// the rules (see [`exec::run_limited`]), except the `mutation*` ones when the change does not
 /// need mutation testing; a mutation command that passes leaves its last line in the report
 /// (see [`Report::summaries`]). Each gets
-/// `GDD_CHANGE`, `GDD_COLOR`, `GDD_FEATURES` (the change's scenario files) and `GDD_DIFF_FILES`
-/// (what it touched, or what it plans while it touched nothing), one path per line. Then Path
+/// `TMINUS_CHANGE`, `TMINUS_COLOR`, `TMINUS_FEATURES` (the change's scenario files) and
+/// `TMINUS_DIFF_FILES` (what it touched, or what it plans while it touched nothing), one path per
+/// line, named as the project names them (see [`VARIABLES`]). Then Path
 /// Guard judges again; build mode also gets the scope check, and G3 counts the scenarios: none
 /// fails it when they are required or the change has its own. G3 also refuses a security
 /// exception without a reason and names the ones the change adds against the main branch (see
@@ -658,8 +672,7 @@ pub fn run(
         diff,
         features,
     };
-    let commands = project.commands.of(gate);
-    let mut report = judged.report(gate, commands);
+    let mut report = judged.report(gate, project);
     let owed = debt::owed(&mut report, root, gate);
     let mut guarding = Duration::ZERO;
     let mut guard = || {
@@ -715,13 +728,14 @@ pub(crate) struct Judged<'a> {
 }
 
 impl Judged<'_> {
-    /// The report of `gate`, whose commands are `commands`, before anything runs: a gate
-    /// without commands fails already.
-    pub(crate) fn report(&self, gate: Gate, commands: &BTreeMap<String, String>) -> Report {
+    /// The report of `gate` in `project` before anything runs: a gate without commands fails
+    /// already, and says so naming the commands file as the project names it.
+    pub(crate) fn report(&self, gate: Gate, project: &Project) -> Report {
         let mut report = Report::new(gate, self.decision.color);
-        if commands.is_empty() {
+        if project.commands.of(gate).is_empty() {
             let name = format!("{gate} not configured");
-            report.fail(&name, NOT_CONFIGURED.to_string());
+            let why = Layout::at(project.root).localize(NOT_CONFIGURED);
+            report.fail(&name, why);
         }
         report
     }
@@ -730,8 +744,9 @@ impl Judged<'_> {
     /// time limit of its rules (see [`exec::run_limited`]), into `report`, except the
     /// `mutation*` ones when the change does not need mutation testing; the ones named in `owed`
     /// have known debt, each with the count recorded for it when there is one, and only warn
-    /// while what they report stays within that count (see [`Report::command`]). Each gets
-    /// `GDD_CHANGE`, `GDD_COLOR`, `GDD_DIFF_FILES` and `GDD_FEATURES`, one path per line.
+    /// while what they report stays within that count (see [`Report::command`]). Each gets the
+    /// [`VARIABLES`], as the project names them: the change, its color, what it touched and its
+    /// scenario files, one path per line.
     pub(crate) fn run_commands(
         &self,
         report: &mut Report,
@@ -742,12 +757,10 @@ impl Judged<'_> {
         let limit = project.rules.command_limit;
         let color = self.decision.color.to_string();
         let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
-        let env = [
-            ("GDD_CHANGE", self.id),
-            ("GDD_COLOR", color.as_str()),
-            ("GDD_DIFF_FILES", diff.as_str()),
-            ("GDD_FEATURES", features.as_str()),
-        ];
+        let layout = Layout::at(root);
+        let names = VARIABLES.map(|name| layout.localize(name));
+        let values = [self.id, color.as_str(), diff.as_str(), features.as_str()];
+        let env: Vec<(&str, &str)> = names.iter().map(String::as_str).zip(values).collect();
         for (name, command) in commands.of(report.gate) {
             if is_mutation(name) && !self.decision.mutation {
                 report.skipped.push(name.clone());
@@ -898,7 +911,8 @@ mod tests {
     use crate::config::Lane;
     use crate::git::tests::{Folder, Repo};
 
-    const PROTECTED: &str = "[protected]\nall = [\"gdd/**\"]\nbuilder_build = [\"features/**\"]\n";
+    const PROTECTED: &str =
+        "[protected]\nall = [\"tminus/**\"]\nbuilder_build = [\"features/**\"]\n";
 
     const ZONES: &str = r#"
 default = "yellow"
@@ -925,8 +939,15 @@ paths = ["src/storage/**"]
 
     /// The project with change `c1`, which plans `paths`, and the gate commands `commands`.
     fn started(paths: &[&str], commands: &str) -> Started {
+        started_in("tminus", paths, commands)
+    }
+
+    /// [`started`], for a project that keeps its files in `folder`: `gdd` for one set up before
+    /// the rename.
+    fn started_in(folder: &str, paths: &[&str], commands: &str) -> Started {
         let repo = Repo::new();
-        repo.write("gdd/rules.toml", PROTECTED);
+        repo.write(&format!("{folder}/project.toml"), "name = \"x\"\n");
+        repo.write(&format!("{folder}/rules.toml"), PROTECTED);
         repo.commit();
         let start = repo.start("c1");
         let record = Record {
@@ -1002,8 +1023,8 @@ paths = ["src/storage/**"]
         assert_eq!(Gate::G3.to_string(), "G3");
         assert_eq!(Gate::G2.phase(), "2-build");
         assert_eq!(Gate::G3.phase(), "3-integrate");
-        assert_eq!(Gate::G2.report_path("c1"), ".gdd/changes/c1/g2.json");
-        assert_eq!(Gate::G3.report_path("c1"), ".gdd/changes/c1/g3.json");
+        assert_eq!(Gate::G2.report_path("c1"), ".tminus/changes/c1/g2.json");
+        assert_eq!(Gate::G3.report_path("c1"), ".tminus/changes/c1/g3.json");
     }
 
     #[test]
@@ -1066,7 +1087,7 @@ paths = ["src/storage/**"]
         let expected = Rules {
             table: rules::default_table(),
             scenarios_required: true,
-            harness: vec!["gdd/**".into()],
+            harness: vec!["tminus/**".into()],
             command_limit: exec::TIMEOUT,
         };
         assert_eq!(rules, expected);
@@ -1087,7 +1108,7 @@ paths = ["src/storage/**"]
             "[acceptance]\nrequired = 1\n",
             "x = ",
             "color = 1\n",
-            "[protected]\nall = \"gdd/**\"\n",
+            "[protected]\nall = \"tminus/**\"\n",
         ] {
             let result = Rules::from_toml(wrong);
             assert!(matches!(result, Err(config::Error::Toml(_))), "{wrong:?}");
@@ -1208,8 +1229,8 @@ paths = ["src/storage/**"]
     #[test]
     fn a_command_whose_count_cannot_be_read_fails_the_gate() {
         let mut project = in_debt("", COUNTED);
-        let cannot = "lint failed and gdd cannot count what it reported (its [count] texts match \
-                      nothing)\npanicked\n--- end of output ---\npanicked\n";
+        let cannot = "lint failed and tminus cannot count what it reported (its [count] texts \
+                      match nothing)\npanicked\n--- end of output ---\npanicked\n";
         // No text matches, or it has no [count] any more.
         for count in ["lint = [\"Found {n} error\"]", "unit = [\"{n} failed\"]"] {
             project.commands = counting("panicked", count);
@@ -1267,7 +1288,8 @@ paths = ["src/storage/**"]
         let report = project.run(Gate::G2, "builder");
         assert_eq!(names(&report), ["debt", "lint"]);
         let tail = &report.failures[0].tail;
-        assert!(tail.starts_with("gdd/debt.toml: invalid TOML: "), "{tail}");
+        let start = "tminus/debt.toml: invalid TOML: ";
+        assert!(tail.starts_with(start), "{tail}");
         assert_eq!(report.known_debt, Vec::<debt::Owed>::new());
     }
 
@@ -1282,7 +1304,7 @@ paths = ["src/storage/**"]
         let report = project.run(Gate::G2, "builder");
         assert_eq!(names(&report), ["debt", "acceptance"]);
         let tail = &report.failures[0].tail;
-        let said = "gdd/debt.toml: \"acceptance\" can never be known debt";
+        let said = "tminus/debt.toml: \"acceptance\" can never be known debt";
         assert!(tail.starts_with(said), "{tail}");
         project.repo.write("features/a.feature", "Scenario: a\n");
         let report = project.run(Gate::G3, "builder");
@@ -1343,7 +1365,7 @@ paths = ["src/storage/**"]
             texts: None,
         };
         report.command("types", Err(io::Error::other("no shell")), Some(counted));
-        let cannot = "types failed and gdd cannot count what it reported (its [count] texts \
+        let cannot = "types failed and tminus cannot count what it reported (its [count] texts \
                       match nothing)\ncannot run sh: no shell";
         assert_eq!(report.failures[1], failure("types", cannot));
     }
@@ -1389,7 +1411,7 @@ paths = ["src/storage/**"]
     #[test]
     fn commands_know_the_change_its_color_its_scenarios_and_what_it_touched() {
         let show = r#"[g2]
-show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_FEATURES"; exit 1'
+show = 'printf "%s|%s|%s|%s" "$TMINUS_CHANGE" "$TMINUS_COLOR" "$TMINUS_DIFF_FILES" "$TMINUS_FEATURES"; exit 1'
 "#;
         let project = started(&["src/app.rs", "docs/b.md"], show);
         let shown = |project: &Started| project.run(Gate::G2, "builder").failures[0].tail.clone();
@@ -1400,6 +1422,35 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             shown(&project),
             "c1|red|features/a.feature\nsrc/storage/db.rs|features/a.feature"
         );
+    }
+
+    #[test]
+    fn commands_get_the_variables_as_the_project_names_them_and_never_their_twins() {
+        let show = r#"[g2]
+show = 'printf "%s|%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_FEATURES" "${TMINUS_CHANGE-none}"; exit 1'
+"#;
+        let old = started_in("gdd", &["src/app.rs"], show);
+        let shown = old.run(Gate::G2, "builder").failures[0].tail.clone();
+        assert_eq!(shown, "c1|yellow|src/app.rs||none");
+        // A project of the new layout gets no GDD_ variable, whatever the tool inherited.
+        let twin = r#"[g2]
+show = 'printf "%s|%s" "$TMINUS_CHANGE" "${GDD_CHANGE-none}"; exit 1'
+"#;
+        let new = started(&["src/app.rs"], twin);
+        let shown = new.run(Gate::G2, "builder").failures[0].tail.clone();
+        assert_eq!(shown, "c1|none");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_keeps_its_names_in_what_a_gate_says_and_saves() {
+        let old = started_in("gdd", &["src/app.rs"], "");
+        let report = old.run(Gate::G2, "builder");
+        let said = "gdd/commands.toml has no commands for this gate. The Setup fills them in.";
+        assert_eq!(report.failures, [failure("G2 not configured", said)]);
+        let root = old.repo.root();
+        keep(root, "c1", &report).unwrap();
+        assert!(root.join(".gdd/changes/c1/g2.json").is_file());
+        assert!(!root.join(".tminus").exists());
     }
 
     #[test]
@@ -1454,7 +1505,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let [failure] = report.failures.as_slice() else {
             panic!("one failure: {report:?}");
         };
-        let tail = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        let tail = "started\ntimed out (0.3s): raise limits.command_seconds in tminus/rules.toml";
         assert_eq!(
             (failure.name.as_str(), failure.tail.as_str()),
             ("unit", tail)
@@ -1505,7 +1556,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
 
     #[test]
     fn the_scenarios_of_the_change_include_the_ones_its_record_names() {
-        let show = "[g2]\nshow = 'printf \"%s\" \"$GDD_FEATURES\"; exit 1'\n";
+        let show = "[g2]\nshow = 'printf \"%s\" \"$TMINUS_FEATURES\"; exit 1'\n";
         let mut project = started(&["src/app.rs"], show);
         let named = ["features/hidden/b.feature", "features/a.feature"];
         project.record.features = named.map(String::from).to_vec();
@@ -1577,16 +1628,16 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
     #[test]
     fn path_guard_runs_inside_the_gate_for_the_role() {
         let project = started(&["src/app.rs"], "[g2]\nlint = \"touch ran\"\n");
-        project.repo.write("gdd/rules.toml", "# touched\n");
+        project.repo.write("tminus/rules.toml", "# touched\n");
         let report = project.run(Gate::G2, "builder");
-        let guarded = format!("gdd/rules.toml: protected path for builder\n{NOT_RUN}");
+        let guarded = format!("tminus/rules.toml: protected path for builder\n{NOT_RUN}");
         assert_eq!(report.failures, [failure("path-guard", &guarded)]);
         assert_eq!(timed(&report), [("path-guard", false)]);
         project.repo.write("features/a.feature", "Feature: a\n");
         let report = project.run(Gate::G2, BUILD_ROLE);
         let guarded = format!(
             "features/a.feature: protected path for builder-build\n\
-             gdd/rules.toml: protected path for builder-build\n{NOT_RUN}"
+             tminus/rules.toml: protected path for builder-build\n{NOT_RUN}"
         );
         assert_eq!(report.failures, [failure("path-guard", &guarded)]);
         assert_eq!(report.passed, ["scope"]);
@@ -1596,23 +1647,23 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
     #[test]
     fn the_commands_run_only_once_path_guard_clears_them() {
         // Rewritten commands could put their file back as they ran: Path Guard comes first.
-        let commands = "[g2]\nunit = \"rm gdd/commands.toml\"\n";
+        let commands = "[g2]\nunit = \"rm tminus/commands.toml\"\n";
         let project = started(&["src/app.rs"], commands);
-        project.repo.write("gdd/commands.toml", commands);
+        project.repo.write("tminus/commands.toml", commands);
         let report = project.run(Gate::G2, "builder");
-        let guarded = format!("gdd/commands.toml: protected path for builder\n{NOT_RUN}");
+        let guarded = format!("tminus/commands.toml: protected path for builder\n{NOT_RUN}");
         assert_eq!(report.failures, [failure("path-guard", &guarded)]);
         assert_eq!(report.passed, Vec::<String>::new());
-        assert!(project.repo.root().join("gdd/commands.toml").exists());
+        assert!(project.repo.root().join("tminus/commands.toml").exists());
     }
 
     #[test]
     fn path_guard_judges_again_what_the_commands_wrote() {
-        let commands = "[g2]\nunit = \"echo x > gdd/rules.toml\"\n";
+        let commands = "[g2]\nunit = \"echo x > tminus/rules.toml\"\n";
         let project = started(&["src/app.rs"], commands);
         let report = project.run(Gate::G2, "builder");
         assert_eq!(report.passed, ["unit"]);
-        let guarded = "gdd/rules.toml: protected path for builder";
+        let guarded = "tminus/rules.toml: protected path for builder";
         assert_eq!(report.failures, [failure("path-guard", guarded)]);
         assert_eq!(timed(&report), [("unit", true), ("path-guard", false)]);
     }
@@ -1834,7 +1885,7 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
         let root = project.repo.root();
         let report = project.run(Gate::G2, "builder");
         save(root, "c1", &report).unwrap();
-        let saved = fs::read_to_string(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(root.join(".tminus/changes/c1/g2.json")).unwrap();
         let pretty = serde_json::to_string_pretty(&report).unwrap();
         assert_eq!(saved, format!("{pretty}\n"));
         let text = fs::read_to_string(root.join(log::PATH)).unwrap();
@@ -1852,14 +1903,14 @@ show = 'printf "%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_
             assert_eq!(command.text("result"), "ok");
         }
         // Kept, it is saved and the log stays as it was.
-        fs::remove_file(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        fs::remove_file(root.join(".tminus/changes/c1/g2.json")).unwrap();
         keep(root, "c1", &report).unwrap();
-        let saved = fs::read_to_string(root.join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(root.join(".tminus/changes/c1/g2.json")).unwrap();
         assert_eq!(saved, format!("{pretty}\n"));
         let report = project.run(Gate::G3, "builder");
-        fs::create_dir_all(root.join(".gdd/changes/c1/g3.json")).unwrap();
+        fs::create_dir_all(root.join(".tminus/changes/c1/g3.json")).unwrap();
         let err = save(root, "c1", &report).unwrap_err();
-        let start = "cannot write .gdd/changes/c1/g3.json: ";
+        let start = "cannot write .tminus/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
         let text = fs::read_to_string(root.join(log::PATH)).unwrap();
         assert_eq!(log::parse(&text).unwrap().len(), 3);

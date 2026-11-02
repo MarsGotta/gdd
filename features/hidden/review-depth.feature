@@ -5,7 +5,7 @@ Feature: Review depth by risk (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       """
     And the zone map:
       """
@@ -29,10 +29,10 @@ Feature: Review depth by risk (hidden examples)
 
 
   Scenario: A red table without a lane cannot make the review quick
-    Given the file "gdd/rules.toml" says:
+    Given the file "tminus/rules.toml" says:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
 
       [color.yellow.full]
       tests_first = true
@@ -43,7 +43,7 @@ Feature: Review depth by risk (hidden examples)
       [color.red]
       review = "quick"
       """
-    When I run "gdd new-change c1 --title Sync --paths src/storage/sync.rs"
+    When I run "tminus new-change c1 --title Sync --paths src/storage/sync.rs"
     Then it fails with a message that contains "color.red.review"
 
   Scenario: A green change gets a quick review
@@ -56,7 +56,7 @@ Feature: Review depth by risk (hidden examples)
       paths = ["docs/**"]
       reason = "Documentation"
       """
-    And I run "gdd new-change c1 --title Docs --paths docs/guide.md"
-    When I run "gdd classify c1"
+    And I run "tminus new-change c1 --title Docs --paths docs/guide.md"
+    When I run "tminus classify c1"
     Then it succeeds
     And the JSON field "review" is "quick"

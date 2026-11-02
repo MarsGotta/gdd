@@ -9,7 +9,7 @@ Feature: A spike answers a question
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -74,65 +74,65 @@ Feature: A spike answers a question
     And the agents are fakes
 
   Scenario: A spike is built and waits at G4 without touching main
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the Builder in build mode also writes "docs/adr/0002-storage.md" with:
       """
       # 0002 · Where the notes live
       ## Decision
       SQLite, one file per project.
       """
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the output contains "docs/adr/0002-storage.md"
     And the agents were called in this order:
       | role          | model  | arguments            |
       | builder-build | sonnet | change=c1 mode=spike |
     And the record of "c1" is in state "in-pre"
-    And the last commit on main does not say "gdd(c1)"
+    And the last commit on main does not say "tminus(c1)"
 
   Scenario: OK at G4 brings only the ADR to main
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the Builder in build mode also writes "docs/adr/0002-storage.md" with:
       """
       # 0002 · Where the notes live
       ## Decision
       SQLite, one file per project.
       """
-    And I run "gdd launch c1"
-    When I run "gdd resume c1 --g4 ok"
+    And I run "tminus launch c1"
+    When I run "tminus resume c1 --g4 ok"
     Then it succeeds
-    And the last commit on main says "gdd(c1): Spike ADR · Storage"
+    And the last commit on main says "tminus(c1): Spike ADR · Storage"
     And the branch "main" holds "docs/adr/0002-storage.md"
     And the branch "main" does not hold "src/app.txt"
     And the branch "change/c1" holds "src/app.txt"
     And the record of "c1" is in state "closed"
 
   Scenario: KO at G4 leaves main as it was
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the Builder in build mode also writes "docs/adr/0002-storage.md" with:
       """
       # 0002 · Where the notes live
       ## Decision
       SQLite, one file per project.
       """
-    And I run "gdd launch c1"
-    When I run "gdd resume c1 --g4 ko --note Not this"
+    And I run "tminus launch c1"
+    When I run "tminus resume c1 --g4 ko --note Not this"
     Then it succeeds
     And the branch "main" does not hold "docs/adr/0002-storage.md"
     And the record of "c1" is in state "rejected"
 
   Scenario: A spike that leaves no ADR does not reach G4
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: G2 still red"
-    And the file ".gdd/changes/c1/inbox.md" contains "a Spike leaves its decision in a new file under docs/adr/ with a ## Decision section"
+    And the file ".tminus/changes/c1/inbox.md" contains "a Spike leaves its decision in a new file under docs/adr/ with a ## Decision section"
     And the record of "c1" is in state "parked"
 
   Scenario: A spike stops at its budget
-    Given I run "gdd new-change c1 --type Spike --title Storage --paths src/app.txt"
+    Given I run "tminus new-change c1 --type Spike --title Storage --paths src/app.txt"
     And the spike budget is "0.02" USD
     And the Builder in build mode writes nothing
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: the spike spent 0.02 USD of its budget of 0.02 USD"
     And the agents were called in this order:
       | role          | model  | arguments            |
@@ -141,13 +141,13 @@ Feature: A spike answers a question
     And the record of "c1" is in state "parked"
 
   Scenario: The Builder is told what a spike is for
-    When I run "gdd agents install"
+    When I run "tminus agents install"
     Then it succeeds
-    And the file ".claude/skills/gdd-build/SKILL.md" contains "mode=spike"
-    And the file ".claude/skills/gdd-build/SKILL.md" contains "Write the decision in a new file under docs/adr/"
+    And the file ".claude/skills/tminus-build/SKILL.md" contains "mode=spike"
+    And the file ".claude/skills/tminus-build/SKILL.md" contains "Write the decision in a new file under docs/adr/"
 
   Scenario: A new project gives spikes a budget
     Given an empty folder
-    When I run "gdd init --name Notes --platform cli --stack rust --agents claude codex"
+    When I run "tminus init --name Notes --platform cli --stack rust --agents claude codex"
     Then it succeeds
-    And the TOML file "gdd/rules.toml" has "spike.max_usd" = "5"
+    And the TOML file "tminus/rules.toml" has "spike.max_usd" = "5"

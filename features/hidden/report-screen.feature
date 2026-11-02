@@ -5,7 +5,7 @@ Feature: Where the time goes, on the Board (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -23,7 +23,7 @@ Feature: Where the time goes, on the Board (hidden examples)
       reason = "Losing the user's drafts"
       """
     And everything is committed on main
-    And I run "gdd new-change d --title Search --paths src/search.rs"
+    And I run "tminus new-change d --title Search --paths src/search.rs"
     And the change "d" is in state "building"
     And the log says:
       """

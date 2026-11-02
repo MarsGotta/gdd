@@ -5,7 +5,7 @@ Feature: The sitting at G4 (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,11 +70,11 @@ Feature: The sitting at G4 (hidden examples)
     And the agents are fakes
 
   Scenario: Polish with the human's words runs one more round
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
     When I open the sitting of "c1"
     And I press p at the sitting
     And I type "Name the folder in the message" at the sitting
@@ -86,21 +86,21 @@ Feature: The sitting at G4 (hidden examples)
     And the output contains "Paused at G4"
 
   Scenario: The demo shows its numbers
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
-    And the file ".gdd/changes/c1/demo/scenarios.txt" says "7 scenarios (6 passed, 1 failed)"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
+    And the file ".tminus/changes/c1/demo/scenarios.txt" says "7 scenarios (6 passed, 1 failed)"
     When I open the sitting of "c1"
-    Then the sitting shows "Demo: 7 scenarios (6 passed, 1 failed) · .gdd/changes/c1/demo/scenarios.txt"
+    Then the sitting shows "Demo: 7 scenarios (6 passed, 1 failed) · .tminus/changes/c1/demo/scenarios.txt"
 
   Scenario: KO with the human's words
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the change "c1" has the scenario "features/app.feature" on its branch
     And I am on the branch "change/c1"
-    And I run "gdd gate G1 ok c1 --by human"
-    And I run "gdd launch c1"
+    And I run "tminus gate G1 ok c1 --by human"
+    And I run "tminus launch c1"
     When I open the sitting of "c1"
     And I press k at the sitting
     And I type "Keep the old names" at the sitting

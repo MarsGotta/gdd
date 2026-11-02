@@ -5,7 +5,7 @@ Feature: The changelog is the project's (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -71,9 +71,9 @@ Feature: The changelog is the project's (hidden examples)
     And the versions are released by hand
 
   Scenario: A security line goes after Added in a version that is there
-    Given I run "gdd new-change c4 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c4 Security Shared links expire after a day"
-    And I run "gdd launch c4"
+    Given I run "tminus new-change c4 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c4 Security Shared links expire after a day"
+    And I run "tminus launch c4"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -84,24 +84,24 @@ Feature: The changelog is the project's (hidden examples)
 
       - Dark theme
       """
-    When I run "gdd changelog --write"
+    When I run "tminus changelog --write"
     Then it succeeds
-    And the file "CHANGELOG.md" contains "- Shared links expire after a day <!-- gdd: "
+    And the file "CHANGELOG.md" contains "- Shared links expire after a day <!-- tminus: "
     And in the file "CHANGELOG.md", "### Added" comes before "### Security"
 
   Scenario: A reworded breaking line still counts by its commit
-    Given I run "gdd new-change c4 --title App --paths src/app.txt"
-    And I run "gdd changelog-line c4 Changed --breaking Notes are stored in one file per folder"
-    And I run "gdd launch c4"
-    And I run "gdd changelog --write"
+    Given I run "tminus new-change c4 --title App --paths src/app.txt"
+    And I run "tminus changelog-line c4 Changed --breaking Notes are stored in one file per folder"
+    And I run "tminus launch c4"
+    And I run "tminus changelog --write"
     And in the file "CHANGELOG.md", "Notes are stored in one file per folder" is replaced by "Every folder keeps its notes in one file"
-    When I run "gdd changelog --check"
+    When I run "tminus changelog --check"
     Then it succeeds
     And the output contains "CHANGELOG.md covers every change on main"
 
   Scenario: A hotfix written by hand with the same words
-    Given I run "gdd new-change c4 --title Freeze --type Hotfix --paths src/app.txt"
-    And I run "gdd launch c4"
+    Given I run "tminus new-change c4 --title Freeze --type Hotfix --paths src/app.txt"
+    And I run "tminus launch c4"
     And the file "CHANGELOG.md" says:
       """
       # Changelog
@@ -112,6 +112,6 @@ Feature: The changelog is the project's (hidden examples)
 
       - Freeze
       """
-    When I run "gdd changelog --check"
+    When I run "tminus changelog --check"
     Then it succeeds
     And the output contains "CHANGELOG.md covers every change on main"

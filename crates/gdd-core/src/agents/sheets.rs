@@ -1,8 +1,10 @@
 //! The agent sheets: one data file per coding agent the tool knows, built into it. A sheet says
 //! where the agent keeps its commands and in which format, how one command calls another, and
 //! how the recipe starts the agent headless: its program, its arguments for each role and how its
-//! output reports what it used. In a sheet, `{name}` is always `gdd-<command>`; the arguments of
-//! a role may name where the call runs (see [`Place`]).
+//! output reports what it used. In a sheet, `{name}` is always `tminus-<command>`; the arguments
+//! of a role may name where the call runs (see [`Place`]). A sheet is written in the new names;
+//! for a project set up before the rename, it names things as that project does (see
+//! [`Sheet::in_layout`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -10,6 +12,7 @@ use std::fmt;
 use serde::Deserialize;
 
 use crate::agents::usage::Reader;
+use crate::layout::Layout;
 
 /// The sheets, by the name of their agent: the integration of `gdd/models.toml` that names it.
 const SHEETS: [(&str, &str); 3] = [
@@ -37,6 +40,15 @@ pub struct Sheet {
     launch: Launch,
     /// The arguments of each role, by its name (`builder-build`, `reviewer`...).
     roles: BTreeMap<String, Role>,
+    /// The layout of the project it works on, whose names its text takes when it is filled in
+    /// (see [`Sheet::in_layout`]): the new one, unless said otherwise.
+    #[serde(skip, default = "new_layout")]
+    layout: Layout,
+}
+
+/// The layout a sheet is read for: the new one, as the sheets are written.
+fn new_layout() -> Layout {
+    Layout::Tminus
 }
 
 /// Where an agent keeps its commands and how it calls them.
@@ -89,10 +101,16 @@ pub struct Place<'a> {
     pub state: &'a str,
     /// The id of the change.
     pub change: &'a str,
+    /// The layout of the state root (see [`Layout::at`]): an argument of a role that names
+    /// `{state}` names the state folder as that root does.
+    pub layout: Layout,
 }
 
 /// The argument of `launch.args` that becomes the arguments of the role.
 const ROLE_ARGS: &str = "{role_args}";
+
+/// What an argument of a role that names the state root has in it.
+const STATE: &str = "{state}";
 
 /// Why an agent has no sheet to work with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +134,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// The sheet of the agent `name`.
+/// The sheet of the agent `name`, for a project of the new layout (see [`Sheet::in_layout`]).
 pub fn sheet(name: &str) -> Result<Sheet, Error> {
     let (_, text) = SHEETS
         .iter()
@@ -125,15 +143,35 @@ pub fn sheet(name: &str) -> Result<Sheet, Error> {
     toml::from_str(text).map_err(|e| Error::Invalid(name.to_string(), e.to_string()))
 }
 
-/// The name of `command` in every agent: `gdd-<command>`.
+/// The name of `command` in every agent of a new project: `tminus-<command>` (see [`name_in`]).
 pub fn name(command: &str) -> String {
-    format!("gdd-{command}")
+    name_in(Layout::Tminus, command)
+}
+
+/// The name of `command` in every agent of a project of `layout`: `tminus-<command>`, or
+/// `gdd-<command>` in a project set up before the rename.
+pub fn name_in(layout: Layout, command: &str) -> String {
+    format!("{}-{command}", layout.name())
 }
 
 impl Sheet {
-    /// The file of `command` for this agent, from the project root.
+    /// This sheet for a project of `layout`: what it fills in names the commands, the tool and
+    /// its state folder as that project does (see [`Layout::localize`]). Its text is localized
+    /// before anything is filled in, so what a value brings in stays as it is.
+    pub fn in_layout(self, layout: Layout) -> Sheet {
+        Sheet { layout, ..self }
+    }
+
+    /// The layout of the project this sheet is for.
+    pub fn layout(&self) -> Layout {
+        self.layout
+    }
+
+    /// The file of `command` for this agent, from the project root. Each text of a sheet is
+    /// localized for the layout of the project (see [`Layout::localize`]) before it is filled in.
     pub fn path(&self, command: &str) -> String {
-        fill(&self.commands.path, &[("name", &name(command))])
+        let (name, path) = (name_in(self.layout, command), &self.commands.path);
+        fill(&self.layout.localize(path), &[("name", &name)])
     }
 
     /// What the file of a command holds before its text.
@@ -143,7 +181,8 @@ impl Sheet {
 
     /// How this agent calls `command`.
     pub fn invoke(&self, command: &str) -> String {
-        fill(&self.commands.invoke, &[("name", &name(command))])
+        let (name, invoke) = (name_in(self.layout, command), &self.commands.invoke);
+        fill(&self.layout.localize(invoke), &[("name", &name)])
     }
 
     /// The name of this agent for people.
@@ -171,7 +210,8 @@ impl Sheet {
     pub fn resume(&self, session: &str) -> Vec<String> {
         let values = [("session", session)];
         let args = self.launch.resume_args.iter();
-        args.map(|arg| fill(arg, &values)).collect()
+        let filled = args.map(|arg| fill(&self.layout.localize(arg), &values));
+        filled.collect()
     }
 
     /// The arguments that start this agent headless on `command`, with the words `args`, the
@@ -186,7 +226,7 @@ impl Sheet {
         effort: Option<&str>,
         place: Place,
     ) -> Vec<String> {
-        let (name, invoke) = (name(command), self.invoke(command));
+        let (name, invoke) = (name_in(self.layout, command), self.invoke(command));
         let values = [
             ("invoke", invoke.as_str()),
             ("name", name.as_str()),
@@ -198,23 +238,32 @@ impl Sheet {
             if arg == ROLE_ARGS {
                 launch.extend(self.role_args(role, effort, place));
             } else {
-                launch.push(fill(arg, &values));
+                launch.push(fill(&self.layout.localize(arg), &values));
             }
         }
         launch
     }
 
     /// The arguments of `role` where it runs (`place`), then the effort arguments for `effort`,
-    /// if there is one.
+    /// if there is one. An argument that names the state root names its state folder as that
+    /// root does; the others, as the project does.
     fn role_args(&self, role: &str, effort: Option<&str>, place: Place) -> Vec<String> {
         let at = [("state", place.state), ("change", place.change)];
+        let named = |arg: &String| {
+            let layout = if arg.contains(STATE) {
+                place.layout
+            } else {
+                self.layout
+            };
+            fill(&layout.localize(arg), &at)
+        };
         let role = self.roles.get(role).map(|role| role.args.iter());
-        let filled = role.into_iter().flatten().map(|arg| fill(arg, &at));
-        let mut args: Vec<String> = filled.collect();
+        let mut args: Vec<String> = role.into_iter().flatten().map(named).collect();
         if let Some(effort) = effort {
             let values = [("effort", effort)];
             let effort_args = self.launch.effort_args.iter();
-            args.extend(effort_args.map(|arg| fill(arg, &values)));
+            let more = effort_args.map(|arg| fill(&self.layout.localize(arg), &values));
+            args.extend(more);
         }
         args
     }
@@ -298,23 +347,94 @@ mod tests {
     #[test]
     fn each_agent_keeps_and_calls_its_commands_its_own_way() {
         let claude = of("claude");
-        assert_eq!(claude.path("build"), ".claude/skills/gdd-build/SKILL.md");
-        assert_eq!(claude.invoke("build-test"), "/gdd-build-test");
+        let build = ".claude/skills/tminus-build/SKILL.md";
+        assert_eq!(claude.path("build"), build);
+        assert_eq!(claude.invoke("build-test"), "/tminus-build-test");
         assert_eq!(claude.format(), Format::Skill);
         let codex = of("codex");
-        assert_eq!(codex.path("review"), ".agents/skills/gdd-review/SKILL.md");
-        assert_eq!(codex.invoke("discover"), "$gdd-discover");
+        let review = ".agents/skills/tminus-review/SKILL.md";
+        assert_eq!(codex.path("review"), review);
+        assert_eq!(codex.invoke("discover"), "$tminus-discover");
         assert_eq!(codex.format(), Format::Skill);
         let opencode = of("opencode");
-        assert_eq!(opencode.path("status"), ".opencode/commands/gdd-status.md");
-        assert_eq!(opencode.invoke("setup"), "/gdd-setup");
+        let status = ".opencode/commands/tminus-status.md";
+        assert_eq!(opencode.path("status"), status);
+        assert_eq!(opencode.invoke("setup"), "/tminus-setup");
         assert_eq!(opencode.format(), Format::Command);
     }
 
-    /// A call on change `c1` whose state root is `/state`.
+    #[test]
+    fn the_name_of_a_command_follows_the_layout_of_the_project() {
+        assert_eq!(name("build"), "tminus-build");
+        assert_eq!(name_in(Layout::Tminus, "stack-rust"), "tminus-stack-rust");
+        assert_eq!(name_in(Layout::Gdd, "build-test"), "gdd-build-test");
+        assert_eq!(of("claude").layout(), Layout::Tminus);
+    }
+
+    #[test]
+    fn a_sheet_for_a_project_of_the_old_layout_names_things_as_it_does() {
+        let claude = of("claude").in_layout(Layout::Gdd);
+        assert_eq!(claude.layout(), Layout::Gdd);
+        assert_eq!(claude.path("build"), ".claude/skills/gdd-build/SKILL.md");
+        assert_eq!(claude.invoke("build-test"), "/gdd-build-test");
+        let old = Place {
+            layout: Layout::Gdd,
+            ..HERE
+        };
+        let args = claude.launch("build", "w", "m", "builder-build", None, old);
+        for named in [
+            "/gdd-build w",
+            "Bash(gdd g2:*)",
+            "Bash(gdd gate:*)",
+            "Write(.gdd/**)",
+            "Write(//state/.gdd/**)",
+        ] {
+            assert!(args.contains(&named.to_string()), "{named}: {args:?}");
+        }
+        let own = "/state/.gdd/changes/c1";
+        assert!(has(&args, "--add-dir", own), "{args:?}");
+        assert!(!args.iter().any(|arg| arg.contains("tminus")), "{args:?}");
+        let codex = of("codex").in_layout(Layout::Gdd);
+        assert_eq!(codex.path("review"), ".agents/skills/gdd-review/SKILL.md");
+        assert_eq!(codex.invoke("discover"), "$gdd-discover");
+        let review = codex.launch("review", "w", "m", "builder-build", Some("high"), old);
+        assert!(review.contains(&"$gdd-review w".to_string()), "{review:?}");
+        let opencode = of("opencode").in_layout(Layout::Gdd);
+        assert_eq!(opencode.path("status"), ".opencode/commands/gdd-status.md");
+        let replan = opencode.launch("replan", "w", "m", "orchestrator", None, old);
+        assert_eq!(replan[..3], ["run", "--command", "gdd-replan"]);
+        // The same sheet names things anew for a project of the new layout.
+        assert_eq!(claude.in_layout(Layout::Tminus), of("claude"));
+    }
+
+    #[test]
+    fn the_state_is_named_as_its_root_names_it_and_what_is_filled_in_stays() {
+        // A branch that moved the files to tminus/, while the state root keeps .gdd/; the
+        // values a call brings in hold the new name.
+        let place = Place {
+            state: "/tminus",
+            change: "tminus",
+            layout: Layout::Gdd,
+        };
+        let claude = of("claude");
+        let args = claude.launch("build", "tminus x", "m", "builder-build", None, place);
+        assert_eq!(args[1], "/tminus-build tminus x");
+        assert!(args.contains(&"Write(.tminus/**)".to_string()), "{args:?}");
+        let state = "Write(//tminus/.gdd/**)".to_string();
+        assert!(args.contains(&state), "{args:?}");
+        assert!(has(&args, "--add-dir", "/tminus/.gdd/changes/tminus"));
+        let old = claude.in_layout(Layout::Gdd);
+        let args = old.launch("build", "tminus x", "tminus", "builder-build", None, place);
+        assert_eq!(args[1..4], ["/gdd-build tminus x", "--model", "tminus"]);
+        assert!(args.contains(&"Write(.gdd/**)".to_string()), "{args:?}");
+        assert_eq!(old.resume("tminus"), ["--resume", "tminus"]);
+    }
+
+    /// A call on change `c1` whose state root is `/state`, of the new layout.
     const HERE: Place = Place {
         state: "/state",
         change: "c1",
+        layout: Layout::Tminus,
     };
 
     #[test]
@@ -323,7 +443,7 @@ mod tests {
         let claude = of("claude").launch("build", args, "sonnet", "builder-build", None, HERE);
         let start = [
             "-p",
-            "/gdd-build change=c1 mode=build",
+            "/tminus-build change=c1 mode=build",
             "--model",
             "sonnet",
             "--output-format",
@@ -333,7 +453,7 @@ mod tests {
             "acceptEdits",
         ];
         assert_eq!(claude[..9], start);
-        assert!(claude.contains(&"Write(.gdd/**)".to_string()));
+        assert!(claude.contains(&"Write(.tminus/**)".to_string()));
         let words = "change=c1 round=1";
         let codex = of("codex").launch("review", words, "gpt-6", "reviewer", None, HERE);
         let expected = [
@@ -342,7 +462,7 @@ mod tests {
             "read-only",
             "-c",
             "mcp_servers={}",
-            "$gdd-review change=c1 round=1",
+            "$tminus-review change=c1 round=1",
             "--model",
             "gpt-6",
             "--json",
@@ -353,7 +473,7 @@ mod tests {
         let expected = [
             "run",
             "--command",
-            "gdd-replan",
+            "tminus-replan",
             "-m",
             "kimi",
             "--format",
@@ -374,15 +494,15 @@ mod tests {
         assert_eq!(mode("reviewer"), "plan");
         assert_eq!(mode("builder-test"), "acceptEdits");
         let orchestrator = claude.launch("replan", "", "m", "orchestrator", None, HERE);
-        assert!(orchestrator.contains(&"Write(.gdd/log.jsonl)".to_string()));
-        assert!(!orchestrator.contains(&"Write(.gdd/**)".to_string()));
+        assert!(orchestrator.contains(&"Write(.tminus/log.jsonl)".to_string()));
+        assert!(!orchestrator.contains(&"Write(.tminus/**)".to_string()));
         let codex = of("codex");
         let sandbox = |role: &str| codex.launch("x", "", "m", role, None, HERE)[2].clone();
         assert_eq!(sandbox("reviewer"), "read-only");
         assert_eq!(sandbox("builder-build"), "workspace-write");
         // A role the sheet does not name has no arguments.
         let none = codex.launch("x", "w", "m", "human", None, HERE);
-        assert_eq!(none, ["exec", "$gdd-x w", "--model", "m", "--json"]);
+        assert_eq!(none, ["exec", "$tminus-x w", "--model", "m", "--json"]);
     }
 
     /// Whether `args` has `name` followed by `value`.
@@ -392,9 +512,9 @@ mod tests {
 
     /// What every Claude Code role but the Orchestrator may never write.
     const DENIED: [&str; 3] = [
-        "Edit(.gdd/**)",
-        "Edit(//state/.gdd/**)",
-        "Write(//state/.gdd/**)",
+        "Edit(.tminus/**)",
+        "Edit(//state/.tminus/**)",
+        "Write(//state/.tminus/**)",
     ];
 
     #[test]
@@ -407,14 +527,15 @@ mod tests {
             }
         }
         let orchestrator = claude.launch("replan", "", "m", "orchestrator", None, HERE);
-        let record = "Write(//state/.gdd/changes/*/change.json)";
-        for denied in ["Edit(//state/.gdd/log.jsonl)", record] {
+        let record = "Write(//state/.tminus/changes/*/change.json)";
+        for denied in ["Edit(//state/.tminus/log.jsonl)", record] {
             assert!(orchestrator.contains(&denied.to_string()), "{denied}");
         }
         // Every Claude Code role has its change's state folder among its working folders.
+        let folder = "/state/.tminus/changes/c1";
         for role in ROLES {
             let args = claude.launch("x", "", "m", role, None, HERE);
-            assert!(has(&args, "--add-dir", "/state/.gdd/changes/c1"), "{role}");
+            assert!(has(&args, "--add-dir", folder), "{role}");
         }
         // A Codex Builder or Orchestrator may write its own change's state folder, never the
         // log; the Reviewer, nothing.
@@ -422,8 +543,9 @@ mod tests {
         let other = Place {
             state: "/s {change}",
             change: "c2",
+            layout: Layout::Tminus,
         };
-        let own = "/s {change}/.gdd/changes/c2";
+        let own = "/s {change}/.tminus/changes/c2";
         let granted = |role: &str| {
             let args = codex.launch("x", "", "m", role, None, other);
             let pairs = args.windows(2).filter(|pair| pair[0] == "--add-dir");
@@ -446,7 +568,7 @@ mod tests {
             "mcp_servers={}",
             "-c",
             "model_reasoning_effort=high",
-            "$gdd-review w",
+            "$tminus-review w",
             "--model",
             "m",
             "--json",

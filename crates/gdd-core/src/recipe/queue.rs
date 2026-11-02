@@ -20,8 +20,10 @@ use serde_json::Value;
 use crate::agents::files;
 use crate::change;
 use crate::config;
+use crate::gates::verdict;
 use crate::git::{self, Git};
 use crate::guard::RULES;
+use crate::layout::{self, Layout};
 
 /// The states of a change in flight: building, parked, or waiting at G4.
 const IN_FLIGHT: [&str; 5] = ["prepared", "building", "polishing", "parked", "in-pre"];
@@ -42,26 +44,35 @@ const SETTLED: &str = "git settles it when";
 const AFTER_CAP: &str = "can launch once one of those building reaches G4 or is parked, or with \
                          a higher [parallel] max in";
 
-/// Where the records of the changes live, from the state root.
-const CHANGES: &str = ".gdd/changes";
+/// Where the records of the changes live, from the state root. This path and the locks are
+/// written in the new names: a state root of the old layout keeps them in `.gdd/` (see
+/// [`layout::named`]).
+const CHANGES: &str = ".tminus/changes";
+
+/// The record of a change, in its folder (see [`change::record_path`]).
+const RECORD: &str = "change.json";
+
+/// The snapshots of the build of a change, in its folder: the last one, and the one taken after
+/// its test mode (see [`change::snapshot_path`] and [`change::build_snapshot_path`]).
+const SNAPSHOTS: [&str; 2] = ["snapshot.json", "snapshot-build.json"];
 
 /// The merge lock, from the state root: a file of its own, made when it is missing.
-pub const LOCK: &str = ".gdd/merge.lock";
+pub const LOCK: &str = ".tminus/merge.lock";
 
 /// The launch lock, from the state root: a file of its own, made when it is missing.
-pub const ADMISSION: &str = ".gdd/launch.lock";
+pub const ADMISSION: &str = ".tminus/launch.lock";
 
 /// The lock of the agent calls, from the state root: every call holds it shared, and a person's
 /// write to the GDD state every change shares holds it alone. A file of its own, made when it is
 /// missing.
-pub const AGENTS: &str = ".gdd/agents.lock";
+pub const AGENTS: &str = ".tminus/agents.lock";
 
 /// The turn to take the lock of the agent calls, from the state root: a person who waits for the
 /// calls under way holds it, so no other call starts meanwhile. A file of its own, made when it
 /// is missing.
-pub const TURN: &str = ".gdd/state.lock";
+pub const TURN: &str = ".tminus/state.lock";
 
-/// The locks, which gdd runs of other changes, and people, make and take at any time.
+/// The locks, which tminus runs of other changes, and people, make and take at any time.
 pub const LOCKS: [&str; 4] = [LOCK, ADMISSION, AGENTS, TURN];
 
 /// What a merge that waits for the merge of another change says.
@@ -95,7 +106,7 @@ pub fn cap(rules: &str) -> Result<usize, config::Error> {
 /// the cap, then what lets it launch. A record that cannot be read is an error that names it,
 /// never a change out of flight.
 pub fn may_launch(state: &Path, id: &str, record: &str, max: usize) -> Result<Vec<String>, String> {
-    let own = Flight::read(id, record.as_bytes())?;
+    let own = Flight::read(&record_of(state, id), id, record.as_bytes())?;
     let others = in_flight(state, id)?;
     let building: Vec<&str> = others
         .iter()
@@ -105,10 +116,17 @@ pub fn may_launch(state: &Path, id: &str, record: &str, max: usize) -> Result<Ve
     if building.len() >= max {
         let (count, ids) = (building.len(), building.join(", "));
         let cap = format!("{count} change(s) building, the cap is {max}: {ids}");
-        return Err(format!("{cap}\n{id} {AFTER_CAP} {RULES}."));
+        let rules = layout::named(state, RULES);
+        return Err(format!("{cap}\n{id} {AFTER_CAP} {rules}."));
     }
     let overlapping = others.iter().filter_map(|other| overlap(&own, other));
     Ok(overlapping.collect())
+}
+
+/// Where the record of change `id` lives under the state root `state`, as that root names it
+/// (see [`verdict::change_file`]).
+fn record_of(state: &Path, id: &str) -> String {
+    verdict::change_file(state, id, RECORD)
 }
 
 /// A change as the launch of another one reads it from its record.
@@ -126,9 +144,8 @@ struct Flight {
 }
 
 impl Flight {
-    /// Change `id`, whose record holds `bytes`.
-    fn read(id: &str, bytes: &[u8]) -> Result<Flight, String> {
-        let path = change::record_path(id);
+    /// Change `id`, whose record, at `path` from the state root, holds `bytes`.
+    fn read(path: &str, id: &str, bytes: &[u8]) -> Result<Flight, String> {
         let invalid = |e: serde_json::Error| format!("{path}: {e}");
         let mut flight: Flight = serde_json::from_slice(bytes).map_err(invalid)?;
         flight.id = id.to_string();
@@ -141,12 +158,12 @@ impl Flight {
 fn in_flight(state: &Path, id: &str) -> Result<Vec<Flight>, String> {
     let mut flights = Vec::new();
     for other in others(state, id)? {
-        let path = change::record_path(&other);
+        let path = record_of(state, &other);
         let unread = |e: io::Error| format!("cannot read {path}: {e}");
         let Some(bytes) = files::read(state, &path).map_err(unread)? else {
             continue;
         };
-        let flight = Flight::read(&other, &bytes)?;
+        let flight = Flight::read(&path, &other, &bytes)?;
         if IN_FLIGHT.contains(&flight.state.as_str()) {
             flights.push(flight);
         }
@@ -157,9 +174,10 @@ fn in_flight(state: &Path, id: &str) -> Result<Vec<Flight>, String> {
 /// The names in the folder of the changes of the project whose state root is `state` that can
 /// name a change (see [`change::valid_id`]), but `id`, sorted.
 fn others(state: &Path, id: &str) -> Result<Vec<String>, String> {
-    let unread = |e: io::Error| format!("cannot read {CHANGES}: {e}");
+    let changes = layout::named(state, CHANGES);
+    let unread = |e: io::Error| format!("cannot read {changes}: {e}");
     let mut ids = Vec::new();
-    for entry in fs::read_dir(state.join(CHANGES)).map_err(unread)? {
+    for entry in fs::read_dir(state.join(&changes)).map_err(unread)? {
         let name = entry.map_err(unread)?.file_name();
         let name = name.to_string_lossy();
         if name != id && change::valid_id(&name) {
@@ -263,7 +281,8 @@ pub struct SharedWrite {
 pub fn calling(state: &Path) -> Result<Calling, String> {
     let turn = held(state, TURN, || {})?;
     let agents = opened(state, AGENTS)?;
-    agents.lock_shared().map_err(|e| unlocked(AGENTS, e))?;
+    let name = layout::named(state, AGENTS);
+    agents.lock_shared().map_err(|e| unlocked(&name, e))?;
     drop(turn);
     Ok(Calling { _agents: agents })
 }
@@ -285,21 +304,29 @@ pub fn shared_write(state: &Path, say: impl FnOnce()) -> Result<SharedWrite, Str
 /// While someone else holds it, calls `waiting` once, then waits until it is free.
 fn held(state: &Path, path: &str, waiting: impl FnOnce()) -> Result<Lock, String> {
     let file = opened(state, path)?;
+    let path = layout::named(state, path);
     match file.try_lock() {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             waiting();
-            file.lock().map_err(|e| unlocked(path, e))?;
+            file.lock().map_err(|e| unlocked(&path, e))?;
         }
-        Err(TryLockError::Error(e)) => return Err(unlocked(path, e)),
+        Err(TryLockError::Error(e)) => return Err(unlocked(&path, e)),
     }
     Ok(Lock { _file: file })
 }
 
-/// The lock `path` of the project whose state root is `state`, open, never through a link or
-/// another name of the file (see [`files::open`]).
+/// The lock `path`, written in the new names, of the project whose state root is `state`, open
+/// where that root keeps it, never through a link or another name of the file (see
+/// [`files::open`]). Only its folder takes the name of the layout (see [`layout::named`]): the
+/// file keeps its own, so two locks are never one file, which a process holding one would wait
+/// for forever.
 fn opened(state: &Path, path: &str) -> Result<File, String> {
-    files::open(state, path).map_err(|e| format!("cannot open {path}: {e}"))
+    let path = match path.rsplit_once('/') {
+        Some((folder, file)) => format!("{}/{file}", layout::named(state, folder)),
+        None => layout::named(state, path),
+    };
+    files::open(state, &path).map_err(|e| format!("cannot open {path}: {e}"))
 }
 
 /// Why the lock `path` could not be taken.
@@ -318,13 +345,15 @@ pub fn main_moved(work: &Path, main: &str) -> Result<bool, git::Error> {
 /// Takes the latest main branch `main` into the branch of change `id`, checked out at `work`:
 /// its work committed first, then main merged into it with a merge commit, never a rebase. A
 /// merge with conflicts is given up, the branch as it was with its work committed: the paths in
-/// conflict, which are none when it merged.
+/// conflict, which are none when it merged. The commits start with `tminus(<id>): `, or with
+/// `gdd(<id>): ` in a project set up before the rename (see [`Layout::name`]).
 pub fn take_main(work: &Path, main: &str, id: &str) -> Result<Vec<String>, git::Error> {
     let git = Git::new(work);
+    let tool = Layout::at(work).name();
     if git.has_work()? {
-        git.commit_work(&format!("gdd({id}): change work"))?;
+        git.commit_work(&format!("{tool}({id}): change work"))?;
     }
-    let message = format!("gdd({id}): take the latest main");
+    let message = format!("{tool}({id}): take the latest main");
     let Err(failed) = git.merge(main, &message) else {
         return Ok(Vec::new());
     };
@@ -341,11 +370,12 @@ pub fn take_main(work: &Path, main: &str, id: &str) -> Result<Vec<String>, git::
 /// passed its gates. Its snapshots belong to the earlier start, so they go.
 pub fn restarted(state: &Path, id: &str, start: &str) -> Result<(), String> {
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = record_of(state, id);
     let fields = vec![("build_start", Value::from(start))];
     let record = change::with_fields(&text, fields).map_err(|e| format!("{path}: {e}"))?;
     change::write(state, &path, &record)?;
-    for snapshot in [change::snapshot_path(id), change::build_snapshot_path(id)] {
+    for snapshot in SNAPSHOTS {
+        let snapshot = verdict::change_file(state, id, snapshot);
         files::remove(state, &snapshot).map_err(|e| format!("cannot remove {snapshot}: {e}"))?;
     }
     Ok(())
@@ -473,8 +503,62 @@ pub(crate) mod tests {
     fn after_cap(id: &str) -> String {
         format!(
             "{id} can launch once one of those building reaches G4 or is parked, or with a \
-             higher [parallel] max in gdd/rules.toml."
+             higher [parallel] max in tminus/rules.toml."
         )
+    }
+
+    #[test]
+    fn a_state_root_of_the_old_layout_keeps_its_records_and_locks_in_its_gdd_folder() {
+        let state = Folder::new();
+        state.write("gdd/project.toml", "");
+        let record = serde_json::json!({"state": "building", "paths": ["src/app.txt"]});
+        state.write(".gdd/changes/c1/change.json", &record.to_string());
+        // An id that holds the new name keeps it.
+        state.write(".gdd/changes/tminus-x/change.json", &record.to_string());
+        let mine = planning(&["src/app.txt"]);
+        assert_eq!(may_launch(&state.0, "c9", &mine, 9).unwrap().len(), 2);
+        let err = may_launch(&state.0, "c9", &mine, 1).unwrap_err();
+        let rules = "max in gdd/rules.toml.";
+        assert!(err.ends_with(rules), "{err}");
+        let err = may_launch(&state.0, "c9", "3", 9).unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c9/change.json: "), "{err}");
+        state.write(".gdd/changes/tminus-y/change.json", "{");
+        let err = may_launch(&state.0, "c9", &mine, 9).unwrap_err();
+        let invalid = ".gdd/changes/tminus-y/change.json: ";
+        assert!(err.starts_with(invalid), "{err}");
+        let held = lock(&state.0, || {}).unwrap();
+        let admitted = admission(&state.0).unwrap();
+        let call = calling(&state.0).unwrap();
+        for lock in LOCKS {
+            let old = Layout::Gdd.path(lock);
+            assert!(old.starts_with(".gdd/"), "{old}");
+            assert!(state.0.join(old).is_file(), "{lock}");
+        }
+        drop((held, admitted, call));
+        assert!(!state.0.join(".tminus").exists());
+        let file = Folder::new();
+        file.write("gdd/project.toml", "");
+        file.write(".gdd", "");
+        let err = admission(&file.0).unwrap_err();
+        assert_eq!(err, "cannot open .gdd/launch.lock: .gdd is not a folder");
+        let err = calling(&file.0).unwrap_err();
+        assert_eq!(err, "cannot open .gdd/state.lock: .gdd is not a folder");
+    }
+
+    #[test]
+    fn the_files_of_a_change_are_the_ones_its_record_and_snapshots_have() {
+        let new = Folder::new();
+        assert_eq!(record_of(&new.0, "c1"), change::record_path("c1"));
+        let snapshots = SNAPSHOTS.map(|file| verdict::change_file(&new.0, "c1", file));
+        let paths = [
+            change::snapshot_path("c1"),
+            change::build_snapshot_path("c1"),
+        ];
+        assert_eq!(snapshots, paths);
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        let record = record_of(&old.0, "tminus-x");
+        assert_eq!(record, ".gdd/changes/tminus-x/change.json");
     }
 
     #[test]
@@ -559,45 +643,48 @@ pub(crate) mod tests {
         let state = state_with(&[("c1", "building", &["src/app.txt"])]);
         let mine = planning(&["src/app.txt"]);
         // A folder without a record, and names no change can have.
-        fs::create_dir_all(state.0.join(".gdd/changes/c2")).unwrap();
-        state.write(".gdd/changes/.DS_Store", "");
-        state.write(".gdd/changes/Notes/change.json", "{");
+        fs::create_dir_all(state.0.join(".tminus/changes/c2")).unwrap();
+        state.write(".tminus/changes/.DS_Store", "");
+        state.write(".tminus/changes/Notes/change.json", "{");
         assert_eq!(may_launch(&state.0, "c9", &mine, 9).unwrap().len(), 1);
         assert_eq!(may_launch(&state.0, "c1", &mine, 9), Ok(Vec::new()));
-        state.write(".gdd/changes/c3/change.json", "{");
+        state.write(".tminus/changes/c3/change.json", "{");
         let err = may_launch(&state.0, "c1", &mine, 9).unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c3/change.json: "), "{err}");
-        fs::remove_dir_all(state.0.join(".gdd/changes/c3")).unwrap();
+        let invalid = ".tminus/changes/c3/change.json: ";
+        assert!(err.starts_with(invalid), "{err}");
+        fs::remove_dir_all(state.0.join(".tminus/changes/c3")).unwrap();
         // A file where the folder of a change goes: no folder, not a missing record.
-        state.write(".gdd/changes/c4", "");
+        state.write(".tminus/changes/c4", "");
         let err = may_launch(&state.0, "c1", &mine, 9).unwrap_err();
         assert_eq!(
             err,
-            "cannot read .gdd/changes/c4/change.json: .gdd/changes/c4 is not a folder"
+            "cannot read .tminus/changes/c4/change.json: .tminus/changes/c4 is not a folder"
         );
-        fs::remove_file(state.0.join(".gdd/changes/c4")).unwrap();
+        fs::remove_file(state.0.join(".tminus/changes/c4")).unwrap();
         let outside = state_with(&[("c5", "building", &["src/app.txt"])]);
-        let link = state.0.join(".gdd/changes/c5");
-        symlink(outside.0.join(".gdd/changes/c5"), &link).unwrap();
+        let link = state.0.join(".tminus/changes/c5");
+        symlink(outside.0.join(".tminus/changes/c5"), &link).unwrap();
         let err = may_launch(&state.0, "c1", &mine, 9).unwrap_err();
-        assert!(err.ends_with(".gdd/changes/c5 is not a folder"), "{err}");
+        let not_a_folder = ".tminus/changes/c5 is not a folder";
+        assert!(err.ends_with(not_a_folder), "{err}");
         fs::remove_file(&link).unwrap();
-        fs::create_dir_all(state.0.join(".gdd/changes/c6/change.json")).unwrap();
+        fs::create_dir_all(state.0.join(".tminus/changes/c6/change.json")).unwrap();
         let err = may_launch(&state.0, "c1", &mine, 9).unwrap_err();
-        let unread = "cannot read .gdd/changes/c6/change.json: ";
+        let unread = "cannot read .tminus/changes/c6/change.json: ";
         assert!(err.starts_with(unread), "{err}");
-        fs::remove_dir_all(state.0.join(".gdd/changes/c6")).unwrap();
+        fs::remove_dir_all(state.0.join(".tminus/changes/c6")).unwrap();
         let err = may_launch(&state.0, "c1", "3", 9).unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        let invalid = ".tminus/changes/c1/change.json: ";
+        assert!(err.starts_with(invalid), "{err}");
         let nowhere = Folder::new();
         let err = may_launch(&nowhere.0, "c1", &mine, 9).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/changes: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/changes: "), "{err}");
     }
 
     #[test]
     fn the_merge_lock_waits_for_the_merge_that_holds_it() {
         let state = Folder::new();
-        state.write(".gdd/log.jsonl", "");
+        state.write(".tminus/log.jsonl", "");
         let mut waited = 0;
         let held = lock(&state.0, || waited += 1).unwrap();
         assert_eq!(waited, 0);
@@ -641,30 +728,32 @@ pub(crate) mod tests {
         other.join().unwrap();
         drop(merging);
         let file = Folder::new();
-        file.write(".gdd", "");
+        file.write(".tminus", "");
         let err = admission(&file.0).unwrap_err();
-        assert_eq!(err, "cannot open .gdd/launch.lock: .gdd is not a folder");
+        let not_a_folder = "cannot open .tminus/launch.lock: .tminus is not a folder";
+        assert_eq!(err, not_a_folder);
     }
 
     #[test]
     fn a_merge_lock_that_is_not_a_file_of_its_own_is_refused() {
         let (state, outside) = (Folder::new(), Folder::new());
         outside.write("f", "");
-        state.write(".gdd/log.jsonl", "");
+        state.write(".tminus/log.jsonl", "");
         symlink(outside.0.join("f"), state.0.join(LOCK)).unwrap();
         let err = lock(&state.0, || {}).unwrap_err();
-        let refused = "cannot open .gdd/merge.lock: not a file of its own";
+        let refused = "cannot open .tminus/merge.lock: not a file of its own";
         assert!(err.starts_with(refused), "{err}");
         fs::remove_file(state.0.join(LOCK)).unwrap();
         fs::hard_link(outside.0.join("f"), state.0.join(LOCK)).unwrap();
         let err = lock(&state.0, || {}).unwrap_err();
         assert!(err.starts_with(refused), "{err}");
-        // A state root whose `.gdd` is a file: not a folder, never a missing lock.
+        // A state root whose `.tminus` is a file: not a folder, never a missing lock.
         let file = Folder::new();
-        file.write(".gdd", "");
+        file.write(".tminus", "");
         let err = lock(&file.0, || {}).unwrap_err();
-        assert_eq!(err, "cannot open .gdd/merge.lock: .gdd is not a folder");
-        // A state root without `.gdd` yet gets it.
+        let not_a_folder = "cannot open .tminus/merge.lock: .tminus is not a folder";
+        assert_eq!(err, not_a_folder);
+        // A state root without `.tminus` yet gets it.
         let fresh = Folder::new();
         assert!(lock(&fresh.0, || {}).is_ok());
         assert!(fresh.0.join(LOCK).is_file());
@@ -742,15 +831,15 @@ pub(crate) mod tests {
     #[test]
     fn the_locks_of_the_calls_that_are_not_files_of_their_own_are_refused() {
         let file = Folder::new();
-        file.write(".gdd", "");
-        let not_a_folder = "cannot open .gdd/state.lock: .gdd is not a folder";
+        file.write(".tminus", "");
+        let not_a_folder = "cannot open .tminus/state.lock: .tminus is not a folder";
         assert_eq!(calling(&file.0).unwrap_err(), not_a_folder);
         assert_eq!(shared_write(&file.0, || {}).unwrap_err(), not_a_folder);
         let (state, outside) = (Folder::new(), Folder::new());
         outside.write("f", "");
         state.write(TURN, "");
         symlink(outside.0.join("f"), state.0.join(AGENTS)).unwrap();
-        let refused = "cannot open .gdd/agents.lock: not a file of its own";
+        let refused = "cannot open .tminus/agents.lock: not a file of its own";
         assert!(calling(&state.0).unwrap_err().starts_with(refused));
         let err = shared_write(&state.0, || {}).unwrap_err();
         assert!(err.starts_with(refused), "{err}");
@@ -763,7 +852,7 @@ pub(crate) mod tests {
         // cuts the wait: the reason is made up here.
         let why = io::Error::other("no locks left");
         let err = unlocked(AGENTS, why);
-        assert_eq!(err, "cannot lock .gdd/agents.lock: no locks left");
+        assert_eq!(err, "cannot lock .tminus/agents.lock: no locks left");
     }
 
     /// A repository on `main` with the branch of change `c1`, which adds `app.txt`, checked out
@@ -834,7 +923,8 @@ pub(crate) mod tests {
         let before = Git::new(&work).head().unwrap();
         assert!(take_main(&work, "main", "c1").unwrap().is_empty());
         let log = repo.git(&["log", "--format=%s", "-2", "change/c1"]);
-        assert_eq!(log, "gdd(c1): take the latest main\ngdd(c1): change work");
+        let commits = "tminus(c1): take the latest main\ntminus(c1): change work";
+        assert_eq!(log, commits);
         let parents = repo.git(&["log", "-1", "--format=%P", "change/c1"]);
         let main = repo.git(&["rev-parse", "main"]);
         assert!(parents.ends_with(&main), "{parents}");
@@ -864,10 +954,10 @@ pub(crate) mod tests {
         assert!(!git.has_changes().unwrap());
         assert!(git.conflicts().unwrap().is_empty());
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(subject, "gdd(c1): change work");
+        assert_eq!(subject, "tminus(c1): change work");
         // A merge that fails for another reason is an error, the branch as it was.
         let err = take_main(&work, "trunk", "c1").unwrap_err().to_string();
-        let failed = "git merge --no-ff --no-edit -q -m gdd(c1): take the latest main trunk";
+        let failed = "git merge --no-ff --no-edit -q -m tminus(c1): take the latest main trunk";
         assert!(err.starts_with(failed), "{err}");
         assert_eq!(git.head().unwrap(), repo.git(&["rev-parse", "change/c1"]));
         let plain = Folder::new();
@@ -895,16 +985,45 @@ pub(crate) mod tests {
         assert!(err.starts_with("change c9 does not exist"), "{err}");
         state.write(&change::record_path("c2"), "[]");
         let err = restarted(&state.0, "c2", "def").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c2/change.json: "), "{err}");
+        let invalid = ".tminus/changes/c2/change.json: ";
+        assert!(err.starts_with(invalid), "{err}");
         // What stands where a snapshot goes goes, never what a link points to.
         state.write(&change::record_path("c3"), "{}");
-        state.write(".gdd/changes/c3/snapshot.json/x", "");
+        state.write(".tminus/changes/c3/snapshot.json/x", "");
         let outside = Folder::new();
-        let link = state.0.join(".gdd/changes/c3/snapshot-build.json");
+        let link = state.0.join(".tminus/changes/c3/snapshot-build.json");
         symlink(&outside.0, &link).unwrap();
         assert_eq!(restarted(&state.0, "c3", "def"), Ok(()));
-        assert!(!state.0.join(".gdd/changes/c3/snapshot.json").exists());
+        let snapshot = state.0.join(".tminus/changes/c3/snapshot.json");
+        assert!(!snapshot.exists());
         assert!(fs::symlink_metadata(&link).is_err());
         assert!(outside.0.is_dir());
+    }
+
+    #[test]
+    fn a_change_of_the_old_layout_takes_main_and_restarts_with_its_gdd_names() {
+        let (repo, trees) = moved();
+        let work = trees.0.join("c1");
+        fs::create_dir_all(work.join("gdd")).unwrap();
+        fs::write(work.join("gdd/project.toml"), "").unwrap();
+        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
+        let log = repo.git(&["log", "--format=%s", "-2", "change/c1"]);
+        assert_eq!(log, "gdd(c1): take the latest main\ngdd(c1): change work");
+        let state = Folder::new();
+        state.write("gdd/project.toml", "");
+        state.write(".gdd/changes/c1/change.json", "{}");
+        state.write(".gdd/changes/c1/snapshot.json", "{}");
+        state.write(".gdd/changes/c1/snapshot-build.json", "{}");
+        restarted(&state.0, "c1", "def").unwrap();
+        let text = change::read_record(&state.0, "c1").unwrap();
+        let record: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(record["build_start"], "def");
+        assert!(!state.0.join(".gdd/changes/c1/snapshot.json").exists());
+        let build = state.0.join(".gdd/changes/c1/snapshot-build.json");
+        assert!(!build.exists());
+        assert!(!state.0.join(".tminus").exists());
+        state.write(".gdd/changes/c2/change.json", "[]");
+        let err = restarted(&state.0, "c2", "def").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c2/change.json: "), "{err}");
     }
 }

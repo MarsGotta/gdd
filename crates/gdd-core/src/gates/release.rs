@@ -1,7 +1,7 @@
-//! The release steps (`gdd release pre|promote|observe`): what takes a merged change to pre,
+//! The release steps (`tminus release pre|promote|observe`): what takes a merged change to pre,
 //! then to production, and rolls it back when production gets worse.
 //!
-//! Each step runs its command from the `[release]` section of `gdd/commands.toml`, within the
+//! Each step runs its command from the `[release]` section of `tminus/commands.toml`, within the
 //! time limit of the rules (see [`exec::run_limited`]), never anything else; a step without a
 //! command passes as simulated only when that section says `simulated = true`. Every step is
 //! logged. A change that needs the human G4 is never promoted without it.
@@ -17,11 +17,19 @@ use serde_json::{Map, Value};
 use crate::change::{self, Approval, Note};
 use crate::config;
 use crate::exec;
-use crate::gates::{configured, kept, tenths};
+use crate::gates::{configured, kept, tenths, verdict};
+use crate::layout::Layout;
 use crate::{inbox, log};
 
-/// The steps `gdd release` runs, by name.
+/// The steps `tminus release` runs, by name.
 pub const STEPS: [&str; 3] = ["pre", "promote", "observe"];
+
+/// The variable a release step gets with the change, in the new names: a project of the old
+/// layout gets it as it names it (see [`Layout::localize`]).
+const CHANGE: &str = "TMINUS_CHANGE";
+
+/// The variable a release step gets with the version of the change, in the new names.
+const VERSION: &str = "TMINUS_VERSION";
 
 /// The state of a change while its promotion runs. A promotion that stops before its result is
 /// recorded leaves it there: production may have the change.
@@ -34,7 +42,7 @@ const NEEDS_G4: &str = "This change needs a human G4 before promotion.";
 const ROLLED_BACK: &str = "Production failed while observing: rolled back to the previous \
                            version. A hotfix is needed.";
 
-/// The release commands of a project: the `[release]` section of `gdd/commands.toml`, and how
+/// The release commands of a project: the `[release]` section of `tminus/commands.toml`, and how
 /// long each may run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Steps {
@@ -178,10 +186,11 @@ impl<'a> Passed<'a> {
     }
 }
 
-/// Runs the release step `name` of change `id` from the project root `root`, with `GDD_CHANGE`,
-/// and logs it under the state root `state`: `build` and `deploy_pre` belong to Integrate, the
-/// others to Release. A step without a command in `steps` passes as simulated when `steps`
-/// simulates the release, and fails when not.
+/// Runs the release step `name` of change `id` from the project root `root`, with `TMINUS_CHANGE`
+/// as the project names it (`GDD_CHANGE` in one of the old layout, and never its twin), and logs
+/// it under the state root `state`: `build` and `deploy_pre` belong to Integrate, the others to
+/// Release. A step without a command in `steps` passes as simulated when `steps` simulates the
+/// release, and fails when not.
 pub fn step(
     root: &Path,
     state: &Path,
@@ -192,8 +201,8 @@ pub fn step(
     versioned(root, state, id, steps, name, None)
 }
 
-/// The release step `name` (see [`step`]), with `GDD_VERSION` next to `GDD_CHANGE` when the
-/// change has a `version`, without its `v`.
+/// The release step `name` (see [`step`]), with `TMINUS_VERSION` next to `TMINUS_CHANGE`, as the
+/// project names them, when the change has a `version`, without its `v`.
 fn versioned(
     root: &Path,
     state: &Path,
@@ -204,8 +213,10 @@ fn versioned(
 ) -> Result<Step, String> {
     let step = match steps.commands.get(name) {
         Some(command) => {
-            let mut env = vec![("GDD_CHANGE", id)];
-            env.extend(version.map(|version| ("GDD_VERSION", version)));
+            let layout = Layout::at(root);
+            let (change, versioned) = (layout.localize(CHANGE), layout.localize(VERSION));
+            let mut env = vec![(change.as_str(), id)];
+            env.extend(version.map(|version| (versioned.as_str(), version)));
             Step::ran(name, exec::run_limited(command, root, &env, steps.limit))
         }
         None if steps.simulated => Step {
@@ -284,7 +295,7 @@ pub fn promote(
             note: "automatic promotion: pre is green",
             hashes: None,
         };
-        let path = change::record_path(id);
+        let path = verdict::change_file(state, id, "change.json");
         let approved = change::with_gate(&text, "G4", &approval, None);
         text = approved.map_err(|e| format!("{path}: {e}"))?;
         let entry = log::Entry {
@@ -328,7 +339,7 @@ pub fn observe(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<Str
         return Passed::detail(&observed, None).json();
     }
     let rollback = versioned(root, state, id, steps, "rollback", version)?;
-    let path = change::record_path(id);
+    let path = verdict::change_file(state, id, "change.json");
     let ts = log::now();
     let note = Note {
         kind: "needs",
@@ -343,7 +354,7 @@ pub fn observe(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<Str
     } else {
         rollback.failure()
     };
-    let inbox = change::inbox_path(id);
+    let inbox = verdict::change_file(state, id, "inbox.md");
     Err(format!(
         "{}\nRollback: {rollback}\n{ROLLED_BACK} Message in {inbox}",
         observed.failure()
@@ -354,7 +365,7 @@ pub fn observe(root: &Path, state: &Path, id: &str, steps: &Steps) -> Result<Str
 /// object it holds. A record that is not one is an error before any step runs.
 pub(crate) fn read(state: &Path, id: &str) -> Result<(String, Value), String> {
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = verdict::change_file(state, id, "change.json");
     let record: Map<String, Value> =
         serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
     Ok((text, Value::Object(record)))
@@ -363,10 +374,10 @@ pub(crate) fn read(state: &Path, id: &str) -> Result<(String, Value), String> {
 /// Writes the record `text` of change `id`, of the project whose state root is `root`, in state
 /// `state`; every other field keeps its value. The record written.
 fn saved_in_state(root: &Path, id: &str, text: &str, state: &str) -> Result<String, String> {
-    let path = change::record_path(id);
+    let path = verdict::change_file(root, id, "change.json");
     let fields = vec![("state", Value::from(state))];
     let saved = change::with_fields(text, fields).map_err(|e| format!("{path}: {e}"))?;
-    change::write(root, &path, &saved)?;
+    change::write(root, &change::record_path(id), &saved)?;
     Ok(saved)
 }
 
@@ -383,7 +394,7 @@ lint = "true"
 [release]
 simulated = true
 build = "true"
-deploy_pre = "printf '%s' \"$GDD_CHANGE\" > deployed"
+deploy_pre = "printf '%s' \"$TMINUS_CHANGE\" > deployed"
 tests_pre = "true"
 demo = ""
 promote = "  "
@@ -395,7 +406,7 @@ flag = false
     /// A project with change `c1`, whose record is `record`.
     fn project(record: &str) -> Folder {
         let folder = Folder::new();
-        folder.write(".gdd/changes/c1/change.json", record);
+        folder.write(".tminus/changes/c1/change.json", record);
         folder
     }
 
@@ -414,7 +425,7 @@ flag = false
     }
 
     fn record(folder: &Folder) -> Value {
-        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/change.json")).unwrap();
+        let text = fs::read_to_string(folder.0.join(".tminus/changes/c1/change.json")).unwrap();
         serde_json::from_str(&text).unwrap()
     }
 
@@ -485,7 +496,7 @@ flag = false
         let ran = step(&folder.0, &folder.0, "c1", &slow, "demo").unwrap();
         assert!(!ran.ok);
         assert_eq!(ran.code, Some(exec::TIMED_OUT));
-        let said = "started\ntimed out (0.3s): raise limits.command_seconds in gdd/rules.toml";
+        let said = "started\ntimed out (0.3s): raise limits.command_seconds in tminus/rules.toml";
         assert_eq!(ran.tail.as_deref(), Some(said));
         // One that ends in time passes.
         let built = step(&folder.0, &folder.0, "c1", &slow, "build").unwrap();
@@ -596,8 +607,8 @@ flag = false
         assert!(promote(&root.0, &state.0, "c1", &ran, false, None).is_ok());
         assert!(observe(&root.0, &state.0, "c1", &ran).is_ok());
         assert_eq!(record(&state)["state"], "closed");
-        assert!(state.0.join(".gdd/changes/c1/inbox.md").is_file());
-        assert!(!root.0.join(".gdd").exists());
+        assert!(state.0.join(".tminus/changes/c1/inbox.md").is_file());
+        assert!(!root.0.join(".tminus").exists());
     }
 
     #[test]
@@ -684,7 +695,7 @@ flag = false
 
     #[test]
     fn the_promotion_and_the_steps_after_it_get_the_version_of_the_change() {
-        let seen = "printf '%s\\n' \"${GDD_VERSION-none}\" >> versions";
+        let seen = "printf '%s\\n' \"${TMINUS_VERSION-none}\" >> versions";
         let mut every = with("promote", seen);
         every.commands.insert("tests_pre".into(), seen.into());
         let failing = format!("{seen}; exit 1");
@@ -710,16 +721,18 @@ flag = false
     fn a_promotion_that_stops_before_its_result_is_recorded_leaves_the_change_promoting() {
         // While its command runs, the record says so.
         let folder = project(RECORD);
-        let seen = "grep -q '\"promoting\"' .gdd/changes/c1/change.json";
+        let seen = "grep -q '\"promoting\"' .tminus/changes/c1/change.json";
         let watched = with("promote", seen);
         let promoted = promote(&folder.0, &folder.0, "c1", &watched, false, None);
         assert!(promoted.is_ok());
         assert_eq!(record(&folder)["state"], "in-production");
         // A command that ran, then a log that cannot be written.
         let folder = project(RECORD);
-        let unlogged = with("promote", "rm .gdd/log.jsonl && mkdir .gdd/log.jsonl");
+        let swaps = "rm .tminus/log.jsonl && mkdir .tminus/log.jsonl";
+        let unlogged = with("promote", swaps);
         let err = promote(&folder.0, &folder.0, "c1", &unlogged, false, None).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        let unwritten = "cannot write .tminus/log.jsonl: ";
+        assert!(err.starts_with(unwritten), "{err}");
         assert_eq!(record(&folder)["state"], PROMOTING);
         assert_eq!(PROMOTING, "promoting");
     }
@@ -731,7 +744,7 @@ flag = false
         let out = json(&observed.unwrap());
         assert_eq!(out["detail"]["name"], "observe");
         assert_eq!(record(&folder)["state"], "closed");
-        let inbox = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let inbox = fs::read_to_string(folder.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         assert!(inbox.contains("state closed"), "{inbox}");
         let agents: Vec<String> = log(&folder).iter().map(|l| l.text("agent")).collect();
         assert_eq!(agents, ["observe"]);
@@ -744,14 +757,14 @@ flag = false
         let err = observe(&folder.0, &folder.0, "c1", &worse).unwrap_err();
         let expected = "release.observe failed (exit code 1):\nworse\nRollback: simulated\n\
                         Production failed while observing: rolled back to the previous version. \
-                        A hotfix is needed. Message in .gdd/changes/c1/inbox.md";
+                        A hotfix is needed. Message in .tminus/changes/c1/inbox.md";
         assert_eq!(err, expected);
         let rolled_back = record(&folder);
         assert_eq!(rolled_back["state"], "rolled-back");
         let note = &rolled_back["inbox"][0];
         assert_eq!(note["kind"], "needs");
         assert_eq!(note["text"], ROLLED_BACK);
-        let inbox = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let inbox = fs::read_to_string(folder.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         assert!(inbox.contains("A hotfix is needed"), "{inbox}");
         assert!(inbox.contains("state rolled-back"), "{inbox}");
         let agents: Vec<String> = log(&folder).iter().map(|l| l.text("agent")).collect();
@@ -773,7 +786,7 @@ flag = false
     #[test]
     fn the_steps_need_a_record_they_can_read_and_write() {
         let folder = Folder::new();
-        let missing = "change c9 does not exist: there is no .gdd/changes/c9/change.json";
+        let missing = "change c9 does not exist: there is no .tminus/changes/c9/change.json";
         let release = steps(COMMANDS);
         let missing: Result<String, String> = Err(missing.into());
         assert_eq!(pre(&folder.0, &folder.0, "c9", &release), missing);
@@ -790,16 +803,54 @@ flag = false
                 promote(&broken.0, &broken.0, "c1", &release, false, None).unwrap_err(),
                 observe(&broken.0, &broken.0, "c1", &release).unwrap_err(),
             ] {
-                assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+                let start = ".tminus/changes/c1/change.json: ";
+                assert!(err.starts_with(start), "{err}");
             }
             assert!(log(&broken).is_empty(), "no step ran");
         }
         let unlogged = project(RECORD);
         fs::create_dir_all(unlogged.0.join(log::PATH)).unwrap();
+        let unwritten = "cannot write .tminus/log.jsonl: ";
         let err = pre(&unlogged.0, &unlogged.0, "c1", &release).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with(unwritten), "{err}");
         let err = promote(&unlogged.0, &unlogged.0, "c1", &release, false, None).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with(unwritten), "{err}");
         assert_eq!(record(&unlogged)["state"], "merged");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_gets_its_own_names() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "");
+        folder.write(".gdd/changes/c1/change.json", RECORD);
+        let seen = "printf '%s|%s|%s' \"$GDD_CHANGE\" \"${GDD_VERSION-none}\" \
+                    \"${TMINUS_CHANGE-none}\" > seen";
+        let watched = with("promote", seen);
+        let promoted = promote(&folder.0, &folder.0, "c1", &watched, false, Some("1.0.0"));
+        assert!(promoted.is_ok(), "{promoted:?}");
+        let seen = fs::read_to_string(folder.0.join("seen")).unwrap();
+        assert_eq!(seen, "c1|1.0.0|none");
+        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/change.json")).unwrap();
+        assert!(text.contains("\"in-production\""), "{text}");
+        // The log of the old layout is in .gdd.
+        assert_eq!(log(&folder).len(), 0);
+        let logged = fs::read_to_string(folder.0.join(".gdd/log.jsonl")).unwrap();
+        assert_eq!(logged.lines().count(), 2);
+        let worse = with("observe", "exit 1");
+        let err = observe(&folder.0, &folder.0, "c1", &worse).unwrap_err();
+        let end = "Message in .gdd/changes/c1/inbox.md";
+        assert!(err.ends_with(end), "{err}");
+        assert!(folder.0.join(".gdd/changes/c1/inbox.md").is_file());
+        assert!(!folder.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn a_step_never_inherits_the_twin_of_its_variables() {
+        let folder = project(RECORD);
+        let seen = "printf '%s|%s' \"$TMINUS_CHANGE\" \"${GDD_CHANGE-none}\" > seen";
+        let ran = step(&folder.0, &folder.0, "c1", &with("build", seen), "build").unwrap();
+        assert!(ran.ok, "{ran:?}");
+        let seen = fs::read_to_string(folder.0.join("seen")).unwrap();
+        assert_eq!(seen, "c1|none");
     }
 }

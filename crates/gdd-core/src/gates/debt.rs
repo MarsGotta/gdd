@@ -17,10 +17,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::files;
 use crate::config;
-use crate::gates::{Gate, Report};
+use crate::gates::{Gate, Report, verdict};
+use crate::layout::{self, Layout};
 
-/// The file of the known debt, from the project root.
-pub const PATH: &str = "gdd/debt.toml";
+/// The file of the known debt, from the project root, in the new names (see [`crate::layout`]).
+pub const PATH: &str = "tminus/debt.toml";
 
 /// The name of the check that fails a gate when the known debt cannot be read.
 pub const CHECK: &str = "debt";
@@ -31,11 +32,12 @@ pub const NUMBER: &str = "{n}";
 /// What the screens say of known debt without a count.
 pub const NO_COUNT: &str = "no count";
 
-/// What the file of the known debt says first: what it is and how it empties.
-const HEADER: &str = "# Known debt recorded by gdd adopt. These commands run and warn but do not \
-                      block,\n# until a change makes each pass; the merge then takes it off this \
-                      list for good.\n# A count is a ceiling: a change that reports more fails \
-                      the gate, and one that\n# reports less lowers it when it merges.\n";
+/// What the file of the known debt says first: what it is and how it empties. In the new names:
+/// a project of the old layout gets it as it names things (see [`Layout::localize`]).
+const HEADER: &str = "# Known debt recorded by tminus adopt. These commands run and warn but do \
+                      not block,\n# until a change makes each pass; the merge then takes it off \
+                      this list for good.\n# A count is a ceiling: a change that reports more \
+                      fails the gate, and one that\n# reports less lowers it when it merges.\n";
 
 /// The kinds of command, riskiest first: the part of a name before its first `-`.
 const RISK: [&str; 8] = [
@@ -177,10 +179,17 @@ pub struct Reported {
 }
 
 impl Known {
-    /// The text of `gdd/debt.toml` for it: what the file is, the day of the adoption, then each
-    /// debt.
+    /// The text of the file of the known debt for it, in a project of the new layout (see
+    /// [`Known::text`]).
     pub fn to_toml(&self) -> String {
-        let mut text = format!("{HEADER}adopted = {}\n", quoted(&self.adopted));
+        self.text(Layout::Tminus)
+    }
+
+    /// The text of the file of the known debt for it, in a project of `layout`: what the file is,
+    /// as the project names the tool, the day of the adoption, then each debt.
+    pub fn text(&self, layout: Layout) -> String {
+        let header = layout.localize(HEADER);
+        let mut text = format!("{header}adopted = {}\n", quoted(&self.adopted));
         for debt in &self.debt {
             text.push_str(&format!(
                 "\n[[debt]]\ncommand = {}\ngate = {}\nsince = {}\n",
@@ -263,7 +272,8 @@ pub(crate) fn held(name: &str, ceiling: Ceiling, output: &str) -> Result<Option<
     let now = ceiling.texts.map_or(0, |texts| count(output, texts));
     if now == 0 {
         return Err(format!(
-            "{name} failed and gdd cannot count what it reported (its [count] texts match nothing)"
+            "{name} failed and tminus cannot count what it reported (its [count] texts match \
+             nothing)"
         ));
     }
     if now > known {
@@ -322,25 +332,35 @@ pub fn listed(debts: &[Debt]) -> Vec<Listed<'_>> {
     listed
 }
 
-/// The known debt of the project at `root`; `None` without the file. A file that cannot be
-/// read (a link, a folder, a path through a file), that is not shaped as known debt, or that
-/// names a command that can never become debt (see [`can_owe`]) is an error that names it.
+/// The known debt of the project at `root`, in its file as the project names it (see
+/// [`crate::layout`]); `None` without the file. A file that cannot be read (a link, a folder, a
+/// path through a file), that is not shaped as known debt, or that names a command that can never
+/// become debt (see [`can_owe`]) is an error that names it.
 pub fn read(root: &Path) -> Result<Option<Known>, String> {
-    let bytes = files::read(root, PATH).map_err(|e| format!("{PATH}: cannot read: {e}"))?;
+    let path = layout::named(root, PATH);
+    let bytes = files::read(root, &path).map_err(|e| format!("{path}: cannot read: {e}"))?;
     let Some(bytes) = bytes else {
         return Ok(None);
     };
     let text = String::from_utf8_lossy(&bytes);
     let known: Known = toml::from_str(&text)
-        .map_err(|e| format!("{PATH}: {}", config::Error::Toml(e.to_string())))?;
+        .map_err(|e| format!("{path}: {}", config::Error::Toml(e.to_string())))?;
     if let Some(debt) = known.debt.iter().find(|debt| !can_owe(&debt.command)) {
         return Err(format!(
-            "{PATH}: {:?} can never be known debt: it judges the change or its scenarios, so it \
+            "{path}: {:?} can never be known debt: it judges the change or its scenarios, so it \
              always blocks. Take it off the list.",
             debt.command
         ));
     }
     Ok(Some(known))
+}
+
+/// Writes `known` as the known debt of the project at `root`, in its file as the project names
+/// it, and with the header as the project names the tool (see [`Known::text`]): a new file, never
+/// written through a link or another name (see [`write_new`]).
+pub fn write(root: &Path, known: &Known) -> Result<(), String> {
+    let text = known.text(Layout::at(root));
+    write_new(root, &layout::named(root, PATH), text.as_bytes())
 }
 
 /// Writes `bytes` to the file `path` under `root`, a new file (see [`files::replace`]): a link
@@ -381,7 +401,7 @@ pub fn reported(state: &Path, id: &str) -> Result<Reported, String> {
     }
     let mut reported = Reported::default();
     for gate in [Gate::G2, Gate::G3] {
-        let path = gate.report_path(id);
+        let path = verdict::change_file(state, id, &format!("{}.json", gate.key()));
         let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
         let Some(bytes) = bytes else {
             continue;
@@ -434,9 +454,10 @@ pub fn pay(root: &Path, paid: &[(Gate, String)], lowered: &[Lowered]) -> Result<
         }
     }
     if known.debt.is_empty() {
-        files::remove(root, PATH).map_err(|e| format!("cannot remove {PATH}: {e}"))
+        let path = layout::named(root, PATH);
+        files::remove(root, &path).map_err(|e| format!("cannot remove {path}: {e}"))
     } else {
-        write_new(root, PATH, known.to_toml().as_bytes())
+        write(root, &known)
     }
 }
 
@@ -522,7 +543,7 @@ mod tests {
         ] {
             folder.write(PATH, text);
             let err = read(&folder.0).unwrap_err();
-            let start = "gdd/debt.toml: invalid TOML: ";
+            let start = "tminus/debt.toml: invalid TOML: ";
             assert!(err.starts_with(start), "{text:?}: {err}");
         }
     }
@@ -541,7 +562,7 @@ mod tests {
         for count in ["count = -1\n", "count = \"5\"\n", "count = 1.5\n"] {
             folder.write(PATH, &format!("{KNOWN}{count}"));
             let err = read(&folder.0).unwrap_err();
-            let start = "gdd/debt.toml: invalid TOML: ";
+            let start = "tminus/debt.toml: invalid TOML: ";
             assert!(err.starts_with(start), "{count:?}: {err}");
         }
     }
@@ -558,7 +579,7 @@ mod tests {
             let entry = format!("[[debt]]\ncommand = {name:?}\ngate = {gate:?}\nsince = \"x\"\n");
             folder.write(PATH, &format!("{KNOWN}\n{entry}"));
             let said = format!(
-                "gdd/debt.toml: {name:?} can never be known debt: it judges the change or its \
+                "tminus/debt.toml: {name:?} can never be known debt: it judges the change or its \
                  scenarios, so it always blocks. Take it off the list."
             );
             assert_eq!(read(&folder.0), Err(said.clone()));
@@ -577,18 +598,19 @@ mod tests {
     fn a_file_that_cannot_be_read_is_an_error_not_no_debt() {
         let (folder, outside) = (Folder::new(), Folder::new());
         outside.write("debt.toml", KNOWN);
-        fs::create_dir_all(folder.0.join("gdd")).unwrap();
+        fs::create_dir_all(folder.0.join("tminus")).unwrap();
         symlink(outside.0.join("debt.toml"), folder.0.join(PATH)).unwrap();
         let err = read(&folder.0).unwrap_err();
-        let start = "gdd/debt.toml: cannot read: not a file";
+        let start = "tminus/debt.toml: cannot read: not a file";
         assert!(err.starts_with(start), "{err}");
         // A path under a regular file: not a folder on the way, then NotADirectory.
         let plain = Folder::new();
-        plain.write("gdd", "a file\n");
+        plain.write("tminus", "a file\n");
         let err = read(&plain.0).unwrap_err();
-        assert_eq!(err, "gdd/debt.toml: cannot read: gdd is not a folder");
-        let err = read(&plain.0.join("gdd")).unwrap_err();
-        assert!(err.starts_with("gdd/debt.toml: cannot read: "), "{err}");
+        let said = "tminus/debt.toml: cannot read: tminus is not a folder";
+        assert_eq!(err, said);
+        let err = read(&plain.0.join("tminus")).unwrap_err();
+        assert!(err.starts_with("tminus/debt.toml: cannot read: "), "{err}");
         assert!(err.contains("Not a directory"), "{err}");
     }
 
@@ -603,10 +625,10 @@ mod tests {
             ],
         };
         let text = known.to_toml();
-        let start = "# Known debt recorded by gdd adopt. These commands run and warn but do not \
-                     block,\n# until a change makes each pass; the merge then takes it off this \
-                     list for good.\n# A count is a ceiling: a change that reports more fails \
-                     the gate, and one that\n# reports less lowers it when it merges.\n\
+        let start = "# Known debt recorded by tminus adopt. These commands run and warn but do \
+                     not block,\n# until a change makes each pass; the merge then takes it off \
+                     this list for good.\n# A count is a ceiling: a change that reports more \
+                     fails the gate, and one that\n# reports less lowers it when it merges.\n\
                      adopted = \"2026-10-27\"\n\n[[debt]]\ncommand = \"security\"\n\
                      gate = \"g3\"\nsince = \"2026-10-27\"\n\n[[debt]]\n";
         assert!(text.starts_with(start), "{text}");
@@ -614,6 +636,81 @@ mod tests {
         assert!(text.ends_with(end), "{text}");
         write_new(&folder.0, PATH, text.as_bytes()).unwrap();
         assert_eq!(read(&folder.0), Ok(Some(known)));
+    }
+
+    #[test]
+    fn the_header_names_the_tool_as_the_project_does() {
+        let known = Known {
+            adopted: "2026-10-27".into(),
+            debt: vec![counted("lint", Gate::G2, 3)],
+        };
+        let new = known.text(Layout::Tminus);
+        assert_eq!(new, known.to_toml());
+        let old = known.text(Layout::Gdd);
+        let start = "# Known debt recorded by gdd adopt. These commands run and warn but do not \
+                     block,\n";
+        assert!(old.starts_with(start), "{old}");
+        assert_eq!(old.replacen("gdd adopt", "tminus adopt", 1), new);
+        // What the debt says is never renamed.
+        let named = Known {
+            adopted: "2026-10-27".into(),
+            debt: vec![counted("tminus", Gate::G2, 3)],
+        };
+        assert!(named.text(Layout::Gdd).contains("command = \"tminus\"\n"));
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_keeps_its_known_debt_in_gdd() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "");
+        folder.write("gdd/debt.toml", KNOWN);
+        let old = folder.0.join("gdd/debt.toml");
+        assert_eq!(read(&folder.0).unwrap().unwrap().debt.len(), 2);
+        // Written again, the file says what it said before the rename.
+        pay(&folder.0, &paid(&[(Gate::G2, "lint")]), &[]).unwrap();
+        let text = fs::read_to_string(&old).unwrap();
+        let start = "# Known debt recorded by gdd adopt. ";
+        assert!(text.starts_with(start), "{text}");
+        assert!(!folder.0.join(PATH).exists());
+        assert!(!folder.0.join("tminus").exists());
+        // The last debt paid removes it.
+        pay(&folder.0, &paid(&[(Gate::G3, "security")]), &[]).unwrap();
+        assert!(!old.exists());
+        // Its errors name it, and the reports are read from .gdd.
+        folder.write("gdd/debt.toml", "[[debt]");
+        let err = read(&folder.0).unwrap_err();
+        assert!(err.starts_with("gdd/debt.toml: invalid TOML: "), "{err}");
+        folder.write(".gdd/changes/c1/g2.json", r#"{"paid_debt": ["unit"]}"#);
+        let said = reported(&folder.0, "c1").unwrap();
+        assert_eq!(said.paid, paid(&[(Gate::G2, "unit")]));
+        // An id that holds the new name stays as it is.
+        let renamed = ".gdd/changes/rename-tminus/g3.json";
+        folder.write(renamed, r#"{"paid_debt": ["lint"]}"#);
+        let said = reported(&folder.0, "rename-tminus").unwrap();
+        assert_eq!(said.paid, paid(&[(Gate::G3, "lint")]));
+    }
+
+    #[test]
+    fn the_known_debt_is_written_where_the_project_keeps_it() {
+        let known = Known {
+            adopted: "2026-10-27".into(),
+            debt: vec![debt("lint", Gate::G2, "2026-10-27")],
+        };
+        let new = Folder::new();
+        write(&new.0, &known).unwrap();
+        let text = fs::read_to_string(new.0.join(PATH)).unwrap();
+        assert_eq!(text, known.to_toml());
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        write(&old.0, &known).unwrap();
+        let text = fs::read_to_string(old.0.join("gdd/debt.toml")).unwrap();
+        assert_eq!(text, known.text(Layout::Gdd));
+        assert!(!old.0.join(PATH).exists());
+        // Never through a link, as any new file of the known debt.
+        fs::remove_file(old.0.join("gdd/debt.toml")).unwrap();
+        symlink(new.0.join(PATH), old.0.join("gdd/debt.toml")).unwrap();
+        let err = write(&old.0, &known).unwrap_err();
+        assert!(err.starts_with("cannot write gdd/debt.toml: "), "{err}");
     }
 
     #[test]
@@ -626,13 +723,14 @@ mod tests {
         fs::remove_file(folder.0.join(PATH)).unwrap();
         fs::hard_link(outside.0.join("debt.toml"), folder.0.join(PATH)).unwrap();
         let err = write_new(&folder.0, PATH, b"x").unwrap_err();
-        let start = "cannot write gdd/debt.toml: not a file";
+        let start = "cannot write tminus/debt.toml: not a file";
         assert!(err.starts_with(start), "{err}");
         fs::remove_file(folder.0.join(PATH)).unwrap();
-        fs::remove_dir(folder.0.join("gdd")).unwrap();
-        symlink(&outside.0, folder.0.join("gdd")).unwrap();
+        fs::remove_dir(folder.0.join("tminus")).unwrap();
+        symlink(&outside.0, folder.0.join("tminus")).unwrap();
         let err = write_new(&folder.0, PATH, b"x").unwrap_err();
-        assert_eq!(err, "cannot write gdd/debt.toml: gdd is not a folder");
+        let said = "cannot write tminus/debt.toml: tminus is not a folder";
+        assert_eq!(err, said);
         let text = fs::read_to_string(outside.0.join("debt.toml")).unwrap();
         assert_eq!(text, "outside\n");
     }
@@ -758,7 +856,7 @@ mod tests {
             panic!("one failure: {report:?}");
         };
         assert_eq!(failure.name, CHECK);
-        let start = "gdd/debt.toml: invalid TOML";
+        let start = "tminus/debt.toml: invalid TOML";
         assert!(failure.tail.starts_with(start), "{failure:?}");
         // Without a report, why is the error.
         assert_eq!(of_gate(&folder.0, Gate::G2), Err(failure.tail.clone()));
@@ -771,8 +869,11 @@ mod tests {
         let g2 = r#"{"ok": true, "known_debt": [{"name": "lint", "tail": "x"},
                      {"name": "types", "tail": "y", "count": 3, "known": 5}],
                      "paid_debt": ["unit"]}"#;
-        folder.write(".gdd/changes/c1/g2.json", g2);
-        folder.write(".gdd/changes/c1/g3.json", r#"{"paid_debt": ["security"]}"#);
+        folder.write(".tminus/changes/c1/g2.json", g2);
+        folder.write(
+            ".tminus/changes/c1/g3.json",
+            r#"{"paid_debt": ["security"]}"#,
+        );
         let lint = Owed {
             tail: "x".into(),
             ..owing("lint", None)
@@ -787,15 +888,15 @@ mod tests {
             paid: paid(&[(Gate::G2, "unit"), (Gate::G3, "security")]),
         };
         assert_eq!(reported(&folder.0, "c1"), Ok(expected));
-        folder.write(".gdd/changes/c1/g3.json", "{}");
+        folder.write(".tminus/changes/c1/g3.json", "{}");
         assert_eq!(reported(&folder.0, "c1").unwrap().paid.len(), 1);
-        folder.write(".gdd/changes/c1/g3.json", "{not json");
+        folder.write(".tminus/changes/c1/g3.json", "{not json");
         let err = reported(&folder.0, "c1").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
-        fs::remove_file(folder.0.join(".gdd/changes/c1/g3.json")).unwrap();
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/g3.json")).unwrap();
+        assert!(err.starts_with(".tminus/changes/c1/g3.json: "), "{err}");
+        fs::remove_file(folder.0.join(".tminus/changes/c1/g3.json")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/g3.json")).unwrap();
         let err = reported(&folder.0, "c1").unwrap_err();
-        let start = "cannot read .gdd/changes/c1/g3.json: ";
+        let start = "cannot read .tminus/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -881,7 +982,7 @@ mod tests {
         assert_eq!(lowered(&folder.0, &[]), Ok(vec![]));
         let counted = [(Gate::G2, owing("lint", Some(1)))];
         let err = lowered(&folder.0, &counted).unwrap_err();
-        assert!(err.starts_with("gdd/debt.toml: invalid TOML"), "{err}");
+        assert!(err.starts_with("tminus/debt.toml: invalid TOML"), "{err}");
     }
 
     #[test]
@@ -925,7 +1026,7 @@ mod tests {
         let folder = Folder::new();
         folder.write(PATH, "[[debt]");
         let err = pay(&folder.0, &paid(&[(Gate::G2, "lint")]), &[]).unwrap_err();
-        assert!(err.starts_with("gdd/debt.toml: invalid TOML"), "{err}");
+        assert!(err.starts_with("tminus/debt.toml: invalid TOML"), "{err}");
         assert_eq!(fs::read_to_string(folder.0.join(PATH)).unwrap(), "[[debt]");
     }
 
@@ -1029,8 +1130,8 @@ mod tests {
     #[test]
     fn a_count_that_cannot_be_read_fails() {
         let (lint, none) = (texts(&["Found {n} error"]), texts(&[]));
-        let cannot = "security failed and gdd cannot count what it reported (its [count] texts \
-                      match nothing)";
+        let cannot = "security failed and tminus cannot count what it reported (its [count] \
+                      texts match nothing)";
         let judged =
             |texts: Option<&[String]>| held("security", ceiling(Some(2), texts), "panicked\n");
         assert_eq!(judged(Some(lint.as_slice())), Err(cannot.to_string()));

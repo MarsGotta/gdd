@@ -1,26 +1,38 @@
 //! What the agents of the recipe answer in their files: the Reviewer's `VERDICT: OK|KO` in
-//! `.gdd/changes/<id>/review.md`, with the files its findings name, and where the replan sends the
-//! change, `NEXT: test|build` in `.gdd/changes/<id>/replan.md`. The last answer of a file counts;
-//! a file without a readable one says KO, and build mode.
+//! `.tminus/changes/<id>/review.md`, with the files its findings name, and where the replan sends
+//! the change, `NEXT: test|build` in `.tminus/changes/<id>/replan.md` (`.gdd/` in a project of the
+//! old layout, see [`crate::layout`]). The last answer of a file counts; a file without a
+//! readable one says KO, and build mode.
 
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-use crate::{change, log};
+use crate::{change, layout, log};
 
 /// Why a Reviewer without a readable verdict counts as KO.
 const NO_VERDICT: &str = "The Reviewer left no readable VERDICT: counts as KO.";
 
-/// Where the Reviewer of change `id` leaves its verdict, from the state root (see
-/// [`crate::state::root`]).
-pub fn review_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/review.md")
+/// The folder of the changes, from the state root, in the new names.
+const CHANGES: &str = ".tminus/changes";
+
+/// The file `file` of change `id`, from the state root `state`, as the project there names its
+/// state folder (see [`crate::layout`]). Only the folder is named anew: the id stays as it is,
+/// even one that holds the new name, as `rename-tminus` does.
+pub(crate) fn change_file(state: &Path, id: &str, file: &str) -> String {
+    format!("{}/{id}/{file}", layout::named(state, CHANGES))
 }
 
-/// Where the replan of change `id` says where the change goes next, from the state root.
+/// Where the Reviewer of change `id` leaves its verdict, from the state root (see
+/// [`crate::state::root`]), in the new names (see [`crate::layout`]).
+pub fn review_path(id: &str) -> String {
+    format!(".tminus/changes/{id}/review.md")
+}
+
+/// Where the replan of change `id` says where the change goes next, from the state root, in the
+/// new names.
 pub fn replan_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/replan.md")
+    format!(".tminus/changes/{id}/replan.md")
 }
 
 /// The verdict of a Reviewer's text: whether the last `VERDICT:` followed by `OK` or `KO` says
@@ -116,7 +128,7 @@ pub fn unlinked(text: &str) -> String {
 /// [`verdict`]): whether it is OK. No file, or no readable verdict, is KO. Logged as a machine
 /// step of G3.
 pub fn review(state: &Path, id: &str) -> Result<bool, String> {
-    let said = verdict(&read(state, &review_path(id))?);
+    let said = verdict(&read(state, &change_file(state, id, "review.md"))?);
     let ok = said == Some(true);
     let entry = log::Entry {
         change: id.to_string(),
@@ -135,17 +147,19 @@ pub fn review(state: &Path, id: &str) -> Result<bool, String> {
 /// The files the findings of the Reviewer of change `id` name (see [`finding_files`]), of the
 /// project whose state root is `state`: none without a review.
 pub fn review_files(state: &Path, id: &str) -> Result<Vec<String>, String> {
-    Ok(finding_files(&read(state, &review_path(id))?))
+    let review = change_file(state, id, "review.md");
+    Ok(finding_files(&read(state, &review)?))
 }
 
 /// Whether the replan of change `id`, of the project whose state root is `state`, sends it back to
 /// test mode (see [`sends_to_test`]). No file says build mode.
 pub fn replanned_to_test(state: &Path, id: &str) -> Result<bool, String> {
-    Ok(sends_to_test(&read(state, &replan_path(id))?))
+    let replan = change_file(state, id, "replan.md");
+    Ok(sends_to_test(&read(state, &replan)?))
 }
 
-/// The text of the file `path` under the state root `state`: empty when there is none. Bytes that
-/// are not UTF-8 are replaced.
+/// The text of the file `path`, as the project names it (see [`change_file`]), under the state
+/// root `state`: empty when there is none. Bytes that are not UTF-8 are replaced.
 fn read(state: &Path, path: &str) -> Result<String, String> {
     match fs::read(state.join(path)) {
         Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
@@ -161,8 +175,41 @@ mod tests {
 
     #[test]
     fn the_answers_live_next_to_the_record() {
-        assert_eq!(review_path("c1"), ".gdd/changes/c1/review.md");
-        assert_eq!(replan_path("c1"), ".gdd/changes/c1/replan.md");
+        assert_eq!(review_path("c1"), ".tminus/changes/c1/review.md");
+        assert_eq!(replan_path("c1"), ".tminus/changes/c1/replan.md");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_keeps_its_answers_in_gdd() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "");
+        folder.write(
+            ".gdd/changes/c1/review.md",
+            "F1 · a · x.rs:1 · y\nVERDICT: OK\n",
+        );
+        folder.write(".gdd/changes/c1/replan.md", "NEXT: test\n");
+        assert_eq!(review_files(&folder.0, "c1"), Ok(vec!["x.rs".into()]));
+        assert_eq!(replanned_to_test(&folder.0, "c1"), Ok(true));
+        assert_eq!(review(&folder.0, "c1"), Ok(true));
+        fs::remove_file(folder.0.join(".gdd/changes/c1/review.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".gdd/changes/c1/review.md")).unwrap();
+        let err = review_files(&folder.0, "c1").unwrap_err();
+        let start = "cannot read .gdd/changes/c1/review.md: ";
+        assert!(err.starts_with(start), "{err}");
+        assert!(!folder.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn only_the_folder_of_a_change_is_named_as_the_project_names_it() {
+        let (new, old) = (Folder::new(), Folder::new());
+        old.write("gdd/project.toml", "");
+        let id = "rename-tminus";
+        let in_new = change_file(&new.0, id, "review.md");
+        assert_eq!(in_new, ".tminus/changes/rename-tminus/review.md");
+        let in_old = change_file(&old.0, id, "g2.json");
+        assert_eq!(in_old, ".gdd/changes/rename-tminus/g2.json");
+        old.write(".gdd/changes/rename-tminus/replan.md", "NEXT: test\n");
+        assert_eq!(replanned_to_test(&old.0, id), Ok(true));
     }
 
     #[test]
@@ -261,14 +308,14 @@ mod tests {
         let folder = Folder::new();
         assert_eq!(review_files(&folder.0, "c1"), Ok(vec![]));
         let review = "F1 · weak step · tests/steps/a.rs:3 · checks nothing\nVERDICT: KO\n";
-        folder.write(".gdd/changes/c1/review.md", review);
+        folder.write(".tminus/changes/c1/review.md", review);
         let files = review_files(&folder.0, "c1");
         assert_eq!(files, Ok(vec!["tests/steps/a.rs".into()]));
         assert!(!folder.0.join(log::PATH).exists());
-        fs::remove_file(folder.0.join(".gdd/changes/c1/review.md")).unwrap();
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/review.md")).unwrap();
+        fs::remove_file(folder.0.join(".tminus/changes/c1/review.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/review.md")).unwrap();
         let err = review_files(&folder.0, "c1").unwrap_err();
-        let start = "cannot read .gdd/changes/c1/review.md: ";
+        let start = "cannot read .tminus/changes/c1/review.md: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -281,7 +328,7 @@ mod tests {
     fn the_review_is_read_and_logged() {
         let folder = Folder::new();
         assert_eq!(review(&folder.0, "c1"), Ok(false));
-        folder.write(".gdd/changes/c1/review.md", "Fine.\nVERDICT: OK\n");
+        folder.write(".tminus/changes/c1/review.md", "Fine.\nVERDICT: OK\n");
         assert_eq!(review(&folder.0, "c1"), Ok(true));
         let lines = log_lines(&folder);
         let [missing, found] = lines.as_slice() else {
@@ -300,7 +347,7 @@ mod tests {
         }
         assert_eq!(missing.text("result"), "ko");
         assert_eq!(missing.text("note"), NO_VERDICT);
-        folder.write(".gdd/changes/c1/review.md", "VERDICT: KO");
+        folder.write(".tminus/changes/c1/review.md", "VERDICT: KO");
         assert_eq!(review(&folder.0, "c1"), Ok(false));
         assert_eq!(log_lines(&folder)[2].text("note"), "");
     }
@@ -309,7 +356,7 @@ mod tests {
     fn the_replan_is_read_from_its_file() {
         let folder = Folder::new();
         assert_eq!(replanned_to_test(&folder.0, "c1"), Ok(false));
-        folder.write(".gdd/changes/c1/replan.md", "Plan.\nNEXT: test\n");
+        folder.write(".tminus/changes/c1/replan.md", "Plan.\nNEXT: test\n");
         assert_eq!(replanned_to_test(&folder.0, "c1"), Ok(true));
         assert!(!folder.0.join(log::PATH).exists());
     }
@@ -317,13 +364,13 @@ mod tests {
     #[test]
     fn a_file_that_cannot_be_read_is_an_error() {
         let folder = Folder::new();
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/review.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/review.md")).unwrap();
         let err = review(&folder.0, "c1").unwrap_err();
-        let start = "cannot read .gdd/changes/c1/review.md: ";
+        let start = "cannot read .tminus/changes/c1/review.md: ";
         assert!(err.starts_with(start), "{err}");
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/replan.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/replan.md")).unwrap();
         let err = replanned_to_test(&folder.0, "c1").unwrap_err();
-        let start = "cannot read .gdd/changes/c1/replan.md: ";
+        let start = "cannot read .tminus/changes/c1/replan.md: ";
         assert!(err.starts_with(start), "{err}");
     }
 }

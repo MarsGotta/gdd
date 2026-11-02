@@ -3,6 +3,9 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::guard::RULES;
+use crate::layout::Layout;
+
 /// Risk color of a change. The order is the order of risk: green < yellow < red.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Color {
@@ -81,9 +84,22 @@ pub enum Error {
     },
 }
 
-impl fmt::Display for Error {
+impl Error {
+    /// The error as a project of `layout` reads it: the rules file that a red table switching
+    /// off the core, or a review depth that is neither, names is where that project keeps it
+    /// (see [`Layout::path`]). The other errors name no file.
+    pub fn in_layout(&self, layout: Layout) -> String {
+        Said(self, layout).to_string()
+    }
+}
+
+/// An error as a project of a layout reads it (see [`Error::in_layout`]).
+struct Said<'a>(&'a Error, Layout);
+
+impl fmt::Display for Said<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
+        let Said(error, layout) = *self;
+        match error {
             Error::Toml(message) => write!(f, "invalid TOML: {message}"),
             Error::UnknownColor(name) => {
                 write!(f, "unknown color \"{name}\" (use green, yellow or red)")
@@ -91,13 +107,22 @@ impl fmt::Display for Error {
             Error::CoreSwitchedOff { key, value } => write!(
                 f,
                 "red changes always get mutation testing, the Reviewer and the human G4 \
-                 (the core of GDD): remove {key} = {value} from gdd/rules.toml"
+                 (the core of GDD): remove {key} = {value} from {}",
+                layout.path(RULES)
             ),
             Error::UnknownDepth { key, value } => write!(
                 f,
-                "review must be quick or deep: {key} = {value} in gdd/rules.toml"
+                "review must be quick or deep: {key} = {value} in {}",
+                layout.path(RULES)
             ),
         }
+    }
+}
+
+impl fmt::Display for Error {
+    /// The error as a project of the new layout reads it (see [`Error::in_layout`]).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", Said(self, Layout::Tminus))
     }
 }
 
@@ -130,5 +155,33 @@ mod tests {
     fn unknown_color_error_names_it() {
         let err = "purple".parse::<Color>().unwrap_err();
         assert!(err.to_string().contains("purple"));
+    }
+
+    #[test]
+    fn the_rules_file_an_error_names_is_the_one_of_the_project_layout() {
+        let core = Error::CoreSwitchedOff {
+            key: "color.red.full.mutation".into(),
+            value: "false".into(),
+        };
+        let depth = Error::UnknownDepth {
+            key: "color.yellow.review".into(),
+            value: "\"medium\"".into(),
+        };
+        let remove = "the human G4 (the core of GDD): remove color.red.full.mutation = false from";
+        let unknown = "review must be quick or deep: color.yellow.review = \"medium\" in";
+        for (layout, file) in [(Layout::Tminus, "tminus"), (Layout::Gdd, "gdd")] {
+            let rules = format!("{file}/rules.toml");
+            let said = core.in_layout(layout);
+            assert!(said.ends_with(&format!("{remove} {rules}")), "{said}");
+            assert_eq!(depth.in_layout(layout), format!("{unknown} {rules}"));
+        }
+        assert_eq!(core.to_string(), core.in_layout(Layout::Tminus));
+        assert_eq!(depth.to_string(), depth.in_layout(Layout::Tminus));
+        // The others name no file.
+        let toml = Error::Toml("x".into());
+        assert_eq!(toml.in_layout(Layout::Gdd), "invalid TOML: x");
+        let color = Error::UnknownColor("tminus".into());
+        let said = "unknown color \"tminus\" (use green, yellow or red)";
+        assert_eq!(color.in_layout(Layout::Gdd), said);
     }
 }

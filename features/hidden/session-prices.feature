@@ -5,7 +5,7 @@ Feature: Hidden examples for prices come from main
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -70,7 +70,7 @@ Feature: Hidden examples for prices come from main
     And the agents are fakes
 
   Scenario: Another model priced on main after the branch was made prices its session too
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the models also say:
       """
       [prices.claude-sonnet-5-5]
@@ -80,13 +80,13 @@ Feature: Hidden examples for prices come from main
       """
     And I am on the branch "change/c1"
     And the Claude Code session "s2" used "claude-sonnet-5-5" with 100 output tokens
-    When I run "gdd session --phase 2-build --change c1"
-    And I run "gdd report --by agent"
+    When I run "tminus session --phase 2-build --change c1"
+    And I run "tminus report --by agent"
     Then the output contains "claude-interactive -> 1 · 10 · 5 · 100 · ~0.0015 · 0"
     And the output does not contain "unknown"
 
   Scenario: A model that only the branch prices stays unknown next to the prices of main
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the models also say:
       """
       [prices.claude-opus-5-5]
@@ -103,12 +103,12 @@ Feature: Hidden examples for prices come from main
       output = 15.0
       """
     And the Claude Code session "s2" used "claude-sonnet-5-5" with 40 output tokens
-    When I run "gdd session --phase 2-build --change c1"
-    And I run "gdd report --by agent"
+    When I run "tminus session --phase 2-build --change c1"
+    And I run "tminus report --by agent"
     Then the output contains "claude-interactive -> 1 · 10 · 5 · 40 · unknown · 0"
 
   Scenario: A change launched from its own branch prices its Reviewer at the price of main
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the models also say:
       """
       [prices.gpt-6]
@@ -117,7 +117,7 @@ Feature: Hidden examples for prices come from main
       output = 40.0
       """
     And I am on the branch "change/c1"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
-    When I run "gdd report --by role --change c1"
+    When I run "tminus report --by role --change c1"
     Then the output contains "reviewer -> 1 · 50 · 50 · 25 · ~0.0026 · "

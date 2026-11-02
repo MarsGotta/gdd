@@ -5,7 +5,7 @@ Feature: A first change reaches G4 (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -69,9 +69,9 @@ Feature: A first change reaches G4 (hidden examples)
     And the red zones are approved
     And the agents are fakes
   Scenario: Two findings, one on the code and one on a step, get both fix rounds
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Reviewer finds "F1 · off by one · src/app.txt:2 · drops a line\nF2 · weak step · tests/steps/app.txt:7 · asserts nothing", says KO, and then OK
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                       |

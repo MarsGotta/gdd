@@ -69,13 +69,14 @@ impl Cast {
         sheets.cloned().collect()
     }
 
-    /// `gdd/models.toml` for this cast, as gdd `version` writes it: the Orchestrator and the red
-    /// Builder take the strong model of the first agent, the yellow Builder and test mode its
-    /// standard one, the green Builder its light one; the Reviewer its strong model, with its
-    /// effort; then the family of each agent.
+    /// `tminus/models.toml` for this cast, as tminus `version` writes it in the new names (see
+    /// [`crate::layout::Layout::localize`]): the Orchestrator and the red Builder take the strong
+    /// model of the first agent, the yellow Builder and test mode its standard one, the green
+    /// Builder its light one; the Reviewer its strong model, with its effort; then the family of
+    /// each agent.
     pub(super) fn models(&self, version: &str) -> String {
         let mut lines = vec![
-            format!("# Models · GDD (written by gdd init {version})"),
+            format!("# Models · GDD (written by tminus init {version})"),
             "# Who plays each role: an agent (integration) and its model. The Reviewer is of"
                 .to_string(),
             "# another model family than the Builder, so it does not share its blind spots."
@@ -138,7 +139,7 @@ pub fn strong_model(name: &str) -> Option<Model> {
 
 /// The defaults of each agent, from `text`.
 fn defaults(text: &str) -> Result<BTreeMap<String, Defaults>, String> {
-    let invalid = |e: toml::de::Error| format!("the defaults of gdd init are not valid: {e}");
+    let invalid = |e: toml::de::Error| format!("the defaults of tminus init are not valid: {e}");
     toml::from_str(text).map_err(invalid)
 }
 
@@ -171,7 +172,7 @@ fn cast(
     let mut agents = Vec::new();
     for (name, sheet) in chosen {
         let Some(own) = defaults.get(&name) else {
-            let why = format!("gdd init has no defaults for the agent {name}");
+            let why = format!("tminus init has no defaults for the agent {name}");
             return Err(why);
         };
         let defaults = own.clone();
@@ -264,7 +265,7 @@ mod tests {
         assert_eq!(built_in["codex"].effort.as_deref(), Some("high"));
         assert_eq!(built_in["opencode"].effort, None);
         let wrong = defaults("[claude]\nfamily = \"x\"\n").unwrap_err();
-        let start = "the defaults of gdd init are not valid: ";
+        let start = "the defaults of tminus init are not valid: ";
         assert!(wrong.starts_with(start), "{wrong}");
         assert!(defaults("[claude]\nfamilies = \"x\"\n").is_err());
     }
@@ -283,9 +284,9 @@ mod tests {
         let sheets = cast.sheets();
         let sheets: Vec<String> = sheets.iter().map(|s| s.path("x")).collect();
         let paths = [
-            ".claude/skills/gdd-x/SKILL.md",
-            ".opencode/commands/gdd-x.md",
-            ".agents/skills/gdd-x/SKILL.md",
+            ".claude/skills/tminus-x/SKILL.md",
+            ".opencode/commands/tminus-x.md",
+            ".agents/skills/tminus-x/SKILL.md",
         ];
         assert_eq!(sheets, paths);
     }
@@ -310,7 +311,7 @@ mod tests {
         let some = defaults(claude).unwrap();
         let chosen = chosen(&names(&["claude", "codex"]), &[]).unwrap();
         let said = cast(&some, chosen, true, "d").unwrap_err();
-        assert_eq!(said, "gdd init has no defaults for the agent codex");
+        assert_eq!(said, "tminus init has no defaults for the agent codex");
     }
 
     /// A folder with a program for each of `named`; `runnable` says whether they may run.
@@ -376,7 +377,7 @@ mod tests {
     fn the_models_file_gives_each_role_its_model_and_each_agent_its_family() {
         let cast = of(&["claude", "codex"], false).unwrap();
         let text = cast.models("9.9.9");
-        let expected = "# Models · GDD (written by gdd init 9.9.9)\n\
+        let expected = "# Models · GDD (written by tminus init 9.9.9)\n\
              # Who plays each role: an agent (integration) and its model. The Reviewer is of\n\
              # another model family than the Builder, so it does not share its blind spots.\n\n\
              [orchestrator]\nintegration = \"claude\"\nmodel = \"opus\"\n\n\

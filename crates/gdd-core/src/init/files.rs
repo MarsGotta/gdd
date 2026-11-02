@@ -1,5 +1,5 @@
-//! The texts gdd init writes: the project basics, the gate commands, the list of the files it
-//! writes once (`gdd/generated.toml`), and the templates of `assets/init/` with their
+//! The texts tminus init writes: the project basics, the gate commands, the list of the files it
+//! writes once (`tminus/generated.toml`), and the templates of `assets/init/` with their
 //! placeholders filled. A template only changes where it has a placeholder; any other brace stays.
 
 use toml::Value;
@@ -7,6 +7,7 @@ use toml::Value;
 use super::{Answers, Options, PLATFORMS};
 use crate::VERSION;
 use crate::agents::sheets::fill;
+use crate::layout::Layout;
 use crate::stacks::{self, Sheet, once};
 
 /// The rules table.
@@ -37,9 +38,19 @@ const AGENTS_YOURS: &str = "AGENTS.md is yours: add to AGENTS.md a line that sen
 const INSTALL: &str = "- Install: ";
 
 /// What the line of AGENTS.md that says how to install says after the install command.
-const FIRST_INSTALL: &str = " (the first time, `gdd bootstrap` writes the lock file).";
+const FIRST_INSTALL: &str = " (the first time, `tminus bootstrap` writes the lock file).";
 
-/// A file of instructions for agents that gdd init writes when the project has none.
+/// What the project basics say first, before the version of the tool.
+const BASICS: &str = "# Project basics · GDD (written by tminus init ";
+
+/// What the project basics say of the stacks, after their list.
+const STACK_SHEETS: &str = "   # the stack sheets (tminus stacks)";
+
+/// What the record of the files written once says first, before the version.
+const RECORD_COMMENT: &str = "# Written by tminus init: the files it writes once and what it \
+                              was asked, for tminus upgrade.";
+
+/// A file of instructions for agents that tminus init writes when the project has none.
 pub(super) struct Instructions {
     /// The file, from the project root.
     pub(super) file: &'static str,
@@ -186,38 +197,49 @@ fn sensitive(areas: &[String]) -> String {
     lines.join("\n")
 }
 
-/// `gdd/project.toml` for the project of `options`, whose `stacks` have the `sheets`.
-pub(super) fn project(options: &Options, stacks: &[String], sheets: &[Sheet]) -> String {
+/// `tminus/project.toml` for the project of `options`, whose `stacks` have the `sheets`, as a
+/// project of `layout` has it: the comments in its names, the name and the description as typed.
+pub(super) fn project(
+    options: &Options,
+    stacks: &[String],
+    sheets: &[Sheet],
+    layout: Layout,
+) -> String {
     let language = entry("language", &options.language);
     let platform = entry("platform", &options.platform);
     let stack = list(stacks);
-    let written = format!("written by gdd init {VERSION}");
+    let basics = layout.localize(&format!("{BASICS}{VERSION})"));
+    let sheets_of = layout.localize(STACK_SHEETS);
     [
-        format!("# Project basics · GDD ({written})"),
+        basics,
         String::new(),
         entry("name", &options.name),
         entry("description", &options.description),
         format!("{language}   # language the agents use with the human"),
         format!("{platform}   # {}", PLATFORMS.join(" | ")),
-        format!("stack = {stack}   # the stack sheets (gdd stacks)"),
+        format!("stack = {stack}{sheets_of}"),
         entry("scenario_runner", &runners(sheets)),
         String::new(),
     ]
     .join("\n")
 }
 
-/// `gdd/commands.toml` for the `stacks`: what `gdd stacks compose` prints for them, then the
-/// release steps.
+/// `tminus/commands.toml` for the `stacks`: what `tminus stacks compose` prints for them, then
+/// the release steps.
 pub(super) fn commands(stacks: &[String]) -> Result<String, String> {
     let composed = stacks::compose(stacks).map_err(|e| e.to_string())?;
     Ok(format!("{composed}\n{RELEASE}"))
 }
 
-/// `gdd/generated.toml`: the version of gdd, the `files` it writes once and, in the table
-/// `[answers]`, what gdd init was asked.
-pub(super) fn generated(files: &[&str], answers: &Answers) -> Result<String, String> {
-    let comment = "# Written by gdd init: the files it writes once and what it was asked, for gdd \
-                   upgrade.";
+/// `tminus/generated.toml`: the version of tminus, the `files` it writes once and, in the table
+/// `[answers]`, what tminus init was asked, as a project of `layout` has it: its comment in the
+/// names of the layout, the answers as typed.
+pub(super) fn generated<S: AsRef<str>>(
+    files: &[S],
+    answers: &Answers,
+    layout: Layout,
+) -> Result<String, String> {
+    let comment = layout.localize(RECORD_COMMENT);
     let version = entry("version", VERSION);
     let answers = toml::to_string(answers);
     let answers = answers.map_err(|e| format!("cannot write the answers: {e}"))?;
@@ -284,7 +306,7 @@ mod tests {
     #[test]
     fn the_rules_and_zones_protect_the_paths_of_every_stack() {
         let rules = filled(RULES);
-        let version = format!("(written by gdd init {VERSION})\n");
+        let version = format!("(written by tminus init {VERSION})\n");
         assert!(rules.contains(&version), "{rules}");
         assert!(rules.contains("main_branch = \"trunk\"\n"), "{rules}");
         let build = "builder_build = [\"features/**\", \"tests/acceptance/**\", \
@@ -311,7 +333,10 @@ mod tests {
         assert!(workflow.contains(gitleaks), "{workflow}");
         let install = format!("--tag v{VERSION} gdd\n");
         assert!(workflow.contains(&install), "{workflow}");
-        assert!(workflow.ends_with("\n        run: gdd ci\n"), "{workflow}");
+        assert!(
+            workflow.ends_with("\n        run: tminus ci\n"),
+            "{workflow}"
+        );
     }
 
     #[test]
@@ -357,7 +382,8 @@ mod tests {
         let mut options = options();
         options.description = "Say \"hi\"".into();
         let stacks = ["rust".to_string(), "typescript".to_string()];
-        let text = project(&options, &stacks, &sheets(&["rust", "typescript"]));
+        let both = sheets(&["rust", "typescript"]);
+        let text = project(&options, &stacks, &both, Layout::Tminus);
         let table: toml::Table = toml::from_str(&text).unwrap();
         let text_of = |key: &str| table[key].as_str().unwrap().to_string();
         assert_eq!(text_of("name"), "Notes {main}");
@@ -368,11 +394,31 @@ mod tests {
         let stack = Value::Array(vec!["rust".into(), "typescript".into()]);
         assert_eq!(table["stack"], stack);
         assert!(text.starts_with("# Project basics · GDD "), "{text}");
-        let written = format!("(written by gdd init {VERSION})\n\n");
+        let written = format!("(written by tminus init {VERSION})\n\n");
         assert!(text.contains(&written), "{text}");
         let platforms = "   # mobile | desktop | web | cli | other\n";
         assert!(text.contains(platforms), "{text}");
+        let stack = "stack = [\"rust\", \"typescript\"]   # the stack sheets (tminus stacks)\n";
+        assert!(text.contains(stack), "{text}");
         assert!(text.ends_with("\"\n"), "{text}");
+    }
+
+    #[test]
+    fn the_project_file_of_the_old_layout_has_its_comments_in_the_old_names() {
+        let mut options = options();
+        options.name = "tminus".into();
+        options.description = "Notes of tminus".into();
+        let stacks = ["rust".to_string()];
+        let text = project(&options, &stacks, &sheets(&["rust"]), Layout::Gdd);
+        let expected = format!(
+            "# Project basics · GDD (written by gdd init {VERSION})\n\n\
+             name = \"tminus\"\ndescription = \"Notes of tminus\"\n\
+             language = \"es\"   # language the agents use with the human\n\
+             platform = \"cli\"   # mobile | desktop | web | cli | other\n\
+             stack = [\"rust\"]   # the stack sheets (gdd stacks)\n\
+             scenario_runner = \"cucumber-rs\"\n"
+        );
+        assert_eq!(text, expected);
     }
 
     #[test]
@@ -408,14 +454,24 @@ mod tests {
 
     #[test]
     fn the_generated_file_names_the_version_the_files_written_once_and_the_answers() {
-        let text = generated(&["gdd/a.toml", "docs/b.md"], &answers()).unwrap();
+        let files = ["tminus/a.toml", "docs/b.md"];
+        let text = generated(&files, &answers(), Layout::Tminus).unwrap();
         let table: toml::Table = toml::from_str(&text).unwrap();
         assert_eq!(table["version"].as_str(), Some(VERSION));
-        let files = Value::Array(vec!["gdd/a.toml".into(), "docs/b.md".into()]);
+        let files = Value::Array(vec!["tminus/a.toml".into(), "docs/b.md".into()]);
         assert_eq!(table["files"], files);
+        let comment = "# Written by tminus init: the files it writes once and what it was asked, \
+                       for tminus upgrade.\nversion = ";
+        assert!(text.starts_with(comment), "{text}");
+        // In the old layout, its comment in the old names; the files and the answers as given.
+        let old = generated(&["gdd/a.toml"], &answers(), Layout::Gdd).unwrap();
         let comment = "# Written by gdd init: the files it writes once and what it was asked, \
                        for gdd upgrade.\nversion = ";
-        assert!(text.starts_with(comment), "{text}");
+        assert!(old.starts_with(comment), "{old}");
+        let (_, rest) = old.split_once('\n').unwrap();
+        let (_, new_rest) = text.split_once('\n').unwrap();
+        let listed = new_rest.replace("\"tminus/a.toml\", \"docs/b.md\"", "\"gdd/a.toml\"");
+        assert_eq!(rest, listed);
         let after = "\"docs/b.md\"]\n\n[answers]\n";
         assert!(text.contains(after), "{text}");
         // Read back, the answers are what was written, quotes and all.
@@ -437,7 +493,7 @@ mod tests {
         let expected = "AGENTS.md is yours: add to AGENTS.md a line that sends agents to GDD:\n\
                         This project works with **GDD · Gate-Driven Development**: work moves \
                         forward by passing gates, and\nrisk decides how many gates and how \
-                        strict. `gdd` runs the gates.";
+                        strict. `tminus` runs the gates.";
         assert_eq!((agents.yours)(), expected);
         let claude_md = "CLAUDE.md is yours: add to CLAUDE.md: @AGENTS.md";
         assert_eq!((claude.yours)(), claude_md);
@@ -449,8 +505,8 @@ mod tests {
         let rust = ["rust".to_string()];
         let text = (agents.text)(agents.template, &rust).unwrap();
         let checks = "checks for you.\n\n\
-                      - Install: `cargo fetch --locked` (the first time, `gdd bootstrap` writes \
-                      the lock file).\n";
+                      - Install: `cargo fetch --locked` (the first time, `tminus bootstrap` \
+                      writes the lock file).\n";
         assert!(text.contains(checks), "{text}");
         let unit = "\n- `unit`: `cargo test --workspace`\n- `acceptance`: `cargo test --test \
                     acceptance`\n- Scenarios of one file: ";
@@ -467,7 +523,7 @@ mod tests {
     fn the_checks_have_an_install_line_only_when_there_is_an_install() {
         let g2 = [("unit".to_string(), "u".to_string())];
         assert_eq!(checks_section("", &g2), "- `unit`: `u`");
-        let both = "- Install: `i` (the first time, `gdd bootstrap` writes the lock file).\n\
+        let both = "- Install: `i` (the first time, `tminus bootstrap` writes the lock file).\n\
                     - `unit`: `u`";
         assert_eq!(checks_section("i", &g2), both);
         assert_eq!(checks_section("", &[]), "");

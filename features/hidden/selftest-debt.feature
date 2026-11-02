@@ -4,7 +4,7 @@ Feature: The self-test of an adopted project counts known debt as G2 does (hidde
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**", ".github/**"]
+      all = ["tminus/**", "bin/**", ".github/**"]
       builder_build = ["features/**"]
       builder_test = ["src/**"]
       """
@@ -36,20 +36,20 @@ Feature: The self-test of an adopted project counts known debt as G2 does (hidde
       simulated = true
       rollback_pre = ""
       """
-    And the file ".github/workflows/gdd.yml" says "run: bin/gdd ci"
+    And the file ".github/workflows/tminus.yml" says "run: bin/tminus ci"
     And the scenario "features/base.feature" with 1 scenarios
     And everything is committed on main
 
   Scenario: Known debt in G2 does not stop the self-test
-    Given I run "gdd adopt"
-    When I run "gdd selftest"
+    Given I run "tminus adopt"
+    When I run "tminus selftest"
     Then it succeeds
     And the output contains "OK a failing test turns G2 red"
     And the output contains "harness 4/4"
 
   Scenario: A G2 command above its known debt still fails the self-test
-    Given I run "gdd adopt"
+    Given I run "tminus adopt"
     And the gate command "g2" "lint" is "echo Found 4 errors.; false"
-    When I run "gdd selftest"
+    When I run "tminus selftest"
     Then the exit code is not 0
     And the output contains "KO a failing test turns G2 red (G2 is red without it: lint)"

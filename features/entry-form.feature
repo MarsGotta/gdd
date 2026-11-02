@@ -1,10 +1,10 @@
 Feature: The Setup form also installs the stacks
-  After the form writes the harness, it runs the first install of each stack, as gdd bootstrap
-  does, and commits the lock files: in a terminal, gdd init is the only command a person types to
+  After the form writes the harness, it runs the first install of each stack, as tminus bootstrap
+  does, and commits the lock files: in a terminal, tminus init is the only command a person types to
   set a project up. When an install fails, the harness stays committed and the form says what
-  failed and that gdd bootstrap runs it again. Its last line sends the person to their coding
-  agent and the gdd-setup command. When the person is not sure of the technology, the form gives
-  the gdd init command to run later and no agent command, since no skill is installed yet.
+  failed and that tminus bootstrap runs it again. Its last line sends the person to their coding
+  agent and the tminus-setup command. When the person is not sure of the technology, the form gives
+  the tminus init command to run later and no agent command, since no skill is installed yet.
 
   Background:
     Given an empty folder
@@ -21,7 +21,7 @@ Feature: The Setup form also installs the stacks
     Then it succeeds
     And the output contains "rust: cargo generate-lockfile"
     And git tracks "Cargo.lock"
-    And the last commit on main says "gdd bootstrap"
+    And the last commit on main says "tminus bootstrap"
 
   Scenario: The form ends by sending you to your agent
     Given the form is filled with:
@@ -32,8 +32,8 @@ Feature: The Setup form also installs the stacks
     And the program "cargo" on the PATH writes the file "Cargo.lock"
     When I press Enter
     Then it succeeds
-    And the output contains "/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex"
-    And the output does not contain "run gdd bootstrap"
+    And the output contains "/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex"
+    And the output does not contain "run tminus bootstrap"
 
   Scenario: A failed install keeps the setup and says how to retry
     Given the form is filled with:
@@ -44,5 +44,5 @@ Feature: The Setup form also installs the stacks
     And the program "npm" on the PATH fails
     When I press Enter
     Then it fails with a message that contains "typescript: npm install --no-fund --no-audit failed"
-    And it fails with a message that contains "gdd bootstrap"
-    And the last commit on main says "gdd init"
+    And it fails with a message that contains "tminus bootstrap"
+    And the last commit on main says "tminus init"

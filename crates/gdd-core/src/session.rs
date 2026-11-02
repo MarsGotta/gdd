@@ -1,6 +1,6 @@
-//! The conversation with the human (`gdd session`): the requests of the interactive Claude Code
-//! sessions of a project go from their transcripts into the log, one line per model, and no
-//! request is ever counted twice. The sessions gdd starts for its agents are logged when they
+//! The conversation with the human (`tminus session`): the requests of the interactive Claude
+//! Code sessions of a project go from their transcripts into the log, one line per model, and no
+//! request is ever counted twice. The sessions tminus starts for its agents are logged when they
 //! end, so they are left out.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 
 use crate::agents::invoke::Settings;
 use crate::agents::usage::Usage;
-use crate::{change, log};
+use crate::{change, layout, log};
 
 /// The phases of the method: a session is counted in one of them.
 pub const PHASES: [&str; 6] = [
@@ -25,16 +25,17 @@ pub const PHASES: [&str; 6] = [
     "5-learn",
 ];
 
-/// The sessions gdd started for its agents, from the state root (see [`crate::state::root`]):
-/// their ids, one per line.
-const HEADLESS: &str = ".gdd/headless_sessions.txt";
+/// The sessions tminus started for its agents, from the state root (see [`crate::state::root`]):
+/// their ids, one per line. Like every path of the state here, in the new names: a project of the
+/// old layout keeps it in `.gdd/` (see [`layout::join`]).
+const HEADLESS: &str = ".tminus/headless_sessions.txt";
 
 /// The requests already in the log, from the state root: their ids, as a JSON list.
-const IMPORTED: &str = ".gdd/imported_requests.json";
+const IMPORTED: &str = ".tminus/imported_requests.json";
 
 /// Where the new list of [`IMPORTED`] waits, from the state root, until the log has the requests
 /// it adds.
-const IMPORTING: &str = ".gdd/imported_requests.json.new";
+const IMPORTING: &str = ".tminus/imported_requests.json.new";
 
 /// What requests used: how many they are and their tokens, as the log counts them.
 #[derive(Debug, Default)]
@@ -104,10 +105,10 @@ struct Line<'a> {
 /// Claude Code sessions that are not there yet, in `phase` and for change `id` (`-` without
 /// one). The transcripts are the `.jsonl` files of `<home>/.claude/projects/<root>`, `<root>`
 /// being the canonical root with every character outside `A-Za-z0-9` turned into `-`, but those
-/// of the sessions in `.gdd/headless_sessions.txt`. The log gets the new requests, one line per
+/// of the sessions in `.tminus/headless_sessions.txt`. The log gets the new requests, one line per
 /// model, priced with the price `settings` give its model, or unknown without one (a transcript
 /// reports no cost: see [`Settings::cost`]), and they join the ones in
-/// `.gdd/imported_requests.json`: a request is never counted twice, and when either file cannot
+/// `.tminus/imported_requests.json`: a request is never counted twice, and when either file cannot
 /// be written, or a cost is not a finite number, both stay as they were, so the import can run
 /// again. What to tell the human, in one line. An id that cannot name a change is an error before
 /// anything is read.
@@ -125,8 +126,9 @@ pub fn import(
     let folder = transcripts(root, home)?;
     let headless = read(state, HEADLESS)?.unwrap_or_default();
     let headless: BTreeSet<&str> = headless.split_whitespace().collect();
+    let list = layout::named(state, IMPORTED);
     let mut imported: BTreeSet<String> = match read(state, IMPORTED)? {
-        Some(text) => serde_json::from_str(&text).map_err(|e| format!("{IMPORTED}: {e}"))?,
+        Some(text) => serde_json::from_str(&text).map_err(|e| format!("{list}: {e}"))?,
         None => BTreeSet::new(),
     };
     let new = requests(&folder, &headless, &imported)?;
@@ -136,7 +138,8 @@ pub fn import(
         let used = models.entry(&request.model).or_default();
         used.count(&request.used);
     }
-    let lines = lines(phase, id.unwrap_or("-"), &models, settings)?;
+    let log_file = layout::named(state, log::PATH);
+    let lines = lines(&log_file, phase, id.unwrap_or("-"), &models, settings)?;
     kept(state, &lines, &imported)?;
     Ok(format!(
         "Session imported: {} new requests across {} model(s), phase {phase}.",
@@ -162,9 +165,11 @@ fn folder_name(root: &Path) -> String {
     root.chars().map(named).collect()
 }
 
-/// The text of the file `path` under the state root `state`; `None` when there is none.
+/// The text of the file `path`, in the new names, under the state root `state`; `None` when there
+/// is none.
 fn read(state: &Path, path: &str) -> Result<Option<String>, String> {
-    match fs::read_to_string(state.join(path)) {
+    let path = layout::named(state, path);
+    match fs::read_to_string(state.join(&path)) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == NotFound => Ok(None),
         Err(e) => Err(format!("cannot read {path}: {e}")),
@@ -246,21 +251,24 @@ fn request(line: &str) -> Option<(String, Request)> {
 fn kept(state: &Path, lines: &[String], imported: &BTreeSet<String>) -> Result<(), String> {
     let text = serde_json::to_string_pretty(imported).map_err(|e| e.to_string())?;
     change::write(state, IMPORTING, &format!("{text}\n"))?;
+    let importing = layout::join(state, IMPORTING);
     if !lines.is_empty()
         && let Err(e) = log::append(state, &lines.join("\n"))
     {
         // Its requests are not in the log: the old list stays, and the next import retries.
-        let _ = fs::remove_file(state.join(IMPORTING));
-        return Err(format!("cannot write {}: {e}", log::PATH));
+        let _ = fs::remove_file(&importing);
+        let log_file = layout::named(state, log::PATH);
+        return Err(format!("cannot write {log_file}: {e}"));
     }
-    fs::rename(state.join(IMPORTING), state.join(IMPORTED))
-        .map_err(|e| format!("cannot write {IMPORTED}: {e}"))
+    let list = layout::named(state, IMPORTED);
+    fs::rename(&importing, state.join(&list)).map_err(|e| format!("cannot write {list}: {e}"))
 }
 
 /// The lines of the log for `models`, one per model with what its requests used, priced with
 /// `settings`: the Orchestrator's conversation with the human, in `phase`, for `change`. A cost
-/// that is not a finite number is an error: the log cannot write it.
+/// that is not a finite number is an error that says the log, named `log_file`, cannot write it.
 fn lines(
+    log_file: &str,
     phase: &str,
     change: &str,
     models: &BTreeMap<&str, Used>,
@@ -277,8 +285,8 @@ fn lines(
             cost_usd: 0.0,
         };
         let priced = settings.cost(model, &usage);
-        let (cost_usd, basis) =
-            priced.map_err(|why| format!("cannot write {}: {why}", log::PATH))?;
+        let unwritten = |why| format!("cannot write {log_file}: {why}");
+        let (cost_usd, basis) = priced.map_err(unwritten)?;
         let line = Line {
             ts: &ts,
             change,
@@ -437,12 +445,12 @@ mod tests {
         // 40 output tokens at a price this large cost more than a number holds.
         let huge = Settings::from_toml("[prices.opus]\noutput = 1.7e308\n").unwrap();
         let err = sessions.priced(None, &huge).unwrap_err();
-        let said = "cannot write .gdd/log.jsonl: the cost of opus is not a finite number: inf";
+        let said = "cannot write .tminus/log.jsonl: the cost of opus is not a finite number: inf";
         assert_eq!(err, said);
         for path in [log::PATH, IMPORTED, IMPORTING] {
             assert!(!sessions.root.0.join(path).exists(), "{path}");
         }
-        // No request was marked as imported: with a price gdd can stand behind, they all are.
+        // No request was marked as imported: with a price tminus can stand behind, they all are.
         let price = Settings::from_toml("[prices.opus]\noutput = 50\n").unwrap();
         assert_eq!(sessions.priced(None, &price), Ok(message(2, 2)));
         assert_eq!(sessions.imported(), serde_json::json!(["r1", "r2"]));
@@ -470,7 +478,49 @@ mod tests {
         let text = fs::read_to_string(state.0.join(log::PATH)).unwrap();
         assert_eq!(log::parse(&text).unwrap()[0].tokens_out, 40);
         assert!(state.0.join(IMPORTED).is_file());
-        assert!(!sessions.root.0.join(".gdd").exists());
+        assert!(!sessions.root.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_keeps_its_requests_and_its_log_in_its_gdd_folder() {
+        let sessions = Sessions::new();
+        sessions.root.write("gdd/project.toml", "name = \"x\"\n");
+        sessions.root.write(".gdd/headless_sessions.txt", "s2\n");
+        sessions.said("s1", &request_line("r1", "opus", 40));
+        sessions.said("s2", &request_line("r2", "opus", 2));
+        assert_eq!(sessions.import(None), Ok(message(1, 1)));
+        let root = &sessions.root.0;
+        let text = fs::read_to_string(root.join(".gdd/log.jsonl")).unwrap();
+        assert_eq!(log::parse(&text).unwrap()[0].tokens_out, 40);
+        let list = fs::read_to_string(root.join(".gdd/imported_requests.json")).unwrap();
+        assert_eq!(list, "[\n  \"r1\"\n]\n");
+        assert!(!root.join(".gdd/imported_requests.json.new").exists());
+        assert!(!root.join(".tminus").exists());
+        // What it cannot read or write, it names as the project names it.
+        // 40 output tokens at this price cost more than a number holds.
+        sessions.said("s1", &request_line("r3", "opus", 40));
+        let huge = Settings::from_toml("[prices.opus]\noutput = 1.7e308\n").unwrap();
+        let err = sessions.priced(None, &huge).unwrap_err();
+        let start = "cannot write .gdd/log.jsonl: the cost of opus";
+        assert!(err.starts_with(start), "{err}");
+        fs::write(root.join(".gdd/imported_requests.json"), "{not json").unwrap();
+        let err = sessions.import(None).unwrap_err();
+        assert!(err.starts_with(".gdd/imported_requests.json: "), "{err}");
+        fs::remove_file(root.join(".gdd/imported_requests.json")).unwrap();
+        fs::create_dir(root.join(".gdd/imported_requests.json")).unwrap();
+        let err = sessions.import(None).unwrap_err();
+        let start = "cannot read .gdd/imported_requests.json: ";
+        assert!(err.starts_with(start), "{err}");
+        fs::remove_dir(root.join(".gdd/imported_requests.json")).unwrap();
+        fs::remove_file(root.join(".gdd/log.jsonl")).unwrap();
+        fs::create_dir(root.join(".gdd/log.jsonl")).unwrap();
+        let err = sessions.import(None).unwrap_err();
+        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        fs::create_dir(root.join(".gdd/imported_requests.json.new")).unwrap();
+        let err = sessions.import(None).unwrap_err();
+        let start = "cannot write .gdd/imported_requests.json.new: ";
+        assert!(err.starts_with(start), "{err}");
+        assert!(!root.join(".tminus").exists());
     }
 
     #[test]
@@ -516,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn sessions_gdd_started_and_other_files_are_left_out() {
+    fn sessions_tminus_started_and_other_files_are_left_out() {
         let sessions = Sessions::new();
         for session in ["s1", "s2", "s3"] {
             sessions.said(session, &request_line(session, "opus", 1));
@@ -580,7 +630,8 @@ mod tests {
         }
         fs::write(sessions.root.0.join(IMPORTED), "{not json").unwrap();
         let err = sessions.import(None).unwrap_err();
-        assert!(err.starts_with(".gdd/imported_requests.json: "), "{err}");
+        let start = ".tminus/imported_requests.json: ";
+        assert!(err.starts_with(start), "{err}");
         fs::remove_file(sessions.root.0.join(IMPORTED)).unwrap();
         let folder = sessions.folder();
         fs::create_dir_all(folder.parent().unwrap()).unwrap();
@@ -602,7 +653,8 @@ mod tests {
         fs::remove_file(&log).unwrap();
         fs::create_dir(&log).unwrap();
         let err = sessions.import(None).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        let start = "cannot write .tminus/log.jsonl: ";
+        assert!(err.starts_with(start), "{err}");
         assert_eq!(sessions.imported(), serde_json::json!(["r1"]));
         assert!(!sessions.root.0.join(IMPORTING).exists());
         fs::remove_dir(&log).unwrap();

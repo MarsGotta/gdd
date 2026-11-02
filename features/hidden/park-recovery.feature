@@ -5,7 +5,7 @@ Feature: A parked change gets going again (hidden examples)
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -71,10 +71,10 @@ Feature: A parked change gets going again (hidden examples)
 
   Scenario: A new step file written by hand lets the relaunch skip the Builder
     Given the gate command "g3" "acceptance_full" is "grep -q split tests/steps/more.txt"
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
     And the file "tests/steps/more.txt" in the worktree of "c1" is written by hand saying "split in two steps"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it succeeds
     And the agents were called in this order:
       | role          | model  | arguments                   |
@@ -83,23 +83,23 @@ Feature: A parked change gets going again (hidden examples)
       | builder-build | sonnet | change=c1 mode=build fix=g3 |
       | reviewer      | gpt-6  | change=c1 round=1           |
     And the record of "c1" is in state "closed"
-    And the file ".gdd/changes/c1/inbox.md" contains "not a Builder's work: tests/steps/more.txt"
+    And the file ".tminus/changes/c1/inbox.md" contains "not a Builder's work: tests/steps/more.txt"
 
   Scenario: Earlier work on another protected step still parks the relaunch at once
     Given the Builder in build mode also writes "tests/steps/notes.txt" with:
       """
       notes build mode wrote
       """
-    And I run "gdd new-change c1 --title App --paths src/app.txt"
-    And I run "gdd launch c1"
-    When I run "gdd launch c1"
+    And I run "tminus new-change c1 --title App --paths src/app.txt"
+    And I run "tminus launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked: Work of the earlier run that its gates did not accept: tests/steps/notes.txt: protected path for builder-build"
     And the record of "c1" is in state "parked"
 
   Scenario: A red change refused for its plan leaves no worktree
-    Given I run "gdd new-change c1 --title App --paths src/storage/drafts.txt"
+    Given I run "tminus new-change c1 --title App --paths src/storage/drafts.txt"
     And I am on the branch "change/c1"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "a human must approve the plan"
     And the change "c1" has no worktree
     And the current branch is "main"

@@ -87,8 +87,8 @@ fn filled(text: &str, package: &str) -> String {
 /// with different texts.
 fn different(path: &str, first: &str, second: &str) -> String {
     format!(
-        "the {first} and {second} skeletons both have {path}, with different contents: gdd init \
-         cannot set up these stacks together"
+        "the {first} and {second} skeletons both have {path}, with different contents: tminus \
+         init cannot set up these stacks together"
     )
 }
 
@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(both, pairs(&[("same", "x"), ("a", "p"), ("b", "b")]));
         let c = vec![file("c", "c"), file("same", "y")];
         let said = merged_err(&[("a", a.clone()), ("c", c)]);
-        let why = "the a and c skeletons both have same, with different contents: gdd init \
+        let why = "the a and c skeletons both have same, with different contents: tminus init \
                    cannot set up these stacks together";
         assert_eq!(said, why);
         assert_eq!(merged_err(&[("a", a.clone()), ("b", a)]), "");

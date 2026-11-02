@@ -1,6 +1,6 @@
 Feature: The cases of the old kit's end-to-end suite, end to end
   The Python kit had an end-to-end suite of 16 cases (t0-t15, gdd-kit/tests/e2e.sh in the pilot
-  repository). gdd's scenarios already cover twelve of them end to end: t0 "Without approved red
+  repository). tminus's scenarios already cover twelve of them end to end: t0 "Without approved red
   zones, only spikes start", t1 "A yellow change without new scenarios goes all the way", t2 "A
   change with new scenarios stops at G4" and "Merge keeps the last work and records the change in
   the merge commit", t3 "Two Reviewer KOs park the change", t4 "The harness is protected from every
@@ -9,13 +9,13 @@ Feature: The cases of the old kit's end-to-end suite, end to end
   t9 "A relaunch whose code already passes G2 skips the Builder", t10 every launch (test mode
   writes protected steps and build mode is judged from after it), t13 "G1 refuses hidden examples
   with sentences no visible scenario has". The four below had only unit tests; here they run
-  through gdd launch.
+  through tminus launch.
 
   Background:
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -80,33 +80,33 @@ Feature: The cases of the old kit's end-to-end suite, end to end
     And the agents are fakes
 
   Scenario: t11 · Deleting the rules does not switch Path Guard off
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And the Builder in build mode deletes "gdd/rules.toml"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And the Builder in build mode deletes "tminus/rules.toml"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked"
-    And the file ".gdd/changes/c1/g2.json" contains "gdd/rules.toml: protected path for builder-build"
+    And the file ".tminus/changes/c1/g2.json" contains "tminus/rules.toml: protected path for builder-build"
 
   Scenario: t12 · Deleting a protected step written in test mode is caught
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
     And the Builder in build mode deletes "tests/steps/app.txt"
-    When I run "gdd launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked"
-    And the file ".gdd/changes/c1/g2.json" contains "tests/steps/app.txt: protected path for builder-build"
+    And the file ".tminus/changes/c1/g2.json" contains "tests/steps/app.txt: protected path for builder-build"
 
   Scenario: t14 · Gate commands swapped for checks that restore the file never run
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And the Builder in build mode swaps "gdd/commands.toml" for checks that put it back and write "swapped.ran"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And the Builder in build mode swaps "tminus/commands.toml" for checks that put it back and write "swapped.ran"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked"
-    And the file ".gdd/changes/c1/g2.json" contains "The gate commands did not run: Path Guard must pass first."
+    And the file ".tminus/changes/c1/g2.json" contains "The gate commands did not run: Path Guard must pass first."
     And the worktree of "c1" has no "swapped.ran"
 
   Scenario: t15 · A protected change committed by an earlier run never runs on relaunch and stays visible
-    Given I run "gdd new-change c1 --title App --paths src/app.txt"
-    And the Builder in build mode commits to "gdd/commands.toml" a G2 command that writes "planted.ran"
-    And I run "gdd launch c1"
-    When I run "gdd launch c1"
+    Given I run "tminus new-change c1 --title App --paths src/app.txt"
+    And the Builder in build mode commits to "tminus/commands.toml" a G2 command that writes "planted.ran"
+    And I run "tminus launch c1"
+    When I run "tminus launch c1"
     Then it fails with a message that contains "parked"
     And the worktree of "c1" has no "planted.ran"
-    And the file "gdd/commands.toml" on the branch "change/c1" contains "planted_check"
-    And the file ".gdd/changes/c1/g2.json" contains "gdd/commands.toml: protected path"
+    And the file "tminus/commands.toml" on the branch "change/c1" contains "planted_check"
+    And the file ".tminus/changes/c1/g2.json" contains "tminus/commands.toml: protected path"

@@ -1,13 +1,16 @@
-//! `gdd init`: sets up GDD in the folder it runs in, which becomes the project root, from what
-//! the command line says. It checks everything before it writes anything, in this order: no GDD
-//! project in the folder or above it, the stacks known, the agents and who plays each role (see
+//! `tminus init`: sets up GDD in the folder it runs in, which becomes the project root, from what
+//! the command line says, always in the new layout (`tminus/` and `.tminus/`, see
+//! [`crate::layout`]). It checks everything before it writes anything, in this order: no GDD
+//! project of either layout in the folder or above it, nor a project file there that cannot be
+//! looked at, no state of the old layout (`.gdd/`) where its state goes (see
+//! [`crate::layout::check`]), the stacks known, the agents and who plays each role (see
 //! [`roles`]), the skeletons of the stacks (see [`skeletons`]), none of the files it writes
 //! already there, for it never overwrites one, no symbolic link on the way to what it writes and
 //! no other name (a hard link) for the file it appends to, for it never writes out of the folder.
 //! Then it writes the harness (see [`files`]), AGENTS.md (with how to install and the G2
 //! commands of the stacks) and CLAUDE.md when the project has none,
-//! the skeleton of each stack the folder has no project of, the lines of every stack and `.gdd/`
-//! in `.gitignore` and the agents' commands as `gdd agents install` does, and commits what it
+//! the skeleton of each stack the folder has no project of, the lines of every stack and `.tminus/`
+//! in `.gitignore` and the agents' commands as `tminus agents install` does, and commits what it
 //! wrote, and only that, in a new repository when the folder is in none. It stays offline:
 //! [`bootstrap()`] runs the first install of each stack. What it was asked goes with the files it
 //! writes once ([`Answers`]), so a later gdd renders them again for the same project (see
@@ -24,7 +27,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +36,8 @@ use crate::agents::render;
 use crate::agents::sheets::Sheet;
 use crate::gates::{self, approve};
 use crate::git::{self, Git};
-use crate::{VERSION, changelog, guard, log, stacks};
+use crate::layout::{self, Layout};
+use crate::{VERSION, changelog, guard, log, stacks, state};
 
 pub use bootstrap::{Stopped, bootstrap};
 pub use roles::{agents_on_path, family_of, strong_model};
@@ -41,18 +45,18 @@ pub use roles::{agents_on_path, family_of, strong_model};
 /// The platforms a project may run on.
 pub const PLATFORMS: [&str; 5] = ["mobile", "desktop", "web", "cli", "other"];
 
-/// The file that marks the root of a GDD project.
-const PROJECT: &str = "gdd/project.toml";
+/// The file that marks the root of a GDD project, in the new names (see [`crate::layout`]).
+const PROJECT: &str = "tminus/project.toml";
 /// The zone map.
-const ZONES: &str = "gdd/zones.toml";
-/// Which gdd wrote the files written once, and what gdd init was asked.
-pub(crate) const GENERATED: &str = "gdd/generated.toml";
+const ZONES: &str = "tminus/zones.toml";
+/// Which tminus wrote the files written once, and what tminus init was asked.
+pub(crate) const GENERATED: &str = "tminus/generated.toml";
 /// The CI workflow.
-const WORKFLOW: &str = ".github/workflows/gdd.yml";
+const WORKFLOW: &str = ".github/workflows/tminus.yml";
 /// What git leaves out.
 const GITIGNORE: &str = ".gitignore";
 /// The line of `.gitignore` that leaves out the local state of the tool.
-const LOCAL_STATE: &str = ".gdd/";
+const LOCAL_STATE: &str = ".tminus/";
 /// The first branch of the repository gdd init makes.
 const MAIN: &str = "main";
 
@@ -68,14 +72,14 @@ const ONCE: [&str; 7] = [
     WORKFLOW,
 ];
 
-/// Why gdd init stops when one of its files is already there.
+/// Why tminus init stops when one of its files is already there.
 const NEVER_OVERWRITES: &str =
-    "gdd init never overwrites a file: move or remove these, then run it again";
+    "tminus init never overwrites a file: move or remove these, then run it again";
 
 /// What to do once the project is set up.
-const NEXT: &str = "Next: run gdd bootstrap (first install of each stack and its lock file), \
-                    then start your agent and run the gdd-setup command \
-                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+const NEXT: &str = "Next: run tminus bootstrap (first install of each stack and its lock file), \
+                    then start your agent and run the tminus-setup command \
+                    (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).";
 
 /// An environment: its variables, with their values.
 type Env = [(String, String)];
@@ -182,37 +186,50 @@ impl From<String> for Error {
 /// wrote, one per line, what to add to the instructions the project already had, and the next
 /// step; without a line break at the end.
 pub fn init(root: &Path, options: &Options, env: &Env) -> Result<String, Error> {
-    if let Some(project) = project_above(root) {
-        let why = format!("already a GDD project: {}", project.display());
+    if let Some((project, file)) = layout::project_above(root)? {
+        let why = format!("already a GDD project: {}", project.join(file).display());
         return Err(Error::Failed(why));
     }
+    // It writes the new layout: where the state of the old one is, every later command would
+    // refuse the project it set up (see [`layout::check`]).
+    layout::check(root, &state::root(root)?)?;
     let now = log::now();
     let (today, _) = now.split_once('T').unwrap_or((now.as_str(), ""));
     let plan = Plan::new(root, options, env, today)?;
     plan.carry_out(root)
 }
 
-/// The texts of the files gdd init writes once ([`ONCE`]) and of `gdd/generated.toml`, which
-/// keeps the `answers`, in the order gdd init writes them: what it writes for the `answers`, with
-/// the `PATH` of `env` when they name no agent. Nothing is read from or written to the disk.
-pub(crate) fn render_once(answers: &Answers, env: &Env) -> Result<Vec<(String, String)>, Error> {
+/// The texts of the files tminus init writes once ([`ONCE`]) and of `tminus/generated.toml`,
+/// which keeps the `answers`, in the order tminus init writes them: what it writes for the
+/// `answers`, with the `PATH` of `env` when they name no agent, as a project of `layout` has them
+/// (paths and texts, see [`Layout::localize`]): what tminus init writes in the new layout, what
+/// gdd wrote before the rename in the old one. What the person typed (the name, the description,
+/// the sensitive areas) stays as typed. Nothing is read from or written to the disk.
+pub(crate) fn render_once(
+    answers: &Answers,
+    env: &Env,
+    layout: Layout,
+) -> Result<Vec<(String, String)>, Error> {
     let stacks = stacks::once(&answers.stacks);
     let sheets = stack_sheets(&stacks)?;
     let accept = answers.accept_same_family;
     let cast = roles::Cast::new(&answers.agents, env, accept, &answers.day)?;
     let options = answers.options();
     let values = files::Values::new(&options, &sheets, &answers.main);
+    // Each template in the names of the layout first, then its placeholders filled.
+    let fill = |template: &str| values.fill(&layout.localize(template));
+    let once = ONCE.map(|path| layout.path(path));
     let texts = [
-        (PROJECT, files::project(&options, &stacks, &sheets)),
-        (gates::COMMANDS, files::commands(&stacks)?),
-        (guard::RULES, values.fill(files::RULES)),
-        (ZONES, values.fill(files::ZONES)),
-        (models::PATH, cast.models(VERSION)),
-        (GENERATED, files::generated(&ONCE, answers)?),
-        (approve::BRIEF, values.fill(files::BRIEF)),
-        (WORKFLOW, values.fill(files::WORKFLOW)),
+        (PROJECT, files::project(&options, &stacks, &sheets, layout)),
+        (gates::COMMANDS, layout.localize(&files::commands(&stacks)?)),
+        (guard::RULES, fill(files::RULES)),
+        (ZONES, fill(files::ZONES)),
+        (models::PATH, layout.localize(&cast.models(VERSION))),
+        (GENERATED, files::generated(&once, answers, layout)?),
+        (approve::BRIEF, fill(files::BRIEF)),
+        (WORKFLOW, fill(files::WORKFLOW)),
     ];
-    let texts = texts.map(|(path, text)| (path.to_string(), text));
+    let texts = texts.map(|(path, text)| (layout.path(path), text));
     Ok(Vec::from(texts))
 }
 
@@ -224,15 +241,6 @@ fn agents_of(named: &[String], env: &Env) -> Result<Vec<String>, String> {
     } else {
         Ok(stacks::once(named))
     }
-}
-
-/// The `gdd/project.toml` of the GDD project the folder `folder` is in: in it or in a folder
-/// above it.
-fn project_above(folder: &Path) -> Option<PathBuf> {
-    folder
-        .ancestors()
-        .map(|above| above.join(PROJECT))
-        .find(|project| project.is_file())
 }
 
 /// What gdd init does, once everything is checked.
@@ -299,8 +307,8 @@ impl Plan {
             day: today.to_string(),
             main,
         };
-        // The harness: the files written once.
-        let mut texts = render_once(&answers, env)?;
+        // The harness: the files written once, always in the new layout.
+        let mut texts = render_once(&answers, env, Layout::Tminus)?;
         texts.extend(instructions);
         if !exists(root, changelog::PATH)? {
             texts.push((changelog::PATH.to_string(), changelog::started()));
@@ -339,7 +347,7 @@ impl Plan {
             written.push(GITIGNORE.to_string());
         }
         written.extend(render::install(root, &self.agents, &self.stacks)?);
-        let message = format!("gdd init {VERSION}");
+        let message = format!("tminus init {VERSION}");
         let committed = self.git.commit_files(&written, &message);
         committed.map_err(|e| e.to_string())?;
         let mut said = written;
@@ -396,8 +404,8 @@ fn check_links<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> Result<
         if let Some(link) = link.map_err(|e| format!("cannot read {path}: {e}"))? {
             let link = link.display();
             return Err(format!(
-                "cannot write {path}: {link} is a symbolic link, which gdd init does not write \
-                 through: remove the link and run it again"
+                "cannot write {path}: {link} is a symbolic link, which tminus init does not \
+                 write through: remove the link and run it again"
             ));
         }
     }
@@ -410,8 +418,8 @@ fn check_links<'a>(root: &Path, paths: impl Iterator<Item = &'a str>) -> Result<
 fn check_names(root: &Path, path: &str) -> Result<(), String> {
     match fs::symlink_metadata(root.join(path)) {
         Ok(meta) if meta.nlink() > 1 => Err(format!(
-            "{path} has other names (a hard link): gdd init never writes through one: copy it \
-             to a file of its own and run it again"
+            "{path} has other names (a hard link): tminus init never writes through one: copy \
+             it to a file of its own and run it again"
         )),
         Ok(_) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
@@ -429,8 +437,8 @@ fn exists(root: &Path, path: &str) -> Result<bool, String> {
     }
 }
 
-/// What gdd init appends to the `.gitignore` of the folder `root`: each of `lines`, then
-/// `.gdd/`, that no line of the file is exactly, in that order and each once, after a line break
+/// What tminus init appends to the `.gitignore` of the folder `root`: each of `lines`, then
+/// `.tminus/`, that no line of the file is exactly, in that order and each once, after a line break
 /// when the file does not end with one. `None` when it has them all already.
 fn ignore(root: &Path, lines: &[&str]) -> Result<Option<String>, String> {
     let text = match fs::read_to_string(root.join(GITIGNORE)) {
@@ -531,14 +539,14 @@ mod tests {
         let said = init_notes(&folder).unwrap();
         let lines: Vec<&str> = said.lines().collect();
         let first = [
-            "gdd/project.toml",
-            "gdd/commands.toml",
-            "gdd/rules.toml",
-            "gdd/zones.toml",
-            "gdd/models.toml",
-            "gdd/generated.toml",
+            "tminus/project.toml",
+            "tminus/commands.toml",
+            "tminus/rules.toml",
+            "tminus/zones.toml",
+            "tminus/models.toml",
+            "tminus/generated.toml",
             "docs/brief.md",
-            ".github/workflows/gdd.yml",
+            ".github/workflows/tminus.yml",
             "AGENTS.md",
             "CLAUDE.md",
             "CHANGELOG.md",
@@ -549,19 +557,21 @@ mod tests {
             "tests/acceptance.rs",
             "tests/acceptance/world.rs",
             ".gitignore",
-            ".claude/skills/gdd-build/SKILL.md",
+            ".claude/skills/tminus-build/SKILL.md",
         ];
         assert_eq!(lines[..first.len()], first);
-        let skill = ".agents/skills/gdd-stack-rust/SKILL.md";
+        let skill = ".agents/skills/tminus-stack-rust/SKILL.md";
         assert_eq!(lines[lines.len() - 2..], [skill, NEXT]);
-        let next = "Next: run gdd bootstrap (first install of each stack and its lock file), \
-                    then start your agent and run the gdd-setup command \
-                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+        let next = "Next: run tminus bootstrap (first install of each stack and its lock file), \
+                    then start your agent and run the tminus-setup command \
+                    (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).";
         assert_eq!(NEXT, next);
         assert!(!folder.0.join("bin").exists());
+        assert!(!folder.0.join("gdd").exists() && !folder.0.join(".gdd").exists());
+        assert_eq!(Layout::at(&folder.0), Layout::Tminus);
         assert_eq!(git(&folder, &["branch", "--show-current"]), "main");
         let subject = git(&folder, &["log", "-1", "--format=%s"]);
-        assert_eq!(subject, format!("gdd init {VERSION}"));
+        assert_eq!(subject, format!("tminus init {VERSION}"));
         let committed = git(&folder, &["ls-files"]);
         let mut written = lines[..lines.len() - 1].to_vec();
         written.sort_unstable();
@@ -591,7 +601,7 @@ mod tests {
     fn the_files_say_the_project() {
         let folder = Folder::new();
         init_notes(&folder).unwrap();
-        assert_eq!(read(&folder, GITIGNORE), "/target\n.gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "/target\n.tminus/\n");
         let cargo = read(&folder, "Cargo.toml");
         let package = "[package]\nname = \"notes\"\n";
         assert!(cargo.starts_with(package), "{cargo}");
@@ -642,7 +652,7 @@ mod tests {
         let branches = "branches: [\"trunk\", ";
         assert!(workflow.contains(branches), "{workflow}");
         assert_eq!(read(&folder, "AGENTS.md"), "Our rules\n");
-        assert_eq!(read(&folder, GITIGNORE), "target/\n/target\n.gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "target/\n/target\n.tminus/\n");
         let yours = format!("\n{}\n{NEXT}", (files::INSTRUCTIONS[0].yours)());
         assert!(said.ends_with(&yours), "{said}");
         assert!(!said.contains("\nAGENTS.md\n"), "{said}");
@@ -657,11 +667,11 @@ mod tests {
     #[test]
     fn a_gitignore_that_says_it_already_is_left_alone() {
         let folder = Folder::new();
-        folder.write(GITIGNORE, "/target\n.gdd/\n");
+        folder.write(GITIGNORE, "/target\n.tminus/\n");
         folder.write("CLAUDE.md", "mine\n");
         let said = init_notes(&folder).unwrap();
         assert!(!said.contains(".gitignore"), "{said}");
-        assert_eq!(read(&folder, GITIGNORE), "/target\n.gdd/\n");
+        assert_eq!(read(&folder, GITIGNORE), "/target\n.tminus/\n");
         let claude = "\nCLAUDE.md is yours: add to CLAUDE.md: @AGENTS.md\n";
         assert!(said.contains(claude), "{said}");
         assert!(said.contains("\nAGENTS.md\n"), "{said}");
@@ -674,22 +684,33 @@ mod tests {
         ignore(&folder.0, &[])
     }
 
+    /// What `.gitignore` gets when it lacks only the state folder.
+    fn state() -> Result<Option<String>, String> {
+        Ok(Some(".tminus/\n".to_string()))
+    }
+
     #[test]
     fn what_gitignore_gets() {
         let folder = Folder::new();
-        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), state());
         folder.write(GITIGNORE, "");
-        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), state());
         folder.write(GITIGNORE, "a\n");
-        assert_eq!(ignored(&folder), Ok(Some(".gdd/\n".to_string())));
+        assert_eq!(ignored(&folder), state());
         folder.write(GITIGNORE, "a");
-        assert_eq!(ignored(&folder), Ok(Some("\n.gdd/\n".to_string())));
-        for close in ["/.gdd/\n", ".gdd\n", ".gdd/ \n", "# .gdd/\n"] {
+        assert_eq!(ignored(&folder), Ok(Some("\n.tminus/\n".to_string())));
+        // The state folder of the old layout is not the one tminus init sets up.
+        for close in [
+            "/.tminus/\n",
+            ".tminus\n",
+            ".tminus/ \n",
+            "# .tminus/\n",
+            ".gdd/\n",
+        ] {
             folder.write(GITIGNORE, close);
-            let said = ignored(&folder);
-            assert_eq!(said, Ok(Some(".gdd/\n".to_string())), "{close:?}");
+            assert_eq!(ignored(&folder), state(), "{close:?}");
         }
-        folder.write(GITIGNORE, "a\n.gdd/");
+        folder.write(GITIGNORE, "a\n.tminus/");
         assert_eq!(ignored(&folder), Ok(None));
         // A .gitignore that cannot be read is not a missing one.
         fs::remove_file(folder.0.join(GITIGNORE)).unwrap();
@@ -699,18 +720,18 @@ mod tests {
     }
 
     #[test]
-    fn gitignore_gets_the_lines_of_the_stacks_then_gdd_each_once() {
+    fn gitignore_gets_the_lines_of_the_stacks_then_the_state_folder_each_once() {
         let folder = Folder::new();
         let lines = ["/target", "node_modules/", "/target"];
-        let all = "/target\nnode_modules/\n.gdd/\n".to_string();
+        let all = "/target\nnode_modules/\n.tminus/\n".to_string();
         assert_eq!(ignore(&folder.0, &lines), Ok(Some(all)));
         folder.write(GITIGNORE, "node_modules/\n/target/");
-        let rest = "\n/target\n.gdd/\n".to_string();
+        let rest = "\n/target\n.tminus/\n".to_string();
         assert_eq!(ignore(&folder.0, &lines), Ok(Some(rest)));
-        folder.write(GITIGNORE, ".gdd/\nnode_modules/\n");
+        folder.write(GITIGNORE, ".tminus/\nnode_modules/\n");
         let target = "/target\n".to_string();
         assert_eq!(ignore(&folder.0, &lines), Ok(Some(target)));
-        folder.write(GITIGNORE, "/target\n.gdd/\nnode_modules/\n");
+        folder.write(GITIGNORE, "/target\n.tminus/\nnode_modules/\n");
         assert_eq!(ignore(&folder.0, &lines), Ok(None));
     }
 
@@ -718,16 +739,16 @@ mod tests {
     fn a_file_already_there_is_named_and_nothing_is_written() {
         let folder = Folder::new();
         folder.write(approve::BRIEF, "mine\n");
-        folder.write(".claude/skills/gdd-setup/SKILL.md", "mine\n");
+        folder.write(".claude/skills/tminus-setup/SKILL.md", "mine\n");
         let said = init_notes(&folder).unwrap_err();
-        let paths = names(&[approve::BRIEF, ".claude/skills/gdd-setup/SKILL.md"]);
+        let paths = names(&[approve::BRIEF, ".claude/skills/tminus-setup/SKILL.md"]);
         assert_eq!(said, Error::Exists(paths));
         let shown = "docs/brief.md already exists\n\
-                     .claude/skills/gdd-setup/SKILL.md already exists\n\
-                     error: gdd init never overwrites a file: move or remove these, then run \
+                     .claude/skills/tminus-setup/SKILL.md already exists\n\
+                     error: tminus init never overwrites a file: move or remove these, then run \
                      it again";
         assert_eq!(said.to_string(), shown);
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         assert!(!folder.0.join(".git").exists());
         assert_eq!(read(&folder, approve::BRIEF), "mine\n");
         // A link counts, even one to nothing.
@@ -743,12 +764,12 @@ mod tests {
         let folder = Folder::new();
         folder.write("src/lib.rs", "mine\n");
         folder.write(approve::BRIEF, "mine\n");
-        folder.write(".claude/skills/gdd-setup/SKILL.md", "mine\n");
+        folder.write(".claude/skills/tminus-setup/SKILL.md", "mine\n");
         let said = init_notes(&folder).unwrap_err();
         let paths = [
             approve::BRIEF,
             "src/lib.rs",
-            ".claude/skills/gdd-setup/SKILL.md",
+            ".claude/skills/tminus-setup/SKILL.md",
         ];
         assert_eq!(said, Error::Exists(names(&paths)));
         assert!(!folder.0.join("Cargo.toml").exists());
@@ -768,7 +789,10 @@ mod tests {
         assert!(!said.contains("Cargo.toml"), "{said}");
         let ignored = read(&folder, GITIGNORE);
         assert!(ignored.starts_with("/target\nnode_modules/\n"), "{ignored}");
-        assert!(ignored.ends_with("\n.stryker-tmp/\n.gdd/\n"), "{ignored}");
+        assert!(
+            ignored.ends_with("\n.stryker-tmp/\n.tminus/\n"),
+            "{ignored}"
+        );
         let committed = git(&folder, &["ls-files", "--", "package.json", "Cargo.toml"]);
         assert_eq!(committed, "package.json");
     }
@@ -792,7 +816,7 @@ mod tests {
         let said = init_notes(&folder).unwrap_err().to_string();
         let start = "error: cannot read docs/brief.md: ";
         assert!(said.starts_with(start), "{said}");
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         assert!(exists(&folder.0, "docs").unwrap());
         assert!(!exists(&folder.0, "none").unwrap());
         // Each check on its own: a path under a file is not a missing one.
@@ -811,23 +835,23 @@ mod tests {
         let folder = Folder::new();
         fs::hard_link(elsewhere.0.join(GITIGNORE), folder.0.join(GITIGNORE)).unwrap();
         let said = init_notes(&folder).unwrap_err().to_string();
-        let why = "error: .gitignore has other names (a hard link): gdd init never writes \
+        let why = "error: .gitignore has other names (a hard link): tminus init never writes \
                    through one: copy it to a file of its own and run it again";
         assert_eq!(said, why);
         assert!(!folder.0.join(".git").exists());
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         assert_eq!(read(&elsewhere, GITIGNORE), "target/\n");
         // One that already has every line gets nothing, so its other names do not matter.
-        elsewhere.write(GITIGNORE, "/target\n.gdd/\n");
+        elsewhere.write(GITIGNORE, "/target\n.tminus/\n");
         init_notes(&folder).unwrap();
-        assert_eq!(read(&elsewhere, GITIGNORE), "/target\n.gdd/\n");
+        assert_eq!(read(&elsewhere, GITIGNORE), "/target\n.tminus/\n");
     }
 
     #[test]
     fn nothing_is_written_through_a_symbolic_link() {
         let elsewhere = Folder::new();
         elsewhere.write(GITIGNORE, "target/\n");
-        let skill = ".claude/skills/gdd-build/SKILL.md";
+        let skill = ".claude/skills/tminus-build/SKILL.md";
         let links = [
             ("docs", elsewhere.0.clone(), approve::BRIEF),
             (".claude", elsewhere.0.clone(), skill),
@@ -839,12 +863,12 @@ mod tests {
             std::os::unix::fs::symlink(&to, folder.0.join(link)).unwrap();
             let said = init_notes(&folder).unwrap_err().to_string();
             let why = format!(
-                "error: cannot write {path}: {link} is a symbolic link, which gdd init does not \
-                 write through: remove the link and run it again"
+                "error: cannot write {path}: {link} is a symbolic link, which tminus init does \
+                 not write through: remove the link and run it again"
             );
             assert_eq!(said, why);
             assert!(!folder.0.join(".git").exists());
-            assert!(!folder.0.join("gdd").exists());
+            assert!(!folder.0.join("tminus").exists());
         }
         assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 1);
         assert_eq!(read(&elsewhere, GITIGNORE), "target/\n");
@@ -871,6 +895,64 @@ mod tests {
     }
 
     #[test]
+    fn a_project_set_up_before_the_rename_is_a_gdd_project_too() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "name = \"Notes\"\n");
+        let project = folder.0.join("gdd/project.toml");
+        let old = format!("error: already a GDD project: {}", project.display());
+        assert_eq!(init_notes(&folder).unwrap_err().to_string(), old);
+        let inside = folder.0.join("app");
+        fs::create_dir_all(&inside).unwrap();
+        let options = options(&["rust"], &["claude", "codex"]);
+        let said = init(&inside, &options, &env()).unwrap_err();
+        assert_eq!(said.to_string(), old);
+        assert_eq!(fs::read_dir(&inside).unwrap().count(), 0);
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
+        // A folder named like it is not one either.
+        let folder = Folder::new();
+        fs::create_dir_all(folder.0.join("gdd/project.toml")).unwrap();
+        init_notes(&folder).unwrap();
+        assert!(folder.0.join(PROJECT).is_file());
+    }
+
+    #[test]
+    fn a_project_file_that_cannot_be_looked_at_is_refused_not_passed_over() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "name = \"Notes\"\n");
+        let inside = folder.0.join("app");
+        fs::create_dir_all(&inside).unwrap();
+        // A link to itself: what is under it cannot be looked at. The project above is not the
+        // one this folder is in, nor is the folder free to set up.
+        std::os::unix::fs::symlink("tminus", inside.join("tminus")).unwrap();
+        let options = options(&["rust"], &["claude", "codex"]);
+        let said = init(&inside, &options, &env()).unwrap_err().to_string();
+        let path = inside.join("tminus/project.toml");
+        let start = format!("error: cannot read {}: ", path.display());
+        assert!(said.starts_with(&start), "{said}");
+        assert_eq!(fs::read_dir(&inside).unwrap().count(), 1);
+        assert!(!folder.0.join(".git").exists());
+    }
+
+    #[test]
+    fn a_folder_with_the_state_of_the_old_layout_is_refused_before_anything_is_written() {
+        let folder = Folder::new();
+        folder.write(".gdd/log.jsonl", "");
+        let refused = format!(
+            "error: {} keeps its files in tminus/ but has .gdd/, the state of the old layout: \
+             move .gdd to .tminus or remove it",
+            folder.0.display()
+        );
+        assert_eq!(init_notes(&folder).unwrap_err().to_string(), refused);
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
+        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 1);
+        // The state of the new layout is its own.
+        let fresh = Folder::new();
+        fresh.write(".tminus/log.jsonl", "");
+        init_notes(&fresh).unwrap();
+        assert!(fresh.0.join(PROJECT).is_file());
+    }
+
+    #[test]
     fn the_checks_come_in_order_and_write_nothing() {
         let folder = Folder::new();
         folder.write(approve::BRIEF, "mine\n");
@@ -886,7 +968,7 @@ mod tests {
             assert!(said.starts_with(&start), "{said}");
         }
         assert!(!folder.0.join(".git").exists());
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
     }
 
     #[test]
@@ -902,7 +984,7 @@ mod tests {
         let project: toml::Table = toml::from_str(&read(&folder, PROJECT)).unwrap();
         let stacks = toml::Value::Array(vec!["rust".into(), "typescript".into()]);
         assert_eq!(project["stack"], stacks);
-        let skill = ".claude/skills/gdd-stack-typescript/SKILL.md";
+        let skill = ".claude/skills/tminus-stack-typescript/SKILL.md";
         assert!(folder.0.join(skill).is_file());
     }
 
@@ -915,7 +997,7 @@ mod tests {
         let said = init(&folder.0, &options, &nowhere).unwrap_err();
         let said = said.to_string();
         assert!(said.starts_with("error: cannot run git: "), "{said}");
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         // A repository whose HEAD is not a branch has no current branch to name.
         git(&folder, &["init", "-q", "-b", "main"]);
         git(&folder, &["commit", "--allow-empty", "-qm", "one"]);
@@ -923,10 +1005,10 @@ mod tests {
         let said = init_notes(&folder).unwrap_err().to_string();
         let failed = "error: git symbolic-ref --short HEAD failed";
         assert!(said.starts_with(failed), "{said}");
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
     }
 
-    /// What `gdd/generated.toml` of `folder` says gdd init was asked.
+    /// What `tminus/generated.toml` of `folder` says tminus init was asked.
     fn recorded(folder: &Folder) -> Answers {
         let generated: toml::Table = toml::from_str(&read(folder, GENERATED)).unwrap();
         generated["answers"].clone().try_into().unwrap()
@@ -956,7 +1038,7 @@ mod tests {
             main: "trunk".to_string(),
         };
         assert_eq!(answers, expected);
-        let rendered = render_once(&answers, &env()).unwrap();
+        let rendered = render_once(&answers, &env(), Layout::Tminus).unwrap();
         let paths: Vec<&str> = rendered.iter().map(|(path, _)| path.as_str()).collect();
         let mut once = ONCE.to_vec();
         once.insert(5, GENERATED);
@@ -990,16 +1072,109 @@ mod tests {
         // Rendered on another day, with another PATH, the models file keeps the day it was set up.
         let mut later = answers.clone();
         later.day = "2030-01-01".to_string();
-        let rendered = render_once(&answers, &[]).unwrap();
+        let rendered = render_once(&answers, &[], Layout::Tminus).unwrap();
         let models = &rendered[4];
         assert_eq!(models.0, models::PATH);
         assert_eq!(models.1, read(&folder, models::PATH));
-        let other = render_once(&later, &[]).unwrap();
+        let other = render_once(&later, &[], Layout::Tminus).unwrap();
         assert!(other[4].1.contains("\"2030-01-01\""), "{}", other[4].1);
         // Answers that cannot be rendered say why.
         later.stacks = names(&["cobol"]);
-        let said = render_once(&later, &[]).unwrap_err().to_string();
+        let said = render_once(&later, &[], Layout::Gdd)
+            .unwrap_err()
+            .to_string();
         assert!(said.starts_with("error: unknown stack cobol"), "{said}");
+    }
+
+    /// What `tminus init` records it was asked for a project named `name`.
+    fn answers_of(name: &str) -> Answers {
+        Answers {
+            name: name.to_string(),
+            description: "Notes from tminus".to_string(),
+            platform: "cli".to_string(),
+            stacks: names(&["rust", "python"]),
+            agents: names(&["claude", "codex"]),
+            language: "en".to_string(),
+            sensitive: names(&["Losing tminus notes"]),
+            accept_same_family: false,
+            day: "2026-10-28".to_string(),
+            main: "main".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_gets_its_files_in_the_old_names() {
+        let old = render_once(&answers_of("Notes"), &[], Layout::Gdd).unwrap();
+        let new = render_once(&answers_of("Notes"), &[], Layout::Tminus).unwrap();
+        let paths: Vec<&str> = old.iter().map(|(path, _)| path.as_str()).collect();
+        let expected = [
+            "gdd/project.toml",
+            "gdd/commands.toml",
+            "gdd/rules.toml",
+            "gdd/zones.toml",
+            "gdd/models.toml",
+            "gdd/generated.toml",
+            "docs/brief.md",
+            ".github/workflows/gdd.yml",
+        ];
+        assert_eq!(paths, expected);
+        // Each text is the new one in the old names, but for what the person typed.
+        for ((path, text), (_, new_text)) in old.iter().zip(&new) {
+            let typed = ["Notes from tminus", "Losing tminus notes"];
+            let mut tool = text.clone();
+            for words in typed {
+                tool = tool.replace(words, "");
+            }
+            assert!(!tool.to_lowercase().contains("tminus"), "{path}: {text}");
+            let localized = Layout::Gdd.localize(new_text);
+            if typed.iter().any(|words| new_text.contains(words)) {
+                assert_ne!(*text, localized, "{path}");
+            } else {
+                assert_eq!(*text, localized, "{path}");
+            }
+        }
+        let text_of = |path: &str| {
+            let found = old.iter().find(|(at, _)| at == path);
+            found.map(|(_, text)| text.as_str()).unwrap_or_default()
+        };
+        let project = text_of("gdd/project.toml");
+        let head = format!("# Project basics · GDD (written by gdd init {VERSION})\n");
+        assert!(project.starts_with(&head), "{project}");
+        assert!(
+            project.contains("   # the stack sheets (gdd stacks)\n"),
+            "{project}"
+        );
+        assert!(
+            project.contains("description = \"Notes from tminus\"\n"),
+            "{project}"
+        );
+        let generated = text_of("gdd/generated.toml");
+        let comment = "# Written by gdd init: the files it writes once and what it was asked, \
+                       for gdd upgrade.\n";
+        assert!(generated.starts_with(comment), "{generated}");
+        let table: toml::Table = toml::from_str(generated).unwrap();
+        let listed: Vec<toml::Value> = ONCE.iter().map(|&p| Layout::Gdd.path(p).into()).collect();
+        assert_eq!(table["files"], toml::Value::Array(listed));
+        let workflow = text_of(".github/workflows/gdd.yml");
+        assert!(workflow.starts_with("name: gdd\n"), "{workflow}");
+        assert!(workflow.ends_with("\n        run: gdd ci\n"), "{workflow}");
+        let models = text_of("gdd/models.toml");
+        let models_head = format!("# Models · GDD (written by gdd init {VERSION})\n");
+        assert!(models.starts_with(&models_head), "{models}");
+        let brief = text_of("docs/brief.md");
+        assert!(brief.contains("\n1. Losing tminus notes"), "{brief}");
+    }
+
+    #[test]
+    fn a_name_with_the_new_name_of_the_tool_stays_as_typed_in_the_old_layout() {
+        let old = render_once(&answers_of("tminus"), &[], Layout::Gdd).unwrap();
+        let project: toml::Table = toml::from_str(&old[0].1).unwrap();
+        assert_eq!(project["name"].as_str(), Some("tminus"));
+        let brief = &old[6].1;
+        assert!(brief.starts_with("# Project Brief · tminus\n"), "{brief}");
+        let generated: toml::Table = toml::from_str(&old[5].1).unwrap();
+        let recorded: Answers = generated["answers"].clone().try_into().unwrap();
+        assert_eq!(recorded, answers_of("tminus"));
     }
 
     #[test]

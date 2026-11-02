@@ -1,4 +1,4 @@
-# Rules table · GDD (written by gdd init {version})
+# Rules table · GDD (written by tminus init {version})
 # Single source of truth: read by the classifier, the recipe and CI. Color beats work type and lane.
 
 main_branch = "{main}"
@@ -59,7 +59,7 @@ review = "deep"
 
 # Paths each role must not change. Path Guard checks them in G2 and in CI.
 [protected]
-all = ["gdd/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".gdd/bin/**", "AGENTS.md", "CLAUDE.md"]
+all = ["tminus/**", ".github/**", ".claude/**", ".agents/**", ".opencode/**", ".tminus/bin/**", "AGENTS.md", "CLAUDE.md"]
 builder_build = {builder_build}   # approved scenarios and the steps written in test mode
 builder_test = {builder_test}   # production code: test mode only writes tests and steps
 reviewer = ["**"]

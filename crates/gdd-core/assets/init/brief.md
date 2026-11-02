@@ -6,7 +6,7 @@
 
 ## Who it is for
 
-(To fill in with the Orchestrator: run the `gdd-setup` command.)
+(To fill in with the Orchestrator: run the `tminus-setup` command.)
 
 ## Platform and technology
 

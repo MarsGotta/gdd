@@ -1,4 +1,4 @@
-//! Preparing a change (`gdd prepare`), the first step of the recipe: it checks that the change
+//! Preparing a change (`tminus prepare`), the first step of the recipe: it checks that the change
 //! may enter Build, in this order: G0, the red zones (only a spike starts before a human
 //! approves them), G1 for new or changed scenarios, the plan of a red change, a Reviewer of
 //! another model family than the Builder (or of the same one, when the human accepted it at the
@@ -24,20 +24,23 @@ use serde_json::Value;
 use crate::agents::models::{self, Models};
 use crate::change::{self, Decision, Record};
 use crate::gates::approve::{self, ZonesState};
-use crate::gates::{self, BUILD_ROLE, Gate};
+use crate::gates::{self, BUILD_ROLE, Gate, verdict};
 use crate::git::Git;
 use crate::guard;
+use crate::layout::{self, Layout};
 use crate::log;
 
-/// Why a change does not start before the Setup.
-const G0_PENDING: &str = "G0 pending: run the Setup (the gdd-setup command).";
+/// Why a change does not start before the Setup, in the new names: a project of the old layout
+/// names its agent command as it does (see [`Layout::localize`]).
+const G0_PENDING: &str = "G0 pending: run the Setup (the tminus-setup command).";
 
 /// How a human approves the red zones.
-const APPROVE_ZONES: &str = "(gdd gate zones ok --by human)";
+const APPROVE_ZONES: &str = "(tminus gate zones ok --by human)";
 
-/// Why a change with new or changed scenarios waits for G1.
+/// Why a change with new or changed scenarios waits for G1, in the new names (see
+/// [`G0_PENDING`]).
 const G1_PENDING: &str =
-    "New or changed scenarios without G1: a human must approve them (the gdd-change command).";
+    "New or changed scenarios without G1: a human must approve them (the tminus-change command).";
 
 /// What a refusal for scenarios that are no longer the ones G1 sealed says before naming them.
 const SCENARIOS_CHANGED: &str = "Scenarios changed after G1:";
@@ -48,8 +51,10 @@ const APPROVE_AGAIN: &str = "A human must approve the scenarios again";
 /// Why a red change waits for its plan.
 const PLAN_PENDING: &str = "Red change: a human must approve the plan (gate 'plan').";
 
-/// Why the Reviewer must be of another family.
-const SAME_FAMILY: &str = "Reviewer and Builder are the same model family: edit gdd/models.toml.";
+/// Why the Reviewer must be of another family, in the new names: a project of the old layout
+/// names its models file as it does.
+const SAME_FAMILY: &str =
+    "Reviewer and Builder are the same model family: edit tminus/models.toml.";
 
 /// The role Path Guard judges the code of a relaunch for: no role may touch what `all` protects.
 const RELAUNCH_ROLE: &str = "builder";
@@ -73,7 +78,7 @@ struct Started<'a> {
     resume_green: bool,
 }
 
-/// What `gdd prepare` prints.
+/// What `tminus prepare` prints.
 #[derive(Serialize)]
 struct Prepared<'a> {
     ok: bool,
@@ -82,36 +87,41 @@ struct Prepared<'a> {
 }
 
 /// Prepares change `id`, whose decision is `decision` (see the module). A refusal is an error
-/// that says why. Once started, the record keeps the decision with `resume_green`, the start is
-/// logged, and what it prints, as JSON on one line, is `ok` and that decision.
+/// that says why, naming the files and the agent commands of the project as it names them (see
+/// [`crate::layout`]). Once started, the record keeps the decision with `resume_green`, the start
+/// is logged, and what it prints, as JSON on one line, is `ok` and that decision.
 pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, String> {
     let state = setup.project.state;
+    let layout = Layout::at(setup.project.root);
     if !approve::g0_open(state).map_err(|e| e.to_string())? {
-        return Err(G0_PENDING.to_string());
+        return Err(layout.localize(G0_PENDING));
     }
-    let zones = approve::zones_state(state, setup.zones).map_err(|e| e.to_string())?;
+    let named = |e: approve::Error| e.named_in(setup.project.root).to_string();
+    let zones = approve::zones_state(state, setup.zones).map_err(named)?;
     let spike = zones == ZonesState::NotApproved && decision.kind == "Spike";
     if !zones.approved() && !spike {
-        return Err(format!("{} {APPROVE_ZONES}", zones.message()));
+        let why = layout.localize(zones.message());
+        return Err(format!("{why} {APPROVE_ZONES}"));
     }
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = verdict::change_file(state, id, "change.json");
     let invalid = |e: serde_json::Error| format!("{path}: {e}");
     let record: Value = serde_json::from_str(&text).map_err(invalid)?;
     let approved = |gate: &str| record["gates"][gate]["decision"] == "ok";
     let classification = decision.classification;
     if classification.g1 && !approved("G1") {
-        return Err(G1_PENDING.to_string());
+        return Err(layout.localize(G1_PENDING));
     }
     if classification.human_plan && !approved("plan") {
         return Err(PLAN_PENDING.to_string());
     }
-    let accepted = same_family(setup.models, decision)?;
+    let accepted = same_family(setup.models, decision);
+    let accepted = accepted.map_err(|why| layout.localize(&why))?;
     let git = Git::new(setup.project.root);
     let branch = change::branch(id);
     if git.current_branch().map_err(|e| e.to_string())? != branch {
         return Err(format!(
-            "Not on branch {branch}. Launch the change with gdd launch {id}."
+            "Not on branch {branch}. Launch the change with tminus launch {id}."
         ));
     }
     if classification.g1 {
@@ -139,11 +149,15 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         .and_then(|text| change::with_fields(&text, fields))
         .and_then(|text| with_decided(text, accepted.as_deref(), &record, &ts))
         .map_err(invalid)?;
-    change::write(state, &path, &updated)?;
+    change::write(state, &change::record_path(id), &updated)?;
     // The snapshots belong to the earlier build.
-    remove(state, &change::snapshot_path(id))?;
-    remove(state, &change::build_snapshot_path(id))?;
-    remove(state, &change::parked_snapshot_path(id))?;
+    for snapshot in [
+        "snapshot.json",
+        "snapshot-build.json",
+        "snapshot-parked.json",
+    ] {
+        remove(state, &verdict::change_file(state, id, snapshot))?;
+    }
     let mut note = format!("{} · {}", classification.color, classification.lane);
     if resume_green {
         note.push_str(" · G2 already green: Builder skipped");
@@ -180,7 +194,7 @@ fn sealed(root: &Path, id: &str, record: &Record, features: &[String]) -> Result
         .map(|(file, drift)| format!("{file} ({drift})"))
         .collect();
     Err(format!(
-        "{SCENARIOS_CHANGED} {}. {APPROVE_AGAIN} (gdd gate G1 ok {id} --by human).",
+        "{SCENARIOS_CHANGED} {}. {APPROVE_AGAIN} (tminus gate G1 ok {id} --by human).",
         named.join(", ")
     ))
 }
@@ -233,12 +247,13 @@ fn with_decided(
 /// Whether the log of the project whose state root is `state` has a call to the Builder in build
 /// mode for change `id`: the change ran before. No log, no call.
 fn built_before(state: &Path, id: &str) -> Result<bool, String> {
-    let text = match fs::read_to_string(state.join(log::PATH)) {
+    let path = layout::named(state, log::PATH);
+    let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
+        Err(e) => return Err(format!("cannot read {path}: {e}")),
     };
-    let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
+    let records = log::parse(&text).map_err(|e| format!("{path}, {e}"))?;
     let (change, role) = (Value::from(id), Value::from(BUILD_ROLE));
     let built = |record: &log::Record| {
         record.fields.get("change") == Some(&change) && record.fields.get("role") == Some(&role)
@@ -300,7 +315,8 @@ fn builder_may(
     Ok(guarded.map_err(|e| e.to_string())?.ok)
 }
 
-/// Removes the file `path` under the state root `state`, if there is one.
+/// Removes the file `path`, as the project names it, under the state root `state`, if there is
+/// one.
 fn remove(state: &Path, path: &str) -> Result<(), String> {
     match fs::remove_file(state.join(path)) {
         Ok(()) => Ok(()),
@@ -323,7 +339,7 @@ mod tests {
                          [[zone]]\ncolor = \"red\"\npaths = [\"src/storage/**\"]\n\
                          reason = \"Drafts\"\n";
 
-    const RULES: &str = "[protected]\nall = [\"gdd/**\"]\n";
+    const RULES: &str = "[protected]\nall = [\"tminus/**\"]\n";
 
     const MODELS: &str = "[builder.yellow]\nintegration = \"claude\"\nmodel = \"sonnet\"\n\
                           [builder.red]\nintegration = \"claude\"\nmodel = \"opus\"\n\
@@ -354,12 +370,12 @@ mod tests {
 
     fn fixture_with(record: &str, commands: &str, models: &str) -> Fixture {
         let repo = Repo::new();
-        repo.write("gdd/rules.toml", RULES);
-        repo.write("gdd/zones.toml", ZONES);
-        repo.write("gdd/commands.toml", commands);
+        repo.write("tminus/rules.toml", RULES);
+        repo.write("tminus/zones.toml", ZONES);
+        repo.write("tminus/commands.toml", commands);
         repo.commit();
         repo.git(&["branch", "change/c1"]);
-        repo.write(".gdd/changes/c1/change.json", record);
+        repo.write(".tminus/changes/c1/change.json", record);
         Fixture {
             repo,
             zones: ZoneMap::from_toml(ZONES).unwrap(),
@@ -496,7 +512,7 @@ mod tests {
         assert_eq!(project.refused(), G0_PENDING);
         assert_eq!(
             G0_PENDING,
-            "G0 pending: run the Setup (the gdd-setup command)."
+            "G0 pending: run the Setup (the tminus-setup command)."
         );
         let closed = r#"{"decision": "ko"}"#;
         project.repo.write(approve::G0_PATH, closed);
@@ -512,9 +528,9 @@ mod tests {
         let not_approved = format!("{} {APPROVE_ZONES}", ZonesState::NotApproved.message());
         assert_eq!(project.refused(), not_approved);
         assert!(not_approved.starts_with("Red zones not approved"));
-        assert_eq!(APPROVE_ZONES, "(gdd gate zones ok --by human)");
+        assert_eq!(APPROVE_ZONES, "(tminus gate zones ok --by human)");
         let spike = RECORD.replace("\"Feature\"", "\"Spike\"");
-        project.repo.write(".gdd/changes/c1/change.json", &spike);
+        project.repo.write(".tminus/changes/c1/change.json", &spike);
         assert_eq!(project.prepared()["type"], "Spike");
         // Red zones that changed after their approval stop spikes too.
         let changed = r#"{"decision": "ok", "red_hash": "x"}"#;
@@ -530,15 +546,17 @@ mod tests {
         project.ready();
         assert_eq!(project.refused(), G1_PENDING);
         let ko = planned.replace("\"gates\": {}", r#""gates": {"G1": {"decision": "ko"}}"#);
-        project.repo.write(".gdd/changes/c1/change.json", &ko);
+        project.repo.write(".tminus/changes/c1/change.json", &ko);
         assert_eq!(project.refused(), G1_PENDING);
         let ok = planned.replace("\"gates\": {}", r#""gates": {"G1": {"decision": "ok"}}"#);
-        project.repo.write(".gdd/changes/c1/change.json", &ok);
+        project.repo.write(".tminus/changes/c1/change.json", &ok);
         assert_eq!(project.prepared()["g1"], true);
         // Scenarios sealed in G1 count even when the paths do not show them.
         let features = r#""features": ["features/hidden/a.feature"], "gates": {}"#;
         let sealed = RECORD.replace("\"gates\": {}", features);
-        project.repo.write(".gdd/changes/c1/change.json", &sealed);
+        project
+            .repo
+            .write(".tminus/changes/c1/change.json", &sealed);
         assert_eq!(project.refused(), G1_PENDING);
     }
 
@@ -564,7 +582,7 @@ mod tests {
         let before = change::read_record(project.root(), "c1").unwrap();
         let expected = "Scenarios changed after G1: features/a.feature (edited), \
                         features/b.feature (added), features/c.feature (removed). A human must \
-                        approve the scenarios again (gdd gate G1 ok c1 --by human).";
+                        approve the scenarios again (tminus gate G1 ok c1 --by human).";
         assert_eq!(project.refused(), expected);
         assert_eq!(change::read_record(project.root(), "c1").unwrap(), before);
         assert!(project.log().is_empty());
@@ -608,7 +626,7 @@ mod tests {
             .replace("\"Feature\"", "\"Spike\"")
             .replace("\"src/app.rs\"", planned)
             .replace("\"gates\": {}", SEALED);
-        project.repo.write(".gdd/changes/c1/change.json", &spike);
+        project.repo.write(".tminus/changes/c1/change.json", &spike);
         project.repo.write("features/b.feature", "Feature: B\n");
         let out = project.prepared();
         assert_eq!(out["type"], "Spike");
@@ -627,10 +645,10 @@ mod tests {
             "Red change: a human must approve the plan (gate 'plan')."
         );
         let ko = red.replace("\"gates\": {}", r#""gates": {"plan": {"decision": "ko"}}"#);
-        project.repo.write(".gdd/changes/c1/change.json", &ko);
+        project.repo.write(".tminus/changes/c1/change.json", &ko);
         assert_eq!(project.refused(), PLAN_PENDING);
         let ok = red.replace("\"gates\": {}", r#""gates": {"plan": {"decision": "ok"}}"#);
-        project.repo.write(".gdd/changes/c1/change.json", &ok);
+        project.repo.write(".tminus/changes/c1/change.json", &ok);
         let out = project.prepared();
         assert_eq!(out["color"], "red");
         assert_eq!(out["review"], "deep");
@@ -647,12 +665,12 @@ mod tests {
         assert_eq!(project.refused(), SAME_FAMILY);
         assert_eq!(
             SAME_FAMILY,
-            "Reviewer and Builder are the same model family: edit gdd/models.toml."
+            "Reviewer and Builder are the same model family: edit tminus/models.toml."
         );
         // A change without a Reviewer does not care.
         let docs = RECORD.replace("\"src/app.rs\"", "\"docs/a.md\"");
         let docs = docs.replace("\"x\": 1", "\"resumable\": true");
-        project.repo.write(".gdd/changes/c1/change.json", &docs);
+        project.repo.write(".tminus/changes/c1/change.json", &docs);
         let out = project.prepared();
         assert_eq!(out["color"], "green");
         assert_eq!(out["reviewer"], false);
@@ -697,11 +715,42 @@ mod tests {
     }
 
     #[test]
+    fn a_project_set_up_before_the_rename_is_refused_in_its_own_names() {
+        let planned = RECORD.replace("\"src/app.rs\"", "\"src/app.rs\", \"features/a.feature\"");
+        let project = fixture(&planned);
+        project.repo.write("gdd/project.toml", "");
+        project.repo.write(".gdd/changes/c1/change.json", &planned);
+        let g0 = "G0 pending: run the Setup (the gdd-setup command).";
+        assert_eq!(project.refused(), g0);
+        project.repo.write(".gdd/g0.json", r#"{"decision": "ok"}"#);
+        let zones = "Red zones not approved yet: the Setup asks you to approve them \
+                     (the gdd-setup command). (tminus gate zones ok --by human)";
+        assert_eq!(project.refused(), zones);
+        let hash = approve::red_hash(&approve::red_zones(ZONES).unwrap());
+        let approval = format!(r#"{{"decision": "ok", "red_hash": "{hash}"}}"#);
+        project.repo.write(".gdd/zones.json", &approval);
+        project.repo.git(&["checkout", "-q", "change/c1"]);
+        let g1 = "New or changed scenarios without G1: a human must approve them \
+                  (the gdd-change command).";
+        assert_eq!(project.refused(), g1);
+        assert!(!project.root().join(".tminus/g0.json").exists());
+        // The log and the snapshots are read and removed in .gdd.
+        let ok = planned.replace("\"gates\": {}", r#""gates": {"G1": {"decision": "ok"}}"#);
+        project.repo.write(".gdd/changes/c1/change.json", &ok);
+        let snapshot = ".gdd/changes/c1/snapshot.json";
+        project.repo.write(snapshot, "{}");
+        assert_eq!(project.prepared()["ok"], true);
+        assert!(!project.root().join(snapshot).exists());
+        let log = fs::read_to_string(project.root().join(".gdd/log.jsonl")).unwrap();
+        assert_eq!(log.lines().count(), 1);
+    }
+
+    #[test]
     fn a_change_starts_on_its_own_branch() {
         let project = fixture(RECORD);
         project.ready();
         project.repo.git(&["checkout", "-q", "main"]);
-        let expected = "Not on branch change/c1. Launch the change with gdd launch c1.";
+        let expected = "Not on branch change/c1. Launch the change with tminus launch c1.";
         assert_eq!(project.refused(), expected);
         assert_eq!(project.record()["state"], "open");
         assert!(project.log().is_empty());
@@ -740,7 +789,7 @@ mod tests {
         let request = &record["inbox"][0];
         assert_eq!(request["text"], "Which format");
         assert!(request["resolved"].as_str().unwrap().ends_with("+00:00"));
-        let folder = project.root().join(".gdd/changes/c1");
+        let folder = project.root().join(".tminus/changes/c1");
         assert!(!folder.join("snapshot.json").exists());
         assert!(!folder.join("snapshot-build.json").exists());
         assert!(!folder.join("g2.json").exists(), "no Builder ran before");
@@ -770,13 +819,13 @@ mod tests {
         project.ready();
         project.builder_called("c2");
         assert_eq!(project.prepared()["resume_green"], false);
-        assert!(!project.root().join(".gdd/changes/c1/g2.json").exists());
+        assert!(!project.root().join(".tminus/changes/c1/g2.json").exists());
         project.builder_called("c1");
         project.repo.write("src/app.rs", "fn main() {}\n");
         let out = project.prepared();
         assert_eq!(out["resume_green"], true);
         assert_eq!(project.record()["decision"]["resume_green"], true);
-        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(project.root().join(".tminus/changes/c1/g2.json")).unwrap();
         let saved: Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved["ok"], true);
         assert_eq!(saved["passed"], serde_json::json!(["lint", "path-guard"]));
@@ -807,7 +856,7 @@ mod tests {
         let project = fixture(RECORD);
         project.ready();
         project.builder_called("c1");
-        let steps = "[protected]\nall = [\"gdd/**\"]\nbuilder_build = [\"tests/steps/**\"]\n";
+        let steps = "[protected]\nall = [\"tminus/**\"]\nbuilder_build = [\"tests/steps/**\"]\n";
         let project = Fixture {
             settings: Settings::from_toml(steps).unwrap(),
             ..project
@@ -818,7 +867,7 @@ mod tests {
         // A step left uncommitted, which build mode may not touch, runs the Builder.
         project.repo.write("tests/steps/a.txt", "a step\n");
         assert_eq!(project.prepared()["resume_green"], false);
-        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(project.root().join(".tminus/changes/c1/g2.json")).unwrap();
         let saved: Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved["ok"], true, "the G2 of the relaunch passed");
         let head = project.repo.git(&["rev-parse", "HEAD"]);
@@ -836,7 +885,7 @@ mod tests {
         project.repo.write("docs/adr/0002-x.md", "## Decision\n");
         assert_eq!(project.prepared()["resume_green"], true);
         assert!(!project.root().join("ran").exists(), "a G2 command ran");
-        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(project.root().join(".tminus/changes/c1/g2.json")).unwrap();
         let saved: Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved["passed"], serde_json::json!(["path-guard", "adr"]));
     }
@@ -848,7 +897,7 @@ mod tests {
         project.builder_called("c1");
         project.committed("src/app.rs", "fn main() {}\n");
         assert_eq!(project.prepared()["resume_green"], false);
-        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
+        let saved = fs::read_to_string(project.root().join(".tminus/changes/c1/g2.json")).unwrap();
         assert!(saved.contains("\"ok\": false"), "{saved}");
         let note = project.log().pop().unwrap().text("note");
         assert_eq!(note, "yellow · full");
@@ -864,7 +913,7 @@ mod tests {
         project.builder_called("c1");
         let left = project.repo.git(&["rev-parse", "HEAD"]);
         let rewritten = "[g2]\nlint = \"touch ran\"\n";
-        project.committed("gdd/commands.toml", rewritten);
+        project.committed("tminus/commands.toml", rewritten);
         let project = Fixture {
             commands: Commands::from_toml(rewritten).unwrap(),
             ..project
@@ -879,7 +928,7 @@ mod tests {
         assert!(!report.ok);
         let guarded = &report.failures[0];
         assert_eq!(guarded.name, gates::PATH_GUARD);
-        let start = "gdd/commands.toml: protected path for builder-build";
+        let start = "tminus/commands.toml: protected path for builder-build";
         assert!(guarded.tail.starts_with(start), "{}", guarded.tail);
         assert!(!project.root().join("ran").exists());
     }
@@ -891,15 +940,15 @@ mod tests {
         project.builder_called("c1");
         // The tool reads the commands from the working tree, where the Builder rewrote them.
         let rewritten = "[g2]\nlint = \"touch ran\"\n";
-        project.repo.write("gdd/commands.toml", rewritten);
+        project.repo.write("tminus/commands.toml", rewritten);
         let project = Fixture {
             commands: Commands::from_toml(rewritten).unwrap(),
             ..project
         };
         assert_eq!(project.prepared()["resume_green"], false);
         assert!(!project.root().join("ran").exists());
-        let saved = fs::read_to_string(project.root().join(".gdd/changes/c1/g2.json")).unwrap();
-        let guarded = "gdd/commands.toml: protected path for builder";
+        let saved = fs::read_to_string(project.root().join(".tminus/changes/c1/g2.json")).unwrap();
+        let guarded = "tminus/commands.toml: protected path for builder";
         assert!(saved.contains(guarded), "{saved}");
     }
 
@@ -909,21 +958,22 @@ mod tests {
         project.ready();
         project.repo.write(log::PATH, "{not json\n");
         let err = project.refused();
-        assert!(err.starts_with(".gdd/log.jsonl, line 1: "), "{err}");
+        assert!(err.starts_with(".tminus/log.jsonl, line 1: "), "{err}");
         fs::remove_file(project.root().join(log::PATH)).unwrap();
         // A log that cannot be read is not a log without calls.
         fs::create_dir_all(project.root().join(log::PATH)).unwrap();
         let err = project.refused();
-        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/log.jsonl: "), "{err}");
         assert_eq!(project.record()["state"], "open");
         fs::remove_dir(project.root().join(log::PATH)).unwrap();
-        fs::create_dir_all(project.root().join(".gdd/changes/c1/snapshot.json/x")).unwrap();
+        fs::create_dir_all(project.root().join(".tminus/changes/c1/snapshot.json/x")).unwrap();
         let err = project.refused();
-        let start = "cannot remove .gdd/changes/c1/snapshot.json: ";
+        let start = "cannot remove .tminus/changes/c1/snapshot.json: ";
         assert!(err.starts_with(start), "{err}");
-        fs::remove_dir_all(project.root().join(".gdd/changes/c1/snapshot.json")).unwrap();
-        project.repo.write(".gdd/changes/c1/change.json", "[]");
+        fs::remove_dir_all(project.root().join(".tminus/changes/c1/snapshot.json")).unwrap();
+        project.repo.write(".tminus/changes/c1/change.json", "[]");
         let err = project.refused();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        let start = ".tminus/changes/c1/change.json: ";
+        assert!(err.starts_with(start), "{err}");
     }
 }

@@ -1,4 +1,4 @@
-//! A change and its record, `.gdd/changes/<id>/change.json`: what it plans to touch, where its
+//! A change and its record, `.tminus/changes/<id>/change.json`: what it plans to touch, where its
 //! build started, what its gates decided, the notes left on it and its state. Parking a change
 //! stops it with a note for the human.
 
@@ -17,7 +17,7 @@ use crate::agents::usage::Usage;
 use crate::classify::{Change, Classification, SPIKE};
 use crate::config::Color;
 use crate::git::{self, Git};
-use crate::{inbox, log};
+use crate::{inbox, layout, log};
 
 /// The kind of work of a change whose record says none.
 pub const DEFAULT_KIND: &str = "Feature";
@@ -41,7 +41,7 @@ const BOTH_WAYS: &str = "--option and --variants do not go together: one variant
                          option, or n variants of the same brief";
 
 /// Whether `id` can name a change: a lowercase letter or digit, then up to 40 lowercase
-/// letters, digits or hyphens. Nothing else, so an id never leaves `.gdd/changes/`.
+/// letters, digits or hyphens. Nothing else, so an id never leaves `.tminus/changes/`.
 pub fn valid_id(id: &str) -> bool {
     let allowed = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
     id.len() <= 41 && id.starts_with(allowed) && id.chars().all(|c| allowed(c) || c == '-')
@@ -58,22 +58,23 @@ pub fn check_id(id: &str) -> Result<(), String> {
     }
 }
 
-/// Where the record of change `id` lives, from the state root (see [`crate::state::root`]).
+/// Where the record of change `id` lives, from the state root (see [`crate::state::root`]), in
+/// the new names: a project of the old layout keeps it in `.gdd/` (see [`layout::join`]).
 pub fn record_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/change.json")
+    format!(".tminus/changes/{id}/change.json")
 }
 
-/// Where the Decision Inbox of change `id` lives, from the state root.
+/// Where the Decision Inbox of change `id` lives, from the state root, in the new names.
 pub fn inbox_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/inbox.md")
+    format!(".tminus/changes/{id}/inbox.md")
 }
 
 /// The text of the record of change `id` of the project whose state root is `state`. An id that
 /// cannot name a change, a change without a record and a record that cannot be read are errors
-/// that say so.
+/// that say so, naming the record as the project names it.
 pub fn read_record(state: &Path, id: &str) -> Result<String, String> {
     check_id(id)?;
-    let path = record_path(id);
+    let path = layout::named(state, &record_path(id));
     match fs::read_to_string(state.join(&path)) {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -313,7 +314,7 @@ impl Tokens {
 
 /// What agent calls spent, in USD and in tokens, as the record of a change keeps it: in
 /// `spent_usd` and `spent_tokens` for the change, in `usd` and `tokens` for each variant of a
-/// spike. Only gdd writes it, after each call (see [`with_spent`]).
+/// spike. Only tminus writes it, after each call (see [`with_spent`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Spent {
     /// In US dollars.
@@ -352,7 +353,7 @@ impl Spent {
 }
 
 /// What the agent calls of the change whose record is `text` spent (see [`Spent`]): nothing
-/// where the record says nothing, as one from before gdd kept it there.
+/// where the record says nothing, as one from before tminus kept it there.
 pub fn spent(text: &str) -> Result<Spent, serde_json::Error> {
     #[derive(Deserialize)]
     struct Raw {
@@ -548,8 +549,8 @@ fn resolved_where(
     written(&record)
 }
 
-/// A call of the Reviewer on a change, as its record keeps it in `reviews`: only gdd writes them,
-/// one for each call, in the order of the calls.
+/// A call of the Reviewer on a change, as its record keeps it in `reviews`: only the tool writes
+/// them, one for each call, in the order of the calls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Review {
     /// The output the call keeps, from the folder of the change: `outputs/reviewer-<n>.md`.
@@ -600,7 +601,7 @@ pub fn kind(text: &str) -> Result<String, serde_json::Error> {
 /// [`inbox::save`]). What to tell the human, in one line.
 pub fn park(state: &Path, id: &str, reason: &str) -> Result<String, String> {
     let text = read_record(state, id)?;
-    let path = record_path(id);
+    let path = layout::named(state, &record_path(id));
     let ts = log::now();
     let note = Note {
         kind: "parked",
@@ -623,13 +624,15 @@ pub fn park(state: &Path, id: &str, reason: &str) -> Result<String, String> {
     };
     logged(state, &entry)?;
     inbox::save(state, id, &parked)?;
-    let inbox = inbox_path(id);
+    let inbox = layout::named(state, &inbox_path(id));
     Ok(format!("Change {id} parked: {reason}. Message in {inbox}"))
 }
 
-/// Writes `text` to the file `path` under the folder `root`, creating its folder.
+/// Writes `text` to the file `path`, written in the new names, under the folder `root`, where
+/// the project at `root` keeps it (see [`layout::join`]), creating its folder.
 pub fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
-    let file = root.join(path);
+    let path = layout::named(root, path);
+    let file = root.join(&path);
     file.parent()
         .map_or(Ok(()), fs::create_dir_all)
         .and_then(|()| fs::write(&file, text))
@@ -638,9 +641,10 @@ pub fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
 
 /// Adds `entry`, done now, to the log of the project whose state root is `state`.
 pub fn logged(state: &Path, entry: &log::Entry) -> Result<(), String> {
+    let path = layout::named(state, log::PATH);
     let line = entry.line(&log::now());
-    let line = line.map_err(|e| format!("{}: {e}", log::PATH))?;
-    log::append(state, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))
+    let line = line.map_err(|e| format!("{path}: {e}"))?;
+    log::append(state, &line).map_err(|e| format!("cannot write {path}: {e}"))
 }
 
 /// The field `key` of `record`; `empty` when the record has none, or `null`.
@@ -662,21 +666,21 @@ fn written(record: &impl Serialize) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(record).map(|text| format!("{text}\n"))
 }
 
-/// Where the last snapshot of change `id` lives, from the state root.
+/// Where the last snapshot of change `id` lives, from the state root, in the new names.
 pub fn snapshot_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/snapshot.json")
+    format!(".tminus/changes/{id}/snapshot.json")
 }
 
-/// Where the snapshot taken after the test mode of change `id` lives, from the state root: build
-/// mode is judged from it.
+/// Where the snapshot taken after the test mode of change `id` lives, from the state root, in the
+/// new names: build mode is judged from it.
 pub fn build_snapshot_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/snapshot-build.json")
+    format!(".tminus/changes/{id}/snapshot-build.json")
 }
 
-/// Where the snapshot taken when a run of change `id` parked lives, from the state root: what
-/// changed after it, before the change runs again, a person changed by hand.
+/// Where the snapshot taken when a run of change `id` parked lives, from the state root, in the
+/// new names: what changed after it, before the change runs again, a person changed by hand.
 pub fn parked_snapshot_path(id: &str) -> String {
-    format!(".gdd/changes/{id}/snapshot-parked.json")
+    format!(".tminus/changes/{id}/snapshot-parked.json")
 }
 
 /// The record `text` with `accepted`, the paths outside the plan the scope check accepted, as
@@ -780,7 +784,7 @@ impl Record {
     }
 }
 
-/// What `gdd classify` prints: the id of the change, its classification, its kind of work, the
+/// What `tminus classify` prints: the id of the change, its classification, its kind of work, the
 /// model of each role, its Builder session and the Builder rounds against G2.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Decision<'a> {
@@ -826,11 +830,11 @@ mod tests {
 
     #[test]
     fn the_files_of_a_change_live_in_its_folder_and_its_work_on_its_branch() {
-        assert_eq!(record_path("save"), ".gdd/changes/save/change.json");
-        assert_eq!(snapshot_path("save"), ".gdd/changes/save/snapshot.json");
-        let build = ".gdd/changes/save/snapshot-build.json";
+        assert_eq!(record_path("save"), ".tminus/changes/save/change.json");
+        assert_eq!(snapshot_path("save"), ".tminus/changes/save/snapshot.json");
+        let build = ".tminus/changes/save/snapshot-build.json";
         assert_eq!(build_snapshot_path("save"), build);
-        let parked = ".gdd/changes/save/snapshot-parked.json";
+        let parked = ".tminus/changes/save/snapshot-parked.json";
         assert_eq!(parked_snapshot_path("save"), parked);
         assert_eq!(branch("save"), "change/save");
     }
@@ -840,23 +844,79 @@ mod tests {
         assert_eq!(check_id("c1"), Ok(()));
         let why = "invalid change id \"../c1\": use lowercase letters, digits and hyphens";
         assert_eq!(check_id("../c1"), Err(why.to_string()));
-        assert_eq!(inbox_path("c1"), ".gdd/changes/c1/inbox.md");
+        assert_eq!(inbox_path("c1"), ".tminus/changes/c1/inbox.md");
     }
 
     #[test]
     fn a_record_is_read_only_for_a_change_that_exists() {
         let folder = Folder::new();
         let text = "{\"id\": \"c1\"}";
-        folder.write(".gdd/changes/c1/change.json", text);
+        folder.write(".tminus/changes/c1/change.json", text);
         assert_eq!(read_record(&folder.0, "c1"), Ok(text.to_string()));
         let invalid = check_id("C1").unwrap_err();
         assert_eq!(read_record(&folder.0, "C1"), Err(invalid));
+        let missing = "change c2 does not exist: there is no .tminus/changes/c2/change.json";
+        assert_eq!(read_record(&folder.0, "c2"), Err(missing.into()));
+        fs::create_dir_all(folder.0.join(".tminus/changes/c3/change.json")).unwrap();
+        let unreadable = read_record(&folder.0, "c3").unwrap_err();
+        let start = "cannot read .tminus/changes/c3/change.json: ";
+        assert!(unreadable.starts_with(start), "{unreadable}");
+    }
+
+    /// A project of the old layout: `gdd/project.toml`, and its state in `.gdd/`.
+    fn old_layout() -> Folder {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "name = \"x\"\n");
+        folder
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_keeps_its_records_in_its_gdd_folder() {
+        let folder = old_layout();
+        let text = "{\"id\": \"c1\"}";
+        folder.write(".gdd/changes/c1/change.json", text);
+        assert_eq!(read_record(&folder.0, "c1"), Ok(text.to_string()));
         let missing = "change c2 does not exist: there is no .gdd/changes/c2/change.json";
         assert_eq!(read_record(&folder.0, "c2"), Err(missing.into()));
         fs::create_dir_all(folder.0.join(".gdd/changes/c3/change.json")).unwrap();
         let unreadable = read_record(&folder.0, "c3").unwrap_err();
         let start = "cannot read .gdd/changes/c3/change.json: ";
         assert!(unreadable.starts_with(start), "{unreadable}");
+        write(&folder.0, &record_path("c4"), "{}").unwrap();
+        let written = fs::read_to_string(folder.0.join(".gdd/changes/c4/change.json"));
+        assert_eq!(written.unwrap(), "{}");
+        // A path that is already the project's goes where it says.
+        write(&folder.0, ".gdd/changes/c5/change.json", "{}").unwrap();
+        assert!(folder.0.join(".gdd/changes/c5/change.json").is_file());
+        fs::create_dir_all(folder.0.join(".gdd/changes/c6/change.json")).unwrap();
+        let err = write(&folder.0, &record_path("c6"), "{}").unwrap_err();
+        let start = "cannot write .gdd/changes/c6/change.json: ";
+        assert!(err.starts_with(start), "{err}");
+        assert!(!folder.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn parking_in_a_project_of_the_old_layout_names_its_gdd_folder() {
+        let folder = old_layout();
+        folder.write(".gdd/changes/c1/change.json", r#"{"id": "c1"}"#);
+        let said = park(&folder.0, "c1", PARKED).unwrap();
+        let inbox = ".gdd/changes/c1/inbox.md";
+        let expected = format!("Change c1 parked: {PARKED}. Message in {inbox}");
+        assert_eq!(said, expected);
+        assert!(folder.0.join(inbox).is_file());
+        assert!(folder.0.join(".gdd/log.jsonl").is_file());
+        let record = read_json(&folder, ".gdd/changes/c1/change.json");
+        assert_eq!(record["state"], "parked");
+        folder.write(".gdd/changes/c2/change.json", r#"{"inbox": {}}"#);
+        let err = park(&folder.0, "c2", PARKED).unwrap_err();
+        let start = ".gdd/changes/c2/change.json: the field \"inbox\"";
+        assert!(err.starts_with(start), "{err}");
+        folder.write(".gdd/changes/c3/change.json", "{}");
+        fs::remove_file(folder.0.join(".gdd/log.jsonl")).unwrap();
+        fs::create_dir_all(folder.0.join(".gdd/log.jsonl")).unwrap();
+        let err = park(&folder.0, "c3", PARKED).unwrap_err();
+        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
+        assert!(!folder.0.join(".tminus").exists());
     }
 
     #[test]
@@ -1392,12 +1452,12 @@ mod tests {
         let folder = Folder::new();
         let record = r#"{"id": "c1", "title": "App", "state": "building", "x": 1,
                          "inbox": [{"kind": "needs", "text": "Which format"}]}"#;
-        folder.write(".gdd/changes/c1/change.json", record);
+        folder.write(".tminus/changes/c1/change.json", record);
         let said = park(&folder.0, "c1", PARKED).unwrap();
-        let saved = ".gdd/changes/c1/inbox.md";
+        let saved = ".tminus/changes/c1/inbox.md";
         let expected = format!("Change c1 parked: {PARKED}. Message in {saved}");
         assert_eq!(said, expected);
-        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/change.json")).unwrap();
+        let text = fs::read_to_string(folder.0.join(".tminus/changes/c1/change.json")).unwrap();
         let record: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(record["state"], "parked");
         assert_eq!(record["x"], 1);
@@ -1432,24 +1492,25 @@ mod tests {
     #[test]
     fn parking_needs_a_record_it_can_read_and_files_it_can_write() {
         let folder = Folder::new();
-        let missing = "change c9 does not exist: there is no .gdd/changes/c9/change.json";
+        let missing = "change c9 does not exist: there is no .tminus/changes/c9/change.json";
         assert_eq!(park(&folder.0, "c9", PARKED), Err(missing.into()));
         let invalid = check_id("C9").unwrap_err();
         assert_eq!(park(&folder.0, "C9", PARKED), Err(invalid));
-        folder.write(".gdd/changes/c1/change.json", r#"{"inbox": {}}"#);
+        folder.write(".tminus/changes/c1/change.json", r#"{"inbox": {}}"#);
         let err = park(&folder.0, "c1", PARKED).unwrap_err();
-        let start = ".gdd/changes/c1/change.json: the field \"inbox\"";
+        let start = ".tminus/changes/c1/change.json: the field \"inbox\"";
         assert!(err.starts_with(start), "{err}");
-        assert!(!folder.0.join(".gdd/changes/c1/inbox.md").exists());
-        folder.write(".gdd/changes/c2/change.json", "{}");
+        assert!(!folder.0.join(".tminus/changes/c1/inbox.md").exists());
+        folder.write(".tminus/changes/c2/change.json", "{}");
         fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
         let err = park(&folder.0, "c2", PARKED).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
-        let record = read_json(&folder, ".gdd/changes/c2/change.json");
+        let start = "cannot write .tminus/log.jsonl: ";
+        assert!(err.starts_with(start), "{err}");
+        let record = read_json(&folder, ".tminus/changes/c2/change.json");
         assert_eq!(record["state"], "parked");
-        fs::create_dir_all(folder.0.join(".gdd/changes/c3/change.json")).unwrap();
-        let err = write(&folder.0, ".gdd/changes/c3/change.json", "{}").unwrap_err();
-        let start = "cannot write .gdd/changes/c3/change.json: ";
+        fs::create_dir_all(folder.0.join(".tminus/changes/c3/change.json")).unwrap();
+        let err = write(&folder.0, ".tminus/changes/c3/change.json", "{}").unwrap_err();
+        let start = "cannot write .tminus/changes/c3/change.json: ";
         assert!(err.starts_with(start), "{err}");
     }
 

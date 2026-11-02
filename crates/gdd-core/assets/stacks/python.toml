@@ -2,12 +2,12 @@
 # each tool's documentation (uv, pytest-bdd, mutmut 3, OSV-Scanner); first real run 2026-10-27
 # (docs/discover/2026-10-27-gdd-init.md). Every tool runs inside the project's environment with uv.
 # Layout: code in src/<package>/, unit tests in tests/unit/, scenario steps in tests/acceptance/
-# (its test module calls scenarios() on GDD_FEATURES, and on features/hidden/ only with GDD_HIDDEN=1).
+# (its test module calls scenarios() on TMINUS_FEATURES, and on features/hidden/ only with TMINUS_HIDDEN=1).
 name = "python"
 title = "Python"
 scenario_runner = "pytest-bdd"
 detect = ["pyproject.toml"]
-supply_chain = ["pyproject.toml", "uv.lock", "osv-scanner.toml", "osv-scanner-licenses.toml"]   # red zone written by gdd init: dependencies and toolchain
+supply_chain = ["pyproject.toml", "uv.lock", "osv-scanner.toml", "osv-scanner-licenses.toml"]   # red zone written by tminus init: dependencies and toolchain
 install = '''uv sync --locked'''
 bootstrap = '''uv lock && uv sync --locked'''   # the first install: writes the lock file
 ignore = [".venv/", "__pycache__/", ".mypy_cache/", ".pytest_cache/", ".ruff_cache/", "mutants/"]
@@ -16,22 +16,22 @@ ignore = [".venv/", "__pycache__/", ".mypy_cache/", ".pytest_cache/", ".ruff_cac
 lint = '''uv run ruff check . && uv run ruff format --check .'''   # complexity: ruff C901
 types = '''uv run mypy src'''
 unit = '''uv run pytest -q tests/unit'''
-acceptance = '''uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # pytest-bdd fails on a step without code; only GDD_FEATURES (all if empty); 5 = no scenario yet
+acceptance = '''uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # pytest-bdd fails on a step without code; only TMINUS_FEATURES (all if empty); 5 = no scenario yet
 architecture = '''uv run lint-imports'''   # import-linter contracts in [tool.importlinter] of pyproject.toml
 
 [g3]
-acceptance_full = '''GDD_FEATURES= GDD_HIDDEN=1 uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # G3 counts the scenarios itself
+acceptance_full = '''TMINUS_FEATURES= TMINUS_HIDDEN=1 uv run pytest -q tests/acceptance || [ $? -eq 5 ]'''   # G3 counts the scenarios itself
 lockfile = '''uv lock --check'''
 security = '''uv run bandit -q -r src && osv-scanner scan source -L uv.lock'''   # exceptions: [[IgnoredVulns]] in osv-scanner.toml, with a reason
-dependencies = '''R=$(mktemp) && trap 'rm -f "$R"' EXIT && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o "$R" && { ! grep -q '^[A-Za-z0-9]' "$R" || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L "requirements.txt:$R"; }'''   # licenses of what ships: the runtime dependencies, none yet is a pass; exported to a temporary file removed when the command ends, never in the project (.gdd is gdd's state)
+dependencies = '''R=$(mktemp) && trap 'rm -f "$R"' EXIT && uv export --frozen --no-dev --no-emit-project --format requirements-txt -q -o "$R" && { ! grep -q '^[A-Za-z0-9]' "$R" || osv-scanner scan source --config=osv-scanner-licenses.toml --licenses="MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unicode-3.0,Zlib,MPL-2.0,PSF-2.0" -L "requirements.txt:$R"; }'''   # licenses of what ships: the runtime dependencies, none yet is a pass; exported to a temporary file removed when the command ends, never in the project (.tminus is tminus's state)
 secrets = '''BASE=$(git rev-parse -q --verify main || git rev-parse origin/main) && M=$(git merge-base HEAD "$BASE") && git add -A --intent-to-add && D=$(mktemp -d) && trap 'rm -rf "$D"' EXIT && git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ "$M" > "$D/diff" && awk -v w="$D/where" 'function unq(s,r,c,i){r="";s=substr(s,2,length(s)-2);while((i=index(s,"\\"))>0){c=substr(s,i+1,1);if(c!="\""&&c!="\\")c="\\" c;r=r substr(s,1,i-1) c;s=substr(s,i+2)}return r s} /^diff /{h=0;next} /^@@ /{h=1;split($3,a,",");n=substr(a[1],2)+0;next} !h{if(/^\+\+\+ /){f=substr($0,5);sub(/\t$/,"",f);if(f~/^"/)f=unq(f);sub(/^b\//,"",f)}next} /^\+/{print substr($0,2);print f":"n > w;n++;next} !/^-/&&!/^\\/{n++}' "$D/diff" > "$D/added" && printf '{{range .}}{{.StartLine}} {{.RuleID}}\n{{end}}' > "$D/report" || { echo 'secrets: the lines the change adds could not be read, so no secret was checked'; exit 2; }; gitleaks stdin --no-banner --redact --log-level error --report-format template --report-template "$D/report" --report-path "$D/found" < "$D/added" && exit 0; s=$?; [ ! -f "$D/found" ] || sort -n "$D/found" | while read -r n rule; do printf 'secrets: %s: %s (value not shown)\n' "$(sed -n "${n}p" "$D/where")" "$rule"; done; exit $s'''   # secrets in the lines the change adds (gitleaks logs errors only): gitleaks reads only those, and the gate prints path:line and the rule of each finding, never the value; a +++ line names the file only before the file's first @@ (an added line may start with ++), a path git quotes is read unquoted, and a step that fails before gitleaks fails the gate
-mutation = '''set -f; P=$(printf '%s\n' "$GDD_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | sed 's#/__init__$##' | tr / . | sed 's/$/.x*/'); [ -n "$P" ] || { echo 'mutation: no Python file under src/ changed: nothing to mutate'; exit 0; }; L=$(mktemp) && trap 'rm -f "$L"' EXIT || exit 1; rm -rf mutants || { echo 'mutation: the mutants/ folder of an earlier run could not be removed'; exit 1; }; uv run mutmut run $P > "$L" 2>&1; s=$?; if [ $s -ne 0 ] && grep -q 'Filtered for specific mutants, but nothing matches' "$L"; then echo 'mutation: nothing to mutate in the changed Python files (no function or method)'; exit 0; fi; [ $s -eq 0 ] || cat "$L"; if [ $s -ne 0 ] && grep -q 'runner returned 5' "$L"; then echo 'mutation: no unit test ran (tests/unit/ collected none), so no mutant was checked'; exit 1; fi; [ $s -eq 0 ] || exit $s; uv run mutmut results > "$L" || exit 1; bad=0; while IFS= read -r l; do n=${l%%:*}; n=${n#"${n%%[! ]*}"}; for p in $P; do case "$n" in $p) case "$l" in *': timeout'|*': caught by type check'|*': skipped') ;; *) echo "$l"; bad=$((bad+1));; esac; break;; esac; done; done < "$L"; [ $bad -eq 0 ] || { echo "mutation: $bad mutant(s) not killed (survived, or no test runs that code)"; exit 1; }; echo 'mutation: every mutant of the changed Python code was caught''''   # set -f: the module patterns reach mutmut unexpanded; mutants/ goes first, since mutmut keeps the copies of an earlier run (a test the change deleted would still run there); mutmut's own log only when it failed; <module>.x* matches its functions and methods (a package's __init__.py is the package); a mutant that is not killed, timed out, caught by type check or skipped fails, "no tests" included; nothing to mutate passes and says so; [tool.mutmut] source_paths in pyproject.toml
+mutation = '''set -f; P=$(printf '%s\n' "$TMINUS_DIFF_FILES" | sed -n 's#^src/\(.*\)\.py$#\1#p' | sed 's#/__init__$##' | tr / . | sed 's/$/.x*/'); [ -n "$P" ] || { echo 'mutation: no Python file under src/ changed: nothing to mutate'; exit 0; }; L=$(mktemp) && trap 'rm -f "$L"' EXIT || exit 1; rm -rf mutants || { echo 'mutation: the mutants/ folder of an earlier run could not be removed'; exit 1; }; uv run mutmut run $P > "$L" 2>&1; s=$?; if [ $s -ne 0 ] && grep -q 'Filtered for specific mutants, but nothing matches' "$L"; then echo 'mutation: nothing to mutate in the changed Python files (no function or method)'; exit 0; fi; [ $s -eq 0 ] || cat "$L"; if [ $s -ne 0 ] && grep -q 'runner returned 5' "$L"; then echo 'mutation: no unit test ran (tests/unit/ collected none), so no mutant was checked'; exit 1; fi; [ $s -eq 0 ] || exit $s; uv run mutmut results > "$L" || exit 1; bad=0; while IFS= read -r l; do n=${l%%:*}; n=${n#"${n%%[! ]*}"}; for p in $P; do case "$n" in $p) case "$l" in *': timeout'|*': caught by type check'|*': skipped') ;; *) echo "$l"; bad=$((bad+1));; esac; break;; esac; done; done < "$L"; [ $bad -eq 0 ] || { echo "mutation: $bad mutant(s) not killed (survived, or no test runs that code)"; exit 1; }; echo 'mutation: every mutant of the changed Python code was caught''''   # set -f: the module patterns reach mutmut unexpanded; mutants/ goes first, since mutmut keeps the copies of an earlier run (a test the change deleted would still run there); mutmut's own log only when it failed; <module>.x* matches its functions and methods (a package's __init__.py is the package); a mutant that is not killed, timed out, caught by type check or skipped fails, "no tests" included; nothing to mutate passes and says so; [tool.mutmut] source_paths in pyproject.toml
 
 [learn]   # warnings for Learn, never a gate
 duplication = '''npx --yes jscpd --silent src'''
 unused = '''uv run vulture src'''
 
-# [count]: how to count what each command reports, to hold its known debt (gdd/debt.toml)
+# [count]: how to count what each command reports, to hold its known debt (tminus/debt.toml)
 # to a ceiling, a ratchet. {n} stands for a number: a text with it adds up the number at
 # each place it matches; a text without it counts the lines that contain it. A change that
 # reports more than the count recorded fails the gate; one that reports less lowers it.
@@ -41,7 +41,7 @@ lint = ["Found {n} error", "{n} file would be reformatted", "{n} files would be 
 types = ["Found {n} error"]
 unit = ["{n} failed", "{n} error"]
 
-[ci]   # steps of .github/workflows/gdd.yml before gdd ci
+[ci]   # steps of .github/workflows/tminus.yml before tminus ci
 setup = '''
       - uses: astral-sh/setup-uv@v7
       - name: Install the Python dependencies
@@ -58,7 +58,7 @@ setup = '''
 [selftest]
 file = "tests/unit/test_gdd_selftest.py"
 content = '''def test_gdd_selftest():
-    raise AssertionError("gdd selftest")
+    raise AssertionError("tminus selftest")
 '''
 
 [protected]

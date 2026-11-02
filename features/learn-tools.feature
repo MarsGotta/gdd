@@ -1,7 +1,7 @@
-Feature: gdd learn
-  Learn has no gate: it only hardens. `gdd learn` runs the Learn tools of `gdd/commands.toml`
+Feature: tminus learn
+  Learn has no gate: it only hardens. `tminus learn` runs the Learn tools of `tminus/commands.toml`
   (`[learn]`: duplication, unused code; warnings, never a gate) on the project, keeps what each one
-  said in `.gdd/learn/`, and lists the polish notes the human gave at G4, so the Orchestrator can
+  said in `.tminus/learn/`, and lists the polish notes the human gave at G4, so the Orchestrator can
   spot the ones that repeat and turn them into a standard or a check. It never fails because a
   tool found something.
 
@@ -9,7 +9,7 @@ Feature: gdd learn
     Given a GDD project in a git repository with the protected paths:
       """
       [protected]
-      all = ["gdd/**", "bin/**"]
+      all = ["tminus/**", "bin/**"]
       builder_build = ["features/**", "tests/steps/**"]
       builder_test = ["src/**"]
       """
@@ -33,21 +33,21 @@ Feature: gdd learn
       """
 
   Scenario: Each Learn tool runs, and what it found is a warning
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "duplication: nothing found"
     And the output contains "unused: found something (exit code 3)"
     And the output contains "src/old.py:3: unused function old_greeting"
 
   Scenario: What each tool said is kept
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
-    And the output contains "All it said: .gdd/learn/unused.txt"
-    And the file ".gdd/learn/unused.txt" contains "unused function old_greeting"
+    And the output contains "All it said: .tminus/learn/unused.txt"
+    And the file ".tminus/learn/unused.txt" contains "unused function old_greeting"
 
   Scenario: A tool that cannot run says so and the others still run
     Given the gate command "learn" "unused" is "no-such-learn-tool-xyz"
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "unused: could not run (exit code 127)"
     And the output contains "duplication: nothing found"
@@ -58,24 +58,24 @@ Feature: gdd learn
       [g2]
       unit = "true"
       """
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
-    And the output contains "No Learn tools in gdd/commands.toml"
-    And the output contains "gdd stacks"
+    And the output contains "No Learn tools in tminus/commands.toml"
+    And the output contains "tminus stacks"
 
   Scenario: The polish notes at G4, to spot the ones that repeat
-    When I run "gdd learn"
+    When I run "tminus learn"
     Then it succeeds
     And the output contains "Polish notes at G4 (2)"
     And the output contains "a: Shorter error messages"
     And the output contains "b: Shorter error messages, again"
 
   Scenario: Only the changes created since a day
-    When I run "gdd learn --since 2026-10-21"
+    When I run "tminus learn --since 2026-10-21"
     Then it succeeds
     And the output contains "Polish notes at G4 (1)"
     And the output does not contain "a: Shorter error messages"
 
   Scenario: A Builder cannot run Learn
-    When the role "builder-build" runs "gdd learn"
-    Then it fails with a message that contains "Agents that gdd started cannot run gdd learn"
+    When the role "builder-build" runs "tminus learn"
+    Then it fails with a message that contains "Agents that tminus started cannot run tminus learn"
