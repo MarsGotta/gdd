@@ -11,6 +11,7 @@ use crate::change;
 use crate::classify::{Change, classify};
 use crate::gates::{Gate, Judged, Project, Report, debt, exceptions};
 use crate::git::{self, Git};
+use crate::stacks::blueprint;
 use crate::zones::glob_matches;
 
 /// What CI found on a branch.
@@ -90,7 +91,9 @@ fn ended(report: &Report) -> String {
 /// fail CI; then G2 and G3, run as `tminus g2` and `tminus g3` run them on a change classified
 /// from those paths (see [`Judged`]), without Path Guard. Any other branch has nothing to check.
 /// An id that cannot name a change, and a failure of git, are errors.
+/// The gates the blueprint declares are read first ([`blueprint::gates`]).
 pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, String> {
+    let declared = blueprint::gates().map_err(|e| e.to_string())?;
     let git = Git::new(project.root);
     let said = |e: git::Error| e.to_string();
     let branch = match head_ref {
@@ -126,6 +129,7 @@ pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, Strin
     let decision = classify(project.zones, &rules.table, &plan).map_err(|e| e.to_string())?;
     let judged = Judged {
         id,
+        declared: &declared,
         features: decision.features.clone(),
         decision,
         diff: &diff,
@@ -142,7 +146,10 @@ pub fn check(project: &Project, head_ref: Option<&str>) -> Result<Checked, Strin
 }
 
 /// `gate` on the change `judged`, as CI runs it: its commands, the ones with known debt only
-/// warning, and, in G3, the scenario count and the check of the security exceptions.
+/// warning, and, in G3, the scenario count and the check of the security exceptions. Last, the
+/// report gets the key of each gate the blueprint declares (see [`Declared::keys`]).
+///
+/// [`Declared::keys`]: crate::gates::decl::Declared::keys
 fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
     let mut report = judged.report(gate, project);
     let owed = debt::owed(&mut report, project.root, gate);
@@ -151,6 +158,8 @@ fn run(project: &Project, judged: &Judged, gate: Gate) -> Report {
         judged.scenarios(&mut report, project);
         exceptions::judge(&mut report, &exceptions::read(project.root));
     }
+    let commands = project.commands.of(gate);
+    report.keys = judged.declared.keys(gate, commands, &report);
     report.ok = report.failures.is_empty();
     report
 }
@@ -267,6 +276,14 @@ mod tests {
         assert_eq!(found.g2.passed, ["show", "unit"]);
         let passed = ["acceptance", "mutation", "scenarios (1)", "exceptions"];
         assert_eq!(found.g3.passed, passed);
+        // Each gate of the blueprint gets its key, as in the gates.
+        let [works] = found.g2.keys.as_slice() else {
+            panic!("one key: {checked:?}");
+        };
+        assert_eq!((works.gate.as_str(), works.ok), ("works", true));
+        assert_eq!(works.passed, ["show", "unit"]);
+        let gates: Vec<&str> = found.g3.keys.iter().map(|k| k.gate.as_str()).collect();
+        assert_eq!(gates, ["works", "quality", "security"]);
         let diff = "features/b.feature\nsrc/app.rs";
         let shown = format!("c1|yellow|{diff}|features/b.feature");
         assert_eq!(ci.shown(), shown);
