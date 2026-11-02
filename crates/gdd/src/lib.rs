@@ -6030,8 +6030,10 @@ mod tests {
 
     #[test]
     fn an_agent_that_fails_parks_the_change_and_fails_the_run() {
-        let project = launched_project();
-        project.write("tminus/models.toml", &format!("{MODELS}{MORE_ROLES}"));
+        let commands = "[g2]\nlint = \"true\"\n[release]\nsimulated = true\nbuild = \"true\"\n";
+        let project = launched_with(commands, &format!("{MODELS}{MORE_ROLES}"));
+        // Work of an earlier run, on a planned path: the core's own items would make it red.
+        project.write("src/a.rs", "work\n");
         let env = with_agents(&project, "#!/bin/sh\nexit 1\n");
         let out = launch_in(&project, &env);
         let parked = "Change c1 parked: the Builder in test mode failed (exit 1). Message in \
@@ -6044,7 +6046,7 @@ mod tests {
         assert_eq!(subject, relaunch);
         // The change waits in its worktree; this checkout is back on main.
         assert_eq!(git(&project, &["branch", "--show-current"]), "main");
-        assert!(project.worktrees().join("c1/tminus/models.toml").is_file());
+        assert!(project.worktrees().join("c1/src/a.rs").is_file());
     }
 
     #[test]

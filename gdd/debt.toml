@@ -1,9 +1,11 @@
-# Known debt · written by hand (Mars, 2026-11-02): the frontier ratchet of ADR 0002 section 6.
-# A change that reports more software lines in the core fails G2; one that reports fewer lowers the count when it merges.
+# Known debt recorded by gdd adopt. These commands run and warn but do not block,
+# until a change makes each pass; the merge then takes it off this list for good.
+# A count is a ceiling: a change that reports more fails the gate, and one that
+# reports less lowers it when it merges.
 adopted = "2026-11-02"
 
 [[debt]]
 command = "architecture-frontier"
 gate = "g2"
 since = "2026-11-02"
-count = 1897
+count = 1896
