@@ -2,7 +2,8 @@
 //! `.tminus/changes/<id>/review.md`, with the files its findings name, and where the replan sends
 //! the change, `NEXT: test|build` in `.tminus/changes/<id>/replan.md` (`.gdd/` in a project of the
 //! old layout, see [`crate::layout`]). The last answer of a file counts; a file without a
-//! readable one says KO, and build mode.
+//! readable one says KO, and build mode. Any agent of the recipe may also end its text saying it
+//! cannot do the task, `CANNOT: <why>` (see [`cannot`]).
 
 use std::fs;
 use std::io::ErrorKind;
@@ -12,6 +13,12 @@ use crate::{change, layout, log};
 
 /// Why a Reviewer without a readable verdict counts as KO.
 const NO_VERDICT: &str = "The Reviewer left no readable VERDICT: counts as KO.";
+
+/// The mark of an agent that says it cannot do the task.
+const CANNOT: &str = "CANNOT:";
+
+/// The reason of an agent that says it cannot do the task without giving one.
+const NO_REASON: &str = "it gave no reason";
 
 /// The folder of the changes, from the state root, in the new names.
 const CHANGES: &str = ".tminus/changes";
@@ -62,6 +69,22 @@ pub fn sends_to_test(text: &str) -> bool {
         }
     }
     false
+}
+
+/// The reason of an agent's text that says it cannot do the task: what follows its last line that
+/// starts with `CANNOT:`, in any case and with blanks and Markdown bold allowed before the mark,
+/// trimmed and without the bold after it. A mark without a reason says [`NO_REASON`]. `None`
+/// without one.
+pub fn cannot(text: &str) -> Option<String> {
+    text.lines().rev().find_map(|line| {
+        let line = answer(line);
+        let mark = line.get(..CANNOT.len())?;
+        mark.eq_ignore_ascii_case(CANNOT).then(|| {
+            let reason = answer(&line[CANNOT.len()..]).trim_end();
+            let reason = reason.trim_end_matches('*').trim_end();
+            if reason.is_empty() { NO_REASON } else { reason }.to_string()
+        })
+    })
 }
 
 /// The answer after a mark: without the blanks and Markdown bold before it.
@@ -250,6 +273,34 @@ mod tests {
         ] {
             assert_eq!(sends_to_test(text), test, "{text:?}");
         }
+    }
+
+    #[test]
+    fn the_last_cannot_line_says_why_the_agent_cannot_do_the_task() {
+        let said = |reason: &str| Some(reason.to_string());
+        for (text, reason) in [
+            ("CANNOT: no currency", said("no currency")),
+            ("cannot:no currency", said("no currency")),
+            ("Cannot: No currency.", said("No currency.")),
+            ("**CANNOT:** no currency", said("no currency")),
+            ("**CANNOT: no currency**", said("no currency")),
+            ("  \t CANNOT:   no currency  ", said("no currency")),
+            ("# Summary\nCANNOT: a\nDone.\n", said("a")),
+            ("CANNOT: a\nCANNOT: b\n", said("b")),
+            ("CANNOT: a\nCANNOT b\n", said("a")),
+            ("CANNOT:", said(NO_REASON)),
+            ("CANNOT:  ** ** ", said(NO_REASON)),
+            ("I say CANNOT: x", None),
+            ("`CANNOT: x`", None),
+            ("CANNOT x", None),
+            ("CANNO", None),
+            ("ññññ: x", None),
+            ("VERDICT: OK", None),
+            ("", None),
+        ] {
+            assert_eq!(cannot(text), reason, "{text:?}");
+        }
+        assert_eq!(NO_REASON, "it gave no reason");
     }
 
     #[test]

@@ -66,6 +66,8 @@ The **last line** is exactly one of these:
 VERDICT: OK
 VERDICT: KO
 
+If you cannot review the change (you cannot read it, or judging it needs what only the human can give), end with one line `CANNOT: <why>` instead of a verdict: gdd parks the change with your reason, and it never counts as an OK.
+
 ## Commands
 
 Run each command on its own, without chaining with `;`, `&&` or `|`. You may only read: `git status`, `git diff`, `git log`, `git show` and your read tools.

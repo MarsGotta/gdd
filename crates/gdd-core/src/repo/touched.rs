@@ -408,7 +408,8 @@ paths = ["src/storage/**"]
             assert_eq!(failures[0], guarded);
             let left = format!("{from}/");
             let moved = failures.iter().filter(|f| f.starts_with(&left)).count();
-            assert_eq!((failures.len(), moved), (3, 2), "{from}: {failures:?}");
+            // Where it went is one of the core's own items too: protected all the same.
+            assert_eq!((failures.len(), moved), (5, 2), "{from}: {failures:?}");
         }
     }
 

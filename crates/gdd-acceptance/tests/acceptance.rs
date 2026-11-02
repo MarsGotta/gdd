@@ -1844,6 +1844,11 @@ case "$role" in
     if [ -z "$how" ]; then
       mkdir -p tests/steps
       echo "$n" > tests/steps/app.txt
+      if [ -f "$fake/test_also" ]; then
+        also=$(cat "$fake/test_also")
+        mkdir -p "$(dirname "$also")"
+        cp "$fake/test_also_content" "$also"
+      fi
     else
       mkdir -p "$(dirname "$path")"
       echo "written by the Builder in test mode" > "$path"
@@ -1970,6 +1975,10 @@ case "$role" in
     text=$answer
     ;;
 esac
+if [ -f "$fake/cannot_$role" ]; then
+  text="CANNOT: $(cat "$fake/cannot_$role")
+$text"
+fi
 text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
 case "$integration" in
   claude)
@@ -2178,6 +2187,25 @@ fn builder_also_writes(w: &mut GddWorld, path: String, step: &cucumber::gherkin:
     let text = docstring(step, "the text of the file");
     fake_file(w, "build_also", &path);
     fake_file(w, "build_also_content", &format!("{text}\n"));
+}
+
+#[given(expr = "the Builder in test mode also writes {string} with:")]
+fn builder_test_also_writes(w: &mut GddWorld, path: String, step: &cucumber::gherkin::Step) {
+    let text = docstring(step, "the text of the file");
+    fake_file(w, "test_also", &path);
+    fake_file(w, "test_also_content", &format!("{text}\n"));
+}
+
+#[given(expr = "the {string} says it cannot do the task because {string}")]
+fn agent_says_it_cannot(w: &mut GddWorld, agent: String, reason: String) {
+    fake_file(w, &format!("cannot_{}", role_of_agent(&agent)), &reason);
+}
+
+#[given(expr = "the {string} can do the task now")]
+fn agent_can_do_the_task_now(w: &mut GddWorld, agent: String) {
+    let name = format!("cannot_{}", role_of_agent(&agent));
+    let path = pj(&project_root(w), ".tminus/fake").join(name);
+    fs::remove_file(&path).expect("the agent said it cannot before");
 }
 
 #[given(expr = "the Builder in build mode appends to {string} the line:")]

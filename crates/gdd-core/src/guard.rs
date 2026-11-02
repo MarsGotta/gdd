@@ -22,7 +22,7 @@ use crate::change::Record;
 use crate::classify::classify;
 use crate::config;
 use crate::layout::Layout;
-use crate::rules::RulesTable;
+use crate::rules::{CORE_ITEMS, RulesTable};
 use crate::zones::{ZoneMap, glob_matches};
 
 /// The hash of a path where there is no file.
@@ -164,7 +164,8 @@ impl Settings {
         Ok(found)
     }
 
-    /// The patterns `role` must not touch: those of `all`, then its own.
+    /// The patterns `role` must not touch: those of `all`, then its own, then the core's own
+    /// items ([`CORE_ITEMS`]), which no role touches whatever the rules file says.
     pub fn protected(&self, role: &str) -> Vec<&str> {
         let own = role.replace('-', "_");
         ["all", own.as_str()]
@@ -172,6 +173,7 @@ impl Settings {
             .filter_map(|key| self.protected.get(key))
             .flatten()
             .map(String::as_str)
+            .chain(CORE_ITEMS)
             .collect()
     }
 }
@@ -580,23 +582,45 @@ paths = ["src/storage/**"]
         assert_eq!(touched.items, items);
     }
 
+    /// `patterns`, then the core's own items, which every role is kept from.
+    fn and_the_core(patterns: &[&'static str]) -> Vec<&'static str> {
+        patterns.iter().copied().chain(CORE_ITEMS).collect()
+    }
+
     #[test]
     fn settings_come_from_the_rules_file() {
         let empty = Settings::from_toml("").unwrap();
         assert_eq!(empty.main_branch, "main");
         assert_eq!(MAIN_BRANCH, "main");
-        assert_eq!(empty.protected("builder-build"), NOTHING);
+        assert_eq!(empty.protected("builder-build"), CORE_ITEMS);
         let text = format!("main_branch = \"trunk\"\n[color.red.full]\nmutation = true\n{RULES}");
         let read = Settings::from_toml(&text).unwrap();
         assert_eq!(read.main_branch, "trunk");
         assert_eq!(
             read.protected("builder-build"),
-            ["tminus/**", "features/**"]
+            and_the_core(&["tminus/**", "features/**"])
         );
-        assert_eq!(read.protected("builder_test"), ["tminus/**", "src/**"]);
-        assert_eq!(read.protected("reviewer"), ["tminus/**"]);
+        let test = and_the_core(&["tminus/**", "src/**"]);
+        assert_eq!(read.protected("builder_test"), test);
+        assert_eq!(read.protected("reviewer"), and_the_core(&["tminus/**"]));
         let wrong = Settings::from_toml("[protected]\nall = \"tminus/**\"\n");
         assert!(matches!(wrong, Err(config::Error::Toml(_))));
+    }
+
+    #[test]
+    fn every_role_is_kept_from_the_core_items_whatever_the_rules_file_says() {
+        let roles = ["builder-build", "builder-test", "reviewer"];
+        let empty = Settings::from_toml("").unwrap();
+        let other = "[protected]\nall = [\"bin/**\"]\nreviewer = [\"docs/**\"]\n";
+        let other = Settings::from_toml(other).unwrap();
+        for role in roles {
+            assert_eq!(empty.protected(role), CORE_ITEMS, "{role}");
+            let expected = match role {
+                "reviewer" => and_the_core(&["bin/**", "docs/**"]),
+                _ => and_the_core(&["bin/**"]),
+            };
+            assert_eq!(other.protected(role), expected, "{role}");
+        }
     }
 
     #[test]

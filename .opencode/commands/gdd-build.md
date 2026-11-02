@@ -34,7 +34,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 ## What you do
 
 1. Implement the domain, the wiring into the application and the unit tests it needs.
-2. Check with `gdd g2 --role builder-build` and fix until it is green or until you see you cannot.
+2. Check with `gdd g2 --role builder-build` and fix until it is green. If you see you cannot make it green within the rules below, stop: see "If you cannot".
 3. Reuse what the package tells you to reuse. Do not add new dependencies: if one seems necessary, note it.
 
 ## Spike (mode=spike)
@@ -55,7 +55,11 @@ With `variant=<n>`, you build variant n of the spike: read its option in the rec
 
 If something is ambiguous, pick the simplest reversible option and note it: `gdd note <id> decided "..."`. If it needs the human: `gdd note <id> needs "..."`.
 
-Finish with a three-line summary: what you changed and the state of G2. With `fix=review`, add the places you changed for each finding id.
+## If you cannot
+
+If you cannot do the task as the package asks (it needs something only the human can give, the package and a scenario disagree, or the only way to green is something this file forbids), stop. Do not weaken a test, a step, a check or a protected file to get there, and do not leave a stub that looks finished. End your answer with one line: `CANNOT: <why, in one sentence, and what you need>`. gdd parks the change at once with that reason for the human, without spending your other rounds; it never counts as green, and the gates still judge what you touched.
+
+Finish with a three-line summary: what you changed and the state of G2; then, if you cannot, the `CANNOT:` line. With `fix=review`, add the places you changed for each finding id.
 
 ## Commands
 

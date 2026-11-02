@@ -7,6 +7,8 @@
 //! with the reader of its sheet (see [`usage`]): its final text and its output are kept next to
 //! the change, the Reviewer's text is its review, and the call goes to the log. The tool prints
 //! none of it, and writes none of it through a link the agent could have left (see [`files`]).
+//! An agent that ends well saying it cannot do the task ends the call as such (see
+//! [`Error::Cannot`]).
 //!
 //! The sheet names the agent's commands, the tool and its state folder as the project does (see
 //! [`Sheet::in_layout`]): `gdd-build` and `.gdd/` in a project set up before the rename.
@@ -276,13 +278,18 @@ pub enum Error {
     Timeout(Who, u64),
     /// The agent ended with an error: its exit code, or minus the signal that killed it.
     Failed(Who, i32),
+    /// The agent ended well and said it cannot do the task (see [`verdict::cannot`]): why.
+    Cannot(Who, String),
 }
 
 impl Error {
-    /// Whether the change parks for it: the agent ran and did not do its job. The other errors
-    /// are failures of the project.
+    /// Whether the change parks for it: the agent ran and did not do its job, or said it cannot.
+    /// The other errors are failures of the project.
     pub fn parks(&self) -> bool {
-        matches!(self, Error::Timeout(..) | Error::Failed(..))
+        matches!(
+            self,
+            Error::Timeout(..) | Error::Failed(..) | Error::Cannot(..)
+        )
     }
 }
 
@@ -301,6 +308,7 @@ impl fmt::Display for Error {
                 write!(f, "the {who} did not answer within {seconds} seconds")
             }
             Error::Failed(who, code) => write!(f, "the {who} failed (exit {code})"),
+            Error::Cannot(who, why) => write!(f, "the {who} says it cannot do the task: {why}"),
         }
     }
 }
@@ -431,21 +439,28 @@ struct Ran {
 /// run's (see [`Ongoing::follow`]). What it said is kept and logged even when it fails or runs out
 /// of time. What the agent reported it used, never the estimate the log prices when it reports no
 /// cost, and how the call ended: what it reported counts even when what it said cannot be kept,
-/// and a call that stopped before the agent ran used nothing.
+/// and a call that stopped before the agent ran used nothing. An agent that ends well and whose
+/// final text says it cannot do the task (see [`verdict::cannot`]) ends with [`Error::Cannot`];
+/// one that fails or runs out of time ends as it did, whatever its text says.
 pub fn run(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<(), Error>) {
     let (reported, ended) = called(project, call, ongoing);
     let ended = ended.and_then(|ended| match ended {
-        Ended::Code(0) => Ok(()),
-        Ended::Code(code) => Err(Error::Failed(call.who, code)),
-        Ended::Timeout => Err(Error::Timeout(call.who, project.timeout.as_secs())),
+        (Ended::Code(0), None) => Ok(()),
+        (Ended::Code(0), Some(why)) => Err(Error::Cannot(call.who, why)),
+        (Ended::Code(code), _) => Err(Error::Failed(call.who, code)),
+        (Ended::Timeout, _) => Err(Error::Timeout(call.who, project.timeout.as_secs())),
     });
     (reported, ended)
 }
 
-/// The call of [`run`]: what the agent reported it used, once it ran, and how it ended, or why
-/// what it said could not be kept. The run follows the session the agent reported only once what
-/// it said is kept.
-fn called(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Result<Ended, Error>) {
+/// The call of [`run`]: what the agent reported it used, once it ran, and how it ended, with the
+/// reason its final text gives when it says it cannot do the task, or why what it said could not
+/// be kept. The run follows the session the agent reported only once what it said is kept.
+fn called(
+    project: &Project,
+    call: &Call,
+    ongoing: &mut Ongoing,
+) -> (Usage, Result<(Ended, Option<String>), Error>) {
     let (start, ran) = match started(project, call, ongoing) {
         Ok(started) => started,
         Err(e) => return (Usage::default(), Err(e)),
@@ -453,11 +468,12 @@ fn called(project: &Project, call: &Call, ongoing: &mut Ongoing) -> (Usage, Resu
     let said = usage::read(start.sheet.usage(), &String::from_utf8_lossy(&ran.out));
     let reported = said.usage;
     let session = said.session.clone();
-    let kept = keep(project, call.who, &start, &ran, said);
+    let cannot = verdict::cannot(&said.text);
+    let kept = keep(project, call.who, &start, &ran, said, cannot.is_some());
     if kept.is_ok() && start.shares {
         ongoing.follow(session.as_deref());
     }
-    (reported, kept.map(|()| ran.ended))
+    (reported, kept.map(|()| (ran.ended, cannot)))
 }
 
 /// Starts the agent of `call` on the change of `project`, continuing the run's Builder session
@@ -593,9 +609,17 @@ struct Line<'a> {
 /// change, `n` after the earlier lines of its role on the change in the log; the Reviewer's text
 /// as its review; the session of a Claude Code call; and one line in the log, priced with the
 /// model's price when the agent reports no cost, and saying on what its cost stands (see
-/// [`Settings::cost`]). A log that is not a file of its own, or a cost that is not a finite
+/// [`Settings::cost`]); its result is `cannot` when the call ended well and its text says it
+/// `cannot` do the task. A log that is not a file of its own, or a cost that is not a finite
 /// number, stops it before it writes anything.
-fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Result<(), Error> {
+fn keep(
+    project: &Project,
+    who: Who,
+    start: &Start,
+    ran: &Ran,
+    said: Said,
+    cannot: bool,
+) -> Result<(), Error> {
     let (state, id, role) = (project.state, project.id, who.role());
     let log_file = of_state(state, log::PATH);
     let unwritten = |e| Error::Write(log_file.clone(), e);
@@ -615,6 +639,7 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
         append(state, &of_state(state, SESSIONS), &format!("{session}\n"))?;
     }
     let result = match ran.ended {
+        Ended::Code(0) if cannot => "cannot".to_string(),
         Ended::Code(0) => "ok".to_string(),
         Ended::Code(code) => format!("error-{code}"),
         Ended::Timeout => "timeout".to_string(),
@@ -968,6 +993,10 @@ mod tests {
         let test = Error::Failed(Who::BuilderTest, -9);
         let said = "the Builder in test mode failed (exit -9)";
         assert_eq!(test.to_string(), said);
+        let cannot = Error::Cannot(Who::Reviewer, "too large".into());
+        let said = "the Reviewer says it cannot do the task: too large";
+        assert_eq!(cannot.to_string(), said);
+        assert!(cannot.parks());
         let missing = Error::Missing("codex".into(), "Codex".into());
         let said = "cannot find the codex program of Codex on PATH";
         assert_eq!(missing.to_string(), said);
@@ -1478,6 +1507,61 @@ mod tests {
         assert_eq!(err.to_string(), said);
         assert!(!err.parks());
         assert!(!faked.has(log::PATH));
+    }
+
+    /// A Claude Code result whose final text says the agent cannot do the task, then `after`.
+    fn cannot_result(after: &str) -> String {
+        let text = format!("Done what I could.\\n**CANNOT:** no currency\\n{after}");
+        RESULT.replace("all done", &text)
+    }
+
+    #[test]
+    fn an_agent_that_ends_well_saying_it_cannot_ends_so_and_is_logged() {
+        let faked = Faked::new(SAYS);
+        faked.write("said", &cannot_result(""));
+        let (used, ended) = faked.used(Who::BuilderBuild, LONG);
+        let err = ended.unwrap_err();
+        let cannot = matches!(err, Error::Cannot(Who::BuilderBuild, _));
+        assert!(cannot, "{err:?}");
+        assert!(err.parks());
+        let said = "the Builder in build mode says it cannot do the task: no currency";
+        assert_eq!(err.to_string(), said);
+        // What it said and used is kept as for any call; only the result of its line differs.
+        assert_eq!(used.cost_usd, 0.5);
+        let text = "Done what I could.\n**CANNOT:** no currency\n";
+        assert_eq!(faked.output("builder-build-1.md"), text);
+        assert_eq!(faked.read(SESSIONS), "s-9\n");
+        assert_eq!(faked.logged().text("result"), "cannot");
+        assert_eq!(faked.logged().text("retry"), "0");
+        // The Reviewer's verdict after it counts for nothing here: its text is its review.
+        faked.write("said", &cannot_result("VERDICT: OK"));
+        let err = faked.call(Who::Reviewer, LONG).unwrap_err();
+        assert!(matches!(err, Error::Cannot(Who::Reviewer, _)), "{err:?}");
+        let review = faked.read(&verdict::review_path("c1"));
+        let tail = "CANNOT:** no currency\nVERDICT: OK";
+        assert!(review.ends_with(tail), "{review}");
+        assert_eq!(faked.logged().text("result"), "cannot");
+        // A text without the mark ends well.
+        faked.write("said", RESULT);
+        assert!(faked.call(Who::Orchestrator, LONG).is_ok());
+        assert_eq!(faked.logged().text("result"), "ok");
+    }
+
+    #[test]
+    fn an_agent_that_says_it_cannot_but_fails_or_runs_out_of_time_ends_as_it_did() {
+        let faked = Faked::new(&format!("{SAYS}; exit 3"));
+        faked.write("said", &cannot_result(""));
+        let err = faked.call(Who::BuilderTest, LONG).unwrap_err();
+        let failed = matches!(err, Error::Failed(Who::BuilderTest, 3));
+        assert!(failed, "{err:?}");
+        assert_eq!(faked.logged().text("result"), "error-3");
+        let faked = Faked::new(&format!("{SAYS}; sleep 30"));
+        faked.write("said", &cannot_result(""));
+        let err = faked.call(Who::BuilderBuild, Duration::from_millis(300));
+        let err = err.unwrap_err();
+        let timeout = matches!(err, Error::Timeout(Who::BuilderBuild, 0));
+        assert!(timeout, "{err:?}");
+        assert_eq!(faked.logged().text("result"), "timeout");
     }
 
     #[test]
