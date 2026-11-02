@@ -22,8 +22,8 @@ use crate::layout::{self, Layout};
 pub const ADOPTION: &str = ".tminus/adoption";
 
 /// The variables the commands get, empty: the ones of the gates, without a change. In the new
-/// names: a project of the old layout gets them as it names them, and never their twins (see
-/// [`exec::run_limited`]).
+/// names: a project of the old layout gets them as it names them, a project of the new one under
+/// both names (see [`exec::run_limited`]).
 const ENV: [&str; 4] = [
     "TMINUS_CHANGE",
     "TMINUS_COLOR",
@@ -350,12 +350,12 @@ mutation = "touch ran; exit 1"
     }
 
     #[test]
-    fn a_new_project_gets_the_variables_of_the_gates_without_their_old_twins() {
+    fn a_new_project_gets_the_variables_of_the_gates_under_both_names() {
         let (repo, state) = project();
-        let text = "[g2]\nlint = 'echo \"${TMINUS_CHANGE-unset}|${GDD_CHANGE-none}\"; exit 1'\n";
+        let text = "[g2]\nlint = 'echo \"${TMINUS_CHANGE+new}|${GDD_CHANGE+old}\"; exit 1'\n";
         adopted(&repo, &state, text).unwrap();
         let said = fs::read_to_string(state.0.join(new_kept("lint"))).unwrap();
-        assert_eq!(said, "|none\n");
+        assert_eq!(said, "new|old\n");
     }
 
     #[test]

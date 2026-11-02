@@ -730,8 +730,8 @@ mod tests {
         let check = format!("test -f README.md && test -z \"{vars}\"");
         let learned = learn(&root.0, &state.0, &commands(&[("here", &check)]), None).unwrap();
         assert_eq!(learned.tools[0].verdict, Verdict::Nothing);
-        // Set, empty, and without their old twins.
-        let set = "test \"${TMINUS_CHANGE-unset}|${GDD_CHANGE-none}\" = \"|none\"";
+        // Set, empty, under both names.
+        let set = "test \"${TMINUS_CHANGE-unset}|${GDD_CHANGE-unset}\" = \"|\"";
         let learned = learn(&root.0, &state.0, &commands(&[("set", set)]), None).unwrap();
         assert_eq!(learned.tools[0].verdict, Verdict::Nothing);
     }

@@ -1066,8 +1066,13 @@ mod tests {
         let both = Board::load(&project.0).unwrap_err();
         let said = "has both tminus/project.toml and gdd/project.toml: keep one of them";
         assert!(both.ends_with(said), "{both}");
+        // The state of the old layout alone is the state still to move.
         let new = Project::new();
         new.write(".gdd/changes/a/change.json", "{}");
+        let state = Board::load(&new.0).unwrap_err();
+        let to_move = "its state is still in .gdd/: run tminus upgrade";
+        assert!(state.contains(to_move), "{state}");
+        new.write(".tminus/log.jsonl", "");
         let state = Board::load(&new.0).unwrap_err();
         assert!(state.contains("but has .gdd/"), "{state}");
     }

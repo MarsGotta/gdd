@@ -429,6 +429,14 @@ impl Git {
         Ok(())
     }
 
+    /// Moves the file `from` to `to`, each from the project root, in the working tree and the
+    /// index, as `git mv` does: its bytes and its mode stay as they were. The folder `to` goes in
+    /// must be there.
+    pub fn move_path(&self, from: &str, to: &str) -> Result<(), Error> {
+        self.read(&["mv", "--", from, to])?;
+        Ok(())
+    }
+
     /// Commits, on the current branch, everything the working tree changed except what git
     /// ignores, with `message`, as [`Git::commit_all`] does; with nothing changed, the commit is
     /// empty.
@@ -1247,6 +1255,34 @@ pub(crate) mod tests {
         assert!(err.to_string().starts_with("git ls-tree -r "), "{err}");
         let option = git.files_at("-x", "features");
         assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+    }
+
+    #[test]
+    fn a_file_moves_with_its_bytes_and_its_mode_into_a_folder_already_there() {
+        use std::os::unix::fs::PermissionsExt;
+        let repo = Repo::new();
+        repo.write("gdd/bin/check.sh", "#!/bin/sh\n");
+        let script = repo.root().join("gdd/bin/check.sh");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        repo.write("-n", "dash\n");
+        repo.commit();
+        let git = repo.tool();
+        fs::create_dir_all(repo.root().join("tminus/bin")).unwrap();
+        let (from, to) = ("gdd/bin/check.sh", "tminus/bin/check.sh");
+        git.move_path(from, to).unwrap();
+        // A name that starts with a dash is a path, never an option.
+        git.move_path("-n", "dash.md").unwrap();
+        repo.commit();
+        let listed = repo.git(&["ls-tree", "HEAD", "--", "tminus/bin/check.sh"]);
+        assert!(listed.starts_with("100755 blob "), "{listed}");
+        let moved = git.file_at("HEAD", "tminus/bin/check.sh").unwrap();
+        assert_eq!(moved, Some(b"#!/bin/sh\n".to_vec()));
+        assert_eq!(git.file_at("HEAD", "gdd/bin/check.sh").unwrap(), None);
+        let dash = git.file_at("HEAD", "dash.md").unwrap();
+        assert_eq!(dash, Some(b"dash\n".to_vec()));
+        let err = git.move_path("README.md", "none/README.md").unwrap_err();
+        let failed = "git mv -- README.md none/README.md failed";
+        assert!(err.to_string().starts_with(failed), "{err}");
     }
 
     #[test]

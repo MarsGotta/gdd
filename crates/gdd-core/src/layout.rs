@@ -1,7 +1,7 @@
 //! Where a project keeps its files and its state: in `tminus/` and `.tminus/`, as tminus sets a
 //! project up, or in `gdd/` and `.gdd/`, as a project set up before the tool was called tminus
-//! keeps them. The tool reads and writes each project where it already keeps things, and moves
-//! nothing.
+//! keeps them. The tool reads and writes each project where it already keeps things; only
+//! `tminus upgrade` moves one to the new names (see [`moved_names`] and [`state_to_move`]).
 //!
 //! Every path the tool knows is written in the new names (`tminus/zones.toml`,
 //! `.tminus/changes`...) and resolved against the folder it is joined to: the project root for
@@ -13,6 +13,7 @@ use std::fs::{self, Metadata};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use crate::agents::render;
 use crate::git::{self, Git};
 
 /// The file that marks a project of the new layout, from its root.
@@ -20,6 +21,12 @@ const NEW_PROJECT: &str = "tminus/project.toml";
 
 /// The file that marks a project of the old layout, from its root.
 const OLD_PROJECT: &str = "gdd/project.toml";
+
+/// The state folder of the new layout, from the state root.
+const NEW_STATE: &str = ".tminus";
+
+/// The state folder of the old layout, from the state root.
+const OLD_STATE: &str = ".gdd";
 
 /// Where a project keeps its files and its state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,8 +107,8 @@ impl Layout {
 }
 
 /// The twin of the variable `name` in the other layout: `GDD_X` for `TMINUS_X` and `TMINUS_X`
-/// for `GDD_X`; `None` for any other name. What the tool starts gets the names of the project's
-/// layout only: the twin goes, so an inherited one never overrides what the tool set.
+/// for `GDD_X`; `None` for any other name. What the tool sets never comes with an inherited twin
+/// (see [`crate::exec`]).
 pub fn twin(name: &str) -> Option<String> {
     let rest = |prefix: &str| name.strip_prefix(prefix).filter(|rest| !rest.is_empty());
     if let Some(rest) = rest("TMINUS_") {
@@ -128,15 +135,23 @@ pub fn named(root: &Path, path: &str) -> String {
 /// refused when a folder has both `tminus/project.toml` and `gdd/project.toml`, or when the state
 /// root also has the state folder of the other layout (`.gdd` in the new one, `.tminus` in the
 /// old). The tool never picks one of two places to read approvals and records from. A file that
-/// cannot be looked at is refused too, with its path and why.
+/// cannot be looked at is refused too, with its path and why. A state root whose state is still
+/// to move (see [`state_to_move`]) names the one way out: `tminus upgrade`.
 pub fn check(project_root: &Path, state_root: &Path) -> Result<(), String> {
     one_project(project_root)?;
     if state_root != project_root {
         one_project(state_root)?;
     }
+    if state_to_move(state_root)? {
+        return Err(format!(
+            "{} keeps its files in tminus/ but its state is still in .gdd/: run tminus upgrade to \
+             move it to .tminus/",
+            state_root.display()
+        ));
+    }
     let (files, other, own, kind) = match Layout::at(state_root) {
-        Layout::Tminus => ("tminus/", ".gdd", ".tminus", "old"),
-        Layout::Gdd => ("gdd/", ".tminus", ".gdd", "new"),
+        Layout::Tminus => ("tminus/", OLD_STATE, NEW_STATE, "old"),
+        Layout::Gdd => ("gdd/", NEW_STATE, OLD_STATE, "new"),
     };
     let path = state_root.join(other);
     match seen(fs::symlink_metadata(&path)) {
@@ -147,6 +162,94 @@ pub fn check(project_root: &Path, state_root: &Path) -> Result<(), String> {
         )),
         Ok(None) => Ok(()),
         Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+    }
+}
+
+/// Whether the state root `state_root` has its files moved to the new names and its state not
+/// yet: `tminus/project.toml` is a file there and `gdd/project.toml` is not, something is at
+/// `.gdd` and nothing at `.tminus` (see [`seen`]). What `tminus upgrade` moves once its branch is
+/// merged. A path that cannot be looked at is an error that names it and why.
+pub fn state_to_move(state_root: &Path) -> Result<bool, String> {
+    let there = |name: &str| {
+        let path = state_root.join(name);
+        let found = seen(fs::symlink_metadata(&path));
+        found
+            .map(|meta| meta.is_some())
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))
+    };
+    let new = looked(&state_root.join(NEW_PROJECT))?;
+    if !new || looked(&state_root.join(OLD_PROJECT))? {
+        return Ok(false);
+    }
+    Ok(there(OLD_STATE)? && !there(NEW_STATE)?)
+}
+
+/// `text`, one of the files `tminus init` writes once as gdd wrote it, with the folders and the
+/// agents' commands in the new names, read left to right: `.gdd/` becomes `.tminus/` where `.gdd`
+/// follows no ASCII letter, digit or `_`; `gdd/` becomes `tminus/` where `gdd` follows none of
+/// them, nor `-`, `.` or `/` (a URL such as `github.com/owner/gdd/...` stays); `gdd-<command>`
+/// becomes `tminus-<command>` for each command `tminus agents install` writes, where it follows
+/// none of them nor `-` or `.`, and comes before none of them nor `-`. Nothing else changes: the
+/// name of the tool in a command (`gdd ci`) and the variables (`GDD_FEATURES`) stay.
+pub fn moved_names(text: &str) -> String {
+    let commands = render::commands();
+    let mut moved = String::with_capacity(text.len());
+    let mut before = None;
+    let mut rest = text;
+    while let Some(next) = rest.chars().next() {
+        let len = match moved_at(rest, before, &commands) {
+            Some((name, len)) => {
+                moved.push_str(&name);
+                len
+            }
+            None => {
+                moved.push(next);
+                next.len_utf8()
+            }
+        };
+        before = rest[..len].chars().next_back();
+        rest = &rest[len..];
+    }
+    moved
+}
+
+/// The name in the new names `rest` starts with, after the character `before` (`None` at the
+/// start), with the length it had (see [`moved_names`]); `None` when it starts with none.
+fn moved_at(rest: &str, before: Option<char>, commands: &[String]) -> Option<(String, usize)> {
+    let follows = |others: &[char]| before.is_some_and(|c| word(c) || others.contains(&c));
+    if !follows(&[]) && rest.starts_with(".gdd/") {
+        return Some((".tminus/".to_string(), ".gdd/".len()));
+    }
+    if !follows(&['-', '.', '/']) && rest.starts_with("gdd/") {
+        return Some(("tminus/".to_string(), "gdd/".len()));
+    }
+    let command = rest.strip_prefix("gdd-")?;
+    if follows(&['-', '.']) {
+        return None;
+    }
+    let ends = |tail: &str| !tail.starts_with(|c: char| word(c) || c == '-');
+    let named = |name: &&String| command.strip_prefix(name.as_str()).is_some_and(ends);
+    let name = commands.iter().find(named)?;
+    Some((format!("tminus-{name}"), "gdd-".len() + name.len()))
+}
+
+/// `text` with every variable of the tool in its old name: each `TMINUS_` that follows no ASCII
+/// letter, digit or `_` and comes before a capital letter becomes `GDD_`. Nothing else changes.
+pub fn old_variables(text: &str) -> String {
+    by_name(text, old_variable)
+}
+
+/// `path` of a project of the old layout as the new one names it: `gdd/<rest>` is
+/// `tminus/<rest>`, `.gdd/<rest>` is `.tminus/<rest>` and `.github/workflows/gdd.yml` is
+/// `.github/workflows/tminus.yml`. Any other path stays.
+pub fn new_path(path: &str) -> String {
+    if path == ".github/workflows/gdd.yml" {
+        return ".github/workflows/tminus.yml".to_string();
+    }
+    match path.split_once('/') {
+        Some(("gdd", rest)) => format!("tminus/{rest}"),
+        Some((".gdd", rest)) => format!(".tminus/{rest}"),
+        _ => path.to_string(),
     }
 }
 
@@ -213,24 +316,34 @@ fn word(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// `text` in the old names (see [`Layout::localize`]), name by name: a name is a run of
-/// [`word`] characters as long as it goes, so a name that touches none on either side is a
-/// whole run.
+/// `text` in the old names (see [`Layout::localize`]).
 fn to_old_names(text: &str) -> String {
+    by_name(text, old_name)
+}
+
+/// `text` with each name renamed by `rename`: a name is a run of [`word`] characters as long as
+/// it goes, so a name that touches none on either side is a whole run.
+fn by_name(text: &str, rename: fn(&str) -> String) -> String {
     text.split_inclusive(|c: char| !word(c))
         .map(|piece| {
             let name = piece.trim_end_matches(|c: char| !word(c));
-            format!("{}{}", old_name(name), &piece[name.len()..])
+            format!("{}{}", rename(name), &piece[name.len()..])
         })
         .collect()
 }
 
-/// The whole name `name` in the old names: `tminus` is `gdd`, and `TMINUS_` before a capital
-/// letter is `GDD_`. Any other name stays.
+/// The whole name `name` in the old names: `tminus` is `gdd`, and a variable takes its old name
+/// (see [`old_variable`]). Any other name stays.
 fn old_name(name: &str) -> String {
     if name == "tminus" {
         return "gdd".to_string();
     }
+    old_variable(name)
+}
+
+/// The whole name `name` as a variable of the tool had it before the rename: `TMINUS_` before a
+/// capital letter is `GDD_`. Any other name stays.
+fn old_variable(name: &str) -> String {
     match name.strip_prefix("TMINUS_") {
         Some(rest) if rest.starts_with(|c: char| c.is_ascii_uppercase()) => format!("GDD_{rest}"),
         _ => name.to_string(),
@@ -593,5 +706,191 @@ mod tests {
         }
         assert_eq!(Layout::Gdd.localize("a TMINUS_X"), "a GDD_X");
         assert_eq!(Layout::Gdd.localize("-TMINUS_X-tminus-"), "-GDD_X-gdd-");
+    }
+
+    #[test]
+    fn the_folders_and_the_agents_commands_take_their_new_names() {
+        for (old, new) in [
+            (".gdd/", ".tminus/"),
+            ("into .gdd/changes", "into .tminus/changes"),
+            ("\".gdd/bin/**\"", "\".tminus/bin/**\""),
+            ("a/.gdd/x", "a/.tminus/x"),
+            ("-.gdd/", "-.tminus/"),
+            ("gdd/", "tminus/"),
+            ("(gdd/debt.toml)", "(tminus/debt.toml)"),
+            ("ñgdd/ñ", "ñtminus/ñ"),
+            ("gdd/gdd/", "tminus/gdd/"),
+            ("/gdd-build", "/tminus-build"),
+            ("$gdd-review x", "$tminus-review x"),
+            ("`gdd-setup`", "`tminus-setup`"),
+            ("gdd-build-test", "tminus-build-test"),
+            ("gdd-stack-rust.", "tminus-stack-rust."),
+            ("gdd-status/SKILL.md", "tminus-status/SKILL.md"),
+            ("", ""),
+        ] {
+            assert_eq!(moved_names(old), new, "{old:?}");
+        }
+        let all = "/gdd-build, gdd/ and .gdd/ (github.com/o/gdd/x), `gdd ci`, \
+                   GDD_FEATURES, gdd_selftest, gdd-core.";
+        let moved = "/tminus-build, tminus/ and .tminus/ (github.com/o/gdd/x), `gdd ci`, \
+                     GDD_FEATURES, gdd_selftest, gdd-core.";
+        assert_eq!(moved_names(all), moved);
+    }
+
+    #[test]
+    fn what_only_looks_like_a_folder_or_a_command_of_the_old_names_stays() {
+        for kept in [
+            "x.gdd/",
+            "_.gdd/",
+            "1.gdd/",
+            ".gdd",
+            "agdd/",
+            "_gdd/",
+            "9gdd/",
+            "-gdd/",
+            "/gdd/",
+            "x.gdd",
+            "Gdd/",
+            "GDD/",
+            "gdd",
+            "gdd ci",
+            "gdd init",
+            "GDD_X",
+            "gdd_selftest",
+            "MarsGotta/gdd --tag v1 gdd",
+            "gdd-rust",
+            "gdd-core",
+            "gdd-",
+            "gdd-stack-cobol",
+            "my-gdd-build",
+            "x.gdd-build",
+            "agdd-build",
+            "gdd-buildx",
+            "gdd-build_x",
+            "gdd-build-x",
+            "gdd-Build",
+            "tminus/",
+        ] {
+            assert_eq!(moved_names(kept), kept, "{kept:?}");
+        }
+    }
+
+    #[test]
+    fn the_variables_take_their_old_names_and_nothing_else_does() {
+        for (new, old) in [
+            ("TMINUS_FEATURES", "GDD_FEATURES"),
+            (
+                "TMINUS_FEATURES= TMINUS_HIDDEN=1 tminus ci",
+                "GDD_FEATURES= GDD_HIDDEN=1 tminus ci",
+            ),
+            ("${TMINUS_CHANGE}", "${GDD_CHANGE}"),
+        ] {
+            assert_eq!(old_variables(new), old, "{new:?}");
+        }
+        for kept in [
+            "MY_TMINUS_X",
+            "TMINUS_x",
+            "TMINUS_",
+            "tminus",
+            "tminus/",
+            "tminus-build",
+        ] {
+            assert_eq!(old_variables(kept), kept, "{kept:?}");
+        }
+    }
+
+    #[test]
+    fn a_path_of_the_old_layout_takes_its_new_name() {
+        for (old, new) in [
+            ("gdd/notes.md", "tminus/notes.md"),
+            ("gdd/bin/check.sh", "tminus/bin/check.sh"),
+            (".gdd/changes/c1", ".tminus/changes/c1"),
+            (".github/workflows/gdd.yml", ".github/workflows/tminus.yml"),
+        ] {
+            assert_eq!(new_path(old), new, "{old:?}");
+        }
+        for kept in [
+            "docs/brief.md",
+            "gdd",
+            ".gdd",
+            "a/gdd/x",
+            "gddx/y",
+            ".github/workflows/gdd.yaml",
+            "tminus/x",
+            "",
+        ] {
+            assert_eq!(new_path(kept), kept, "{kept:?}");
+        }
+    }
+
+    #[test]
+    fn the_state_is_to_move_once_the_files_took_the_new_names() {
+        let folder = Folder::new();
+        let root = &folder.0;
+        assert_eq!(state_to_move(root), Ok(false));
+        folder.write(".gdd/log.jsonl", "");
+        assert_eq!(state_to_move(root), Ok(false));
+        folder.write("tminus/project.toml", "");
+        assert_eq!(state_to_move(root), Ok(true));
+        // Whatever is at .gdd: a file or a link, even to nothing.
+        fs::remove_dir_all(root.join(".gdd")).unwrap();
+        assert_eq!(state_to_move(root), Ok(false));
+        folder.write(".gdd", "");
+        assert_eq!(state_to_move(root), Ok(true));
+        fs::remove_file(root.join(".gdd")).unwrap();
+        std::os::unix::fs::symlink("nowhere", root.join(".gdd")).unwrap();
+        assert_eq!(state_to_move(root), Ok(true));
+        // Anything at .tminus, a file too, is a state already there.
+        folder.write(".tminus", "");
+        assert_eq!(state_to_move(root), Ok(false));
+        fs::remove_file(root.join(".tminus")).unwrap();
+        // Both project files are not this case (see `check`).
+        folder.write("gdd/project.toml", "");
+        assert_eq!(state_to_move(root), Ok(false));
+        fs::remove_dir_all(root.join("gdd")).unwrap();
+        assert_eq!(state_to_move(root), Ok(true));
+        // A state root that is a file has nothing under it.
+        folder.write("file", "");
+        assert_eq!(state_to_move(&root.join("file")), Ok(false));
+    }
+
+    #[test]
+    fn a_project_file_that_cannot_be_looked_at_is_refused_when_the_state_may_move() {
+        for (link, new) in [("tminus", false), ("gdd", true)] {
+            let folder = Folder::new();
+            if new {
+                folder.write("tminus/project.toml", "");
+            }
+            folder.write(".gdd/log.jsonl", "");
+            std::os::unix::fs::symlink(link, folder.0.join(link)).unwrap();
+            let path = folder.0.join(link).join("project.toml");
+            let err = state_to_move(&folder.0).unwrap_err();
+            let start = format!("cannot read {}: ", path.display());
+            assert!(err.starts_with(&start), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_state_root_whose_state_is_still_to_move_names_tminus_upgrade() {
+        let folder = Folder::new();
+        folder.write("tminus/project.toml", "");
+        folder.write(".gdd/log.jsonl", "");
+        let refused = format!(
+            "{} keeps its files in tminus/ but its state is still in .gdd/: run tminus upgrade to \
+             move it to .tminus/",
+            folder.0.display()
+        );
+        assert_eq!(check(&folder.0, &folder.0), Err(refused.clone()));
+        // From a worktree of the project too.
+        let worktree = Folder::new();
+        worktree.write("tminus/project.toml", "");
+        assert_eq!(check(&worktree.0, &folder.0), Err(refused));
+        // With both state folders, the words of every other case.
+        folder.write(".tminus/log.jsonl", "");
+        let err = check(&folder.0, &folder.0).unwrap_err();
+        assert!(err.ends_with("move .gdd to .tminus or remove it"), "{err}");
+        // Once moved, nothing to refuse.
+        fs::remove_dir_all(folder.0.join(".gdd")).unwrap();
+        assert_eq!(check(&folder.0, &folder.0), Ok(()));
     }
 }
