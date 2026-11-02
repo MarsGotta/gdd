@@ -1836,12 +1836,31 @@ n=$(grep -c "^$role|" "$fake/calls")
 text=done
 case "$role" in
   builder-test)
-    mkdir -p tests/steps
-    echo "$n" > tests/steps/app.txt
-    if [ -f "$fake/test_also" ]; then
-      also=$(cat "$fake/test_also")
-      mkdir -p "$(dirname "$also")"
-      cp "$fake/test_also_content" "$also"
+    how=
+    if [ -f "$fake/test_writes" ]; then
+      read -r call how path < "$fake/test_writes"
+      [ "$n" = "$call" ] || how=
+    fi
+    if [ -z "$how" ]; then
+      mkdir -p tests/steps
+      echo "$n" > tests/steps/app.txt
+      if [ -f "$fake/test_also" ]; then
+        also=$(cat "$fake/test_also")
+        mkdir -p "$(dirname "$also")"
+        cp "$fake/test_also_content" "$also"
+      fi
+    else
+      mkdir -p "$(dirname "$path")"
+      echo "written by the Builder in test mode" > "$path"
+      case "$how" in
+        never)
+          sleep 1000 &
+          echo $! >> "$fake/pids"
+          echo $$ >> "$fake/pids"
+          wait
+          ;;
+        fails) exit 1 ;;
+      esac
     fi
     ;;
   builder-build)
@@ -2136,6 +2155,22 @@ fn builder_writes_nothing_for_variant(w: &mut GddWorld, variant: usize) {
     fake_file(w, "nothing_variants", &format!("{before}{variant}\n"));
 }
 
+// ---- features/test-mode-leak.feature ------------------------------------------------------
+//
+// The fake Builder in test mode acts on `test_writes` (`<call> <how> <path>`): on that call it
+// writes only `<path>`, no step, and then fails (`fails`), never answers (`never`) or finishes.
+
+#[given(
+    regex = r#"^the Builder in test mode, on its call (\d+), writes only "([^"]*)" and then (fails|never answers|finishes)$"#
+)]
+fn builder_test_writes_only(w: &mut GddWorld, call: usize, path: String, ending: String) {
+    let how = match ending.as_str() {
+        "never answers" => "never",
+        other => other,
+    };
+    fake_file(w, "test_writes", &format!("{call} {how} {path}\n"));
+}
+
 #[given("the Builder in build mode never answers")]
 fn builder_never_answers(w: &mut GddWorld) {
     fake_file(w, "build", "never");
@@ -2263,6 +2298,21 @@ fn reviewer_finds_then(w: &mut GddWorld, finding: String, second: String) {
 #[given(expr = "the Reviewer answers {string} every time")]
 fn reviewer_answers_always(w: &mut GddWorld, answer: String) {
     fake_file(w, "reviews", &format!("{answer}\n"));
+}
+
+// ---- features/reviewer-fixes.feature -------------------------------------------------------
+//
+// The fake Reviewer answers line `n` of `reviews` in round `n`, and its last line after them.
+
+#[given(expr = "the Reviewer says KO {int} times and then {word}")]
+fn reviewer_says_ko_times(w: &mut GddWorld, times: usize, last: String) {
+    assert!(
+        last == "OK" || last == "KO",
+        "the review after the KOs is OK or KO, not {last:?}"
+    );
+    let mut reviews = "VERDICT: KO\n".repeat(times);
+    reviews.push_str(&format!("VERDICT: {last}\n"));
+    fake_file(w, "reviews", &reviews);
 }
 
 #[given(expr = "the agent time limit is {int} seconds")]

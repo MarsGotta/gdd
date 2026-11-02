@@ -96,11 +96,27 @@ pub const ANSWERS: [&str; 3] = ["ok", "ko", "polish"];
 const UNCOMMITTED: &str =
     "The working tree has uncommitted changes. Commit them before launching a change.";
 
-/// Why a change parks when G3 is still red after its fix.
+/// Why a change parks when G3 is still red after its fix, said for one fix round (see
+/// [`after_fixes`]).
 const G3_RED: &str = "G3 still red after one fix";
 
-/// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix.
+/// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix, said for one
+/// fix round (see [`after_fixes`]).
 const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
+
+/// How the reasons to park name one fix round.
+const ONE_FIX: &str = "one fix";
+
+/// `why`, a reason to park said for one fix round, said for `fixes` of them: `why` itself for one,
+/// "no fix" for none, "<n> fixes" for more.
+fn after_fixes(why: &str, fixes: u32) -> String {
+    let before = why.strip_suffix(ONE_FIX).unwrap_or(why);
+    match fixes {
+        0 => format!("{before}no fix"),
+        1 => why.to_string(),
+        n => format!("{before}{n} fixes"),
+    }
+}
 
 /// Why a spike with variants parks when none of them passed its gate.
 const NO_VARIANT: &str = "no variant passed its gate";
@@ -228,6 +244,10 @@ pub enum Snapshot {
     /// Taken when a run parks: what changed after it, before the change runs again, a person
     /// changed by hand.
     Parked,
+    /// Taken right before a round of test mode that comes after build mode: until the build
+    /// snapshot moves after that round, what changed since it is test mode's work, and a relaunch
+    /// judges it as test mode's.
+    Test,
 }
 
 /// The steps of the recipe that read the configuration of the project, on the change it runs.
@@ -245,9 +265,14 @@ pub trait Steps {
     /// Before a relaunch prepares the change again, Path Guard for build mode on what it touched
     /// since its build started, judged from the build snapshot, and the scope check, but for the
     /// paths `hand` a person changed by hand (see [`Steps::hand_edits`]): their failures, a check
-    /// that cannot judge failing with the reason. `None` without a build snapshot: test mode
-    /// never passed its Path Guard, or did not run.
+    /// that cannot judge failing with the reason. What changed since the test snapshot (see
+    /// [`Snapshot::Test`]), when there is one, is the work of the last round of test mode: Path
+    /// Guard for test mode judges it first, and build mode does not. `None` without a build
+    /// snapshot: test mode never passed its Path Guard, or did not run.
     fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String>;
+    /// Before a relaunch prepares the change again, whether the last round of test mode did not
+    /// get through: its test snapshot is still there (see [`Snapshot::Test`]).
+    fn test_pending(&mut self) -> Result<bool, String>;
     /// Before a relaunch prepares the change again, the paths whose content changed since the
     /// earlier run parked (see [`Snapshot::Parked`]): a person's, sorted. `None` without that
     /// snapshot.
@@ -293,6 +318,9 @@ pub struct Project<'a> {
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
     pub replans: u32,
+    /// Fix rounds after a red G3, and after a Reviewer KO, before the change parks (see
+    /// [`Run::g3`] and [`Run::review`]).
+    pub fixes: u32,
     /// Changes that build at once at most (see [`queue::cap`]).
     pub max: usize,
     /// What the agent calls of a spike may cost, in USD, before it parks (see
@@ -554,7 +582,9 @@ fn work_committed(root: &Path, message: &str) -> Result<(), git::Error> {
 /// once the gates of that run accept it, judged as they judged it, from its build snapshot (see
 /// [`Steps::guard_earlier`]). Without a build snapshot it stays as it is, for test mode, which
 /// wrote it, to answer for. When the gates do not accept it, nothing is committed: why the
-/// change parks before any agent call (see [`not_accepted`]).
+/// change parks before any agent call (see [`not_accepted`]). Without work left there, nothing
+/// is judged, unless the last round of test mode did not get through (see
+/// [`Steps::test_pending`]): what it committed is judged as what it left.
 fn earlier_work(
     state: &Path,
     work: &Path,
@@ -563,7 +593,7 @@ fn earlier_work(
 ) -> Result<Option<String>, String> {
     let said = |e: git::Error| e.to_string();
     let git = Git::new(work);
-    if !git.has_work().map_err(said)? {
+    if !git.has_work().map_err(said)? && !steps.test_pending()? {
         return Ok(None);
     }
     let known = steps.hand_edits()?;
@@ -1557,8 +1587,13 @@ impl<S: Steps> Run<'_, S> {
     /// by Path Guard all the same, then parks: with Path Guard's failures first, when it failed,
     /// and its own reason. Then the build snapshot; after a round judged since the round
     /// snapshot, moved only for what test mode changed in it (see
-    /// [`Snapshot::BuildAfterRound`]), so what build mode wrote before stays its own.
+    /// [`Snapshot::BuildAfterRound`]), so what build mode wrote before stays its own. A round
+    /// judged since the round snapshot takes the test snapshot first (see [`Snapshot::Test`]),
+    /// so a relaunch after a round that did not get through judges its work as test mode's.
     fn test_mode(&mut self, args: &str, since_snapshot: bool) -> Result<(), Stop> {
+        if since_snapshot {
+            self.steps.snapshot(Snapshot::Test)?;
+        }
         let cannot = self.called(Who::BuilderTest, args)?;
         let failures = self.steps.guard_test(since_snapshot)?;
         let mut why = Vec::new();
@@ -1673,40 +1708,47 @@ impl<S: Steps> Run<'_, S> {
         Ok(())
     }
 
-    /// G3; red, one fix by the Builder, G2, and G3 again: G3 decides, as it runs the whole
-    /// automatic chain. Still red, the change parks.
+    /// G3; red, the fix rounds the rules set (see [`Project::fixes`]), each one fix by the
+    /// Builder, G2, and G3 again: G3 decides, as it runs the whole automatic chain. Still red
+    /// after the last, the change parks.
     fn g3(&mut self) -> Result<(), Stop> {
         if self.steps.gate(Gate::G3)? {
             return Ok(());
         }
-        self.call(Who::BuilderBuild, "mode=build fix=g3")?;
-        self.steps.gate(Gate::G2)?;
-        if self.steps.gate(Gate::G3)? {
-            Ok(())
-        } else {
-            Err(Stop::Park(G3_RED.to_string()))
+        let fixes = self.project.fixes;
+        for _ in 0..fixes {
+            self.call(Who::BuilderBuild, "mode=build fix=g3")?;
+            self.steps.gate(Gate::G2)?;
+            if self.steps.gate(Gate::G3)? {
+                return Ok(());
+            }
         }
+        Err(Stop::Park(after_fixes(G3_RED, fixes)))
     }
 
-    /// The Reviewer; KO, one fix by the Builder, G2, G3 and a second review. KO, or G3 red, the
-    /// change parks. The fix starts in test mode when a finding names a file only test mode may
-    /// fix (see [`Run::test_mode_fixes`]), judged by Path Guard since then; build mode follows.
+    /// The Reviewer; KO, the fix rounds the rules set (see [`Project::fixes`]), each one fix by
+    /// the Builder, G2, G3 and the next review. KO, or G3 red, after the last, the change parks.
+    /// Each fix starts in test mode when a finding of the review before names a file only test
+    /// mode may fix (see [`Run::test_mode_fixes`]), judged by Path Guard since then; build mode
+    /// follows.
     fn review(&mut self) -> Result<(), Stop> {
         if self.reviewed("round=1")? {
             return Ok(());
         }
-        if self.test_mode_fixes()? {
-            self.steps.snapshot(Snapshot::Round)?;
-            self.test_mode("mode=test fix=review", true)?;
+        let fixes = self.project.fixes;
+        for round in 2..fixes.saturating_add(2) {
+            if self.test_mode_fixes()? {
+                self.steps.snapshot(Snapshot::Round)?;
+                self.test_mode("mode=test fix=review", true)?;
+            }
+            self.call(Who::BuilderBuild, "mode=build fix=review")?;
+            self.steps.gate(Gate::G2)?;
+            let g3 = self.steps.gate(Gate::G3)?;
+            if self.reviewed(&format!("round={round}"))? && g3 {
+                return Ok(());
+            }
         }
-        self.call(Who::BuilderBuild, "mode=build fix=review")?;
-        self.steps.gate(Gate::G2)?;
-        let g3 = self.steps.gate(Gate::G3)?;
-        if self.reviewed("round=2")? && g3 {
-            Ok(())
-        } else {
-            Err(Stop::Park(REVIEW_KO.to_string()))
-        }
+        Err(Stop::Park(after_fixes(REVIEW_KO, fixes)))
     }
 
     /// Whether a finding of the review of the change names a file only test mode may fix (see
@@ -2257,17 +2299,18 @@ mod tests {
     /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
     /// says OK, and the replan build mode; the rules file, `rules`, protects nothing unless a test
     /// says otherwise; what the change touched hashes to nothing; the work of an earlier run
-    /// passes the gates, and `hand` says what a person changed by hand since the run parked
-    /// (nothing known unless a test says otherwise); `judged` keeps the paths each judgement of
-    /// the earlier work left out as the person's. Each call of an agent does what `acts` gives
-    /// it to do, where the steps run (the project root until they move, see
+    /// passes the gates, `pending` says whether the last round of test mode did not get through
+    /// (it did, unless a test says otherwise), and `hand` what a person changed by hand since the
+    /// run parked (nothing known unless a test says otherwise); `judged` keeps the paths each
+    /// judgement of the earlier work left out as the person's. Each call of an agent does what
+    /// `acts` gives it to do, where the steps run (the project root until they move, see
     /// [`Steps::work_in`]), and a release step what `released` gives it, on the project root.
     /// Each call of a role in
     /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
-    /// ([`CENT`]); the others, nothing. A release step, a decision on a gate, or a snapshot
-    /// (`snapshot`), named in `fails` fails with what it gives. A call whose step, as `ran` names
-    /// it, is in `cannot` does and says what it does, then says it cannot do the task, for the
-    /// reason given there.
+    /// ([`CENT`]); the others, nothing. A release step, a decision on a gate, a snapshot
+    /// (`snapshot`), or whether a round of test mode is pending (`test pending`), named in
+    /// `fails` fails with what it gives. A call whose step, as `ran` names it, is in `cannot`
+    /// does and says what it does, then says it cannot do the task, for the reason given there.
     struct Played<'a> {
         root: &'a Path,
         work: PathBuf,
@@ -2284,6 +2327,7 @@ mod tests {
         rules: &'static str,
         guard: Vec<String>,
         earlier: Option<Vec<String>>,
+        pending: bool,
         hand: Option<Vec<String>>,
         judged: Vec<Vec<String>>,
         stuck: Option<Who>,
@@ -2321,6 +2365,7 @@ mod tests {
             rules: "",
             guard: Vec::new(),
             earlier: Some(Vec::new()),
+            pending: false,
             hand: None,
             judged: Vec::new(),
             stuck: None,
@@ -2413,14 +2458,19 @@ mod tests {
         }
 
         fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
-            self.ran.push(format!("snapshot {snapshot:?}"));
-            self.ended("snapshot")
+            let step = format!("snapshot {snapshot:?}");
+            self.ran.push(step.clone());
+            self.ended("snapshot").and_then(|()| self.ended(&step))
         }
 
         fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String> {
             self.ran.push("guard earlier".into());
             self.judged.push(hand.to_vec());
             Ok(self.earlier.clone())
+        }
+
+        fn test_pending(&mut self) -> Result<bool, String> {
+            self.ended("test pending").map(|()| self.pending)
         }
 
         fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String> {
@@ -2487,6 +2537,23 @@ mod tests {
     /// Runs the recipe of a launch as [`launched`] does, with `spike_usd` as the budget of a
     /// spike.
     fn launched_within(steps: &mut Played, replans: u32, spike_usd: f64) -> Result<Ended, Stop> {
+        launched_by(steps, replans, 1, spike_usd)
+    }
+
+    /// Runs the recipe of a launch as [`launched`] does, with one replan and `fixes` fix rounds
+    /// after a red G3 and after a Reviewer KO.
+    fn launched_fixing(steps: &mut Played, fixes: u32) -> Result<Ended, Stop> {
+        launched_by(steps, 1, fixes, 5.0)
+    }
+
+    /// Runs the recipe of a launch as [`launched`] does, with `replans` replans, `fixes` fix
+    /// rounds and `spike_usd` as the budget of a spike.
+    fn launched_by(
+        steps: &mut Played,
+        replans: u32,
+        fixes: u32,
+        spike_usd: f64,
+    ) -> Result<Ended, Stop> {
         let project = Project {
             root: steps.root,
             state: steps.root,
@@ -2494,6 +2561,7 @@ mod tests {
             work: steps.root,
             main: "main",
             replans,
+            fixes,
             max: 2,
             spike_usd,
         };
@@ -2691,6 +2759,7 @@ mod tests {
             "G2",
             "replan o reason=g2",
             "snapshot Round",
+            "snapshot Test",
             "test t mode=test after=replan",
             "guard since=true",
             "snapshot BuildAfterRound",
@@ -2699,6 +2768,17 @@ mod tests {
         ];
         expected.extend(to_production());
         assert_eq!(steps.ran, expected);
+        // A test snapshot that cannot be taken stops before test mode is called.
+        let mut steps = played(&folder.0);
+        steps.decided.retries = 1;
+        steps.replan = "NEXT: test";
+        steps.g2 = VecDeque::from([false]);
+        steps.fails = vec![("snapshot Test", "cannot write it")];
+        let failed = Err(Stop::Fail("cannot write it".into()));
+        assert_eq!(launched(&mut steps, 1), failed);
+        assert_eq!(last(&steps), "snapshot Test");
+        let calls = steps.ran.iter().filter(|step| step.starts_with("test t"));
+        assert_eq!(calls.count(), 1, "{:?}", steps.ran);
         let mut steps = played(&folder.0);
         steps.decided.tests_first = false;
         steps.decided.retries = 1;
@@ -2769,6 +2849,95 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_reasons_to_park_say_how_many_fix_rounds() {
+        let said = [0, 1, 2, 3].map(|fixes| after_fixes(G3_RED, fixes));
+        let expected = [
+            "G3 still red after no fix",
+            "G3 still red after one fix",
+            "G3 still red after 2 fixes",
+            "G3 still red after 3 fixes",
+        ];
+        assert_eq!(said, expected);
+        let said = [0, 1, 2, 3].map(|fixes| after_fixes(REVIEW_KO, fixes));
+        let expected = [
+            "Reviewer KO or G3 red after no fix",
+            "Reviewer KO or G3 red after one fix",
+            "Reviewer KO or G3 red after 2 fixes",
+            "Reviewer KO or G3 red after 3 fixes",
+        ];
+        assert_eq!(said, expected);
+    }
+
+    #[test]
+    fn g3_red_gets_the_fix_rounds_the_rules_set() {
+        let fix = ["build b mode=build fix=g3", "G2", "G3"];
+        for (fixes, why) in [
+            (0, "G3 still red after no fix"),
+            (1, "G3 still red after one fix"),
+            (2, "G3 still red after 2 fixes"),
+        ] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.g3 = VecDeque::from([false; 4]);
+            assert_eq!(launched_fixing(&mut steps, fixes), park(why), "{fixes}");
+            let mut expected = vec!["G3"];
+            (0..fixes).for_each(|_| expected.extend(fix));
+            assert_eq!(steps.ran, expected, "{fixes}");
+        }
+        // Green after the second fix, it goes on.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.g3 = VecDeque::from([false, false]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3"];
+        expected.extend(fix);
+        expected.extend(&fix[..2]);
+        expected.extend(to_production());
+        assert_eq!(steps.ran, expected);
+    }
+
+    #[test]
+    fn a_reviewer_ko_gets_the_fix_rounds_the_rules_set() {
+        let fix = |round: &'static str| ["build b mode=build fix=review", "G2", "G3", round];
+        for (fixes, why) in [
+            (0, "Reviewer KO or G3 red after no fix"),
+            (1, "Reviewer KO or G3 red after one fix"),
+            (2, "Reviewer KO or G3 red after 2 fixes"),
+        ] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.reviews = VecDeque::from(["VERDICT: KO"; 4]);
+            assert_eq!(launched_fixing(&mut steps, fixes), park(why), "{fixes}");
+            let mut expected = vec!["G3", "review r round=1"];
+            let rounds = ["review r round=2", "review r round=3"];
+            let rounds = rounds.into_iter().take(fixes as usize);
+            rounds.for_each(|round| expected.extend(fix(round)));
+            assert_eq!(steps.ran, expected, "{fixes}");
+        }
+        // OK at the third review, it goes on; a red G3 in the last round parks.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO", "VERDICT: KO"]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(fix("review r round=3"));
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..11], expected);
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO", "VERDICT: KO"]);
+        steps.g3 = VecDeque::from([true, true, false]);
+        let why = "Reviewer KO or G3 red after 2 fixes";
+        assert_eq!(launched_fixing(&mut steps, 2), park(why));
+        assert_eq!(last(&steps), "review r round=3");
+    }
+
     /// Rules that keep the steps from build mode, the code from test mode, and the tool's own
     /// files from every role.
     const STEPS_PROTECTED: &str = "[protected]\nall = [\"tminus/**\"]\n\
@@ -2788,6 +2957,7 @@ mod tests {
             "G3",
             "review r round=1",
             "snapshot Round",
+            "snapshot Test",
             "test t mode=test fix=review",
             "guard since=true",
             "snapshot BuildAfterRound",
@@ -2797,7 +2967,7 @@ mod tests {
             "review r round=2",
             OPENED,
         ];
-        assert_eq!(steps.ran[..11], expected);
+        assert_eq!(steps.ran[..12], expected);
         let mut steps = played(&folder.0);
         steps.decided.resume_green = true;
         steps.rules = STEPS_PROTECTED;
@@ -2806,6 +2976,48 @@ mod tests {
         let why = "Path Guard failed after test mode: src/a.rs: protected path for builder-test";
         assert_eq!(launched(&mut steps, 1), park(why));
         assert_eq!(last(&steps), "guard since=true");
+    }
+
+    #[test]
+    fn every_fix_round_starts_in_test_mode_when_the_review_before_names_its_file() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        let finding = "- **F1** · weak step · `tests/steps/a.rs:3` · vague\nVERDICT: KO";
+        steps.reviews = VecDeque::from([finding, finding]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let fix = |round: &'static str| {
+            [
+                "snapshot Round",
+                "snapshot Test",
+                "test t mode=test fix=review",
+                "guard since=true",
+                "snapshot BuildAfterRound",
+                "build b mode=build fix=review",
+                "G2",
+                "G3",
+                round,
+            ]
+        };
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(fix("review r round=3"));
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..21], expected);
+        // A finding test mode does not write in the second review: build mode alone.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        let code = "- **F2** · off by one · `src/a.rs:1` · drops a line\nVERDICT: KO";
+        steps.reviews = VecDeque::from([finding, code]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(&fix("review r round=3")[5..]);
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..16], expected);
     }
 
     #[test]
@@ -3888,6 +4100,7 @@ mod tests {
                 work: &self.work,
                 main: "main",
                 replans: 1,
+                fixes: 1,
                 max: 2,
                 spike_usd: 5.0,
             }
@@ -4182,6 +4395,51 @@ mod tests {
         assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
         assert!(steps.ran.is_empty());
         assert!(decided_notes(root).is_empty());
+    }
+
+    /// What Path Guard for test mode finds in the code a round of it that did not get through
+    /// wrote.
+    const TESTED: &str = "src/app.rs: protected path for builder-test";
+
+    #[test]
+    fn a_round_of_test_mode_that_did_not_get_through_is_judged_without_work_left() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        // Test mode committed what it wrote, so nothing is left to commit: its gates judge it all
+        // the same.
+        let mut steps = played(root);
+        steps.pending = true;
+        steps.earlier = Some(vec![TESTED.to_string()]);
+        let refused = earlier_work(root, root, "c1", &mut steps);
+        assert_eq!(refused, Ok(Some(not_accepted(&[TESTED.into()], false))));
+        assert_eq!(steps.ran, ["guard earlier"]);
+        // Accepted, there is nothing to commit, and what a person changed by hand is said.
+        let mut steps = played(root);
+        steps.pending = true;
+        steps.hand = Some(vec!["src/a.rs".into()]);
+        assert_eq!(earlier_work(root, root, "c1", &mut steps), Ok(None));
+        assert_eq!(steps.judged, [vec!["src/a.rs".to_string()]]);
+        assert_eq!(decided_notes(root), [by_hand_note("src/a.rs")]);
+        // When it cannot be told whether the round got through, the relaunch stops.
+        let mut steps = played(root);
+        steps.fails = vec![("test pending", "cannot read it")];
+        let failed = earlier_work(root, root, "c1", &mut steps);
+        assert_eq!(failed, Err("cannot read it".to_string()));
+        assert!(steps.judged.is_empty());
+    }
+
+    #[test]
+    fn a_relaunch_without_work_left_parks_on_a_round_of_test_mode_its_gates_refuse() {
+        let repo = repo_with_change(RECORD);
+        let mut steps = played(repo.root());
+        steps.pending = true;
+        steps.earlier = Some(vec![TESTED.to_string()]);
+        let said = parked(launch(&repo.project(), "c1", &mut steps));
+        let why = not_accepted(&[TESTED.into()], false);
+        let start = format!("Change c1 parked: {why}.");
+        assert!(said.starts_with(&start), "{said}");
+        assert_eq!(steps.ran, ["guard earlier"]);
+        assert_eq!(record(repo.root())["state"], "parked");
     }
 
     #[test]
@@ -4821,6 +5079,7 @@ mod tests {
             work: &work,
             main: "main",
             replans: 1,
+            fixes: 1,
             max: 2,
             spike_usd: 5.0,
         };
@@ -5538,6 +5797,7 @@ mod tests {
             work: &work,
             main: "main",
             replans: 0,
+            fixes: 1,
             max: 1,
             spike_usd: 5.0,
         };
@@ -5680,6 +5940,7 @@ mod tests {
             work: root,
             main: "main",
             replans: 0,
+            fixes: 1,
             max: 1,
             spike_usd,
         };

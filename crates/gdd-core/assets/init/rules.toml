@@ -12,7 +12,7 @@ required = true                     # zero scenarios counts as a G3 failure
 [limits]
 builder_retries = 3   # Builder rounds against G2
 replans = 1           # Orchestrator replans per stuck change
-reviewer_fixes = 1
+reviewer_fixes = 2    # fix rounds after a red G3 or a Reviewer KO; 0 parks at the first
 command_seconds = 1800   # how long each gate and release command may run; raise it on a slow machine
 
 [spike]
