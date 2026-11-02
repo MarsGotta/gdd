@@ -96,11 +96,27 @@ pub const ANSWERS: [&str; 3] = ["ok", "ko", "polish"];
 const UNCOMMITTED: &str =
     "The working tree has uncommitted changes. Commit them before launching a change.";
 
-/// Why a change parks when G3 is still red after its fix.
+/// Why a change parks when G3 is still red after its fix, said for one fix round (see
+/// [`after_fixes`]).
 const G3_RED: &str = "G3 still red after one fix";
 
-/// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix.
+/// Why a change parks when the Reviewer still says KO, or G3 is red, after its fix, said for one
+/// fix round (see [`after_fixes`]).
 const REVIEW_KO: &str = "Reviewer KO or G3 red after one fix";
+
+/// How the reasons to park name one fix round.
+const ONE_FIX: &str = "one fix";
+
+/// `why`, a reason to park said for one fix round, said for `fixes` of them: `why` itself for one,
+/// "no fix" for none, "<n> fixes" for more.
+fn after_fixes(why: &str, fixes: u32) -> String {
+    let before = why.strip_suffix(ONE_FIX).unwrap_or(why);
+    match fixes {
+        0 => format!("{before}no fix"),
+        1 => why.to_string(),
+        n => format!("{before}{n} fixes"),
+    }
+}
 
 /// Why a spike with variants parks when none of them passed its gate.
 const NO_VARIANT: &str = "no variant passed its gate";
@@ -302,6 +318,9 @@ pub struct Project<'a> {
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
     pub replans: u32,
+    /// Fix rounds after a red G3, and after a Reviewer KO, before the change parks (see
+    /// [`Run::g3`] and [`Run::review`]).
+    pub fixes: u32,
     /// Changes that build at once at most (see [`queue::cap`]).
     pub max: usize,
     /// What the agent calls of a spike may cost, in USD, before it parks (see
@@ -1689,40 +1708,47 @@ impl<S: Steps> Run<'_, S> {
         Ok(())
     }
 
-    /// G3; red, one fix by the Builder, G2, and G3 again: G3 decides, as it runs the whole
-    /// automatic chain. Still red, the change parks.
+    /// G3; red, the fix rounds the rules set (see [`Project::fixes`]), each one fix by the
+    /// Builder, G2, and G3 again: G3 decides, as it runs the whole automatic chain. Still red
+    /// after the last, the change parks.
     fn g3(&mut self) -> Result<(), Stop> {
         if self.steps.gate(Gate::G3)? {
             return Ok(());
         }
-        self.call(Who::BuilderBuild, "mode=build fix=g3")?;
-        self.steps.gate(Gate::G2)?;
-        if self.steps.gate(Gate::G3)? {
-            Ok(())
-        } else {
-            Err(Stop::Park(G3_RED.to_string()))
+        let fixes = self.project.fixes;
+        for _ in 0..fixes {
+            self.call(Who::BuilderBuild, "mode=build fix=g3")?;
+            self.steps.gate(Gate::G2)?;
+            if self.steps.gate(Gate::G3)? {
+                return Ok(());
+            }
         }
+        Err(Stop::Park(after_fixes(G3_RED, fixes)))
     }
 
-    /// The Reviewer; KO, one fix by the Builder, G2, G3 and a second review. KO, or G3 red, the
-    /// change parks. The fix starts in test mode when a finding names a file only test mode may
-    /// fix (see [`Run::test_mode_fixes`]), judged by Path Guard since then; build mode follows.
+    /// The Reviewer; KO, the fix rounds the rules set (see [`Project::fixes`]), each one fix by
+    /// the Builder, G2, G3 and the next review. KO, or G3 red, after the last, the change parks.
+    /// Each fix starts in test mode when a finding of the review before names a file only test
+    /// mode may fix (see [`Run::test_mode_fixes`]), judged by Path Guard since then; build mode
+    /// follows.
     fn review(&mut self) -> Result<(), Stop> {
         if self.reviewed("round=1")? {
             return Ok(());
         }
-        if self.test_mode_fixes()? {
-            self.steps.snapshot(Snapshot::Round)?;
-            self.test_mode("mode=test fix=review", true)?;
+        let fixes = self.project.fixes;
+        for round in 2..fixes.saturating_add(2) {
+            if self.test_mode_fixes()? {
+                self.steps.snapshot(Snapshot::Round)?;
+                self.test_mode("mode=test fix=review", true)?;
+            }
+            self.call(Who::BuilderBuild, "mode=build fix=review")?;
+            self.steps.gate(Gate::G2)?;
+            let g3 = self.steps.gate(Gate::G3)?;
+            if self.reviewed(&format!("round={round}"))? && g3 {
+                return Ok(());
+            }
         }
-        self.call(Who::BuilderBuild, "mode=build fix=review")?;
-        self.steps.gate(Gate::G2)?;
-        let g3 = self.steps.gate(Gate::G3)?;
-        if self.reviewed("round=2")? && g3 {
-            Ok(())
-        } else {
-            Err(Stop::Park(REVIEW_KO.to_string()))
-        }
+        Err(Stop::Park(after_fixes(REVIEW_KO, fixes)))
     }
 
     /// Whether a finding of the review of the change names a file only test mode may fix (see
@@ -2511,6 +2537,23 @@ mod tests {
     /// Runs the recipe of a launch as [`launched`] does, with `spike_usd` as the budget of a
     /// spike.
     fn launched_within(steps: &mut Played, replans: u32, spike_usd: f64) -> Result<Ended, Stop> {
+        launched_by(steps, replans, 1, spike_usd)
+    }
+
+    /// Runs the recipe of a launch as [`launched`] does, with one replan and `fixes` fix rounds
+    /// after a red G3 and after a Reviewer KO.
+    fn launched_fixing(steps: &mut Played, fixes: u32) -> Result<Ended, Stop> {
+        launched_by(steps, 1, fixes, 5.0)
+    }
+
+    /// Runs the recipe of a launch as [`launched`] does, with `replans` replans, `fixes` fix
+    /// rounds and `spike_usd` as the budget of a spike.
+    fn launched_by(
+        steps: &mut Played,
+        replans: u32,
+        fixes: u32,
+        spike_usd: f64,
+    ) -> Result<Ended, Stop> {
         let project = Project {
             root: steps.root,
             state: steps.root,
@@ -2518,6 +2561,7 @@ mod tests {
             work: steps.root,
             main: "main",
             replans,
+            fixes,
             max: 2,
             spike_usd,
         };
@@ -2805,6 +2849,95 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_reasons_to_park_say_how_many_fix_rounds() {
+        let said = [0, 1, 2, 3].map(|fixes| after_fixes(G3_RED, fixes));
+        let expected = [
+            "G3 still red after no fix",
+            "G3 still red after one fix",
+            "G3 still red after 2 fixes",
+            "G3 still red after 3 fixes",
+        ];
+        assert_eq!(said, expected);
+        let said = [0, 1, 2, 3].map(|fixes| after_fixes(REVIEW_KO, fixes));
+        let expected = [
+            "Reviewer KO or G3 red after no fix",
+            "Reviewer KO or G3 red after one fix",
+            "Reviewer KO or G3 red after 2 fixes",
+            "Reviewer KO or G3 red after 3 fixes",
+        ];
+        assert_eq!(said, expected);
+    }
+
+    #[test]
+    fn g3_red_gets_the_fix_rounds_the_rules_set() {
+        let fix = ["build b mode=build fix=g3", "G2", "G3"];
+        for (fixes, why) in [
+            (0, "G3 still red after no fix"),
+            (1, "G3 still red after one fix"),
+            (2, "G3 still red after 2 fixes"),
+        ] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.g3 = VecDeque::from([false; 4]);
+            assert_eq!(launched_fixing(&mut steps, fixes), park(why), "{fixes}");
+            let mut expected = vec!["G3"];
+            (0..fixes).for_each(|_| expected.extend(fix));
+            assert_eq!(steps.ran, expected, "{fixes}");
+        }
+        // Green after the second fix, it goes on.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.g3 = VecDeque::from([false, false]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3"];
+        expected.extend(fix);
+        expected.extend(&fix[..2]);
+        expected.extend(to_production());
+        assert_eq!(steps.ran, expected);
+    }
+
+    #[test]
+    fn a_reviewer_ko_gets_the_fix_rounds_the_rules_set() {
+        let fix = |round: &'static str| ["build b mode=build fix=review", "G2", "G3", round];
+        for (fixes, why) in [
+            (0, "Reviewer KO or G3 red after no fix"),
+            (1, "Reviewer KO or G3 red after one fix"),
+            (2, "Reviewer KO or G3 red after 2 fixes"),
+        ] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.reviews = VecDeque::from(["VERDICT: KO"; 4]);
+            assert_eq!(launched_fixing(&mut steps, fixes), park(why), "{fixes}");
+            let mut expected = vec!["G3", "review r round=1"];
+            let rounds = ["review r round=2", "review r round=3"];
+            let rounds = rounds.into_iter().take(fixes as usize);
+            rounds.for_each(|round| expected.extend(fix(round)));
+            assert_eq!(steps.ran, expected, "{fixes}");
+        }
+        // OK at the third review, it goes on; a red G3 in the last round parks.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO", "VERDICT: KO"]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(fix("review r round=3"));
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..11], expected);
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.reviews = VecDeque::from(["VERDICT: KO", "VERDICT: KO"]);
+        steps.g3 = VecDeque::from([true, true, false]);
+        let why = "Reviewer KO or G3 red after 2 fixes";
+        assert_eq!(launched_fixing(&mut steps, 2), park(why));
+        assert_eq!(last(&steps), "review r round=3");
+    }
+
     /// Rules that keep the steps from build mode, the code from test mode, and the tool's own
     /// files from every role.
     const STEPS_PROTECTED: &str = "[protected]\nall = [\"tminus/**\"]\n\
@@ -2843,6 +2976,48 @@ mod tests {
         let why = "Path Guard failed after test mode: src/a.rs: protected path for builder-test";
         assert_eq!(launched(&mut steps, 1), park(why));
         assert_eq!(last(&steps), "guard since=true");
+    }
+
+    #[test]
+    fn every_fix_round_starts_in_test_mode_when_the_review_before_names_its_file() {
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        let finding = "- **F1** · weak step · `tests/steps/a.rs:3` · vague\nVERDICT: KO";
+        steps.reviews = VecDeque::from([finding, finding]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let fix = |round: &'static str| {
+            [
+                "snapshot Round",
+                "snapshot Test",
+                "test t mode=test fix=review",
+                "guard since=true",
+                "snapshot BuildAfterRound",
+                "build b mode=build fix=review",
+                "G2",
+                "G3",
+                round,
+            ]
+        };
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(fix("review r round=3"));
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..21], expected);
+        // A finding test mode does not write in the second review: build mode alone.
+        let folder = repo_folder();
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.rules = STEPS_PROTECTED;
+        let code = "- **F2** · off by one · `src/a.rs:1` · drops a line\nVERDICT: KO";
+        steps.reviews = VecDeque::from([finding, code]);
+        assert_eq!(launched_fixing(&mut steps, 2), Ok(Ended::Closed));
+        let mut expected = vec!["G3", "review r round=1"];
+        expected.extend(fix("review r round=2"));
+        expected.extend(&fix("review r round=3")[5..]);
+        expected.push(OPENED);
+        assert_eq!(steps.ran[..16], expected);
     }
 
     #[test]
@@ -3925,6 +4100,7 @@ mod tests {
                 work: &self.work,
                 main: "main",
                 replans: 1,
+                fixes: 1,
                 max: 2,
                 spike_usd: 5.0,
             }
@@ -4903,6 +5079,7 @@ mod tests {
             work: &work,
             main: "main",
             replans: 1,
+            fixes: 1,
             max: 2,
             spike_usd: 5.0,
         };
@@ -5620,6 +5797,7 @@ mod tests {
             work: &work,
             main: "main",
             replans: 0,
+            fixes: 1,
             max: 1,
             spike_usd: 5.0,
         };
@@ -5762,6 +5940,7 @@ mod tests {
             work: root,
             main: "main",
             replans: 0,
+            fixes: 1,
             max: 1,
             spike_usd,
         };
