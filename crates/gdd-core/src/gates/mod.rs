@@ -33,13 +33,14 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::change::{self, Record};
-use crate::classify::{Classification, SPIKE, classify};
+use crate::classify::{Classification, SPIKE, classify_touched};
 use crate::config::{self, Color};
 use crate::exec;
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
 use crate::layout::{self, Layout};
 use crate::log;
+use crate::repo::touched::{Software, against_main};
 use crate::rules::{self, RulesTable};
 use crate::zones::ZoneMap;
 
@@ -653,14 +654,16 @@ pub fn run(
     snapshot: Option<&Hashes>,
 ) -> Result<Report, Error> {
     let root = project.root;
-    let touched = guard::touched(root, id, project.settings)?;
+    let main = &project.settings.main_branch;
+    let touched = against_main(root, id, main)?;
     let mut plan = record.plan.clone();
-    plan.paths.extend(touched.iter().cloned());
     // Scenarios of its own put the change in G1, and a change in G1 takes the full lane.
     plan.resumable &= record.features.is_empty();
-    let decision = classify(project.zones, &project.rules.table, &plan)?;
+    let table = &project.rules.table;
+    let decision = classify_touched(project.zones, table, &plan, &touched, &[])?;
     let features: BTreeSet<&String> = decision.features.iter().chain(&record.features).collect();
     let features = features.into_iter().cloned().collect();
+    let touched = touched.paths();
     let diff = if touched.is_empty() {
         &record.plan.paths
     } else {
@@ -674,10 +677,12 @@ pub fn run(
     };
     let mut report = judged.report(gate, project);
     let owed = debt::owed(&mut report, root, gate);
+    let mut software = Software::new(root, main);
     let mut guarding = Duration::ZERO;
     let mut guard = || {
         let started = Instant::now();
-        let verdict = guard::path_guard(root, id, record, project.settings, role, snapshot);
+        let settings = project.settings;
+        let verdict = guard::path_guard(&mut software, root, id, record, settings, role, snapshot);
         guarding += started.elapsed();
         verdict.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures)
     };
@@ -692,7 +697,7 @@ pub fn run(
     report.took(PATH_GUARD, guarded.is_empty(), guarding);
     report.judge(PATH_GUARD, guarded);
     if role == BUILD_ROLE {
-        let failures = match guard::scope(root, id, record, project.zones, &project.rules.table) {
+        let failures = match guard::scope(&mut software, id, record, project.zones, table) {
             Ok(scope) => {
                 report.out_of_scope = scope.accepted;
                 scope.failures
@@ -706,7 +711,6 @@ pub fn run(
         let found = exceptions::read(root);
         exceptions::judge(&mut report, &found);
         if let Ok(found) = &found {
-            let main = &project.settings.main_branch;
             let added = exceptions::added(root, main, found, exceptions::today())?;
             report.added_exceptions = added;
         }
@@ -1673,7 +1677,8 @@ show = 'printf "%s|%s" "$TMINUS_CHANGE" "${GDD_CHANGE-none}"; exit 1'
         let project = started(&["src/app.rs"], "[g2]\nlint = \"true\"\n");
         project.repo.write("features/a.feature", "Feature: a\n");
         let root = project.repo.root();
-        let before = guard::snapshot(root, "c1", &project.record).unwrap();
+        let mut software = Software::new(root, "main");
+        let before = guard::snapshot(&mut software, root, "c1", &project.record).unwrap();
         assert!(project.run_with(Gate::G2, BUILD_ROLE, Some(&before)).ok);
         assert_eq!(names(&project.run(Gate::G2, BUILD_ROLE)), ["path-guard"]);
     }

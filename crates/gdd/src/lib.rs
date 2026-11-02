@@ -22,7 +22,7 @@ use gdd_core::agents::{
     self, Limits, invoke, models::Models, models::Roles, render, sheets::Sheet, usage::Usage,
 };
 use gdd_core::change::{self, Decision, Record};
-use gdd_core::classify::{classify_with, of_kind};
+use gdd_core::classify::{classify_touched, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
@@ -31,6 +31,7 @@ use gdd_core::guard::{self, Hashes, Settings, Verdict};
 use gdd_core::layout::{self, Layout, join, named};
 use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
+use gdd_core::repo::touched::{Software, against_main};
 use gdd_core::status::{self, Status};
 use gdd_core::{
     Classification, Color, Report, RulesTable, ZoneMap, adopt, changelog, delivery, flow, inbox,
@@ -1265,7 +1266,7 @@ impl Decided {
 
 /// The decision for change `id`, from its record under the state root `state`, and the zone
 /// map of the main branch (see [`main_zones`]), the rules table and the models of the project at
-/// `root`. Its planned paths count, the ones it touched in git (see [`guard::touched`]) and the
+/// `root`. Its planned paths count, the ones it touched in git (see [`against_main`]) and the
 /// scenario files its record names; then its kind of work (see [`of_kind`]). A missing zone map,
 /// rules table or models file says nothing.
 fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
@@ -1280,12 +1281,11 @@ fn decide_with(root: &Path, state: &Path, id: &str, zones: &ZoneMap) -> Result<D
     let record = Record::from_json(&text).map_err(invalid)?;
     let kind = change::kind(&text).map_err(invalid)?;
     let table = load_table(root)?;
-    let touched = guard::touched(root, id, &load_settings(root)?).map_err(|e| e.to_string())?;
-    let mut plan = record.plan;
-    plan.paths.extend(touched);
-    let classification =
-        classify_with(zones, &table, &plan, &record.features).map_err(|e| e.to_string())?;
-    let classification = of_kind(classification, &kind);
+    let main = load_settings(root)?.main_branch;
+    let touched = against_main(root, id, &main).map_err(|e| e.to_string())?;
+    let features = &record.features;
+    let classified = classify_touched(zones, &table, &record.plan, &touched, features);
+    let classification = of_kind(classified.map_err(|e| e.to_string())?, &kind);
     let models = load_models_with_session(root, state)?;
     let roles = models.roles(classification.color);
     let retries = load_limits(root)?.builder_retries;
@@ -1310,7 +1310,9 @@ fn path_guard(
     let record = load_record(state, id)?;
     let settings = load_settings(root)?;
     let before = guard_snapshot(state, id, role, since_snapshot)?;
-    guard::path_guard(root, id, &record, &settings, role, before.as_ref())
+    let mut software = Software::new(root, &settings.main_branch);
+    let since = before.as_ref();
+    guard::path_guard(&mut software, root, id, &record, &settings, role, since)
         .map_err(|e| e.to_string())
 }
 
@@ -2075,13 +2077,14 @@ fn earlier_failures(
     let record = load_record(state, id)?;
     let said = |e: guard::Error| e.to_string();
     let guarded = load_settings(root).and_then(|settings| {
-        let role = gates::BUILD_ROLE;
-        let verdict = guard::path_guard(root, id, &record, &settings, role, Some(&before));
+        let (role, since) = (gates::BUILD_ROLE, Some(&before));
+        let mut software = Software::new(root, &settings.main_branch);
+        let verdict = guard::path_guard(&mut software, root, id, &record, &settings, role, since);
         Ok(verdict.map_err(said)?.failures)
     });
     let scoped = main_zone_map(root).and_then(|zones| {
         let table = load_table(root)?;
-        let scope = guard::scope(root, id, &record, &zones, &table);
+        let scope = guard::scope(&mut since_start(root), id, &record, &zones, &table);
         let failures = scope.map_err(said)?.failures.into_iter();
         let builders = failures.filter(|failure| !by_hand(hand, failure));
         Ok(builders.collect())
@@ -2102,7 +2105,14 @@ fn by_hand(hand: &[String], failure: &str) -> bool {
 /// they are now (see [`guard::snapshot`]): its record is under the state root `state`.
 fn touched_hashes(root: &Path, state: &Path, id: &str) -> Result<guard::Hashes, String> {
     let record = load_record(state, id)?;
-    guard::snapshot(root, id, &record).map_err(|e| e.to_string())
+    guard::snapshot(&mut since_start(root), root, id, &record).map_err(|e| e.to_string())
+}
+
+/// The software blueprint of the project at `root` for the checks that only ask what a change
+/// touched since its build started, the scope check and the snapshots: they never ask against
+/// the main branch, so its name is not read from the rules file (see [`guard::MAIN_BRANCH`]).
+fn since_start(root: &Path) -> Software<'_> {
+    Software::new(root, guard::MAIN_BRANCH)
 }
 
 /// `gdd scope`: the scope check of change `id`, with the zone map of the main branch (see
@@ -2111,7 +2121,8 @@ fn scope(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     let record = load_record(state, id)?;
     let zones = main_zone_map(root)?;
     let table = load_table(root)?;
-    let checked = guard::scope(root, id, &record, &zones, &table).map_err(|e| e.to_string())?;
+    let checked = guard::scope(&mut since_start(root), id, &record, &zones, &table);
+    let checked = checked.map_err(|e| e.to_string())?;
     serde_json::to_string(&checked).map_err(|e| e.to_string())
 }
 
@@ -4057,7 +4068,8 @@ mod tests {
         let verdict = json(&project.run("guard save --role builder-build"));
         assert_eq!(verdict["failures"], serde_json::json!([guarded]));
         let record = load_record(&project.0, "save").unwrap();
-        let hashes = guard::snapshot(&project.0, "save", &record).unwrap();
+        let mut software = Software::new(&project.0, "main");
+        let hashes = guard::snapshot(&mut software, &project.0, "save", &record).unwrap();
         let build = serde_json::to_string(&hashes).unwrap();
         project.write(".tminus/changes/save/snapshot-build.json", &build);
         let printed = json(&project.run("g2 save --role builder-build"));
@@ -5534,7 +5546,9 @@ mod tests {
         let hashes = recipe::Steps::hashes(&mut steps).unwrap();
         assert_eq!(hashes.keys().collect::<Vec<_>>(), ["src/a.rs"]);
         let record = load_record(root, "save").unwrap();
-        assert_eq!(hashes, guard::snapshot(root, "save", &record).unwrap());
+        let mut software = Software::new(root, "main");
+        let snapshot = guard::snapshot(&mut software, root, "save", &record).unwrap();
+        assert_eq!(hashes, snapshot);
         let settings = invoke::Settings::default();
         let voice = Streams::Outcome.out();
         let mut missing = ProjectSteps::new(root, root, "none", &limits, settings, &[], voice);

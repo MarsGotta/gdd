@@ -5,6 +5,7 @@ use std::fmt;
 use serde::{Serialize, Serializer};
 
 use crate::config::{Color, Error, Lane};
+use crate::guard::Touched;
 use crate::rules::{Depth, RulesTable};
 use crate::zones::ZoneMap;
 
@@ -131,6 +132,20 @@ pub fn classify_with(
         g4: color == Color::Red || (g1 && rule.g4_if_g1),
         human_plan: color == Color::Red,
     })
+}
+
+/// Classifies the change `plan` like [`classify_with`], with the items `touched` reports among
+/// its paths: what the change touched counts as much as what it plans, an item it removed too.
+pub fn classify_touched(
+    zones: &ZoneMap,
+    table: &RulesTable,
+    plan: &Change,
+    touched: &Touched,
+    features: &[String],
+) -> Result<Classification, Error> {
+    let mut change = plan.clone();
+    change.paths.extend(touched.paths());
+    classify_with(zones, table, &change, features)
 }
 
 /// `classification` for a change of the kind of work `kind`. A [`SPIKE`] keeps its color (and so
@@ -350,6 +365,26 @@ mod tests {
         assert_eq!(c, classify(&zones(), &table, &plain).unwrap());
         assert_eq!(c.lane, Lane::Fast);
         assert!(!c.g1 && !c.g4);
+    }
+
+    #[test]
+    fn what_the_change_touched_counts_like_what_it_plans() {
+        let table = rules::default_table();
+        let plan = change(&["docs/a.md"], true);
+        let ids = ["features/b.feature", "x.rs", "docs/a.md"].map(String::from);
+        let touched: Touched = ids.into_iter().collect();
+        let sealed = ["features/hidden/a.feature".to_string()];
+        let c = classify_touched(&zones(), &table, &plan, &touched, &sealed).unwrap();
+        let joined = change(&["docs/a.md", "features/b.feature", "x.rs"], true);
+        let expected = classify_with(&zones(), &table, &joined, &sealed).unwrap();
+        assert_eq!(c, expected);
+        assert_eq!((c.color, c.lane), (Color::Yellow, Lane::Full));
+        let features = ["features/b.feature", "features/hidden/a.feature"];
+        assert_eq!(c.features, features);
+        let nothing = Touched::default();
+        let c = classify_touched(&zones(), &table, &plan, &nothing, &[]).unwrap();
+        assert_eq!(c, classify(&zones(), &table, &plan).unwrap());
+        assert_eq!((c.color, c.lane), (Color::Green, Lane::Fast));
     }
 
     #[test]
