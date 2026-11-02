@@ -6,6 +6,10 @@
 //! Path Guard keep their own time, which the log gets a line of before the gate's own. A spike
 //! has a G2 of its own, without commands ([`spike`]).
 //!
+//! Which gate claims each command, and which commands are optional, come from the gates the
+//! blueprint declares ([`decl`]); the report keeps, for each of those gates, the key of what the
+//! run proved for it.
+//!
 //! The gates a person or the machines decide are recorded by [`approve`]; [`phrasing`] tells
 //! whether hidden examples only reuse visible sentences. [`prepare`] checks that a change may
 //! enter Build, and [`release`] takes a merged change to pre and production. [`verdict`] reads
@@ -15,6 +19,7 @@
 pub mod approve;
 pub mod ci;
 pub mod debt;
+pub mod decl;
 pub mod exceptions;
 pub mod phrasing;
 pub mod prepare;
@@ -36,12 +41,14 @@ use crate::change::{self, Record};
 use crate::classify::{Classification, SPIKE, classify_touched};
 use crate::config::{self, Color};
 use crate::exec;
+use crate::gates::decl::{Declared, Key};
 use crate::git;
 use crate::guard::{self, Hashes, Settings};
 use crate::layout::{self, Layout};
 use crate::log;
 use crate::repo::touched::{Software, against_main};
 use crate::rules::{self, RulesTable};
+use crate::stacks::blueprint;
 use crate::zones::ZoneMap;
 
 /// The role of build mode: in a gate, the scope check judges it too.
@@ -108,17 +115,38 @@ const SCENARIO_KEYWORDS: [&str; 4] = [
     "Esquema del escenario",
 ];
 
-/// A gate the machines run; a file names it `g2` or `g3`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// A stage of the gates the machines run, by its old names: `G2` is every round and `G3` is
+/// before integrating. The commands file keeps their commands in `[g2]` and `[g3]`, their
+/// reports are `g2.json` and `g3.json`, and a file names them `g2` or `g3`; a blueprint names
+/// them `every_round` and `before_integrating` (see [`Gate::stage`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Gate {
-    /// The Loop Gate: every Builder round.
+    /// Every round: the checks of each Builder round.
     G2,
-    /// The Merge Gate: the full automatic chain.
+    /// Before integrating: the full automatic chain.
     G3,
 }
 
 impl Gate {
+    /// Its name in a blueprint: `every_round` or `before_integrating`.
+    pub fn stage(self) -> &'static str {
+        match self {
+            Gate::G2 => "every_round",
+            Gate::G3 => "before_integrating",
+        }
+    }
+
+    /// The stage a blueprint names `name`: `every_round`, or its old names `g2` and `G2`, is
+    /// [`Gate::G2`]; `before_integrating`, `g3` or `G3` is [`Gate::G3`]; any other name is none.
+    pub fn of_stage(name: &str) -> Option<Gate> {
+        match name {
+            "every_round" | "g2" | "G2" => Some(Gate::G2),
+            "before_integrating" | "g3" | "G3" => Some(Gate::G3),
+            _ => None,
+        }
+    }
+
     /// Its section of `gdd/commands.toml`, and the name of its report.
     pub(crate) fn key(self) -> &'static str {
         match self {
@@ -367,11 +395,15 @@ pub struct Report {
     /// merge takes them off the list; left out of the JSON when there is none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub paid_debt: Vec<String>,
-    /// The last line each mutation command that passed printed, by name: its summary, which says
+    /// The last line each optional command that passed printed, by name: its summary, which says
     /// what a pass may still count as caught (the Rust sheet's mutants that hung twice); left out
     /// of the JSON when there is none.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub summaries: BTreeMap<String, String>,
+    /// The key of each gate the blueprint declares with checks in this stage, in its order: what
+    /// the run proved for it (see [`Declared::keys`]); left out of the JSON when there is none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<Key>,
     /// Seconds the commands took, added up.
     #[serde(skip)]
     pub duration_s: f64,
@@ -435,6 +467,7 @@ impl Report {
             known_debt: Vec::new(),
             paid_debt: Vec::new(),
             summaries: BTreeMap::new(),
+            keys: Vec::new(),
             duration_s: 0.0,
             timed: Vec::new(),
         }
@@ -457,18 +490,25 @@ impl Report {
         }
     }
 
-    /// Records what the command `name` did. When it has known debt, held to `owed`, a pass pays
-    /// it, and a failure goes to the known debt instead of the failures, with the count it
+    /// Records what the command `name` did; when it is `optional` and passes, its last line is
+    /// its summary (see [`Report::summaries`]). When it has known debt, held to `owed`, a pass
+    /// pays it, and a failure goes to the known debt instead of the failures, with the count it
     /// reported when its debt has one; unless it reports more than that count, or gdd cannot
     /// count what it reported: then it fails, and says why first (see [`debt::held`]).
-    fn command(&mut self, name: &str, ran: io::Result<exec::Ran>, owed: Option<debt::Ceiling>) {
+    fn command(
+        &mut self,
+        name: &str,
+        ran: io::Result<exec::Ran>,
+        owed: Option<debt::Ceiling>,
+        optional: bool,
+    ) {
         let Some(mut failure) = self.failure(name, &ran) else {
             self.passed.push(name.to_string());
             if owed.is_some() {
                 self.paid_debt.push(name.to_string());
             }
             if let Ok(ran) = &ran {
-                self.summarize(name, &ran.output);
+                self.summarize(name, &ran.output, optional);
             }
             return;
         };
@@ -492,14 +532,14 @@ impl Report {
     }
 
     /// Keeps the last line that is not blank of `output`, what the command `name` that passed
-    /// printed, when it is a mutation command (see [`Report::summaries`]).
-    fn summarize(&mut self, name: &str, output: &str) {
+    /// printed, when it is `optional` (see [`Report::summaries`]).
+    fn summarize(&mut self, name: &str, output: &str, optional: bool) {
         let shown = as_shown(output);
         let last = shown
             .lines()
             .map(str::trim_end)
             .rfind(|line| !line.is_empty());
-        if let Some(line) = last.filter(|_| is_mutation(name)) {
+        if let Some(line) = last.filter(|_| optional) {
             self.summaries.insert(name.to_string(), line.to_string());
         }
     }
@@ -577,9 +617,14 @@ impl Report {
     }
 }
 
-/// Whether the command `name` runs mutation testing: its name starts with `mutation`.
-fn is_mutation(name: &str) -> bool {
-    name.starts_with("mutation")
+/// The optional commands the level of a change switches on, by the name a blueprint gives them
+/// (see [`Declared::optional`]): mutation testing when the change needs it.
+fn switched_on(decision: &Classification) -> Vec<String> {
+    if decision.mutation {
+        vec![rules::MUTATION.to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// `seconds` to a tenth of a second.
@@ -631,9 +676,9 @@ pub fn run_of_kind(
 /// the snapshot `snapshot` when there is one: the commands run only if it passes, since a role
 /// that touched the gate configuration could make them its own and put the files back as they
 /// ran. Each configured command of the gate runs from the project root, within the time limit of
-/// the rules (see [`exec::run_limited`]), except the `mutation*` ones when the change does not
-/// need mutation testing; a mutation command that passes leaves its last line in the report
-/// (see [`Report::summaries`]). Each gets
+/// the rules (see [`exec::run_limited`]), except an optional command the level of the change
+/// does not switch on (see [`Declared::optional`]); an optional command that passes leaves its
+/// last line in the report (see [`Report::summaries`]). Each gets
 /// `TMINUS_CHANGE`, `TMINUS_COLOR`, `TMINUS_FEATURES` (the change's scenario files) and
 /// `TMINUS_DIFF_FILES` (what it touched, or what it plans while it touched nothing), one path per
 /// line, named as the project names them (see [`VARIABLES`]). Then Path
@@ -645,6 +690,9 @@ pub fn run_of_kind(
 /// reported, and one that passes is named as paid (see [`debt`]); a debt file that cannot be read
 /// fails the check `debt`. A gate without commands fails. A check that cannot judge fails with
 /// the reason. Each command that runs, then Path Guard, keeps its own time (see [`Timed`]).
+/// Which gate claims each command, and which are optional, come from the gates the blueprint
+/// declares, read first ([`blueprint::gates`]); last, the report gets the key of each of those
+/// gates (see [`Declared::keys`]).
 pub fn run(
     project: &Project,
     gate: Gate,
@@ -653,6 +701,7 @@ pub fn run(
     role: &str,
     snapshot: Option<&Hashes>,
 ) -> Result<Report, Error> {
+    let declared = blueprint::gates()?;
     let root = project.root;
     let main = &project.settings.main_branch;
     let touched = against_main(root, id, main)?;
@@ -671,6 +720,7 @@ pub fn run(
     };
     let judged = Judged {
         id,
+        declared: &declared,
         decision,
         diff,
         features,
@@ -715,6 +765,7 @@ pub fn run(
             report.added_exceptions = added;
         }
     }
+    report.keys = declared.keys(gate, project.commands.of(gate), &report);
     report.ok = report.failures.is_empty();
     Ok(report)
 }
@@ -723,6 +774,8 @@ pub fn run(
 pub(crate) struct Judged<'a> {
     /// The id of the change.
     pub(crate) id: &'a str,
+    /// The gates the blueprint declares: which claims each command, and which are optional.
+    pub(crate) declared: &'a Declared,
     /// How it is classified.
     pub(crate) decision: Classification,
     /// What it touched.
@@ -744,9 +797,10 @@ impl Judged<'_> {
         report
     }
 
-    /// Runs each of the commands of `project` for the gate of `report` from its root, within the
-    /// time limit of its rules (see [`exec::run_limited`]), into `report`, except the
-    /// `mutation*` ones when the change does not need mutation testing; the ones named in `owed`
+    /// Runs each of the commands of `project` for the gate of `report` from its root, in the
+    /// order of their names, within the time limit of its rules (see [`exec::run_limited`]),
+    /// into `report`, except an optional command the level of the change does not switch on
+    /// (see [`Declared::optional`]); the ones named in `owed`
     /// have known debt, each with the count recorded for it when there is one, and only warn
     /// while what they report stays within that count (see [`Report::command`]). Each gets the
     /// [`VARIABLES`], as the project names them: the change, its color, what it touched and its
@@ -765,8 +819,11 @@ impl Judged<'_> {
         let names = VARIABLES.map(|name| layout.localize(name));
         let values = [self.id, color.as_str(), diff.as_str(), features.as_str()];
         let env: Vec<(&str, &str)> = names.iter().map(String::as_str).zip(values).collect();
+        let on = switched_on(&self.decision);
+        let off = |wanted: &str| !on.iter().any(|o| o == wanted);
         for (name, command) in commands.of(report.gate) {
-            if is_mutation(name) && !self.decision.mutation {
+            let optional = self.declared.optional(name);
+            if optional.is_some_and(off) {
                 report.skipped.push(name.clone());
             } else {
                 let ran = exec::run_limited(command, root, &env, limit);
@@ -774,7 +831,7 @@ impl Judged<'_> {
                     known,
                     texts: commands.count(name),
                 });
-                report.command(name, ran, held);
+                report.command(name, ran, held, optional.is_some());
             }
         }
     }
@@ -1021,6 +1078,21 @@ paths = ["src/storage/**"]
         }
     }
 
+    /// The key of the blueprint's gate `gate` in `stage` when its checks `passed` passed and
+    /// nothing else ran.
+    fn key(gate: &str, stage: Gate, passed: &[&str]) -> Key {
+        Key {
+            gate: decl::GateId::new(gate).unwrap(),
+            stage: stage.stage(),
+            ok: true,
+            passed: passed.iter().map(|p| p.to_string()).collect(),
+            failed: vec![],
+            skipped: vec![],
+            owed: vec![],
+            not_run: vec![],
+        }
+    }
+
     #[test]
     fn each_gate_has_its_name_its_phase_and_its_report() {
         assert_eq!(Gate::G2.to_string(), "G2");
@@ -1029,6 +1101,21 @@ paths = ["src/storage/**"]
         assert_eq!(Gate::G3.phase(), "3-integrate");
         assert_eq!(Gate::G2.report_path("c1"), ".tminus/changes/c1/g2.json");
         assert_eq!(Gate::G3.report_path("c1"), ".tminus/changes/c1/g3.json");
+    }
+
+    #[test]
+    fn each_stage_has_its_name_in_a_blueprint_and_is_read_by_its_old_names_too() {
+        assert_eq!(Gate::G2.stage(), "every_round");
+        assert_eq!(Gate::G3.stage(), "before_integrating");
+        for name in ["every_round", "g2", "G2"] {
+            assert_eq!(Gate::of_stage(name), Some(Gate::G2), "{name}");
+        }
+        for name in ["before_integrating", "g3", "G3"] {
+            assert_eq!(Gate::of_stage(name), Some(Gate::G3), "{name}");
+        }
+        for name in ["every-round", "before-integrating", "G4", "g1", ""] {
+            assert_eq!(Gate::of_stage(name), None, "{name}");
+        }
     }
 
     #[test]
@@ -1137,6 +1224,10 @@ paths = ["src/storage/**"]
             known_debt: vec![],
             paid_debt: vec![],
             summaries: BTreeMap::new(),
+            keys: vec![
+                key("works", Gate::G2, &["unit"]),
+                key("quality", Gate::G2, &["lint"]),
+            ],
             duration_s: report.duration_s,
             timed: report.timed.clone(),
         };
@@ -1345,7 +1436,8 @@ paths = ["src/storage/**"]
         let mut report = started(&[], "").run(Gate::G2, "builder");
         report.failures.clear();
         report.timed.clear();
-        report.command("unit", Err(io::Error::other("no shell")), None);
+        let no_shell = || Err(io::Error::other("no shell"));
+        report.command("unit", no_shell(), None, false);
         let expected = failure("unit", "cannot run sh: no shell");
         assert_eq!(report.failures, [expected]);
         assert_eq!(report.duration_s, 0.0);
@@ -1359,7 +1451,7 @@ paths = ["src/storage/**"]
             known: None,
             texts: None,
         };
-        report.command("lint", Err(io::Error::other("no shell")), Some(uncounted));
+        report.command("lint", no_shell(), Some(uncounted), false);
         let owing = owed("lint", "cannot run sh: no shell");
         assert_eq!(report.known_debt, [owing]);
         assert_eq!(report.failures.len(), 1);
@@ -1368,7 +1460,7 @@ paths = ["src/storage/**"]
             known: Some(5),
             texts: None,
         };
-        report.command("types", Err(io::Error::other("no shell")), Some(counted));
+        report.command("types", no_shell(), Some(counted), false);
         let cannot = "types failed and tminus cannot count what it reported (its [count] texts \
                       match nothing)\ncannot run sh: no shell";
         assert_eq!(report.failures[1], failure("types", cannot));
@@ -1476,6 +1568,38 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
         yellow.rules = Rules::from_toml("[color.yellow.full]\nmutation = false\n").unwrap();
         let report = yellow.run(Gate::G3, "builder");
         assert_eq!(report.skipped, ["mutation", "mutation_slow"]);
+    }
+
+    #[test]
+    fn each_gate_of_the_blueprint_gets_the_key_of_what_its_checks_proved() {
+        let commands = "[g2]\nlint = \"exit 1\"\nsmoke = \"true\"\nunit = \"true\"\n\
+                        [g3]\nacceptance = \"true\"\nmutation = \"true\"\nsecrets = \"true\"\n";
+        let mut project = started(&["docs/a.md"], commands);
+        project.rules = Rules::from_toml("[acceptance]\nrequired = false\n").unwrap();
+        let report = project.run(Gate::G2, "builder");
+        // A command no gate claims goes to works; security has no check in this stage.
+        let works = key("works", Gate::G2, &["smoke", "unit"]);
+        let quality = Key {
+            ok: false,
+            failed: vec!["lint".into()],
+            ..key("quality", Gate::G2, &[])
+        };
+        assert_eq!(report.keys, [works, quality]);
+        let report = project.run(Gate::G3, "builder");
+        let works = key("works", Gate::G3, &["acceptance", "scenarios"]);
+        let quality = Key {
+            skipped: vec!["mutation".into()],
+            ..key("quality", Gate::G3, &[])
+        };
+        let security = key("security", Gate::G3, &["secrets", "exceptions"]);
+        assert_eq!(report.keys, [works, quality, security]);
+        // When Path Guard fails first, no command ran.
+        project.repo.write("tminus/rules.toml", "# touched\n");
+        let report = project.run(Gate::G2, "builder");
+        assert_eq!(report.keys.len(), 2, "{report:?}");
+        assert_eq!(report.keys[0].not_run, ["smoke", "unit"]);
+        assert_eq!(report.keys[1].not_run, ["lint"]);
+        assert!(!report.keys[0].ok);
     }
 
     #[test]
@@ -1762,6 +1886,7 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
             known_debt: vec![],
             paid_debt: vec![],
             summaries: BTreeMap::new(),
+            keys: vec![],
             duration_s: 9.0,
             timed: vec![Timed {
                 name: "unit".into(),
@@ -1813,6 +1938,18 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
         let json = serde_json::to_string(&summarized).unwrap();
         let end = r#""paid_debt":["unit"],"summaries":{"mutation":"3 caught"}}"#;
         assert!(json.ends_with(end), "{json}");
+        // The keys come last.
+        let keyed = Report {
+            keys: vec![key("works", Gate::G3, &["unit"])],
+            ..summarized
+        };
+        let json = serde_json::to_string(&keyed).unwrap();
+        let end = concat!(
+            r#""summaries":{"mutation":"3 caught"},"keys":[{"gate":"works","#,
+            r#""stage":"before_integrating","ok":true,"passed":["unit"],"failed":[],"#,
+            r#""skipped":[],"owed":[]}]}"#
+        );
+        assert!(json.ends_with(end), "{json}");
     }
 
     #[test]
@@ -1829,6 +1966,7 @@ show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit
             known_debt: vec![],
             paid_debt: vec![],
             summaries: BTreeMap::new(),
+            keys: vec![],
             duration_s: 0.1 + 0.2,
             timed: vec![],
         };

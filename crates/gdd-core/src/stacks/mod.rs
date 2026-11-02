@@ -8,6 +8,7 @@
 //! ([`of_project`]); [`compose()`] says what several sheets give together, and [`checks()`] how
 //! they install and the G2 commands they run.
 
+pub mod blueprint;
 mod compose;
 
 use std::collections::BTreeMap;

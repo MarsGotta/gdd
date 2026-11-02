@@ -1,0 +1,25 @@
+# The gates of software, as the tminus engine reads them. The core defines no gate: these are
+# the software blueprint's. A command's kind is its name up to its first -; the gate that claims
+# its kind runs it, and `works` takes the commands no gate claims. Optional commands run only
+# where the level of the change switches them on. The stages keep the commands file's old
+# names: every_round is [g2], before_integrating is [g3].
+format = 1
+
+[[gate]]
+id = "works"
+checks = "the change does what its approved scenarios say and breaks no unit test"
+claims = ["unit", "acceptance"]
+rest = true
+named = { before_integrating = ["scenarios"] }
+
+[[gate]]
+id = "quality"
+checks = "the code stays clean: lint, types, architecture and mutation testing"
+claims = ["lint", "types", "architecture", "quality", "mutation"]
+optional = { mutation = ["mutation*"] }
+
+[[gate]]
+id = "security"
+checks = "no known vulnerability, licence problem, unchecked lock file or secret gets in"
+claims = ["security", "dependencies", "lockfile", "secrets"]
+named = { before_integrating = ["exceptions"] }
