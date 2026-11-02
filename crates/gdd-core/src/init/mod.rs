@@ -440,7 +440,7 @@ fn exists(root: &Path, path: &str) -> Result<bool, String> {
 /// What tminus init appends to the `.gitignore` of the folder `root`: each of `lines`, then
 /// `.tminus/`, that no line of the file is exactly, in that order and each once, after a line break
 /// when the file does not end with one. `None` when it has them all already.
-fn ignore(root: &Path, lines: &[&str]) -> Result<Option<String>, String> {
+pub(crate) fn ignore(root: &Path, lines: &[&str]) -> Result<Option<String>, String> {
     let text = match fs::read_to_string(root.join(GITIGNORE)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),

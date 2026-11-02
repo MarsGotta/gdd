@@ -1098,6 +1098,45 @@ fn everything_committed(w: &mut GddWorld) {
     }
 }
 
+#[given("the project keeps the names gdd gave it before the rename")]
+fn project_keeps_old_names(w: &mut GddWorld) {
+    use gdd_core::layout::Layout;
+    let root = project_root(w);
+    let tracked = git(&root, &["ls-files", "-z"]);
+    for path in tracked.split('\0').filter(|p| !p.is_empty()) {
+        let file = root.join(path);
+        let bytes = fs::read(&file).expect("a tracked file");
+        let bytes = match String::from_utf8(bytes) {
+            Ok(text) => Layout::Gdd.localize(&text).into_bytes(),
+            Err(e) => e.into_bytes(),
+        };
+        fs::remove_file(&file).expect("a tracked file removed");
+        let old = root.join(Layout::Gdd.path(path));
+        fs::create_dir_all(old.parent().expect("a folder")).expect("a folder");
+        fs::write(&old, bytes).expect("a written file");
+    }
+    let _ = fs::remove_dir(root.join("tminus"));
+    for skills in [".claude/skills", ".agents/skills", ".opencode/commands"] {
+        if let Ok(entries) = fs::read_dir(root.join(skills)) {
+            for entry in entries.flatten() {
+                let _ = fs::remove_dir(entry.path());
+            }
+        }
+    }
+    if root.join(".tminus").is_dir() {
+        fs::rename(root.join(".tminus"), root.join(".gdd")).expect("the state renamed");
+    }
+    commit_all(&root, "gdd init");
+    assert!(old_layout(&root), "the project is not in the old names");
+}
+
+#[given(expr = "the branch {string} is merged into main and deleted")]
+fn branch_merged_and_deleted(w: &mut GddWorld, branch: String) {
+    let root = project_root(w);
+    git(&root, &["merge", "-q", "--no-edit", &branch]);
+    git(&root, &["branch", "-q", "-d", &branch]);
+}
+
 fn branch_exists(root: &Path, branch: &str) -> bool {
     std::process::Command::new("git")
         .args(["rev-parse", "-q", "--verify"])

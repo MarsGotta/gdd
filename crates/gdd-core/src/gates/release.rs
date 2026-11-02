@@ -845,12 +845,12 @@ flag = false
     }
 
     #[test]
-    fn a_step_never_inherits_the_twin_of_its_variables() {
+    fn a_step_of_a_new_project_gets_its_variables_under_both_names() {
         let folder = project(RECORD);
         let seen = "printf '%s|%s' \"$TMINUS_CHANGE\" \"${GDD_CHANGE-none}\" > seen";
         let ran = step(&folder.0, &folder.0, "c1", &with("build", seen), "build").unwrap();
         assert!(ran.ok, "{ran:?}");
         let seen = fs::read_to_string(folder.0.join("seen")).unwrap();
-        assert_eq!(seen, "c1|none");
+        assert_eq!(seen, "c1|c1");
     }
 }

@@ -169,6 +169,14 @@ fn invoked(sheet: &Sheet, text: &str) -> String {
     written
 }
 
+/// Every command [`install`] may write, without the name of the tool before it: the GDD commands,
+/// then `stack-<name>` for each stack with a sheet.
+pub(crate) fn commands() -> Vec<String> {
+    let gdd = COMMANDS.iter().map(|(name, _)| name.to_string());
+    let stacks = stacks::names().map(|name| format!("stack-{name}"));
+    gdd.chain(stacks).collect()
+}
+
 /// The files [`install`] writes for `agents` and `stacks`, from the project root, in its order,
 /// in the layout each sheet is for: a new project's, as the sheets are read. A stack without a
 /// sheet is an error.
