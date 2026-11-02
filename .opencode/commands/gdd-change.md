@@ -37,5 +37,5 @@ It may bring the change id or its description. Ids: lowercase letters, digits an
 7. What you decided without the human goes to `gdd note <id> decided "..."`; what needs their decision goes to `gdd note <id> needs "..."` with your recommendation.
 8. Commit what is pending on `main` and **launch**: `gdd launch <id>`. The recipe runs Build (G2), Integrate (G3) and Release, and pauses at G4 if a human must decide.
 9. If it pauses at G4: show the human `.gdd/changes/<id>/inbox.md` and the demo. They say OK, KO or polish: `gdd resume <id> --g4 ok`, `--g4 ko`, or `--g4 polish --note <their notes>` (one more Builder round with their notes, then G4 again).
-10. If it is parked: read `.gdd/changes/<id>/inbox.md` and propose the next step in one line.
+10. If it is parked: read `.gdd/changes/<id>/inbox.md` and propose the next step in one line. When an agent said it cannot (`... says it cannot do the task: ...`), bring its reason to the human; once they answer, write the answer into `package.md` and relaunch with `gdd launch <id>`.
 11. When done: `gdd session --phase 1-discover --change <id>` and `gdd report --change <id>`.
