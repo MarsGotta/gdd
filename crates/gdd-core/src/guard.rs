@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
 use std::fs;
 use std::io::{self, ErrorKind::NotADirectory, ErrorKind::NotFound};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -112,13 +112,52 @@ impl FromIterator<String> for Touched {
     }
 }
 
-/// What the core asks the blueprint about the work of a change (ADR 0002, sections 2 and 5).
+/// Where the work of a task is done, as its blueprint made or reused it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    /// The project root there: where the agents and the steps of the task run.
+    pub work: PathBuf,
+    /// Whether `isolate` made it now: a launch refused before its build lets go of a place it
+    /// made, never of one it found.
+    pub made: bool,
+}
+
+/// What the core asks a blueprint about the work of a task (ADR 0002, sections 2 and 5). Every
+/// method that changes something can run twice: a relaunch calls it again.
 pub trait Blueprint {
-    /// What change `id` touched since `since`; with `None`, against the main branch.
+    /// A place of its own for change `id`, made or reused.
+    fn isolate(&mut self, id: &str) -> Result<Place, Error>;
+
+    /// Where the place of `id` is, as `isolate` gives it, without making it: it may not be there
+    /// (`made` is false). What a task reads outside a run, as an answer to its last gate does,
+    /// it reads there.
+    fn place(&mut self, id: &str) -> Result<Place, Error>;
+
+    /// Lets the place of `id` go; what it kept stays. Nothing there is no error.
+    fn vacate(&mut self, id: &str) -> Result<(), Error>;
+
+    /// The mark of the work of `id` now.
+    fn mark(&mut self, id: &str) -> Result<Mark, Error>;
+
+    /// What change `id` touched since `since`; with `None`, against the main line of work.
     fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, Error>;
+
+    /// The bytes of `item` in the work of `id` now; `None` where there is no file. The core
+    /// hashes them (see [`hash_of`]).
+    fn read(&mut self, id: &str, item: &ItemId) -> Result<Option<Vec<u8>>, Error>;
 
     /// The bytes of `item` as they were at `mark`; `None` where there was none.
     fn rules_at(&mut self, mark: &Mark, item: &ItemId) -> Result<Option<Vec<u8>>, Error>;
+
+    /// Keeps the work of `id` as `by` (a role or a person), saying `why`: only `items` when
+    /// given (none given: nothing kept), else all of it. Nothing to keep is no error.
+    fn keep(
+        &mut self,
+        id: &str,
+        by: &str,
+        why: &str,
+        items: Option<&[ItemId]>,
+    ) -> Result<(), Error>;
 }
 
 /// What the rules file says to Path Guard: the main branch and the paths each role must not
@@ -218,8 +257,21 @@ impl From<config::Error> for Error {
     }
 }
 
+/// The hash of the bytes of a file: their SHA-256, in hex; [`DELETED`] for `None`, no file. One
+/// formula for the files on disk (see [`file_hash`]) and for what a blueprint reads.
+pub fn hash_of(bytes: Option<&[u8]>) -> String {
+    let Some(bytes) = bytes else {
+        return DELETED.to_string();
+    };
+    let mut hex = String::with_capacity(64);
+    for byte in Sha256::digest(bytes).iter() {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 /// The SHA-256 of the file at `path`, in hex; [`DELETED`] when there is no file there (nothing,
-/// or a folder).
+/// or a folder). See [`hash_of`].
 pub fn file_hash(path: &Path) -> io::Result<String> {
     let is_file = match fs::metadata(path) {
         Ok(meta) => meta.is_file(),
@@ -227,13 +279,9 @@ pub fn file_hash(path: &Path) -> io::Result<String> {
         Err(e) => return Err(e),
     };
     if !is_file {
-        return Ok(DELETED.to_string());
+        return Ok(hash_of(None));
     }
-    let mut hex = String::with_capacity(64);
-    for byte in Sha256::digest(fs::read(path)?).iter() {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    Ok(hex)
+    Ok(hash_of(Some(&fs::read(path)?)))
 }
 
 /// The hash of the file `path` of the project at `root`, see [`file_hash`].
@@ -493,6 +541,36 @@ paths = ["src/storage/**"]
     }
 
     impl Blueprint for Fake {
+        fn isolate(&mut self, id: &str) -> Result<Place, Error> {
+            Err(Error::Blueprint(format!("{id}: no place here")))
+        }
+
+        fn place(&mut self, id: &str) -> Result<Place, Error> {
+            Err(Error::Blueprint(format!("{id}: no place here")))
+        }
+
+        fn vacate(&mut self, id: &str) -> Result<(), Error> {
+            Err(Error::Blueprint(format!("{id}: no place here")))
+        }
+
+        fn mark(&mut self, id: &str) -> Result<Mark, Error> {
+            Err(Error::Blueprint(format!("{id}: no mark here")))
+        }
+
+        fn read(&mut self, id: &str, item: &ItemId) -> Result<Option<Vec<u8>>, Error> {
+            Err(Error::Blueprint(format!("{id}: {item} is not read here")))
+        }
+
+        fn keep(
+            &mut self,
+            id: &str,
+            _by: &str,
+            _why: &str,
+            _items: Option<&[ItemId]>,
+        ) -> Result<(), Error> {
+            Err(Error::Blueprint(format!("{id}: nothing is kept here")))
+        }
+
         fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, Error> {
             let since = since.map_or_else(|| "main".to_string(), Mark::to_string);
             self.asked.push(format!("touched {id} since {since}"));
@@ -634,6 +712,18 @@ paths = ["src/storage/**"]
             assert_eq!(hash, DELETED, "{nothing}");
         }
         assert!(file_hash(&folder.0.join("x".repeat(300))).is_err());
+    }
+
+    #[test]
+    fn the_hash_of_bytes_is_the_hash_of_the_file_that_holds_them() {
+        let folder = Folder::new();
+        for bytes in ["abc", "", "two\nlines\n"] {
+            folder.write("a.txt", bytes);
+            let on_disk = file_hash(&folder.0.join("a.txt")).unwrap();
+            assert_eq!(hash_of(Some(bytes.as_bytes())), on_disk, "{bytes:?}");
+        }
+        assert_eq!(hash_of(Some(b"abc")), ABC);
+        assert_eq!(hash_of(None), DELETED);
     }
 
     #[test]
