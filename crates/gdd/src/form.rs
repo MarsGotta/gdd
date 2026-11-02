@@ -1102,6 +1102,21 @@ mod tests {
         assert!(project.contains("name = \"Notes\"\n"), "{project}");
     }
 
+    #[test]
+    fn the_form_sets_up_nothing_where_the_state_of_the_old_layout_is() {
+        let folder = plain_folder();
+        folder.write(".gdd/log.jsonl", "");
+        let set_up = Outcome::SetUp(notes(&["claude", "codex"], false));
+        let (_bin, env) = with_cargo("echo locked > Cargo.lock");
+        let refused = finish(&folder.0, &set_up, &env).unwrap_err();
+        let mixed = format!(
+            "error: {} keeps its files in tminus/ but has .gdd/, the state of the old layout",
+            folder.0.display()
+        );
+        assert!(refused.starts_with(&mixed), "{refused}");
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
+    }
+
     /// A folder with a `cargo` that runs `script`, and the environment of [`init_env`] with it
     /// first on the `PATH`; the folder goes when dropped.
     fn with_cargo(script: &str) -> (Project, Vec<(String, String)>) {

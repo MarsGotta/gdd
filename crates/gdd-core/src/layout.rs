@@ -13,6 +13,8 @@ use std::fs::{self, Metadata};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use crate::git::{self, Git};
+
 /// The file that marks a project of the new layout, from its root.
 const NEW_PROJECT: &str = "tminus/project.toml";
 
@@ -35,6 +37,22 @@ impl Layout {
     pub fn at(folder: &Path) -> Layout {
         let old = is_file(&folder.join(OLD_PROJECT)).unwrap_or(true);
         let new = is_file(&folder.join(NEW_PROJECT)).unwrap_or(true);
+        Layout::of(old, new)
+    }
+
+    /// The layout of the project as the commit `commit` of `git` has it, by the same rule as
+    /// [`Layout::at`], from the files git keeps there: what to read a file of that commit by,
+    /// which may not be the layout of the checkout (a branch that moved the files, read from
+    /// main). An error when git cannot list them.
+    pub fn at_commit(git: &Git, commit: &str) -> Result<Layout, git::Error> {
+        let old = git.file_at(commit, OLD_PROJECT)?.is_some();
+        let new = git.file_at(commit, NEW_PROJECT)?.is_some();
+        Ok(Layout::of(old, new))
+    }
+
+    /// The layout of a project that has, or not, `gdd/project.toml` (`old`) and
+    /// `tminus/project.toml` (`new`): the old one only with the first alone.
+    fn of(old: bool, new: bool) -> Layout {
         if old && !new {
             Layout::Gdd
         } else {
@@ -132,14 +150,28 @@ pub fn check(project_root: &Path, state_root: &Path) -> Result<(), String> {
     }
 }
 
+/// The root of the project the folder `folder` is in, with its project file from that root: the
+/// nearest folder, from `folder` upwards, with `tminus/project.toml` or, set up before the rename,
+/// `gdd/project.toml`, looked at in that order. `None` without one. A project file that cannot be
+/// looked at on the way is an error that names it and why (see [`looked`]): that folder may be
+/// the project, and is never taken for nothing so that a folder above it is.
+pub fn project_above(folder: &Path) -> Result<Option<(PathBuf, &'static str)>, String> {
+    for above in folder.ancestors() {
+        for file in [NEW_PROJECT, OLD_PROJECT] {
+            if looked(&above.join(file))? {
+                return Ok(Some((above.to_path_buf(), file)));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// `Ok` unless `folder` has both `tminus/project.toml` and `gdd/project.toml`, or one of them
 /// cannot be looked at.
 fn one_project(folder: &Path) -> Result<(), String> {
     let mut found = Vec::new();
     for file in [NEW_PROJECT, OLD_PROJECT] {
-        let path = folder.join(file);
-        let there = is_file(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-        if there {
+        if looked(&folder.join(file))? {
             found.push(file);
         }
     }
@@ -156,6 +188,12 @@ fn one_project(folder: &Path) -> Result<(), String> {
 /// folder on the way is a file (see [`seen`]). Any other error is an error.
 fn is_file(path: &Path) -> io::Result<bool> {
     Ok(seen(fs::metadata(path))?.is_some_and(|meta| meta.is_file()))
+}
+
+/// Whether `path` is a file (see [`is_file`]); when it cannot be looked at, why, with its path:
+/// `cannot read <path>: <why>`.
+fn looked(path: &Path) -> Result<bool, String> {
+    is_file(path).map_err(|e| format!("cannot read {}: {e}", path.display()))
 }
 
 /// What a look at a path (`fs::metadata`, or `fs::symlink_metadata` not to follow a link) found
@@ -202,7 +240,75 @@ fn old_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::Folder;
+    use crate::git::tests::{Folder, Repo};
+
+    #[test]
+    fn the_layout_of_a_commit_is_the_one_its_files_say_not_the_checkout() {
+        let repo = Repo::new();
+        let git = repo.tool();
+        let first = repo.git(&["rev-parse", "HEAD"]);
+        assert_eq!(Layout::at_commit(&git, &first).unwrap(), Layout::Tminus);
+        repo.write("gdd/project.toml", "name = \"x\"\n");
+        repo.commit();
+        assert_eq!(Layout::at_commit(&git, "HEAD").unwrap(), Layout::Gdd);
+        // The checkout moved its files to tminus/, uncommitted: the commit still keeps gdd/.
+        repo.git(&["mv", "gdd", "tminus"]);
+        assert_eq!(Layout::at(repo.root()), Layout::Tminus);
+        assert_eq!(Layout::at_commit(&git, "HEAD").unwrap(), Layout::Gdd);
+        repo.commit();
+        assert_eq!(Layout::at_commit(&git, "HEAD").unwrap(), Layout::Tminus);
+        assert_eq!(Layout::at_commit(&git, "HEAD~1").unwrap(), Layout::Gdd);
+        // Both kept: the new one.
+        repo.write("gdd/project.toml", "name = \"x\"\n");
+        repo.commit();
+        assert_eq!(Layout::at_commit(&git, "HEAD").unwrap(), Layout::Tminus);
+        assert!(Layout::at_commit(&git, "nowhere").is_err());
+    }
+
+    #[test]
+    fn the_project_is_the_nearest_folder_upwards_with_a_project_file() {
+        let folder = Folder::new();
+        let deep = folder.0.join("a/b");
+        fs::create_dir_all(&deep).unwrap();
+        assert_eq!(project_above(&deep), Ok(None));
+        folder.write("gdd/project.toml", "");
+        let old = Some((folder.0.clone(), OLD_PROJECT));
+        assert_eq!(project_above(&deep), Ok(old));
+        folder.write("a/tminus/project.toml", "");
+        let new = Some((folder.0.join("a"), NEW_PROJECT));
+        assert_eq!(project_above(&deep), Ok(new.clone()));
+        // Both in one folder: the new one is looked at first.
+        folder.write("a/gdd/project.toml", "");
+        assert_eq!(project_above(&deep), Ok(new));
+        // A folder named project.toml is no project file.
+        let empty = Folder::new();
+        fs::create_dir_all(empty.0.join("tminus/project.toml")).unwrap();
+        fs::create_dir_all(empty.0.join("gdd/project.toml")).unwrap();
+        assert_eq!(project_above(&empty.0), Ok(None));
+    }
+
+    #[test]
+    fn a_project_file_that_cannot_be_looked_at_on_the_way_up_is_refused() {
+        let folder = Folder::new();
+        folder.write("tminus/project.toml", "");
+        let below = folder.0.join("below");
+        fs::create_dir_all(&below).unwrap();
+        assert_eq!(
+            project_above(&below),
+            Ok(Some((folder.0.clone(), NEW_PROJECT)))
+        );
+        // A link to itself where a project file of `below` would be: looking under it fails, and
+        // the project above is not taken in its place.
+        for name in ["tminus", "gdd"] {
+            let link = below.join(name);
+            std::os::unix::fs::symlink(name, &link).unwrap();
+            let path = link.join("project.toml");
+            let err = project_above(&below).unwrap_err();
+            let start = format!("cannot read {}: ", path.display());
+            assert!(err.starts_with(&start), "{err}");
+            fs::remove_file(&link).unwrap();
+        }
+    }
 
     #[test]
     fn a_folder_with_only_gdd_project_toml_keeps_the_old_layout() {

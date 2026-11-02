@@ -17,7 +17,7 @@ use crate::change::{self, NOTE_KINDS, POLISH, Variant};
 use crate::gates::{Gate, debt, verdict};
 use crate::git::Git;
 use crate::guard;
-use crate::layout;
+use crate::layout::{self, Layout};
 use crate::recipe::worktree;
 use crate::rules::RulesTable;
 
@@ -368,16 +368,16 @@ pub fn g1_request(state: &Path, id: &str, record: &str) -> Option<String> {
 /// Whether the branch of change `id` adds or changes scenario files that G1 has not sealed as
 /// they are in `record`. A change without a branch, or without such files, waits for nothing.
 fn g1_waits(state: &Path, id: &str, record: &Value) -> Result<bool, String> {
-    let rules = match fs::read_to_string(layout::join(state, guard::RULES)) {
+    let path = layout::named(state, guard::RULES);
+    let rules = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
-        Err(e) => {
-            let path = layout::named(state, guard::RULES);
-            return Err(format!("cannot read {path}: {e}"));
-        }
+        Err(e) => return Err(format!("cannot read {path}: {e}")),
     };
-    let table = RulesTable::of_project(&rules).map_err(|e| e.to_string())?;
-    let settings = guard::Settings::from_toml(&rules).map_err(|e| e.to_string())?;
+    // The file, and the rules file the error names, as the project names them.
+    let in_rules = |e: crate::Error| format!("{path}: {}", e.in_layout(Layout::at(state)));
+    let table = RulesTable::of_project(&rules).map_err(in_rules)?;
+    let settings = guard::Settings::from_toml(&rules).map_err(in_rules)?;
     let git = Git::new(state);
     let branch = change::branch(id);
     if !git.exists(&branch).map_err(|e| e.to_string())? {
@@ -1137,6 +1137,31 @@ mod tests {
         let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: cannot read \
                      tminus/rules.toml: ";
         assert!(text.starts_with(start), "{text}");
+    }
+
+    #[test]
+    fn a_rules_file_that_switches_off_the_core_is_named_as_the_project_names_it() {
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let record = record_of("open", "none", &[]);
+        let core = "[color.red]\nreviewer = false\n";
+        let cannot = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: ";
+        let remove = "remove color.red.reviewer = false from";
+        for file in ["tminus", "gdd"] {
+            let project = format!("{file}/project.toml");
+            let repo = repo_with(&[(project.as_str(), "")], &on_branch);
+            repo.write(&format!("{file}/rules.toml"), core);
+            let text = g1_request(repo.root(), "c1", &record).unwrap();
+            let start = format!("{cannot}{file}/rules.toml: red changes always get");
+            assert!(text.starts_with(&start), "{text}");
+            assert!(
+                text.ends_with(&format!("{remove} {file}/rules.toml")),
+                "{text}"
+            );
+            repo.write(&format!("{file}/rules.toml"), "main_branch = 1\n");
+            let text = g1_request(repo.root(), "c1", &record).unwrap();
+            let start = format!("{cannot}{file}/rules.toml: invalid TOML: ");
+            assert!(text.starts_with(&start), "{text}");
+        }
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! `tminus init`: sets up GDD in the folder it runs in, which becomes the project root, from what
 //! the command line says, always in the new layout (`tminus/` and `.tminus/`, see
 //! [`crate::layout`]). It checks everything before it writes anything, in this order: no GDD
-//! project of either layout in the folder or above it, the stacks known, the agents and who plays
-//! each role (see
+//! project of either layout in the folder or above it, nor a project file there that cannot be
+//! looked at, no state of the old layout (`.gdd/`) where its state goes (see
+//! [`crate::layout::check`]), the stacks known, the agents and who plays each role (see
 //! [`roles`]), the skeletons of the stacks (see [`skeletons`]), none of the files it writes
 //! already there, for it never overwrites one, no symbolic link on the way to what it writes and
 //! no other name (a hard link) for the file it appends to, for it never writes out of the folder.
@@ -26,7 +27,7 @@ use std::fmt;
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -35,8 +36,8 @@ use crate::agents::render;
 use crate::agents::sheets::Sheet;
 use crate::gates::{self, approve};
 use crate::git::{self, Git};
-use crate::layout::Layout;
-use crate::{VERSION, changelog, guard, log, stacks};
+use crate::layout::{self, Layout};
+use crate::{VERSION, changelog, guard, log, stacks, state};
 
 pub use bootstrap::{Stopped, bootstrap};
 pub use roles::{agents_on_path, family_of, strong_model};
@@ -185,10 +186,13 @@ impl From<String> for Error {
 /// wrote, one per line, what to add to the instructions the project already had, and the next
 /// step; without a line break at the end.
 pub fn init(root: &Path, options: &Options, env: &Env) -> Result<String, Error> {
-    if let Some(project) = project_above(root) {
-        let why = format!("already a GDD project: {}", project.display());
+    if let Some((project, file)) = layout::project_above(root)? {
+        let why = format!("already a GDD project: {}", project.join(file).display());
         return Err(Error::Failed(why));
     }
+    // It writes the new layout: where the state of the old one is, every later command would
+    // refuse the project it set up (see [`layout::check`]).
+    layout::check(root, &state::root(root)?)?;
     let now = log::now();
     let (today, _) = now.split_once('T').unwrap_or((now.as_str(), ""));
     let plan = Plan::new(root, options, env, today)?;
@@ -237,16 +241,6 @@ fn agents_of(named: &[String], env: &Env) -> Result<Vec<String>, String> {
     } else {
         Ok(stacks::once(named))
     }
-}
-
-/// The `tminus/project.toml`, or the `gdd/project.toml` of a project set up before the rename,
-/// of the GDD project the folder `folder` is in: in it or in a folder above it.
-fn project_above(folder: &Path) -> Option<PathBuf> {
-    let files = [Layout::Tminus, Layout::Gdd].map(|layout| layout.path(PROJECT));
-    folder
-        .ancestors()
-        .flat_map(|above| files.iter().map(move |file| above.join(file)))
-        .find(|project| project.is_file())
 }
 
 /// What gdd init does, once everything is checked.
@@ -919,6 +913,43 @@ mod tests {
         fs::create_dir_all(folder.0.join("gdd/project.toml")).unwrap();
         init_notes(&folder).unwrap();
         assert!(folder.0.join(PROJECT).is_file());
+    }
+
+    #[test]
+    fn a_project_file_that_cannot_be_looked_at_is_refused_not_passed_over() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "name = \"Notes\"\n");
+        let inside = folder.0.join("app");
+        fs::create_dir_all(&inside).unwrap();
+        // A link to itself: what is under it cannot be looked at. The project above is not the
+        // one this folder is in, nor is the folder free to set up.
+        std::os::unix::fs::symlink("tminus", inside.join("tminus")).unwrap();
+        let options = options(&["rust"], &["claude", "codex"]);
+        let said = init(&inside, &options, &env()).unwrap_err().to_string();
+        let path = inside.join("tminus/project.toml");
+        let start = format!("error: cannot read {}: ", path.display());
+        assert!(said.starts_with(&start), "{said}");
+        assert_eq!(fs::read_dir(&inside).unwrap().count(), 1);
+        assert!(!folder.0.join(".git").exists());
+    }
+
+    #[test]
+    fn a_folder_with_the_state_of_the_old_layout_is_refused_before_anything_is_written() {
+        let folder = Folder::new();
+        folder.write(".gdd/log.jsonl", "");
+        let refused = format!(
+            "error: {} keeps its files in tminus/ but has .gdd/, the state of the old layout: \
+             move .gdd to .tminus or remove it",
+            folder.0.display()
+        );
+        assert_eq!(init_notes(&folder).unwrap_err().to_string(), refused);
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
+        assert_eq!(fs::read_dir(&folder.0).unwrap().count(), 1);
+        // The state of the new layout is its own.
+        let fresh = Folder::new();
+        fresh.write(".tminus/log.jsonl", "");
+        init_notes(&fresh).unwrap();
+        assert!(fresh.0.join(PROJECT).is_file());
     }
 
     #[test]

@@ -1087,21 +1087,16 @@ fn on_screen(args: &[String], stdin: bool, stdout: bool, env: &Env) -> Option<Ru
 }
 
 /// The root of the project: the nearest folder, from `cwd` upwards, with `tminus/project.toml`
-/// or, set up before the rename, `gdd/project.toml`.
+/// or, set up before the rename, `gdd/project.toml` (see [`layout::project_above`]). A project
+/// file that cannot be looked at on the way is an error, never a reason to take a folder above.
 fn project_root(cwd: &Path) -> Result<PathBuf, String> {
-    let found = cwd.ancestors().find(is_project).map(Path::to_path_buf);
+    let found = layout::project_above(cwd)?.map(|(root, _)| root);
     found.ok_or_else(|| {
         let at = cwd.display();
         format!(
             "not a GDD project: no {PROJECT} (nor {OLD_PROJECT}) in {at} or the folders above it"
         )
     })
-}
-
-/// Whether `folder` is the root of a project: it has `tminus/project.toml` or `gdd/project.toml`.
-fn is_project(folder: &&Path) -> bool {
-    let file = |name: &str| folder.join(name).is_file();
-    file(PROJECT) || file(OLD_PROJECT)
 }
 
 /// `gdd report`: the agent calls of the log under the state root `state`, added up by the fields
@@ -1484,7 +1479,7 @@ impl GateConfig {
     fn with_zones(root: &Path, zones: ZoneMap) -> Result<GateConfig, String> {
         let settings = load_settings(root)?;
         let rules = read(root, RULES)?.unwrap_or_default();
-        let rules = gates::Rules::from_toml(&rules).map_err(|e| in_file(root, RULES, e))?;
+        let rules = gates::Rules::from_toml(&rules).map_err(|e| in_rules(root, &e))?;
         let commands = read(root, COMMANDS)?.unwrap_or_default();
         let commands = gates::Commands::from_toml(&commands);
         let commands = commands.map_err(|e| in_file(root, COMMANDS, e))?;
@@ -2355,7 +2350,8 @@ fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
 /// the state root `state` keeps; why a Builder session it shares stays separate for some color
 /// (see [`status::builder_session`]); and the coding agents on the `PATH` of the environment
 /// `env` that could review it when it accepted one model family only (see
-/// [`status::second_family`]).
+/// [`status::second_family`]). Its files and agent commands named as the project root names
+/// them, its log as the state root does (see [`Status::shown`]).
 fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String> {
     let project = read(root, PROJECT)?.unwrap_or_default();
     let basics = status::Basics::from_toml(&project).map_err(|e| in_file(root, PROJECT, e))?;
@@ -2383,7 +2379,7 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
         log_lines,
         second_family: status::second_family(&models, &init::agents_on_path(env)?),
     };
-    Ok(status.to_string())
+    Ok(status.shown(Layout::at(root), Layout::at(state)))
 }
 
 /// `gdd adopt`: adopts the project at `root`, whose state root is `state`, with its gate
@@ -2471,28 +2467,23 @@ fn main_zones(root: &Path) -> Result<String, String> {
 }
 
 /// The text of the file `path`, written in the new names, as the main branch of the project at
-/// `root` has it, where the project keeps it (see [`named`]); when main has none, or there is no
-/// main branch (nor git) yet, the one at `root`; `None` without either.
+/// `root` has it, where main keeps it (see [`Layout::at_commit`]): a branch that moved the files
+/// to the other layout still reads main's. When main has none, or there is no main branch (nor
+/// git) yet, the one at `root`, where the project there keeps it (see [`named`]); `None` without
+/// either.
 fn main_file(root: &Path, path: &str) -> Result<Option<String>, String> {
     let main = load_settings(root)?.main_branch;
     let git = Git::new(root);
     let said = |e: gdd_core::git::Error| e.to_string();
     let on_main = gdd_core::git::is_repository(root) && git.exists(&main).map_err(said)?;
-    // Named twice it is the same: the project's name is the new one or its exact reverse.
-    let kept_at = named(root, path);
-    let path = kept_at.as_str();
-    let kept = if on_main {
-        git.file_at(&main, path).map_err(said)?
-    } else {
-        None
-    };
-    match kept {
-        Some(bytes) => {
-            let text = String::from_utf8(bytes).map_err(|e| format!("{path} on {main}: {e}"))?;
-            Ok(Some(text))
+    if on_main {
+        let at = Layout::at_commit(&git, &main).map_err(said)?.path(path);
+        if let Some(bytes) = git.file_at(&main, &at).map_err(said)? {
+            let text = String::from_utf8(bytes).map_err(|e| format!("{at} on {main}: {e}"))?;
+            return Ok(Some(text));
         }
-        None => read(root, path),
     }
+    read(root, path)
 }
 
 /// What `tminus/models.toml` of the main branch says of the agents besides the model of each
@@ -2513,7 +2504,7 @@ fn main_zone_map(root: &Path) -> Result<ZoneMap, String> {
 /// [`RulesTable::of_project`]).
 fn load_table(root: &Path) -> Result<RulesTable, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    RulesTable::of_project(&text).map_err(|e| in_file(root, RULES, e))
+    RulesTable::of_project(&text).map_err(|e| in_rules(root, &e))
 }
 
 /// The models of the project: who plays each role.
@@ -2593,6 +2584,13 @@ fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
 /// the state root) is wrong, as the project names it (see [`named`]): `<path>: <why>`.
 fn in_file(root: &Path, path: &str, why: impl std::fmt::Display) -> String {
     format!("{}: {why}", named(root, path))
+}
+
+/// Why the rules file under the folder `root` is wrong (see [`in_file`]), as the project there
+/// reads it: the rules file the error itself names is the project's too (see
+/// [`gdd_core::config::Error::in_layout`]).
+fn in_rules(root: &Path, e: &gdd_core::Error) -> String {
+    in_file(root, RULES, e.in_layout(Layout::at(root)))
 }
 
 #[cfg(test)]
@@ -3140,6 +3138,40 @@ mod tests {
         // A folder named like the project file is not a project.
         fs::create_dir_all(outer.0.join("dir/gdd/project.toml")).unwrap();
         assert_eq!(project_root(&outer.0.join("dir")), Ok(outer.0.clone()));
+    }
+
+    #[test]
+    fn a_project_file_that_cannot_be_looked_at_stops_the_command_before_the_project_above() {
+        let outer = Project::new();
+        let inner = outer.0.join("inner");
+        fs::create_dir_all(&inner).unwrap();
+        // A link to itself: what is under it cannot be looked at.
+        std::os::unix::fs::symlink("tminus", inner.join("tminus")).unwrap();
+        let path = inner.join("tminus/project.toml");
+        let start = format!("cannot read {}: ", path.display());
+        let err = project_root(&inner).unwrap_err();
+        assert!(err.starts_with(&start), "{err}");
+        let out = run_in(&inner, "new-change c1 --title Drafts --paths src/a.rs");
+        assert!(
+            out.stderr.starts_with(&format!("error: {start}")),
+            "{out:?}"
+        );
+        assert!(!outer.0.join(CHANGES).exists());
+    }
+
+    #[test]
+    fn init_writes_nothing_where_the_state_of_the_old_layout_is() {
+        let folder = plain_folder();
+        folder.write(".gdd/log.jsonl", "");
+        let command = "init --name Notes --platform cli --stack rust --agents claude codex";
+        let out = run_with_env(&words(command), &folder.0, &init_env());
+        let refused = format!(
+            "error: {} keeps its files in tminus/ but has .gdd/, the state of the old layout: \
+             move .gdd to .tminus or remove it\n",
+            folder.0.display()
+        );
+        assert_eq!(out, Outcome::failure(refused));
+        assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
     }
 
     #[test]
@@ -4873,6 +4905,26 @@ mod tests {
     }
 
     #[test]
+    fn the_status_of_an_old_project_names_its_own_files_and_agent_commands() {
+        let project = Project::old();
+        project.write("gdd/commands.toml", "[g3]\nunit = \"true\"\n");
+        project.write(".gdd/log.jsonl", LOG);
+        let out = project.run("status");
+        assert_eq!(out.code, 0, "{out:?}");
+        for line in [
+            "\nG0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
+            "approve them (the gdd-setup command).\n",
+            "\nno mutation testing command in [g3] of gdd/commands.toml: red changes go without \
+             it\n",
+            "\nLog: 3 lines in .gdd/log.jsonl (tminus report)",
+        ] {
+            assert!(out.stdout.contains(line), "{line:?} in {out:?}");
+        }
+        assert!(!out.stdout.contains("tminus/"), "{out:?}");
+        assert!(!out.stdout.contains("tminus-"), "{out:?}");
+    }
+
+    #[test]
     fn adopt_records_the_known_debt_once_and_the_status_lists_it() {
         let project = committed_project();
         identify(&project);
@@ -6055,6 +6107,68 @@ esac
         git(&project, &["commit", "-q", "-m", "blob"]);
         let error = main_file(&project.0, "blob.bin").unwrap_err();
         assert!(error.starts_with("blob.bin on main: "), "{error}");
+    }
+
+    /// A project of the layout of `from` (`gdd` or `tminus`) with its zone map and its models on
+    /// `main`, checked out on a branch that moved its files to the folder `to`, where it changed
+    /// both.
+    fn moved_on_a_branch(project: Project, from: &str, to: &str) -> Project {
+        project.write(&format!("{from}/zones.toml"), ZONE_MAP);
+        project.write(
+            &format!("{from}/models.toml"),
+            "[prices.opus]\ninput = 1.0\n",
+        );
+        git(&project, &["init", "-q", "-b", "main"]);
+        git(&project, &["add", "-A"]);
+        git(&project, &["commit", "-q", "-m", "project"]);
+        git(&project, &["checkout", "-q", "-b", "moved"]);
+        git(&project, &["mv", from, to]);
+        project.write(&format!("{to}/zones.toml"), "# changed on the branch\n");
+        project.write(&format!("{to}/models.toml"), "[prices.opus]\ninput = 9.0\n");
+        git(&project, &["commit", "-q", "-am", "moved"]);
+        project
+    }
+
+    #[test]
+    fn main_file_reads_main_where_main_keeps_it_not_where_the_branch_does() {
+        for (project, from, to) in [
+            (Project::old(), "gdd", "tminus"),
+            (Project::new(), "tminus", "gdd"),
+        ] {
+            let project = moved_on_a_branch(project, from, to);
+            assert_eq!(main_zones(&project.0).unwrap(), ZONE_MAP, "{from}");
+            let settings = main_agent_settings(&project.0).unwrap();
+            let main = invoke::Settings::from_toml("[prices.opus]\ninput = 1.0\n").unwrap();
+            assert_eq!(settings, main, "{from}");
+            // A file main lacks is the branch's, where the branch keeps it.
+            project.write(&format!("{to}/x.txt"), "here\n");
+            let text = main_file(&project.0, "tminus/x.txt").unwrap();
+            assert_eq!(text.as_deref(), Some("here\n"), "{from}");
+        }
+    }
+
+    #[test]
+    fn a_rules_file_that_switches_off_the_core_is_named_as_the_project_names_it() {
+        for (project, file) in [(Project::new(), "tminus"), (Project::old(), "gdd")] {
+            let rules = format!("{file}/rules.toml");
+            project.write(&rules, "[color.red.full]\nmutation = false\n");
+            let start = format!("{rules}: red changes always get mutation testing");
+            let end = format!("remove color.red.full.mutation = false from {rules}");
+            let zones = ZoneMap::from_toml("").unwrap();
+            for err in [
+                load_table(&project.0).unwrap_err(),
+                GateConfig::with_zones(&project.0, zones)
+                    .err()
+                    .unwrap_or_default(),
+            ] {
+                assert!(err.starts_with(&start) && err.ends_with(&end), "{err}");
+            }
+            project.write(&rules, "[color.yellow]\nreview = \"medium\"\n");
+            let depth = format!(
+                "{rules}: review must be quick or deep: color.yellow.review = \"medium\" in {rules}"
+            );
+            assert_eq!(load_table(&project.0).unwrap_err(), depth);
+        }
     }
 
     /// The paths `gdd agents install` said it wrote.

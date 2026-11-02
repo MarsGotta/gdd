@@ -99,20 +99,14 @@ pub struct Status {
     pub second_family: Vec<String>,
 }
 
-impl fmt::Display for Status {
-    /// The status as a project of the new layout reads it (see [`Status::shown`]).
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", Shown(self, Layout::Tminus))
-    }
-}
-
-/// A status as a project of a layout reads it (see [`Status::shown`]).
-struct Shown<'a>(&'a Status, Layout);
+/// A status as a project reads it (see [`Status::shown`]): the layout of its files, then the one
+/// of its state.
+struct Shown<'a>(&'a Status, Layout, Layout);
 
 impl fmt::Display for Shown<'_> {
     /// One line per fact and one per change, without a line break at the end.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Shown(status, layout) = *self;
+        let Shown(status, files, state) = *self;
         let basics = &status.basics;
         write!(f, "Project: {}", basics.name)?;
         write!(f, " · language {}", basics.language)?;
@@ -120,28 +114,31 @@ impl fmt::Display for Shown<'_> {
         let brief = if status.brief { BRIEF } else { NO_BRIEF };
         writeln!(f, "Brief: {brief}")?;
         let g0 = if status.g0 { G0_OK } else { G0_PENDING };
-        writeln!(f, "G0: {}", layout.localize(g0))?;
+        writeln!(f, "G0: {}", files.localize(g0))?;
         let zones = if status.zones.approved() {
             "approved"
         } else {
             "pending"
         };
-        let message = layout.localize(status.zones.message());
+        let message = files.localize(status.zones.message());
         writeln!(f, "Red zones: {zones} · {message}")?;
-        status.rest(f, layout)
+        status.rest(f, files, state)
     }
 }
 
 impl Status {
-    /// The status as a project of `layout` reads it, one line per fact and one per change,
-    /// without a line break at the end: the files and the agent commands it names are the
-    /// project's (see [`Layout::localize`]); the command it names is always `tminus`.
-    pub fn shown(&self, layout: Layout) -> String {
-        Shown(self, layout).to_string()
+    /// The status as a project reads it, one line per fact and one per change, without a line
+    /// break at the end: the files and the agent commands it names as the layout of the project
+    /// root, `files`, names them, and its log as the layout of the state root, `state`, does
+    /// (see [`Layout::at`]); the command it names is always `tminus`. It is the only way to show
+    /// a status: none names things in a layout the project does not have.
+    pub fn shown(&self, files: Layout, state: Layout) -> String {
+        Shown(self, files, state).to_string()
     }
 
-    /// The lines of the status after its red zones, as a project of `layout` reads them.
-    fn rest(&self, f: &mut fmt::Formatter<'_>, layout: Layout) -> fmt::Result {
+    /// The lines of the status after its red zones, as a project whose files are in the layout
+    /// `files`, and its state in `state`, reads them.
+    fn rest(&self, f: &mut fmt::Formatter<'_>, files: Layout, state: Layout) -> fmt::Result {
         let selftest = self.selftest.as_deref().unwrap_or("not run");
         writeln!(f, "Harness self-test: {selftest}")?;
         write!(f, "Scenarios in {}/: ", self.scenarios_dir)?;
@@ -161,7 +158,7 @@ impl Status {
         }
         known_debt(f, &self.debt)?;
         if self.without_mutation {
-            writeln!(f, "{}", layout.localize(NO_MUTATION))?;
+            writeln!(f, "{}", files.localize(NO_MUTATION))?;
         }
         for line in &self.builder_session {
             writeln!(f, "{line}")?;
@@ -171,12 +168,12 @@ impl Status {
             write!(f, "\n{line}")?;
         }
         if let Some(lines) = self.log_lines {
-            let path = layout.path(log::PATH);
+            let path = state.path(log::PATH);
             write!(f, "\nLog: {lines} lines in {path} (tminus report)")?;
         }
         if !self.second_family.is_empty() {
             let agents = self.second_family.join(", ");
-            let reviewer = format!("set it as the Reviewer in {}", layout.path(models::PATH));
+            let reviewer = format!("set it as the Reviewer in {}", files.path(models::PATH));
             write!(f, "\n{SECOND_FAMILY} ({agents}): {reviewer}")?;
         }
         Ok(())
@@ -548,6 +545,11 @@ mod tests {
         }
     }
 
+    /// `status` as a project of the new layout reads it.
+    fn new(status: &Status) -> String {
+        status.shown(Layout::Tminus, Layout::Tminus)
+    }
+
     #[test]
     fn the_status_says_where_the_project_stands() {
         let expected = concat!(
@@ -568,8 +570,7 @@ mod tests {
             "  - c1 · Drafts · open · no gates yet\n",
             "Log: 3 lines in .tminus/log.jsonl (tminus report)"
         );
-        assert_eq!(status().to_string(), expected);
-        assert_eq!(status().shown(Layout::Tminus), expected);
+        assert_eq!(new(&status()), expected);
     }
 
     #[test]
@@ -581,7 +582,7 @@ mod tests {
             second_family: vec!["codex".into()],
             ..status()
         };
-        let shown = old.shown(Layout::Gdd);
+        let shown = old.shown(Layout::Gdd, Layout::Gdd);
         for line in [
             "\nG0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
             "\nRed zones: pending · Red zones not approved yet: the Setup asks you to approve \
@@ -603,13 +604,38 @@ mod tests {
             },
             ..old
         };
-        let new = named.shown(Layout::Tminus);
-        assert_eq!(new, named.to_string());
-        assert!(new.contains("(the tminus-setup command).\n"), "{new}");
+        let shown = new(&named);
+        assert!(shown.contains("(the tminus-setup command).\n"), "{shown}");
         let logged = "in .tminus/log.jsonl (tminus report)";
-        assert!(new.contains(logged), "{new}");
-        let kept = named.shown(Layout::Gdd);
+        assert!(shown.contains(logged), "{shown}");
+        let kept = named.shown(Layout::Gdd, Layout::Gdd);
         assert!(kept.starts_with("Project: tminus-notes · "), "{kept}");
+    }
+
+    #[test]
+    fn the_files_follow_the_layout_of_the_project_root_and_the_log_the_one_of_the_state_root() {
+        let old = Status {
+            g0: false,
+            second_family: vec!["codex".into()],
+            ..status()
+        };
+        // A branch that moved the files to tminus/, its state still in .gdd/ of main.
+        let moved = old.shown(Layout::Tminus, Layout::Gdd);
+        for line in [
+            "(the tminus-setup command).\n",
+            "\nLog: 3 lines in .gdd/log.jsonl (tminus report)\n",
+            "set it as the Reviewer in tminus/models.toml",
+        ] {
+            assert!(moved.contains(line), "{line:?} in {moved}");
+        }
+        let back = old.shown(Layout::Gdd, Layout::Tminus);
+        for line in [
+            "(the gdd-setup command).\n",
+            "\nLog: 3 lines in .tminus/log.jsonl (tminus report)\n",
+            "set it as the Reviewer in gdd/models.toml",
+        ] {
+            assert!(back.contains(line), "{line:?} in {back}");
+        }
     }
 
     #[test]
@@ -623,7 +649,7 @@ mod tests {
                 debt: Ok(debts),
                 ..status()
             };
-            let (shown, start) = (status.to_string(), "Known debt: ");
+            let (shown, start) = (new(&status), "Known debt: ");
             let line = shown.lines().find(|line| line.starts_with(start));
             line.unwrap_or_default().to_string()
         };
@@ -639,7 +665,7 @@ mod tests {
 
     #[test]
     fn a_new_project_is_pending_everywhere() {
-        let new = Status {
+        let fresh = Status {
             brief: false,
             g0: false,
             zones: ZonesState::NotApproved,
@@ -663,45 +689,45 @@ mod tests {
             "Known debt: none\n",
             "Changes:"
         );
-        assert_eq!(new.to_string(), expected);
-        let unreadable = Status {
+        assert_eq!(new(&fresh), expected);
+        let unreadable = new(&Status {
             exceptions: Err("deny.toml: invalid TOML: x".into()),
             debt: Err("tminus/debt.toml: invalid TOML: y".into()),
             ..status()
-        };
+        });
         let lines = "\nSecurity exceptions: deny.toml: invalid TOML: x\n\
                      Known debt: tminus/debt.toml: invalid TOML: y\nChanges:\n";
-        assert!(unreadable.to_string().contains(lines), "{unreadable}");
-        let changed = Status {
+        assert!(unreadable.contains(lines), "{unreadable}");
+        let changed = new(&Status {
             zones: ZonesState::Changed,
             ..status()
-        };
+        });
         let line = "Red zones: pending · Red zones changed after their approval: a human must \
                     approve them again.\n";
-        assert!(changed.to_string().contains(line), "{changed}");
+        assert!(changed.contains(line), "{changed}");
     }
 
     #[test]
     fn the_status_warns_with_the_other_lists_when_red_changes_go_without_mutation_testing() {
-        let without = Status {
+        let without = new(&Status {
             without_mutation: true,
             ..status()
-        };
+        });
         let lines = "\n  - lint · since 2026-10-26 · Refactor debt-lint\nno mutation testing command \
                      in [g3] of tminus/commands.toml: red changes go without it\nChanges:\n";
-        assert!(without.to_string().contains(lines), "{without}");
-        assert!(!status().to_string().contains(NO_MUTATION));
+        assert!(without.contains(lines), "{without}");
+        assert!(!new(&status()).contains(NO_MUTATION));
     }
 
     #[test]
     fn the_status_says_why_a_shared_builder_session_stays_separate_before_the_changes() {
-        let apart = Status {
+        let apart = new(&Status {
             builder_session: vec!["one".into(), "two".into()],
             without_mutation: true,
             ..status()
-        };
+        });
         let lines = format!("\n{NO_MUTATION}\none\ntwo\nChanges:\n");
-        assert!(apart.to_string().contains(&lines), "{apart}");
+        assert!(apart.contains(&lines), "{apart}");
     }
 
     /// A models file that shares the Builder session, whose Builder in test mode is `test` and
@@ -769,14 +795,14 @@ mod tests {
 
     #[test]
     fn the_status_names_the_agents_of_a_second_family_last() {
-        let two = Status {
+        let two = new(&Status {
             second_family: vec!["codex".into(), "opencode".into()],
             log_lines: None,
             ..status()
-        };
+        });
         let last = "\n  - c1 · Drafts · open · no gates yet\nA second model family is on this \
                     machine (codex, opencode): set it as the Reviewer in tminus/models.toml";
-        assert!(two.to_string().ends_with(last), "{two}");
+        assert!(two.ends_with(last), "{two}");
     }
 
     /// A models file whose Builder is `builder` with `model`, of the family of `[families]`, and
