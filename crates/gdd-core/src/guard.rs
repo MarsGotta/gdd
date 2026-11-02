@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::change::Record;
-use crate::classify::classify;
+use crate::classify::{Classification, classify};
 use crate::config;
 use crate::layout::Layout;
 use crate::rules::{CORE_ITEMS, RulesTable};
@@ -122,9 +122,40 @@ pub struct Place {
     pub made: bool,
 }
 
+/// How the main line stands for a task once it was brought up to date (see
+/// [`Blueprint::refresh`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Moved {
+    /// Taken: the work of the task now stands at this mark, the main line in it.
+    Taken(Mark),
+    /// Not taken, the work left as it was (kept first): why the task parks, as the blueprint
+    /// says it (software: the items in conflict, then how to settle them by hand).
+    Conflicts(String),
+}
+
 /// What the core asks a blueprint about the work of a task (ADR 0002, sections 2 and 5). Every
 /// method that changes something can run twice: a relaunch calls it again.
 pub trait Blueprint {
+    /// Leaves the shared place on the main line before `id` gets a place of its own: the work an
+    /// earlier run of `id` left there is kept as that run's; other work not kept refuses.
+    fn settle(&mut self, id: &str) -> Result<(), Error>;
+
+    /// Why the work of `id` cannot be joined to the main line now, if it cannot.
+    fn blocked(&mut self, id: &str) -> Result<Option<String>, Error>;
+
+    /// Whether the main line moved under the work of `id` since it left it.
+    fn behind(&mut self, id: &str) -> Result<bool, Error>;
+
+    /// Brings the latest main line into the work of `id` (see [`Moved`]).
+    fn refresh(&mut self, id: &str) -> Result<Moved, Error>;
+
+    /// Whether the work of `id` has anything the main line lacks.
+    fn ahead(&mut self, id: &str) -> Result<bool, Error>;
+
+    /// Joins the work of `id` to the main line, with the color and gates the core decided,
+    /// `how`: what it printed. The core holds the lock and checked the gates first.
+    fn integrate(&mut self, id: &str, how: &Classification) -> Result<String, Error>;
+
     /// A place of its own for change `id`, made or reused.
     fn isolate(&mut self, id: &str) -> Result<Place, Error>;
 
@@ -541,6 +572,30 @@ paths = ["src/storage/**"]
     }
 
     impl Blueprint for Fake {
+        fn settle(&mut self, id: &str) -> Result<(), Error> {
+            Err(Error::Blueprint(format!("{id}: nothing is settled here")))
+        }
+
+        fn blocked(&mut self, id: &str) -> Result<Option<String>, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
+        fn behind(&mut self, id: &str) -> Result<bool, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
+        fn refresh(&mut self, id: &str) -> Result<Moved, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
+        fn ahead(&mut self, id: &str) -> Result<bool, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
+        fn integrate(&mut self, id: &str, _how: &Classification) -> Result<String, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
         fn isolate(&mut self, id: &str) -> Result<Place, Error> {
             Err(Error::Blueprint(format!("{id}: no place here")))
         }

@@ -30,7 +30,6 @@ use gdd_core::guard::{self, Hashes, Place, Settings, Verdict};
 // `.tminus/changes/<id>/change.json`...) to where the project at a root keeps it.
 use gdd_core::layout::{self, Layout, join, named};
 use gdd_core::recipe::{self, Said, Snapshot, queue};
-use gdd_core::repo::merge;
 use gdd_core::repo::touched::{Software, against_main};
 use gdd_core::status::{self, Status};
 use gdd_core::{
@@ -1571,8 +1570,10 @@ fn prepare_decided(
 
 /// `gdd merge`: the merge of change `id`, whose branch is checked out at the project root `root`,
 /// as the recipe merges (see [`recipe::merge`]): one merge at a time, on top of the latest main,
-/// with its steps there; the gates it runs again start in the environment `env`. What it says on
-/// its way it says with `voice`, on the standard error, before why it parked or failed: the
+/// with its steps there, through the software blueprint that merges from `root` into the main
+/// branch of its rules file, in the main checkout, the state root `state` (see
+/// [`Software::joining`]); the gates it runs again start in the environment `env`. What it says
+/// on its way it says with `voice`, on the standard error, before why it parked or failed: the
 /// standard output is the JSON of the merge.
 fn merge_queued(
     root: &Path,
@@ -1585,30 +1586,13 @@ fn merge_queued(
     let limits = load_limits(root)?;
     let settings = main_agent_settings(root)?;
     let mut steps = ProjectSteps::new(state, id, &limits, settings, env, voice);
-    let at = recipe::Merging {
-        state,
-        work: root,
-        main: &main,
-        id,
-    };
-    let ran = recipe::merge(&at, &mut steps);
+    let mut blueprint = Software::joining(root, state, &main);
+    let at = recipe::Merging { state, id };
+    let ran = recipe::merge(&at, &mut blueprint, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stderr.insert_str(0, &steps.voice.kept());
     outcome.stderr.insert_str(0, &steps.errors.kept());
     Ok(outcome)
-}
-
-/// Merges change `id`, classified as it is now, into the main branch (see [`merge::merge`]).
-/// What follows the merge reads its configuration as the merge left it.
-fn merge_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
-    let decided = decide(root, state, id)?;
-    let settings = load_settings(root)?;
-    let project = merge::Project {
-        root,
-        state,
-        main: &settings.main_branch,
-    };
-    merge::merge(&project, id, &decided.classification)
 }
 
 /// `gdd release`: with a step, the release step of a change (see [`release_change`]); what it
@@ -2011,11 +1995,6 @@ impl recipe::Steps for ProjectSteps<'_> {
         let (voice, errors) = (&mut self.voice, &mut self.errors);
         let warn = |line: &str| errors.say(line);
         record_gate(root, state, &args, None, |line| voice.say(line), warn).map(drop)
-    }
-
-    /// The recipe holds the merge lock already.
-    fn merge(&mut self, place: &Place) -> Result<String, String> {
-        merge_change(&place.work, self.state, self.id)
     }
 
     /// After the merge the change is on the main branch: its release runs from the main checkout,

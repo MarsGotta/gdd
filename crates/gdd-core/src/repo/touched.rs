@@ -1,7 +1,9 @@
 //! The blueprint of software: where a change works (its worktree, on its branch), the marks of
 //! its work (commits), what it touched (the paths of the project its branch and its working tree
-//! changed, as git lists them), the bytes of its files, the rules file as a commit had it, and
-//! what it keeps (commits on its branch). This is the blueprint the core asks (see
+//! changed, as git lists them), the bytes of its files, the rules file as a commit had it, what
+//! it keeps (commits on its branch), and how it stands against the main branch: taking it (a
+//! merge of the main branch into its branch, see [`super::integrate`]) and joining it (its merge
+//! into the main branch, see [`merge::merge`]). This is the blueprint the core asks (see
 //! [`Blueprint`]); it reports items and bytes, never a verdict, a color or a hash: judging them
 //! is the core's.
 
@@ -10,19 +12,26 @@ use std::fs;
 use std::io::ErrorKind::{NotADirectory, NotFound};
 use std::path::{Path, PathBuf};
 
+use super::integrate;
+use super::merge;
 use crate::change;
+use crate::classify::Classification;
 use crate::git::{self, Git};
-use crate::guard::{Blueprint, Error, ItemId, Mark, Place, Touched};
+use crate::guard::{Blueprint, Error, ItemId, Mark, Moved, Place, Touched};
 use crate::recipe::{self, worktree};
 
 /// The blueprint of software: the project at a root, in its git repository, whose changes leave
-/// from a main branch. An item is a path from the project root, a mark a commit id. With a folder
-/// of places (see [`Software::with_places`]), each change works in its worktree there; without
-/// one, every change works at the root, which it cannot leave or let go.
+/// from a main branch and merge into it in the main checkout, the state root. An item is a path
+/// from the project root, a mark a commit id. With a folder of places (see
+/// [`Software::with_places`]), each change works in its worktree there; without one, every
+/// change works at the root, which it cannot leave or let go.
 #[derive(Debug)]
 pub struct Software<'a> {
     /// The project root, in the main checkout when there is a folder of places.
     root: &'a Path,
+    /// The state root, in the main checkout, where the changes merge (see
+    /// [`crate::state::root`]).
+    state: &'a Path,
     /// The branch the changes leave from.
     main: &'a str,
     /// The folder of the worktrees of the changes (see [`worktree::folder`]), if they have one.
@@ -32,15 +41,10 @@ pub struct Software<'a> {
 }
 
 impl<'a> Software<'a> {
-    /// The project at `root`, whose changes leave from the branch `main`, where every change
-    /// works: what the checks that only read ask.
+    /// The project at `root`, its own state root, whose changes leave from the branch `main`,
+    /// where every change works: what the checks that only read ask.
     pub fn new(root: &'a Path, main: &'a str) -> Software<'a> {
-        Software {
-            root,
-            main,
-            places: None,
-            works: BTreeMap::new(),
-        }
+        Software::joining(root, root, main)
     }
 
     /// The project at `checkout`, the main checkout, whose changes leave from the branch `main`
@@ -50,6 +54,19 @@ impl<'a> Software<'a> {
         Software {
             places: Some(folder),
             ..Software::new(checkout, main)
+        }
+    }
+
+    /// The project at `root`, where every change works, whose state root is `state` and whose
+    /// changes merge into the branch `main`: what `tminus merge` asks, run where the last work of
+    /// the change is.
+    pub fn joining(root: &'a Path, state: &'a Path, main: &'a str) -> Software<'a> {
+        Software {
+            root,
+            state,
+            main,
+            places: None,
+            works: BTreeMap::new(),
         }
     }
 
@@ -176,6 +193,62 @@ impl Blueprint for Software<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Leaves the main checkout on the main branch, with what an earlier run of change `id` left
+    /// there on its branch kept (see [`integrate::settle`]).
+    fn settle(&mut self, id: &str) -> Result<(), Error> {
+        integrate::settle(self.state, self.main, id)
+    }
+
+    /// With a folder of places, why the main checkout cannot take a merge (see
+    /// [`merge::not_ready`]); without one, why change `id` may not merge from where it works
+    /// (see [`merge::may_merge`]).
+    fn blocked(&mut self, id: &str) -> Result<Option<String>, Error> {
+        if self.places.is_some() {
+            return Ok(merge::not_ready(self.state, self.main)?);
+        }
+        let work = self.work(id)?;
+        let project = merge::Project {
+            root: &work,
+            state: self.state,
+            main: self.main,
+        };
+        Ok(merge::may_merge(&project, id).err())
+    }
+
+    /// Whether the main branch moved since change `id` was last built, where it works (see
+    /// [`integrate::main_moved`]).
+    fn behind(&mut self, id: &str) -> Result<bool, Error> {
+        let work = self.work(id)?;
+        Ok(integrate::main_moved(&work, self.main)?)
+    }
+
+    /// The latest main branch taken into change `id`, where it works (see
+    /// [`integrate::refreshed`]).
+    fn refresh(&mut self, id: &str) -> Result<Moved, Error> {
+        let work = self.work(id)?;
+        integrate::refreshed(&work, self.main, id)
+    }
+
+    /// Whether change `id` has, where it works, work to commit or a commit the main branch
+    /// lacks (see [`integrate::nothing_new`]).
+    fn ahead(&mut self, id: &str) -> Result<bool, Error> {
+        let work = self.work(id)?;
+        Ok(!integrate::nothing_new(&work, id, self.main)?)
+    }
+
+    /// Merges change `id`, classified as `how`, from where it works into the main branch in the
+    /// main checkout, then deploys it to pre (see [`merge::merge`]): what that printed. What it
+    /// refused or failed on is the error, as it said it.
+    fn integrate(&mut self, id: &str, how: &Classification) -> Result<String, Error> {
+        let work = self.work(id)?;
+        let project = merge::Project {
+            root: &work,
+            state: self.state,
+            main: self.main,
+        };
+        merge::merge(&project, id, how).map_err(Error::Blueprint)
     }
 }
 
