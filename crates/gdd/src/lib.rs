@@ -1794,6 +1794,7 @@ fn in_worktree(
         work: &work,
         main: &main,
         replans: limits.replans,
+        fixes: limits.reviewer_fixes,
         max,
         spike_usd,
     };
