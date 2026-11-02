@@ -6,6 +6,8 @@ use std::fmt;
 use serde::{Serialize, Serializer};
 
 use crate::agents::models;
+use crate::delivery;
+use crate::flow::{self, DAY, Line, Wait};
 use crate::layout::Layout;
 use crate::log::{CostBasis, Record};
 
@@ -234,6 +236,224 @@ struct Key<'a> {
 impl Serialize for Key<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_map(self.by.iter().zip(self.values))
+    }
+}
+
+/// A moment named on the command line: the last second of a day `YYYY-MM-DD` (UTC), or a time as
+/// the log writes it; seconds since 1970-01-01T00:00:00 UTC. `None` for anything else.
+pub fn until(text: &str) -> Option<i64> {
+    match flow::day(text) {
+        Some(day) => Some(day * DAY + DAY - 1),
+        None => flow::seconds(text),
+    }
+}
+
+/// What one change kept of what the method promises.
+#[derive(Debug, Clone)]
+struct Kept {
+    /// Seconds of its first line.
+    start: i64,
+    /// Its type, `-` without a record.
+    kind: String,
+    /// Its color, `-` never prepared.
+    color: String,
+    closed: bool,
+    stops: usize,
+    parks: usize,
+    /// Seconds waiting for the human at the sitting.
+    sitting: f64,
+    /// Seconds waiting for the human at G4.
+    g4: f64,
+    /// Its agent calls.
+    calls: Totals,
+}
+
+impl Kept {
+    fn new(lines: &[&Line], types: &BTreeMap<String, String>) -> Kept {
+        let records: Vec<&Record> = lines.iter().map(|line| &line.record).collect();
+        let id = records
+            .first()
+            .map_or_else(String::new, |r| r.text("change"));
+        let g4 = records.iter().filter(|r| flow::human_at(r, "G4")).count();
+        let mut calls = Totals::default();
+        for call in records.iter().filter(|r| r.is_agent_call()) {
+            calls.add(&Totals::of(call));
+        }
+        let waits = flow::waits(lines);
+        let waited = |wait: &Wait| waits.get(wait).copied().unwrap_or(0.0);
+        Kept {
+            start: lines.first().map_or(0, |line| line.at),
+            kind: types.get(&id).cloned().unwrap_or_else(|| "-".to_string()),
+            color: color(&records),
+            closed: flow::state(&records) == "closed",
+            stops: g4 + usize::from(delivery::sat(&records)),
+            parks: records
+                .iter()
+                .filter(|r| flow::is(r, "result", "parked"))
+                .count(),
+            sitting: waited(&Wait::Sitting),
+            g4: waited(&Wait::Human),
+            calls,
+        }
+    }
+
+    /// Whether it closed without stopping the human and without parking.
+    fn free(&self) -> bool {
+        self.closed && self.stops == 0 && self.parks == 0
+    }
+}
+
+/// The color of a change: the first part of the note of its last `prepared` line; `-` if it was
+/// never prepared.
+fn color(records: &[&Record]) -> String {
+    let prepared = records.iter().rfind(|r| flow::is(r, "result", "prepared"));
+    let note = prepared.map_or_else(String::new, |r| r.text("note"));
+    let first = note.split(" · ").next().unwrap_or_default().trim();
+    let color = if first.is_empty() { "-" } else { first };
+    color.to_string()
+}
+
+/// What a group of changes adds up to.
+#[derive(Default)]
+struct Block {
+    changes: usize,
+    closed: usize,
+    free: usize,
+    stops: usize,
+    parks: usize,
+    sitting: f64,
+    g4: f64,
+    calls: Totals,
+}
+
+impl Block {
+    fn of(kept: &[&Kept]) -> Block {
+        let mut block = Block::default();
+        for k in kept {
+            block.changes += 1;
+            block.closed += usize::from(k.closed);
+            block.free += usize::from(k.free());
+            block.stops += k.stops;
+            block.parks += k.parks;
+            block.sitting += k.sitting;
+            block.g4 += k.g4;
+            block.calls.add(&k.calls);
+        }
+        block
+    }
+
+    /// Its five lines, under the `label` of the group.
+    fn lines(&self, label: &str) -> String {
+        let n = self.changes;
+        let total = self.sitting + self.g4;
+        let each = |t: u64| thousands((2 * t + n as u64) / (2 * n as u64));
+        let t = &self.calls;
+        format!(
+            "{label}: {n} change(s) · {} closed · {} ended without stopping you\n  \
+             Stops: {} · parked {}\n  \
+             Waiting for you: {} per change ({} in {n}) · at the sitting {} · at G4 {}\n  \
+             Tokens per change: in {} · cache {} · out {}\n  \
+             Cost: {}",
+            self.closed,
+            self.free,
+            delivery::per_change(self.stops, n),
+            delivery::per_change(self.parks, n),
+            flow::duration(total / n as f64),
+            flow::duration(total),
+            flow::duration(self.sitting),
+            flow::duration(self.g4),
+            each(t.tokens_in),
+            each(t.tokens_cache),
+            each(t.tokens_out),
+            self.cost(),
+        )
+    }
+
+    /// The cost line without its indentation.
+    fn cost(&self) -> String {
+        let t = &self.calls;
+        if t.calls == 0 {
+            return "no agent call yet".to_string();
+        }
+        let each = match t.known_cost() {
+            Some(_) => {
+                let mark = if t.cost_estimated { "~" } else { "" };
+                format!("{mark}{:.4} USD", t.cost_usd / self.changes as f64)
+            }
+            None => "unknown".to_string(),
+        };
+        format!("{each} per change · in all {}", t.cost_total())
+    }
+}
+
+/// What the method promises to keep low, for every change of a log and by type and color: the
+/// changes that ended without stopping the human, the stops, the time each waited for the human,
+/// and tokens and cost.
+#[derive(Debug, Clone)]
+pub struct Promises {
+    /// The changes kept, in the order they were created.
+    changes: Vec<Kept>,
+}
+
+impl Promises {
+    /// The promises of the changes of `lines` as they were at the end of `until` (the lines after
+    /// it do not exist), `types` by change id; only the changes whose first line is on or after
+    /// the day `since` (see [`flow::day`]) when given. Lines of no change (`-`) are left out.
+    pub fn new(
+        lines: &[Line],
+        types: &BTreeMap<String, String>,
+        since: Option<i64>,
+        until: Option<i64>,
+    ) -> Promises {
+        let mut groups: Vec<(String, Vec<&Line>)> = Vec::new();
+        for line in lines.iter().filter(|l| until.is_none_or(|end| l.at <= end)) {
+            let id = line.record.text("change");
+            if id == "-" {
+                continue;
+            }
+            match groups.iter_mut().find(|(known, _)| *known == id) {
+                Some((_, group)) => group.push(line),
+                None => groups.push((id, vec![line])),
+            }
+        }
+        let changes = groups
+            .iter()
+            .map(|(_, group)| Kept::new(group, types))
+            .filter(|kept| since.is_none_or(|day| kept.start >= day * DAY))
+            .collect();
+        Promises { changes }
+    }
+}
+
+impl fmt::Display for Promises {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let starts = self.changes.iter().map(|kept| kept.start);
+        let (Some(first), Some(last)) = (starts.clone().min(), starts.max()) else {
+            return f.write_str("No change in the log yet.");
+        };
+        let day = |at: i64| delivery::date(at.div_euclid(DAY));
+        let n = self.changes.len();
+        writeln!(
+            f,
+            "Promises · {n} change(s) created from {} to {}",
+            day(first),
+            day(last)
+        )?;
+        let all: Vec<&Kept> = self.changes.iter().collect();
+        write!(f, "{}", Block::of(&all).lines("All"))?;
+        let mut groups = BTreeMap::<(&str, &str), Vec<&Kept>>::new();
+        for kept in &self.changes {
+            let key = (kept.kind.as_str(), kept.color.as_str());
+            groups.entry(key).or_default().push(kept);
+        }
+        for ((kind, color), kept) in groups {
+            write!(
+                f,
+                "\n{}",
+                Block::of(&kept).lines(&format!("{kind} · {color}"))
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -531,5 +751,392 @@ mod tests {
         ] {
             assert_eq!(thousands(n), text);
         }
+    }
+
+    fn at(ts: &str, change: &str, fields: &str) -> String {
+        format!(r#"{{"ts": "2026-10-28T{ts}+00:00", "change": "{change}", {fields}}}"#)
+    }
+
+    const CREATED: &str = r#""role": "orchestrator", "result": "change-created""#;
+    const PREPARED: &str = r#""role": "machine", "result": "prepared", "note": "yellow · full""#;
+    const OBSERVED: &str = r#""role": "machine", "gate": "-", "agent": "observe", "result": "ok""#;
+    const G4_OK: &str = r#""role": "human", "gate": "G4", "result": "ok""#;
+    const G1: &str = r#""role": "human", "gate": "G1", "result": "ok""#;
+    const PARKED: &str = r#""role": "machine", "result": "parked", "note": "G3 red""#;
+
+    /// Rows one second apart, in the order given.
+    fn seq(rows: &[(&str, &str)]) -> Vec<String> {
+        let at_second = |i: usize| format!("10:{:02}:{:02}", i / 60, i % 60);
+        let row = |(i, (change, fields)): (usize, &(&str, &str))| at(&at_second(i), change, fields);
+        rows.iter().enumerate().map(row).collect()
+    }
+
+    fn placed(rows: &[String]) -> Vec<Line> {
+        flow::read(&rows.join("\n")).lines
+    }
+
+    fn typed(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        let owned = |(id, kind): &(&str, &str)| (id.to_string(), kind.to_string());
+        pairs.iter().map(owned).collect()
+    }
+
+    fn promises(rows: &[String]) -> Promises {
+        Promises::new(&placed(rows), &BTreeMap::new(), None, None)
+    }
+
+    fn day(text: &str) -> Option<i64> {
+        flow::day(text)
+    }
+
+    #[test]
+    fn until_is_the_last_second_of_a_day_or_a_time() {
+        let last = flow::seconds("2026-10-28T23:59:59+00:00");
+        assert_eq!(until("2026-10-28"), last);
+        assert!(last.is_some());
+        let east = flow::seconds("2026-10-28T08:00:00+00:00");
+        assert_eq!(until("2026-10-28T10:00:00+02:00"), east);
+        assert!(east.is_some());
+        for bad in ["2026-13-01", "x", "2026-10-28T25:00:00+00:00", ""] {
+            assert_eq!(until(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_line_at_the_end_of_the_day_is_kept_and_the_next_second_is_not() {
+        let rows = [
+            at("23:59:59", "a", CREATED),
+            format!(r#"{{"ts": "2026-10-29T00:00:00+00:00", "change": "b", {CREATED}}}"#),
+        ];
+        let lines = placed(&rows);
+        let none = BTreeMap::new();
+        let end = until("2026-10-28");
+        assert_eq!(Promises::new(&lines, &none, None, end).changes.len(), 1);
+        assert_eq!(Promises::new(&lines, &none, None, None).changes.len(), 2);
+        let early = until("2026-10-28T23:59:58+00:00");
+        assert!(Promises::new(&lines, &none, None, early).changes.is_empty());
+    }
+
+    #[test]
+    fn a_change_in_flight_shows_as_it_was_at_until() {
+        let rows = [
+            at("09:00:00", "a", CREATED),
+            at("09:30:00", "a", PREPARED),
+            at("10:00:01", "a", OBSERVED),
+            at("10:00:01", "b", CREATED),
+        ];
+        let lines = placed(&rows);
+        let none = BTreeMap::new();
+        let then = until("2026-10-28T10:00:00+00:00");
+        let kept = Promises::new(&lines, &none, None, then).changes;
+        assert_eq!(kept.len(), 1);
+        assert!(!kept[0].closed);
+        let now = Promises::new(&lines, &none, None, None).changes;
+        assert!(now[0].closed);
+    }
+
+    #[test]
+    fn since_keeps_the_changes_created_on_or_after_the_day() {
+        let rows = [
+            format!(r#"{{"ts": "2026-10-27T23:59:59+00:00", "change": "a", {CREATED}}}"#),
+            format!(r#"{{"ts": "2026-10-28T00:00:00+00:00", "change": "b", {CREATED}}}"#),
+            format!(r#"{{"ts": "2026-10-28T00:00:01+00:00", "change": "c", {CREATED}}}"#),
+        ];
+        let lines = placed(&rows);
+        let none = BTreeMap::new();
+        let kept = Promises::new(&lines, &none, day("2026-10-28"), None).changes;
+        assert_eq!(kept.len(), 2);
+        let end = until("2026-10-28T00:00:00+00:00");
+        let kept = Promises::new(&lines, &none, day("2026-10-28"), end).changes;
+        assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn a_change_ends_without_stopping_you_only_when_every_part_holds() {
+        let ko = r#""role": "human", "gate": "G4", "result": "ko""#;
+        let machine = r#""role": "machine", "gate": "G4", "result": "ok""#;
+        let rollback = r#""role": "machine", "gate": "-", "agent": "rollback", "result": "ok""#;
+        let rows = seq(&[
+            ("free", CREATED),
+            ("free", PREPARED),
+            ("free", OBSERVED),
+            ("park", CREATED),
+            ("park", PREPARED),
+            ("park", PARKED),
+            ("park", PREPARED),
+            ("park", OBSERVED),
+            ("sat", CREATED),
+            ("sat", G1),
+            ("sat", PREPARED),
+            ("sat", OBSERVED),
+            ("g4", CREATED),
+            ("g4", PREPARED),
+            ("g4", G4_OK),
+            ("g4", OBSERVED),
+            ("machine", CREATED),
+            ("machine", PREPARED),
+            ("machine", machine),
+            ("machine", OBSERVED),
+            ("open", CREATED),
+            ("open", PREPARED),
+            ("ko", CREATED),
+            ("ko", PREPARED),
+            ("ko", ko),
+            ("rolled", CREATED),
+            ("rolled", PREPARED),
+            ("rolled", OBSERVED),
+            ("rolled", rollback),
+        ]);
+        let kept = promises(&rows).changes;
+        let shown: Vec<(bool, usize, usize, bool)> = kept
+            .iter()
+            .map(|k| (k.closed, k.stops, k.parks, k.free()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (true, 0, 0, true),
+                (true, 0, 1, false),
+                (true, 1, 0, false),
+                (true, 1, 0, false),
+                (true, 0, 0, true),
+                (false, 0, 0, false),
+                (false, 1, 0, false),
+                (false, 0, 0, false),
+            ]
+        );
+        let text = promises(&rows).to_string();
+        let mut lines = text.lines().skip(1);
+        let all = "All: 8 change(s) · 5 closed · 2 ended without stopping you";
+        assert_eq!(lines.next(), Some(all));
+        let stops = "  Stops: 0.4 per change (3 in 8) · parked 0.1 per change (1 in 8)";
+        assert_eq!(lines.next(), Some(stops));
+    }
+
+    #[test]
+    fn the_color_is_the_first_part_of_the_last_prepared_note() {
+        let yellow = r#""role": "machine", "result": "prepared", "note": "yellow · full""#;
+        let red = r#""role": "machine", "result": "prepared", "note": "red · full · G2 already green: Builder skipped""#;
+        let bare = r#""role": "machine", "result": "prepared", "note": "  green  ""#;
+        let rows = seq(&[
+            ("a", CREATED),
+            ("a", yellow),
+            ("a", red),
+            ("b", CREATED),
+            ("c", CREATED),
+            ("c", bare),
+            ("c", yellow),
+            ("c", PARKED),
+            ("d", CREATED),
+            ("d", bare),
+            ("d", r#""role": "machine", "result": "ok", "note": "red""#),
+        ]);
+        let colors: Vec<String> = promises(&rows)
+            .changes
+            .into_iter()
+            .map(|k| k.color)
+            .collect();
+        assert_eq!(colors, ["red", "-", "yellow", "green"]);
+    }
+
+    #[test]
+    fn the_type_comes_from_the_record_and_is_a_dash_without_one() {
+        let rows = seq(&[("a", CREATED), ("b", CREATED)]);
+        let types = typed(&[("a", "Hotfix")]);
+        let kept = Promises::new(&placed(&rows), &types, None, None).changes;
+        let kinds: Vec<&str> = kept.iter().map(|k| k.kind.as_str()).collect();
+        assert_eq!(kinds, ["Hotfix", "-"]);
+    }
+
+    #[test]
+    fn the_waits_for_the_human_are_the_sitting_and_g4_only() {
+        let rows = [
+            at("10:00:00", "a", CREATED),
+            at("10:10:00", "a", G1),
+            at("10:30:00", "a", PREPARED),
+            at("11:00:00", "a", r#""role": "machine", "result": "ok""#),
+            at("11:30:00", "a", G4_OK),
+            at("11:31:00", "a", OBSERVED),
+        ];
+        let types = typed(&[("a", "Feature")]);
+        let text = Promises::new(&placed(&rows), &types, None, None).to_string();
+        let block = "All: 1 change(s) · 1 closed · 0 ended without stopping you\n  \
+             Stops: 2.0 per change (2 in 1) · parked 0.0 per change (0 in 1)\n  \
+             Waiting for you: 40m per change (40m in 1) · at the sitting 10m · at G4 30m\n  \
+             Tokens per change: in 0 · cache 0 · out 0\n  \
+             Cost: no agent call yet";
+        let feature = block.replacen("All", "Feature · yellow", 1);
+        let header = "Promises · 1 change(s) created from 2026-10-28 to 2026-10-28";
+        assert_eq!(text, format!("{header}\n{block}\n{feature}"));
+    }
+
+    #[test]
+    fn a_log_without_changes_says_so() {
+        assert_eq!(promises(&[]).to_string(), "No change in the log yet.");
+        let nobody = [at("10:00:00", "-", CREATED)];
+        assert_eq!(promises(&nobody).to_string(), "No change in the log yet.");
+    }
+
+    #[test]
+    fn the_first_and_last_days_are_those_of_the_first_and_last_change_by_start() {
+        let rows = [
+            r#"{"ts": "2026-10-30T10:00:00+00:00", "change": "b", "result": "x"}"#.to_string(),
+            r#"{"ts": "2026-10-28T10:00:00+00:00", "change": "a", "result": "x"}"#.to_string(),
+            r#"{"ts": "2026-10-29T10:00:00+00:00", "change": "c", "result": "x"}"#.to_string(),
+        ];
+        let text = promises(&rows).to_string();
+        let header = "Promises · 3 change(s) created from 2026-10-28 to 2026-10-30\n";
+        assert!(text.starts_with(header), "{text}");
+    }
+
+    /// The `Tokens` and `Cost` lines of the All block of two changes: `a`, with the `calls`, and `b`.
+    fn all_lines(calls: &[&str]) -> (String, String) {
+        let mut rows = vec![at("10:00:00", "a", CREATED), at("10:00:01", "b", CREATED)];
+        rows.extend(calls.iter().map(|call| at("10:00:02", "a", call)));
+        let text = promises(&rows).to_string();
+        let line = |start: &str| {
+            let found = text.lines().find(|l| l.trim_start().starts_with(start));
+            found.unwrap_or_default().to_string()
+        };
+        (line("Tokens"), line("Cost"))
+    }
+
+    #[test]
+    fn tokens_per_change_round_half_up() {
+        let call = r#""role": "builder-build", "tokens_in": 1, "tokens_cache": 5, "tokens_out": 4"#;
+        let (tokens, _) = all_lines(&[call]);
+        assert_eq!(tokens, "  Tokens per change: in 1 · cache 3 · out 2");
+        let more = r#""role": "builder-build", "tokens_in": 1, "tokens_cache": 1, "tokens_out": 1"#;
+        let (tokens, _) = all_lines(&[call, more]);
+        assert_eq!(tokens, "  Tokens per change: in 1 · cache 3 · out 3");
+        let big = r#""role": "builder-build", "tokens_in": 3000000, "tokens_out": 1"#;
+        let (tokens, _) = all_lines(&[big]);
+        assert_eq!(
+            tokens,
+            "  Tokens per change: in 1,500,000 · cache 0 · out 1"
+        );
+        let (tokens, _) = all_lines(&[r#""role": "machine", "tokens_out": 9"#]);
+        assert_eq!(tokens, "  Tokens per change: in 0 · cache 0 · out 0");
+    }
+
+    #[test]
+    fn tokens_per_change_divide_by_the_number_of_changes() {
+        // One change: (2*3 + 1) / 2 = 3; a divisor of 2 + n would give 2.
+        let call = r#""role": "builder-build", "tokens_out": 3"#;
+        let rows = [at("10:00:00", "a", CREATED), at("10:00:02", "a", call)];
+        let text = promises(&rows).to_string();
+        assert!(
+            text.contains("Tokens per change: in 0 · cache 0 · out 3\n"),
+            "{text}"
+        );
+        // Three changes: (2*10 + 3) / 6 = 3; a divisor of 2 + n would give 4.
+        let ten = r#""role": "builder-build", "tokens_out": 10"#;
+        let rows = [
+            at("10:00:00", "a", CREATED),
+            at("10:00:01", "b", CREATED),
+            at("10:00:02", "c", CREATED),
+            at("10:00:03", "a", ten),
+        ];
+        let text = promises(&rows).to_string();
+        assert!(
+            text.contains("Tokens per change: in 0 · cache 0 · out 3\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn the_cost_per_change_says_what_it_stands_on() {
+        let reported = r#""role": "builder-build", "tokens_out": 1, "cost_usd": 0.01"#;
+        let estimated =
+            r#""role": "reviewer", "tokens_out": 1, "cost_usd": 0.01, "cost_basis": "estimated""#;
+        let unknown = r#""role": "reviewer", "tokens_out": 1, "cost_basis": "unknown""#;
+        let cases: [(&[&str], &str); 5] = [
+            (&[], "  Cost: no agent call yet"),
+            (
+                &[reported],
+                "  Cost: 0.0050 USD per change · in all 0.0100 USD",
+            ),
+            (
+                &[estimated],
+                "  Cost: ~0.0050 USD per change · in all ~0.0100 USD",
+            ),
+            (
+                &[reported, unknown],
+                "  Cost: 0.0050 USD per change · in all 0.0100 USD + unknown (1 call(s) with no price)",
+            ),
+            (
+                &[unknown],
+                "  Cost: unknown per change · in all unknown (1 call(s) with no price)",
+            ),
+        ];
+        for (calls, line) in cases {
+            assert_eq!(all_lines(calls).1, line, "{calls:?}");
+        }
+    }
+
+    #[test]
+    fn the_groups_come_sorted_by_type_and_color_and_the_all_block_adds_them_up() {
+        let red = r#""role": "machine", "result": "prepared", "note": "red · full""#;
+        let green = r#""role": "machine", "result": "prepared", "note": "green""#;
+        let rows = seq(&[
+            ("a", CREATED),
+            ("a", PREPARED),
+            ("a", G4_OK),
+            ("b", CREATED),
+            ("b", red),
+            ("c", CREATED),
+            ("c", green),
+            ("c", G4_OK),
+            ("c", G4_OK),
+            ("d", CREATED),
+            ("e", CREATED),
+            ("e", red),
+        ]);
+        let types = typed(&[
+            ("a", "Hotfix"),
+            ("b", "Feature"),
+            ("c", "Feature"),
+            ("e", "Feature"),
+        ]);
+        let text = Promises::new(&placed(&rows), &types, None, None).to_string();
+        let heads: Vec<&str> = text
+            .lines()
+            .skip(1)
+            .filter(|l| !l.starts_with(' '))
+            .collect();
+        let labels: Vec<&str> = heads.iter().filter_map(|l| l.split(": ").next()).collect();
+        assert_eq!(
+            labels,
+            [
+                "All",
+                "- · -",
+                "Feature · green",
+                "Feature · red",
+                "Hotfix · yellow"
+            ]
+        );
+        let count = |head: &str| -> usize {
+            let rest = head.split(": ").nth(1).unwrap_or_default();
+            rest.split(' ')
+                .next()
+                .unwrap_or_default()
+                .parse()
+                .unwrap_or(0)
+        };
+        let counts: Vec<usize> = heads.iter().map(|h| count(h)).collect();
+        assert_eq!(counts, [5, 1, 1, 2, 1]);
+        let stops: Vec<usize> = text
+            .lines()
+            .filter(|l| l.trim_start().starts_with("Stops"))
+            .map(|l| {
+                let inner = l.split('(').nth(1).unwrap_or_default();
+                inner
+                    .split(' ')
+                    .next()
+                    .unwrap_or_default()
+                    .parse()
+                    .unwrap_or(99)
+            })
+            .collect();
+        assert_eq!(stops, [3, 0, 2, 0, 1]);
     }
 }

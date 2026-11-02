@@ -80,7 +80,7 @@ fn days_in(year: i64, month: i64) -> i64 {
 
 /// Seconds since 1970-01-01T00:00:00 UTC of a time as the log writes it,
 /// `2026-10-28T10:00:00+00:00`, with any offset under a day; `None` for anything else.
-fn seconds(ts: &str) -> Option<i64> {
+pub(crate) fn seconds(ts: &str) -> Option<i64> {
     let (date, rest) = ts.split_once('T')?;
     let (time, offset) = rest.split_at_checked(8)?;
     let [hour, minute, second] = clock(time)?;
@@ -270,7 +270,7 @@ pub(crate) fn step(record: &Record) -> Option<String> {
 /// `observe` step that passed, `rejected` after a human G4 `ko`, `rolled back` after a
 /// `rollback` step that passed; else `in progress`. A step passes `ok`, or `simulated` when the
 /// release has no command for it.
-fn state(records: &[&Record]) -> &'static str {
+pub(crate) fn state(records: &[&Record]) -> &'static str {
     let mut state = "in progress";
     for record in records {
         let passed = is(record, "result", "ok") || is(record, "result", "simulated");
@@ -341,7 +341,7 @@ fn gates(records: &[&Record]) -> (f64, BTreeMap<String, f64>) {
 /// - to start: from that human line, else its first line, to the first `prepared`;
 /// - parked: from each `parked` line to the next `prepared`, by the note of the parking;
 /// - for the human at G4: from the line before each human G4 line to it.
-fn waits(lines: &[&Line]) -> BTreeMap<Wait, f64> {
+pub(crate) fn waits(lines: &[&Line]) -> BTreeMap<Wait, f64> {
     let mut waits = BTreeMap::new();
     let mut add = |wait: Wait, from: i64, to: i64| {
         *waits.entry(wait).or_default() += (to - from) as f64;

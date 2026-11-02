@@ -144,7 +144,7 @@ fn mutation(record: &Record) -> bool {
 }
 
 /// Whether a human spoke before the change was first prepared (all its lines, if never).
-fn sat(records: &[&Record]) -> bool {
+pub(crate) fn sat(records: &[&Record]) -> bool {
     let start = records.iter().position(|r| is(r, "result", "prepared"));
     let before = &records[..start.unwrap_or(records.len())];
     before.iter().any(|r| is(r, "role", "human"))
@@ -254,7 +254,7 @@ fn share(n: usize, d: usize, noun: &str) -> String {
 }
 
 /// `total` over `changes` with one decimal and the counts: `1.2 per change (6 in 5)`.
-fn per_change(total: usize, changes: usize) -> String {
+pub(crate) fn per_change(total: usize, changes: usize) -> String {
     if changes == 0 {
         return NO_DATA.to_string();
     }
@@ -285,7 +285,7 @@ fn thousands(n: u64) -> String {
 
 /// The date `days` days after 1970-01-01 as `YYYY-MM-DD`. Howard Hinnant's `civil_from_days`, on
 /// eras of 400 years that start on March 1st.
-fn date(days: i64) -> String {
+pub(crate) fn date(days: i64) -> String {
     let shifted = days + 719_468;
     let era = shifted.div_euclid(146_097);
     let day_of_era = shifted.rem_euclid(146_097);
