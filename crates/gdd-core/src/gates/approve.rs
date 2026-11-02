@@ -27,10 +27,11 @@ use crate::change::{self, Approval, Record};
 use crate::config;
 use crate::gates::{phrasing, verdict};
 use crate::git::{self, Git};
-use crate::guard::{self, Settings};
+use crate::guard::{Settings, Touched};
 use crate::layout;
 use crate::log;
 use crate::recipe::queue::{self, SharedWrite};
+use crate::repo::touched::against_main;
 use crate::rules::Acceptance;
 use crate::zones::ZoneMap;
 
@@ -429,7 +430,8 @@ fn record_on_change(
     let invalid = |e: serde_json::Error| Error::Project(format!("{path}: {e}"));
     let sealed = if gate == Gate::G1 && decision == Decision::Ok {
         let record = Record::from_json(&text).map_err(invalid)?;
-        Some(seal(project, id, &record)?)
+        let touched = against_main(project.root, id, &project.settings.main_branch)?;
+        Some(seal(project, id, &record, &touched)?)
     } else {
         None
     };
@@ -459,15 +461,21 @@ pub struct Sealed {
     pub hashes: BTreeMap<String, String>,
 }
 
-/// What approving G1 seals on change `id`, whose record is `record`. Its scenario files are the
-/// ones it touched against the main branch and the ones it plans that need approval, as the
-/// launch counts them (see [`unsealed`]); without any, the ones its record names. They are read
-/// as the change's branch has them: the working tree while it is checked out, or when the change
-/// has no branch; else its last commit, so approving from another branch seals them too. Hidden
-/// examples the change touched (or plans, while it touched nothing) whose sentences no visible
-/// scenario has are refused: test mode could never write their steps.
-pub fn seal(project: &Project, id: &str, record: &Record) -> Result<Sealed, Error> {
-    let touched = guard::touched(project.root, id, project.settings)?;
+/// What approving G1 seals on change `id`, whose record is `record` and which touched `touched`
+/// against the main branch. Its scenario files are the ones it touched and the ones it plans
+/// that need approval, as the launch counts them (see [`unsealed`]); without any, the ones its
+/// record names. They are read as the change's branch has them: the working tree while it is
+/// checked out, or when the change has no branch; else its last commit, so approving from
+/// another branch seals them too. Hidden examples the change touched (or plans, while it touched
+/// nothing) whose sentences no visible scenario has are refused: test mode could never write
+/// their steps.
+pub fn seal(
+    project: &Project,
+    id: &str,
+    record: &Record,
+    touched: &Touched,
+) -> Result<Sealed, Error> {
+    let touched = touched.paths();
     let mut planned = record.plan.paths.clone();
     planned.sort();
     planned.dedup();

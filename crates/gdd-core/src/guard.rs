@@ -4,6 +4,10 @@
 //! file, now and where the build started, and the scenarios approved in G1. The scope check
 //! accepts the paths outside the plan of a change whose color is not higher than the change's,
 //! and fails the others: the change would need gates it was not given.
+//!
+//! Both judge only the items a change touched, as its [`Blueprint`] reports them: how the work
+//! is kept and listed is the blueprint's (for software, the paths of the project in its git
+//! repository), what passes is the core's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write};
@@ -14,10 +18,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::change::{self, Record};
+use crate::change::Record;
 use crate::classify::classify;
 use crate::config;
-use crate::git::{self, Git};
 use crate::layout::Layout;
 use crate::rules::{CORE_ITEMS, RulesTable};
 use crate::zones::{ZoneMap, glob_matches};
@@ -28,14 +31,101 @@ pub const DELETED: &str = "deleted";
 /// The rules file of a project, from its root, in the new names (see [`crate::layout`]).
 pub const RULES: &str = "tminus/rules.toml";
 
+/// The branch the changes leave from when the rules file names none.
+pub const MAIN_BRANCH: &str = "main";
+
 /// Hashes of the paths a change touched, at one moment: path -> SHA-256 in hex, or [`DELETED`].
 pub type Hashes = BTreeMap<String, String>;
+
+/// A stable id of an item a task touched, segments joined by `/` (software: the path from the
+/// project root).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ItemId(String);
+
+impl ItemId {
+    /// The item whose id is `id`.
+    pub fn new(id: impl Into<String>) -> ItemId {
+        ItemId(id.into())
+    }
+
+    /// The id as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ItemId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A point of the work of a task the blueprint can answer about (software: a commit id).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mark(String);
+
+impl Mark {
+    /// The point whose id is `id`.
+    pub fn new(id: impl Into<String>) -> Mark {
+        Mark(id.into())
+    }
+
+    /// The id as text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Mark {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// What a task touched: the only input the core judges risk from. Each item once, sorted. An
+/// item added, changed or removed counts alike.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Touched {
+    /// The items, each once, sorted.
+    pub items: Vec<ItemId>,
+}
+
+impl Touched {
+    /// Whether nothing was touched.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// The ids of the items as text, in their order: for software, paths from the project root.
+    pub fn paths(&self) -> Vec<String> {
+        self.items.iter().map(|item| item.0.clone()).collect()
+    }
+}
+
+impl FromIterator<String> for Touched {
+    /// The items whose ids are `ids`, each once, sorted.
+    fn from_iter<I: IntoIterator<Item = String>>(ids: I) -> Touched {
+        let items: BTreeSet<ItemId> = ids.into_iter().map(ItemId).collect();
+        Touched {
+            items: items.into_iter().collect(),
+        }
+    }
+}
+
+/// What the core asks the blueprint about the work of a change (ADR 0002, sections 2 and 5).
+pub trait Blueprint {
+    /// What change `id` touched since `since`; with `None`, against the main branch.
+    fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, Error>;
+
+    /// The bytes of `item` as they were at `mark`; `None` where there was none.
+    fn rules_at(&mut self, mark: &Mark, item: &ItemId) -> Result<Option<Vec<u8>>, Error>;
+}
 
 /// What the rules file says to Path Guard: the main branch and the paths each role must not
 /// change. The rest of the file is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Settings {
-    /// Branch the changes leave from. Unset: `main`.
+    /// Branch the changes leave from. Unset: [`MAIN_BRANCH`].
     #[serde(default = "default_main_branch")]
     pub main_branch: String,
     /// `[protected]`: `all` for every role, then one list per role (`builder_build` for the role
@@ -45,7 +135,7 @@ pub struct Settings {
 }
 
 fn default_main_branch() -> String {
-    "main".to_string()
+    MAIN_BRANCH.to_string()
 }
 
 impl Settings {
@@ -54,20 +144,21 @@ impl Settings {
         toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))
     }
 
-    /// What the rules file said at the commit `commit`, under the name it has in each layout
-    /// (see [`crate::layout`]): the defaults where there was none. Moving the file to the name
-    /// of the other layout frees no one from what it protected.
-    fn committed(git: &Git, commit: &str) -> Result<Vec<Settings>, Error> {
+    /// What the rules file said at `mark`, as `blueprint` has it, under the name it has in each
+    /// layout (see [`crate::layout`]): the defaults where there was none. Moving the file to the
+    /// name of the other layout frees no one from what it protected.
+    fn committed(blueprint: &mut dyn Blueprint, mark: &Mark) -> Result<Vec<Settings>, Error> {
         let mut found = Vec::new();
         for layout in [Layout::Tminus, Layout::Gdd] {
             let file = layout.path(RULES);
-            let bytes = git.file_at(commit, &file)?.unwrap_or_default();
+            let item = ItemId::new(file.as_str());
+            let bytes = blueprint.rules_at(mark, &item)?.unwrap_or_default();
             let read = String::from_utf8(bytes)
                 .map_err(|e| config::Error::Toml(e.to_string()))
                 .and_then(|text| Settings::from_toml(&text));
             match read {
                 Ok(settings) => found.push(settings),
-                Err(e) => return Err(Error::Rules(file, commit.to_string(), e)),
+                Err(e) => return Err(Error::Rules(file, mark.to_string(), e)),
             }
         }
         Ok(found)
@@ -90,14 +181,15 @@ impl Settings {
 /// What can go wrong in Path Guard, the scope check or a snapshot.
 #[derive(Debug)]
 pub enum Error {
-    /// Reading git failed.
-    Git(git::Error),
+    /// The blueprint could not say what the change touched, or what the rules file was at a
+    /// mark: what it said.
+    Blueprint(String),
     /// A file of the project could not be read to hash it.
     Read(String, io::Error),
     /// The zone map or the rules table could not classify the plan.
     Config(config::Error),
-    /// A rules file at a commit, the one where a build started, is not valid: the file, the
-    /// commit and why.
+    /// A rules file at a mark, the one where a build started, is not valid: the file, the mark
+    /// and why.
     Rules(String, String, config::Error),
     /// The change has no starting point: it was never prepared.
     NotPrepared(String),
@@ -106,10 +198,10 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Git(e) => write!(f, "{e}"),
+            Error::Blueprint(said) => f.write_str(said),
             Error::Read(path, e) => write!(f, "cannot read {path}: {e}"),
             Error::Config(e) => write!(f, "{e}"),
-            Error::Rules(file, commit, e) => write!(f, "{file} at {commit}: {e}"),
+            Error::Rules(file, mark, e) => write!(f, "{file} at {mark}: {e}"),
             Error::NotPrepared(id) => write!(
                 f,
                 "change {id} has not been prepared: its record has no build_start"
@@ -119,12 +211,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-impl From<git::Error> for Error {
-    fn from(e: git::Error) -> Error {
-        Error::Git(e)
-    }
-}
 
 impl From<config::Error> for Error {
     fn from(e: config::Error) -> Error {
@@ -186,15 +272,16 @@ impl Verdict {
     }
 }
 
-/// Path Guard for `role` on change `id` of the project at `root`: the paths the change touched
-/// since its build started that `role` must not touch, then the scenarios approved in G1 that
-/// changed or went away since. What `role` must not touch is what `settings`, the rules file
-/// now, protects, and what the rules file protected when the build started: deleting the file
-/// or one of its protections frees no one from it. With the hashes of a snapshot, only the paths
-/// whose hash changed since it count as touched. A change never prepared fails: there is no
-/// starting point. In the worktree of a variant of a spike, what its branch touched (see
-/// [`change::branch_at`]).
+/// Path Guard for `role` on change `id` of the project at `root`: the items `blueprint` reports
+/// the change touched since its build started that `role` must not touch, then the scenarios
+/// approved in G1 that changed or went away since. What `role` must not touch is what
+/// `settings`, the rules file now, protects, and what the rules file protected when the build
+/// started, as `blueprint` has it: deleting the file or one of its protections frees no one from
+/// it. With the hashes of a snapshot, only the paths whose hash changed since it count as
+/// touched. A change never prepared fails, and `blueprint` is asked nothing: there is no
+/// starting point.
 pub fn path_guard(
+    blueprint: &mut dyn Blueprint,
     root: &Path,
     id: &str,
     record: &Record,
@@ -205,12 +292,12 @@ pub fn path_guard(
     let Some(start) = record.build_start.as_deref() else {
         return Ok(Verdict::new(vec![not_prepared(id, "Path Guard")]));
     };
-    let git = Git::new(root);
-    let mut touched = git.changed_since(&change::branch_at(&git, id)?, start)?;
+    let start = Mark::new(start);
+    let mut touched = blueprint.touched(id, Some(&start))?.paths();
     if let Some(before) = snapshot {
         touched = changed_after(root, touched, before)?;
     }
-    let at_start = Settings::committed(&git, start)?;
+    let at_start = Settings::committed(blueprint, &start)?;
     let protected: Vec<&str> = std::iter::once(settings)
         .chain(&at_start)
         .flat_map(|rules| rules.protected(role))
@@ -244,15 +331,20 @@ fn changed_after(root: &Path, diff: Vec<String>, before: &Hashes) -> Result<Vec<
     Ok(changed)
 }
 
-/// The hashes of what change `id` of the project at `root` touched since its build started, as
-/// they are now: what `tminus snapshot` records. A change never prepared is an error.
-pub fn snapshot(root: &Path, id: &str, record: &Record) -> Result<Hashes, Error> {
+/// The hashes of what `blueprint` reports change `id` of the project at `root` touched since its
+/// build started, as they are now: what `tminus snapshot` records. A change never prepared is an
+/// error, and `blueprint` is asked nothing.
+pub fn snapshot(
+    blueprint: &mut dyn Blueprint,
+    root: &Path,
+    id: &str,
+    record: &Record,
+) -> Result<Hashes, Error> {
     let Some(start) = record.build_start.as_deref() else {
         return Err(Error::NotPrepared(id.to_string()));
     };
-    let git = Git::new(root);
-    let touched = git.changed_since(&change::branch_at(&git, id)?, start)?;
-    hashes(root, &touched)
+    let touched = blueprint.touched(id, Some(&Mark::new(start)))?;
+    hashes(root, &touched.paths())
 }
 
 /// The verdict of the scope check: `ok` when there are no failures.
@@ -276,13 +368,13 @@ impl Scope {
     }
 }
 
-/// The scope check of change `id` of the project at `root`: the paths it touched since its build
+/// The scope check of change `id`: the items `blueprint` reports it touched since its build
 /// started that its plan does not include (planned paths are patterns, see [`glob_matches`]).
 /// One with the change's color or a lower one is accepted; a higher one is a failure. The color
 /// of the change is the one decided when it was prepared, else the color of its plan. A change
-/// never prepared fails: there is no starting point.
+/// never prepared fails, and `blueprint` is asked nothing: there is no starting point.
 pub fn scope(
-    root: &Path,
+    blueprint: &mut dyn Blueprint,
     id: &str,
     record: &Record,
     zones: &ZoneMap,
@@ -298,8 +390,7 @@ pub fn scope(
     };
     let planned = &record.plan.paths;
     let (mut failures, mut accepted) = (Vec::new(), Vec::new());
-    let git = Git::new(root);
-    for path in git.changed_since(&change::branch_at(&git, id)?, start)? {
+    for path in blueprint.touched(id, Some(&Mark::new(start)))?.paths() {
         if planned.iter().any(|plan| glob_matches(plan, &path)) {
             continue;
         }
@@ -316,24 +407,12 @@ pub fn scope(
     Ok(Scope::new(failures, accepted))
 }
 
-/// Paths change `id` of the project at `root` touched against the main branch, which count when
-/// classifying it: nothing when the project is not in a git repository or the change has no
-/// branch yet. In the worktree of a variant of a spike, what its branch touched (see
-/// [`change::branch_at`]).
-pub fn touched(root: &Path, id: &str, settings: &Settings) -> Result<Vec<String>, git::Error> {
-    if !git::is_repository(root) {
-        return Ok(Vec::new());
-    }
-    let git = Git::new(root);
-    git.changed_from(&settings.main_branch, &change::branch_at(&git, id)?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::classify::Change;
     use crate::config::Color;
-    use crate::git::tests::{Folder, Repo};
+    use crate::git::tests::Folder;
     use crate::rules;
 
     const RULES: &str = r#"
@@ -358,6 +437,9 @@ paths = ["src/storage/**"]
 
     const NOTHING: [&str; 0] = [];
 
+    /// The mark where the build of the changes of these tests started.
+    const START: &str = "s1";
+
     fn settings() -> Settings {
         Settings::from_toml(RULES).unwrap()
     }
@@ -377,30 +459,127 @@ paths = ["src/storage/**"]
         }
     }
 
-    /// A repository whose `main` holds the rules and a scenario, with change `c1` started on its
-    /// branch; and the commit it started at.
-    fn started() -> (Repo, String) {
-        let repo = Repo::new();
-        repo.write("tminus/rules.toml", RULES);
-        repo.write("features/a.feature", "Feature: a\n");
-        repo.commit();
-        let start = repo.start("c1");
-        (repo, start)
+    /// A blueprint over a plain folder, with no repository: it reports the items and the rules it
+    /// was given, or fails as it was told, and keeps what it was asked.
+    #[derive(Default)]
+    struct Fake {
+        /// The items it reports touched.
+        items: Vec<String>,
+        /// The rules it has: (mark, item) -> bytes.
+        rules: BTreeMap<(String, String), Vec<u8>>,
+        /// What `touched` fails with, if it fails.
+        touched_fails: Option<String>,
+        /// What `rules_at` fails with, if it fails.
+        rules_fail: Option<String>,
+        /// What it was asked, in order.
+        asked: Vec<String>,
     }
 
-    /// The failures of Path Guard for `role` on change `c1`.
-    fn guard(repo: &Repo, record: &Record, role: &str, snapshot: Option<&Hashes>) -> Vec<String> {
-        let verdict = path_guard(repo.root(), "c1", record, &settings(), role, snapshot).unwrap();
+    impl Fake {
+        /// A blueprint that reports `items` touched.
+        fn touching(items: &[&str]) -> Fake {
+            Fake {
+                items: items.iter().map(|item| item.to_string()).collect(),
+                ..Fake::default()
+            }
+        }
+
+        /// Gives it the rules file `item` as it was at `mark`.
+        fn with_rules(mut self, mark: &str, item: &str, bytes: &[u8]) -> Fake {
+            let key = (mark.to_string(), item.to_string());
+            self.rules.insert(key, bytes.to_vec());
+            self
+        }
+    }
+
+    impl Blueprint for Fake {
+        fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, Error> {
+            let since = since.map_or_else(|| "main".to_string(), Mark::to_string);
+            self.asked.push(format!("touched {id} since {since}"));
+            match &self.touched_fails {
+                Some(said) => Err(Error::Blueprint(said.clone())),
+                None => Ok(self.items.iter().cloned().collect()),
+            }
+        }
+
+        fn rules_at(&mut self, mark: &Mark, item: &ItemId) -> Result<Option<Vec<u8>>, Error> {
+            self.asked.push(format!("rules {item} at {mark}"));
+            if let Some(said) = &self.rules_fail {
+                return Err(Error::Blueprint(said.clone()));
+            }
+            let key = (mark.to_string(), item.to_string());
+            Ok(self.rules.get(&key).cloned())
+        }
+    }
+
+    /// Path Guard for `role` on change `c1` of the plain folder `folder`, with what `fake`
+    /// reports, the rules now `now` and the snapshot `before`, if any.
+    fn judged(
+        fake: &mut Fake,
+        folder: &Folder,
+        record: &Record,
+        now: &Settings,
+        role: &str,
+        before: Option<&Hashes>,
+    ) -> Result<Verdict, Error> {
+        path_guard(fake, &folder.0, "c1", record, now, role, before)
+    }
+
+    /// The failures of Path Guard for `role` on change `c1` of the plain folder `folder`, with
+    /// what `fake` reports and the rules now [`RULES`].
+    fn guard(fake: &mut Fake, folder: &Folder, record: &Record, role: &str) -> Vec<String> {
+        let verdict = judged(fake, folder, record, &settings(), role, None).unwrap();
         assert_eq!(verdict.ok, verdict.failures.is_empty());
         verdict.failures
     }
 
-    /// The scope check of change `c1`, with the zone map [`ZONES`] and the default rules.
-    fn check_scope(repo: &Repo, record: &Record) -> Scope {
+    /// The scope check of change `c1`, with what `fake` reports, the zone map [`ZONES`] and the
+    /// default rules.
+    fn check_scope(fake: &mut Fake, record: &Record) -> Scope {
         let zones = ZoneMap::from_toml(ZONES).unwrap();
-        let checked = scope(repo.root(), "c1", record, &zones, &rules::default_table()).unwrap();
+        let checked = scope(fake, "c1", record, &zones, &rules::default_table()).unwrap();
         assert_eq!(checked.ok, checked.failures.is_empty());
         checked
+    }
+
+    #[test]
+    fn the_core_judges_without_asking_git() {
+        let sources = [
+            ("guard.rs", include_str!("guard.rs")),
+            ("classify.rs", include_str!("classify.rs")),
+        ];
+        for (name, source) in sources {
+            let production = source.split("#[cfg(test)]").next().unwrap();
+            assert!(production.len() < source.len(), "{name} has no tests");
+            for word in ["crate::git", "Git::", "git::", "branch_at", "repo::"] {
+                assert!(!production.contains(word), "{name} names {word}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_item_and_a_mark_are_their_text() {
+        let item = ItemId::new("src/a b.rs");
+        assert_eq!(item.as_str(), "src/a b.rs");
+        assert_eq!(item.to_string(), "src/a b.rs");
+        assert_eq!(item, ItemId::new(String::from("src/a b.rs")));
+        let mark = Mark::new("37cc864");
+        assert_eq!(mark.as_str(), "37cc864");
+        assert_eq!(mark.to_string(), "37cc864");
+        assert_eq!(mark, Mark::new(String::from("37cc864")));
+    }
+
+    #[test]
+    fn what_was_touched_holds_each_item_once_sorted() {
+        let none = Touched::default();
+        assert!(none.is_empty());
+        assert_eq!(none.paths(), NOTHING);
+        let ids = ["src/b.rs", "docs/a.md", "src/b.rs", "src/a.rs"].map(String::from);
+        let touched: Touched = ids.into_iter().collect();
+        assert!(!touched.is_empty());
+        assert_eq!(touched.paths(), ["docs/a.md", "src/a.rs", "src/b.rs"]);
+        let items = ["docs/a.md", "src/a.rs", "src/b.rs"].map(ItemId::new);
+        assert_eq!(touched.items, items);
     }
 
     /// `patterns`, then the core's own items, which every role is kept from.
@@ -412,6 +591,7 @@ paths = ["src/storage/**"]
     fn settings_come_from_the_rules_file() {
         let empty = Settings::from_toml("").unwrap();
         assert_eq!(empty.main_branch, "main");
+        assert_eq!(MAIN_BRANCH, "main");
         assert_eq!(empty.protected("builder-build"), CORE_ITEMS);
         let text = format!("main_branch = \"trunk\"\n[color.red.full]\nmutation = true\n{RULES}");
         let read = Settings::from_toml(&text).unwrap();
@@ -474,261 +654,233 @@ paths = ["src/storage/**"]
     }
 
     #[test]
-    fn a_change_never_prepared_fails_path_guard() {
+    fn a_change_never_prepared_fails_path_guard_without_asking_the_blueprint() {
         let folder = Folder::new();
         let never = record(&[], None);
-        let verdict = path_guard(&folder.0, "c1", &never, &settings(), "reviewer", None).unwrap();
+        let mut fake = Fake::touching(&["tminus/rules.toml"]);
+        let verdict = judged(&mut fake, &folder, &never, &settings(), "reviewer", None);
         let failure = "Change c1 has not been prepared: Path Guard has no starting point.";
         assert_eq!(
-            verdict,
+            verdict.unwrap(),
             Verdict {
                 ok: false,
                 failures: vec![failure.to_string()],
             }
         );
+        assert_eq!(fake.asked, NOTHING);
     }
 
     #[test]
-    fn path_guard_names_what_the_role_must_not_touch() {
-        let (repo, start) = started();
-        let record = record(&["src/a.rs"], Some(&start));
-        assert_eq!(guard(&repo, &record, "builder-build", None), NOTHING);
-        repo.write("src/a.rs", "x\n");
-        repo.write("features/b.feature", "Feature: b\n");
-        repo.commit();
-        repo.write("tminus/rules.toml", "# touched\n");
+    fn path_guard_judges_the_items_the_blueprint_reports_since_the_start() {
+        let folder = Folder::new();
+        let record = record(&["src/a.rs"], Some(START));
+        let mut fake = Fake::default();
+        let failures = guard(&mut fake, &folder, &record, "builder-build");
+        assert_eq!(failures, NOTHING);
+        let asked = [
+            "touched c1 since s1",
+            "rules tminus/rules.toml at s1",
+            "rules gdd/rules.toml at s1",
+        ];
+        assert_eq!(fake.asked, asked);
+        let touched = ["features/b.feature", "src/a.rs", "tminus/rules.toml"];
+        let mut fake = Fake::touching(&touched);
         assert_eq!(
-            guard(&repo, &record, "builder-build", None),
+            guard(&mut fake, &folder, &record, "builder-build"),
             [
                 "features/b.feature: protected path for builder-build",
                 "tminus/rules.toml: protected path for builder-build",
             ]
         );
         assert_eq!(
-            guard(&repo, &record, "builder-test", None),
+            guard(&mut fake, &folder, &record, "builder-test"),
             [
                 "src/a.rs: protected path for builder-test",
                 "tminus/rules.toml: protected path for builder-test",
             ]
         );
         assert_eq!(
-            guard(&repo, &record, "reviewer", None),
+            guard(&mut fake, &folder, &record, "reviewer"),
             ["tminus/rules.toml: protected path for reviewer"]
         );
+        // Nothing on disk was touched: only what the blueprint reports counts.
+        assert!(!folder.0.join("src").exists());
     }
 
     #[test]
-    fn a_scenario_approved_in_g1_cannot_change_or_go_away() {
-        let (repo, start) = started();
-        let mut record = record(&[], Some(&start));
-        let hash = file_hash(&repo.root().join("features/a.feature")).unwrap();
-        record.approved.insert("features/a.feature".into(), hash);
-        assert_eq!(guard(&repo, &record, "builder-test", None), NOTHING);
-        let failure = "features/a.feature: scenario approved in G1 and modified afterwards";
-        repo.write("features/a.feature", "Feature: changed\n");
-        assert_eq!(guard(&repo, &record, "builder-test", None), [failure]);
-        fs::remove_file(repo.root().join("features/a.feature")).unwrap();
-        assert_eq!(guard(&repo, &record, "builder-test", None), [failure]);
-        record.approved.insert("x".repeat(300), ABC.into());
-        let result = path_guard(repo.root(), "c1", &record, &settings(), "reviewer", None);
-        assert!(matches!(result, Err(Error::Read(..))));
-    }
-
-    #[test]
-    fn after_a_snapshot_only_what_changed_since_counts() {
-        let (repo, start) = started();
-        let record = record(&[], Some(&start));
-        repo.write("src/a.rs", "1\n");
-        repo.write("src/b.rs", "1\n");
-        let before = snapshot(repo.root(), "c1", &record).unwrap();
-        repo.write("src/b.rs", "2\n");
-        repo.write("src/c.rs", "1\n");
-        assert_eq!(
-            guard(&repo, &record, "builder-test", Some(&before)),
-            [
-                "src/b.rs: protected path for builder-test",
-                "src/c.rs: protected path for builder-test",
-            ]
-        );
-        assert_eq!(guard(&repo, &record, "builder-test", None).len(), 3);
-    }
-
-    #[test]
-    fn a_path_the_snapshot_hashed_counts_after_it_leaves_the_diff() {
-        let (repo, start) = started();
-        let record = record(&[], Some(&start));
-        repo.write("features/a.feature", "Feature: changed\n");
-        repo.write("features/b.feature", "Feature: b\n");
-        let before = snapshot(repo.root(), "c1", &record).unwrap();
-        assert_eq!(
-            guard(&repo, &record, "builder-build", Some(&before)),
-            NOTHING
-        );
-        repo.write("features/a.feature", "Feature: a\n");
-        fs::remove_file(repo.root().join("features/b.feature")).unwrap();
-        assert_eq!(guard(&repo, &record, "builder-build", None), NOTHING);
-        assert_eq!(
-            guard(&repo, &record, "builder-build", Some(&before)),
-            [
-                "features/a.feature: protected path for builder-build",
-                "features/b.feature: protected path for builder-build",
-            ]
-        );
-    }
-
-    #[test]
-    fn deleting_the_rules_or_a_protection_frees_no_one() {
-        let (repo, start) = started();
-        let record = record(&[], Some(&start));
-        let failures = |now: &Settings| {
-            let verdict = path_guard(repo.root(), "c1", &record, now, "builder-build", None);
-            verdict.unwrap().failures
-        };
-        fs::remove_file(repo.root().join("tminus/rules.toml")).unwrap();
-        repo.write("features/b.feature", "Feature: b\n");
-        repo.write("docs/x.md", "x\n");
-        let empty = Settings::from_toml("").unwrap();
-        assert_eq!(
-            failures(&empty),
-            [
-                "features/b.feature: protected path for builder-build",
-                "tminus/rules.toml: protected path for builder-build",
-            ]
-        );
-        let added = Settings::from_toml("[protected]\nbuilder_build = [\"docs/**\"]\n").unwrap();
-        assert_eq!(
-            failures(&added),
-            [
-                "docs/x.md: protected path for builder-build",
-                "features/b.feature: protected path for builder-build",
-                "tminus/rules.toml: protected path for builder-build",
-            ]
-        );
-    }
-
-    #[test]
-    fn moving_the_rules_to_the_name_of_the_other_layout_frees_no_one() {
-        for (from, to) in [("gdd", "tminus"), ("tminus", "gdd")] {
-            // The rules where the build started, under the name of one layout.
-            let repo = Repo::new();
-            let rules =
-                format!("[protected]\nall = [\"{from}/**\"]\nbuilder_build = [\"features/**\"]\n");
-            repo.write(&format!("{from}/project.toml"), "");
-            repo.write(&format!("{from}/rules.toml"), &rules);
-            repo.commit();
-            let start = repo.start("c1");
-            let record = record(&[], Some(&start));
-            // Moved to the other one, without any protection.
-            fs::remove_dir_all(repo.root().join(from)).unwrap();
-            repo.write(&format!("{to}/project.toml"), "");
-            repo.write(&format!("{to}/rules.toml"), "");
-            repo.write("features/b.feature", "Feature: b\n");
-            let empty = Settings::from_toml("").unwrap();
-            let verdict = path_guard(repo.root(), "c1", &record, &empty, "builder-build", None);
-            let failures = verdict.unwrap().failures;
-            let guarded = "features/b.feature: protected path for builder-build";
-            assert_eq!(failures[0], guarded);
-            let left = format!("{from}/");
-            let moved = failures.iter().filter(|f| f.starts_with(&left)).count();
-            // Where it went is one of the core's own items too: protected all the same.
-            assert_eq!((failures.len(), moved), (5, 2), "{from}: {failures:?}");
+    fn the_rules_the_blueprint_had_at_the_start_protect_under_either_name() {
+        let folder = Folder::new();
+        let record = record(&[], Some(START));
+        let now = Settings::from_toml("").unwrap();
+        let docs = b"[protected]\nbuilder_build = [\"docs/**\"]\n";
+        let src = b"[protected]\nall = [\"src/**\"]\n";
+        for name in ["tminus/rules.toml", "gdd/rules.toml"] {
+            let touched = Fake::touching(&["docs/x.md", "src/a.rs", "tests/a.rs"]);
+            // Rules at another mark protect nothing here.
+            let fake = touched.with_rules(START, name, docs);
+            let mut fake = fake.with_rules("s0", name, src);
+            let builder = "builder-build";
+            let verdict = judged(&mut fake, &folder, &record, &now, builder, None);
+            let failure = "docs/x.md: protected path for builder-build";
+            assert_eq!(verdict.unwrap().failures, [failure], "{name}");
         }
     }
 
     #[test]
-    fn without_rules_where_the_build_started_the_rules_now_count() {
-        let repo = Repo::new();
-        let start = repo.start("c1");
-        repo.write("src/a.rs", "x\n");
-        let failure = "src/a.rs: protected path for builder-test";
-        let record = record(&[], Some(&start));
-        assert_eq!(guard(&repo, &record, "builder-test", None), [failure]);
-    }
-
-    #[test]
-    fn broken_rules_where_the_build_started_are_an_error_that_names_them() {
+    fn broken_rules_at_the_start_are_an_error_that_names_them_and_the_mark() {
+        let folder = Folder::new();
+        let record = record(&[], Some(START));
         let broken: [&[u8]; 2] = [b"[protected]\nall = \"tminus/**\"\n", &[0xff, 0xfe]];
-        for (text, folder) in broken.into_iter().zip(["tminus", "gdd"]) {
-            let repo = Repo::new();
-            fs::create_dir_all(repo.root().join(folder)).unwrap();
-            fs::write(repo.root().join(folder).join("rules.toml"), text).unwrap();
-            repo.commit();
-            let start = repo.start("c1");
-            let record = record(&[], Some(&start));
-            let result = path_guard(repo.root(), "c1", &record, &settings(), "reviewer", None);
+        let names = ["tminus/rules.toml", "gdd/rules.toml"];
+        for (bytes, name) in broken.into_iter().zip(names) {
+            let mut fake = Fake::default().with_rules(START, name, bytes);
+            let result = judged(&mut fake, &folder, &record, &settings(), "reviewer", None);
             let err = result.unwrap_err();
-            let file = format!("{folder}/rules.toml");
-            let Error::Rules(named, commit, _) = &err else {
+            let Error::Rules(named, mark, _) = &err else {
                 panic!("not the rules: {err:?}");
             };
-            assert_eq!((named, commit), (&file, &start));
-            let prefix = format!("{file} at {start}: invalid TOML: ");
+            assert_eq!((named.as_str(), mark.as_str()), (name, START));
+            let prefix = format!("{name} at {START}: invalid TOML: ");
             assert!(err.to_string().starts_with(&prefix), "{err}");
         }
     }
 
     #[test]
-    fn a_snapshot_hashes_what_the_change_touched_as_it_is_now() {
-        let (repo, start) = started();
-        repo.write("src/a.rs", "abc");
-        fs::remove_file(repo.root().join("features/a.feature")).unwrap();
-        let hashes = snapshot(repo.root(), "c1", &record(&[], Some(&start))).unwrap();
+    fn a_scenario_approved_in_g1_cannot_change_or_go_away() {
+        let folder = Folder::new();
+        folder.write("features/a.feature", "Feature: a\n");
+        let mut record = record(&[], Some(START));
+        let hash = file_hash(&folder.0.join("features/a.feature")).unwrap();
+        record.approved.insert("features/a.feature".into(), hash);
+        let mut fake = Fake::default();
+        let role = "builder-test";
+        assert_eq!(guard(&mut fake, &folder, &record, role), NOTHING);
+        let failure = "features/a.feature: scenario approved in G1 and modified afterwards";
+        folder.write("features/a.feature", "Feature: changed\n");
+        assert_eq!(guard(&mut fake, &folder, &record, role), [failure]);
+        fs::remove_file(folder.0.join("features/a.feature")).unwrap();
+        assert_eq!(guard(&mut fake, &folder, &record, role), [failure]);
+    }
+
+    #[test]
+    fn after_a_snapshot_only_what_changed_since_counts() {
+        let folder = Folder::new();
+        let record = record(&[], Some(START));
+        folder.write("src/a.rs", "1\n");
+        folder.write("src/b.rs", "1\n");
+        let mut fake = Fake::touching(&["src/a.rs", "src/b.rs"]);
+        let before = snapshot(&mut fake, &folder.0, "c1", &record).unwrap();
+        folder.write("src/b.rs", "2\n");
+        folder.write("src/c.rs", "1\n");
+        let mut fake = Fake::touching(&["src/a.rs", "src/b.rs", "src/c.rs"]);
+        let (now, role) = (settings(), "builder-test");
+        let since = judged(&mut fake, &folder, &record, &now, role, Some(&before));
+        assert_eq!(
+            since.unwrap().failures,
+            [
+                "src/b.rs: protected path for builder-test",
+                "src/c.rs: protected path for builder-test",
+            ]
+        );
+        assert_eq!(guard(&mut fake, &folder, &record, role).len(), 3);
+    }
+
+    #[test]
+    fn the_snapshot_filter_reads_the_disk_before_the_rules_are_asked() {
+        let folder = Folder::new();
+        let record = record(&[], Some(START));
+        let long = "x".repeat(300);
+        let before = Hashes::from([(long.clone(), ABC.to_string())]);
+        let mut fake = Fake {
+            rules_fail: Some("no rules".into()),
+            ..Fake::default()
+        };
+        let (now, role) = (settings(), "reviewer");
+        let since = judged(&mut fake, &folder, &record, &now, role, Some(&before));
+        assert!(matches!(since, Err(Error::Read(path, _)) if path == long));
+        assert_eq!(fake.asked, ["touched c1 since s1"]);
+        let all = judged(&mut fake, &folder, &record, &now, role, None);
+        assert_eq!(all.unwrap_err().to_string(), "no rules");
+    }
+
+    #[test]
+    fn an_error_of_the_blueprint_comes_back_with_its_text() {
+        let folder = Folder::new();
+        let record = record(&[], Some(START));
+        let said = "cannot list what c1 touched";
+        let mut fake = Fake {
+            touched_fails: Some(said.into()),
+            ..Fake::default()
+        };
+        let text = |err: Error| match err {
+            Error::Blueprint(said) => said,
+            other => panic!("not the blueprint: {other:?}"),
+        };
+        let now = settings();
+        let guarded = judged(&mut fake, &folder, &record, &now, "reviewer", None);
+        assert_eq!(text(guarded.unwrap_err()), said);
+        let hashed = snapshot(&mut fake, &folder.0, "c1", &record);
+        assert_eq!(text(hashed.unwrap_err()), said);
+        let zones = ZoneMap::from_toml(ZONES).unwrap();
+        let table = rules::default_table();
+        let scoped = scope(&mut fake, "c1", &record, &zones, &table);
+        assert_eq!(text(scoped.unwrap_err()), said);
+        assert_eq!(fake.asked, ["touched c1 since s1"; 3]);
+    }
+
+    #[test]
+    fn a_snapshot_hashes_the_items_the_blueprint_reports_as_they_are_now() {
+        let folder = Folder::new();
+        folder.write("src/a.rs", "abc");
+        let started = record(&[], Some(START));
+        let mut fake = Fake::touching(&["src/a.rs", "features/a.feature"]);
+        let hashes = snapshot(&mut fake, &folder.0, "c1", &started).unwrap();
         let expected = Hashes::from([
             ("features/a.feature".to_string(), DELETED.to_string()),
             ("src/a.rs".to_string(), ABC.to_string()),
         ]);
         assert_eq!(hashes, expected);
-        let err = snapshot(repo.root(), "c1", &record(&[], None)).unwrap_err();
+        assert_eq!(fake.asked, ["touched c1 since s1"]);
+        let never = record(&[], None);
+        let err = snapshot(&mut fake, &folder.0, "c1", &never).unwrap_err();
         assert_eq!(
             err.to_string(),
             "change c1 has not been prepared: its record has no build_start"
         );
+        assert_eq!(fake.asked, ["touched c1 since s1"]);
     }
 
     #[test]
-    fn the_scope_accepts_lower_colors_outside_the_plan_and_fails_higher_ones() {
-        let (repo, start) = started();
-        let record = record(&["src/app.rs", "tests/**"], Some(&start));
-        repo.write("src/app.rs", "x\n");
-        repo.write("tests/deep/a.rs", "x\n");
-        let inside = check_scope(&repo, &record);
-        assert_eq!(inside, Scope::new(vec![], vec![]));
-        assert!(inside.ok);
-        repo.write("docs/notes.md", "x\n");
-        repo.write("src/other.rs", "x\n");
-        repo.write("src/storage/db.rs", "x\n");
-        let outside = check_scope(&repo, &record);
+    fn the_scope_judges_the_items_the_blueprint_reports_outside_the_plan() {
+        let record = record(&["src/app.rs", "tests/**"], Some(START));
+        let mut inside = Fake::touching(&["src/app.rs", "tests/deep/a.rs"]);
+        let checked = check_scope(&mut inside, &record);
+        assert_eq!(checked, Scope::new(vec![], vec![]));
+        assert_eq!(inside.asked, ["touched c1 since s1"]);
+        let touched = [
+            "docs/notes.md",
+            "src/app.rs",
+            "src/other.rs",
+            "src/storage/db.rs",
+        ];
+        let outside = check_scope(&mut Fake::touching(&touched), &record);
         let failure = "src/storage/db.rs: outside the package and red (the change is yellow); \
                        remove it, or the Orchestrator widens the scope";
         assert_eq!(outside.failures, [failure]);
         assert_eq!(outside.accepted, ["docs/notes.md", "src/other.rs"]);
         assert!(!outside.ok);
+        let mut decided = record.clone();
+        decided.decided_color = Some(Color::Red);
+        let accepted = check_scope(&mut Fake::touching(&touched), &decided).accepted;
+        let all = ["docs/notes.md", "src/other.rs", "src/storage/db.rs"];
+        assert_eq!(accepted, all);
     }
 
     #[test]
-    fn the_color_of_the_change_is_the_decided_one_else_the_color_of_its_plan() {
-        let (repo, start) = started();
-        repo.write("src/storage/db.rs", "x\n");
-        let mut record = record(&["docs/a.md"], Some(&start));
-        let failure = "src/storage/db.rs: outside the package and red (the change is green); \
-                       remove it, or the Orchestrator widens the scope";
-        assert_eq!(check_scope(&repo, &record).failures, [failure]);
-        record.plan.min_color = Some(Color::Red);
-        assert_eq!(check_scope(&repo, &record).accepted, ["src/storage/db.rs"]);
-        record.plan.min_color = None;
-        record.decided_color = Some(Color::Red);
-        assert_eq!(check_scope(&repo, &record).accepted, ["src/storage/db.rs"]);
-        record.decided_color = Some(Color::Green);
-        record.plan.min_color = Some(Color::Red);
-        assert_eq!(check_scope(&repo, &record).failures, [failure]);
-    }
-
-    #[test]
-    fn a_change_never_prepared_fails_the_scope_check() {
-        let folder = Folder::new();
-        let zones = ZoneMap::from_toml(ZONES).unwrap();
+    fn a_change_never_prepared_fails_the_scope_check_without_asking_the_blueprint() {
         let never = record(&[], None);
-        let checked = scope(&folder.0, "c1", &never, &zones, &rules::default_table()).unwrap();
+        let mut fake = Fake::touching(&["src/storage/db.rs"]);
+        let checked = check_scope(&mut fake, &never);
         let failure = "Change c1 has not been prepared: the scope check has no starting point.";
         assert_eq!(
             checked,
@@ -738,6 +890,7 @@ paths = ["src/storage/**"]
                 accepted: vec![],
             }
         );
+        assert_eq!(fake.asked, NOTHING);
     }
 
     #[test]
@@ -749,29 +902,9 @@ paths = ["src/storage/**"]
     }
 
     #[test]
-    fn classifying_counts_what_the_change_touched_in_git() {
-        let plain = Folder::new();
-        assert_eq!(touched(&plain.0, "c1", &settings()).unwrap(), NOTHING);
-        let (repo, _) = started();
-        repo.write("src/storage/db.rs", "x\n");
-        repo.write(".tminus/changes/c1/change.json", "{}");
-        assert_eq!(
-            touched(repo.root(), "c1", &settings()).unwrap(),
-            ["src/storage/db.rs"]
-        );
-        assert_eq!(touched(repo.root(), "c2", &settings()).unwrap(), NOTHING);
-        let trunk = Settings::from_toml("main_branch = \"trunk\"").unwrap();
-        let result = touched(repo.root(), "c1", &trunk);
-        assert!(matches!(result, Err(git::Error::Failed(_))));
-    }
-
-    #[test]
     fn errors_say_what_went_wrong() {
-        let from_git = Error::from(git::Error::Revision("-x".into()));
-        assert_eq!(
-            from_git.to_string(),
-            "\"-x\" is not a revision git can take"
-        );
+        let said = "cannot run git: not found";
+        assert_eq!(Error::Blueprint(said.into()).to_string(), said);
         let from_config = Error::from(config::Error::UnknownColor("blue".into()));
         assert_eq!(
             from_config.to_string(),

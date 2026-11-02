@@ -429,7 +429,7 @@ su coste:
 | `cost_usd` | número | Coste de la llamada: el que informó el agente, o estimado a partir de `[prices]`; 0 cuando es desconocido. |
 | `cost_basis` | cadena | Solo llamadas de agente: `reported` (el coste del propio agente), `estimated` (a partir de `[prices.<model>]`) o `unknown` (sin coste y sin precio). Una línea sin él, como las que escribía gdd 0.1.0, cuenta como `reported`. |
 | `duration_s` | número | Segundos, con una décima. |
-| `result` | cadena | `ok` o `ko`; en una llamada de agente, `ok`, `error-<code>` o `timeout`; en un paso de release, `ok`, `ko` o `simulated`; en un paso, lo que pasó: `change-created`, `prepared`, `parked`, `changelog-line`, `released`, `polish`. |
+| `result` | cadena | `ok` o `ko`; en una llamada de agente, `ok`, `error-<code>`, `timeout` o `cannot` (terminó bien y dijo que no puede hacer la tarea); en un paso de release, `ok`, `ko` o `simulated`; en un paso, lo que pasó: `change-created`, `prepared`, `parked`, `changelog-line`, `released`, `polish`. |
 | `retry` | entero | En una llamada de agente, las llamadas anteriores de su rol en el Change; 0 en otro caso. |
 | `note` | cadena | Lo que hay que leer: las comprobaciones fallidas de una puerta, la nota de una decisión, el comando que ejecutó un agente (`/gdd-build`), la versión publicada. |
 

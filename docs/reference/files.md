@@ -421,7 +421,7 @@ agent call, here a conversation `gdd session` imported, also says on what its co
 | `cost_usd` | number | Cost of the call: as the agent reported it, or estimated from `[prices]`; 0 when unknown. |
 | `cost_basis` | string | Agent calls only: `reported` (the agent's own cost), `estimated` (from `[prices.<model>]`) or `unknown` (no cost and no price). A line without it, as gdd 0.1.0 wrote them, counts as `reported`. |
 | `duration_s` | number | Seconds, to a tenth. |
-| `result` | string | `ok` or `ko`; for an agent call `ok`, `error-<code>` or `timeout`; for a release step `ok`, `ko` or `simulated`; for a step, what happened: `change-created`, `prepared`, `parked`, `changelog-line`, `released`, `polish`. |
+| `result` | string | `ok` or `ko`; for an agent call `ok`, `error-<code>`, `timeout` or `cannot` (it ended well and said it cannot do the task); for a release step `ok`, `ko` or `simulated`; for a step, what happened: `change-created`, `prepared`, `parked`, `changelog-line`, `released`, `polish`. |
 | `retry` | integer | For an agent call, the earlier calls of its role on the change; 0 otherwise. |
 | `note` | string | What to read: the failed checks of a gate, the note of a decision, the command an agent ran (`/gdd-build`), the version released. |
 
