@@ -369,6 +369,123 @@ fn the_log_has_the_line(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     writeln!(log, "{line}").unwrap_or_else(|e| panic!("cannot write {path:?}: {e}"));
 }
 
+// ---- features/mostly-red.feature ----------------------------------------------------------
+//
+// One change a day from the day given, in the table's order: created at 09:00; with a color, its
+// build starts at 09:10 (a `prepared` line `<color> · full`); `closed` ends with an `observe`
+// step that passed at 10:00, `rejected` with a human KO at G4 at 10:00, `in progress` with
+// nothing more. A color `-` means it was never prepared.
+
+#[given(regex = r"^the log has these changes, one a day from (\d{4}-\d{2}-\d{2}):$")]
+fn the_log_has_these_changes(w: &mut GddWorld, first: String, step: &cucumber::gherkin::Step) {
+    let table = step
+        .table
+        .as_ref()
+        .expect("a table of change | color | state");
+    let start = days_from(&first);
+    let line = |at: &str,
+                change: &str,
+                phase: &str,
+                gate: &str,
+                role: &str,
+                agent: &str,
+                result: &str,
+                note: &str| {
+        format!(
+            r#"{{"ts": "{at}", "change": "{change}", "phase": "{phase}", "gate": "{gate}", "role": "{role}", "agent": "{agent}", "model": "-", "tokens_in": 0, "tokens_cache": 0, "tokens_out": 0, "cost_usd": 0.0, "duration_s": 0, "result": "{result}", "retry": 0, "note": "{note}"}}"#
+        )
+    };
+    let mut log = Vec::new();
+    for (n, row) in table.rows.iter().skip(1).enumerate() {
+        let cells: Vec<&str> = row.iter().map(|c| c.trim()).collect();
+        let [change, color, state] = cells[..] else {
+            panic!("a row is change | color | state, not {cells:?}");
+        };
+        let day = civil(start + n as i64);
+        log.push(line(
+            &format!("{day}T09:00:00+00:00"),
+            change,
+            "1-discover",
+            "-",
+            "orchestrator",
+            "-",
+            "change-created",
+            change,
+        ));
+        if color != "-" {
+            let note = format!("{color} \\u00b7 full");
+            log.push(line(
+                &format!("{day}T09:10:00+00:00"),
+                change,
+                "2-build",
+                "-",
+                "machine",
+                "-",
+                "prepared",
+                &note,
+            ));
+        }
+        match state {
+            "closed" => log.push(line(
+                &format!("{day}T10:00:00+00:00"),
+                change,
+                "4-release",
+                "-",
+                "machine",
+                "observe",
+                "ok",
+                "",
+            )),
+            "rejected" => log.push(line(
+                &format!("{day}T10:00:00+00:00"),
+                change,
+                "4-release",
+                "G4",
+                "human",
+                "-",
+                "ko",
+                "Not this way",
+            )),
+            "in progress" => {}
+            other => panic!("a change is closed, rejected or in progress, not {other:?}"),
+        }
+    }
+    write_file(
+        &pj(&project_root(w), ".tminus/log.jsonl"),
+        &format!("{}\n", log.join("\n")),
+    );
+}
+
+/// Days since 1970-01-01 of a day `YYYY-MM-DD`.
+fn days_from(day: &str) -> i64 {
+    let parts: Vec<i64> = day
+        .split('-')
+        .map(|p| p.parse().expect("a day YYYY-MM-DD"))
+        .collect();
+    let (y, m, d) = (parts[0], parts[1], parts[2]);
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The day `YYYY-MM-DD` that is `days` after 1970-01-01.
+fn civil(days: i64) -> String {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 #[given(regex = r#"^the log line (\d+) is replaced by "(.*)"$"#)]
 fn replace_log_line(w: &mut GddWorld, number: usize, text: String) {
     let path = pj(&project_root(w), ".tminus/log.jsonl");
