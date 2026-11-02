@@ -30,15 +30,16 @@
 //! OK brings only the ADR of the variant the human picks.
 //!
 //! The recipe decides which steps run, in what order, and when the change stops; the steps that
-//! read the configuration of the project are [`Steps`]. Its agents and gates run in the
-//! worktree of the change (see [`worktree`]), made from the main checkout, which stays on the
-//! main branch and takes the merge: the worktree is kept while the change is parked or waits at
-//! G4, and goes when the change closes or is rejected. A run that parks keeps the hashes of what
-//! the change touched (see [`Snapshot::Parked`]): its relaunch commits what changed after them
-//! as the person's, and the rest only once the gates of the earlier run accept it, or parks
-//! before any agent call (see [`earlier_work`]). Several changes run at once, each in its
-//! worktree, as many as the cap allows; one that plans a path that overlaps one of a change in
-//! flight runs with a warning, and git settles the overlap when it merges (see [`queue`]).
+//! read the configuration of the project are [`Steps`], and where the change works, the marks of
+//! its work and what it keeps are its blueprint's (see [`guard::Blueprint`]). Its agents and
+//! gates run in the place of the change, which the blueprint makes or reuses (see [`launch`]):
+//! the place is kept while the change is parked or waits at G4, and let go when the change
+//! closes or is rejected. A run that parks keeps the hashes of what the change touched (see
+//! [`Snapshot::Parked`]): its relaunch keeps what changed after them as the person's, and the
+//! rest only once the gates of the earlier run accept it, or parks before any agent call (see
+//! [`earlier_work`]). Several changes run at once, each in its place, as many as the cap allows;
+//! one that plans a path that overlaps one of a change in flight runs with a warning, and git
+//! settles the overlap when it merges (see [`queue`]).
 //!
 //! Around every agent call, its own checks: no agent changes the GDD state of its change or the
 //! shared one, links included (see [`State`]), or leaves a state folder in its worktree (see
@@ -70,10 +71,11 @@ use crate::classify::SPIKE;
 use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
-use crate::guard;
+use crate::guard::{self, Blueprint, Hashes, ItemId, Place};
 use crate::layout::{self, Layout};
 use crate::repo::merge;
-use crate::zones::glob_matches;
+use crate::rules::RulesTable;
+use crate::zones::{ZoneMap, glob_matches};
 use crate::{inbox, log};
 
 /// The arguments of a round of build mode.
@@ -250,55 +252,47 @@ pub enum Snapshot {
     Test,
 }
 
-/// The steps of the recipe that read the configuration of the project, on the change it runs.
-/// An error stops the recipe.
+/// The steps of the recipe that read the configuration of the project, on the change it runs;
+/// those that read or run in the project do it in `place`, where the change works. An error
+/// stops the recipe.
 pub trait Steps {
     /// Checks that the change may enter Build and starts it (`gdd prepare`): what it decided.
-    fn prepare(&mut self) -> Result<Decided, String>;
+    fn prepare(&mut self, place: &Place) -> Result<Decided, String>;
     /// Calls an agent and waits for it (see [`invoke::run`]): what it used, and how it ended.
-    fn agent(&mut self, call: &Call) -> (Usage, Result<(), invoke::Error>);
+    fn agent(&mut self, place: &Place, call: &Call) -> (Usage, Result<(), invoke::Error>);
     /// Path Guard for test mode on what the change touched since its build started or, with
     /// `since_snapshot`, since the round snapshot: its failures.
-    fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String>;
+    fn guard_test(&mut self, place: &Place, since_snapshot: bool) -> Result<Vec<String>, String>;
     /// Records what the change touched, as it is now, in `snapshot`.
-    fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String>;
-    /// Before a relaunch prepares the change again, Path Guard for build mode on what it touched
-    /// since its build started, judged from the build snapshot, and the scope check, but for the
-    /// paths `hand` a person changed by hand (see [`Steps::hand_edits`]): their failures, a check
-    /// that cannot judge failing with the reason. What changed since the test snapshot (see
-    /// [`Snapshot::Test`]), when there is one, is the work of the last round of test mode: Path
-    /// Guard for test mode judges it first, and build mode does not. `None` without a build
-    /// snapshot: test mode never passed its Path Guard, or did not run.
-    fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String>;
-    /// Before a relaunch prepares the change again, whether the last round of test mode did not
-    /// get through: its test snapshot is still there (see [`Snapshot::Test`]).
-    fn test_pending(&mut self) -> Result<bool, String>;
-    /// Before a relaunch prepares the change again, the paths whose content changed since the
-    /// earlier run parked (see [`Snapshot::Parked`]): a person's, sorted. `None` without that
-    /// snapshot.
-    fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String>;
+    fn snapshot(&mut self, place: &Place, snapshot: Snapshot) -> Result<(), String>;
     /// The hashes of what the change touched, as they are now: what a snapshot records (see
     /// [`guard::snapshot`]).
-    fn hashes(&mut self) -> Result<guard::Hashes, String>;
+    fn hashes(&mut self, place: &Place) -> Result<Hashes, String>;
     /// What the rules file says to Path Guard now (see [`guard::Settings`]).
-    fn rules(&mut self) -> Result<guard::Settings, String>;
+    fn rules(&mut self, place: &Place) -> Result<guard::Settings, String>;
+    /// The zone map as the main line of work has it, and the rules table: what the scope check
+    /// of the work of an earlier run judges with (see [`earlier_work`]).
+    fn zones(&mut self, place: &Place) -> Result<(ZoneMap, RulesTable), String>;
     /// Runs `gate` for build mode, saved and logged: whether it passed.
-    fn gate(&mut self, gate: Gate) -> Result<bool, String>;
+    fn gate(&mut self, place: &Place, gate: Gate) -> Result<bool, String>;
     /// Records the decision `decision` (`ok` or `ko`) on `gate` of the change, by `by`, with
     /// `note` (`gdd gate`).
-    fn decide(&mut self, gate: &str, decision: &str, by: &str, note: &str) -> Result<(), String>;
+    fn decide(
+        &mut self,
+        place: &Place,
+        gate: &str,
+        decision: &str,
+        by: &str,
+        note: &str,
+    ) -> Result<(), String>;
     /// Merges the change into the main branch and deploys it to pre: what it printed (see
     /// [`merge::merge`]).
-    fn merge(&mut self) -> Result<String, String>;
+    fn merge(&mut self, place: &Place) -> Result<String, String>;
     /// The release step `step`: `pre`, `promote` or `observe` (`gdd release`).
     fn release(&mut self, step: &str) -> Result<(), String>;
     /// Tells the person who runs the recipe `line` on the way, before what the run says at its
     /// end.
     fn say(&mut self, line: &str);
-    /// From now on, the steps run in the project at `work`: the project root in the worktree of
-    /// a variant of a spike while it builds (see [`Run::variant`]), then the one of the change
-    /// again.
-    fn work_in(&mut self, work: &Path);
 }
 
 /// What the recipe reads from the project itself.
@@ -309,11 +303,10 @@ pub struct Project<'a> {
     /// The state root, whose `.tminus/` holds the record of the change (see
     /// [`crate::state::root`]): the project root itself, but in a linked worktree.
     pub state: &'a Path,
-    /// Where the worktree of the change goes (see [`worktree::path`]).
+    /// Where the worktree of the change goes (see [`worktree::path`]): only the places of the
+    /// variants of a spike, next to it, are read from it (see [`variant_worktree`]); the place
+    /// of the change itself is its blueprint's.
     pub worktree: &'a Path,
-    /// The project root in that worktree (see [`worktree::project_root`]): the project root of
-    /// its agents and its steps.
-    pub work: &'a Path,
     /// The branch changes merge into.
     pub main: &'a str,
     /// Replans of a change still red in G2 before it parks.
@@ -406,59 +399,73 @@ enum Ended {
     Closed,
 }
 
-/// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), makes the
-/// worktree of change `id` or reuses it (see [`worktree::open`]), with the work of an earlier run
-/// there committed once the gates accept it (see [`earlier_work`]), prepares the change and runs
-/// the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only while the
-/// cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that judgement until
-/// prepare makes the change building, it holds the launch lock (see [`queue::admission`]): two
-/// launches at once never both pass it. Earlier work the gates do not accept parks the change
-/// before prepare, with the requests of the earlier run resolved (see [`parked_unstarted`]); a
-/// launch refused before its build removes the worktree it made (see [`not_started`]). Once
-/// prepared, it warns of the changes in flight the change overlaps (see [`warned`]); a run that
-/// parks keeps what the change touched, for the next relaunch (see [`parked_snapshot`]).
-pub fn launch(project: &Project, id: &str, steps: &mut impl Steps) -> Result<Said, String> {
+/// `gdd launch`: leaves the main checkout on the main branch (see [`to_main`]), has `blueprint`
+/// make the place of change `id` or reuse it (see [`Blueprint::isolate`]), with the work of an
+/// earlier run there kept once the gates accept it (see [`earlier_work`]), prepares the change
+/// and runs the recipe there. Only from the main checkout (see [`from_main_checkout`]), and only
+/// while the cap allows it (see [`queue::may_launch`]): a refusal touches nothing. From that
+/// judgement until prepare makes the change building, it holds the launch lock (see
+/// [`queue::admission`]): two launches at once never both pass it. Earlier work the gates do not
+/// accept parks the change before prepare, with the requests of the earlier run resolved (see
+/// [`parked_unstarted`]); a launch refused before its build lets go of the place it made (see
+/// [`not_started`]). Once prepared, it warns of the changes in flight the change overlaps (see
+/// [`warned`]); a run that parks keeps what the change touched, for the next relaunch (see
+/// [`parked_snapshot`]).
+pub fn launch(
+    project: &Project,
+    id: &str,
+    blueprint: &mut dyn Blueprint,
+    steps: &mut impl Steps,
+) -> Result<Said, String> {
     from_main_checkout(project, "launch")?;
     let record = change::read_record(project.state, id)?;
     let admitted = queue::admission(project.state)?;
     let warnings = queue::may_launch(project.state, id, &record, project.max)?;
     to_main(project, id)?;
-    let made = fs::symlink_metadata(project.worktree).is_err();
-    worktree::open(project.root, project.worktree, id)?;
-    let refused = earlier_work(project.state, project.work, id, steps)
-        .and_then(|refused| state::clear(project.state, id).map(|()| refused))
-        .map_err(|e| not_started(project, made, e))?;
+    let place = blueprint.isolate(id).map_err(|e| e.to_string())?;
+    let judged = earlier_work(project.state, &place, id, blueprint, steps)
+        .and_then(|refused| state::clear(project.state, id).map(|()| refused));
+    let refused = match judged {
+        Ok(refused) => refused,
+        Err(e) => return Err(not_started(blueprint, id, &place, e)),
+    };
     if let Some(why) = refused {
-        let said = parked_unstarted(project, id, why);
+        let said = parked_unstarted(project, id, why, blueprint);
         drop(admitted);
         return said;
     }
-    let decided = steps.prepare().map_err(|e| not_started(project, made, e))?;
+    let decided = match steps.prepare(&place) {
+        Ok(decided) => decided,
+        Err(e) => return Err(not_started(blueprint, id, &place, e)),
+    };
     drop(admitted);
     warned(project.state, id, &warnings, steps)?;
     let mut run = Run {
         project,
         id,
+        blueprint,
         steps,
+        place,
         decided,
         variant: None,
     };
     let ended = run.launched();
     let kept = !run.decided.spike();
-    let ended = parked_snapshot(ended, kept, &mut *run.steps);
-    finish(project, id, ended)
+    let ended = parked_snapshot(ended, kept, &run.place, &mut *run.steps);
+    finish(project, id, ended, run.blueprint)
 }
 
-/// `ended`, once a run that ended parking took the snapshot of what the change touched, when it
-/// is `kept` (see [`Snapshot::Parked`]): a spike, and a variant of one, keep none. A snapshot
-/// that cannot be taken stops the recipe, saying why with the reason to park.
+/// `ended`, once a run that ended parking took the snapshot of what the change touched in
+/// `place`, when it is `kept` (see [`Snapshot::Parked`]): a spike, and a variant of one, keep
+/// none. A snapshot that cannot be taken stops the recipe, saying why with the reason to park.
 fn parked_snapshot(
     ended: Result<Ended, Stop>,
     kept: bool,
+    place: &Place,
     steps: &mut impl Steps,
 ) -> Result<Ended, Stop> {
     match ended {
-        Err(Stop::Park(why)) if kept => match steps.snapshot(Snapshot::Parked) {
+        Err(Stop::Park(why)) if kept => match steps.snapshot(place, Snapshot::Parked) {
             Ok(()) => Err(Stop::Park(why)),
             Err(e) => Err(Stop::Fail(format!("{why}; and its snapshot: {e}"))),
         },
@@ -466,14 +473,15 @@ fn parked_snapshot(
     }
 }
 
-/// What the launch of change `id` of `project` says when it was refused before its build
-/// started, with `why`: the worktree it `made` goes, so the branch of the change can be checked
-/// out again; one that cannot go is said too. A worktree it did not make stays, with its work.
-fn not_started(project: &Project, made: bool, why: String) -> String {
-    if !made {
+/// What the launch of change `id` says when it was refused before its build started, with
+/// `why`: `blueprint` lets go of `place` when the launch made it (see [`Blueprint::vacate`]), so
+/// the change can be started again; one that cannot be let go is said too. A place the launch
+/// found stays, with its work.
+fn not_started(blueprint: &mut dyn Blueprint, id: &str, place: &Place, why: String) -> String {
+    if !place.made {
         return why;
     }
-    match worktree::remove(project.root, project.worktree) {
+    match blueprint.vacate(id) {
         Ok(()) => why,
         Err(e) => format!("{why}\nIts worktree stays: {e}"),
     }
@@ -483,13 +491,18 @@ fn not_started(project: &Project, made: bool, why: String) -> String {
 /// earlier run its gates did not accept (see [`earlier_work`]): as at any start, the requests of
 /// the earlier run are resolved, so only this reason is left in the Decision Inbox. The snapshot
 /// of the earlier park stays as it is: nothing ran since.
-fn parked_unstarted(project: &Project, id: &str, why: String) -> Result<Said, String> {
+fn parked_unstarted(
+    project: &Project,
+    id: &str,
+    why: String,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Said, String> {
     let text = change::read_record(project.state, id)?;
     let path = record_in(project.state, id);
     let resolved = change::with_requests_resolved(&text, &log::now());
     let resolved = resolved.map_err(|e| format!("{path}: {e}"))?;
     change::write(project.state, &path, &resolved)?;
-    finish(project, id, Err(Stop::Park(why)))
+    finish(project, id, Err(Stop::Park(why)), blueprint)
 }
 
 /// Says each of `warnings`, one for each change in flight change `id` overlaps (see
@@ -575,30 +588,41 @@ fn work_committed(root: &Path, message: &str) -> Result<(), git::Error> {
     Ok(())
 }
 
-/// The work an earlier run of change `id` left in its worktree, at `work`. What a person changed
-/// by hand after it parked (see [`Steps::hand_edits`]) is committed as theirs (see
-/// [`hand_committed`]) and said in the record under the state root `state` (see [`hand_noted`]),
-/// never judged as a Builder's. The rest, the agents', is committed (see [`earlier_run`]) only
-/// once the gates of that run accept it, judged as they judged it, from its build snapshot (see
-/// [`Steps::guard_earlier`]). Without a build snapshot it stays as it is, for test mode, which
-/// wrote it, to answer for. When the gates do not accept it, nothing is committed: why the
-/// change parks before any agent call (see [`not_accepted`]). Without work left there, nothing
-/// is judged, unless the last round of test mode did not get through (see
-/// [`Steps::test_pending`]): what it committed is judged as what it left.
+/// Why the work of an earlier run a person changed by hand is kept apart.
+const BY_HAND: &str = "changed by hand after the change parked";
+
+/// Why the rest of the work of an earlier run is kept, once its gates accept it.
+const EARLIER_RUN: &str = "work of the earlier run, before relaunch";
+
+/// The work an earlier run of change `id` left in its place, `place`, as `blueprint` has it, with
+/// the record and the snapshots of the change under the state root `state`. Without work left
+/// there since the mark of its work now, nothing is judged or kept, unless the last round of test
+/// mode did not get through (its test snapshot is still there, see [`Snapshot::Test`]): what it
+/// kept is judged as what it left. Then what a person changed by hand after it parked (see
+/// [`hand_edits`]) is never judged as a Builder's, and the rest is judged as the gates of that
+/// run judged it (see [`earlier_failures`]). When they do not accept it, nothing is kept, not
+/// even the person's: why the change parks before any agent call (see [`not_accepted`]).
+/// Otherwise what the person changed and is not kept yet is kept as theirs, and said in the
+/// record (see [`hand_noted`]); then, once the gates accepted it, the rest as the earlier run's.
+/// Without a build snapshot that rest stays as it is, for test mode, which wrote it, to answer
+/// for.
 fn earlier_work(
     state: &Path,
-    work: &Path,
+    place: &Place,
     id: &str,
+    blueprint: &mut dyn Blueprint,
     steps: &mut impl Steps,
 ) -> Result<Option<String>, String> {
-    let said = |e: git::Error| e.to_string();
-    let git = Git::new(work);
-    if !git.has_work().map_err(said)? && !steps.test_pending()? {
+    let said = |e: guard::Error| e.to_string();
+    let mark = blueprint.mark(id).map_err(said)?;
+    let left = blueprint.touched(id, Some(&mark)).map_err(said)?;
+    if left.is_empty() && !test_pending(state, id)? {
         return Ok(None);
     }
-    let known = steps.hand_edits()?;
+    let known = hand_edits(state, place, id, blueprint)?;
     let hand = known.clone().unwrap_or_default();
-    let accepted = match steps.guard_earlier(&hand)? {
+    let judged = earlier_failures(state, place, id, &hand, blueprint, steps)?;
+    let accepted = match judged {
         Some(failures) if !failures.is_empty() => {
             return Ok(Some(not_accepted(&failures, known.is_some())));
         }
@@ -606,36 +630,226 @@ fn earlier_work(
         None => false,
     };
     if !hand.is_empty() {
-        hand_committed(work, id, &hand).map_err(said)?;
+        let left = blueprint.touched(id, Some(&mark)).map_err(said)?;
+        let theirs: Vec<ItemId> = left
+            .items
+            .into_iter()
+            .filter(|item| hand.iter().any(|path| path == item.as_str()))
+            .collect();
+        let kept = blueprint.keep(id, "human", BY_HAND, Some(&theirs));
+        kept.map_err(said)?;
         hand_noted(state, id, &hand)?;
     }
     if accepted {
-        earlier_run(work, id).map_err(said)?;
+        let kept = blueprint.keep(id, "agents", EARLIER_RUN, None);
+        kept.map_err(said)?;
     }
     Ok(None)
 }
 
-/// Commits, on the branch of change `id` that the project at `work` has checked out, those of
-/// `hand`, the paths a person changed by hand after the change parked, that are not committed
-/// yet: as theirs, in a commit of their own. Those they committed already stay as they are.
-fn hand_committed(work: &Path, id: &str, hand: &[String]) -> Result<(), git::Error> {
-    let git = Git::new(work);
-    let changed = git.changed_since(&change::branch(id), "HEAD")?;
-    let uncommitted: Vec<String> = hand
-        .iter()
-        .filter(|path| changed.contains(path))
-        .cloned()
-        .collect();
-    if uncommitted.is_empty() {
-        return Ok(());
+/// Whether the last round of test mode of change `id`, under the state root `state`, did not get
+/// through: its test snapshot is still there (see [`Snapshot::Test`]).
+fn test_pending(state: &Path, id: &str) -> Result<bool, String> {
+    let test = read_snapshot(state, &change::test_snapshot_path(id))?;
+    Ok(test.is_some())
+}
+
+/// The paths of change `id` whose content changed in `place` since the snapshot taken when its
+/// last run parked, under the state root `state` (see [`Snapshot::Parked`]): what a person
+/// changed by hand before it runs again, sorted (see [`changed_after`]). `None` without that
+/// snapshot.
+fn hand_edits(
+    state: &Path,
+    place: &Place,
+    id: &str,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(parked) = read_snapshot(state, &change::parked_snapshot_path(id))? else {
+        return Ok(None);
+    };
+    let record = record_of(state, id)?;
+    let now = hashes_now(place, id, &record, blueprint)?;
+    let changed = changed_after(id, &now, &parked, blueprint)?;
+    Ok(Some(changed.into_keys().collect()))
+}
+
+/// The failures of Path Guard for build mode, judged from the build snapshot, and of the scope
+/// check, with the zone map and the rules table of `steps` (see [`Steps::zones`]), on change
+/// `id` since its build started, in `place` as `blueprint` has it, with its record and that
+/// snapshot under the state root `state`: what the gates of its run would find now, but for the
+/// paths `hand`, which a person changed by hand (see [`by_hand`]): their hashes now go into that
+/// snapshot. With a test snapshot (see [`Snapshot::Test`]), the paths whose hash changed since
+/// it, but for `hand`, are the work of a round of test mode that did not get through: Path Guard
+/// for test mode judges them from it first, and their hashes now go into the build snapshot, so
+/// build mode is not judged on them. A check that cannot judge fails with the reason, as often
+/// as it cannot. `None` without a build snapshot: test mode never passed its Path Guard, or did
+/// not run.
+fn earlier_failures(
+    state: &Path,
+    place: &Place,
+    id: &str,
+    hand: &[String],
+    blueprint: &mut dyn Blueprint,
+    steps: &mut impl Steps,
+) -> Result<Option<Vec<String>>, String> {
+    let Some(mut before) = read_snapshot(state, &change::build_snapshot_path(id))? else {
+        return Ok(None);
+    };
+    hashed_now(id, &mut before, hand, blueprint)?;
+    let record = record_of(state, id)?;
+    let judge = Judged {
+        place,
+        id,
+        record: &record,
+    };
+    let tested = match read_snapshot(state, &change::test_snapshot_path(id))? {
+        Some(mut test) => {
+            hashed_now(id, &mut test, hand, blueprint)?;
+            let now = hashes_now(place, id, &record, blueprint)?;
+            before.extend(changed_after(id, &now, &test, blueprint)?);
+            judge.guarded(Who::BuilderTest, &test, blueprint, steps)
+        }
+        None => Ok(Vec::new()),
+    };
+    let guarded = judge.guarded(Who::BuilderBuild, &before, blueprint, steps);
+    let scoped = judge.scoped(hand, blueprint, steps);
+    let failed = |checked: Result<Vec<String>, String>| checked.unwrap_or_else(|e| vec![e]);
+    let failures = [tested, guarded, scoped].into_iter().flat_map(failed);
+    Ok(Some(failures.collect()))
+}
+
+/// The work of an earlier run of a change, as its gates judge it again before a relaunch (see
+/// [`earlier_failures`]).
+struct Judged<'a> {
+    /// Where the change works.
+    place: &'a Place,
+    /// The id of the change.
+    id: &'a str,
+    /// Its record.
+    record: &'a Record,
+}
+
+impl Judged<'_> {
+    /// The failures of Path Guard for `who`, with the rules file now, judged from the snapshot
+    /// `since` (see [`guard::path_guard`]); why it cannot judge, when it cannot.
+    fn guarded(
+        &self,
+        who: Who,
+        since: &Hashes,
+        blueprint: &mut dyn Blueprint,
+        steps: &mut impl Steps,
+    ) -> Result<Vec<String>, String> {
+        let settings = steps.rules(self.place)?;
+        let (work, id, role) = (&self.place.work, self.id, who.role());
+        let since = Some(since);
+        let verdict = guard::path_guard(blueprint, work, id, self.record, &settings, role, since);
+        Ok(verdict.map_err(|e| e.to_string())?.failures)
     }
-    let message = commit_message(work, id, "changed by hand after the change parked");
-    git.commit_files(&uncommitted, &message)
+
+    /// The failures of the scope check (see [`guard::scope`]), but those about the paths `hand`
+    /// (see [`by_hand`]); why it cannot judge, when it cannot.
+    fn scoped(
+        &self,
+        hand: &[String],
+        blueprint: &mut dyn Blueprint,
+        steps: &mut impl Steps,
+    ) -> Result<Vec<String>, String> {
+        let (zones, table) = steps.zones(self.place)?;
+        let scope = guard::scope(blueprint, self.id, self.record, &zones, &table);
+        let failures = scope.map_err(|e| e.to_string())?.failures.into_iter();
+        let builders = failures.filter(|failure| !by_hand(hand, failure));
+        Ok(builders.collect())
+    }
+}
+
+/// Whether `failure`, of the scope check, is about one of the paths `hand`, which a person
+/// changed by hand: no Builder answers for it.
+fn by_hand(hand: &[String], failure: &str) -> bool {
+    let about = |path: &String| failure.starts_with(&format!("{path}: "));
+    hand.iter().any(about)
+}
+
+/// The record of change `id`, under the state root `state` (see [`change::read_record`]).
+fn record_of(state: &Path, id: &str) -> Result<Record, String> {
+    let text = change::read_record(state, id)?;
+    let path = record_in(state, id);
+    Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
+}
+
+/// The hashes of the snapshot at `path`, in the new names, under the state root `state`: `None`
+/// when there is none. One that cannot be read, or is not JSON, is an error that names it as the
+/// project does.
+fn read_snapshot(state: &Path, path: &str) -> Result<Option<Hashes>, String> {
+    let named = layout::named(state, path);
+    let text = match fs::read_to_string(state.join(&named)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("cannot read {named}: {e}")),
+    };
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|e| format!("{named}: {e}"))
+}
+
+/// The hashes of what change `id`, whose record is `record`, touched in `place` since its build
+/// started, as `blueprint` has it, as they are now (see [`guard::snapshot`]).
+fn hashes_now(
+    place: &Place,
+    id: &str,
+    record: &Record,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Hashes, String> {
+    guard::snapshot(blueprint, &place.work, id, record).map_err(|e| e.to_string())
+}
+
+/// The hash now of the file `path` where change `id` works, as `blueprint` reads it (see
+/// [`guard::hash_of`]).
+fn hash_now(id: &str, path: &str, blueprint: &mut dyn Blueprint) -> Result<String, String> {
+    let bytes = blueprint.read(id, &ItemId::new(path));
+    let bytes = bytes.map_err(|e| e.to_string())?;
+    Ok(guard::hash_of(bytes.as_deref()))
+}
+
+/// Puts in the snapshot `snapshot` the hashes now of the paths `hand` of change `id`, which a
+/// person changed by hand: no Builder is judged on them.
+fn hashed_now(
+    id: &str,
+    snapshot: &mut Hashes,
+    hand: &[String],
+    blueprint: &mut dyn Blueprint,
+) -> Result<(), String> {
+    for path in hand {
+        snapshot.insert(path.clone(), hash_now(id, path, blueprint)?);
+    }
+    Ok(())
+}
+
+/// Of the paths `now` hashed, as they are now, and those the snapshot `before` hashed, the ones
+/// whose hash changed since `before`, with their hash now; one `now` did not hash is hashed as
+/// `blueprint` reads it where change `id` works (see [`hash_now`]).
+fn changed_after(
+    id: &str,
+    now: &Hashes,
+    before: &Hashes,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Hashes, String> {
+    let paths: BTreeSet<&String> = now.keys().chain(before.keys()).collect();
+    let mut changed = Hashes::new();
+    for path in paths {
+        let hash = match now.get(path) {
+            Some(hash) => hash.clone(),
+            None => hash_now(id, path, blueprint)?,
+        };
+        if before.get(path) != Some(&hash) {
+            changed.insert(path.clone(), hash);
+        }
+    }
+    Ok(changed)
 }
 
 /// Why a relaunch parks before any agent call when the gates of the earlier run do not accept
 /// the work it left, with `failures`; `known`, whether gdd knows what a person changed by hand
-/// since it parked (see [`Steps::hand_edits`]): when it does not, the work may be theirs.
+/// since it parked (see [`hand_edits`]): when it does not, the work may be theirs.
 fn not_accepted(failures: &[String], known: bool) -> String {
     let failures = failures.join("; ");
     if known {
@@ -689,7 +903,7 @@ pub struct Merging<'a> {
 /// a time, under the merge lock, which the merge of another change makes it wait for, saying so
 /// (see [`queue::lock`]); then, once it may merge (see [`merge::may_merge`]), on top of the
 /// latest main (see [`on_latest_main`]), which parks it on a conflict or G3 red. What the merge
-/// printed.
+/// printed. Its steps run where the change `at` is checked out.
 pub fn merge(at: &Merging, steps: &mut impl Steps) -> Result<Said, String> {
     let _lock = queue::lock(at.state, || steps.say(queue::WAITING))?;
     let project = merge::Project {
@@ -698,8 +912,12 @@ pub fn merge(at: &Merging, steps: &mut impl Steps) -> Result<Said, String> {
         main: at.main,
     };
     merge::may_merge(&project, at.id)?;
-    match on_latest_main(at, steps) {
-        Ok(()) => steps.merge().map(Said::Done),
+    let place = Place {
+        work: at.work.to_path_buf(),
+        made: false,
+    };
+    match on_latest_main(at, &place, steps) {
+        Ok(()) => steps.merge(&place).map(Said::Done),
         Err(Stop::Park(reason)) => change::park(at.state, at.id, &reason).map(Said::Parked),
         Err(Stop::Fail(e)) => Err(e),
     }
@@ -708,15 +926,15 @@ pub fn merge(at: &Merging, steps: &mut impl Steps) -> Result<Said, String> {
 /// When the main branch moved since the change `at` was built (see [`queue::main_moved`]): G3
 /// closes, as what passed it is no longer what would merge, and the change takes the latest main
 /// (see [`queue::take_main`]), where a conflict parks it (see [`conflicts`]). Its build starts
-/// again there (see [`queue::restarted`]), and it passes G3 again on top of it: green opens G3
-/// again, red parks it, G3 still closed.
-fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
+/// again there (see [`queue::restarted`]), and it passes G3 again on top of it, its steps in
+/// `place`: green opens G3 again, red parks it, G3 still closed.
+fn on_latest_main(at: &Merging, place: &Place, steps: &mut impl Steps) -> Result<(), Stop> {
     let (work, main, id) = (at.work, at.main, at.id);
     let said = |e: git::Error| Stop::Fail(e.to_string());
     if !queue::main_moved(work, main).map_err(said)? {
         return Ok(());
     }
-    steps.decide("G3", "ko", "machines", MAIN_MOVED)?;
+    steps.decide(place, "G3", "ko", "machines", MAIN_MOVED)?;
     let paths = queue::take_main(work, main, id).map_err(said)?;
     if !paths.is_empty() {
         return Err(Stop::Park(conflicts(at, &paths)));
@@ -724,10 +942,10 @@ fn on_latest_main(at: &Merging, steps: &mut impl Steps) -> Result<(), Stop> {
     let start = Git::new(work).head().map_err(said)?;
     queue::restarted(at.state, id, &start)?;
     steps.say(&format!("main moved under {id}: G3 again on top of it"));
-    if !steps.gate(Gate::G3)? {
+    if !steps.gate(place, Gate::G3)? {
         return Err(Stop::Park(G3_RED_ON_MAIN.to_string()));
     }
-    Ok(steps.decide("G3", "ok", "machines", ON_LATEST_MAIN)?)
+    Ok(steps.decide(place, "G3", "ok", "machines", ON_LATEST_MAIN)?)
 }
 
 /// Why change `at` parks when the latest main does not merge into it, with `paths` in conflict:
@@ -742,30 +960,47 @@ fn conflicts(at: &Merging, paths: &[String]) -> String {
     )
 }
 
-/// `gdd resume`: the answer of the role `role` to the G4 of change `id`, which must be paused at
-/// it, with `note` (which `polish` needs) and, for a spike with variants, the `variant` it picks
-/// (see [`picked`]). Builders and Reviewers cannot answer. The answer resolves the request of G4
-/// and the notes on promotions that failed. `ok` promotes the change (see [`ok_at_g4`]), or
-/// brings only the ADR of a spike, or of the variant picked, to main (see [`spike_ok`]); `ko`
-/// rejects it, production untouched; either way its worktree goes once it ends, and so do those
-/// of its variants. `polish` runs a polish pass in its worktree, or in the one of the variant
-/// picked, from the commit it is at, made again from its branch when it went away (see
-/// [`polish_pass`]). A change that an earlier
-/// `ok` promoted takes only `ok`, which observes it; one whose promotion did not end parks,
-/// whatever the answer (see [`unsure`]). Only from the main checkout (see
-/// [`from_main_checkout`]). An answer to the G4 of a spike picks what reaches main: it is checked
-/// and acted on under the merge lock, which the merge of another change makes it wait for, saying
-/// so (see [`queue::lock`]), until the spike no longer waits; so of two answers at once, the
-/// second finds the first one's end, never the pause both saw.
+/// An answer to the G4 of a change, as `gdd resume` takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reply<'a> {
+    /// What the human answers.
+    pub answer: Answer,
+    /// Their notes, which `polish` needs.
+    pub note: &'a str,
+    /// The role of the agent that answers, if one does: Builders and Reviewers cannot.
+    pub role: Option<&'a str>,
+    /// For a spike with variants, the one it picks, from 1 (see [`picked`]).
+    pub variant: Option<usize>,
+}
+
+/// `gdd resume`: `reply`, the answer of its role to the G4 of change `id`, which must be paused
+/// at it, with its note (which `polish` needs) and, for a spike with variants, the variant it
+/// picks (see [`picked`]). Builders and Reviewers cannot answer. The answer resolves the request
+/// of G4 and the notes on promotions that failed; it is recorded in the place of the change, not
+/// made (see [`Blueprint::place`]). `ok` promotes the change (see [`ok_at_g4`]), or brings only the
+/// ADR of a spike, or of the variant picked, to main (see [`spike_ok`]); `ko` rejects it,
+/// production untouched; either way `blueprint` lets go of its place once it ends, and of those
+/// of its variants (see [`vacated`]). `polish` runs a polish pass in its place, which `blueprint`
+/// makes again when it went away, or in the one of the variant picked, from the mark of its work
+/// there (see [`polish_pass`]). A change that an earlier `ok` promoted takes only `ok`, which
+/// observes it; one whose promotion did not end parks, whatever the answer (see [`unsure`]). Only
+/// from the main checkout (see [`from_main_checkout`]). An answer to the G4 of a spike picks what
+/// reaches main: it is checked and acted on under the merge lock, which the merge of another
+/// change makes it wait for, saying so (see [`queue::lock`]), until the spike no longer waits; so
+/// of two answers at once, the second finds the first one's end, never the pause both saw.
 pub fn resume(
     project: &Project,
     id: &str,
-    answer: Answer,
-    note: &str,
-    role: Option<&str>,
-    variant: Option<usize>,
+    reply: &Reply,
+    blueprint: &mut dyn Blueprint,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
+    let Reply {
+        answer,
+        note,
+        role,
+        variant,
+    } = *reply;
     from_main_checkout(project, "resume")?;
     let state_root = project.state;
     approve::may_record(role).map_err(|e| e.to_string())?;
@@ -801,32 +1036,34 @@ pub fn resume(
              rejected or polished. To observe it: tminus resume {id} --g4 ok."
         ));
     }
+    let picked = Picked { note, variant };
+    let said = |e: guard::Error| e.to_string();
     match answer {
         Answer::Ok if record["type"] == SPIKE => {
-            let answer = Picked { note, variant };
-            spike_ok(project, id, &answer, &text, &record, steps)
+            spike_ok(project, id, &picked, &text, &record, blueprint, steps)
         }
         Answer::Ok => {
+            let place = blueprint.place(id).map_err(said)?;
             answered(state_root, id, &text)?;
-            ok_at_g4(project, id, note, in_production, steps)
+            ok_at_g4(project, id, note, in_production, &place, blueprint, steps)
         }
         Answer::Ko => {
+            let place = blueprint.place(id).map_err(said)?;
             answered(state_root, id, &text)?;
             state::clear(state_root, id)?;
-            steps.decide("G4", "ko", "human", note)?;
+            steps.decide(&place, "G4", "ko", "human", note)?;
             saved_in_state(state_root, id, "rejected")?;
             let said = format!("Change {id} rejected at G4: production untouched.");
-            without_worktree(project, id, said)
+            vacated(project, id, said, blueprint)
         }
         Answer::Polish => {
-            // First, so a worktree that cannot be made leaves the change paused.
-            let start = to_polish(project, id, variant)?;
+            // First, so a place that cannot be made leaves the change paused.
+            let (place, start) = to_polish(project, id, variant, blueprint)?;
             answered(state_root, id, &text)?;
             state::clear(state_root, id)?;
             // It no longer waits at G4: its pass runs without the lock.
             drop(lock);
-            let answer = Picked { note, variant };
-            polish_pass(project, id, &answer, &start, steps)
+            polish_pass(project, id, &picked, place, &start, blueprint, steps)
         }
     }
 }
@@ -891,18 +1128,29 @@ fn answered(root: &Path, id: &str, text: &str) -> Result<(), String> {
     change::write(root, &path, &answered)
 }
 
-/// The worktree of change `id` of `project`, or the one of its `variant`, ready for a polish pass
-/// (see [`worktree::open`] and [`worktree::open_variant`]): the commit it is at, where the pass
-/// starts.
-fn to_polish(project: &Project, id: &str, variant: Option<usize>) -> Result<String, String> {
+/// Where a polish pass of change `id` of `project` runs, and the mark where it starts: the place
+/// of the change, made or reused by `blueprint` (see [`Blueprint::isolate`]), at the mark of its
+/// work there; with `variant`, the place of the change where `blueprint` has it, not made (see
+/// [`Blueprint::place`]), at the commit where the variant is: the pass runs in its own place,
+/// ready for its run (see [`worktree::open_variant`] and [`Run::variant`]).
+fn to_polish(
+    project: &Project,
+    id: &str,
+    variant: Option<usize>,
+    blueprint: &mut dyn Blueprint,
+) -> Result<(Place, String), String> {
+    let said = |e: guard::Error| e.to_string();
     let Some(number) = variant else {
-        worktree::open(project.root, project.worktree, id)?;
-        return Git::new(project.work).head().map_err(|e| e.to_string());
+        let place = blueprint.isolate(id).map_err(said)?;
+        let start = blueprint.mark(id).map_err(said)?;
+        return Ok((place, start.to_string()));
     };
+    let place = blueprint.place(id).map_err(said)?;
     let path = variant_worktree(project, id, number)?;
     worktree::open_variant(project.root, &path, id, number, project.main)?;
     let work = worktree::project_root(project.root, &path)?;
-    Git::new(&work).head().map_err(|e| e.to_string())
+    let start = Git::new(&work).head().map_err(|e| e.to_string())?;
+    Ok((place, start))
 }
 
 /// Where the worktree of variant `number` of spike `id` of `project` goes: next to the worktree
@@ -921,20 +1169,22 @@ fn answers_g4(said: &str) -> bool {
     said.starts_with(G4_REQUEST) || said.starts_with(PROMOTION_FAILED)
 }
 
-/// OK at G4 of change `id` of `project`, by the human with `note`: the decision recorded, the
+/// OK at G4 of change `id` of `project`, by the human with `note`, recorded in `place`: the
 /// change promoted unless it is `in_production` already (an earlier OK promoted it and stopped
 /// before observing it: never twice), then observed. Until the promotion passed, it stays paused
 /// at G4 unless production may have it (see [`not_promoted`]); a failed observation rolls it
-/// back, as it does without G4.
+/// back, as it does without G4. Closed, `blueprint` lets go of its place (see [`finish`]).
 fn ok_at_g4(
     project: &Project,
     id: &str,
     note: &str,
     in_production: bool,
+    place: &Place,
+    blueprint: &mut dyn Blueprint,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let root = project.state;
-    let mut promotion = steps.decide("G4", "ok", "human", note);
+    let mut promotion = steps.decide(place, "G4", "ok", "human", note);
     if promotion.is_ok() && !in_production {
         promotion = steps.release("promote");
     }
@@ -942,7 +1192,7 @@ fn ok_at_g4(
         return not_promoted(root, id, &failure);
     }
     state::clear(root, id)?;
-    finish(project, id, observed(steps))
+    finish(project, id, observed(steps), blueprint)
 }
 
 /// OK at G4 of spike `id` of `project`, by the human with the note of `answer`; its record is
@@ -950,17 +1200,21 @@ fn ok_at_g4(
 /// main from the main checkout, alone (see [`merge::adr_only`]); for a spike with variants, the
 /// ADR of the variant of `answer`, from its branch, with the variants in it (see
 /// [`change::variants_section`]). Then the answer resolves the requests of G4, the decision is
-/// recorded and the change is closed: its worktrees go, its branches stay. No promotion, no
-/// observation. When its ADR cannot reach main, nothing changed: the change stays paused at G4.
+/// recorded in the place of the change, where `blueprint` has it, not made (see
+/// [`Blueprint::place`]), and the change is closed: `blueprint` lets go of its places, its
+/// branches stay. No promotion, no observation. When its ADR cannot reach main, nothing changed:
+/// the change stays paused at G4.
 fn spike_ok(
     project: &Project,
     id: &str,
     answer: &Picked,
     text: &str,
     record: &Value,
+    blueprint: &mut dyn Blueprint,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let state_root = project.state;
+    let place = blueprint.place(id).map_err(|e| e.to_string())?;
     let title = record["title"].as_str().unwrap_or_default();
     let (branch, section) = match answer.variant {
         Some(number) => {
@@ -976,10 +1230,10 @@ fn spike_ok(
     };
     merge::adr_only(project.root, project.main, id, title, &from)?;
     answered(state_root, id, text)?;
-    steps.decide("G4", "ok", "human", answer.note)?;
+    steps.decide(&place, "G4", "ok", "human", answer.note)?;
     state::clear(state_root, id)?;
     saved_in_state(state_root, id, "closed")?;
-    finish(project, id, Ok(Ended::Closed))
+    finish(project, id, Ok(Ended::Closed), blueprint)
 }
 
 /// What the human reads when the OK at G4 of change `id`, under the state root `root`, failed
@@ -1036,16 +1290,18 @@ fn promotion_failed(root: &Path, id: &str, failure: &str) -> String {
     }
 }
 
-/// A polish pass of change `id`, on its branch, or on the one of the variant of `answer`, from
-/// the commit `start` it is at: the note of `answer`, the human's notes at G4, kept for the
-/// Builder; then the recipe again from build mode, the notes in its first round, until it pauses
-/// at G4 again. A pass that parks keeps what the change touched, as a launch does (see
-/// [`parked_snapshot`]), but on a spike or a variant of one.
+/// A polish pass of change `id`, in `place`, or on the variant of `answer`, from the mark
+/// `start` of its work: the note of `answer`, the human's notes at G4, kept for the Builder; then
+/// the recipe again from build mode, the notes in its first round, until it pauses at G4 again.
+/// A pass that parks keeps what the change touched, as a launch does (see [`parked_snapshot`]),
+/// but on a spike or a variant of one.
 fn polish_pass(
     project: &Project,
     id: &str,
     answer: &Picked,
+    place: Place,
     start: &str,
+    blueprint: &mut dyn Blueprint,
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let state_root = project.state;
@@ -1053,14 +1309,16 @@ fn polish_pass(
     let mut run = Run {
         project,
         id,
+        blueprint,
         steps,
+        place,
         decided: decided_of(state_root, id)?,
         variant: None,
     };
     let ended = run.polished(answer.variant);
     let kept = answer.variant.is_none() && !run.decided.spike();
-    let ended = parked_snapshot(ended, kept, &mut *run.steps);
-    finish(project, id, ended)
+    let ended = parked_snapshot(ended, kept, &run.place, &mut *run.steps);
+    finish(project, id, ended, run.blueprint)
 }
 
 /// Keeps `note`, the human's notes at G4, in the record of change `id` under the state root
@@ -1166,17 +1424,22 @@ fn g4_request_of(id: &str, kind: &str, variants: usize) -> String {
 }
 
 /// What the person who ran the recipe of change `id` of `project` reads, from how it ended. A
-/// closed change loses its worktree (see [`without_worktree`]); a pause at G4 leaves the request
-/// in the Decision Inbox and the run state paused; a stop that parks parks the change (see
-/// [`change::park`]).
-fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Said, String> {
+/// closed change loses its place, as `blueprint` lets it go (see [`vacated`]); a pause at G4
+/// leaves the request in the Decision Inbox and the run state paused; a stop that parks parks
+/// the change (see [`change::park`]).
+fn finish(
+    project: &Project,
+    id: &str,
+    ended: Result<Ended, Stop>,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Said, String> {
     let root = project.state;
     let inbox = format!("Message: {}", layout::named(root, &change::inbox_path(id)));
     match ended {
         Ok(Ended::Closed) => {
             let tokens = format!("Tokens: tminus report --change {id}");
             let said = format!("Change {id} closed. {inbox} · {tokens}");
-            without_worktree(project, id, said)
+            vacated(project, id, said, blueprint)
         }
         Ok(Ended::Paused) => {
             pause_at_g4(root, id, None)?;
@@ -1188,26 +1451,25 @@ fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Sai
     }
 }
 
-/// What the human reads of change `id` of `project` that ended (`said`), once the worktrees of
-/// its variants, if it has some, and its own are removed (see [`worktree::remove`]); their
-/// branches stay. When one cannot be, the change stays as it ended, and the human reads why too.
-fn without_worktree(project: &Project, id: &str, said: String) -> Result<Said, String> {
-    let removed = variant_worktrees(project, id).and_then(|paths| {
-        let remove = |path: &PathBuf| worktree::remove(project.root, path);
-        paths.iter().try_for_each(remove)
+/// What the human reads of change `id` of `project` that ended (`said`), once `blueprint` let go
+/// of the places of its variants, as many as its record has, and of its own (see
+/// [`Blueprint::vacate`]); what they kept stays. When one cannot be let go, the change stays as
+/// it ended, and the human reads why too.
+fn vacated(
+    project: &Project,
+    id: &str,
+    said: String,
+    blueprint: &mut dyn Blueprint,
+) -> Result<Said, String> {
+    let vacated = variants_in(project.state, id).and_then(|variants| {
+        let ids = (1..=variants.len()).map(|number| change::variant_id(id, number));
+        let vacate = |place: String| blueprint.vacate(&place).map_err(|e| e.to_string());
+        ids.chain([id.to_string()]).try_for_each(vacate)
     });
-    match removed.and_then(|()| worktree::remove(project.root, project.worktree)) {
+    match vacated {
         Ok(()) => Ok(Said::Done(said)),
         Err(e) => Err(format!("{said}\nIts worktree stays: {e}")),
     }
-}
-
-/// Where the worktrees of the variants of spike `id` of `project` go, as many as its record has
-/// (see [`variant_worktree`]): none for a change without variants.
-fn variant_worktrees(project: &Project, id: &str) -> Result<Vec<PathBuf>, String> {
-    let count = variants_in(project.state, id)?.len();
-    let path = |number| variant_worktree(project, id, number);
-    (1..=count).map(path).collect()
 }
 
 /// The variants the record of change `id`, under the state root `state`, keeps (see
@@ -1266,7 +1528,11 @@ fn nothing_new(root: &Path, id: &str, main: &str) -> Result<bool, git::Error> {
 struct Run<'a, S> {
     project: &'a Project<'a>,
     id: &'a str,
+    /// Where the change works, the marks of its work and what it keeps.
+    blueprint: &'a mut dyn Blueprint,
     steps: &'a mut S,
+    /// Where the run works: its steps and its agents run there.
+    place: Place,
     decided: Decided,
     /// The variant of a spike the run builds, when it builds one (see [`Run::variant`]).
     variant: Option<Building>,
@@ -1349,32 +1615,32 @@ impl<S: Steps> Run<'_, S> {
         }
     }
 
-    /// The end of a spike, green: its work committed on its branch, which keeps it whatever the
-    /// human answers (see [`work_committed`]); the ADR files OK would bring to main said (see
+    /// The end of a spike, green: its work kept as build mode's, whatever the human answers (see
+    /// [`Blueprint::keep`]); the ADR files OK would bring to main said (see
     /// [`merge::adr_files`]); and the change in pre, waiting at G4. No G3, no Reviewer, no merge
     /// and no deploy to pre: its code never reaches main.
     fn spiked(&mut self) -> Result<Ended, Stop> {
-        let Project { state, work, .. } = *self.project;
-        let (main, id) = (self.project.main, self.id);
+        let (state, main, id) = (self.project.state, self.project.main, self.id);
+        let by = Who::BuilderBuild.role();
+        let kept = self.blueprint.keep(id, by, "spike work", None);
+        kept.map_err(|e| Stop::Fail(e.to_string()))?;
         let said = |e: git::Error| Stop::Fail(e.to_string());
-        work_committed(work, &commit_message(work, id, "spike work")).map_err(said)?;
-        let adrs = merge::adr_files(work, main, &change::branch(id)).map_err(said)?;
+        let adrs = merge::adr_files(&self.place.work, main, &change::branch(id)).map_err(said)?;
         self.steps.say(&format!("ADR: {}", adrs.join(", ")));
         saved_in_state(state, id, IN_PRE)?;
         Ok(Ended::Paused)
     }
 
     /// Variant `number` of the spike, in its worktree on its branch, made from the main branch
-    /// when there is none (see [`worktree::open_variant`]): its project root there is the `work`
-    /// of its run, where its agents work and the steps run meanwhile (see [`Steps::work_in`]).
-    /// Its build starts where its branch left the main branch, so Path Guard
-    /// judges all of its work, its earlier runs' included; then the recipe of a spike, as a spike
-    /// without variants has it, in `mode=spike variant=<number>`, its budget counted on the calls
-    /// of the variant, its earlier runs' included (see [`Building`]); `polishing`, the round of a
-    /// polish pass instead (see [`Run::polish_round`]), whose build started where the pass did.
-    /// Then its work committed on its branch and what it did kept in the record (see
-    /// [`Run::variant_kept`]). One that parks is kept as parked and lets the others run; a step
-    /// that fails stops the recipe.
+    /// when there is none (see [`worktree::open_variant`]): its project root there is the place
+    /// of its run, where its agents work and its steps run. Its build starts where its branch
+    /// left the main branch, so Path Guard judges all of its work, its earlier runs' included;
+    /// then the recipe of a spike, as a spike without variants has it, in `mode=spike
+    /// variant=<number>`, its budget counted on the calls of the variant, its earlier runs'
+    /// included (see [`Building`]); `polishing`, the round of a polish pass instead (see
+    /// [`Run::polish_round`]), whose build started where the pass did. Then its work committed on
+    /// its branch and what it did kept in the record (see [`Run::variant_kept`]). One that parks
+    /// is kept as parked and lets the others run; a step that fails stops the recipe.
     fn variant(&mut self, number: usize, polishing: bool) -> Result<(), Stop> {
         let project = *self.project;
         let (state, main, id) = (project.state, project.main, self.id);
@@ -1388,16 +1654,16 @@ impl<S: Steps> Run<'_, S> {
             started_at(state, id, &start.map_err(said)?)?;
         }
         let building = Building { number, g2: None };
-        let at = Project {
-            work: &work,
-            ..project
-        };
         let started = Instant::now();
-        self.steps.work_in(&work);
         let mut run = Run {
-            project: &at,
+            project: self.project,
             id,
+            blueprint: &mut *self.blueprint,
             steps: &mut *self.steps,
+            place: Place {
+                work: work.clone(),
+                made: false,
+            },
             decided: self.decided.clone(),
             variant: Some(building),
         };
@@ -1408,7 +1674,6 @@ impl<S: Steps> Run<'_, S> {
             run.build(&mode, &mode)
         };
         let g2 = run.variant.and_then(|building| building.g2);
-        self.steps.work_in(project.work);
         let parked = match built {
             Ok(()) => None,
             Err(Stop::Park(why)) => Some(why),
@@ -1483,7 +1748,7 @@ impl<S: Steps> Run<'_, S> {
 
     /// G2, as the steps run it: whether it passed, which the run of a variant keeps.
     fn g2(&mut self) -> Result<bool, Stop> {
-        let passed = self.steps.gate(Gate::G2)?;
+        let passed = self.steps.gate(&self.place, Gate::G2)?;
         if let Some(building) = &mut self.variant {
             building.g2 = Some(passed);
         }
@@ -1511,7 +1776,7 @@ impl<S: Steps> Run<'_, S> {
     /// says it cannot do the task, which is no stop yet, so test mode answers to Path Guard first
     /// (see [`Run::test_mode`]).
     fn called(&mut self, who: Who, args: &str) -> Result<Option<String>, Stop> {
-        let Project { state, work, .. } = *self.project;
+        let (state, work) = (self.project.state, self.place.work.as_path());
         let call = Call {
             who,
             model: self.decided.model(who),
@@ -1524,7 +1789,7 @@ impl<S: Steps> Run<'_, S> {
             Who::Reviewer => Some(working_tree(work)?),
             Who::BuilderTest | Who::BuilderBuild | Who::Orchestrator => None,
         };
-        let (used, called) = self.steps.agent(&call);
+        let (used, called) = self.steps.agent(&self.place, &call);
         let mut changed = before.put_back(state)?;
         let left = state_left(work, state);
         drop(calling);
@@ -1592,10 +1857,10 @@ impl<S: Steps> Run<'_, S> {
     /// so a relaunch after a round that did not get through judges its work as test mode's.
     fn test_mode(&mut self, args: &str, since_snapshot: bool) -> Result<(), Stop> {
         if since_snapshot {
-            self.steps.snapshot(Snapshot::Test)?;
+            self.steps.snapshot(&self.place, Snapshot::Test)?;
         }
         let cannot = self.called(Who::BuilderTest, args)?;
-        let failures = self.steps.guard_test(since_snapshot)?;
+        let failures = self.steps.guard_test(&self.place, since_snapshot)?;
         let mut why = Vec::new();
         if !failures.is_empty() {
             let failures = failures.join("; ");
@@ -1610,7 +1875,7 @@ impl<S: Steps> Run<'_, S> {
         } else {
             Snapshot::Build
         };
-        Ok(self.steps.snapshot(snapshot)?)
+        Ok(self.steps.snapshot(&self.place, snapshot)?)
     }
 
     /// Build mode until G2 passes: the rounds in `mode`, the first with `first`, then the
@@ -1625,7 +1890,7 @@ impl<S: Steps> Run<'_, S> {
         for _ in 0..replans {
             self.call(Who::Orchestrator, "reason=g2")?;
             if !self.decided.spike() && verdict::replanned_to_test(state, id)? {
-                self.steps.snapshot(Snapshot::Round)?;
+                self.steps.snapshot(&self.place, Snapshot::Round)?;
                 self.test_mode("mode=test after=replan", true)?;
             }
             self.call(Who::BuilderBuild, &format!("{mode} after=replan"))?;
@@ -1672,9 +1937,9 @@ impl<S: Steps> Run<'_, S> {
         if self.decided.reviewer {
             self.review()?;
         }
-        let note = "automatic chain and Reviewer";
-        self.steps.decide("G3", "ok", "machines", note)?;
-        let Project { work, main, .. } = *self.project;
+        let (note, place) = ("automatic chain and Reviewer", &self.place);
+        self.steps.decide(place, "G3", "ok", "machines", note)?;
+        let (work, main) = (&place.work, self.project.main);
         let said = |e: git::Error| Stop::Fail(e.to_string());
         if !(polishing && nothing_new(work, self.id, main).map_err(said)?) {
             self.merged()?;
@@ -1699,12 +1964,12 @@ impl<S: Steps> Run<'_, S> {
         }
         let at = Merging {
             state: project.state,
-            work: project.work,
+            work: &self.place.work,
             main: project.main,
             id: self.id,
         };
-        on_latest_main(&at, &mut *self.steps)?;
-        self.steps.merge()?;
+        on_latest_main(&at, &self.place, &mut *self.steps)?;
+        self.steps.merge(&self.place)?;
         Ok(())
     }
 
@@ -1712,14 +1977,14 @@ impl<S: Steps> Run<'_, S> {
     /// Builder, G2, and G3 again: G3 decides, as it runs the whole automatic chain. Still red
     /// after the last, the change parks.
     fn g3(&mut self) -> Result<(), Stop> {
-        if self.steps.gate(Gate::G3)? {
+        if self.steps.gate(&self.place, Gate::G3)? {
             return Ok(());
         }
         let fixes = self.project.fixes;
         for _ in 0..fixes {
             self.call(Who::BuilderBuild, "mode=build fix=g3")?;
-            self.steps.gate(Gate::G2)?;
-            if self.steps.gate(Gate::G3)? {
+            self.steps.gate(&self.place, Gate::G2)?;
+            if self.steps.gate(&self.place, Gate::G3)? {
                 return Ok(());
             }
         }
@@ -1738,12 +2003,12 @@ impl<S: Steps> Run<'_, S> {
         let fixes = self.project.fixes;
         for round in 2..fixes.saturating_add(2) {
             if self.test_mode_fixes()? {
-                self.steps.snapshot(Snapshot::Round)?;
+                self.steps.snapshot(&self.place, Snapshot::Round)?;
                 self.test_mode("mode=test fix=review", true)?;
             }
             self.call(Who::BuilderBuild, "mode=build fix=review")?;
-            self.steps.gate(Gate::G2)?;
-            let g3 = self.steps.gate(Gate::G3)?;
+            self.steps.gate(&self.place, Gate::G2)?;
+            let g3 = self.steps.gate(&self.place, Gate::G3)?;
             if self.reviewed(&format!("round={round}"))? && g3 {
                 return Ok(());
             }
@@ -1760,7 +2025,7 @@ impl<S: Steps> Run<'_, S> {
         let text = change::read_record(state, id)?;
         let path = record_in(state, id);
         let record = Record::from_json(&text).map_err(|e| format!("{path}: {e}"))?;
-        let rules = self.steps.rules()?;
+        let rules = self.steps.rules(&self.place)?;
         Ok(for_test_mode(&files, &rules, &record.approved))
     }
 
@@ -1769,7 +2034,7 @@ impl<S: Steps> Run<'_, S> {
     /// stops the recipe leaves its review without a verdict. Whether the Reviewer said OK.
     fn reviewed(&mut self, args: &str) -> Result<bool, Stop> {
         let (state, id) = (self.project.state, self.id);
-        let hashes = self.steps.hashes()?;
+        let hashes = self.steps.hashes(&self.place)?;
         review_begun(state, id, hashes)?;
         self.call(Who::Reviewer, args)?;
         let ok = verdict::review(state, id)?;
@@ -2256,6 +2521,8 @@ fn differ(before: &Tree, after: &Tree) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::git::tests::{Folder, Repo};
+    use crate::guard::{Mark, Touched};
+    use crate::repo::touched::Software;
     use std::collections::VecDeque;
     use std::fs;
     use std::os::unix::fs::symlink;
@@ -2298,22 +2565,24 @@ mod tests {
     /// The steps of the recipe, played: what ran, in order, with scripted answers, and the
     /// Builder session each agent call got. A gate passes once its answers run out; the Reviewer
     /// says OK, and the replan build mode; the rules file, `rules`, protects nothing unless a test
-    /// says otherwise; what the change touched hashes to nothing; the work of an earlier run
-    /// passes the gates, `pending` says whether the last round of test mode did not get through
-    /// (it did, unless a test says otherwise), and `hand` what a person changed by hand since the
-    /// run parked (nothing known unless a test says otherwise); `judged` keeps the paths each
-    /// judgement of the earlier work left out as the person's. Each call of an agent does what
-    /// `acts` gives it to do, where the steps run (the project root until they move, see
-    /// [`Steps::work_in`]), and a release step what `released` gives it, on the project root.
-    /// Each call of a role in
-    /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
-    /// ([`CENT`]); the others, nothing. A release step, a decision on a gate, a snapshot
-    /// (`snapshot`), or whether a round of test mode is pending (`test pending`), named in
+    /// says otherwise, and the zone map, `zones`, is yellow; what the change touched hashes to
+    /// nothing. A step that runs in another place than the step before says so first, as `in
+    /// <folder>` (see [`Played::seen`]). Each call of an agent does what `acts` gives it to do,
+    /// on the project root while the steps run in the place of the change, `home`, and in the
+    /// place they run in otherwise, and a release step what `released` gives it, on the project
+    /// root. Each call of a role in `costly` reports it used `used`, a cent and a few tokens
+    /// unless a test says otherwise ([`CENT`]); the others, nothing. A release step, a decision on
+    /// a gate, a snapshot (`snapshot`), the rules (`rules`) or the zones (`zones`), named in
     /// `fails` fails with what it gives. A call whose step, as `ran` names it, is in `cannot`
     /// does and says what it does, then says it cannot do the task, for the reason given there.
     struct Played<'a> {
         root: &'a Path,
+        /// Where the acts of the agents go now.
         work: PathBuf,
+        /// The place of the change: the first place the steps see, unless a test says another.
+        home: Option<PathBuf>,
+        /// The place of the step before.
+        at: Option<PathBuf>,
         costly: Vec<Who>,
         used: Usage,
         ran: Vec<String>,
@@ -2325,11 +2594,8 @@ mod tests {
         hashes: VecDeque<guard::Hashes>,
         replan: &'static str,
         rules: &'static str,
+        zones: &'static str,
         guard: Vec<String>,
-        earlier: Option<Vec<String>>,
-        pending: bool,
-        hand: Option<Vec<String>>,
-        judged: Vec<Vec<String>>,
         stuck: Option<Who>,
         acts: Vec<(Who, Act)>,
         released: Vec<(&'static str, Act)>,
@@ -2352,6 +2618,8 @@ mod tests {
         Played {
             root,
             work: root.to_path_buf(),
+            home: None,
+            at: None,
             costly: Vec::new(),
             used: CENT,
             ran: Vec::new(),
@@ -2363,11 +2631,8 @@ mod tests {
             hashes: VecDeque::new(),
             replan: "NEXT: build",
             rules: "",
+            zones: "",
             guard: Vec::new(),
-            earlier: Some(Vec::new()),
-            pending: false,
-            hand: None,
-            judged: Vec::new(),
             stuck: None,
             acts: Vec::new(),
             released: Vec::new(),
@@ -2414,15 +2679,36 @@ mod tests {
                 None => Ok(()),
             }
         }
+
+        /// A step runs in `place`: `in <folder>` when the step before ran in another one, the
+        /// place of the change (`home`) before the first; the acts of the agents go on the
+        /// project root in that place, and in `place` itself in any other.
+        fn seen(&mut self, place: &Place) {
+            let home = self.home.get_or_insert_with(|| place.work.clone());
+            let home = home.clone();
+            let before = self.at.replace(place.work.clone());
+            let before = before.unwrap_or_else(|| home.clone());
+            if before != place.work {
+                let name = place.work.file_name().unwrap_or_default();
+                self.ran.push(format!("in {}", name.to_string_lossy()));
+            }
+            self.work = if place.work == home {
+                self.root.to_path_buf()
+            } else {
+                place.work.clone()
+            };
+        }
     }
 
     impl Steps for Played<'_> {
-        fn prepare(&mut self) -> Result<Decided, String> {
+        fn prepare(&mut self, place: &Place) -> Result<Decided, String> {
+            self.seen(place);
             self.ran.push("prepare".into());
             self.ended("prepare").map(|()| self.decided.clone())
         }
 
-        fn agent(&mut self, call: &Call) -> (Usage, Result<(), invoke::Error>) {
+        fn agent(&mut self, place: &Place, call: &Call) -> (Usage, Result<(), invoke::Error>) {
+            self.seen(place);
             let name = call.model.get("model").and_then(Value::as_str);
             let name = name.unwrap_or_default();
             let step = format!("{} {name} {}", short(call.who), call.args);
@@ -2452,40 +2738,43 @@ mod tests {
             (used, cannot.map_or(Ok(()), Err))
         }
 
-        fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
+        fn guard_test(
+            &mut self,
+            place: &Place,
+            since_snapshot: bool,
+        ) -> Result<Vec<String>, String> {
+            self.seen(place);
             self.ran.push(format!("guard since={since_snapshot}"));
             Ok(self.guard.clone())
         }
 
-        fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
+        fn snapshot(&mut self, place: &Place, snapshot: Snapshot) -> Result<(), String> {
+            self.seen(place);
             let step = format!("snapshot {snapshot:?}");
             self.ran.push(step.clone());
             self.ended("snapshot").and_then(|()| self.ended(&step))
         }
 
-        fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String> {
-            self.ran.push("guard earlier".into());
-            self.judged.push(hand.to_vec());
-            Ok(self.earlier.clone())
-        }
-
-        fn test_pending(&mut self) -> Result<bool, String> {
-            self.ended("test pending").map(|()| self.pending)
-        }
-
-        fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String> {
-            Ok(self.hand.clone())
-        }
-
-        fn hashes(&mut self) -> Result<guard::Hashes, String> {
+        fn hashes(&mut self, place: &Place) -> Result<guard::Hashes, String> {
+            self.seen(place);
             Ok(self.hashes.pop_front().unwrap_or_default())
         }
 
-        fn rules(&mut self) -> Result<guard::Settings, String> {
+        fn rules(&mut self, place: &Place) -> Result<guard::Settings, String> {
+            self.seen(place);
+            self.ended("rules")?;
             guard::Settings::from_toml(self.rules).map_err(|e| e.to_string())
         }
 
-        fn gate(&mut self, gate: Gate) -> Result<bool, String> {
+        fn zones(&mut self, place: &Place) -> Result<(ZoneMap, RulesTable), String> {
+            self.seen(place);
+            self.ended("zones")?;
+            let zones = ZoneMap::from_toml(self.zones).map_err(|e| e.to_string())?;
+            Ok((zones, crate::rules::default_table()))
+        }
+
+        fn gate(&mut self, place: &Place, gate: Gate) -> Result<bool, String> {
+            self.seen(place);
             self.ran.push(gate.to_string());
             let answers = match gate {
                 Gate::G2 => &mut self.g2,
@@ -2496,16 +2785,19 @@ mod tests {
 
         fn decide(
             &mut self,
+            place: &Place,
             gate: &str,
             decision: &str,
             by: &str,
             note: &str,
         ) -> Result<(), String> {
+            self.seen(place);
             self.ran.push(format!("{gate} {decision} {by}: {note}"));
             self.ended(gate)
         }
 
-        fn merge(&mut self) -> Result<String, String> {
+        fn merge(&mut self, place: &Place) -> Result<String, String> {
+            self.seen(place);
             self.ran.push("merge".into());
             self.ended("merge").map(|()| MERGED.to_string())
         }
@@ -2520,11 +2812,120 @@ mod tests {
         fn say(&mut self, line: &str) {
             self.ran.push(format!("say {line}"));
         }
+    }
 
-        fn work_in(&mut self, work: &Path) {
-            let name = work.file_name().unwrap_or_default().to_string_lossy();
-            self.ran.push(format!("in {name}"));
-            self.work = work.to_path_buf();
+    /// The mark of the work of every change of a [`Paper`] now.
+    const MARK: &str = "m1";
+
+    /// A blueprint over a plain folder, with no repository: the place of every change is
+    /// `work`, made by the first `isolate` unless `made` says otherwise and found after (`place`
+    /// says where without making it); its mark now is [`MARK`]; it reports `left` touched since that mark and `touched` since any
+    /// other, reads what is on disk in `work`, has `rules` at every mark, and keeps nothing:
+    /// what it was asked, in order, is in `asked`. A call named in `fails` fails with what it
+    /// gives.
+    struct Paper {
+        work: PathBuf,
+        made: bool,
+        left: Vec<String>,
+        touched: Vec<String>,
+        rules: BTreeMap<String, Vec<u8>>,
+        fails: Vec<(&'static str, &'static str)>,
+        asked: Vec<String>,
+    }
+
+    impl Paper {
+        /// The blueprint whose places are all `work`, made by the first `isolate`.
+        fn at(work: &Path) -> Paper {
+            Paper {
+                work: work.to_path_buf(),
+                made: true,
+                left: Vec::new(),
+                touched: Vec::new(),
+                rules: BTreeMap::new(),
+                fails: Vec::new(),
+                asked: Vec::new(),
+            }
+        }
+
+        /// Keeps that it was asked `call`, then how the call `name` ends: with what `fails`
+        /// gives it, if anything.
+        fn asked(&mut self, call: String, name: &str) -> Result<(), guard::Error> {
+            self.asked.push(call);
+            match self.fails.iter().find(|(failing, _)| *failing == name) {
+                Some((_, why)) => Err(guard::Error::Blueprint(why.to_string())),
+                None => Ok(()),
+            }
+        }
+
+        /// What it was asked, but what it read and the rules it gave.
+        fn kept_asking(&self) -> Vec<&str> {
+            let read = |call: &&String| !call.starts_with("read ") && !call.starts_with("rules ");
+            let kept = self.asked.iter().filter(read);
+            kept.map(String::as_str).collect()
+        }
+    }
+
+    impl Blueprint for Paper {
+        fn isolate(&mut self, id: &str) -> Result<Place, guard::Error> {
+            self.asked(format!("isolate {id}"), "isolate")?;
+            let made = std::mem::take(&mut self.made);
+            let work = self.work.clone();
+            Ok(Place { work, made })
+        }
+
+        fn place(&mut self, id: &str) -> Result<Place, guard::Error> {
+            self.asked(format!("place {id}"), "place")?;
+            Ok(found_at(&self.work))
+        }
+
+        fn vacate(&mut self, id: &str) -> Result<(), guard::Error> {
+            self.asked(format!("vacate {id}"), "vacate")
+        }
+
+        fn mark(&mut self, id: &str) -> Result<Mark, guard::Error> {
+            self.asked(format!("mark {id}"), "mark")?;
+            Ok(Mark::new(MARK))
+        }
+
+        fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, guard::Error> {
+            let since = since.map_or_else(|| "main".to_string(), Mark::to_string);
+            self.asked(format!("touched {id} since {since}"), "touched")?;
+            let items = if since == MARK {
+                &self.left
+            } else {
+                &self.touched
+            };
+            Ok(items.iter().cloned().collect())
+        }
+
+        fn read(&mut self, id: &str, item: &ItemId) -> Result<Option<Vec<u8>>, guard::Error> {
+            self.asked(format!("read {id} {item}"), "read")?;
+            Ok(fs::read(self.work.join(item.as_str())).ok())
+        }
+
+        fn rules_at(
+            &mut self,
+            mark: &Mark,
+            item: &ItemId,
+        ) -> Result<Option<Vec<u8>>, guard::Error> {
+            self.asked(format!("rules {item} at {mark}"), "rules")?;
+            Ok(self.rules.get(item.as_str()).cloned())
+        }
+
+        fn keep(
+            &mut self,
+            id: &str,
+            by: &str,
+            why: &str,
+            items: Option<&[ItemId]>,
+        ) -> Result<(), guard::Error> {
+            let all = || "all".to_string();
+            let named = |items: &[ItemId]| {
+                let names: Vec<&str> = items.iter().map(ItemId::as_str).collect();
+                names.join(", ")
+            };
+            let items = items.map_or_else(all, named);
+            self.asked(format!("keep {id} as {by}: {why} ({items})"), "keep")
         }
     }
 
@@ -2554,11 +2955,11 @@ mod tests {
         fixes: u32,
         spike_usd: f64,
     ) -> Result<Ended, Stop> {
+        let root = steps.root;
         let project = Project {
-            root: steps.root,
-            state: steps.root,
-            worktree: steps.root,
-            work: steps.root,
+            root,
+            state: root,
+            worktree: root,
             main: "main",
             replans,
             fixes,
@@ -2566,14 +2967,25 @@ mod tests {
             spike_usd,
         };
         let decided = steps.decided.clone();
+        let mut blueprint = Software::new(root, "main");
         let mut run = Run {
             project: &project,
             id: "c1",
+            blueprint: &mut blueprint,
             steps,
+            place: found_at(root),
             decided,
             variant: None,
         };
         run.launched()
+    }
+
+    /// The place whose project root is `work`, found there.
+    fn found_at(work: &Path) -> Place {
+        Place {
+            work: work.to_path_buf(),
+            made: false,
+        }
     }
 
     const OPENED: &str = "G3 ok machines: automatic chain and Reviewer";
@@ -4046,13 +4458,15 @@ mod tests {
     #[test]
     fn the_end_of_a_run_says_what_happened_and_what_to_do() {
         let repo = repo_with_change(RECORD);
-        let (root, here) = (repo.root(), repo.project());
-        let said = finish(&here, "c1", Ok(Ended::Closed));
+        let (here, root) = (repo.project(), repo.root());
+        let mut paper = Paper::at(&repo.work);
+        let said = finish(&here, "c1", Ok(Ended::Closed), &mut paper);
         assert_eq!(said, Ok(Said::Done(CLOSED.into())));
+        assert_eq!(paper.asked, ["vacate c1"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         let paused = "Paused at G4. Message: .tminus/changes/c1/inbox.md · To continue: \
                       tminus resume c1 --g4 ok|ko|polish";
-        let said = finish(&here, "c1", Ok(Ended::Paused));
+        let said = finish(&here, "c1", Ok(Ended::Paused), &mut paper);
         assert_eq!(said, Ok(Said::Done(paused.into())));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let request = &record(root)["inbox"][0];
@@ -4063,31 +4477,40 @@ mod tests {
         for answer in ["--g4 ok", "--g4 ko", "--g4 polish --note"] {
             assert!(inbox.contains(answer), "{answer}: {inbox}");
         }
-        let said = finish(&here, "c1", park(G3_RED));
+        let said = finish(&here, "c1", park(G3_RED), &mut paper);
         let message = "Change c1 parked: G3 still red after one fix. Message in \
                        .tminus/changes/c1/inbox.md";
         assert_eq!(said, Ok(Said::Parked(message.into())));
         assert_eq!(record(root)["state"], "parked");
-        let failed = finish(&here, "c1", Err(Stop::Fail("boom".into())));
+        let failed = finish(&here, "c1", Err(Stop::Fail("boom".into())), &mut paper);
         assert_eq!(failed, Err("boom".into()));
+        // Only a change that closed lets its place go.
+        assert_eq!(paper.asked, ["vacate c1"]);
     }
 
     #[test]
     fn a_change_that_ends_says_so_even_when_its_worktree_stays() {
         let repo = repo_with_change(RECORD);
         fs::create_dir_all(repo.work.join("mine")).unwrap();
-        let err = finish(&repo.project(), "c1", Ok(Ended::Closed)).unwrap_err();
+        let mut software = repo.software();
+        let ended = finish(&repo.project(), "c1", Ok(Ended::Closed), &mut software);
+        let err = ended.unwrap_err();
         let stays = "\nIts worktree stays: git worktree remove --force -- ";
         assert!(err.starts_with(&format!("{CLOSED}{stays}")), "{err}");
         assert!(repo.work.join("mine").is_dir());
+        // A place that cannot be let go keeps the change as it ended, with why.
+        let mut paper = Paper::at(&repo.work);
+        paper.fails = vec![("vacate", "busy")];
+        let ended = finish(&repo.project(), "c1", Ok(Ended::Closed), &mut paper);
+        assert_eq!(ended, Err(format!("{CLOSED}\nIts worktree stays: busy")));
     }
 
     /// A repository with change `c1` (see [`repo_with_change`]), from its main checkout, and
-    /// where the worktree of the change goes.
+    /// where the worktree of the change goes, in the folder `trees`.
     struct Checkout {
         repo: Repo,
         work: PathBuf,
-        _trees: Folder,
+        trees: Folder,
     }
 
     impl Checkout {
@@ -4097,7 +4520,6 @@ mod tests {
                 root: self.repo.root(),
                 state: self.repo.root(),
                 worktree: &self.work,
-                work: &self.work,
                 main: "main",
                 replans: 1,
                 fixes: 1,
@@ -4105,6 +4527,35 @@ mod tests {
                 spike_usd: 5.0,
             }
         }
+
+        /// Its software blueprint, whose places are in `trees`.
+        fn software(&self) -> Software<'_> {
+            Software::with_places(self.repo.root(), &self.trees.0, "main")
+        }
+    }
+
+    /// `gdd launch` of change `c1` of `repo`, from its main checkout, with its software
+    /// blueprint.
+    fn launched_from(repo: &Checkout, steps: &mut Played) -> Result<Said, String> {
+        launch(&repo.project(), "c1", &mut repo.software(), steps)
+    }
+
+    /// `gdd resume` of change `c1` of `repo`, from its main checkout, by a person: `answer`,
+    /// with `note`, for the `variant` of a spike, with its software blueprint.
+    fn resumed(
+        repo: &Checkout,
+        answer: Answer,
+        note: &str,
+        variant: Option<usize>,
+        steps: &mut Played,
+    ) -> Result<Said, String> {
+        let reply = Reply {
+            answer,
+            note,
+            role: None,
+            variant,
+        };
+        resume(&repo.project(), "c1", &reply, &mut repo.software(), steps)
     }
 
     impl std::ops::Deref for Checkout {
@@ -4128,7 +4579,7 @@ mod tests {
         Checkout {
             repo,
             work: trees.0.join("c1"),
-            _trees: trees,
+            trees,
         }
     }
 
@@ -4144,7 +4595,7 @@ mod tests {
         state::pause_at_g4(root, "c1").unwrap();
         let mut steps = played(root);
         steps.decided.reviewer = false;
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
         assert!(!repo.work.exists(), "the worktree stays");
@@ -4153,7 +4604,7 @@ mod tests {
         let mut steps = played(root);
         steps.decided.reviewer = false;
         steps.decided.g4 = true;
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
@@ -4166,12 +4617,13 @@ mod tests {
         let root = repo.root();
         repo.write("README.md", "changed\n");
         let mut steps = played(root);
-        let refused = launch(&repo.project(), "c1", &mut steps);
+        let refused = launched_from(&repo, &mut steps);
         assert_eq!(refused, Err(UNCOMMITTED.to_string()));
         assert!(steps.ran.is_empty());
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
         assert!(worktree_branch(&repo).is_err());
-        let missing = launch(&repo.project(), "c9", &mut steps).unwrap_err();
+        let missing = launch(&repo.project(), "c9", &mut repo.software(), &mut steps);
+        let missing = missing.unwrap_err();
         let start = "change c9 does not exist";
         assert!(missing.starts_with(start), "{missing}");
     }
@@ -4194,11 +4646,19 @@ mod tests {
                 root.display()
             )
         };
-        let refused = launch(&elsewhere, "c1", &mut steps);
+        let mut paper = Paper::at(&repo.work);
+        let refused = launch(&elsewhere, "c1", &mut paper, &mut steps);
         assert_eq!(refused, Err(why("launch")));
-        let refused = resume(&elsewhere, "c1", Answer::Ok, "", None, None, &mut steps);
+        let reply = Reply {
+            answer: Answer::Ok,
+            note: "",
+            role: None,
+            variant: None,
+        };
+        let refused = resume(&elsewhere, "c1", &reply, &mut paper, &mut steps);
         assert_eq!(refused, Err(why("resume")));
         assert!(steps.ran.is_empty());
+        assert!(paper.asked.is_empty());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
     }
@@ -4212,7 +4672,7 @@ mod tests {
         repo.write("src/new.rs", "x\n");
         let mut steps = played(root);
         steps.decided.resume_green = true;
-        assert!(launch(&repo.project(), "c1", &mut steps).is_ok());
+        assert!(launched_from(&repo, &mut steps).is_ok());
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
         let relaunch = "tminus(c1): work of the earlier run, before relaunch";
         assert_eq!(subject, relaunch);
@@ -4224,7 +4684,7 @@ mod tests {
         repo.write("src/only.rs", "y\n");
         let mut steps = played(root);
         steps.stuck = Some(Who::Reviewer);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let why = "Change c1 parked: the Reviewer did not answer within 2 seconds.";
         assert!(parked(said).starts_with(why));
         let committed = repo.git(&["show", "--name-only", "--format=%s", "change/c1"]);
@@ -4242,7 +4702,7 @@ mod tests {
         repo.git(&["rm", "-q", ".gitignore"]);
         let mut steps = played(root);
         steps.stuck = Some(Who::BuilderTest);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let why = "Change c1 parked: the Builder in test mode did not answer within 2 seconds.";
         assert!(parked(said).starts_with(why));
         let committed = repo.git(&["show", "--name-only", "--format=", "change/c1"]);
@@ -4251,82 +4711,138 @@ mod tests {
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
     }
 
-    /// Launches change `c1` of `repo` again, with code that passes G2 already and a Reviewer that
-    /// never answers, after the gates judged the work of the earlier run in its worktree with
-    /// `earlier` (see [`Steps::guard_earlier`]): what ran.
-    fn relaunched(repo: &Checkout, earlier: Option<Vec<String>>) -> Vec<String> {
+    /// The record of change `c1`, which plans `src/a.rs` and started at the mark `s1`, as
+    /// `RECORD` has it otherwise.
+    fn started_record() -> String {
+        let started = "\"paths\": [\"src/a.rs\"], \"build_start\": \"s1\", \"title\"";
+        RECORD.replace("\"title\"", started)
+    }
+
+    /// Writes the snapshot `snapshot` of change `c1` of `repo` (see [`Snapshot`]): the hashes of
+    /// `items` of its place, as they are now.
+    fn snapshot_of(repo: &Checkout, snapshot: Snapshot, items: &[&str]) {
+        let path = match snapshot {
+            Snapshot::Build | Snapshot::BuildAfterRound => change::build_snapshot_path("c1"),
+            Snapshot::Parked => change::parked_snapshot_path("c1"),
+            Snapshot::Test => change::test_snapshot_path("c1"),
+            Snapshot::Round => change::snapshot_path("c1"),
+        };
+        let items: Vec<String> = items.iter().map(|item| item.to_string()).collect();
+        let hashes = guard::hashes(&repo.work, &items).unwrap();
+        let text = serde_json::to_string(&hashes).unwrap();
+        change::write(repo.root(), &path, &text).unwrap();
+    }
+
+    /// The failures the gates of the earlier run of `c1` of `repo` find (see [`failures_in`]),
+    /// when they judge.
+    fn found_in(
+        repo: &Checkout,
+        paper: &mut Paper,
+        steps: &mut Played,
+        hand: &[&str],
+    ) -> Vec<String> {
+        failures_in(repo, paper, steps, hand).unwrap().unwrap()
+    }
+
+    /// The decision on the earlier work of change `c1` of `repo` that a relaunch takes in the
+    /// place of `paper`, with `steps`.
+    fn judged_in(repo: &Checkout, paper: &mut Paper, steps: &mut Played) -> Judgement {
+        let place = found_at(&paper.work);
+        earlier_work(repo.root(), &place, "c1", paper, steps)
+    }
+
+    /// What [`earlier_work`] decides.
+    type Judgement = Result<Option<String>, String>;
+
+    /// A relaunch of change `c1` (see [`started_record`]) whose earlier run left `left` in its
+    /// place, a plain folder, as `paper` has it: touched since its build started and since the
+    /// mark of its work now. Its build snapshot holds nothing.
+    fn relaunch(left: &[&str]) -> (Checkout, Paper) {
+        let repo = repo_with_change(&started_record());
+        fs::create_dir_all(&repo.work).unwrap();
+        for item in left {
+            change::write(&repo.work, item, "agents\n").unwrap();
+        }
+        change::write(repo.root(), &change::build_snapshot_path("c1"), "{}").unwrap();
+        let mut paper = Paper::at(&repo.work);
+        paper.made = false;
+        paper.left = left.iter().map(|item| item.to_string()).collect();
+        paper.touched = paper.left.clone();
+        (repo, paper)
+    }
+
+    /// What the earlier run of `c1` keeps once its gates accept it.
+    const KEEP_AGENTS: &str = "keep c1 as agents: work of the earlier run, before relaunch (all)";
+
+    #[test]
+    fn a_relaunch_keeps_the_earlier_work_its_gates_accept_before_it_prepares() {
+        let (repo, mut paper) = relaunch(&["tests/steps/a.txt"]);
         let mut steps = played(repo.root());
-        steps.decided.resume_green = true;
-        steps.stuck = Some(Who::Reviewer);
-        steps.earlier = earlier;
-        let said = launch(&repo.project(), "c1", &mut steps);
-        assert!(parked(said).starts_with("Change c1 parked: "));
-        steps.ran
+        steps.fails = vec![("prepare", "not ready")];
+        let launched = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        assert_eq!(launched, Err("not ready".to_string()));
+        let asked = [
+            "isolate c1",
+            "mark c1",
+            "touched c1 since m1",
+            "touched c1 since s1",
+            "touched c1 since s1",
+            KEEP_AGENTS,
+        ];
+        assert_eq!(paper.kept_asking(), asked);
+        assert_eq!(steps.ran, ["prepare"]);
+        // Without work left there, nothing is judged or kept.
+        let mut paper = Paper::at(&repo.work);
+        paper.made = false;
+        let launched = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        assert_eq!(launched, Err("not ready".to_string()));
+        let asked = ["isolate c1", "mark c1", "touched c1 since m1"];
+        assert_eq!(paper.kept_asking(), asked);
     }
 
     #[test]
-    fn a_relaunch_keeps_the_earlier_work_in_the_worktree_as_a_commit() {
-        let repo = repo_with_change(RECORD);
-        let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
-        let ran = relaunched(&repo, Some(Vec::new()));
-        assert_eq!(ran[..2], ["guard earlier", "prepare"]);
-        let committed = repo.git(&["show", "--name-only", "--format=%s", "change/c1"]);
-        let subject = "tminus(c1): work of the earlier run, before relaunch";
-        assert_eq!(committed, format!("{subject}\n\ntests/steps/a.txt"));
-        let work = Git::new(&repo.work);
-        assert!(!work.has_changes().unwrap());
-        // Without work left there, nothing is judged or committed.
-        let head = work.head().unwrap();
-        assert_eq!(relaunched(&repo, Some(Vec::new()))[0], "prepare");
-        assert_eq!(work.head().unwrap(), head);
-    }
-
-    #[test]
-    fn a_relaunch_leaves_uncommitted_the_earlier_work_the_gates_did_not_pass() {
-        let repo = repo_with_change(RECORD);
-        let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let work = Git::new(&repo.work);
-        let head = work.head().unwrap();
-        change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
+    fn a_relaunch_leaves_the_earlier_work_no_gate_judged_as_it_is() {
+        let (repo, mut paper) = relaunch(&["tminus/commands.toml"]);
         // Test mode never passed its Path Guard: the relaunch prepares, and its gates judge it.
-        let ran = relaunched(&repo, None);
-        assert_eq!(ran[..2], ["guard earlier", "prepare"]);
-        assert_eq!(work.head().unwrap(), head);
-        assert!(work.has_changes().unwrap());
+        fs::remove_file(repo.root().join(change::build_snapshot_path("c1"))).unwrap();
+        let mut steps = played(repo.root());
+        steps.fails = vec![("prepare", "not ready")];
+        let launched = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        assert_eq!(launched, Err("not ready".to_string()));
+        let asked = ["isolate c1", "mark c1", "touched c1 since m1"];
+        assert_eq!(paper.kept_asking(), asked);
+        assert_eq!(steps.ran, ["prepare"]);
     }
 
-    /// What the gates of the earlier run of `c1` found in the work it left.
-    const REFUSED: &str = "gdd/commands.toml: protected path for builder-build";
+    /// What the gates of the earlier run of `c1` find in the work it left: a file of the tool.
+    const REFUSED: &str = "tminus/commands.toml: protected path for builder-build";
 
     #[test]
     fn earlier_work_its_gates_did_not_accept_parks_the_relaunch_before_any_agent_call() {
         let earlier = r#""inbox": [{"kind": "parked", "text": "G2 still red", "ts": "x"}]"#;
-        let repo = repo_with_change(&RECORD.replace(r#""inbox": []"#, earlier));
-        let root = repo.root();
-        state::pause_at_g4(root, "c1").unwrap();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let work = Git::new(&repo.work);
-        let head = work.head().unwrap();
-        change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
+        let noted = started_record().replace(r#""inbox": []"#, earlier);
         // tminus knows what a person changed by hand since the park, or does not.
-        for (hand, why) in [
-            (Some(Vec::new()), not_accepted(&[REFUSED.into()], true)),
-            (None, not_accepted(&[REFUSED.into()], false)),
+        for (parked_before, why) in [
+            (true, not_accepted(&[REFUSED.into()], true)),
+            (false, not_accepted(&[REFUSED.into()], false)),
         ] {
+            let (repo, mut paper) = relaunch(&["tminus/commands.toml"]);
+            let root = repo.root();
+            repo.write(&change::record_path("c1"), &noted);
+            state::pause_at_g4(root, "c1").unwrap();
+            let snapshot = change::parked_snapshot_path("c1");
+            if parked_before {
+                snapshot_of(&repo, Snapshot::Parked, &["tminus/commands.toml"]);
+            }
+            let kept = fs::read_to_string(root.join(&snapshot)).ok();
             let mut steps = played(root);
-            steps.earlier = Some(vec![REFUSED.to_string()]);
-            steps.hand = hand;
-            let said = parked(launch(&repo.project(), "c1", &mut steps));
+            let said = parked(launch(&repo.project(), "c1", &mut paper, &mut steps));
             let start = format!("Change c1 parked: {why}.");
             assert!(said.starts_with(&start), "{said}");
-            // No prepare, no agent, and the snapshot of the earlier park stays as it was.
-            assert_eq!(steps.ran, ["guard earlier"]);
-            assert_eq!(work.head().unwrap(), head);
-            assert!(work.has_changes().unwrap());
-            assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
+            // No prepare, no agent, nothing kept, and the snapshot of the earlier park stays.
+            assert!(steps.ran.is_empty(), "{:?}", steps.ran);
+            assert!(keeps(&paper).is_empty(), "{:?}", paper.asked);
+            assert_eq!(fs::read_to_string(root.join(&snapshot)).ok(), kept);
             assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
             // Only this reason is left in the Decision Inbox: the earlier ones are resolved.
             let record = record(root);
@@ -4352,11 +4868,16 @@ mod tests {
         assert_eq!(not_accepted(&failures, false), unknown);
     }
 
-    /// The subject of the commit of the hand edits of `c1` on its branch.
-    const BY_HAND: &str = "tminus(c1): changed by hand after the change parked";
+    /// What the earlier run of `c1` keeps of `items`, changed by hand after it parked.
+    fn keep_person(items: &str) -> String {
+        format!("keep c1 as human: changed by hand after the change parked ({items})")
+    }
 
-    /// The subject of the commit of the work of an earlier run of `c1` on its branch.
-    const EARLIER_RUN: &str = "tminus(c1): work of the earlier run, before relaunch";
+    /// What `paper` was asked to keep, in order.
+    fn keeps(paper: &Paper) -> Vec<&str> {
+        let keep = |call: &&str| call.starts_with("keep ");
+        paper.kept_asking().into_iter().filter(keep).collect()
+    }
 
     /// The notes the record of `c1` of the project at `root` keeps as decided.
     fn decided_notes(root: &Path) -> Vec<String> {
@@ -4373,26 +4894,18 @@ mod tests {
         format!("{said}: {hand}")
     }
 
-    /// The commits of the branch of `c1` of `repo` since `since`, newest first: the subject of
-    /// each, a blank line, then the files it changed, one a line.
-    fn commits_since(repo: &Checkout, since: &str) -> Vec<String> {
-        let range = format!("{since}..change/c1");
-        let count = repo.git(&["rev-list", "--count", &range]);
-        let shown = |back: usize| {
-            let commit = format!("change/c1~{back}");
-            repo.git(&["show", "--name-only", "--format=%s", &commit])
-        };
-        (0..count.parse::<usize>().unwrap()).map(shown).collect()
-    }
-
     #[test]
-    fn earlier_work_without_work_left_judges_and_commits_nothing() {
-        let repo = repo_with_change(RECORD);
+    fn earlier_work_without_work_left_judges_and_keeps_nothing() {
+        let (repo, mut paper) = relaunch(&[]);
         let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
+        // A person changed a file after the park, and kept it already.
+        change::write(&repo.work, "src/a.rs", "agents\n").unwrap();
+        snapshot_of(&repo, Snapshot::Parked, &["src/a.rs"]);
+        change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
+        paper.touched = vec!["src/a.rs".into()];
         let mut steps = played(root);
-        steps.hand = Some(vec!["src/a.rs".into()]);
-        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
+        assert_eq!(judged_in(&repo, &mut paper, &mut steps), Ok(None));
+        assert_eq!(paper.asked, ["mark c1", "touched c1 since m1"]);
         assert!(steps.ran.is_empty());
         assert!(decided_notes(root).is_empty());
     }
@@ -4401,163 +4914,376 @@ mod tests {
     /// wrote.
     const TESTED: &str = "src/app.rs: protected path for builder-test";
 
+    /// Rules that keep the steps from build mode and the code from test mode.
+    const GUARDED: &str =
+        "[protected]\nbuilder_build = [\"tests/steps/**\"]\nbuilder_test = [\"src/**\"]\n";
+
+    /// A zone map where what is under `src/storage/` is red.
+    const STORAGE_RED: &str =
+        "default = \"yellow\"\n[[zone]]\ncolor = \"red\"\npaths = [\"src/storage/**\"]\n";
+
+    /// A relaunch of `c1` (see [`relaunch`]) after a round of test mode that did not get
+    /// through, and kept what it wrote: nothing is left since the mark now, but `src/app.rs`
+    /// changed since its test snapshot.
+    fn after_a_round_of_test_mode() -> (Checkout, Paper) {
+        let (repo, mut paper) = relaunch(&[]);
+        snapshot_of(&repo, Snapshot::Test, &["src/app.rs"]);
+        change::write(&repo.work, "src/app.rs", "test mode\n").unwrap();
+        paper.touched = vec!["src/app.rs".into()];
+        (repo, paper)
+    }
+
     #[test]
     fn a_round_of_test_mode_that_did_not_get_through_is_judged_without_work_left() {
-        let repo = repo_with_change(RECORD);
+        let (repo, mut paper) = after_a_round_of_test_mode();
         let root = repo.root();
-        // Test mode committed what it wrote, so nothing is left to commit: its gates judge it all
-        // the same.
         let mut steps = played(root);
-        steps.pending = true;
-        steps.earlier = Some(vec![TESTED.to_string()]);
-        let refused = earlier_work(root, root, "c1", &mut steps);
+        steps.rules = GUARDED;
+        let refused = judged_in(&repo, &mut paper, &mut steps);
         assert_eq!(refused, Ok(Some(not_accepted(&[TESTED.into()], false))));
-        assert_eq!(steps.ran, ["guard earlier"]);
-        // Accepted, there is nothing to commit, and what a person changed by hand is said.
-        let mut steps = played(root);
-        steps.pending = true;
-        steps.hand = Some(vec!["src/a.rs".into()]);
-        assert_eq!(earlier_work(root, root, "c1", &mut steps), Ok(None));
-        assert_eq!(steps.judged, [vec!["src/a.rs".to_string()]]);
-        assert_eq!(decided_notes(root), [by_hand_note("src/a.rs")]);
+        assert!(keeps(&paper).is_empty());
+        // A person changed it after the park: accepted, nothing is left to keep as theirs, and
+        // what they changed is said.
+        snapshot_of(&repo, Snapshot::Parked, &["src/app.rs"]);
+        change::write(&repo.work, "src/app.rs", "by hand\n").unwrap();
+        paper.asked.clear();
+        assert_eq!(judged_in(&repo, &mut paper, &mut steps), Ok(None));
+        assert_eq!(keeps(&paper), [keep_person(""), KEEP_AGENTS.to_string()]);
+        assert_eq!(decided_notes(root), [by_hand_note("src/app.rs")]);
         // When it cannot be told whether the round got through, the relaunch stops.
-        let mut steps = played(root);
-        steps.fails = vec![("test pending", "cannot read it")];
-        let failed = earlier_work(root, root, "c1", &mut steps);
-        assert_eq!(failed, Err("cannot read it".to_string()));
-        assert!(steps.judged.is_empty());
+        let test = root.join(change::test_snapshot_path("c1"));
+        fs::remove_file(&test).unwrap();
+        fs::create_dir_all(&test).unwrap();
+        let unread = judged_in(&repo, &mut paper, &mut steps).unwrap_err();
+        let start = "cannot read .tminus/changes/c1/snapshot-test.json: ";
+        assert!(unread.starts_with(start), "{unread}");
     }
 
     #[test]
     fn a_relaunch_without_work_left_parks_on_a_round_of_test_mode_its_gates_refuse() {
-        let repo = repo_with_change(RECORD);
+        let (repo, mut paper) = after_a_round_of_test_mode();
         let mut steps = played(repo.root());
-        steps.pending = true;
-        steps.earlier = Some(vec![TESTED.to_string()]);
-        let said = parked(launch(&repo.project(), "c1", &mut steps));
+        steps.rules = GUARDED;
+        let said = parked(launch(&repo.project(), "c1", &mut paper, &mut steps));
         let why = not_accepted(&[TESTED.into()], false);
         let start = format!("Change c1 parked: {why}.");
         assert!(said.starts_with(&start), "{said}");
-        assert_eq!(steps.ran, ["guard earlier"]);
+        assert!(steps.ran.is_empty(), "{:?}", steps.ran);
         assert_eq!(record(repo.root())["state"], "parked");
     }
 
     #[test]
-    fn earlier_work_the_gates_accept_is_committed_after_the_hand_edits_as_the_person_s() {
-        let repo = repo_with_change(RECORD);
+    fn earlier_work_the_gates_accept_is_kept_after_the_hand_edits_as_the_person_s() {
+        let (repo, mut paper) = relaunch(&["src/a.rs", "tests/a.rs"]);
         let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let start = Git::new(&repo.work).head().unwrap();
-        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
-        change::write(&repo.work, "src/b.rs", "by hand\n").unwrap();
-        change::write(&repo.work, "src/a.rs", "by hand too\n").unwrap();
+        change::write(&repo.work, "src/b.rs", "agents\n").unwrap();
+        let touched = ["src/a.rs", "src/b.rs", "tests/a.rs"];
+        snapshot_of(&repo, Snapshot::Parked, &touched);
+        // A person changes two files after the park, and keeps one of them already.
+        change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
+        change::write(&repo.work, "src/b.rs", "by hand too\n").unwrap();
+        paper.touched = touched.map(String::from).to_vec();
         let mut steps = played(root);
-        let hand = vec!["src/a.rs".to_string(), "src/b.rs".to_string()];
-        steps.hand = Some(hand.clone());
-        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
-        assert_eq!(steps.judged, [hand]);
-        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
-        let person = format!("{BY_HAND}\n\nsrc/a.rs\nsrc/b.rs");
-        assert_eq!(commits_since(&repo, &start), [agents, person]);
+        assert_eq!(judged_in(&repo, &mut paper, &mut steps), Ok(None));
+        let person = keep_person("src/a.rs");
+        let asked = [
+            "mark c1",
+            "touched c1 since m1",
+            "touched c1 since s1",
+            "touched c1 since s1",
+            "touched c1 since s1",
+            "touched c1 since m1",
+            person.as_str(),
+            KEEP_AGENTS,
+        ];
+        assert_eq!(paper.kept_asking(), asked);
         assert_eq!(decided_notes(root), [by_hand_note("src/a.rs, src/b.rs")]);
-        assert!(!Git::new(&repo.work).has_changes().unwrap());
+        assert!(steps.ran.is_empty());
     }
 
     #[test]
     fn earlier_work_the_gates_accept_without_hand_edits_is_the_agents_alone() {
-        let repo = repo_with_change(RECORD);
-        let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let start = Git::new(&repo.work).head().unwrap();
-        // None changed by hand since the park, or no park snapshot to tell.
-        for (hand, text) in [(Some(Vec::new()), "test mode\n"), (None, "again\n")] {
-            change::write(&repo.work, "tests/steps/a.txt", text).unwrap();
+        // None changed by hand since the park, or no snapshot of the park to tell.
+        for parked_before in [true, false] {
+            let (repo, mut paper) = relaunch(&["tests/a.rs"]);
+            let root = repo.root();
+            if parked_before {
+                snapshot_of(&repo, Snapshot::Parked, &["tests/a.rs"]);
+            }
             let mut steps = played(root);
-            steps.hand = hand;
-            assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
-            assert_eq!(steps.judged, [Vec::<String>::new()]);
+            assert_eq!(judged_in(&repo, &mut paper, &mut steps), Ok(None));
+            assert_eq!(keeps(&paper), [KEEP_AGENTS]);
+            assert!(decided_notes(root).is_empty());
         }
-        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
-        assert_eq!(commits_since(&repo, &start), [agents.clone(), agents]);
-        assert!(decided_notes(root).is_empty());
     }
 
     #[test]
-    fn hand_edits_a_person_committed_already_are_said_and_not_committed_again() {
-        let repo = repo_with_change(RECORD);
+    fn earlier_work_the_gates_refuse_keeps_nothing_not_even_the_hand_edits() {
+        let (repo, mut paper) = relaunch(&["src/a.rs", "tminus/commands.toml"]);
         let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let start = Git::new(&repo.work).head().unwrap();
-        change::write(&repo.work, "tests/steps/helper.txt", "a helper\n").unwrap();
-        let helper = ["tests/steps/helper.txt".to_string()];
-        let work = Git::new(&repo.work);
-        work.commit_files(&helper, "by hand").unwrap();
-        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
-        let mut steps = played(root);
-        steps.hand = Some(helper.to_vec());
-        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
-        let agents = format!("{EARLIER_RUN}\n\ntests/steps/a.txt");
-        let person = "by hand\n\ntests/steps/helper.txt".to_string();
-        assert_eq!(commits_since(&repo, &start), [agents, person]);
-        let note = by_hand_note("tests/steps/helper.txt");
-        assert_eq!(decided_notes(root), [note]);
-    }
-
-    #[test]
-    fn earlier_work_the_gates_refuse_commits_nothing_not_even_the_hand_edits() {
-        let repo = repo_with_change(RECORD);
-        let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let start = Git::new(&repo.work).head().unwrap();
+        let touched = ["src/a.rs", "tminus/commands.toml"];
+        snapshot_of(&repo, Snapshot::Parked, &touched);
         change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
-        change::write(&repo.work, "gdd/commands.toml", "[g2]\n").unwrap();
         let mut steps = played(root);
-        steps.hand = Some(vec!["src/a.rs".into()]);
-        steps.earlier = Some(vec![REFUSED.to_string()]);
-        let refused = earlier_work(root, &repo.work, "c1", &mut steps);
+        let refused = judged_in(&repo, &mut paper, &mut steps);
         assert_eq!(refused, Ok(Some(not_accepted(&[REFUSED.into()], true))));
-        assert_eq!(Git::new(&repo.work).head().unwrap(), start);
+        assert!(keeps(&paper).is_empty(), "{:?}", paper.asked);
         assert!(decided_notes(root).is_empty());
     }
 
     #[test]
-    fn without_a_build_snapshot_only_the_hand_edits_are_committed() {
-        let repo = repo_with_change(RECORD);
+    fn without_a_build_snapshot_only_the_hand_edits_are_kept() {
+        let (repo, mut paper) = relaunch(&["src/a.rs", "tests/steps/a.txt"]);
         let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let start = Git::new(&repo.work).head().unwrap();
+        fs::remove_file(root.join(change::build_snapshot_path("c1"))).unwrap();
+        let touched = ["src/a.rs", "tests/steps/a.txt"];
+        snapshot_of(&repo, Snapshot::Parked, &touched);
         change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
-        change::write(&repo.work, "tests/steps/a.txt", "test mode\n").unwrap();
         let mut steps = played(root);
-        steps.hand = Some(vec!["src/a.rs".into()]);
-        steps.earlier = None;
-        assert_eq!(earlier_work(root, &repo.work, "c1", &mut steps), Ok(None));
-        let person = format!("{BY_HAND}\n\nsrc/a.rs");
-        assert_eq!(commits_since(&repo, &start), [person]);
-        let work = Git::new(&repo.work);
-        assert!(work.has_changes().unwrap(), "test mode's work stays");
+        assert_eq!(judged_in(&repo, &mut paper, &mut steps), Ok(None));
+        assert_eq!(keeps(&paper), [keep_person("src/a.rs")]);
         assert_eq!(decided_notes(root), [by_hand_note("src/a.rs")]);
+    }
+
+    #[test]
+    fn earlier_work_that_cannot_be_kept_stops_the_relaunch_and_lets_go_of_a_place_it_made() {
+        let (repo, mut paper) = relaunch(&["tests/a.rs"]);
+        paper.made = true;
+        paper.fails = vec![("keep", "cannot keep it")];
+        let mut steps = played(repo.root());
+        let launched = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        assert_eq!(launched, Err("cannot keep it".to_string()));
+        assert_eq!(paper.asked.last().map(String::as_str), Some("vacate c1"));
+        assert!(steps.ran.is_empty());
+    }
+
+    /// The failures the gates of the earlier run of `c1` of `repo` find in the place of
+    /// `paper`, with `steps`, but for the paths `hand` (see [`earlier_failures`]).
+    fn failures_in(
+        repo: &Checkout,
+        paper: &mut Paper,
+        steps: &mut Played,
+        hand: &[&str],
+    ) -> Result<Option<Vec<String>>, String> {
+        let hand: Vec<String> = hand.iter().map(|path| path.to_string()).collect();
+        let place = found_at(&paper.work);
+        earlier_failures(repo.root(), &place, "c1", &hand, paper, steps)
+    }
+
+    /// Writes `text` at `item` of the place of `paper`, which reports it touched since the build
+    /// started.
+    fn wrote(paper: &mut Paper, item: &str, text: &str) {
+        change::write(&paper.work, item, text).unwrap();
+        paper.touched.push(item.to_string());
+    }
+
+    #[test]
+    fn the_earlier_work_is_judged_as_build_mode_from_the_build_snapshot_and_by_the_scope() {
+        let (repo, mut paper) = relaunch(&[]);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.zones = STORAGE_RED;
+        // What test mode left is in the build snapshot: build mode is not judged on it.
+        wrote(&mut paper, "tests/a.rs", "test mode\n");
+        snapshot_of(&repo, Snapshot::Build, &["tests/a.rs"]);
+        wrote(&mut paper, "src/a.rs", "build mode\n");
+        let none = failures_in(&repo, &mut paper, &mut steps, &[]);
+        assert_eq!(none, Ok(Some(Vec::new())));
+        // A file of the tool, and a red one outside the package.
+        wrote(&mut paper, "tminus/commands.toml", "[g2]\n");
+        wrote(&mut paper, "src/storage/db.rs", "x\n");
+        let failures = found_in(&repo, &mut paper, &mut steps, &[]);
+        let [guarded, scoped] = failures.as_slice() else {
+            panic!("two failures: {failures:?}");
+        };
+        assert_eq!(guarded, REFUSED);
+        let outside = "src/storage/db.rs: outside the package and red";
+        assert!(scoped.starts_with(outside), "{scoped}");
+        // A check that cannot read what it judges with fails with the reason.
+        steps.rules = "[protected\n";
+        steps.fails = vec![("zones", "no zone map")];
+        let failures = found_in(&repo, &mut paper, &mut steps, &[]);
+        let [guarded, scoped] = failures.as_slice() else {
+            panic!("two failures: {failures:?}");
+        };
+        assert!(guarded.starts_with("invalid TOML: "), "{guarded}");
+        assert_eq!(scoped, "no zone map");
+        // Without a build snapshot, test mode never passed its Path Guard.
+        let build = change::build_snapshot_path("c1");
+        fs::remove_file(root.join(&build)).unwrap();
+        assert_eq!(failures_in(&repo, &mut paper, &mut steps, &[]), Ok(None));
+        // One that is not JSON is an error that names it.
+        change::write(root, &build, "{").unwrap();
+        let unread = failures_in(&repo, &mut paper, &mut steps, &[]).unwrap_err();
+        let start = ".tminus/changes/c1/snapshot-build.json: ";
+        assert!(unread.starts_with(start), "{unread}");
+    }
+
+    #[test]
+    fn earlier_failures_leave_out_what_a_person_changed_by_hand() {
+        let (repo, mut paper) = relaunch(&[]);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.rules = GUARDED;
+        steps.zones = STORAGE_RED;
+        // A step build mode may not touch, and a red file outside the package.
+        wrote(&mut paper, "tests/steps/a.txt", "by hand\n");
+        wrote(&mut paper, "src/storage/db.rs", "by hand\n");
+        let failures = found_in(&repo, &mut paper, &mut steps, &[]);
+        let [guarded, scoped] = failures.as_slice() else {
+            panic!("two failures: {failures:?}");
+        };
+        let step = "tests/steps/a.txt: protected path for builder-build";
+        assert_eq!(guarded, step);
+        let outside = "src/storage/db.rs: outside the package";
+        assert!(scoped.starts_with(outside), "{scoped}");
+        // Changed by hand, neither is a Builder's to answer for.
+        let hand = ["src/storage/db.rs", "tests/steps/a.txt"];
+        let failures = failures_in(&repo, &mut paper, &mut steps, &hand);
+        assert_eq!(failures, Ok(Some(Vec::new())));
+        // Only a failure on the path itself goes, not one on a path it starts.
+        let folders = ["src/storage", "tests/steps"];
+        let failures = failures_in(&repo, &mut paper, &mut steps, &folders);
+        assert_eq!(failures.unwrap().unwrap_or_default().len(), 2);
+        // A build snapshot that cannot be read is no build snapshot missing.
+        let snapshot = root.join(change::build_snapshot_path("c1"));
+        fs::remove_file(&snapshot).unwrap();
+        fs::create_dir_all(&snapshot).unwrap();
+        let unread = failures_in(&repo, &mut paper, &mut steps, &hand).unwrap_err();
+        let start = "cannot read .tminus/changes/c1/snapshot-build.json: ";
+        assert!(unread.starts_with(start), "{unread}");
+        let file = root.join("a-file");
+        fs::write(&file, "x\n").unwrap();
+        let place = found_at(&repo.work);
+        let under_a_file = earlier_failures(&file, &place, "c1", &[], &mut paper, &mut steps);
+        let under_a_file = under_a_file.unwrap_err();
+        assert!(under_a_file.starts_with("cannot read "), "{under_a_file}");
+    }
+
+    #[test]
+    fn what_a_round_of_test_mode_that_did_not_get_through_wrote_is_judged_as_test_modes() {
+        let (repo, mut paper) = relaunch(&[]);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.rules = GUARDED;
+        wrote(&mut paper, "tests/a.rs", "test mode\n");
+        snapshot_of(&repo, Snapshot::Build, &["tests/a.rs"]);
+        // Build mode writes a step it may not touch; then a round of test mode writes code it
+        // may not touch and a step, and does not get through.
+        wrote(&mut paper, "tests/steps/sneaky.txt", "build mode\n");
+        let before = ["tests/a.rs", "tests/steps/sneaky.txt"];
+        snapshot_of(&repo, Snapshot::Test, &before);
+        wrote(&mut paper, "src/a.rs", "test mode\n");
+        wrote(&mut paper, "tests/steps/b.txt", "test mode\n");
+        let tested = "src/a.rs: protected path for builder-test".to_string();
+        let sneaky = "tests/steps/sneaky.txt: protected path for builder-build".to_string();
+        let failures = failures_in(&repo, &mut paper, &mut steps, &[]);
+        assert_eq!(failures, Ok(Some(vec![tested, sneaky.clone()])));
+        // Changed by hand, a path is neither test mode's nor build mode's.
+        let failures = failures_in(&repo, &mut paper, &mut steps, &["src/a.rs"]);
+        assert_eq!(failures, Ok(Some(vec![sneaky.clone()])));
+        let hand = ["src/a.rs", "tests/steps/sneaky.txt"];
+        let failures = failures_in(&repo, &mut paper, &mut steps, &hand);
+        assert_eq!(failures, Ok(Some(Vec::new())));
+        // A rules file that cannot be read fails each Path Guard, without dedupe.
+        steps.rules = "[protected\n";
+        let failures = found_in(&repo, &mut paper, &mut steps, &[]);
+        let unread = |failure: &&String| failure.starts_with("invalid TOML: ");
+        assert_eq!(failures.iter().filter(unread).count(), 2, "{failures:?}");
+        steps.rules = GUARDED;
+        // Without the test snapshot, build mode answers for all of it, as before.
+        let test = root.join(change::test_snapshot_path("c1"));
+        fs::remove_file(&test).unwrap();
+        let step = "tests/steps/b.txt: protected path for builder-build".to_string();
+        let failures = failures_in(&repo, &mut paper, &mut steps, &[]);
+        assert_eq!(failures, Ok(Some(vec![step, sneaky])));
+        // A test snapshot that cannot be read is no test snapshot missing.
+        fs::create_dir_all(&test).unwrap();
+        let unread = failures_in(&repo, &mut paper, &mut steps, &[]).unwrap_err();
+        let start = "cannot read .tminus/changes/c1/snapshot-test.json: ";
+        assert!(unread.starts_with(start), "{unread}");
+    }
+
+    #[test]
+    fn hand_edits_are_what_changed_since_the_change_parked() {
+        let (repo, mut paper) = relaunch(&[]);
+        let root = repo.root();
+        let place = found_at(&repo.work);
+        // Without a snapshot of a park, tminus cannot tell.
+        assert_eq!(hand_edits(root, &place, "c1", &mut paper), Ok(None));
+        let items = ["src/a.rs", "src/gone.rs", "src/old.rs", "src/same.rs"];
+        for item in items {
+            change::write(&repo.work, item, "agents\n").unwrap();
+        }
+        snapshot_of(&repo, Snapshot::Parked, &items);
+        // What the change no longer touched since its start is read where it works.
+        let touched = ["src/a.rs", "src/gone.rs", "src/same.rs"];
+        paper.touched = touched.map(String::from).to_vec();
+        let none = Some(Vec::new());
+        assert_eq!(hand_edits(root, &place, "c1", &mut paper), Ok(none));
+        assert!(paper.asked.contains(&"read c1 src/old.rs".to_string()));
+        // Changed, deleted and new; the one left as it was is not a person's.
+        change::write(&repo.work, "src/a.rs", "by hand\n").unwrap();
+        fs::remove_file(repo.work.join("src/gone.rs")).unwrap();
+        change::write(&repo.work, "src/old.rs", "by hand\n").unwrap();
+        wrote(&mut paper, "src/new.rs", "by hand\n");
+        let hand = ["src/a.rs", "src/gone.rs", "src/new.rs", "src/old.rs"].map(String::from);
+        let changed = Ok(Some(hand.to_vec()));
+        assert_eq!(hand_edits(root, &place, "c1", &mut paper), changed);
+    }
+
+    #[test]
+    fn hand_edits_that_cannot_be_read_are_an_error() {
+        let (repo, mut paper) = relaunch(&[]);
+        let root = repo.root();
+        let place = found_at(&repo.work);
+        let parked = root.join(change::parked_snapshot_path("c1"));
+        fs::create_dir_all(&parked).unwrap();
+        let unread = hand_edits(root, &place, "c1", &mut paper).unwrap_err();
+        let start = "cannot read .tminus/changes/c1/snapshot-parked.json: ";
+        assert!(unread.starts_with(start), "{unread}");
+        let file = root.join("a-file");
+        fs::write(&file, "x\n").unwrap();
+        let under_a_file = hand_edits(&file, &place, "c1", &mut paper).unwrap_err();
+        assert!(under_a_file.starts_with(start), "{under_a_file}");
+        // A file where the change works that cannot be read is an error with what it said.
+        fs::remove_dir(&parked).unwrap();
+        snapshot_of(&repo, Snapshot::Parked, &["src/a.rs"]);
+        paper.fails = vec![("read", "cannot read src/a.rs: busy")];
+        let unread = hand_edits(root, &place, "c1", &mut paper);
+        assert_eq!(unread, Err("cannot read src/a.rs: busy".to_string()));
+        // And so is a hand path whose hash now goes into the build snapshot.
+        let hand = failures_in(&repo, &mut paper, &mut played(root), &["src/a.rs"]);
+        assert_eq!(hand, Err("cannot read src/a.rs: busy".to_string()));
     }
 
     #[test]
     fn a_run_that_parks_keeps_what_the_change_touched_unless_it_is_not_kept() {
         let folder = repo_folder();
-        let mut steps = played(&folder.0);
-        let ended = parked_snapshot(park(G3_RED), true, &mut steps);
+        let (mut steps, place) = (played(&folder.0), found_at(&folder.0));
+        let ended = parked_snapshot(park(G3_RED), true, &place, &mut steps);
         assert_eq!(ended, park(G3_RED));
         assert_eq!(steps.ran, ["snapshot Parked"]);
         // A spike, or a variant of one, keeps none.
         let mut steps = played(&folder.0);
-        let ended = parked_snapshot(park(G3_RED), false, &mut steps);
+        let ended = parked_snapshot(park(G3_RED), false, &place, &mut steps);
         assert_eq!(ended, park(G3_RED));
         assert!(steps.ran.is_empty());
         // A run that closes, pauses or fails has nothing to keep.
         let failed = Err(Stop::Fail("boom".into()));
         for ended in [Ok(Ended::Closed), Ok(Ended::Paused), failed] {
             let mut steps = played(&folder.0);
-            assert_eq!(parked_snapshot(ended.clone(), true, &mut steps), ended);
+            let kept = parked_snapshot(ended.clone(), true, &place, &mut steps);
+            assert_eq!(kept, ended);
             assert!(steps.ran.is_empty());
         }
+        // The snapshot is taken where the run worked.
+        let other = Folder::new();
+        let mut steps = played(&folder.0);
+        steps.home = Some(folder.0.clone());
+        parked_snapshot(park(G3_RED), true, &found_at(&other.0), &mut steps).unwrap_err();
+        let name = other.0.file_name().unwrap().to_string_lossy();
+        assert_eq!(steps.ran, [format!("in {name}"), "snapshot Parked".into()]);
     }
 
     #[test]
@@ -4565,7 +5291,7 @@ mod tests {
         let folder = repo_folder();
         let mut steps = played(&folder.0);
         steps.fails = vec![("snapshot", "cannot write it")];
-        let ended = parked_snapshot(park(G3_RED), true, &mut steps);
+        let ended = parked_snapshot(park(G3_RED), true, &found_at(&folder.0), &mut steps);
         let why = format!("{G3_RED}; and its snapshot: cannot write it");
         assert_eq!(ended, Err(Stop::Fail(why)));
     }
@@ -4576,14 +5302,14 @@ mod tests {
         let root = repo.root();
         let mut steps = played(root);
         steps.stuck = Some(Who::BuilderTest);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(parked(said).starts_with("Change c1 parked: "));
         let ran = ["prepare", "test t mode=test", "snapshot Parked"];
         assert_eq!(steps.ran, ran);
         let mut steps = played(root);
         steps.decided.kind = SPIKE.to_string();
         steps.stuck = Some(Who::BuilderBuild);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(parked(said).starts_with("Change c1 parked: "));
         assert_eq!(steps.ran, ["prepare", "build b mode=spike"]);
     }
@@ -4594,7 +5320,7 @@ mod tests {
         let root = repo.root();
         let mut steps = played(root);
         steps.cannot = vec![("build b mode=build", "no currency")];
-        let said = parked(launch(&repo.project(), "c1", &mut steps));
+        let said = parked(launched_from(&repo, &mut steps));
         let inbox = "Message in .tminus/changes/c1/inbox.md";
         assert_eq!(said, format!("Change c1 parked: {NO_CURRENCY}. {inbox}"));
         // What the change touched is kept, so the next run judges what the Builder left.
@@ -4606,10 +5332,11 @@ mod tests {
     #[test]
     fn a_launch_refused_before_its_build_removes_the_worktree_it_made() {
         let repo = repo_with_change(RECORD);
-        let root = repo.root();
-        worktree::open(root, &repo.work, "c1").unwrap();
-        let project = repo.project();
-        assert_eq!(not_started(&project, true, "refused".into()), "refused");
+        let mut software = repo.software();
+        let place = software.isolate("c1").unwrap();
+        assert!(place.made);
+        let said = not_started(&mut software, "c1", &place, "refused".into());
+        assert_eq!(said, "refused");
         assert!(!repo.work.exists());
         assert!(worktree_branch(&repo).is_err());
         repo.git(&["checkout", "-q", "change/c1"]);
@@ -4620,14 +5347,50 @@ mod tests {
         let repo = repo_with_change(RECORD);
         // What is at the worktree is no worktree of git: it cannot go as one.
         fs::create_dir_all(repo.work.join("mine")).unwrap();
-        let said = not_started(&repo.project(), true, "refused".into());
+        let made = Place {
+            made: true,
+            ..found_at(&repo.work)
+        };
+        let said = not_started(&mut repo.software(), "c1", &made, "refused".into());
         let stays = "refused\nIts worktree stays: git worktree remove --force -- ";
         assert!(said.starts_with(stays), "{said}");
         assert!(repo.work.join("mine").is_dir());
         // A worktree the launch did not make stays as it is.
-        let said = not_started(&repo.project(), false, "refused".into());
+        let found = found_at(&repo.work);
+        let said = not_started(&mut repo.software(), "c1", &found, "refused".into());
         assert_eq!(said, "refused");
         assert!(repo.work.join("mine").is_dir());
+    }
+
+    #[test]
+    fn a_launch_refused_before_its_build_lets_go_only_of_a_place_it_made() {
+        for made in [true, false] {
+            let repo = repo_with_change(RECORD);
+            let mut paper = Paper::at(&repo.work);
+            paper.made = made;
+            let mut steps = played(repo.root());
+            steps.fails = vec![("prepare", "not ready")];
+            let refused = launch(&repo.project(), "c1", &mut paper, &mut steps);
+            assert_eq!(refused, Err("not ready".to_string()));
+            let vacated = paper.asked.contains(&"vacate c1".to_string());
+            assert_eq!(vacated, made, "{:?}", paper.asked);
+        }
+        // One that cannot be let go is said too.
+        let repo = repo_with_change(RECORD);
+        let mut paper = Paper::at(&repo.work);
+        paper.fails = vec![("vacate", "busy")];
+        let mut steps = played(repo.root());
+        steps.fails = vec![("prepare", "not ready")];
+        let refused = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        let stays = "not ready\nIts worktree stays: busy";
+        assert_eq!(refused, Err(stays.to_string()));
+        // A place that cannot be made stops the launch before anything else.
+        let mut paper = Paper::at(&repo.work);
+        paper.fails = vec![("isolate", "in the way")];
+        let refused = launch(&repo.project(), "c1", &mut paper, &mut steps);
+        assert_eq!(refused, Err("in the way".to_string()));
+        assert_eq!(paper.asked, ["isolate c1"]);
+        assert_eq!(steps.ran, ["prepare"]);
     }
 
     #[test]
@@ -4636,13 +5399,13 @@ mod tests {
         let root = repo.root();
         let mut steps = played(root);
         steps.fails = vec![("prepare", "not ready")];
-        let refused = launch(&repo.project(), "c1", &mut steps);
+        let refused = launched_from(&repo, &mut steps);
         assert_eq!(refused, Err("not ready".to_string()));
         assert!(!repo.work.exists());
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
         // The worktree of a parked change stays.
         worktree::open(root, &repo.work, "c1").unwrap();
-        let refused = launch(&repo.project(), "c1", &mut steps);
+        let refused = launched_from(&repo, &mut steps);
         assert_eq!(refused, Err("not ready".to_string()));
         assert_eq!(worktree_branch(&repo).unwrap(), "change/c1");
     }
@@ -4655,7 +5418,7 @@ mod tests {
         let run = state::path("c1");
         fs::create_dir_all(root.join(&run).join("x")).unwrap();
         let mut steps = played(root);
-        let refused = launch(&repo.project(), "c1", &mut steps).unwrap_err();
+        let refused = launched_from(&repo, &mut steps).unwrap_err();
         let cannot = format!("cannot remove {run}: ");
         assert!(refused.starts_with(&cannot), "{refused}");
         assert!(!repo.work.exists());
@@ -4671,7 +5434,7 @@ mod tests {
         // Someone edits a tracked file of the main checkout while the change runs.
         let edits: Act = |root| change::write(root, "README.md", "edited\n").unwrap();
         steps.acts = vec![(Who::BuilderBuild, edits)];
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let why = format!(
             "Change c1 parked: the merge needs the main checkout ({}) without uncommitted \
              changes in tracked files: commit or stash them.",
@@ -4705,13 +5468,13 @@ mod tests {
         let line = format!("say {OVERLAPS_C2}");
         let warned = line.as_str();
         let mut steps = played(root);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran[..3], ["prepare", warned, "test t mode=test"]);
         // Launched again, it warns again; the Decision Inbox G4 shows keeps the warning once.
         let mut steps = played(root);
         steps.decided.g4 = true;
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(steps.ran[..2], ["prepare", warned]);
         let mut decided = record(root)["inbox"].as_array().cloned().unwrap();
@@ -4735,7 +5498,7 @@ mod tests {
             ..repo.project()
         };
         let mut steps = played(root);
-        let refused = launch(&capped, "c1", &mut steps).unwrap_err();
+        let refused = launch(&capped, "c1", &mut repo.software(), &mut steps).unwrap_err();
         let cap = "1 change(s) building, the cap is 1: c2\n";
         assert!(refused.starts_with(cap), "{refused}");
         assert!(!refused.contains("overlaps"), "{refused}");
@@ -4783,7 +5546,7 @@ mod tests {
         let root = repo.root();
         let mut steps = played(root);
         steps.acts = vec![(Who::Reviewer, news_on_main as Act)];
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         let mut expected = TO_OPENED.to_vec();
         let merged = [OPENED, UNOPENED, MOVED, "G3", REOPENED, "merge", "pre"];
@@ -4804,7 +5567,7 @@ mod tests {
         let mut steps = played(root);
         steps.acts = vec![(Who::Reviewer, news_on_main as Act)];
         steps.g3 = VecDeque::from([true, false]);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let why = "Change c1 parked: G3 red on top of the latest main.";
         assert!(parked(said).starts_with(why));
         // G3 stays closed: the change no longer merges as it passed it.
@@ -4833,7 +5596,7 @@ mod tests {
             Git::new(root).commit_files(&app, "app").unwrap();
         };
         steps.acts = vec![(Who::Reviewer, conflicting)];
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let why = format!(
             "Change c1 parked: main moved under it and the merge has conflicts in app.txt: merge \
              main into change/c1 in its worktree ({}), settle the conflicts, commit, then tminus \
@@ -4855,7 +5618,7 @@ mod tests {
         repo.git(&["-C", &tree, "add", "app.txt"]);
         repo.git(&["-C", &tree, "commit", "-q", "--no-edit"]);
         let mut steps = played(root);
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         let mut expected = TO_OPENED.to_vec();
         expected.extend([OPENED, "merge", "pre", "promote", "observe"]);
@@ -4878,7 +5641,7 @@ mod tests {
             });
         };
         steps.acts = vec![(Who::Reviewer, another)];
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         let waited = format!("say {}", queue::WAITING);
         assert_eq!(steps.ran[5..7], [OPENED, waited.as_str()]);
@@ -4951,7 +5714,7 @@ mod tests {
             ..repo.project()
         };
         let mut steps = played(root);
-        let refused = launch(&capped, "c1", &mut steps).unwrap_err();
+        let refused = launch(&capped, "c1", &mut repo.software(), &mut steps).unwrap_err();
         other.join().unwrap();
         let cap = "1 change(s) building, the cap is 1: c2\n";
         assert!(refused.starts_with(cap), "{refused}");
@@ -5048,7 +5811,7 @@ mod tests {
         steps.decided.reviewer = false;
         let writes: Act = |work| change::write(work, &change::record_path("c1"), "{}").unwrap();
         steps.acts = vec![(Who::BuilderBuild, writes)];
-        let said = launch(&repo.project(), "c1", &mut steps);
+        let said = launched_from(&repo, &mut steps);
         let left = repo.work.join(".tminus");
         let why = format!(
             "Change c1 parked: the Builder in build mode changed GDD state: {}.",
@@ -5076,7 +5839,6 @@ mod tests {
             root: &root,
             state: &root,
             worktree: &worktree,
-            work: &work,
             main: "main",
             replans: 1,
             fixes: 1,
@@ -5088,7 +5850,8 @@ mod tests {
         steps.decided.reviewer = false;
         let writes: Act = |work| change::write(work, &change::record_path("c1"), "{}").unwrap();
         steps.acts = vec![(Who::BuilderBuild, writes)];
-        let said = launch(&project, "c1", &mut steps);
+        let mut software = Software::with_places(&root, &trees.0, "main");
+        let said = launch(&project, "c1", &mut software, &mut steps);
         let left = work.join(".tminus");
         let why = format!(
             "Change c1 parked: the Builder in build mode changed GDD state: {}.",
@@ -5133,23 +5896,36 @@ mod tests {
     fn only_a_person_answers_a_change_paused_at_g4() {
         let repo = repo_with_change(RECORD);
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "", None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         state::pause_at_g4(root, "c1").unwrap();
         let refused = "An agent tminus started cannot open or close gates.";
+        let mut paper = Paper::at(&repo.work);
         for role in ["builder-build", "reviewer", "orchestrator"] {
-            let said = resume(&here, "c1", Answer::Ok, "", Some(role), None, &mut steps);
+            let reply = Reply {
+                answer: Answer::Ok,
+                note: "",
+                role: Some(role),
+                variant: None,
+            };
+            let said = resume(&repo.project(), "c1", &reply, &mut paper, &mut steps);
             assert_eq!(said, Err(refused.into()), "{role}");
         }
         let polish = "polish needs your notes: tminus resume c1 --g4 polish --note ...";
-        let said = resume(&here, "c1", Answer::Polish, " ", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, " ", None, &mut steps);
         assert_eq!(said, Err(polish.into()));
         assert!(steps.ran.is_empty());
+        assert!(paper.asked.is_empty());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], "in-pre");
-        let missing = resume(&here, "c9", Answer::Ok, "", None, None, &mut steps);
+        let reply = Reply {
+            answer: Answer::Ok,
+            note: "",
+            role: None,
+            variant: None,
+        };
+        let missing = resume(&repo.project(), "c9", &reply, &mut paper, &mut steps);
         let start = "change c9 does not exist";
         assert!(missing.unwrap_err().starts_with(start));
     }
@@ -5162,7 +5938,8 @@ mod tests {
     /// The repository with change `c1` in state `state`, paused at G4.
     fn paused_in(state: &str) -> Checkout {
         let repo = repo_with_change(&RECORD.replace("in-pre", state));
-        finish(&repo.project(), "c1", Ok(Ended::Paused)).unwrap();
+        let mut software = repo.software();
+        finish(&repo.project(), "c1", Ok(Ended::Paused), &mut software).unwrap();
         repo
     }
 
@@ -5170,10 +5947,9 @@ mod tests {
     fn ok_at_g4_promotes_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert!(!repo.work.exists(), "the worktree stays");
@@ -5195,13 +5971,13 @@ mod tests {
                          {{"kind": "needs", "text": "Which colour?", "ts": "t"}}]"#
         );
         let repo = repo_with_change(&RECORD.replace(r#""inbox": []"#, &notes));
-        let (root, here) = (repo.root(), repo.project());
+        let root = repo.root();
         state::pause_at_g4(root, "c1").unwrap();
         let text = change::read_record(root, "c1").unwrap();
         let inbox = inbox::save(root, "c1", &text).unwrap();
         assert!(inbox.contains(G4_REQUEST_OF_0_1_0), "{inbox}");
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(open_requests(root), ["Which colour?"]);
@@ -5229,10 +6005,9 @@ mod tests {
     fn a_failed_promotion_leaves_the_change_paused_and_the_same_answer_retries_it() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let failed = format!(
             "Promotion of c1 failed: {PROMOTE_FAILED}. Production untouched: the change is \
              still paused at G4. To retry: tminus resume c1 --g4 ok (or --g4 ko to reject)."
@@ -5252,13 +6027,13 @@ mod tests {
         // Failed again: only the last failure is open.
         let mut steps = played(root);
         steps.fails = vec![("promote", "release.promote failed")];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
+        assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
         let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
                    tminus resume c1 --g4 ok, or --g4 ko.";
         assert_eq!(open_requests(root), [why.to_string(), request]);
         // Fixed, the same answer promotes it.
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5269,12 +6044,11 @@ mod tests {
     fn after_a_failed_promotion_the_human_can_still_reject_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
+        assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ko, "No", None, &mut steps);
         assert!(done(said).starts_with("Change c1 rejected at G4"));
         assert_eq!(steps.ran, ["G4 ko human: No"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5286,13 +6060,12 @@ mod tests {
     fn after_a_failed_promotion_the_human_can_still_polish_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.fails = vec![("promote", PROMOTE_FAILED)];
-        assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
+        assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
         let mut steps = played(root);
         let note = "Shorter";
-        let said = resume(&here, "c1", Answer::Polish, note, None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, note, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         assert_eq!(steps.ran[0], "build b mode=build fix=polish");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
@@ -5303,9 +6076,9 @@ mod tests {
     #[test]
     fn a_change_promoted_already_is_only_observed() {
         let repo = paused_in(IN_PRODUCTION);
-        let (root, here) = (repo.root(), repo.project());
+        let root = repo.root();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5314,10 +6087,10 @@ mod tests {
     #[test]
     fn a_failed_observation_after_g4_does_not_leave_the_change_paused() {
         let repo = paused();
-        let (root, here) = (repo.root(), repo.project());
+        let root = repo.root();
         let mut steps = played(root);
         steps.fails = vec![("observe", "release.observe failed")];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert_eq!(said, Err("release.observe failed".into()));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5342,11 +6115,10 @@ mod tests {
     fn a_promotion_that_may_have_reached_production_parks_the_change() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.released = vec![("promote", promoting)];
         steps.fails = vec![("promote", UNLOGGED)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but tminus cannot go on with it \
              ({UNLOGGED}). Check production before anything else: promoting it again could \
@@ -5359,7 +6131,7 @@ mod tests {
         assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
         // No answer promotes it again.
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         assert!(steps.ran.is_empty());
     }
@@ -5370,7 +6142,7 @@ mod tests {
             let repo = paused_in(release::PROMOTING);
             let root = repo.root();
             let mut steps = played(root);
-            let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
+            let said = resumed(&repo, answer, note, None, &mut steps);
             let why = "Change c1 parked: production may have it, but tminus cannot go on with \
                        it (an earlier answer stopped while promoting it). Check production";
             assert!(parked(said).starts_with(why), "{answer:?}");
@@ -5383,10 +6155,10 @@ mod tests {
     #[test]
     fn a_change_that_cannot_park_says_why_and_is_no_longer_paused() {
         let repo = paused_in(release::PROMOTING);
-        let (root, here) = (repo.root(), repo.project());
+        let root = repo.root();
         fs::create_dir_all(root.join(log::PATH)).unwrap();
         let mut steps = played(root);
-        let err = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps).unwrap_err();
+        let err = resumed(&repo, Answer::Ok, "", None, &mut steps).unwrap_err();
         let start = "Change c1 cannot park: production may have it, but tminus cannot go on";
         assert!(err.starts_with(start), "{err}");
         assert!(err.ends_with(&format!("twice.\n{UNLOGGED}")), "{err}");
@@ -5401,7 +6173,7 @@ mod tests {
                        be rejected or polished. To observe it: tminus resume c1 --g4 ok.";
         for (answer, note) in [(Answer::Ko, "No"), (Answer::Polish, "x")] {
             let mut steps = played(root);
-            let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
+            let said = resumed(&repo, answer, note, None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{answer:?}");
             assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
         }
@@ -5414,10 +6186,10 @@ mod tests {
     #[test]
     fn a_change_promoted_already_whose_ok_cannot_be_recorded_parks() {
         let repo = paused_in(IN_PRODUCTION);
-        let (root, here) = (repo.root(), repo.project());
+        let root = repo.root();
         let mut steps = played(root);
         steps.fails = vec![("G4", UNWRITTEN)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but tminus cannot go on with it \
              ({UNWRITTEN})."
@@ -5439,8 +6211,7 @@ mod tests {
         };
         steps.released = vec![("promote", unreadable)];
         steps.fails = vec![("promote", "release.promote failed")];
-        let here = repo.project();
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
                      whether production has it: cannot read .tminus/changes/c1/change.json: ";
         let err = said.unwrap_err();
@@ -5452,11 +6223,10 @@ mod tests {
     fn ok_at_g4_keeps_the_pause_when_the_record_cannot_be_written() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         // The decision of G4 is not written: nothing is promoted.
         let mut steps = played(root);
         steps.fails = vec![("G4", UNWRITTEN)];
-        let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let start = format!("Promotion of c1 failed: {UNWRITTEN}. Production untouched");
         let err = said.unwrap_err();
         assert!(err.starts_with(&start), "{err}");
@@ -5469,7 +6239,7 @@ mod tests {
         fs::create_dir(&inbox).unwrap();
         let mut steps = played(root);
         steps.fails = vec![("promote", "release.promote failed")];
-        let err = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).unwrap_err();
+        let err = resumed(&repo, Answer::Ok, "Fine", None, &mut steps).unwrap_err();
         let start = "Promotion of c1 failed: release.promote failed. Production untouched";
         assert!(err.starts_with(start), "{err}");
         let unsaved = "\ncannot write .tminus/changes/c1/inbox.md: ";
@@ -5481,10 +6251,9 @@ mod tests {
     fn ko_at_g4_rejects_the_change_and_production_stays_as_it_is() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ko, "No", None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(said, Ok(Said::Done(rejected.into())));
         assert!(!repo.work.exists(), "the worktree stays");
@@ -5510,10 +6279,9 @@ mod tests {
         // where the branch takes the latest main.
         repo.write("tminus/commands.toml", "[release]\n");
         repo.commit();
-        let here = repo.project();
         let mut steps = played(root);
         let note = "Shorter error messages";
-        let said = resume(&here, "c1", Answer::Polish, note, None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, note, None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let expected = [
             "build b mode=build fix=polish",
@@ -5562,10 +6330,9 @@ mod tests {
     fn a_polish_pass_with_nothing_new_for_main_skips_the_merge() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false, false]);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, "x", None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let expected = [
             "build b mode=build fix=polish",
@@ -5589,9 +6356,8 @@ mod tests {
         let repo = paused();
         let root = repo.root();
         repo.git(&["branch", "-D", "change/c1"]);
-        let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, "x", None, &mut steps);
         let err = said.unwrap_err();
         assert!(err.starts_with("git worktree add -q -- "), "{err}");
         assert!(steps.ran.is_empty());
@@ -5603,10 +6369,9 @@ mod tests {
     fn a_polish_pass_that_parks_leaves_the_change_parked() {
         let repo = paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         steps.g3 = VecDeque::from([false, false]);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, "x", None, &mut steps);
         let why = "Change c1 parked: G3 still red after one fix.";
         assert!(parked(said).starts_with(why));
         // As a launch that parks, it keeps what the change touched.
@@ -5616,12 +6381,188 @@ mod tests {
         let broken = repo_with_change(r#"{"id": "c1", "decision": {"g4": true}}"#);
         let root = broken.root();
         state::pause_at_g4(root, "c1").unwrap();
-        let here = broken.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
+        let said = resumed(&broken, Answer::Polish, "x", None, &mut steps);
         let start = ".tminus/changes/c1/change.json: missing field";
         assert!(said.unwrap_err().starts_with(start));
         assert!(steps.ran.is_empty());
+    }
+
+    /// The reply of a person at G4 of change `c1`: `answer`, with `note`.
+    fn reply(answer: Answer, note: &str) -> Reply<'_> {
+        Reply {
+            answer,
+            note,
+            role: None,
+            variant: None,
+        }
+    }
+
+    #[test]
+    fn a_polish_pass_starts_at_the_mark_of_the_work_of_its_place_and_runs_there() {
+        let repo = paused();
+        let root = repo.root();
+        let mut paper = Paper::at(&repo.work);
+        paper.made = false;
+        let mut steps = played(root);
+        steps.g2 = VecDeque::from([false; 9]);
+        let polish = reply(Answer::Polish, "x");
+        let said = resume(&repo.project(), "c1", &polish, &mut paper, &mut steps);
+        assert!(parked(said).starts_with("Change c1 parked: G2 still red"));
+        assert_eq!(paper.asked[..2], ["isolate c1", "mark c1"]);
+        assert_eq!(record(root)["build_start"], MARK);
+        assert_eq!(steps.home, Some(repo.work.clone()));
+        // A place that cannot be made leaves the change paused.
+        let repo = paused();
+        let mut paper = Paper::at(&repo.work);
+        paper.fails = vec![("isolate", "in the way")];
+        let mut steps = played(repo.root());
+        let said = resume(&repo.project(), "c1", &polish, &mut paper, &mut steps);
+        assert_eq!(said, Err("in the way".to_string()));
+        assert!(steps.ran.is_empty());
+        assert_eq!(state::paused_at_g4(repo.root(), "c1"), Ok(true));
+        // So does one whose mark cannot be read.
+        paper.fails = vec![("mark", "no mark")];
+        let said = resume(&repo.project(), "c1", &polish, &mut paper, &mut steps);
+        assert_eq!(said, Err("no mark".to_string()));
+        assert_eq!(state::paused_at_g4(repo.root(), "c1"), Ok(true));
+    }
+
+    #[test]
+    fn ko_lets_go_of_the_places_of_the_variants_then_of_the_change() {
+        let folder = with_record(&variants_record("in-pre"));
+        let root = &folder.0;
+        state::pause_at_g4(root, "c1").unwrap();
+        let project = Project {
+            root,
+            state: root,
+            worktree: root,
+            main: "main",
+            replans: 0,
+            fixes: 1,
+            max: 1,
+            spike_usd: 5.0,
+        };
+        let mut paper = Paper::at(root);
+        let mut steps = played(root);
+        let ko = reply(Answer::Ko, "No");
+        let said = resume(&project, "c1", &ko, &mut paper, &mut steps);
+        let rejected = "Change c1 rejected at G4: production untouched.";
+        assert_eq!(done(said), rejected);
+        let asked = ["place c1", "vacate c1-v1", "vacate c1-v2", "vacate c1"];
+        assert_eq!(paper.asked, asked);
+        assert_eq!(steps.ran, ["G4 ko human: No"]);
+        // The first that cannot be let go stops the others, and is said.
+        state::pause_at_g4(root, "c1").unwrap();
+        let mut paper = Paper::at(root);
+        paper.fails = vec![("vacate", "busy")];
+        let said = resume(&project, "c1", &ko, &mut paper, &mut steps);
+        let stays = format!("{rejected}\nIts worktree stays: busy");
+        assert_eq!(said, Err(stays));
+        assert_eq!(paper.asked, ["place c1", "vacate c1-v1"]);
+    }
+
+    /// Change `c1` of `repo`, paused at G4, answered `answer` with `note` by a person, with a
+    /// blueprint whose place of the change is apart from the main checkout and is not there:
+    /// what its steps ran, in the order they ran, and what the blueprint was asked.
+    fn answered_apart<'a>(
+        repo: &'a Checkout,
+        answer: Answer,
+        note: &str,
+    ) -> (Played<'a>, Vec<String>) {
+        let apart = Folder::new();
+        let work = apart.0.join("c1");
+        let mut paper = Paper::at(&work);
+        let mut steps = played(repo.root());
+        let given = reply(answer, note);
+        let said = resume(&repo.project(), "c1", &given, &mut paper, &mut steps);
+        assert!(said.is_ok(), "{said:?}");
+        assert_eq!(steps.home, Some(work.clone()), "{:?}", steps.ran);
+        assert!(!work.exists(), "the place was made");
+        (steps, paper.asked)
+    }
+
+    #[test]
+    fn an_answer_to_g4_records_its_decision_in_the_place_of_the_change_without_making_it() {
+        // Its decision reads the configuration there, not the one of the main checkout.
+        let repo = paused();
+        let (steps, asked) = answered_apart(&repo, Answer::Ok, "Fine");
+        assert_eq!(steps.ran, ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(asked, ["place c1", "vacate c1"]);
+        let repo = paused();
+        let (steps, asked) = answered_apart(&repo, Answer::Ko, "No");
+        assert_eq!(steps.ran, ["G4 ko human: No"]);
+        assert_eq!(asked, ["place c1", "vacate c1"]);
+        let spike = spike_paused();
+        let (steps, asked) = answered_apart(&spike, Answer::Ok, "Go");
+        assert_eq!(unwaited(&steps), ["G4 ok human: Go"]);
+        assert_eq!(asked, ["place c1", "vacate c1"]);
+        // Where it is cannot be said: nothing changed, the change is still paused.
+        for (repo, answer) in [
+            (paused(), Answer::Ok),
+            (paused(), Answer::Ko),
+            (spike_paused(), Answer::Ok),
+        ] {
+            let root = repo.root();
+            let mut paper = Paper::at(&repo.work);
+            paper.fails = vec![("place", "nowhere")];
+            let mut steps = played(root);
+            let given = reply(answer, "x");
+            let said = resume(&repo.project(), "c1", &given, &mut paper, &mut steps);
+            assert_eq!(said, Err("nowhere".to_string()), "{answer:?}");
+            assert!(unwaited(&steps).is_empty(), "{:?}", steps.ran);
+            assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
+            let saved = record(root);
+            let kind = saved["type"].as_str().unwrap_or_default();
+            assert_eq!(open_requests(root), [g4_request("c1", kind)]);
+            let adr = repo.tool().file_at("main", "docs/adr/0002-storage.md");
+            assert_eq!(adr.unwrap(), None, "{answer:?}");
+        }
+    }
+
+    #[test]
+    fn a_spike_keeps_its_work_as_build_mode_s() {
+        let repo = spike_folder();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        let project = Project {
+            root,
+            state: root,
+            worktree: root,
+            main: "main",
+            replans: 1,
+            fixes: 1,
+            max: 2,
+            spike_usd: 5.0,
+        };
+        let decided = steps.decided.clone();
+        let mut paper = Paper::at(root);
+        let mut run = Run {
+            project: &project,
+            id: "c1",
+            blueprint: &mut paper,
+            steps: &mut steps,
+            place: found_at(root),
+            decided,
+            variant: None,
+        };
+        assert_eq!(run.launched(), Ok(Ended::Paused));
+        let kept = ["keep c1 as builder-build: spike work (all)"];
+        assert_eq!(paper.asked, kept);
+        // One it cannot keep stops the recipe.
+        let mut paper = Paper::at(root);
+        paper.fails = vec![("keep", "cannot keep it")];
+        let mut run = Run {
+            project: &project,
+            id: "c1",
+            blueprint: &mut paper,
+            steps: &mut steps,
+            place: found_at(root),
+            decided: spike_played(root).decided,
+            variant: None,
+        };
+        assert_eq!(run.spiked(), Err(Stop::Fail("cannot keep it".into())));
     }
 
     /// A repository with an author that ignores `.tminus/`, with spike `c1` started on its
@@ -5789,12 +6730,11 @@ mod tests {
     /// Calls the Builder in build mode once on change `c1`, whose state root is `root`, with
     /// `steps`, where they work, in the run of `variant` when given (see [`Run::call`]).
     fn call_once(root: &Path, steps: &mut Played, variant: Option<usize>) -> Result<(), Stop> {
-        let work = steps.work.clone();
+        let place = found_at(&steps.work);
         let project = Project {
             root,
             state: root,
             worktree: root,
-            work: &work,
             main: "main",
             replans: 0,
             fixes: 1,
@@ -5805,7 +6745,9 @@ mod tests {
         let mut run = Run {
             project: &project,
             id: "c1",
+            blueprint: &mut Paper::at(&place.work),
             steps,
+            place,
             decided,
             variant: variant.map(|number| Building { number, g2: None }),
         };
@@ -5937,7 +6879,6 @@ mod tests {
             root,
             state: root,
             worktree: root,
-            work: root,
             main: "main",
             replans: 0,
             fixes: 1,
@@ -5949,7 +6890,9 @@ mod tests {
         let run = Run {
             project: &project,
             id: "c1",
+            blueprint: &mut Paper::at(root),
             steps: &mut steps,
+            place: found_at(root),
             decided,
             variant: None,
         };
@@ -6047,7 +6990,8 @@ mod tests {
         decides(repo.root());
         repo.commit();
         repo.git(&["checkout", "-q", "main"]);
-        finish(&repo.project(), "c1", Ok(Ended::Paused)).unwrap();
+        let mut software = repo.software();
+        finish(&repo.project(), "c1", Ok(Ended::Paused), &mut software).unwrap();
         repo
     }
 
@@ -6056,9 +7000,8 @@ mod tests {
         let repo = spike_paused();
         let root = repo.root();
         worktree::open(root, &repo.work, "c1").unwrap();
-        let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Go", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Go", None, &mut steps);
         assert_eq!(done(said), CLOSED);
         // No promotion, no observation.
         assert_eq!(unwaited(&steps), ["G4 ok human: Go"]);
@@ -6079,9 +7022,8 @@ mod tests {
         let root = repo.root();
         repo.write("README.md", "uncommitted\n");
         let before = repo.git(&["rev-parse", "main"]);
-        let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Ok, "Go", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ok, "Go", None, &mut steps);
         let err = said.unwrap_err();
         assert!(err.contains("without uncommitted changes"), "{err}");
         assert!(unwaited(&steps).is_empty());
@@ -6127,10 +7069,9 @@ mod tests {
         let before = repo.git(&["rev-parse", "main"]);
         let failures = serde_json::json!({"failures": [{"tail": NO_ADR}]});
         change::write(root, &Gate::G2.report_path("c1"), &failures.to_string()).unwrap();
-        let here = repo.project();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false; 9]);
-        let said = resume(&here, "c1", Answer::Polish, "More", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, "More", None, &mut steps);
         let Ok(Said::Parked(parked)) = &said else {
             panic!("a red polish round parks: {said:?}");
         };
@@ -6149,9 +7090,8 @@ mod tests {
         let root = repo.root();
         let before = repo.git(&["rev-parse", "main"]);
         // What prepare decided comes from the record of the spike.
-        let here = repo.project();
         let mut steps = played(root);
-        let said = resume(&here, "c1", Answer::Polish, "More", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Polish, "More", None, &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let polished = ["build b mode=spike fix=polish", "G2", ADR_SAID];
         assert_eq!(unwaited(&steps), polished);
@@ -6159,7 +7099,7 @@ mod tests {
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         assert_eq!(record(root)["state"], "in-pre");
         // KO then leaves main as it was, and the branch keeps the spike.
-        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ko, "No", None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(said, Ok(Said::Done(rejected.into())));
         assert_eq!(repo.git(&["rev-parse", "main"]), before);
@@ -6181,8 +7121,8 @@ mod tests {
         repo_with_change(&variants_record("building"))
     }
 
-    /// Runs the recipe of a launch on spike `c1` of `repo`, once prepared, as [`launched`] does,
-    /// with `spike_usd` as the budget of each variant.
+    /// Runs the recipe of a launch on spike `c1` of `repo`, once prepared, in the place of the
+    /// change, as [`launched`] does, with `spike_usd` as the budget of each variant.
     fn launched_variants(
         repo: &Checkout,
         steps: &mut Played,
@@ -6193,10 +7133,13 @@ mod tests {
             ..repo.project()
         };
         let decided = steps.decided.clone();
+        steps.home = Some(repo.work.clone());
         let mut run = Run {
             project: &project,
             id: "c1",
+            blueprint: &mut repo.software(),
             steps,
+            place: found_at(&repo.work),
             decided,
             variant: None,
         };
@@ -6221,15 +7164,14 @@ mod tests {
         let mut steps = spike_played(root);
         steps.acts = vec![(Who::BuilderBuild, decides)];
         assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
+        // Each variant's steps run in its own place, and nothing runs in the spike's.
         let built = [
             "in c1-v1",
             "build b mode=spike variant=1",
             "G2",
-            "in c1",
             "in c1-v2",
             "build b mode=spike variant=2",
             "G2",
-            "in c1",
         ];
         let mut expected: Vec<String> = built.map(String::from).to_vec();
         expected.extend([ready_said(1, "SQLite"), ready_said(2, "Postgres")]);
@@ -6279,7 +7221,7 @@ mod tests {
             "G2",
         ];
         let rounds = [&round[..], &round, &round, &replan].concat();
-        let first = [&["in c1-v1"][..], &rounds[..], &["in c1"]].concat();
+        let first = [&["in c1-v1"][..], &rounds[..], &["in c1-v2"]].concat();
         assert_eq!(steps.ran[..first.len()], first);
         let said = format!("say Variant 1 · SQLite · parked: {red}");
         let end = [said, ready_said(2, "Postgres")];
@@ -6365,7 +7307,7 @@ mod tests {
         steps.cannot = vec![("build b mode=spike variant=1", "no data")];
         assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
         // No G2 after its call.
-        let first = ["in c1-v1", "build b mode=spike variant=1", "in c1"];
+        let first = ["in c1-v1", "build b mode=spike variant=1", "in c1-v2"];
         assert_eq!(steps.ran[..3], first);
         let why = "the Builder in build mode says it cannot do the task: no data";
         let parked = &record(root)["variants"][0];
@@ -6383,7 +7325,7 @@ mod tests {
         steps.acts = vec![(Who::BuilderBuild, decides)];
         steps.g2 = VecDeque::from([false, false, false, false, true]);
         let ended = launched_variants(&repo, &mut steps, 5.0);
-        finish(&repo.project(), "c1", ended).unwrap();
+        finish(&repo.project(), "c1", ended, &mut repo.software()).unwrap();
         repo
     }
 
@@ -6422,10 +7364,9 @@ mod tests {
     fn ok_with_a_variant_brings_its_adr_to_main_with_the_others_and_closes_the_spike() {
         let repo = variants_paused();
         let root = repo.root();
-        let here = repo.project();
         let mut steps = played(root);
         let note = "Postgres scales";
-        let said = resume(&here, "c1", Answer::Ok, note, None, Some(2), &mut steps);
+        let said = resumed(&repo, Answer::Ok, note, Some(2), &mut steps);
         assert_eq!(done(said), CLOSED);
         assert_eq!(unwaited(&steps), ["G4 ok human: Postgres scales"]);
         let message = repo.git(&["log", "-1", "--format=%s", "main"]);
@@ -6452,7 +7393,6 @@ mod tests {
     fn ok_and_polish_on_a_spike_with_variants_need_one_that_passed_its_gate() {
         let repo = variants_paused();
         let root = repo.root();
-        let here = repo.project();
         let main = repo.git(&["rev-parse", "main"]);
         for (answer, note, variant, said) in [
             (
@@ -6483,7 +7423,7 @@ mod tests {
             ),
         ] {
             let mut steps = played(root);
-            let err = resume(&here, "c1", answer, note, None, variant, &mut steps).unwrap_err();
+            let err = resumed(&repo, answer, note, variant, &mut steps).unwrap_err();
             assert!(err.starts_with(said), "{err}");
             assert!(unwaited(&steps).is_empty(), "{:?}", steps.ran);
         }
@@ -6493,8 +7433,7 @@ mod tests {
         // A change without variants takes none.
         let plain = paused();
         let mut steps = played(plain.root());
-        let here = plain.project();
-        let said = resume(&here, "c1", Answer::Ok, "", None, Some(1), &mut steps);
+        let said = resumed(&plain, Answer::Ok, "", Some(1), &mut steps);
         let why = "change c1 has no variants: tminus resume c1 --g4 ok, without --variant";
         assert_eq!(said, Err(why.to_string()));
     }
@@ -6503,34 +7442,31 @@ mod tests {
     fn polishing_a_variant_builds_it_again_alone_and_waits_at_g4_with_the_others() {
         let repo = variants_paused();
         let root = repo.root();
-        let here = repo.project();
         let head = Git::new(&variant_tree(&repo, 2)).head().unwrap();
+        // The answer runs from the main checkout; the pass, in the place of the variant.
         let mut steps = played(root);
+        steps.home = Some(root.to_path_buf());
         let note = "Measure";
-        let said = resume(&here, "c1", Answer::Polish, note, None, Some(2), &mut steps);
+        let said = resumed(&repo, Answer::Polish, note, Some(2), &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
-        let polished = [
-            "in c1-v2",
-            "build b mode=spike variant=2 fix=polish",
-            "G2",
-            "in c1",
-        ];
+        let polished = ["in c1-v2", "build b mode=spike variant=2 fix=polish", "G2"];
         let ran = unwaited(&steps);
-        assert_eq!(ran[..4], polished);
-        assert_eq!(ran[5], ready_said(2, "Postgres"));
+        assert_eq!(ran[..3], polished);
+        assert_eq!(ran[4], ready_said(2, "Postgres"));
         // Path Guard judges what the pass touched.
         assert_eq!(record(root)["build_start"], head.as_str());
         assert_eq!(record(root)["state"], "in-pre");
         // Red, the variant parks; with none left that passed, so does the spike.
         let mut steps = played(root);
+        steps.home = Some(root.to_path_buf());
         steps.g2 = VecDeque::from([false]);
         let note = "Again";
-        let said = resume(&here, "c1", Answer::Polish, note, None, Some(2), &mut steps);
+        let said = resumed(&repo, Answer::Polish, note, Some(2), &mut steps);
         assert!(parked(said).contains(NO_VARIANT));
         let variant = &record(root)["variants"][1];
         assert_eq!(variant["state"], "parked");
         assert_eq!(variant["reason"], "G2 still red after the polish round");
-        assert_eq!(unwaited(&steps).len(), 6, "one round: {:?}", steps.ran);
+        assert_eq!(unwaited(&steps).len(), 5, "one round: {:?}", steps.ran);
     }
 
     #[test]
@@ -6540,12 +7476,11 @@ mod tests {
         let mut steps = spike_played(root);
         steps.acts = vec![(Who::BuilderBuild, decides)];
         let ended = launched_variants(&repo, &mut steps, 5.0);
-        finish(&repo.project(), "c1", ended).unwrap();
+        finish(&repo.project(), "c1", ended, &mut repo.software()).unwrap();
         let mut steps = played(root);
         steps.g2 = VecDeque::from([false]);
-        let here = repo.project();
         let note = "More";
-        let said = resume(&here, "c1", Answer::Polish, note, None, Some(1), &mut steps);
+        let said = resumed(&repo, Answer::Polish, note, Some(1), &mut steps);
         assert!(done(said).starts_with("Paused at G4."));
         let variants = record(root)["variants"].clone();
         assert_eq!(variants[0]["state"], "parked");
@@ -6559,8 +7494,7 @@ mod tests {
         let root = repo.root();
         let main = repo.git(&["rev-parse", "main"]);
         let mut steps = played(root);
-        let here = repo.project();
-        let said = resume(&here, "c1", Answer::Ko, "No", None, None, &mut steps);
+        let said = resumed(&repo, Answer::Ko, "No", None, &mut steps);
         let rejected = "Change c1 rejected at G4: production untouched.";
         assert_eq!(done(said), rejected);
         assert_eq!(repo.git(&["rev-parse", "main"]), main);
@@ -6577,7 +7511,6 @@ mod tests {
         let repo = variants_paused();
         let root = repo.root();
         let main = repo.git(&["rev-parse", "main"]);
-        let here = repo.project();
         for (answer, note, variant) in [
             (Answer::Ok, "Postgres", Some(2)),
             (Answer::Ko, "No", None),
@@ -6593,7 +7526,7 @@ mod tests {
                 drop(held);
             });
             let mut steps = played(root);
-            let said = resume(&here, "c1", answer, note, None, variant, &mut steps);
+            let said = resumed(&repo, answer, note, variant, &mut steps);
             other.join().unwrap();
             let late = "Change c1 is not paused at G4.";
             assert_eq!(said, Err(late.to_string()), "{answer:?}");

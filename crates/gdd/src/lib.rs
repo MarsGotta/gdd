@@ -25,11 +25,11 @@ use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::{classify_touched, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
-use gdd_core::guard::{self, Hashes, Settings, Verdict};
+use gdd_core::guard::{self, Hashes, Place, Settings, Verdict};
 // `named` and `join` take a path of the tool written in the new names (`tminus/rules.toml`,
 // `.tminus/changes/<id>/change.json`...) to where the project at a root keeps it.
 use gdd_core::layout::{self, Layout, join, named};
-use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
+use gdd_core::recipe::{self, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::repo::touched::{Software, against_main};
 use gdd_core::status::{self, Status};
@@ -1584,7 +1584,7 @@ fn merge_queued(
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let settings = main_agent_settings(root)?;
-    let mut steps = ProjectSteps::new(root, state, id, &limits, settings, env, voice);
+    let mut steps = ProjectSteps::new(state, id, &limits, settings, env, voice);
     let at = recipe::Merging {
         state,
         work: root,
@@ -1741,9 +1741,14 @@ fn launch(
     env: &Env,
     streams: Streams,
 ) -> Result<Outcome, String> {
-    in_worktree(root, state, id, env, streams, |project, steps| {
-        recipe::launch(project, id, steps)
-    })
+    in_worktree(
+        root,
+        state,
+        id,
+        env,
+        streams,
+        |project, blueprint, steps| recipe::launch(project, id, blueprint, steps),
+    )
 }
 
 /// `gdd resume`: the answer of the role `role` to the G4 of a change (see [`recipe::resume`]),
@@ -1757,27 +1762,39 @@ fn resume(
     streams: Streams,
 ) -> Result<Outcome, String> {
     let id = args.change.as_str();
-    let answer: Answer = args.g4.parse()?;
     let note = args.note.join(" ");
-    in_worktree(root, state, id, env, streams, |project, steps| {
-        recipe::resume(project, id, answer, &note, role, args.variant, steps)
-    })
+    let reply = recipe::Reply {
+        answer: args.g4.parse()?,
+        note: &note,
+        role,
+        variant: args.variant,
+    };
+    in_worktree(
+        root,
+        state,
+        id,
+        env,
+        streams,
+        |project, blueprint, steps| recipe::resume(project, id, &reply, blueprint, steps),
+    )
 }
 
 /// Runs `run`, a run of the recipe, on change `id` of the project at `root`, whose state root is
-/// `state`, with its steps in the project's folder of the worktree of the change, in the folder
-/// of the worktrees the rules file names (see [`recipe::worktree`]), as many changes building at
-/// once as it allows (see [`queue::cap`]) and the budget of a spike it sets (see
-/// [`gdd_core::rules::spike_budget`]); the agents start in the environment `env`. What the run
-/// says on its way it says on the standard output, and its warnings on the standard error (see
-/// [`Streams`]): kept, they come first in what it prints, however it ended.
+/// `state`, with the software blueprint whose places are the worktrees of the changes, in the
+/// folder of the worktrees the rules file names (see [`recipe::worktree`] and
+/// [`Software::with_places`]), as many changes building at once as it allows (see
+/// [`queue::cap`]) and the budget of a spike it sets (see [`gdd_core::rules::spike_budget`]);
+/// the agents start in the environment `env`. Where the worktree of the change goes, and the
+/// project's folder there, are checked before anything runs. What the run says on its way it
+/// says on the standard output, and its warnings on the standard error (see [`Streams`]): kept,
+/// they come first in what it prints, however it ended.
 fn in_worktree(
     root: &Path,
     state: &Path,
     id: &str,
     env: &Env,
     streams: Streams,
-    run: impl FnOnce(&recipe::Project, &mut ProjectSteps) -> Result<Said, String>,
+    run: impl FnOnce(&recipe::Project, &mut Software, &mut ProjectSteps) -> Result<Said, String>,
 ) -> Result<Outcome, String> {
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
@@ -1786,12 +1803,11 @@ fn in_worktree(
     let max = queue::cap(&rules).map_err(|e| in_file(root, RULES, e))?;
     let spike_usd = gdd_core::rules::spike_budget(&rules).map_err(|e| in_file(root, RULES, e))?;
     let worktree = recipe::worktree::path(&folder, id)?;
-    let work = recipe::worktree::project_root(root, &worktree)?;
+    recipe::worktree::project_root(root, &worktree)?;
     let project = recipe::Project {
         root,
         state,
         worktree: &worktree,
-        work: &work,
         main: &main,
         replans: limits.replans,
         fixes: limits.reviewer_fixes,
@@ -1799,9 +1815,10 @@ fn in_worktree(
         spike_usd,
     };
     let settings = main_agent_settings(root)?;
-    let mut steps = ProjectSteps::new(&work, state, id, &limits, settings, env, streams.out());
+    let mut blueprint = Software::with_places(root, &folder, &main);
+    let mut steps = ProjectSteps::new(state, id, &limits, settings, env, streams.out());
     steps.errors = streams.err();
-    let ran = run(&project, &mut steps);
+    let ran = run(&project, &mut blueprint, &mut steps);
     let mut outcome = ran.map_or_else(|e| Outcome::error(&e), Outcome::said);
     outcome.stdout.insert_str(0, &steps.voice.kept());
     outcome.stderr.insert_str(0, &steps.errors.kept());
@@ -1859,12 +1876,11 @@ fn stack_sheets(root: &Path, action: Option<StacksAction>) -> Result<String, sta
     Ok(Layout::at(root).localize(&shown))
 }
 
-/// The steps of the recipe on change `id` of the project at `root`, the worktree of the change,
-/// or the one of a variant of a spike while it builds (see [`recipe::Steps::work_in`]), as the
+/// The steps of the recipe on change `id`, each in the project root of the place the recipe gives
+/// it: the worktree of the change, or the one of a variant of a spike while it builds, as the
 /// commands of the same name run them: each reads the configuration as it is when it runs, but
 /// the agents' time limit and settings, read once.
 struct ProjectSteps<'a> {
-    root: PathBuf,
     /// The state root of the project (see [`state::root`]).
     state: &'a Path,
     id: &'a str,
@@ -1884,11 +1900,10 @@ struct ProjectSteps<'a> {
 }
 
 impl<'a> ProjectSteps<'a> {
-    /// The steps on change `id` of the project at `root`, whose state root is `state` and whose
-    /// rules file sets `limits`, with the agents starting in the environment `env` with
-    /// `settings`, saying what the recipe says on its way with `voice`.
+    /// The steps on change `id` of the project whose state root is `state` and whose rules file
+    /// sets `limits`, with the agents starting in the environment `env` with `settings`, saying
+    /// what the recipe says on its way with `voice`.
     fn new(
-        root: &Path,
         state: &'a Path,
         id: &'a str,
         limits: &Limits,
@@ -1897,7 +1912,6 @@ impl<'a> ProjectSteps<'a> {
         voice: Voice,
     ) -> ProjectSteps<'a> {
         ProjectSteps {
-            root: root.to_path_buf(),
             state,
             id,
             timeout: Duration::from_secs(limits.agent_timeout_s),
@@ -1912,8 +1926,8 @@ impl<'a> ProjectSteps<'a> {
 
 impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
-    fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let root = self.root.as_path();
+    fn prepare(&mut self, place: &Place) -> Result<recipe::Decided, String> {
+        let root = place.work.as_path();
         let zones = main_zones(root)?;
         let decided = decide_with(root, self.state, self.id, &zone_map(root, &zones)?)?;
         invoke::check(root, &decided.roles, self.env).map_err(|e| e.to_string())?;
@@ -1921,9 +1935,9 @@ impl recipe::Steps for ProjectSteps<'_> {
         serde_json::from_str(&printed).map_err(|e| format!("{TOOL} prepare: {e}"))
     }
 
-    fn agent(&mut self, call: &invoke::Call) -> (Usage, Result<(), invoke::Error>) {
+    fn agent(&mut self, place: &Place, call: &invoke::Call) -> (Usage, Result<(), invoke::Error>) {
         let project = invoke::Project {
-            root: &self.root,
+            root: &place.work,
             state: self.state,
             id: self.id,
             env: self.env,
@@ -1933,14 +1947,15 @@ impl recipe::Steps for ProjectSteps<'_> {
         invoke::run(&project, call, &mut self.builder_session)
     }
 
-    fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
-        let verdict = path_guard(&self.root, self.state, self.id, TEST_ROLE, since_snapshot)?;
+    fn guard_test(&mut self, place: &Place, since_snapshot: bool) -> Result<Vec<String>, String> {
+        let (root, state, id) = (&place.work, self.state, self.id);
+        let verdict = path_guard(root, state, id, TEST_ROLE, since_snapshot)?;
         Ok(verdict.failures)
     }
 
     /// Once the build snapshot is taken, the test snapshot goes (see [`remove_test_snapshot`]).
-    fn snapshot(&mut self, snapshot: Snapshot) -> Result<(), String> {
-        let (root, state, id) = (&self.root, self.state, self.id);
+    fn snapshot(&mut self, place: &Place, snapshot: Snapshot) -> Result<(), String> {
+        let (root, state, id) = (&place.work, self.state, self.id);
         let path = match snapshot {
             Snapshot::Round => change::snapshot_path(id),
             Snapshot::Build => {
@@ -1957,34 +1972,34 @@ impl recipe::Steps for ProjectSteps<'_> {
         save_snapshot(root, state, id, &path)
     }
 
-    fn guard_earlier(&mut self, hand: &[String]) -> Result<Option<Vec<String>>, String> {
-        earlier_failures(&self.root, self.state, self.id, hand)
+    fn hashes(&mut self, place: &Place) -> Result<guard::Hashes, String> {
+        touched_hashes(&place.work, self.state, self.id)
     }
 
-    fn test_pending(&mut self) -> Result<bool, String> {
-        let test = read_snapshot(self.state, &change::test_snapshot_path(self.id))?;
-        Ok(test.is_some())
+    fn rules(&mut self, place: &Place) -> Result<Settings, String> {
+        load_settings(&place.work)
     }
 
-    fn hand_edits(&mut self) -> Result<Option<Vec<String>>, String> {
-        hand_edits(&self.root, self.state, self.id)
+    /// The zone map of the main branch (see [`main_zone_map`]) and the rules table of the
+    /// project there (see [`load_table`]).
+    fn zones(&mut self, place: &Place) -> Result<(ZoneMap, RulesTable), String> {
+        Ok((main_zone_map(&place.work)?, load_table(&place.work)?))
     }
 
-    fn hashes(&mut self) -> Result<guard::Hashes, String> {
-        touched_hashes(&self.root, self.state, self.id)
-    }
-
-    fn rules(&mut self) -> Result<Settings, String> {
-        load_settings(&self.root)
-    }
-
-    fn gate(&mut self, gate: Gate) -> Result<bool, String> {
-        let (root, state, id) = (&self.root, self.state, self.id);
+    fn gate(&mut self, place: &Place, gate: Gate) -> Result<bool, String> {
+        let (root, state, id) = (&place.work, self.state, self.id);
         let report = gate_report(root, state, gate, id, gates::BUILD_ROLE, true)?;
         Ok(report.ok)
     }
 
-    fn decide(&mut self, gate: &str, decision: &str, by: &str, note: &str) -> Result<(), String> {
+    fn decide(
+        &mut self,
+        place: &Place,
+        gate: &str,
+        decision: &str,
+        by: &str,
+        note: &str,
+    ) -> Result<(), String> {
         let args = DecisionArgs {
             gate: gate.to_string(),
             decision: decision.to_string(),
@@ -1992,15 +2007,15 @@ impl recipe::Steps for ProjectSteps<'_> {
             by: by.to_string(),
             note: note.to_string(),
         };
-        let (root, state) = (&self.root, self.state);
+        let (root, state) = (&place.work, self.state);
         let (voice, errors) = (&mut self.voice, &mut self.errors);
         let warn = |line: &str| errors.say(line);
         record_gate(root, state, &args, None, |line| voice.say(line), warn).map(drop)
     }
 
     /// The recipe holds the merge lock already.
-    fn merge(&mut self) -> Result<String, String> {
-        merge_change(&self.root, self.state, self.id)
+    fn merge(&mut self, place: &Place) -> Result<String, String> {
+        merge_change(&place.work, self.state, self.id)
     }
 
     /// After the merge the change is on the main branch: its release runs from the main checkout,
@@ -2012,10 +2027,6 @@ impl recipe::Steps for ProjectSteps<'_> {
 
     fn say(&mut self, line: &str) {
         self.voice.say(line);
-    }
-
-    fn work_in(&mut self, work: &Path) {
-        self.root = work.to_path_buf();
     }
 }
 
@@ -2101,95 +2112,6 @@ fn changed_after(root: &Path, now: &Hashes, before: &Hashes) -> Result<Hashes, S
 /// The hash of the file `path` of the project at `root` (see [`guard::file_hash`]).
 fn file_hash_at(root: &Path, path: &str) -> Result<String, String> {
     guard::file_hash(&root.join(path)).map_err(|e| format!("cannot read {path}: {e}"))
-}
-
-/// The paths of change `id` of the project at `root` whose content changed since the snapshot
-/// taken when its last run parked, under the state root `state`: what a person changed by hand
-/// before it runs again, sorted (see [`changed_after`]). `None` without that snapshot.
-fn hand_edits(root: &Path, state: &Path, id: &str) -> Result<Option<Vec<String>>, String> {
-    let Some(parked) = read_snapshot(state, &change::parked_snapshot_path(id))? else {
-        return Ok(None);
-    };
-    let now = touched_hashes(root, state, id)?;
-    let changed = changed_after(root, &now, &parked)?;
-    Ok(Some(changed.into_keys().collect()))
-}
-
-/// The failures of Path Guard for build mode, judged from the build snapshot, and of the scope
-/// check, with the zone map of the main branch (see [`main_zones`]), on change `id` of the
-/// project at `root` since its build started, with its record and that snapshot under the state
-/// root `state`: what the gates of its run would find now, but for the paths `hand`, which a
-/// person changed by hand (see [`by_hand`]): their hashes now go into that snapshot. With a test
-/// snapshot (see [`Snapshot::Test`]), the paths whose hash changed since it, but for `hand`, are
-/// the work of a round of test mode that did not get through: Path Guard for test mode judges
-/// them from it first, and their hashes now go into the build snapshot, so build mode is not
-/// judged on them. A check that cannot judge fails with the reason. `None` without a build
-/// snapshot.
-fn earlier_failures(
-    root: &Path,
-    state: &Path,
-    id: &str,
-    hand: &[String],
-) -> Result<Option<Vec<String>>, String> {
-    let Some(mut before) = read_snapshot(state, &change::build_snapshot_path(id))? else {
-        return Ok(None);
-    };
-    hashed_now(root, &mut before, hand)?;
-    let record = load_record(state, id)?;
-    let tested = match read_snapshot(state, &change::test_snapshot_path(id))? {
-        Some(mut test) => {
-            hashed_now(root, &mut test, hand)?;
-            let now = touched_hashes(root, state, id)?;
-            before.extend(changed_after(root, &now, &test)?);
-            guard_failures(root, id, &record, TEST_ROLE, &test)
-        }
-        None => Ok(Vec::new()),
-    };
-    let guarded = guard_failures(root, id, &record, gates::BUILD_ROLE, &before);
-    let said = |e: guard::Error| e.to_string();
-    let scoped = main_zone_map(root).and_then(|zones| {
-        let table = load_table(root)?;
-        let scope = guard::scope(&mut since_start(root), id, &record, &zones, &table);
-        let failures = scope.map_err(said)?.failures.into_iter();
-        let builders = failures.filter(|failure| !by_hand(hand, failure));
-        Ok(builders.collect())
-    });
-    let failed = |checked: Result<Vec<String>, String>| checked.unwrap_or_else(|e| vec![e]);
-    let failures = [tested, guarded, scoped].into_iter().flat_map(failed);
-    Ok(Some(failures.collect()))
-}
-
-/// Puts in the snapshot `snapshot` the hashes now of the paths `hand` of the project at `root`,
-/// which a person changed by hand: no Builder is judged on them.
-fn hashed_now(root: &Path, snapshot: &mut Hashes, hand: &[String]) -> Result<(), String> {
-    for path in hand {
-        snapshot.insert(path.clone(), file_hash_at(root, path)?);
-    }
-    Ok(())
-}
-
-/// The failures of Path Guard for `role` on change `id` of the project at `root`, with its
-/// record `record` and the rules file now, judged from the snapshot `since` (see
-/// [`guard::path_guard`]); why it cannot judge, when it cannot.
-fn guard_failures(
-    root: &Path,
-    id: &str,
-    record: &Record,
-    role: &str,
-    since: &Hashes,
-) -> Result<Vec<String>, String> {
-    let settings = load_settings(root)?;
-    let mut software = Software::new(root, &settings.main_branch);
-    let since = Some(since);
-    let verdict = guard::path_guard(&mut software, root, id, record, &settings, role, since);
-    Ok(verdict.map_err(|e| e.to_string())?.failures)
-}
-
-/// Whether `failure`, of the scope check, is about one of the paths `hand`, which a person
-/// changed by hand: no Builder answers for it.
-fn by_hand(hand: &[String], failure: &str) -> bool {
-    let about = |path: &String| failure.starts_with(&format!("{path}: "));
-    hand.iter().any(about)
 }
 
 /// The hashes of what change `id` of the project at `root` touched since its build started, as
@@ -5670,7 +5592,7 @@ mod tests {
         let (root, limits) = (project.0.as_path(), Limits::default());
         let steps = |voice| {
             let settings = invoke::Settings::default();
-            ProjectSteps::new(root, root, "c1", &limits, settings, &[], voice)
+            ProjectSteps::new(root, "c1", &limits, settings, &[], voice)
         };
         let mut kept = steps(Streams::Outcome.out());
         recipe::Steps::say(&mut kept, "one");
@@ -5696,8 +5618,8 @@ mod tests {
         let (root, limits) = (project.0.as_path(), Limits::default());
         let settings = invoke::Settings::default();
         let voice = Streams::Outcome.out();
-        let mut steps = ProjectSteps::new(root, root, "c1", &limits, settings, &[], voice);
-        let decided = recipe::Steps::decide(&mut steps, "G3", "ok", "machines", "");
+        let mut steps = ProjectSteps::new(root, "c1", &limits, settings, &[], voice);
+        let decided = recipe::Steps::decide(&mut steps, &at(root), "G3", "ok", "machines", "");
         assert_eq!(decided, Ok(()));
         assert_eq!(steps.voice.kept(), "");
         let warning = "warning: the Decision Inbox of c1 was not saved: ";
@@ -5712,8 +5634,8 @@ mod tests {
         let (root, limits) = (project.0.as_path(), Limits::default());
         let settings = invoke::Settings::default();
         let voice = Streams::Outcome.out();
-        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
-        let hashes = recipe::Steps::hashes(&mut steps).unwrap();
+        let mut steps = ProjectSteps::new(root, "save", &limits, settings, &[], voice);
+        let hashes = recipe::Steps::hashes(&mut steps, &at(root)).unwrap();
         assert_eq!(hashes.keys().collect::<Vec<_>>(), ["src/a.rs"]);
         let record = load_record(root, "save").unwrap();
         let mut software = Software::new(root, "main");
@@ -5721,12 +5643,20 @@ mod tests {
         assert_eq!(hashes, snapshot);
         let settings = invoke::Settings::default();
         let voice = Streams::Outcome.out();
-        let mut missing = ProjectSteps::new(root, root, "none", &limits, settings, &[], voice);
-        assert!(recipe::Steps::hashes(&mut missing).is_err());
+        let mut missing = ProjectSteps::new(root, "none", &limits, settings, &[], voice);
+        assert!(recipe::Steps::hashes(&mut missing, &at(root)).is_err());
+    }
+
+    /// The place whose project root is `root`, found there.
+    fn at(root: &Path) -> Place {
+        Place {
+            work: root.to_path_buf(),
+            made: false,
+        }
     }
 
     #[test]
-    fn the_steps_judge_the_worktree_of_a_variant_until_they_move_back() {
+    fn the_steps_judge_the_place_they_are_given() {
         let project = started_project();
         let tree = project.worktrees().join("save-v1");
         let shown = tree.to_string_lossy().to_string();
@@ -5734,186 +5664,69 @@ mod tests {
         git(&project, &["worktree", "add", &shown, "change/save-v1"]);
         fs::create_dir_all(tree.join("src")).unwrap();
         fs::write(tree.join("src/a.rs"), "variant\n").unwrap();
-        let (root, limits) = (project.0.as_path(), Limits::default());
-        let settings = invoke::Settings::default();
-        let voice = Streams::Outcome.out();
-        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
-        assert_eq!(recipe::Steps::hashes(&mut steps), Ok(guard::Hashes::new()));
-        recipe::Steps::work_in(&mut steps, &tree);
-        let hashes = recipe::Steps::hashes(&mut steps).unwrap();
+        let root = project.0.as_path();
+        let mut steps = save_steps(root);
+        let none = Ok(Hashes::new());
+        assert_eq!(recipe::Steps::hashes(&mut steps, &at(root)), none);
+        let hashes = recipe::Steps::hashes(&mut steps, &at(&tree)).unwrap();
         assert_eq!(hashes.keys().collect::<Vec<_>>(), ["src/a.rs"]);
-        recipe::Steps::work_in(&mut steps, root);
-        assert_eq!(recipe::Steps::hashes(&mut steps), Ok(guard::Hashes::new()));
+        assert_eq!(recipe::Steps::hashes(&mut steps, &at(root)), none);
+        // Each step reads the rules of its place.
+        fs::write(tree.join(RULES), "[protected\n").unwrap();
+        assert!(recipe::Steps::rules(&mut steps, &at(root)).is_ok());
+        assert!(recipe::Steps::rules(&mut steps, &at(&tree)).is_err());
     }
 
     #[test]
-    fn the_earlier_work_is_judged_as_build_mode_from_the_build_snapshot_and_by_the_scope() {
+    fn the_scope_of_earlier_work_judges_with_the_zone_map_of_main_and_the_rules_table() {
         let project = started_project();
-        let (root, limits) = (project.0.as_path(), Limits::default());
-        let settings = invoke::Settings::default();
-        let voice = Streams::Outcome.out();
-        let mut steps = ProjectSteps::new(root, root, "save", &limits, settings, &[], voice);
-        // Without a build snapshot, test mode never passed its Path Guard.
-        project.write("tests/a.rs", "test mode\n");
-        assert_eq!(recipe::Steps::guard_earlier(&mut steps, &[]), Ok(None));
-        recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap();
-        project.write("src/a.rs", "build mode\n");
-        let none = Vec::new();
-        let judged = recipe::Steps::guard_earlier(&mut steps, &[]);
-        assert_eq!(judged, Ok(Some(none)));
-        project.write(COMMANDS, "[g2]\nunit = \"true\"\n");
-        project.write("src/storage/db.rs", "x\n");
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        let [guarded, scoped] = failures.as_slice() else {
-            panic!("two failures: {failures:?}");
+        let root = project.0.as_path();
+        let mut steps = save_steps(root);
+        let place = at(root);
+        let colored = |steps: &mut ProjectSteps| {
+            let (zones, table) = recipe::Steps::zones(steps, &place).unwrap();
+            (zones.color_of("src/storage/db.rs"), table)
         };
-        let protected = "tminus/commands.toml: protected path for builder-build";
-        assert_eq!(guarded, protected);
-        let outside = "src/storage/db.rs: outside the package and red";
-        assert!(scoped.starts_with(outside), "{scoped}");
-        // A check that cannot read what it judges with fails with the reason.
-        project.write(RULES, "[protected\n");
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        assert_eq!(failures.len(), 2, "{failures:?}");
-        let unread = |failure: &String| failure.starts_with("tminus/rules.toml: ");
-        assert!(failures.iter().all(unread), "{failures:?}");
-        project.write(RULES, PROTECTED);
-        // The scope judges with the zone map of main, not the one of the branch.
+        let (red, table) = colored(&mut steps);
+        assert_eq!(red, Color::Red);
+        assert_eq!(table, load_table(root).unwrap());
+        // The zone map of main, not the one of the branch.
         project.write(ZONES, "default = 1\n");
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        let [_, guarded, scoped] = failures.as_slice() else {
-            panic!("three failures: {failures:?}");
-        };
-        let zones = "tminus/zones.toml: protected path for builder-build";
-        assert_eq!(guarded, zones);
-        assert!(scoped.starts_with(outside), "{scoped}");
+        assert_eq!(colored(&mut steps).0, Color::Red);
         git(&project, &["checkout", "-q", "main"]);
         git(&project, &["commit", "-q", "-m", "zones", "--", ZONES]);
         git(&project, &["checkout", "-q", "change/save"]);
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        let [_, scoped] = failures.as_slice() else {
-            panic!("two failures: {failures:?}");
-        };
-        assert!(scoped.starts_with("tminus/zones.toml: "), "{scoped}");
-        let none = earlier_failures(root, root, "none", &[]);
-        assert!(none.is_ok_and(|none| none.is_none()));
-        project.write(&change::build_snapshot_path("none"), "{}");
-        assert!(earlier_failures(root, root, "none", &[]).is_err());
-    }
-
-    #[test]
-    fn earlier_failures_leave_out_what_a_person_changed_by_hand() {
-        let project = started_project();
-        let root = project.0.as_path();
-        let rules = format!("{PROTECTED}builder_build = [\"tests/steps/**\"]\n");
-        project.write(RULES, &rules);
-        // What test mode left is not judged; then a step build mode may not touch, and a red
-        // file outside the package.
-        recipe::Steps::snapshot(&mut save_steps(root), Snapshot::Build).unwrap();
-        project.write("tests/steps/a.txt", "by hand\n");
-        project.write("src/storage/db.rs", "by hand\n");
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        let [guarded, scoped] = failures.as_slice() else {
-            panic!("two failures: {failures:?}");
-        };
-        let protected = "tests/steps/a.txt: protected path for builder-build";
-        assert_eq!(guarded, protected);
-        let outside = "src/storage/db.rs: outside the package";
-        assert!(scoped.starts_with(outside), "{scoped}");
-        // Changed by hand, neither is a Builder's to answer for.
-        let db = "src/storage/db.rs".to_string();
-        let step = "tests/steps/a.txt".to_string();
-        let failures = earlier_failures(root, root, "save", &[db, step]).unwrap();
-        assert_eq!(failures, Some(Vec::new()));
-        // Only a failure on the path itself goes, not one on a path it starts.
-        let hand = ["src/storage".to_string(), "tests/steps".to_string()];
-        let failures = earlier_failures(root, root, "save", &hand).unwrap();
-        let failures = failures.unwrap_or_default();
-        assert_eq!(failures.len(), 2, "{failures:?}");
-        // A build snapshot that cannot be read is no build snapshot missing.
-        let snapshot = root.join(change::build_snapshot_path("save"));
-        fs::remove_file(&snapshot).unwrap();
-        fs::create_dir_all(&snapshot).unwrap();
-        let unread = earlier_failures(root, root, "save", &hand).unwrap_err();
-        let start = "cannot read .tminus/changes/save/snapshot-build.json: ";
-        assert!(unread.starts_with(start), "{unread}");
-        let file = root.join("a-file");
-        fs::write(&file, "x\n").unwrap();
-        let under_a_file = earlier_failures(root, &file, "save", &hand).unwrap_err();
-        assert!(under_a_file.starts_with("cannot read "), "{under_a_file}");
-    }
-
-    #[test]
-    fn what_a_round_of_test_mode_that_did_not_get_through_wrote_is_judged_as_test_modes() {
-        let project = started_project();
-        let root = project.0.as_path();
-        let rules = format!("{PROTECTED}builder_build = [\"tests/steps/**\"]\n");
-        project.write(RULES, &rules);
-        let mut steps = save_steps(root);
-        project.write("tests/a.rs", "test mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap();
-        // Build mode writes a step it may not touch; then a round of test mode writes code it may
-        // not touch and a step, and does not get through.
-        project.write("tests/steps/sneaky.txt", "build mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::Round).unwrap();
-        recipe::Steps::snapshot(&mut steps, Snapshot::Test).unwrap();
-        project.write("src/a.rs", "test mode\n");
-        project.write("tests/steps/b.txt", "test mode\n");
-        let tested = "src/a.rs: protected path for builder-test".to_string();
-        let sneaky = "tests/steps/sneaky.txt: protected path for builder-build".to_string();
-        let failures = earlier_failures(root, root, "save", &[]).unwrap();
-        assert_eq!(failures, Some(vec![tested.clone(), sneaky.clone()]));
-        // Committed by test mode itself, it is judged all the same.
-        git(&project, &["add", "--", "src/a.rs", "tests/steps/b.txt"]);
-        git(&project, &["commit", "-q", "-m", "test mode"]);
-        assert_eq!(recipe::Steps::test_pending(&mut steps), Ok(true));
-        let failures = earlier_failures(root, root, "save", &[]).unwrap();
-        assert_eq!(failures, Some(vec![tested, sneaky.clone()]));
-        // Changed by hand, a path is neither test mode's nor build mode's.
-        let hand = ["src/a.rs".to_string()];
-        let failures = earlier_failures(root, root, "save", &hand).unwrap();
-        assert_eq!(failures, Some(vec![sneaky.clone()]));
-        let hand = ["src/a.rs", "tests/steps/sneaky.txt"].map(String::from);
-        let failures = earlier_failures(root, root, "save", &hand).unwrap();
-        assert_eq!(failures, Some(Vec::new()));
-        // A rules file that cannot be read fails each Path Guard, without dedupe.
-        project.write(RULES, "[protected\n");
-        let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
-        let unread = |failure: &&String| failure.starts_with("tminus/rules.toml: ");
-        assert_eq!(failures.iter().filter(unread).count(), 3, "{failures:?}");
-        project.write(RULES, &rules);
-        // Without the test snapshot, build mode answers for all of it, as before.
-        let test = root.join(change::test_snapshot_path("save"));
-        fs::remove_file(&test).unwrap();
-        let step = "tests/steps/b.txt: protected path for builder-build".to_string();
-        let failures = earlier_failures(root, root, "save", &[]).unwrap();
-        assert_eq!(failures, Some(vec![step, sneaky]));
-        // A test snapshot that cannot be read is no test snapshot missing.
-        fs::create_dir_all(&test).unwrap();
-        let unread = earlier_failures(root, root, "save", &[]).unwrap_err();
-        let start = "cannot read .tminus/changes/save/snapshot-test.json: ";
-        assert!(unread.starts_with(start), "{unread}");
+        let unread = recipe::Steps::zones(&mut steps, &place).unwrap_err();
+        assert!(unread.starts_with("tminus/zones.toml: "), "{unread}");
+        // A rules table that cannot be read is an error that names its file.
+        git(&project, &["checkout", "-q", "main"]);
+        project.write(ZONES, ZONE_MAP);
+        git(&project, &["commit", "-q", "-m", "back", "--", ZONES]);
+        git(&project, &["checkout", "-q", "change/save"]);
+        assert_eq!(colored(&mut steps).0, Color::Red);
+        let table = format!("{PROTECTED}[color.red.full]\nmutation = \"yes\"\n");
+        project.write(RULES, &table);
+        assert!(load_settings(root).is_ok());
+        let unread = recipe::Steps::zones(&mut steps, &place).unwrap_err();
+        assert!(unread.starts_with("tminus/rules.toml: "), "{unread}");
     }
 
     #[test]
     fn the_test_snapshot_goes_once_the_build_snapshot_is_taken() {
         let project = started_project();
         let root = project.0.as_path();
-        let mut steps = save_steps(root);
+        let (mut steps, place) = (save_steps(root), at(root));
         project.write("src/a.rs", "build mode\n");
         let path = change::test_snapshot_path("save");
-        assert_eq!(recipe::Steps::test_pending(&mut steps), Ok(false));
-        recipe::Steps::snapshot(&mut steps, Snapshot::Test).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Test).unwrap();
         let test = read_snapshot(root, &path).unwrap();
         assert_eq!(test, Some(touched_hashes(root, root, "save").unwrap()));
-        assert_eq!(recipe::Steps::test_pending(&mut steps), Ok(true));
-        recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Build).unwrap();
         assert!(!root.join(&path).exists(), "gone after the build snapshot");
-        assert_eq!(recipe::Steps::test_pending(&mut steps), Ok(false));
-        recipe::Steps::snapshot(&mut steps, Snapshot::Test).unwrap();
-        recipe::Steps::snapshot(&mut steps, Snapshot::Round).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Test).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Round).unwrap();
         assert!(root.join(&path).exists(), "the round snapshot leaves it");
-        recipe::Steps::snapshot(&mut steps, Snapshot::BuildAfterRound).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::BuildAfterRound).unwrap();
         assert!(!root.join(&path).exists(), "gone after that of a round");
         // None is fine; one that cannot go is an error that names it.
         assert_eq!(remove_test_snapshot(root, "save"), Ok(()));
@@ -5921,12 +5734,8 @@ mod tests {
         let kept = remove_test_snapshot(root, "save").unwrap_err();
         let start = "cannot remove .tminus/changes/save/snapshot-test.json: ";
         assert!(kept.starts_with(start), "{kept}");
-        let kept = recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap_err();
+        let kept = recipe::Steps::snapshot(&mut steps, &place, Snapshot::Build).unwrap_err();
         assert!(kept.starts_with(start), "{kept}");
-        // One that cannot be read does not tell whether the round got through.
-        let unread = recipe::Steps::test_pending(&mut steps).unwrap_err();
-        let start = "cannot read .tminus/changes/save/snapshot-test.json: ";
-        assert!(unread.starts_with(start), "{unread}");
     }
 
     /// The steps of the recipe on change `save` of the started project at `root`.
@@ -5934,63 +5743,37 @@ mod tests {
         let limits = Limits::default();
         let settings = invoke::Settings::default();
         let voice = Streams::Outcome.out();
-        ProjectSteps::new(root, root, "save", &limits, settings, &[], voice)
+        ProjectSteps::new(root, "save", &limits, settings, &[], voice)
     }
 
     #[test]
-    fn hand_edits_are_what_changed_since_the_change_parked() {
+    fn the_snapshot_of_a_park_keeps_the_hashes_of_what_the_change_touched() {
         let project = started_project();
         let root = project.0.as_path();
-        let mut steps = save_steps(root);
-        // Without a snapshot of a park, gdd cannot tell.
-        assert_eq!(recipe::Steps::hand_edits(&mut steps), Ok(None));
         project.write("src/a.rs", "agents\n");
         project.write("src/gone.rs", "agents\n");
         project.write("src/same.rs", "agents\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::Parked).unwrap();
+        recipe::Steps::snapshot(&mut save_steps(root), &at(root), Snapshot::Parked).unwrap();
         let parked = read_snapshot(root, &change::parked_snapshot_path("save")).unwrap();
-        let parked = parked.unwrap();
-        let kept: Vec<&String> = parked.keys().collect();
+        assert_eq!(parked, Some(touched_hashes(root, root, "save").unwrap()));
+        let kept: Vec<String> = parked.unwrap_or_default().into_keys().collect();
         assert_eq!(kept, ["src/a.rs", "src/gone.rs", "src/same.rs"]);
-        let none = Vec::new();
-        assert_eq!(recipe::Steps::hand_edits(&mut steps), Ok(Some(none)));
-        // Changed, deleted and new; the one left as it was is not a person's.
-        project.write("src/a.rs", "by hand\n");
-        fs::remove_file(root.join("src/gone.rs")).unwrap();
-        project.write("src/new.rs", "by hand\n");
-        let hand: Vec<String> = vec!["src/a.rs".into(), "src/gone.rs".into(), "src/new.rs".into()];
-        assert_eq!(recipe::Steps::hand_edits(&mut steps), Ok(Some(hand)));
-    }
-
-    #[test]
-    fn hand_edits_that_cannot_be_read_are_an_error() {
-        let project = started_project();
-        let root = project.0.as_path();
-        let parked = root.join(change::parked_snapshot_path("save"));
-        fs::create_dir_all(&parked).unwrap();
-        let unread = hand_edits(root, root, "save").unwrap_err();
-        let start = "cannot read .tminus/changes/save/snapshot-parked.json: ";
-        assert!(unread.starts_with(start), "{unread}");
-        let file = root.join("a-file");
-        fs::write(&file, "x\n").unwrap();
-        let under_a_file = hand_edits(root, &file, "save").unwrap_err();
-        assert!(under_a_file.starts_with(start), "{under_a_file}");
     }
 
     #[test]
     fn the_build_snapshot_after_a_round_moves_only_for_what_test_mode_changed_in_it() {
         let project = started_project();
         let root = project.0.as_path();
-        let mut steps = save_steps(root);
+        let (mut steps, place) = (save_steps(root), at(root));
         project.write("tests/a.rs", "test mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::Build).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Build).unwrap();
         // Build mode writes a step it may not touch, then the round of test mode starts.
         project.write("tests/steps/sneaky.rs", "build mode\n");
         project.write("src/a.rs", "build mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::Round).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Round).unwrap();
         project.write("tests/a.rs", "test mode again\n");
         project.write("tests/b.rs", "test mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::BuildAfterRound).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::BuildAfterRound).unwrap();
         let build = read_snapshot(root, &change::build_snapshot_path("save")).unwrap();
         let build = build.unwrap();
         let hash = |path: &str| file_hash_at(root, path).unwrap();
@@ -6011,7 +5794,7 @@ mod tests {
     fn without_an_earlier_build_snapshot_or_a_round_one_the_build_snapshot_is_taken_whole() {
         let project = started_project();
         let root = project.0.as_path();
-        let mut steps = save_steps(root);
+        let (mut steps, place) = (save_steps(root), at(root));
         project.write("src/a.rs", "build mode\n");
         let path = change::build_snapshot_path("save");
         let whole = |root: &Path| {
@@ -6019,13 +5802,13 @@ mod tests {
             build.keys().cloned().collect::<Vec<_>>()
         };
         // No build snapshot yet: the round snapshot alone does not do.
-        recipe::Steps::snapshot(&mut steps, Snapshot::Round).unwrap();
-        recipe::Steps::snapshot(&mut steps, Snapshot::BuildAfterRound).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::Round).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::BuildAfterRound).unwrap();
         assert_eq!(whole(root), ["src/a.rs"]);
         // No round snapshot: the earlier build snapshot alone does not do.
         fs::remove_file(root.join(change::snapshot_path("save"))).unwrap();
         project.write("src/b.rs", "test mode\n");
-        recipe::Steps::snapshot(&mut steps, Snapshot::BuildAfterRound).unwrap();
+        recipe::Steps::snapshot(&mut steps, &place, Snapshot::BuildAfterRound).unwrap();
         assert_eq!(whole(root), ["src/a.rs", "src/b.rs"]);
     }
 
@@ -6320,6 +6103,31 @@ esac
         assert_eq!(g4["note"], "Not what I asked");
         assert_eq!(record["state"], "rejected");
         assert!(!project.0.join(".tminus/changes/c1/run.json").exists());
+    }
+
+    #[test]
+    fn an_answer_to_g4_reads_the_rules_of_the_worktree_of_the_change_not_those_of_main() {
+        let project = launched_project();
+        git(&project, &["checkout", "-q", "main"]);
+        let worktree = project.worktrees().join("c1");
+        let path = worktree.display().to_string();
+        git(&project, &["worktree", "add", "-q", &path, "change/c1"]);
+        // Main's rules can be read; those of the worktree, where the change works, cannot.
+        fs::write(worktree.join(RULES), "[protected\n").unwrap();
+        let run = ".tminus/changes/c1/run.json";
+        project.write(run, r#"{"paused_at": "G4"}"#);
+        let out = project.run("resume c1 --g4 ok --note Fine");
+        let failed = "error: Promotion of c1 failed: tminus/rules.toml: invalid TOML";
+        assert!(out.stderr.starts_with(failed), "{out:?}");
+        assert!(out.stderr.contains("still paused at G4"), "{out:?}");
+        assert!(record_of(&project, "c1")["gates"]["G4"].is_null());
+        assert!(project.0.join(run).is_file());
+        // Nor is it rejected: its worktree stays.
+        let out = project.run("resume c1 --g4 ko --note No");
+        let start = "error: tminus/rules.toml: invalid TOML";
+        assert!(out.stderr.starts_with(start), "{out:?}");
+        assert_ne!(record_of(&project, "c1")["state"], "rejected");
+        assert!(worktree.join(RULES).is_file());
     }
 
     #[test]
