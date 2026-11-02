@@ -16,6 +16,16 @@
 //!    simulated.
 //! 4. Zero scenarios counts as a failure: G3 counts none in an empty folder, and the rules keep
 //!    zero scenarios a failure.
+//!
+//! Then each gate the blueprint declares is seen to close, in its order (see [`gate_closes`]):
+//! the failure the commands file plants for it, in the table its close test names, must turn its
+//! stage red, which is green without it. Its commands there, the ones it claims but the optional
+//! ones, run without and with the failure, held to the known debt of the stage; the file at its
+//! path is set aside and given back as for the first check. A gate planted from `[selftest]` in
+//! G2 reads the runs of the first check, which runs every G2 command with its test, instead of
+//! running them again. What the self-test saw of each gate is kept with its lock (see
+//! [`Closed`]): the engine counts a gate's green as proof only while the gate closed with its
+//! lock as it is now.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -27,9 +37,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
+use crate::agents::files;
 use crate::agents::render::first_link;
-use crate::gates::{Gate, Project, approve, configured, count_scenarios, debt};
+use crate::gates::decl::{Closed, Declared, GateDecl};
+use crate::gates::{COMMANDS, Gate, Project, approve, configured, count_scenarios, debt};
 use crate::layout::{self, Layout};
+use crate::stacks::blueprint;
 use crate::zones::glob_matches;
 use crate::{change, config, exec, guard, log};
 
@@ -47,6 +60,17 @@ const ROLLBACK_SIMULATED: &str = "rollback works in pre (simulated)";
 
 /// The fourth check.
 const ZERO_SCENARIOS: &str = "zero scenarios counts as a failure";
+
+/// The table of the commands file whose failure the first check plants: a close test that plants
+/// it in G2 reads the runs of the first check instead of running its own.
+const SELFTEST: &str = "selftest";
+
+/// Why a close test that reads the runs of the first check did not close when the first check
+/// did not run its commands with its failure.
+const FIRST_NOT_PLANTED: &str = "the first check could not plant its failure";
+
+/// Why a gate without a close test is unproven.
+const NO_CLOSE_TEST: &str = "the blueprint declares no close test for it";
 
 /// The CI workflow, from the project root, in the new names: a project of the old layout keeps
 /// it as `gdd.yml` (see [`crate::layout`]).
@@ -110,17 +134,21 @@ pub struct Check {
     pub ok: bool,
 }
 
-/// What the self-test found: its checks, in order.
+/// What the self-test found: its checks, in order, and what it saw of each gate the blueprint
+/// declares, in its order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Selftest {
     /// The checks.
     pub checks: Vec<Check>,
+    /// What it saw of each gate (see [`gate_closes`]).
+    pub gates: Vec<Closed>,
 }
 
 impl Selftest {
-    /// Whether every check passed.
+    /// Whether every check passed and every gate whose close test ran closed.
     pub fn ok(&self) -> bool {
-        self.checks.iter().all(|check| check.ok)
+        let closed = self.gates.iter().all(|gate| gate.closed || !gate.tested);
+        self.checks.iter().all(|check| check.ok) && closed
     }
 
     /// `harness <passed>/<checks>`.
@@ -131,12 +159,21 @@ impl Selftest {
 }
 
 impl fmt::Display for Selftest {
-    /// `OK <test>` or `KO <test>`, a line each, then the summary, without a line break at the
-    /// end.
+    /// `OK <test>` or `KO <test>`, a line each; then a line per gate, `OK <gate> closes: ...`,
+    /// `KO <gate> does not close: ...` or `-- <gate> is unproven: ...`, with what the self-test
+    /// said of it; then the summary, without a line break at the end.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for check in &self.checks {
             let mark = if check.ok { "OK" } else { "KO" };
             writeln!(f, "{mark} {}", check.test)?;
+        }
+        for gate in &self.gates {
+            let (mark, seen) = match (gate.tested, gate.closed) {
+                (true, true) => ("OK", "closes"),
+                (true, false) => ("KO", "does not close"),
+                (false, _) => ("--", "is unproven"),
+            };
+            writeln!(f, "{mark} {} {seen}: {}", gate.gate, gate.said)?;
         }
         f.write_str(&self.summary())
     }
@@ -148,38 +185,73 @@ struct Saved<'a> {
     ok: bool,
     summary: &'a str,
     detail: &'a [Check],
+    gates: &'a [Closed],
     ts: &'a str,
 }
 
-/// Runs the four checks on `project`, whose commands file says `config`. The commands run from
-/// the project root with `TMINUS_CHANGE=selftest`, as the project names it (see [`CHANGE`]). Not
-/// being able to read, set aside, write or give back the failing test, or to make the empty
-/// folder, is an error; a file that a link keeps from going back fails the first check instead
-/// (see [`failing_test_caught`]).
+/// Runs the four checks on `project`, whose commands file says `config`, then the close test of
+/// each gate the blueprint declares, in its order (see [`gate_closes`]), each kept with the
+/// gate's lock now (see [`Declared::lock`]). The commands run from the project root with
+/// `TMINUS_CHANGE=selftest`, as the project names it (see [`CHANGE`]). Not being able to read,
+/// set aside, write or give back a failing test or a planted failure, or to make the empty
+/// folder, is an error; a file that a link keeps from going back fails the first check, or the
+/// close test, instead (see [`failing_test_caught`]).
 pub fn run(project: &Project, config: &Config) -> Result<Selftest, String> {
+    let declared = blueprint::gates().map_err(|e| e.to_string())?;
     let rollback = match config.rollback_pre {
         Some(_) => ROLLBACK,
         None => ROLLBACK_SIMULATED,
     };
+    let (first, first_ok, ran) = failing_test_caught(project, config)?;
     let checks = [
-        failing_test_caught(project, config)?,
+        (first, first_ok),
         (PROTECTED.to_string(), harness_protected(project)),
         (rollback.to_string(), rollback_works(project, config)),
         (ZERO_SCENARIOS.to_string(), zero_scenarios_fail(project)?),
     ];
     let checks = checks.map(|(test, ok)| Check { test, ok }).to_vec();
-    Ok(Selftest { checks })
+    let mut gates = Vec::new();
+    for gate in declared.gates() {
+        let (tested, closed, said) = gate_closes(project, &declared, gate, ran.as_ref())?;
+        gates.push(Closed {
+            gate: gate.id.to_string(),
+            tested,
+            closed,
+            lock: declared.lock(gate, project.commands),
+            said,
+        });
+    }
+    Ok(Selftest { checks, gates })
+}
+
+/// What the self-test kept of each gate the last time it ran in the project whose state root is
+/// `state` (see [`save`]): none when it never ran or kept none. A result that cannot be read, or
+/// is not JSON, is an error that names it.
+pub fn closes(state: &Path) -> Result<Vec<Closed>, String> {
+    #[derive(Deserialize)]
+    struct Kept {
+        #[serde(default)]
+        gates: Vec<Closed>,
+    }
+    let path = layout::named(state, approve::SELFTEST_PATH);
+    let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let Some(bytes) = bytes else {
+        return Ok(Vec::new());
+    };
+    let kept: Kept = serde_json::from_slice(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    Ok(kept.gates)
 }
 
 /// Saves `selftest` in `.tminus/selftest.json` under the state root `state`, where the project
-/// keeps it (see [`crate::layout`]), as indented JSON with `ok`, `summary`, `detail` and `ts`, and
-/// logs it: a machine step of G0.
+/// keeps it (see [`crate::layout`]), as indented JSON with `ok`, `summary`, `detail`, `gates`
+/// (see [`closes`]) and `ts`, and logs it: a machine step of G0.
 pub fn save(state: &Path, selftest: &Selftest) -> Result<(), String> {
     let (summary, ts) = (selftest.summary(), log::now());
     let saved = Saved {
         ok: selftest.ok(),
         summary: &summary,
         detail: &selftest.checks,
+        gates: &selftest.gates,
         ts: &ts,
     };
     let text = serde_json::to_string_pretty(&saved).map_err(|e| e.to_string())?;
@@ -197,69 +269,172 @@ pub fn save(state: &Path, selftest: &Selftest) -> Result<(), String> {
     change::logged(state, &entry)
 }
 
-/// The first check: its name, and whether it passed. The file at the path of the failing test of
-/// `config` is set aside (see [`set_aside`]) and the G2 commands run, none of which may turn G2
-/// red, held to the known debt of G2 as the gate holds them (see [`red`]); then the failing test
-/// is planted and they run until one turns G2 red. The file is given back in every case (see
-/// [`give_back`]): its earlier bytes and permissions, or no file when there was none. The check
-/// passes when G2 was green without the test and red with it; when it was red without it, the
-/// name says which commands turned it red. It fails without a test to plant or G2 commands; when
-/// the known debt cannot be read, and then nothing runs; and when a link kept the file from going
-/// back: then the name says why, or where its copy is. What goes wrong with a file to give back
-/// is told before what goes wrong with the test.
-fn failing_test_caught(project: &Project, config: &Config) -> Result<(String, bool), String> {
+/// The first check: its name, whether it passed, and what the G2 commands did when they ran.
+/// They run without and with the failing test of `config` (see [`planted_run`]), held to the
+/// known debt of G2 as the gate holds them (see [`red`]): every one of them, even once one turned
+/// red. The check passes when G2 was green without the test and red with it; when it was red
+/// without it, the name says which commands turned it red. It fails without a test to plant or
+/// G2 commands; when the known debt cannot be read, and then nothing runs; and when a link kept
+/// the file from going back: then the name says where its copy is. What the commands did is
+/// known only when they ran and the file went back.
+fn failing_test_caught(
+    project: &Project,
+    config: &Config,
+) -> Result<(String, bool, Option<Ran>), String> {
     let commands = project.commands.of(Gate::G2);
     let (Some(file), Some(content)) = (&config.file, &config.content) else {
-        return Ok((FAILING_TEST.to_string(), false));
+        return Ok((FAILING_TEST.to_string(), false, None));
     };
     if commands.is_empty() {
-        return Ok((FAILING_TEST.to_string(), false));
+        return Ok((FAILING_TEST.to_string(), false, None));
     }
     let owed = match debt::of_gate(project.root, Gate::G2) {
         Ok(owed) => owed,
-        Err(why) => return Ok((format!("{FAILING_TEST} ({why})"), false)),
+        Err(why) => return Ok((format!("{FAILING_TEST} ({why})"), false, None)),
     };
+    let ran = match planted_run(project, file, content, commands, &owed)? {
+        Planted::Ran(ran) => ran,
+        Planted::NotGivenBack(kept) => {
+            let named = format!("{FAILING_TEST} ({file} was not given back: a copy is in {kept})");
+            return Ok((named, false, None));
+        }
+    };
+    if !ran.without.is_empty() {
+        let failed = ran.without.join(", ");
+        let named = format!("{FAILING_TEST} (G2 is red without it: {failed})");
+        return Ok((named, false, Some(ran)));
+    }
+    let red = !ran.with.is_empty();
+    Ok((FAILING_TEST.to_string(), red, Some(ran)))
+}
+
+/// What the commands of a planted failure did: the ones red without it and, when none was, the
+/// ones red with it, by name, in their order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Ran {
+    without: Vec<String>,
+    with: Vec<String>,
+}
+
+/// How a planted failure ended: its commands ran, or a link kept the file at its path from going
+/// back, and its copy stays where this says.
+enum Planted {
+    Ran(Ran),
+    NotGivenBack(String),
+}
+
+/// The close test of `gate`, one of the gates `declared`, in `project`: whether it ran, whether
+/// the gate closed, and what the self-test says of it. It does not run without a close test or
+/// without a failure to plant in the table it names. Then the commands of its stage that the
+/// gate claims, the optional ones left out, run without and with the failure, held to the known
+/// debt of the stage (see [`planted_run`]); none is a gate that does not close. A close test that
+/// plants the failure of the first check in G2 reads the runs of the first check, `first`,
+/// instead: without them, the gate does not close. It closes when no command was red without the
+/// failure and one of its own was red with it. A debt file that cannot be read, and a file a link
+/// kept from going back, are a gate that does not close, and say why.
+fn gate_closes(
+    project: &Project,
+    declared: &Declared,
+    gate: &GateDecl,
+    first: Option<&Ran>,
+) -> Result<(bool, bool, String), String> {
+    let not_closed = |said: String| Ok((true, false, said));
+    let Some(close) = &gate.close else {
+        return Ok((false, false, NO_CLOSE_TEST.to_string()));
+    };
+    let Some(plant) = project.commands.plant(&close.plant) else {
+        let file = layout::named(project.root, COMMANDS);
+        let said = format!("no failure to plant for it in [{}] of {file}", close.plant);
+        return Ok((false, false, said));
+    };
+    let stage = close.stage;
+    let claimed = |name: &str| declared.claim(name).id == gate.id;
+    let ours = |name: &str| claimed(name) && declared.optional(name).is_none();
+    let commands = project.commands.of(stage).iter();
+    let commands = commands.filter(|(name, _)| ours(name));
+    let commands = commands.map(|(name, text)| (name.clone(), text.clone()));
+    let commands: BTreeMap<String, String> = commands.collect();
+    if commands.is_empty() {
+        return not_closed(format!("no command of it runs in {stage}"));
+    }
+    let ran = if close.plant == SELFTEST && stage == Gate::G2 {
+        match first {
+            Some(ran) => ran.clone(),
+            None => return not_closed(FIRST_NOT_PLANTED.to_string()),
+        }
+    } else {
+        let owed = match debt::of_gate(project.root, stage) {
+            Ok(owed) => owed,
+            Err(why) => return not_closed(why),
+        };
+        match planted_run(project, &plant.file, &plant.content, &commands, &owed)? {
+            Planted::Ran(ran) => ran,
+            Planted::NotGivenBack(kept) => {
+                let file = &plant.file;
+                return not_closed(format!("{file} was not given back: a copy is in {kept}"));
+            }
+        }
+    };
+    if !ran.without.is_empty() {
+        let red = ran.without.join(", ");
+        return not_closed(format!("{stage} is red without its planted failure: {red}"));
+    }
+    if !ran.with.iter().any(|name| commands.contains_key(name)) {
+        return not_closed(format!("{stage} stayed green with its planted failure"));
+    }
+    let said = format!("its planted failure turns {stage} red");
+    Ok((true, true, said))
+}
+
+/// Plants `content` at `file` of `project` to see `commands` turn red. The file there is set
+/// aside (see [`set_aside`]) and the commands run, held to the known debt `owed` (see [`red`]);
+/// then, when none was red, the failure is planted and they all run again (see
+/// [`planted_red`]). The file is given back in every case (see [`give_back`]): its earlier bytes
+/// and permissions, or no file when there was none. A link that kept it from going back is told
+/// with where its copy is, before what went wrong with the failure; a refusal to set it aside, a
+/// failure that cannot be planted and a file that cannot be given back are errors.
+fn planted_run(
+    project: &Project,
+    file: &str,
+    content: &str,
+    commands: &BTreeMap<String, String>,
+    owed: &BTreeMap<String, Option<u64>>,
+) -> Result<Planted, String> {
     let (root, state) = (project.root, project.state);
     let kept = set_aside(root, state, file)?;
-    let red_without = turning_red(commands, project, &owed);
-    let red = if red_without.is_empty() {
-        planted_and_red(project, file, content, &owed)
+    let without = turning_red(commands, project, owed);
+    let with = if without.is_empty() {
+        planted_red(project, file, content, commands, owed)
     } else {
-        Ok(false)
+        Ok(Vec::new())
     };
     let given_back = give_back(root, state, file, kept.as_deref());
     if let Some(kept) = &kept {
         let given = given_back.as_ref();
         if !*given.map_err(|e| format!("cannot give {file} back: {e}: a copy is in {kept}"))? {
-            let named = format!("{FAILING_TEST} ({file} was not given back: a copy is in {kept})");
-            return Ok((named, false));
+            return Ok(Planted::NotGivenBack(kept.clone()));
         }
     }
-    let red = red.map_err(|e| format!("cannot write {file}: {e}"))?;
+    let with = with.map_err(|e| format!("cannot write {file}: {e}"))?;
     given_back.map_err(|e| format!("cannot give {file} back: {e}"))?;
-    if red_without.is_empty() {
-        return Ok((FAILING_TEST.to_string(), red));
-    }
-    let failed = red_without.join(", ");
-    let named = format!("{FAILING_TEST} (G2 is red without it: {failed})");
-    Ok((named, false))
+    Ok(Planted::Ran(Ran { without, with }))
 }
 
-/// Plants `content` at `file` of `project`, in place of whatever the G2 commands left there (see
-/// [`cleared`]), and runs its G2 commands from its root, held to the known debt `owed`, until one
-/// turns G2 red (see [`red`]): whether one did. A test that cannot be planted is an error, and
-/// then nothing runs.
-fn planted_and_red(
+/// Plants `content` at `file` of `project`, in place of whatever the commands left there (see
+/// [`cleared`]), and runs every one of `commands` from its root, held to the known debt `owed`
+/// (see [`red`]): the names of the ones that turned red. A failure that cannot be planted is an
+/// error, and then nothing runs.
+fn planted_red(
     project: &Project,
     file: &str,
     content: &str,
+    commands: &BTreeMap<String, String>,
     owed: &BTreeMap<String, Option<u64>>,
-) -> io::Result<bool> {
+) -> io::Result<Vec<String>> {
     let root = project.root;
     cleared(root, file)?;
     written(&root.join(file), content.as_bytes())?;
-    let mut commands = project.commands.of(Gate::G2).iter();
-    Ok(commands.any(|(name, c)| red(name, c, project, owed)))
+    Ok(turning_red(commands, project, owed))
 }
 
 /// Sets aside what was at `file` of the project at `root`: a copy of it, bytes and permissions,
@@ -316,7 +491,7 @@ fn not_kept(file: &str, kept: &str, e: io::Error) -> String {
 }
 
 /// Gives back what was at `file` of the project at `root` before the self-test, in place of
-/// whatever the G2 commands left there: the file whose copy is at `kept` of the state root
+/// whatever the commands left there: the file whose copy is at `kept` of the state root
 /// `state`, its bytes and permissions, and then the copy goes; or no file (see [`cleared`]).
 /// Whether it was given back: not when a symbolic link is now on the way to the file, or to its
 /// copy, itself included, which would take the self-test out of the project. Then nothing goes
@@ -341,7 +516,7 @@ fn give_back(root: &Path, state: &Path, file: &str, kept: Option<&str>) -> io::R
     Ok(true)
 }
 
-/// Removes what the G2 commands left at `file` of the project at `root`: the planted test, a
+/// Removes what the commands left at `file` of the project at `root`: the planted failure, a
 /// file or a link, which goes and is never followed. A symbolic link on the way to it is an
 /// error, and then nothing is removed: through it, the self-test would write out of the project.
 fn cleared(root: &Path, file: &str) -> io::Result<()> {
@@ -361,20 +536,20 @@ fn link_on_the_way(root: &Path, file: &str) -> io::Result<Option<PathBuf>> {
     Ok(link.filter(|link| link != Path::new(file)))
 }
 
-/// The names of the G2 `commands` that turn G2 red, run in `project` held to the known debt
-/// `owed` (see [`red`]), in their order.
-fn turning_red<'a>(
-    commands: &'a BTreeMap<String, String>,
+/// The names of the `commands` of a stage that turn it red, run in `project` held to the known
+/// debt `owed` of the stage (see [`red`]), in their order: every one of them runs.
+fn turning_red(
+    commands: &BTreeMap<String, String>,
     project: &Project,
     owed: &BTreeMap<String, Option<u64>>,
-) -> Vec<&'a str> {
+) -> Vec<String> {
     let turned = commands.iter().filter(|(n, c)| red(n, c, project, owed));
-    turned.map(|(name, _)| name.as_str()).collect()
+    turned.map(|(name, _)| name.clone()).collect()
 }
 
-/// Whether the G2 command `name`, `command`, turns G2 red, run in `project` (see [`failed`]): it
-/// fails, and it is not held to its known debt in `owed`, by name, the count recorded for it
-/// when there is one, as G2 holds it (see [`debt::held`]).
+/// Whether the command `name`, `command`, turns its stage red, run in `project` (see
+/// [`failed`]): it fails, and it is not held to its known debt in `owed`, by name, the count
+/// recorded for it when there is one, as the gate holds it (see [`debt::held`]).
 fn red(name: &str, command: &str, project: &Project, owed: &BTreeMap<String, Option<u64>>) -> bool {
     let Some(output) = failed(command, project) else {
         return false;
@@ -574,9 +749,15 @@ mod tests {
     /// The file of the known debt with debt in G2 for `command`, with `count` recorded when
     /// there is one.
     fn known(command: &str, count: Option<u64>) -> String {
+        known_in(command, Gate::G2, count)
+    }
+
+    /// The file of the known debt with debt in `gate` for `command`, with `count` recorded when
+    /// there is one.
+    fn known_in(command: &str, gate: Gate, count: Option<u64>) -> String {
         let owed = debt::Debt {
             command: command.to_string(),
-            gate: Gate::G2,
+            gate,
             since: "2026-10-30".to_string(),
             count,
         };
@@ -610,6 +791,10 @@ mod tests {
                     OK editing a protected file is blocked (Path Guard and CI)\n\
                     OK rollback works in pre (simulated)\n\
                     OK zero scenarios counts as a failure\n\
+                    OK works closes: its planted failure turns G2 red\n\
+                    -- quality is unproven: no failure to plant for it in [close_test.quality] of \
+                    tminus/commands.toml\n\
+                    -- security is unproven: the blueprint declares no close test for it\n\
                     harness 4/4";
         assert_eq!(selftest.to_string(), said);
         assert!(!harness.planted().exists());
@@ -919,6 +1104,10 @@ mod tests {
             let selftest = harness.run().unwrap();
             let first = &selftest.checks[0];
             assert_eq!((first.test.as_str(), first.ok), (not_back, false), "{way}");
+            // The gate that plants the same failure cannot see whether it closes.
+            let works = &selftest.gates[0];
+            let seen = (works.tested, works.closed, works.said.as_str());
+            assert_eq!(seen, (true, false, FIRST_NOT_PLANTED), "{way}");
             let shown = selftest.to_string();
             assert!(shown.starts_with(&format!("KO {not_back}\n")), "{shown}");
             let copy = bytes_and_mode(&harness.folder.0.join(copy));
@@ -1026,8 +1215,12 @@ mod tests {
         let seen = fs::read_to_string(harness.folder.0.join("seen")).unwrap();
         assert_eq!(seen, "selftest|none");
         assert!(!harness.folder.0.join(copy).exists());
+        // Its commands file is the one in gdd/.
+        let quality = "no failure to plant for it in [close_test.quality] of gdd/commands.toml";
+        assert_eq!(selftest.gates[1].said, quality);
         save(&harness.folder.0, &selftest).unwrap();
         assert!(harness.folder.0.join(".gdd/selftest.json").is_file());
+        assert_eq!(closes(&harness.folder.0), Ok(selftest.gates));
         assert!(!harness.folder.0.join(".tminus").exists());
     }
 
@@ -1085,6 +1278,13 @@ mod tests {
         assert_eq!(saved["summary"], "harness 3/4");
         let zero = serde_json::json!({"test": ZERO_SCENARIOS, "ok": false});
         assert_eq!(saved["detail"][3], zero);
+        // What it saw of the gates goes after the checks.
+        let gates = serde_json::to_value(&selftest.gates).unwrap();
+        assert_eq!(saved["gates"], gates);
+        assert_eq!(saved["gates"][0]["gate"], "works");
+        let at = |key: &str| text.find(&format!("\n  \"{key}\":")).unwrap();
+        let order = [at("detail"), at("gates"), at("ts")];
+        assert!(order.is_sorted(), "{text}");
         let ts = saved["ts"].as_str().unwrap();
         assert!(ts.ends_with("+00:00"), "{saved}");
         let lines = || {
@@ -1109,6 +1309,264 @@ mod tests {
         fs::create_dir_all(&path).unwrap();
         let err = save(root, &selftest).unwrap_err();
         let start = "cannot write .tminus/selftest.json: ";
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    /// A G2 command of quality, green until something is at `src/bad.txt`.
+    const LINT: &str = "lint = 'test ! -f src/bad.txt'";
+
+    /// The harness of `COMMANDS` with `g2` as its G2 commands, and the failure quality plants at
+    /// `src/bad.txt`.
+    fn with_quality(g2: &str) -> Harness {
+        let planted = "[close_test.quality]\nfile = 'src/bad.txt'\ncontent = 'bad'\n";
+        Harness::new(&format!("{}{planted}", COMMANDS.replace(UNIT, g2)))
+    }
+
+    /// Whether the self-test of `harness` ran the close test of the gate `id`, whether the gate
+    /// closed, and what it said of it.
+    fn closed(harness: &Harness, id: &str) -> (bool, bool, String) {
+        let gates = harness.run().unwrap().gates;
+        let found = gates.into_iter().find(|gate| gate.gate == id);
+        let gate = found.unwrap_or_else(|| panic!("no gate {id}"));
+        (gate.tested, gate.closed, gate.said)
+    }
+
+    /// A gate that did not close, saying `said`.
+    fn open(said: &str) -> (bool, bool, String) {
+        (true, false, said.to_string())
+    }
+
+    /// A gate that closed, saying `said`.
+    fn shut(said: &str) -> (bool, bool, String) {
+        (true, true, said.to_string())
+    }
+
+    /// A gate whose close test did not run, saying `said`.
+    fn unproven(said: &str) -> (bool, bool, String) {
+        (false, false, said.to_string())
+    }
+
+    /// What the self-test saw of `gate`: whether its close test ran, whether it closed, and what
+    /// it said.
+    fn as_seen(gate: &Closed) -> (bool, bool, String) {
+        (gate.tested, gate.closed, gate.said.clone())
+    }
+
+    #[test]
+    fn a_gate_closes_when_its_planted_failure_turns_one_of_its_commands_red() {
+        let harness = with_quality(&format!("{LINT}\n{UNIT}"));
+        let selftest = harness.run().unwrap();
+        assert!(selftest.ok(), "{selftest}");
+        let said = "its planted failure turns G2 red";
+        let quality = &selftest.gates[1];
+        assert_eq!(quality.gate, "quality");
+        assert_eq!(as_seen(quality), shut(said));
+        let shown = selftest.to_string();
+        let line = format!("\nOK quality closes: {said}\n");
+        assert!(shown.contains(&line), "{shown}");
+        // Each gate is kept with its lock now, in the order of the blueprint.
+        let declared = blueprint::gates().unwrap();
+        for (gate, seen) in declared.gates().iter().zip(&selftest.gates) {
+            assert_eq!(seen.gate, gate.id.as_str());
+            let lock = declared.lock(gate, &harness.commands);
+            assert_eq!(seen.lock, lock, "{}", seen.gate);
+        }
+        assert_eq!(selftest.gates.len(), 3);
+        assert!(!harness.folder.0.join("src/bad.txt").exists());
+    }
+
+    #[test]
+    fn a_gate_that_stays_green_with_its_planted_failure_does_not_close_and_fails_the_self_test() {
+        let harness = with_quality(&format!("lint = 'true'\n{UNIT}"));
+        let selftest = harness.run().unwrap();
+        assert!(!selftest.ok());
+        assert_eq!(selftest.summary(), "harness 4/4");
+        let said = "G2 stayed green with its planted failure";
+        assert_eq!(as_seen(&selftest.gates[1]), open(said));
+        let shown = selftest.to_string();
+        let line = format!("\nKO quality does not close: {said}\n-- security is unproven: ");
+        assert!(shown.contains(&line), "{shown}");
+        // A command of another gate that turns red with it does not close it.
+        let red = "lint = 'test ! -f tests/failing.txt'\nunit = 'true'";
+        let harness = Harness::new(&COMMANDS.replace(UNIT, red));
+        assert_eq!(first(&harness), (FAILING_TEST.to_string(), true));
+        assert_eq!(closed(&harness, "works"), open(said));
+    }
+
+    #[test]
+    fn a_gate_red_without_its_planted_failure_does_not_close_and_names_what_turned_it_red() {
+        let harness = with_quality(&format!("lint = 'exit 1'\ntypes = 'exit 2'\n{UNIT}"));
+        let said = "G2 is red without its planted failure: lint, types";
+        assert_eq!(closed(&harness, "quality"), open(said));
+        // The first check did not plant its test: what turned G2 red is all works can see.
+        assert_eq!(closed(&harness, "works"), open(said));
+        assert!(!harness.folder.0.join("src/bad.txt").exists());
+    }
+
+    #[test]
+    fn a_gate_without_a_command_of_its_own_in_its_stage_does_not_close() {
+        let said = "no command of it runs in G2";
+        assert_eq!(closed(&with_quality(UNIT), "quality"), open(said));
+        // Its optional commands do not count.
+        let optional = with_quality(&format!("mutation = 'true'\n{UNIT}"));
+        assert_eq!(closed(&optional, "quality"), open(said));
+    }
+
+    #[test]
+    fn the_optional_commands_of_a_gate_do_not_run_in_its_close_test() {
+        let harness = with_quality(&format!("{LINT}\nmutation = 'echo ran >> mutated'\n{UNIT}"));
+        let said = "its planted failure turns G2 red";
+        assert_eq!(closed(&harness, "quality"), shut(said));
+        // Only the first check ran it: without its test and with it.
+        let mutated = fs::read_to_string(harness.folder.0.join("mutated")).unwrap();
+        assert_eq!(mutated, "ran\nran\n");
+    }
+
+    #[test]
+    fn a_gate_planted_from_the_failing_test_in_g2_reads_the_runs_of_the_first_check() {
+        let harness = Harness::with_unit("echo ran >> runs; test ! -f tests/failing.txt");
+        let said = "its planted failure turns G2 red";
+        assert_eq!(closed(&harness, "works"), shut(said));
+        let runs = fs::read_to_string(harness.folder.0.join("runs")).unwrap();
+        assert_eq!(runs, "ran\nran\n");
+        // Known debt that cannot be read stops the first check: no gate can plant its failure.
+        let harness = with_quality(&format!("{LINT}\n{UNIT}"));
+        harness.folder.write(debt::PATH, "[[debt]");
+        assert_eq!(closed(&harness, "works"), open(FIRST_NOT_PLANTED));
+        let (tested, ran, said) = closed(&harness, "quality");
+        assert_eq!((tested, ran), (true, false));
+        let start = "tminus/debt.toml: invalid TOML: ";
+        assert!(said.starts_with(start), "{said}");
+        assert!(!harness.folder.0.join("src/bad.txt").exists());
+    }
+
+    #[test]
+    fn a_planted_failure_goes_back_to_what_was_there() {
+        use std::os::unix::fs::PermissionsExt;
+        let lint = "test ! -f src/bad.txt || grep -q mine src/bad.txt";
+        let harness = with_quality(&format!("lint = '{lint}'\n{UNIT}"));
+        let bad = harness.folder.0.join("src/bad.txt");
+        harness.folder.write("src/bad.txt", "mine\n");
+        fs::set_permissions(&bad, fs::Permissions::from_mode(0o640)).unwrap();
+        let said = "its planted failure turns G2 red";
+        assert_eq!(closed(&harness, "quality"), shut(said));
+        assert_eq!(bytes_and_mode(&bad), ("mine\n".to_string(), 0o640));
+        let kept = ".tminus/selftest/kept/src/bad.txt";
+        assert!(!harness.folder.0.join(kept).exists());
+    }
+
+    /// A declaration whose one gate, `probe`, takes every command and closes before integrating
+    /// from `[close_test.probe]`.
+    const PROBE: &str = "format = 1\n[[gate]]\nid = \"probe\"\nchecks = \"c\"\nrest = true\n\
+                         close = { stage = \"g3\", plant = \"close_test.probe\" }\n";
+
+    /// A harness whose G3 command is `probe`, counted by `Found {n} error`, and whose failure for
+    /// the gate `probe` goes at `file`.
+    fn probing(probe: &str, file: &str) -> Harness {
+        Harness::new(&format!(
+            "[g3]\nprobe = '{probe}'\n[count]\nprobe = ['Found {{n}} error']\n\
+             [close_test.probe]\nfile = '{file}'\ncontent = 'bad'\n"
+        ))
+    }
+
+    /// What the close test of the gate `probe` of [`PROBE`] sees in `harness`, without runs of
+    /// the first check.
+    fn probe_closes(harness: &Harness) -> Result<(bool, bool, String), String> {
+        let declared = Declared::from_toml(PROBE).unwrap();
+        let project = harness.project(&harness.folder.0);
+        gate_closes(&project, &declared, &declared.gates()[0], None)
+    }
+
+    #[test]
+    fn a_close_test_before_integrating_holds_to_the_known_debt_of_that_stage() {
+        let rises = "test -f bad.txt && echo Found 6 errors. || echo Found 5 errors.; false";
+        let harness = probing(rises, "bad.txt");
+        let owed = known_in("probe", Gate::G3, Some(5));
+        harness.folder.write(debt::PATH, &owed);
+        let said = "its planted failure turns G3 red";
+        assert_eq!(probe_closes(&harness), Ok(shut(said)));
+        assert!(!harness.folder.0.join("bad.txt").exists());
+        // Debt of the other stage does not hold it.
+        harness.folder.write(debt::PATH, &known("probe", Some(5)));
+        let said = "G3 is red without its planted failure: probe";
+        assert_eq!(probe_closes(&harness), Ok(open(said)));
+        // Without the failure in the commands file, it does not run.
+        let mut harness = harness;
+        harness.commands = Commands::from_toml("[g3]\nprobe = 'true'\n").unwrap();
+        let said = "no failure to plant for it in [close_test.probe] of tminus/commands.toml";
+        assert_eq!(probe_closes(&harness), Ok(unproven(said)));
+    }
+
+    #[test]
+    fn a_planted_failure_a_link_keeps_from_going_back_stays_in_its_copy() {
+        let elsewhere = Folder::new();
+        let leaves = format!(
+            "test ! -f sub/bad.txt || {{ mv sub moved; ln -s {} sub; false; }}",
+            elsewhere.0.display()
+        );
+        let harness = probing(&leaves, "sub/bad.txt");
+        harness.folder.write("sub/bad.txt", "mine\n");
+        let kept = ".tminus/selftest/kept/sub/bad.txt";
+        let said = format!("sub/bad.txt was not given back: a copy is in {kept}");
+        assert_eq!(probe_closes(&harness), Ok(open(&said)));
+        let copy = harness.folder.0.join(kept);
+        assert_eq!(fs::read_to_string(copy).unwrap(), "mine\n");
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_gate_without_a_close_test_is_unproven() {
+        let declared = Declared::from_toml(&PROBE.replace("close = ", "# close = ")).unwrap();
+        let harness = probing("true", "bad.txt");
+        let project = harness.project(&harness.folder.0);
+        let seen = gate_closes(&project, &declared, &declared.gates()[0], None);
+        let said = "the blueprint declares no close test for it";
+        assert_eq!(seen, Ok(unproven(said)));
+    }
+
+    #[test]
+    fn the_self_test_passes_only_when_every_check_passes_and_every_gate_tested_closed() {
+        let check = |ok| Check {
+            test: "c".to_string(),
+            ok,
+        };
+        let gate = |tested, closed| Closed {
+            gate: "g".to_string(),
+            tested,
+            closed,
+            lock: String::new(),
+            said: String::new(),
+        };
+        let selftest = |checks: &[bool], gates: Vec<Closed>| Selftest {
+            checks: checks.iter().map(|&ok| check(ok)).collect(),
+            gates,
+        };
+        let passing = [true; 4];
+        assert!(selftest(&passing, vec![gate(true, true), gate(false, false)]).ok());
+        assert!(!selftest(&passing, vec![gate(true, true), gate(true, false)]).ok());
+        assert!(!selftest(&[true, false, true, true], vec![gate(true, true)]).ok());
+        assert!(!selftest(&[false; 4], vec![]).ok());
+    }
+
+    #[test]
+    fn what_the_self_test_kept_of_the_gates_is_read_back() {
+        let harness = Harness::new(COMMANDS);
+        let root = &harness.folder.0;
+        assert_eq!(closes(root), Ok(vec![]));
+        let selftest = harness.run().unwrap();
+        save(root, &selftest).unwrap();
+        assert_eq!(closes(root), Ok(selftest.gates));
+        let path = root.join(approve::SELFTEST_PATH);
+        fs::write(&path, r#"{"ok": true}"#).unwrap();
+        assert_eq!(closes(root), Ok(vec![]));
+        fs::write(&path, "{not json").unwrap();
+        let err = closes(root).unwrap_err();
+        assert!(err.starts_with(".tminus/selftest.json: "), "{err}");
+        // A folder where the result goes is not a self-test that never ran.
+        fs::remove_file(&path).unwrap();
+        fs::create_dir_all(&path).unwrap();
+        let err = closes(root).unwrap_err();
+        let start = "cannot read .tminus/selftest.json: ";
         assert!(err.starts_with(start), "{err}");
     }
 }

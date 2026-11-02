@@ -341,6 +341,28 @@ fn stdout_json(w: &GddWorld) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("the output is not JSON ({e}): {:?}", ran.stdout))
 }
 
+/// The key of the gate `gate` in the report the last run printed.
+fn key_of(w: &GddWorld, gate: &str) -> serde_json::Value {
+    let json = stdout_json(w);
+    let keys = json["keys"].as_array();
+    let keys = keys.unwrap_or_else(|| panic!("no keys in {json}"));
+    let key = keys.iter().find(|key| key["gate"] == gate);
+    key.cloned()
+        .unwrap_or_else(|| panic!("no key of the gate {gate:?} in {json}"))
+}
+
+#[then(expr = "the key of the gate {string} counts as proof")]
+fn key_counts_as_proof(w: &mut GddWorld, gate: String) {
+    let key = key_of(w, &gate);
+    assert_eq!(key["proven"], true, "{key}");
+}
+
+#[then(expr = "the key of the gate {string} is no proof")]
+fn key_is_no_proof(w: &mut GddWorld, gate: String) {
+    let key = key_of(w, &gate);
+    assert_eq!(key["proven"], false, "{key}");
+}
+
 #[given(expr = "a GDD project with the log:")]
 fn project_with_log(w: &mut GddWorld, step: &cucumber::gherkin::Step) {
     let root = project_root(w);

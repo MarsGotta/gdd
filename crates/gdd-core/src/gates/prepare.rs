@@ -1,5 +1,6 @@
-//! Preparing a change (`tminus prepare`), the first step of the recipe: it checks that the change
-//! may enter Build, in this order: G0, the red zones (only a spike starts before a human
+//! Preparing a change (`tminus prepare`), the first step of the recipe: it checks that the
+//! change may enter Build, in this order: G0, the gates the blueprint declares (none may have
+//! to close first: see [`must_close`]), the red zones (only a spike starts before a human
 //! approves them), G1 for new or changed scenarios, the plan of a red change, a Reviewer of
 //! another model family than the Builder (or of the same one, when the human accepted it at the
 //! Setup: the Decision Inbox says so), its own branch checked out, and, for a change in G1, its
@@ -24,12 +25,14 @@ use serde_json::Value;
 use crate::agents::models::{self, Models};
 use crate::change::{self, Decision, Record};
 use crate::gates::approve::{self, ZonesState};
-use crate::gates::{self, BUILD_ROLE, Gate, verdict};
+use crate::gates::decl::Validity;
+use crate::gates::{self, BUILD_ROLE, Gate, selftest, verdict};
 use crate::git::Git;
 use crate::guard;
 use crate::layout::{self, Layout};
 use crate::log;
 use crate::repo::touched::Software;
+use crate::stacks::blueprint;
 
 /// Why a change does not start before the Setup, in the new names: a project of the old layout
 /// names its agent command as it does (see [`Layout::localize`]).
@@ -97,6 +100,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
     if !approve::g0_open(state).map_err(|e| e.to_string())? {
         return Err(layout.localize(G0_PENDING));
     }
+    must_close(setup.project)?;
     let named = |e: approve::Error| e.named_in(setup.project.root).to_string();
     let zones = approve::zones_state(state, setup.zones).map_err(named)?;
     let spike = zones == ZonesState::NotApproved && decision.kind == "Spike";
@@ -180,6 +184,26 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         started: &started,
     };
     serde_json::to_string(&prepared).map_err(|e| e.to_string())
+}
+
+/// Refuses every change while a gate the blueprint declares must close before it (see
+/// [`Validity::MustClose`]), with the commands of `project` and what its last self-test kept (see
+/// [`selftest::closes`]): its close test ran and it did not close, or its lock changed since it
+/// closed. The refusal says why for each such gate, in the order the blueprint declares them. A
+/// result of the self-test that cannot be read refuses too, and says why.
+fn must_close(project: &gates::Project) -> Result<(), String> {
+    let declared = blueprint::gates().map_err(|e| e.to_string())?;
+    let closes = selftest::closes(project.state)?;
+    let mut why = Vec::new();
+    for gate in declared.gates() {
+        if let Validity::MustClose(must) = declared.validity(gate, project.commands, &closes) {
+            why.push(must);
+        }
+    }
+    if why.is_empty() {
+        return Ok(());
+    }
+    Err(why.join(" "))
 }
 
 /// `Ok` when the scenario files of change `id` of the project at `root`, whose record is `record`
@@ -522,6 +546,74 @@ mod tests {
         project.repo.write(approve::G0_PATH, closed);
         assert_eq!(project.refused(), G0_PENDING);
         assert_eq!(project.record()["state"], "open");
+    }
+
+    /// What a self-test kept of the gate `id` of the blueprint: whether its close test ran and it
+    /// closed, with the lock `lock`.
+    fn kept(id: &str, tested: bool, closed: bool, lock: &str) -> String {
+        let seen = format!(r#""tested": {tested}, "closed": {closed}, "lock": "{lock}""#);
+        format!(r#"{{"gate": "{id}", {seen}, "said": "said of {id}"}}"#)
+    }
+
+    impl Fixture {
+        /// The lock of the gate `id` of the blueprint in this project now.
+        fn lock(&self, id: &str) -> String {
+            let declared = blueprint::gates().unwrap();
+            let gate = declared.gates().iter().find(|gate| gate.id.as_str() == id);
+            declared.lock(gate.unwrap(), &self.commands)
+        }
+
+        /// A self-test that kept `gates`.
+        fn self_tested(&self, gates: &[String]) {
+            let kept = format!(r#"{{"ok": false, "gates": [{}]}}"#, gates.join(", "));
+            self.repo.write(approve::SELFTEST_PATH, &kept);
+        }
+    }
+
+    #[test]
+    fn no_change_starts_while_a_gate_must_close() {
+        let project = fixture(RECORD);
+        project.ready();
+        let works = project.lock("works");
+        // The record says quality first: the refusal follows the blueprint.
+        let open = kept("quality", true, false, &project.lock("quality"));
+        project.self_tested(&[open.clone(), kept("works", true, true, "old")]);
+        let again = "The gate works must close again before any change starts: its commands or \
+                     its planted failure changed since it was seen to close. Run tminus selftest.";
+        let not_closed = "The gate quality does not close (said of quality). No change starts \
+                          until it closes: fix its commands or its planted failure, then run \
+                          tminus selftest.";
+        assert_eq!(project.refused(), format!("{again} {not_closed}"));
+        assert_eq!(project.record()["state"], "open");
+        assert!(project.log().is_empty());
+        project.self_tested(&[kept("works", true, true, &works), open]);
+        assert_eq!(project.refused(), not_closed);
+        // G0 comes first.
+        fs::remove_file(project.root().join(approve::G0_PATH)).unwrap();
+        assert_eq!(project.refused(), G0_PENDING);
+        project.setup_done();
+        // Closed with its lock as it is now, or never tested, a gate stops nothing.
+        let untested = kept("quality", false, false, "");
+        project.self_tested(&[kept("works", true, true, &works), untested]);
+        assert_eq!(project.prepared()["ok"], true);
+    }
+
+    #[test]
+    fn a_self_test_without_gates_stops_nothing_and_one_that_cannot_be_read_stops_every_change() {
+        let project = fixture(RECORD);
+        project.ready();
+        let without = r#"{"ok": true}"#;
+        project.repo.write(approve::SELFTEST_PATH, without);
+        assert_eq!(project.prepared()["ok"], true);
+        project.repo.write(approve::SELFTEST_PATH, "{not json");
+        let err = project.refused();
+        assert!(err.starts_with(".tminus/selftest.json: "), "{err}");
+        let path = project.root().join(approve::SELFTEST_PATH);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir_all(&path).unwrap();
+        let err = project.refused();
+        let start = "cannot read .tminus/selftest.json: ";
+        assert!(err.starts_with(start), "{err}");
     }
 
     #[test]
