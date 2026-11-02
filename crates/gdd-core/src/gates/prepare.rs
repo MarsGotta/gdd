@@ -156,6 +156,7 @@ pub fn prepare(setup: &Setup, id: &str, decision: &Decision) -> Result<String, S
         "snapshot.json",
         "snapshot-build.json",
         "snapshot-parked.json",
+        "snapshot-test.json",
     ] {
         remove(state, &verdict::change_file(state, id, snapshot))?;
     }
@@ -845,8 +846,12 @@ mod tests {
         project.ready();
         let parked = change::parked_snapshot_path("c1");
         project.repo.write(&parked, "{}");
+        // And the one taken before a round of test mode.
+        let test = change::test_snapshot_path("c1");
+        project.repo.write(&test, "{}");
         assert_eq!(project.prepared()["ok"], true);
         assert!(!project.root().join(&parked).exists());
+        assert!(!project.root().join(&test).exists());
         // One that cannot go stops the start.
         fs::create_dir_all(project.root().join(&parked).join("x")).unwrap();
         let err = project.refused();
