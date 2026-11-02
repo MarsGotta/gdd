@@ -1,7 +1,8 @@
-//! The `gdd` command line: it reads the words of a command, runs it on the project and says
-//! what happened. The method itself lives in `gdd-core`. In a terminal, and for a person, `gdd
-//! init` without the flags of the project asks the Setup form (see [`form`]), `gdd board` shows
-//! the Board (see [`board`]) and `gdd sitting` the sitting of a change (see [`sitting`]).
+//! The `tminus` command line, also called `gdd`: it reads the words of a command, runs it on the
+//! project and says what happened. The method itself lives in `gdd-core`. In a terminal, and for
+//! a person, `tminus init` without the flags of the project asks the Setup form (see [`form`]),
+//! `tminus board` shows the Board (see [`board`]) and `tminus sitting` the sitting of a change
+//! (see [`sitting`]).
 
 pub mod board;
 pub mod form;
@@ -9,10 +10,11 @@ pub mod sitting;
 mod tui;
 
 use std::collections::BTreeSet;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, ErrorKind, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::{Arg, ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -24,6 +26,7 @@ use gdd_core::classify::{classify_with, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
+use gdd_core::layout::{self, Layout};
 use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
@@ -32,23 +35,34 @@ use gdd_core::{
     init, learn, log, session, stacks, state, upgrade, versions,
 };
 
-/// File that marks the root of a GDD project.
-const PROJECT: &str = "gdd/project.toml";
+/// File that marks the root of a GDD project, in the new names: a project set up before the
+/// rename has `gdd/project.toml` (see [`layout`]).
+const PROJECT: &str = "tminus/project.toml";
+/// The same file in a project set up before the rename.
+const OLD_PROJECT: &str = "gdd/project.toml";
 /// Zone map of the project.
-const ZONES: &str = "gdd/zones.toml";
+const ZONES: &str = "tminus/zones.toml";
 /// Rules table of the project, with the protected paths of Path Guard.
 const RULES: &str = guard::RULES;
 /// Gate commands of the project.
 const COMMANDS: &str = gates::COMMANDS;
 /// Where the changes keep their records, from the state root (see [`state::root`]).
-const CHANGES: &str = ".gdd/changes";
+const CHANGES: &str = ".tminus/changes";
 /// The role of test mode, which Path Guard judges after it.
 const TEST_ROLE: &str = "builder-test";
-/// What an agent gdd started may run, after the command it cannot (see [`refused_to_agent`]).
-const FOR_AGENTS: &str = "they may only run gdd g2, gdd guard, gdd note, gdd status, gdd \
-                          classify, gdd inbox, gdd report and gdd scope.";
+/// The name of the tool: what every message but the version and the help names it, whatever
+/// name it was called by (see [`program_name`]).
+const TOOL: &str = "tminus";
+/// The other name of the same program.
+const OLD_NAME: &str = "gdd";
+/// The variables that name the role of an agent tminus started: either one makes a run an
+/// agent's (see [`role_in`]).
+const ROLES: [&str; 2] = ["TMINUS_ROLE", "GDD_ROLE"];
+/// What an agent tminus started may run, after the command it cannot (see [`refused_to_agent`]).
+const FOR_AGENTS: &str = "they may only run tminus g2, tminus guard, tminus note, tminus status, \
+                          tminus classify, tminus inbox, tminus report and tminus scope.";
 /// Why a command that works on a change cannot run.
-const MISSING_CHANGE: &str = "missing change id (argument or GDD_CHANGE)";
+const MISSING_CHANGE: &str = "missing change id (argument or TMINUS_CHANGE)";
 /// Why `gdd session` cannot find the transcripts.
 const NO_HOME: &str = "HOME is not set: the Claude Code transcripts are under it";
 /// Why `gdd report --since` does not take a day.
@@ -189,23 +203,23 @@ impl Voice {
 
 /// GDD · Gate-Driven Development: phases, gates and coding agents, from the terminal.
 #[derive(Debug, Parser)]
-#[command(name = "gdd", version = gdd_core::VERSION)]
+#[command(name = "tminus", version = gdd_core::VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Run>,
 }
 
-/// What `gdd` runs: `gdd init`, which makes a project, or a command that works in one.
+/// What `tminus` runs: `tminus init`, which makes a project, or a command that works in one.
 #[derive(Debug, Subcommand)]
 enum Run {
-    /// Sets up GDD in this folder, which becomes the project root: the harness (gdd/, the CI
+    /// Sets up GDD in this folder, which becomes the project root: the harness (tminus/, the CI
     /// workflow), the Brief, the agents' commands, AGENTS.md and CLAUDE.md when absent, the
     /// skeleton of each stack the folder has no project of, and the lines of each stack and
-    /// .gdd/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file,
+    /// .tminus/ in .gitignore; then commits what it wrote, and only that. Never overwrites a file,
     /// refuses inside a GDD project.
     ///
-    /// The form also installs each stack (as gdd bootstrap does); with flags it installs nothing,
-    /// for scripts.
+    /// The form also installs each stack (as tminus bootstrap does); with flags it installs
+    /// nothing, for scripts.
     Init(InitArgs),
     #[command(flatten)]
     InProject(Command),
@@ -218,45 +232,45 @@ enum Command {
     Report(ReportArgs),
     /// Color, lane and gates of a change, from its plan and what it touched, as JSON.
     Classify {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
         change: Option<String>,
     },
     /// Path Guard: what a change touched since its build started that a role must not touch,
     /// as JSON.
     Guard(GuardArgs),
-    /// Records what a change touched as it is now, so `gdd guard --since-snapshot` judges only
+    /// Records what a change touched as it is now, so `tminus guard --since-snapshot` judges only
     /// what changes after.
     Snapshot {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
         change: Option<String>,
     },
     /// Paths a change touched outside its plan: accepted when their color is not higher than
     /// the change's, as JSON.
     Scope {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        /// Id of the change: its record is .tminus/changes/<id>/change.json.
         change: String,
     },
-    /// Loop Gate: the G2 commands of gdd/commands.toml, Path Guard and, in build mode, the
-    /// scope. Saves the result next to the change, logs it unless an agent runs it (GDD_ROLE)
+    /// Loop Gate: the G2 commands of tminus/commands.toml, Path Guard and, in build mode, the
+    /// scope. Saves the result next to the change, logs it unless an agent runs it (TMINUS_ROLE)
     /// and prints it as JSON.
     G2(GateArgs),
-    /// Merge Gate: the G3 commands of gdd/commands.toml, Path Guard and the scenario count.
-    /// Saves the result next to the change, logs it and prints it as JSON. An agent gdd started
-    /// (GDD_ROLE) cannot run it.
+    /// Merge Gate: the G3 commands of tminus/commands.toml, Path Guard and the scenario count.
+    /// Saves the result next to the change, logs it and prints it as JSON. An agent tminus
+    /// started (TMINUS_ROLE) cannot run it.
     G3(GateArgs),
     /// Creates a change: its record and, when it has none, its branch change/<id> from the main
     /// branch. Logs it and prints its classification as JSON.
     NewChange(NewChangeArgs),
     /// Records a gate decision: G0 (by the machines), the red zones (by a human), or the plan,
     /// G1, G2, G3 or G4 of a change. Approving G1 seals the scenario files of the change.
-    /// Agents that gdd started cannot record anything.
+    /// Agents that tminus started cannot record anything.
     Gate(DecisionArgs),
     /// Leaves a note on a change for its Decision Inbox.
     Note(NoteArgs),
     /// Sets the line of a change in the changelog, which its merge commit carries as trailers: a
     /// section of Keep a Changelog and its words, or --none to leave the change out. Without one,
     /// the title goes under the section of its type (Feature: Added, Hotfix: Fixed, Migration:
-    /// Changed), and the other types are left out. Agents that gdd started cannot set it.
+    /// Changed), and the other types are left out. Agents that tminus started cannot set it.
     ChangelogLine(ChangelogLineArgs),
     /// Shows what CHANGELOG.md lacks of the lines the commits of the main branch carry (what no
     /// v<semver> tag released yet goes under Unreleased), and with --write adds only that, each
@@ -264,9 +278,9 @@ enum Command {
     /// In a terminal it asks before it writes.
     Changelog(ChangelogArgs),
     /// The Decision Inbox of a change: what is open for the human. Also saved in
-    /// .gdd/changes/<id>/inbox.md.
+    /// .tminus/changes/<id>/inbox.md.
     Inbox {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
         change: Option<String>,
     },
     /// Where the project stands: G0, red zones, self-test, scenarios, changes and log.
@@ -278,22 +292,22 @@ enum Command {
     /// zones and the plan, to approve (G1, the red zones, the plan) or to ask for changes (G1 KO).
     /// Nothing is written before the human confirms.
     Sitting {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json).
+        /// Id of the change (its record is .tminus/changes/<id>/change.json).
         change: String,
     },
-    /// The first install of each stack of gdd/project.toml, in order, which writes its lock file:
-    /// stops at the first that fails, then commits the files of the stacks' supply chain the run
-    /// created or changed, and nothing else. Run it once, after gdd init.
+    /// The first install of each stack of tminus/project.toml, in order, which writes its lock
+    /// file: stops at the first that fails, then commits the files of the stacks' supply chain the
+    /// run created or changed, and nothing else. Run it once, after tminus init.
     Bootstrap,
     /// Adopts a project that already has code: runs once each G2 and G3 command that judges the
     /// whole project (not acceptance*, mutation* or secrets*), keeps what each failing one said in
-    /// .gdd/adoption/, records them as known debt in gdd/debt.toml, which it commits alone, and
-    /// proposes a Refactor per command, riskiest first. Refused once gdd/debt.toml exists.
+    /// .tminus/adoption/, records them as known debt in tminus/debt.toml, which it commits alone,
+    /// and proposes a Refactor per command, riskiest first. Refused once tminus/debt.toml exists.
     Adopt,
-    /// Learn: runs the Learn tools of gdd/commands.toml ([learn]: warnings, never a gate), keeps
-    /// what each one said in .gdd/learn/ and lists the polish notes the human gave at G4, to spot
-    /// the ones that repeat, and the classes of finding that repeat in the Reviewer's reviews.
-    /// Exits with 0 whatever the tools found.
+    /// Learn: runs the Learn tools of tminus/commands.toml ([learn]: warnings, never a gate),
+    /// keeps what each one said in .tminus/learn/ and lists the polish notes the human gave at G4,
+    /// to spot the ones that repeat, and the classes of finding that repeat in the Reviewer's
+    /// reviews. Exits with 0 whatever the tools found.
     Learn {
         /// Only the notes and reviews of the changes created on or after this day, YYYY-MM-DD (UTC).
         #[arg(long, value_parser = parse_day)]
@@ -301,14 +315,14 @@ enum Command {
     },
     /// Harness self-test: a failing test turns a green G2 red, the harness is protected and CI
     /// runs the gates, rollback works in pre, and zero scenarios fail G3. Saved in
-    /// .gdd/selftest.json and logged; exits with 1 unless all four pass.
+    /// .tminus/selftest.json and logged; exits with 1 unless all four pass.
     Selftest,
     /// What CI runs: on the branch change/<id> (GITHUB_HEAD_REF, else the current one), no
     /// harness path changed against the main branch, and G2 and G3 green. Reads and writes
-    /// nothing under .gdd/; exits with 1 when CI fails.
+    /// nothing under .tminus/; exits with 1 when CI fails.
     Ci,
     /// Adds the requests of the interactive Claude Code sessions of the project to the log, one
-    /// line per model and each request once; the sessions gdd started for its agents are left
+    /// line per model and each request once; the sessions tminus started for its agents are left
     /// out.
     Session {
         /// The phase of the method the conversation belongs to.
@@ -321,13 +335,13 @@ enum Command {
     /// Checks that a change may enter Build (G0, red zones, G1, plan, model families, its
     /// branch) and starts it. Prints its decision, with the model of each role, as JSON.
     Prepare {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
         change: Option<String>,
     },
     /// Parks a change: stops it with a message for the human in its Decision Inbox. Always
     /// exits with 1.
     Park {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        /// Id of the change: its record is .tminus/changes/<id>/change.json.
         change: String,
         /// Why; its words are joined with single spaces.
         #[arg(required = true, trailing_var_arg = true)]
@@ -336,52 +350,52 @@ enum Command {
     /// Merges a change whose G3 is open into the main branch, with its record in the merge
     /// commit, then builds the artifact and deploys it to pre. Prints the deploy as JSON.
     Merge {
-        /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+        /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
         change: Option<String>,
     },
-    /// A release step of gdd/commands.toml: pre (tests and demo), promote (to production, after
-    /// G4) or observe (rolls the change back when production gets worse). Prints it as JSON. In
-    /// [versions] mode = "auto" of gdd/rules.toml (the default), promote gives a change with a
-    /// changelog line the next v<x.y.z> version, in GDD_VERSION, and releases it once it passed.
-    /// Without a step: the next version of what main merged since its newest tag, and its lines;
-    /// --yes releases it, in any mode (CHANGELOG.md, when main tracks one, in a commit of its
-    /// own, and the tag), and --version chooses it. Agents that gdd started cannot release.
+    /// A release step of tminus/commands.toml: pre (tests and demo), promote (to production,
+    /// after G4) or observe (rolls the change back when production gets worse). Prints it as JSON.
+    /// In [versions] mode = "auto" of tminus/rules.toml (the default), promote gives a change with
+    /// a changelog line the next v<x.y.z> version, in TMINUS_VERSION, and releases it once it
+    /// passed. Without a step: the next version of what main merged since its newest tag, and its
+    /// lines; --yes releases it, in any mode (CHANGELOG.md, when main tracks one, in a commit of
+    /// its own, and the tag), and --version chooses it. Agents that tminus started cannot release.
     Release(ReleaseArgs),
     /// Runs the recipe of a change in its own git worktree, on its branch change/<id>, while
     /// this checkout goes to the main branch: Build, G2, G3, the Reviewer, merge and pre; then it
     /// waits for the human G4 when the change needs it, or goes to production. The worktree goes
     /// when the change closes. Refuses uncommitted changes outside that branch, and a change past
-    /// [parallel] max of gdd/rules.toml changes building. Next to a change in flight whose planned
-    /// paths overlap its own, it warns first, also in its Decision Inbox: git settles the overlap
-    /// when the change merges. A change that parks exits with 1.
+    /// [parallel] max of tminus/rules.toml changes building. Next to a change in flight whose
+    /// planned paths overlap its own, it warns first, also in its Decision Inbox: git settles the
+    /// overlap when the change merges. A change that parks exits with 1.
     Launch {
-        /// Id of the change: its record is .gdd/changes/<id>/change.json.
+        /// Id of the change: its record is .tminus/changes/<id>/change.json.
         change: String,
     },
     /// Answers the G4 of a change paused at it: ok takes it to production, ko rejects it, and
     /// polish runs one more Builder round with your notes and pauses at G4 again. Agents that
-    /// gdd started cannot answer.
+    /// tminus started cannot answer.
     Resume(ResumeArgs),
-    /// The GDD commands, and the instructions of each stack in `stack` of gdd/project.toml, in
-    /// the folders of the coding agents (claude, codex, opencode), as their agent sheets say.
+    /// The GDD commands, and the instructions of each stack in `stack` of tminus/project.toml,
+    /// in the folders of the coding agents (claude, codex, opencode), as their agent sheets say.
     Agents {
         #[command(subcommand)]
         action: AgentsAction,
     },
-    /// The stack sheets gdd comes with (python, rust, typescript): one line per sheet.
+    /// The stack sheets tminus comes with (python, rust, typescript): one line per sheet.
     Stacks {
         #[command(subcommand)]
         action: Option<StacksAction>,
     },
-    /// Proposes what this gdd writes of the files gdd init wrote once (gdd/generated.toml lists
-    /// them) on the branch gdd-upgrade, merged three ways with what the project made of them:
-    /// first what this gdd writes, then the merge, with the lines both changed marked as
-    /// conflicts. Runs on the main branch with everything committed; nothing on it changes and
-    /// nothing is pushed. Agents that gdd started cannot run it.
+    /// Proposes what this tminus writes of the files tminus init wrote once
+    /// (tminus/generated.toml lists them) on the branch tminus-upgrade, merged three ways with
+    /// what the project made of them: first what this tminus writes, then the merge, with the
+    /// lines both changed marked as conflicts. Runs on the main branch with everything committed;
+    /// nothing on it changes and nothing is pushed. Agents that tminus started cannot run it.
     Upgrade,
 }
 
-/// What `gdd agents` does.
+/// What `tminus agents` does.
 #[derive(Debug, Subcommand)]
 enum AgentsAction {
     /// Writes every GDD command and the instructions of each stack of the project for each
@@ -393,7 +407,7 @@ enum AgentsAction {
     Check(AgentArgs),
 }
 
-/// What `gdd stacks` does besides listing the sheets.
+/// What `tminus stacks` does besides listing the sheets.
 #[derive(Debug, Subcommand)]
 enum StacksAction {
     /// One sheet: the tool for each need, the commands and the protected paths.
@@ -401,7 +415,7 @@ enum StacksAction {
         /// The stack.
         name: String,
     },
-    /// What the named sheets give together, as TOML: the shape of gdd/commands.toml plus a
+    /// What the named sheets give together, as TOML: the shape of tminus/commands.toml plus a
     /// [protected] table. Writes nothing.
     Compose {
         /// The stacks; a name given twice counts once.
@@ -409,7 +423,7 @@ enum StacksAction {
     },
 }
 
-/// What `gdd init` takes. A text option takes every word up to the next option. The name, the
+/// What `tminus init` takes. A text option takes every word up to the next option. The name, the
 /// platform and the stacks go together; without them, in a terminal, the Setup form asks, the
 /// other flags as its first answers.
 #[derive(Debug, Args)]
@@ -420,7 +434,7 @@ struct InitArgs {
     /// Where it runs.
     #[arg(long, value_parser = init::PLATFORMS, requires_all = ["name", "stacks"])]
     platform: Option<String>,
-    /// Its stacks (gdd stacks lists them).
+    /// Its stacks (tminus stacks lists them).
     #[arg(long = "stack", num_args = 1.., requires_all = ["name", "platform"])]
     stacks: Vec<String>,
     /// Its coding agents, the first builds; without it, those on the PATH (claude, codex,
@@ -463,17 +477,18 @@ impl InitArgs {
     }
 }
 
-/// Why `gdd init` without the flags of the project did nothing.
-const NO_TERMINAL: &str = "error: gdd init opens its Setup form only in a terminal; else give it \
-                           the flags --name, --platform and --stack";
+/// Why `tminus init` without the flags of the project did nothing.
+const NO_TERMINAL: &str = "error: tminus init opens its Setup form only in a terminal; else give \
+                           it the flags --name, --platform and --stack";
 
-/// Why `gdd board` without a terminal did nothing, and what lists the same changes.
-const BOARD_NO_TERMINAL: &str = "gdd board needs a terminal; gdd status lists the same changes";
+/// Why `tminus board` without a terminal did nothing, and what lists the same changes.
+const BOARD_NO_TERMINAL: &str =
+    "tminus board needs a terminal; tminus status lists the same changes";
 
-/// The option of the sensitive areas of `gdd init`.
+/// The option of the sensitive areas of `tminus init`.
 const SENSITIVE: &str = "sensitive";
 
-/// What `gdd init --sensitive` names: an area each time the option is given, its words joined
+/// What `tminus init --sensitive` names: an area each time the option is given, its words joined
 /// with single spaces.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Sensitive(Vec<String>);
@@ -511,15 +526,15 @@ impl Args for Sensitive {
     }
 }
 
-/// What `gdd agents install` and `gdd agents check` take.
+/// What `tminus agents install` and `tminus agents check` take.
 #[derive(Debug, Args)]
 struct AgentArgs {
-    /// The agents; without it, the integrations of gdd/models.toml.
+    /// The agents; without it, the integrations of tminus/models.toml.
     #[arg(long = "agent", num_args = 1..)]
     agents: Vec<String>,
 }
 
-/// What `gdd report` takes.
+/// What `tminus report` takes.
 #[derive(Debug, Args)]
 struct ReportArgs {
     /// Fields to group the calls by, separated by commas (change, phase, model, role, agent...).
@@ -544,10 +559,10 @@ struct ReportArgs {
     since: Option<i64>,
 }
 
-/// What `gdd guard` takes.
+/// What `tminus guard` takes.
 #[derive(Debug, Args)]
 struct GuardArgs {
-    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
     change: Option<String>,
     /// Role whose protected paths count (builder-build, builder-test, reviewer...).
     #[arg(long, default_value = "builder")]
@@ -555,15 +570,15 @@ struct GuardArgs {
     /// Exit with code 1 when Path Guard fails.
     #[arg(long)]
     strict: bool,
-    /// Count only what changed since the last `gdd snapshot`.
+    /// Count only what changed since the last `tminus snapshot`.
     #[arg(long)]
     since_snapshot: bool,
 }
 
-/// What `gdd g2` and `gdd g3` take.
+/// What `tminus g2` and `tminus g3` take.
 #[derive(Debug, Args)]
 struct GateArgs {
-    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
     change: Option<String>,
     /// Role Path Guard judges (builder-build also gets the scope check).
     #[arg(long, default_value = "builder")]
@@ -573,7 +588,7 @@ struct GateArgs {
     strict: bool,
 }
 
-/// What `gdd new-change` takes.
+/// What `tminus new-change` takes.
 #[derive(Debug, Args)]
 struct NewChangeArgs {
     /// Id of the change: lowercase letters, digits and hyphens.
@@ -601,7 +616,7 @@ struct NewChangeArgs {
     variants: Option<usize>,
 }
 
-/// What `gdd gate` takes.
+/// What `tminus gate` takes.
 #[derive(Debug, Args)]
 struct DecisionArgs {
     /// The gate.
@@ -619,10 +634,10 @@ struct DecisionArgs {
     note: String,
 }
 
-/// What `gdd note` takes.
+/// What `tminus note` takes.
 #[derive(Debug, Args)]
 struct NoteArgs {
-    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    /// Id of the change: its record is .tminus/changes/<id>/change.json.
     change: String,
     /// needs (a decision for the human), decided (taken without them) or parked.
     #[arg(value_parser = change::NOTE_KINDS)]
@@ -632,10 +647,10 @@ struct NoteArgs {
     text: Vec<String>,
 }
 
-/// What `gdd changelog-line` takes.
+/// What `tminus changelog-line` takes.
 #[derive(Debug, Args)]
 struct ChangelogLineArgs {
-    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    /// Id of the change: its record is .tminus/changes/<id>/change.json.
     change: String,
     /// The section: Added, Changed, Deprecated, Removed, Fixed or Security.
     #[arg(required_unless_present = "none")]
@@ -651,7 +666,7 @@ struct ChangelogLineArgs {
     none: bool,
 }
 
-/// What `gdd changelog` takes.
+/// What `tminus changelog` takes.
 #[derive(Debug, Args)]
 struct ChangelogArgs {
     /// Add what is missing to CHANGELOG.md, without asking.
@@ -662,13 +677,13 @@ struct ChangelogArgs {
     check: bool,
 }
 
-/// What `gdd release` takes.
+/// What `tminus release` takes.
 #[derive(Debug, Args)]
 struct ReleaseArgs {
     /// The step; without one, the next version of what is merged.
     #[arg(value_parser = release::STEPS)]
     step: Option<String>,
-    /// Id of the change (its record is .gdd/changes/<id>/change.json); else GDD_CHANGE.
+    /// Id of the change (its record is .tminus/changes/<id>/change.json); else TMINUS_CHANGE.
     change: Option<String>,
     /// Release the next version, without asking.
     #[arg(long, conflicts_with = "step")]
@@ -678,10 +693,10 @@ struct ReleaseArgs {
     chosen: Option<String>,
 }
 
-/// What `gdd resume` takes.
+/// What `tminus resume` takes.
 #[derive(Debug, Args)]
 struct ResumeArgs {
-    /// Id of the change: its record is .gdd/changes/<id>/change.json.
+    /// Id of the change: its record is .tminus/changes/<id>/change.json.
     change: String,
     /// The answer to G4.
     #[arg(long, value_parser = recipe::ANSWERS)]
@@ -757,7 +772,7 @@ impl Command {
                 return Ok(Outcome::needs_terminal(&sitting::no_terminal(&change)));
             }
             Command::Agents { action } => return agent_commands(root, &action),
-            Command::Stacks { action } => stack_sheets(action).map_err(|e| e.to_string())?,
+            Command::Stacks { action } => stack_sheets(root, action).map_err(|e| e.to_string())?,
             Command::Report(args) => return report(state, &args),
             Command::Classify { change } => classify(root, state, &change_id(change, env)?)?,
             Command::Snapshot { change } => snapshot(root, state, &change_id(change, env)?)?,
@@ -789,48 +804,109 @@ impl Command {
     }
 }
 
-/// The id of the change a command works on: `given`, else `GDD_CHANGE` of the environment `env`.
+/// The id of the change a command works on: `given`, else `TMINUS_CHANGE` or `GDD_CHANGE` of the
+/// environment `env` (see [`variable`]).
 fn change_id(given: Option<String>, env: &Env) -> Result<String, String> {
-    let set = given.or_else(|| variable(env, "GDD_CHANGE").map(str::to_string));
+    let set = given.or_else(|| variable(env, "CHANGE").map(str::to_string));
     set.ok_or_else(|| MISSING_CHANGE.to_string())
 }
 
-/// The value of the variable `name` in the environment `env`, the last one set, when it is not
-/// empty.
+/// The value of the variable `TMINUS_<name>` in the environment `env`, the last one set, when it
+/// is not empty; else the same of `GDD_<name>`, its name before the rename.
 fn variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
-    let (_, value) = env.iter().rev().find(|(known, _)| known == name)?;
-    Some(value.as_str()).filter(|value| !value.is_empty())
+    let set = |prefix: &str| {
+        let full = format!("{prefix}{name}");
+        let (_, value) = env.iter().rev().find(|(known, _)| *known == full)?;
+        Some(value.as_str()).filter(|value| !value.is_empty())
+    };
+    set("TMINUS_").or_else(|| set("GDD_"))
 }
 
 /// An environment: its variables, with their values.
 type Env = [(String, String)];
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, as the
+/// The name the program shows in its version and its help, from `argv0`, the path it was called
+/// by: `gdd` when the last part of that path is exactly `gdd` (or `gdd.exe`), its old name; for
+/// any other, `tminus`.
+pub fn program_name(argv0: &OsStr) -> &'static str {
+    let last = Path::new(argv0).file_name().unwrap_or_default();
+    let last = last.to_string_lossy();
+    shown_name(last.strip_suffix(".exe").unwrap_or(&*last))
+}
+
+/// `program` as a name the program answers to: `gdd` for exactly `gdd`, else `tminus`.
+fn shown_name(program: &str) -> &'static str {
+    if program == OLD_NAME { OLD_NAME } else { TOOL }
+}
+
+/// What the programs `tminus` and `gdd` run: the words and the folder of the process, with the
+/// name from its first word (see [`program_name`]); a Setup form, the Board or a sitting when a
+/// person at a terminal asks for one; else the command, saying on its way at once what it says.
+/// Prints what it ends with and gives its exit code.
+pub fn entry() -> ExitCode {
+    let mut words = std::env::args_os();
+    let program = program_name(&words.next().unwrap_or_default());
+    let args: Vec<String> = words
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let input = io::stdin().is_terminal();
+    let output = io::stdout().is_terminal();
+    let env = process_env();
+    let out = if let Some(given) = asks_form(&args, input, output, &env) {
+        form::in_terminal(&cwd, &given)
+    } else if asks_board(&args, input, output, &env) {
+        board::in_terminal(&cwd)
+    } else if let Some(change) = asks_sitting(&args, input, output, &env) {
+        sitting::in_terminal(&cwd, &change)
+    } else {
+        run_in(program, &args, &cwd, role_in(&env), &env, Streams::Process)
+    };
+    // A closed output (`tminus report | head -1`) is not worth a panic.
+    let mut stdout = io::stdout();
+    let _ = stdout
+        .write_all(out.stdout.as_bytes())
+        .and_then(|()| stdout.flush());
+    let _ = io::stderr().write_all(out.stderr.as_bytes());
+    ExitCode::from(out.code)
+}
+
+/// Runs `tminus` with `args`, the words after the program name, from the folder `cwd`, as the
 /// process itself, in its environment (see [`run_with_env`]). What it says on its way, such as
 /// what it waits for, goes at once to its standard output or error, flushed, as it is said: it is
 /// not in what it returns, which comes after it.
 pub fn run(args: &[String], cwd: &Path) -> Outcome {
     let env = process_env();
-    run_in(args, cwd, role_in(&env), &env, Streams::Process)
+    run_in(TOOL, args, cwd, role_in(&env), &env, Streams::Process)
 }
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, with `env`
-/// as the whole environment it runs in: the agents it starts get it (see [`invoke`]), and its
-/// `GDD_ROLE` is the role it runs for (see [`run_as`]). What it says on its way comes first in
-/// what it returns.
+/// Runs `tminus` with `args`, the words after the program name, from the folder `cwd`, with
+/// `env` as the whole environment it runs in: the agents it starts get it (see [`invoke`]), and
+/// its `TMINUS_ROLE` or `GDD_ROLE` is the role it runs for (see [`run_as`]). What it says on its
+/// way comes first in what it returns.
 pub fn run_with_env(args: &[String], cwd: &Path, env: &[(String, String)]) -> Outcome {
-    run_in(args, cwd, role_in(env), env, Streams::Outcome)
+    run_named(TOOL, args, cwd, env)
 }
 
-/// The role a run in the environment `env` runs for: its last `GDD_ROLE`.
+/// Runs the program as [`run_with_env`] does, called by the name `program`: `gdd` shows that
+/// name in its version and its help, and any other name shows `tminus` (see [`program_name`]).
+/// Every other message names `tminus`.
+pub fn run_named(program: &str, args: &[String], cwd: &Path, env: &[(String, String)]) -> Outcome {
+    let program = shown_name(program);
+    run_in(program, args, cwd, role_in(env), env, Streams::Outcome)
+}
+
+/// The role a run in the environment `env` runs for: its last `TMINUS_ROLE` when it has one, else
+/// its last `GDD_ROLE`. Either one, whatever its value, makes the run an agent's.
 fn role_in(env: &Env) -> Option<&str> {
-    let role = env.iter().rev().find(|(name, _)| name == "GDD_ROLE");
+    let last = |name: &str| env.iter().rev().find(|(known, _)| known == name);
+    let role = ROLES.into_iter().find_map(last);
     role.map(|(_, role)| role.as_str())
 }
 
-/// Runs `gdd` with `args`, the words after the program name, from the folder `cwd`, for the
-/// role `role` (`None` for a person), in the environment of the process. An agent gdd started,
-/// whatever its role, runs only `gdd g2`, `guard`, `note`, `status`, `classify`, `inbox`,
+/// Runs `tminus` with `args`, the words after the program name, from the folder `cwd`, for the
+/// role `role` (`None` for a person), in the environment of the process. An agent tminus started,
+/// whatever its role, runs only `tminus g2`, `guard`, `note`, `status`, `classify`, `inbox`,
 /// `report` and `scope`, besides help and the version: any other command fails before it starts,
 /// in the same words for every command, and never opens a screen in a terminal (see
 /// [`asks_form`]). Help and
@@ -842,24 +918,34 @@ fn role_in(env: &Env) -> Option<&str> {
 /// found on the standard output. `gdd init` without the flags of the project exits with 2. What
 /// it says on its way comes first in what it returns.
 pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
-    run_in(args, cwd, role, &process_env(), Streams::Outcome)
+    run_in(TOOL, args, cwd, role, &process_env(), Streams::Outcome)
 }
 
-/// Runs `gdd` with `args` from the folder `cwd`, for the role `role`, in the environment `env`
-/// (see [`run_as`]), saying what it says on its way on `streams`. A command an agent may not run
-/// is refused here, once read and before anything else, naming it as typed.
-fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: Streams) -> Outcome {
-    let (cli, name) = match parse_named(args) {
+/// Runs the program called `program` (see [`program_name`]) with `args` from the folder `cwd`,
+/// for the role `role`, in the environment `env` (see [`run_as`]), saying what it says on its way
+/// on `streams`. A command an agent may not run is refused here, once read and before anything
+/// else, naming it as typed. A project that keeps both layouts is refused before any command
+/// works on it (see [`layout::check`]).
+fn run_in(
+    program: &'static str,
+    args: &[String],
+    cwd: &Path,
+    role: Option<&str>,
+    env: &Env,
+    streams: Streams,
+) -> Outcome {
+    let (cli, name) = match parse_named(program, args) {
         Ok(parsed) => parsed,
         Err(e) if e.use_stderr() => return Outcome::failure(e.to_string()),
         Err(e) => return Outcome::success(e.to_string()),
     };
     let Some(run) = cli.command else {
-        return Outcome::success(Cli::command().render_help().to_string());
+        let help = cli_named(program).render_help();
+        return Outcome::success(help.to_string());
     };
     if role.is_some() && refused_to_agent(&run) {
-        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
-        return Outcome::error(&refused);
+        let refused = format!("Agents that {TOOL} started cannot run {TOOL} {name}");
+        return Outcome::error(&format!("{refused}: {FOR_AGENTS}"));
     }
     let command = match run {
         Run::Init(args) => return init_project(cwd, args, env),
@@ -868,6 +954,7 @@ fn run_in(args: &[String], cwd: &Path, role: Option<&str>, env: &Env, streams: S
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
         let state = state::root(&root)?;
+        layout::check(&root, &state)?;
         command.run(&root, &state, role, env, streams)
     });
     ran.unwrap_or_else(|message| Outcome::error(&message))
@@ -883,18 +970,26 @@ fn refused_to_agent(run: &Run) -> bool {
     }
 }
 
-/// The command `gdd` with `args`, the words after the program name, as clap reads it.
+/// The command `tminus` with `args`, the words after the program name, as clap reads it.
 fn parse(args: &[String]) -> Result<Cli, clap::Error> {
-    parse_named(args).map(|(cli, _)| cli)
+    parse_named(TOOL, args).map(|(cli, _)| cli)
 }
 
-/// The command `gdd` with `args` as clap reads it (see [`parse`]), and the name of its
-/// subcommand as typed, such as `agents` for `gdd agents install`: empty without one.
-fn parse_named(args: &[String]) -> Result<(Cli, String), clap::Error> {
-    let words = std::iter::once("gdd").chain(args.iter().map(String::as_str));
-    let mut matches = Cli::command().try_get_matches_from(words)?;
+/// The command line of the program called `program`: its version, its usage and its help name
+/// it so.
+fn cli_named(program: &'static str) -> clap::Command {
+    Cli::command().name(program).bin_name(program)
+}
+
+/// The command of the program called `program` with `args` as clap reads it (see [`parse`]),
+/// and the name of its subcommand as typed, such as `agents` for `tminus agents install`: empty
+/// without one.
+fn parse_named(program: &'static str, args: &[String]) -> Result<(Cli, String), clap::Error> {
+    let words = std::iter::once(program).chain(args.iter().map(String::as_str));
+    let mut matches = cli_named(program).try_get_matches_from(words)?;
     let name = matches.subcommand_name().unwrap_or_default().to_string();
-    let cli = Cli::from_arg_matches_mut(&mut matches).map_err(|e| e.format(&mut Cli::command()))?;
+    let cli = Cli::from_arg_matches_mut(&mut matches);
+    let cli = cli.map_err(|e| e.format(&mut cli_named(program)))?;
     Ok((cli, name))
 }
 
@@ -904,13 +999,13 @@ pub fn process_env() -> Vec<(String, String)> {
 }
 
 /// The variable `name`, set to `value`, as text: none when its name or value is not UTF-8, but
-/// for `GDD_ROLE`, whose bytes that are not UTF-8 become U+FFFD: whatever its value, it names an
-/// agent gdd started (see [`run_as`]).
+/// for `TMINUS_ROLE` and `GDD_ROLE`, whose bytes that are not UTF-8 become U+FFFD: whatever its
+/// value, it names an agent tminus started (see [`run_as`]).
 fn as_text((name, value): (OsString, OsString)) -> Option<(String, String)> {
     let name = name.into_string().ok()?;
     let value = match value.into_string() {
         Ok(value) => value,
-        Err(value) if name == "GDD_ROLE" => value.to_string_lossy().into_owned(),
+        Err(value) if ROLES.contains(&name.as_str()) => value.to_string_lossy().into_owned(),
         Err(_) => return None,
     };
     Some((name, value))
@@ -950,7 +1045,7 @@ pub fn asks_form(
 
 /// Whether `gdd` with `args` shows the Board (see [`board::in_terminal`]): it is `gdd board`, or
 /// `gdd` with no command, its standard input and output are terminals (`stdin` and `stdout`), and
-/// a person runs it, without a `GDD_ROLE` in the environment `env`.
+/// a person runs it, without a `TMINUS_ROLE` or `GDD_ROLE` in the environment `env`.
 pub fn asks_board(args: &[String], stdin: bool, stdout: bool, env: &[(String, String)]) -> bool {
     if !(stdin && stdout) || role_in(env).is_some() {
         return false;
@@ -977,7 +1072,7 @@ pub fn asks_sitting(
 
 /// The command `gdd` with `args` reads, when it may open a screen instead of running: its
 /// standard input and output are terminals (`stdin` and `stdout`) and a person runs it, without a
-/// `GDD_ROLE` in the environment `env`. An agent gdd started never gets a screen: [`run`] answers
+/// role in the environment `env` (see [`role_in`]). An agent never gets a screen: [`run`] answers
 /// it, and refuses what it may not run (see [`refused_to_agent`]).
 fn on_screen(args: &[String], stdin: bool, stdout: bool, env: &Env) -> Option<Run> {
     if !(stdin && stdout) || role_in(env).is_some() {
@@ -986,17 +1081,22 @@ fn on_screen(args: &[String], stdin: bool, stdout: bool, env: &Env) -> Option<Ru
     parse(args).ok()?.command
 }
 
-/// The root of the project: the nearest folder, from `cwd` upwards, with `gdd/project.toml`.
+/// The root of the project: the nearest folder, from `cwd` upwards, with `tminus/project.toml`
+/// or, set up before the rename, `gdd/project.toml`.
 fn project_root(cwd: &Path) -> Result<PathBuf, String> {
-    cwd.ancestors()
-        .find(|folder| folder.join(PROJECT).is_file())
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            format!(
-                "not a GDD project: no {PROJECT} in {} or the folders above it",
-                cwd.display()
-            )
-        })
+    let found = cwd.ancestors().find(is_project).map(Path::to_path_buf);
+    found.ok_or_else(|| {
+        let at = cwd.display();
+        format!(
+            "not a GDD project: no {PROJECT} (nor {OLD_PROJECT}) in {at} or the folders above it"
+        )
+    })
+}
+
+/// Whether `folder` is the root of a project: it has `tminus/project.toml` or `gdd/project.toml`.
+fn is_project(folder: &&Path) -> bool {
+    let file = |name: &str| folder.join(name).is_file();
+    file(PROJECT) || file(OLD_PROJECT)
 }
 
 /// `gdd report`: the agent calls of the log under the state root `state`, added up by the fields
@@ -1098,7 +1198,7 @@ fn change_type(state: &Path, folder: &str) -> Result<Option<String>, String> {
         return Ok(None);
     };
     let record: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| in_file(state, &path, e))?;
     Ok(record["type"].as_str().map(str::to_string))
 }
 
@@ -1107,10 +1207,10 @@ fn change_type(state: &Path, folder: &str) -> Result<Option<String>, String> {
 /// file without a verdict is not a review.
 fn review_verdicts(state: &Path, folder: &str) -> Result<Vec<delivery::Verdict>, String> {
     let outputs = format!("{folder}/outputs");
-    let entries = match fs::read_dir(state.join(&outputs)) {
+    let entries = match fs::read_dir(join(state, &outputs)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("cannot read {outputs}: {e}")),
+        Err(e) => return Err(format!("cannot read {}: {e}", named(state, &outputs))),
     };
     let mut verdicts = Vec::new();
     for entry in entries.filter_map(Result::ok) {
@@ -1174,7 +1274,7 @@ fn decide(root: &Path, state: &Path, id: &str) -> Result<Decided, String> {
 /// The decision for change `id` as [`decide`] takes it, with the zone map `zones`.
 fn decide_with(root: &Path, state: &Path, id: &str, zones: &ZoneMap) -> Result<Decided, String> {
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = named(state, &change::record_path(id));
     let invalid = |e: serde_json::Error| format!("{path}: {e}");
     let record = Record::from_json(&text).map_err(invalid)?;
     let kind = change::kind(&text).map_err(invalid)?;
@@ -1291,7 +1391,7 @@ fn bootstrap(root: &Path, env: &Env) -> Result<Outcome, String> {
 fn run_selftest(root: &Path, state: &Path, mut voice: Voice) -> Result<Outcome, String> {
     let gates = GateConfig::load(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
-    let config = selftest::Config::from_toml(&text).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let config = selftest::Config::from_toml(&text).map_err(|e| in_file(root, COMMANDS, e))?;
     let write = queue::shared_write(state, || voice.say(queue::WAITING_AGENTS))?;
     let checked = selftest::run(&gates.project(root, state), &config)?;
     selftest::save(state, &checked)?;
@@ -1378,10 +1478,10 @@ impl GateConfig {
     fn with_zones(root: &Path, zones: ZoneMap) -> Result<GateConfig, String> {
         let settings = load_settings(root)?;
         let rules = read(root, RULES)?.unwrap_or_default();
-        let rules = gates::Rules::from_toml(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+        let rules = gates::Rules::from_toml(&rules).map_err(|e| in_file(root, RULES, e))?;
         let commands = read(root, COMMANDS)?.unwrap_or_default();
-        let commands =
-            gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+        let commands = gates::Commands::from_toml(&commands);
+        let commands = commands.map_err(|e| in_file(root, COMMANDS, e))?;
         Ok(GateConfig {
             zones,
             settings,
@@ -1408,7 +1508,7 @@ impl GateConfig {
 /// [`main_zones`]).
 fn prepare_change(root: &Path, state: &Path, id: &str) -> Result<String, String> {
     let zones = main_zones(root)?;
-    let decided = decide_with(root, state, id, &zone_map(&zones)?)?;
+    let decided = decide_with(root, state, id, &zone_map(root, &zones)?)?;
     prepare_decided(root, state, id, &decided, &zones)
 }
 
@@ -1422,7 +1522,7 @@ fn prepare_decided(
     decided: &Decided,
     zones: &str,
 ) -> Result<String, String> {
-    let config = GateConfig::with_zones(root, zone_map(zones)?)?;
+    let config = GateConfig::with_zones(root, zone_map(root, zones)?)?;
     let project = config.project(root, state);
     let setup = prepare::Setup {
         project: &project,
@@ -1645,9 +1745,9 @@ fn in_worktree(
     let main = load_settings(root)?.main_branch;
     let limits = load_limits(root)?;
     let rules = read(root, RULES)?.unwrap_or_default();
-    let folder = recipe::worktree::folder(root, &rules).map_err(|e| format!("{RULES}: {e}"))?;
-    let max = queue::cap(&rules).map_err(|e| format!("{RULES}: {e}"))?;
-    let spike_usd = gdd_core::rules::spike_budget(&rules).map_err(|e| format!("{RULES}: {e}"))?;
+    let folder = recipe::worktree::folder(root, &rules).map_err(|e| in_file(root, RULES, e))?;
+    let max = queue::cap(&rules).map_err(|e| in_file(root, RULES, e))?;
+    let spike_usd = gdd_core::rules::spike_budget(&rules).map_err(|e| in_file(root, RULES, e))?;
     let worktree = recipe::worktree::path(&folder, id)?;
     let work = recipe::worktree::project_root(root, &worktree)?;
     let project = recipe::Project {
@@ -1703,20 +1803,22 @@ fn agent_sheets(root: &Path, named: &[String]) -> Result<Vec<Sheet>, String> {
     render::agents(&models, named)
 }
 
-/// The stacks `gdd/project.toml` names (see [`stacks::of_project`]).
+/// The stacks `tminus/project.toml` names (see [`stacks::of_project`]).
 fn project_stacks(root: &Path) -> Result<Vec<String>, String> {
     let text = read(root, PROJECT)?.unwrap_or_default();
-    stacks::of_project(&text).map_err(|e| format!("{PROJECT}: {e}"))
+    stacks::of_project(&text).map_err(|e| in_file(root, PROJECT, e))
 }
 
-/// `gdd stacks`: the list of the sheets, one of them (see [`stacks::Sheet`]) or what several
-/// give together (see [`stacks::compose`]).
-fn stack_sheets(action: Option<StacksAction>) -> Result<String, stacks::Error> {
-    match action {
-        None => stacks::list(),
-        Some(StacksAction::Show { name }) => Ok(stacks::sheet(&name)?.to_string()),
-        Some(StacksAction::Compose { names }) => stacks::compose(&names),
-    }
+/// `tminus stacks`: the list of the sheets, one of them (see [`stacks::Sheet`]) or what several
+/// give together (see [`stacks::compose`]); a sheet and what several give, as the project at
+/// `root` names its variables and its files (see [`Layout::localize`]).
+fn stack_sheets(root: &Path, action: Option<StacksAction>) -> Result<String, stacks::Error> {
+    let shown = match action {
+        None => return stacks::list(),
+        Some(StacksAction::Show { name }) => stacks::sheet(&name)?.to_string(),
+        Some(StacksAction::Compose { names }) => stacks::compose(&names)?,
+    };
+    Ok(Layout::at(root).localize(&shown))
 }
 
 /// The steps of the recipe on change `id` of the project at `root`, the worktree of the change,
@@ -1773,11 +1875,12 @@ impl<'a> ProjectSteps<'a> {
 impl recipe::Steps for ProjectSteps<'_> {
     /// Prepares the change once every role can be started (see [`invoke::check`]).
     fn prepare(&mut self) -> Result<recipe::Decided, String> {
-        let zones = main_zones(&self.root)?;
-        let decided = decide_with(&self.root, self.state, self.id, &zone_map(&zones)?)?;
+        let root = self.root.as_path();
+        let zones = main_zones(root)?;
+        let decided = decide_with(root, self.state, self.id, &zone_map(root, &zones)?)?;
         invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
-        let printed = prepare_decided(&self.root, self.state, self.id, &decided, &zones)?;
-        serde_json::from_str(&printed).map_err(|e| format!("gdd prepare: {e}"))
+        let printed = prepare_decided(root, self.state, self.id, &decided, &zones)?;
+        serde_json::from_str(&printed).map_err(|e| format!("{TOOL} prepare: {e}"))
     }
 
     fn agent(&mut self, call: &invoke::Call) -> (Usage, Result<(), invoke::Error>) {
@@ -1874,7 +1977,7 @@ fn save_out_of_scope(state: &Path, id: &str, accepted: &[String]) -> Result<(), 
     match change::with_out_of_scope(&text, accepted) {
         Ok(Some(record)) => write(state, &path, &record),
         Ok(None) => Ok(()),
-        Err(e) => Err(format!("{path}: {e}")),
+        Err(e) => Err(in_file(state, &path, e)),
     }
 }
 
@@ -2020,7 +2123,7 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
     let id = args.change.as_str();
     change::check_id(id)?;
     let path = change::record_path(id);
-    if state.join(&path).exists() {
+    if join(state, &path).exists() {
         return Err(format!("Change {id} already exists."));
     }
     let variants = change::variants(id, &args.kind, &args.options, args.variants)?;
@@ -2058,7 +2161,8 @@ fn new_change(root: &Path, state: &Path, args: &NewChangeArgs) -> Result<String,
         note: args.title.clone(),
     };
     let line = entry.line(&ts).map_err(|e| e.to_string())?;
-    log::append(state, &line).map_err(|e| format!("cannot write {}: {e}", log::PATH))?;
+    let logged = log::append(state, &line);
+    logged.map_err(|e| format!("cannot write {}: {e}", named(state, log::PATH)))?;
     classify(root, state, id)
 }
 
@@ -2070,7 +2174,7 @@ fn clashes_with_variants(state: &Path, git: &Git, id: &str, count: usize) -> Res
     for number in 1..=count {
         let variant = change::variant_id(id, number);
         let branch = change::branch(&variant);
-        let recorded = state.join(change::record_path(&variant)).exists();
+        let recorded = join(state, &change::record_path(&variant)).exists();
         if recorded || git.exists(&branch).map_err(|e| e.to_string())? {
             return Err(format!(
                 "{branch}, the branch of variant {number} of {id}, is taken already: pick another \
@@ -2084,12 +2188,13 @@ fn clashes_with_variants(state: &Path, git: &Git, id: &str, count: usize) -> Res
     let Ok(number) = number.parse::<usize>() else {
         return Ok(());
     };
-    if !change::valid_id(spike) || !state.join(change::record_path(spike)).exists() {
+    let path = change::record_path(spike);
+    if !change::valid_id(spike) || !join(state, &path).exists() {
         return Ok(());
     }
     let text = change::read_record(state, spike)?;
     let variants = change::variants_of(&text);
-    let variants = variants.map_err(|e| format!("{}: {e}", change::record_path(spike)))?;
+    let variants = variants.map_err(|e| in_file(state, &path, e))?;
     if (1..=variants.len()).contains(&number) {
         return Err(format!(
             "change/{id} is the branch of variant {number} of spike {spike}: pick another id"
@@ -2163,7 +2268,7 @@ fn note(state: &Path, args: &NoteArgs) -> Result<String, String> {
         ts: &ts,
     };
     let path = change::record_path(id);
-    let record = change::with_note(&text, &note).map_err(|e| format!("{path}: {e}"))?;
+    let record = change::with_note(&text, &note).map_err(|e| in_file(state, &path, e))?;
     write(state, &path, &record)?;
     Ok("noted".to_string())
 }
@@ -2247,7 +2352,7 @@ fn decision_inbox(state: &Path, id: &str) -> Result<String, String> {
 /// [`status::second_family`]).
 fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String> {
     let project = read(root, PROJECT)?.unwrap_or_default();
-    let basics = status::Basics::from_toml(&project).map_err(|e| format!("{PROJECT}: {e}"))?;
+    let basics = status::Basics::from_toml(&project).map_err(|e| in_file(root, PROJECT, e))?;
     let zones = read(root, ZONES)?.unwrap_or_default();
     let dir = load_table(root)?.acceptance.dir;
     let scenarios = gates::count_scenarios(&root.join(&dir)).map_err(|e| e.to_string());
@@ -2279,7 +2384,8 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
 /// commands (see [`adopt::adopt`]).
 fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
     let commands = read(root, COMMANDS)?.unwrap_or_default();
-    let commands = gates::Commands::from_toml(&commands).map_err(|e| format!("{COMMANDS}: {e}"))?;
+    let commands = gates::Commands::from_toml(&commands);
+    let commands = commands.map_err(|e| in_file(root, COMMANDS, e))?;
     let limit = load_command_limit(root)?;
     adopt::adopt(root, state, &commands, limit).map(|adopted| adopted.to_string())
 }
@@ -2295,10 +2401,10 @@ fn learn_project(root: &Path, state: &Path, since: Option<i64>) -> Result<String
 /// The line of each change in the status, in the order of their folders under the state root
 /// `state`; a folder without a record is not a change.
 fn change_lines(state: &Path) -> Result<Vec<String>, String> {
-    let entries = match fs::read_dir(state.join(CHANGES)) {
+    let entries = match fs::read_dir(join(state, CHANGES)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("cannot read {CHANGES}: {e}")),
+        Err(e) => return Err(format!("cannot read {}: {e}", named(state, CHANGES))),
     };
     let mut ids: Vec<String> = entries
         .flatten()
@@ -2319,7 +2425,7 @@ fn change_lines(state: &Path) -> Result<Vec<String>, String> {
 fn load_record(state: &Path, id: &str) -> Result<Record, String> {
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
-    Record::from_json(&text).map_err(|e| format!("{path}: {e}"))
+    Record::from_json(&text).map_err(|e| in_file(state, &path, e))
 }
 
 /// The kind of work of change `id`, from its record under the state root `state` (see
@@ -2327,7 +2433,7 @@ fn load_record(state: &Path, id: &str) -> Result<Record, String> {
 fn change_kind(state: &Path, id: &str) -> Result<String, String> {
     let text = change::read_record(state, id)?;
     let path = change::record_path(id);
-    change::kind(&text).map_err(|e| format!("{path}: {e}"))
+    change::kind(&text).map_err(|e| in_file(state, &path, e))
 }
 
 /// The hashes of the snapshot at `path` under the state root `state`; `None` when there is none.
@@ -2335,19 +2441,19 @@ fn read_snapshot(state: &Path, path: &str) -> Result<Option<Hashes>, String> {
     match read(state, path)? {
         Some(text) => serde_json::from_str(&text)
             .map(Some)
-            .map_err(|e| format!("{path}: {e}")),
+            .map_err(|e| in_file(state, path, e)),
         None => Ok(None),
     }
 }
 
-/// The zone map of the project.
+/// The zone map of the project at `root`.
 fn load_zones(root: &Path) -> Result<ZoneMap, String> {
-    zone_map(&read(root, ZONES)?.unwrap_or_default())
+    zone_map(root, &read(root, ZONES)?.unwrap_or_default())
 }
 
-/// The zone map whose text is `text`.
-fn zone_map(text: &str) -> Result<ZoneMap, String> {
-    ZoneMap::from_toml(text).map_err(|e| format!("{ZONES}: {e}"))
+/// The zone map of the project at `root` whose text is `text`.
+fn zone_map(root: &Path, text: &str) -> Result<ZoneMap, String> {
+    ZoneMap::from_toml(text).map_err(|e| in_file(root, ZONES, e))
 }
 
 /// The text of the zone map of the main branch of the project at `root`: red zones are approved
@@ -2358,13 +2464,17 @@ fn main_zones(root: &Path) -> Result<String, String> {
     Ok(main_file(root, ZONES)?.unwrap_or_default())
 }
 
-/// The text of the file `path` as the main branch of the project at `root` has it; when main has
-/// none, or there is no main branch (nor git) yet, the one at `root`; `None` without either.
+/// The text of the file `path`, written in the new names, as the main branch of the project at
+/// `root` has it, where the project keeps it (see [`named`]); when main has none, or there is no
+/// main branch (nor git) yet, the one at `root`; `None` without either.
 fn main_file(root: &Path, path: &str) -> Result<Option<String>, String> {
     let main = load_settings(root)?.main_branch;
     let git = Git::new(root);
     let said = |e: gdd_core::git::Error| e.to_string();
     let on_main = gdd_core::git::is_repository(root) && git.exists(&main).map_err(said)?;
+    // Named twice it is the same: the project's name is the new one or its exact reverse.
+    let kept_at = named(root, path);
+    let path = kept_at.as_str();
     let kept = if on_main {
         git.file_at(&main, path).map_err(said)?
     } else {
@@ -2379,32 +2489,32 @@ fn main_file(root: &Path, path: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// What `gdd/models.toml` of the main branch says of the agents besides the model of each role
-/// (see [`main_file`]): prices that a change's branch made before they were added still count,
-/// and a branch's own do not.
+/// What `tminus/models.toml` of the main branch says of the agents besides the model of each
+/// role (see [`main_file`]): prices that a change's branch made before they were added still
+/// count, and a branch's own do not.
 fn main_agent_settings(root: &Path) -> Result<invoke::Settings, String> {
     let path = agents::models::PATH;
     let text = main_file(root, path)?.unwrap_or_default();
-    invoke::Settings::from_toml(&text).map_err(|e| format!("{path}: {e}"))
+    invoke::Settings::from_toml(&text).map_err(|e| in_file(root, path, e))
 }
 
 /// The zone map of the main branch of the project at `root` (see [`main_zones`]).
 fn main_zone_map(root: &Path) -> Result<ZoneMap, String> {
-    zone_map(&main_zones(root)?)
+    zone_map(root, &main_zones(root)?)
 }
 
 /// The rules table the project classifies its changes with, the one the gates use (see
 /// [`RulesTable::of_project`]).
 fn load_table(root: &Path) -> Result<RulesTable, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    RulesTable::of_project(&text).map_err(|e| format!("{RULES}: {e}"))
+    RulesTable::of_project(&text).map_err(|e| in_file(root, RULES, e))
 }
 
 /// The models of the project: who plays each role.
 fn load_models(root: &Path) -> Result<Models, String> {
     let path = agents::models::PATH;
     let text = read(root, path)?.unwrap_or_default();
-    Models::from_toml(&text).map_err(|e| format!("{path}: {e}"))
+    Models::from_toml(&text).map_err(|e| in_file(root, path, e))
 }
 
 /// The models of the project at `root` (see [`load_models`]), with the Builder session of the
@@ -2418,21 +2528,21 @@ fn load_models_with_session(root: &Path, state: &Path) -> Result<Models, String>
 /// The limits the rules file of the project sets on the agents.
 fn load_limits(root: &Path) -> Result<Limits, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    Limits::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
+    Limits::from_toml(&text).map_err(|e| in_file(root, RULES, e))
 }
 
 /// The release commands of the project, with the time limit of its rules file.
 fn load_steps(root: &Path) -> Result<release::Steps, String> {
     let limit = load_command_limit(root)?;
     let text = read(root, COMMANDS)?.unwrap_or_default();
-    release::Steps::from_toml(&text, limit).map_err(|e| format!("{COMMANDS}: {e}"))
+    release::Steps::from_toml(&text, limit).map_err(|e| in_file(root, COMMANDS, e))
 }
 
 /// How long each gate and release command of the project may run (see
 /// [`gdd_core::rules::command_seconds`]).
 fn load_command_limit(root: &Path) -> Result<Duration, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    gdd_core::rules::command_seconds(&text).map_err(|e| format!("{RULES}: {e}"))
+    gdd_core::rules::command_seconds(&text).map_err(|e| in_file(root, RULES, e))
 }
 
 /// What the rules file of the main checkout, under the state root `state`, says of releases (see
@@ -2445,26 +2555,51 @@ fn load_versions(state: &Path) -> Result<versions::Rules, String> {
 /// What the rules file says to Path Guard: the main branch and the protected paths.
 fn load_settings(root: &Path) -> Result<Settings, String> {
     let text = read(root, RULES)?.unwrap_or_default();
-    Settings::from_toml(&text).map_err(|e| format!("{RULES}: {e}"))
+    Settings::from_toml(&text).map_err(|e| in_file(root, RULES, e))
 }
 
-/// The text of the file `path` under the folder `root` (the project root or the state root), or
-/// `None` when it does not exist.
+/// The text of the file `path`, written in the new names, under the folder `root` (the project
+/// root or the state root), where the project keeps it (see [`join`]), or `None` when it does
+/// not exist.
 fn read(root: &Path, path: &str) -> Result<Option<String>, String> {
-    match fs::read_to_string(root.join(path)) {
+    match fs::read_to_string(join(root, path)) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("cannot read {path}: {e}")),
+        Err(e) => Err(format!("cannot read {}: {e}", named(root, path))),
     }
 }
 
-/// Writes `text` to the file `path` under the folder `root`, creating its folder.
+/// Writes `text` to the file `path`, written in the new names, under the folder `root`, where the
+/// project keeps it (see [`join`]), creating its folder.
 fn write(root: &Path, path: &str, text: &str) -> Result<(), String> {
-    let file = root.join(path);
+    let file = join(root, path);
     file.parent()
         .map_or(Ok(()), fs::create_dir_all)
         .and_then(|()| fs::write(&file, text))
-        .map_err(|e| format!("cannot write {path}: {e}"))
+        .map_err(|e| format!("cannot write {}: {e}", named(root, path)))
+}
+
+/// Why the file `path`, written in the new names, under the folder `root` (the project root or
+/// the state root) is wrong, as the project names it (see [`named`]): `<path>: <why>`.
+fn in_file(root: &Path, path: &str, why: impl std::fmt::Display) -> String {
+    format!("{}: {why}", named(root, path))
+}
+
+/// `path`, a path of the tool written in the new names (`tminus/rules.toml`,
+/// `.tminus/changes/<id>/change.json`...), as the project at `root` names it (see
+/// [`layout::named`]). Only its first folder is the tool's: what follows, such as the id of a
+/// change (`rename-tminus`), stays as it is.
+fn named(root: &Path, path: &str) -> String {
+    match path.split_once('/') {
+        Some((tool, rest)) => format!("{}/{rest}", layout::named(root, tool)),
+        None => layout::named(root, path),
+    }
+}
+
+/// `root` joined with `path`, a path of the tool written in the new names, where the project at
+/// `root` keeps it (see [`named`]).
+fn join(root: &Path, path: &str) -> PathBuf {
+    root.join(named(root, path))
 }
 
 #[cfg(test)]
@@ -2585,11 +2720,57 @@ mod tests {
     }
 
     #[test]
+    fn the_name_the_program_shows_is_the_one_it_was_called_by() {
+        for (called, shown) in [
+            ("gdd", "gdd"),
+            ("/usr/local/bin/gdd", "gdd"),
+            ("gdd.exe", "gdd"),
+            ("./target/release/gdd", "gdd"),
+            ("tminus", "tminus"),
+            ("/usr/bin/tminus", "tminus"),
+            ("tminus.exe", "tminus"),
+            ("gdd-rust", "tminus"),
+            ("gdd.exe.exe", "tminus"),
+            ("GDD", "tminus"),
+            ("/", "tminus"),
+            ("", "tminus"),
+        ] {
+            assert_eq!(program_name(OsStr::new(called)), shown, "{called:?}");
+        }
+    }
+
+    #[test]
+    fn the_version_and_the_usage_say_the_name_and_the_rest_says_tminus() {
+        let version = |program: &str| run_named(program, &words("--version"), Path::new("/"), &[]);
+        let line = |name: &str| Outcome::success(format!("{name} {}\n", gdd_core::VERSION));
+        assert_eq!(version("gdd"), line("gdd"));
+        assert_eq!(version("tminus"), line("tminus"));
+        assert_eq!(version("gdd-rust"), line("tminus"));
+        for program in ["gdd", "tminus"] {
+            for command in ["--help", "", "report --help"] {
+                let out = run_named(program, &words(command), Path::new("/"), &[]);
+                let usage = format!("Usage: {program}");
+                assert!(out.stdout.contains(&usage), "{program} {command:?}");
+            }
+            let help = run_named(program, &words("--help"), Path::new("/"), &[]);
+            let about = "GDD · Gate-Driven Development";
+            assert!(help.stdout.contains(about), "{program}: {help:?}");
+            let wrong = run_named(program, &words("classify a b"), Path::new("/"), &[]);
+            let usage = format!("Usage: {program} classify");
+            assert!(wrong.stderr.contains(&usage), "{program}: {wrong:?}");
+            let env = [("GDD_ROLE".to_string(), "reviewer".to_string())];
+            let refused = run_named(program, &words("launch c1"), Path::new("/"), &env);
+            let said = "Agents that tminus started cannot run tminus launch";
+            assert!(refused.stderr.contains(said), "{program}: {refused:?}");
+        }
+    }
+
+    #[test]
     fn help_goes_to_the_standard_output() {
         for command in ["--help", "", "report --help"] {
             let out = run_in(Path::new("/"), command);
             assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{command:?}");
-            assert!(out.stdout.contains("Usage: gdd"), "{command:?}: {out:?}");
+            assert!(out.stdout.contains("Usage: tminus"), "{command:?}: {out:?}");
         }
         let out = run_in(Path::new("/"), "");
         for command in ["report", "classify", "guard", "snapshot", "scope"] {

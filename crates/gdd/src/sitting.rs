@@ -1,4 +1,4 @@
-//! The sitting of `gdd sitting <change>`: the screen where the human approves a change before it
+//! The sitting of `tminus sitting <change>`: the screen where the human approves a change before it
 //! is built, or asks for changes. It shows the scenarios as the branch of the change has them,
 //! the red zones waiting for approval and the plan of a red change. The sitting is a state
 //! machine, keys in and a screen out ([`Sitting`]), drawn with Ratatui. [`in_terminal`] shows it
@@ -19,6 +19,7 @@ use gdd_core::gates::approve;
 use gdd_core::git::Git;
 use gdd_core::guard;
 use gdd_core::inbox;
+use gdd_core::layout;
 use gdd_core::log;
 use gdd_core::recipe;
 use gdd_core::state;
@@ -248,13 +249,14 @@ impl Sitting {
     }
 
     /// The sitting of the change `change` of the project that holds the folder `cwd`, as every
-    /// command finds the project and its changes; an unknown change is an error naming it.
+    /// command finds the project and its changes (see [`layout::check`], which refuses a project
+    /// that keeps both layouts); an unknown change is an error naming it.
     pub fn load(cwd: &Path, change: &str) -> Result<Sitting, String> {
         let root = crate::project_root(cwd)?;
-        let state = state::root(&root)?;
+        let state = state_root(&root)?;
         let project = crate::read(&root, crate::PROJECT)?.unwrap_or_default();
-        let basics =
-            status::Basics::from_toml(&project).map_err(|e| format!("{}: {e}", crate::PROJECT))?;
+        let basics = status::Basics::from_toml(&project);
+        let basics = basics.map_err(|e| crate::in_file(&root, crate::PROJECT, e))?;
         let card = card_of(&root, &state, change)?;
         if card.state == IN_PRE {
             let record = record_of(&state, &card.id)?;
@@ -262,7 +264,7 @@ impl Sitting {
             let mut sitting = Sitting::new(&basics.name, &card.id, &root, lines, None);
             sitting.g4 = true;
             sitting.spike = card.kind == SPIKE;
-            sitting.variants = !variants_of(&card.id, &record)?.is_empty();
+            sitting.variants = !variants_of(&state, &card.id, &record)?.is_empty();
             return Ok(sitting);
         }
         let title = format!("{} · {} · {}", card.id, card.title, card.color);
@@ -467,7 +469,7 @@ impl Sitting {
 
     /// The state of the change as its record has it now.
     fn current_state(&self) -> Result<String, String> {
-        let state = state::root(&self.root)?;
+        let state = state_root(&self.root)?;
         card_of(&self.root, &state, &self.id).map(|card| card.state)
     }
 
@@ -592,7 +594,7 @@ impl Sitting {
 
     /// Paints the screen on `buffer`, framed with the title, the keys at the bottom.
     fn paint(&self, area: Rect, buffer: &mut Buffer) {
-        let title = format!(" gdd · Sitting · {} ", self.project);
+        let title = format!(" tminus · Sitting · {} ", self.project);
         let block = Block::bordered().title(title);
         let inner = block.inner(area);
         block.render(area, buffer);
@@ -641,7 +643,7 @@ impl Sitting {
                 on_branch: false,
             });
         }
-        let next = format!("Next: tell your agent it is approved (it runs gdd launch {id})");
+        let next = format!("Next: tell your agent it is approved (it runs tminus launch {id})");
         self.record(&steps, Some(next));
     }
 
@@ -806,7 +808,7 @@ fn run_text(
     spike: bool,
     variant: Option<&str>,
 ) -> Vec<String> {
-    let mut command = format!("gdd resume {id} --g4 {}", answer.word());
+    let mut command = format!("tminus resume {id} --g4 {}", answer.word());
     if let Some(variant) = variant {
         command.push_str(&format!(" --variant {variant}"));
     }
@@ -828,7 +830,7 @@ fn g4_lines(state: &Path, card: &Card, record: &Value) -> Result<Vec<Line<'stati
     let id = card.id.as_str();
     let title = format!("{id} · {} · waiting for your G4", card.title);
     let spike = card.kind == SPIKE;
-    let variants = variants_of(id, record)?;
+    let variants = variants_of(state, id, record)?;
     let mut lines = vec![Line::from(title).bold(), Line::default()];
     if !variants.is_empty() {
         lines.push(Line::from(inbox::VARIANTS).bold());
@@ -861,25 +863,27 @@ fn g4_lines(state: &Path, card: &Card, record: &Value) -> Result<Vec<Line<'stati
     Ok(lines)
 }
 
-/// The record of the change `id` as JSON.
+/// The record of the change `id`, under the state root `state`, as JSON.
 fn record_of(state: &Path, id: &str) -> Result<Value, String> {
     let text = change::read_record(state, id)?;
-    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", change::record_path(id)))
+    let path = change::record_path(id);
+    serde_json::from_str(&text).map_err(|e| crate::in_file(state, &path, e))
 }
 
-/// The variants of a spike the record of the change `id`, `record`, keeps: none when it has no
-/// `variants`, or `null`.
-fn variants_of(id: &str, record: &Value) -> Result<Vec<change::Variant>, String> {
+/// The variants of a spike the record of the change `id`, `record`, under the state root
+/// `state`, keeps: none when it has no `variants`, or `null`.
+fn variants_of(state: &Path, id: &str, record: &Value) -> Result<Vec<change::Variant>, String> {
     let variants = record.get("variants").cloned().unwrap_or_default();
     let read = serde_json::from_value::<Option<Vec<change::Variant>>>(variants);
-    let read = read.map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+    let path = change::record_path(id);
+    let read = read.map_err(|e| crate::in_file(state, &path, e))?;
     Ok(read.unwrap_or_default())
 }
 
 /// The review of the change `id`: how the change works (see [`inbox::how_it_works`]), then its
 /// verdict and its other lines; or that there is none.
 fn review_lines(state: &Path, id: &str) -> Result<Vec<Line<'static>>, String> {
-    let path = format!(".gdd/changes/{id}/review.md");
+    let path = format!("{}/{id}/review.md", crate::CHANGES);
     let text = crate::read(state, &path)?.unwrap_or_default();
     let text = inbox::unlinked(&text, &inbox::roots(state, id));
     let (explained, others) = inbox::how_it_works(&text);
@@ -925,9 +929,10 @@ fn verdict_of(text: &str) -> Option<&str> {
 }
 
 /// The `Demo:` line of the change `id`: the line with the count of scenarios of the first demo
-/// file that has one, else the first line of the first file; with its path.
+/// file that has one, else the first line of the first file; with its path, as the project under
+/// the state root `state` names it.
 fn demo_line(state: &Path, id: &str) -> String {
-    let dir = format!(".gdd/changes/{id}/demo");
+    let dir = format!("{}/{id}/demo", crate::named(state, crate::CHANGES));
     let names = match demo_files(&state.join(&dir)) {
         Ok(names) => names,
         Err(why) => return format!("Demo: {why}"),
@@ -1042,12 +1047,21 @@ fn time_lines(state: &Path, id: &str) -> Vec<Line<'static>> {
     rows.chain(left_out).collect()
 }
 
+/// The state root of the project at `root` (see [`state::root`]), once it is seen to keep its
+/// files and its state in one layout (see [`layout::check`]).
+fn state_root(root: &Path) -> Result<PathBuf, String> {
+    let state = state::root(root)?;
+    layout::check(root, &state)?;
+    Ok(state)
+}
+
 /// The card of the change `id`; else why there is none.
 fn card_of(root: &Path, state: &Path, id: &str) -> Result<Card, String> {
     let card = status::cards(root, state)
         .into_iter()
         .find(|card| card.id == id);
-    let unknown = || format!("unknown change {id}: no {}", change::record_path(id));
+    let record = crate::named(state, &change::record_path(id));
+    let unknown = || format!("unknown change {id}: no {record}");
     let card = card.ok_or_else(unknown)?;
     match &card.problem {
         Some(problem) => Err(format!("{id}: {problem}")),
@@ -1210,7 +1224,7 @@ fn plan_lines(state: &Path, card: &Card, red: bool) -> Result<Vec<Line<'static>>
         let not_needed = format!("Plan: not needed for a {} change", card.color);
         return Ok(vec![Line::from(not_needed)]);
     }
-    let path = format!(".gdd/changes/{}/plan.md", card.id);
+    let path = format!("{}/{}/plan.md", crate::CHANGES, card.id);
     let Some(plan) = crate::read(state, &path)? else {
         return Ok(vec![Line::from("Plan: none written yet")]);
     };
@@ -1338,12 +1352,12 @@ pub fn in_terminal(cwd: &Path, change: &str) -> crate::Outcome {
     }
 }
 
-/// Why `gdd sitting` without a terminal did nothing, and what records the same decisions.
+/// Why `tminus sitting` without a terminal did nothing, and what records the same decisions.
 pub(crate) fn no_terminal(id: &str) -> String {
     format!(
-        "gdd sitting needs a terminal; without one, record the sitting with gdd gate G1 ok {id} \
-         --by human (and gdd gate zones ok --by human, gdd gate plan ok {id} --by human for a \
-         red change)"
+        "tminus sitting needs a terminal; without one, record the sitting with tminus gate G1 ok \
+         {id} --by human (and tminus gate zones ok --by human, tminus gate plan ok {id} --by \
+         human for a red change)"
     )
 }
 

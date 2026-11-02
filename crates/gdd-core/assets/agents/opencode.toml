@@ -5,7 +5,7 @@ binary = "opencode"
 usage = "opencode-jsonl"   # step_finish events carry tokens and cost, not the model
 
 [commands]
-path = ".opencode/commands/{name}.md"   # {name} is gdd-<command>
+path = ".opencode/commands/{name}.md"   # {name} is tminus-<command>
 format = "command"                       # frontmatter with the description only
 invoke = "/{name}"
 
@@ -13,7 +13,7 @@ invoke = "/{name}"
 # OpenCode takes the command apart from its arguments.
 args = ["run", "{role_args}", "--command", "{name}", "-m", "{model}", "--format", "json", "{args}"]
 
-# No per-role flags yet: gdd's own checks (GDD state and a read-only Reviewer) still apply.
+# No per-role flags yet: tminus's own checks (GDD state and a read-only Reviewer) still apply.
 # `opencode run` has no flag to grant a folder outside the one it runs in, the change's worktree.
 [roles.builder-build]
 args = []

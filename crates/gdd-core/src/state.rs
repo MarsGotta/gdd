@@ -1,15 +1,15 @@
-//! Where gdd keeps its state: the folder whose `.gdd/` holds the records and approvals of the
-//! changes, the gate reports, the Reviewer's verdicts, the snapshots, the log, the self-test and
-//! the binary. Every working tree of a repository shares the state of its main checkout, so a
-//! change can run in a git worktree of its own and still read and write the same records. The
-//! files of the project (`gdd/*.toml`, `features/`...) and the gate commands stay with the
-//! folder gdd runs in.
+//! Where tminus keeps its state: the folder whose `.tminus/` (`.gdd/` in a project of the old
+//! layout, see [`crate::layout`]) holds the records and approvals of the changes, the gate
+//! reports, the Reviewer's verdicts, the snapshots, the log, the self-test and the binary. Every
+//! working tree of a repository shares the state of its main checkout, so a change can run in a
+//! git worktree of its own and still read and write the same records. The files of the project
+//! (`tminus/*.toml`, `features/`...) and the gate commands stay with the folder tminus runs in.
 
 use std::path::{Path, PathBuf};
 
 use crate::git::{Dirs, Git};
 
-/// The folder whose `.gdd/` holds the state of the project at `project_root`: in a linked
+/// The folder whose `.tminus/` holds the state of the project at `project_root`: in a linked
 /// worktree, the same folder of the main checkout git names; otherwise `project_root` itself,
 /// as in a single checkout, the main checkout or a folder git cannot read (not a repository
 /// yet). A linked worktree of a bare repository, or of one git cannot name the checkout of, is
@@ -33,13 +33,13 @@ fn shared(git: &Git, project_root: &Path, dirs: &Dirs) -> Result<PathBuf, String
     if main.bare {
         return Err(format!(
             "{worktree} is a worktree of the bare repository {repository}, which has no main \
-             checkout to share the state of gdd with: run gdd from a clone that is not bare"
+             checkout to share the state of tminus with: run tminus from a clone that is not bare"
         ));
     }
     if main.path == dirs.common {
         return Err(format!(
-            "{worktree} cannot share the state of gdd: git does not know where the main checkout \
-             of the repository {repository} is; run gdd from the main checkout"
+            "{worktree} cannot share the state of tminus: git does not know where the main \
+             checkout of the repository {repository} is; run tminus from the main checkout"
         ));
     }
     // Through its components: joining an empty prefix would end the path with a slash.
@@ -111,12 +111,12 @@ mod tests {
         assert_eq!((listed.path, listed.bare), (repository.clone(), false));
         let err = root(&worktree.join("app")).unwrap_err();
         let named = format!(
-            "{} cannot share the state of gdd: git does not know where the main checkout of the \
-             repository {} is",
+            "{} cannot share the state of tminus: git does not know where the main checkout of \
+             the repository {} is; run tminus from the main checkout",
             worktree.join("app").display(),
             repository.display()
         );
-        assert!(err.starts_with(&named), "{err}");
+        assert_eq!(err, named);
         // The main checkout keeps its own.
         assert_eq!(root(repo.root()).unwrap(), repo.root());
         let app = repo.root().join("app");
@@ -135,10 +135,11 @@ mod tests {
         let err = root(&worktree).unwrap_err();
         let repository = fs::canonicalize(&path).unwrap();
         let named = format!(
-            "{} is a worktree of the bare repository {}, which has no main checkout",
+            "{} is a worktree of the bare repository {}, which has no main checkout to share the \
+             state of tminus with: run tminus from a clone that is not bare",
             worktree.display(),
             repository.display()
         );
-        assert!(err.starts_with(&named), "{err}");
+        assert_eq!(err, named);
     }
 }

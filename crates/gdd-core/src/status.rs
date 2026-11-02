@@ -16,18 +16,21 @@ use crate::config::{self, Color};
 use crate::gates::approve::{BRIEF, ZonesState};
 use crate::gates::debt::{self, Debt, Listed};
 use crate::gates::{COMMANDS, Commands, Gate};
+use crate::layout::{self, Layout};
 use crate::rules::RulesTable;
 use crate::zones::ZoneMap;
 use crate::{guard, init, log};
 
-/// Where the changes keep their records, from the state root.
-const CHANGES: &str = ".gdd/changes";
+/// Where the changes keep their records, from the state root. Like every path and agent command
+/// here, in the new names: a project of the old layout names them as before (see
+/// [`Layout::localize`]).
+const CHANGES: &str = ".tminus/changes";
 
 /// The record of a change, from its folder.
 const RECORD: &str = "change.json";
 
 /// The zone map of the project, from its root.
-const ZONES: &str = "gdd/zones.toml";
+const ZONES: &str = "tminus/zones.toml";
 
 /// What the status says of a missing Project Brief.
 const NO_BRIEF: &str = "missing (Setup writes it)";
@@ -36,7 +39,7 @@ const NO_BRIEF: &str = "missing (Setup writes it)";
 const G0_OK: &str = "ok · G0 ok";
 
 /// What the status says of G0 until the machines open it.
-const G0_PENDING: &str = "pending · G0 pending: run the Setup (the gdd-setup command).";
+const G0_PENDING: &str = "pending · G0 pending: run the Setup (the tminus-setup command).";
 
 /// What the status says when an agent of another model family could review a project that
 /// accepted one family only.
@@ -47,7 +50,7 @@ const UNSEEN: &str = "a change can add to it unseen";
 
 /// What the status says when the gate commands have no mutation testing for red changes.
 const NO_MUTATION: &str =
-    "no mutation testing command in [g3] of gdd/commands.toml: red changes go without it";
+    "no mutation testing command in [g3] of tminus/commands.toml: red changes go without it";
 
 /// How the lines on a shared Builder session that stays separate start.
 const SHARED_IS_SET: &str = "Builder session: shared is set, but";
@@ -59,7 +62,7 @@ const STAY_SEPARATE: &str = "the sessions stay separate";
 /// order it looks at them.
 const SESSION_COLORS: [Color; 3] = [Color::Yellow, Color::Red, Color::Green];
 
-/// What `gdd status` says of a project.
+/// What `tminus status` says of a project.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     /// Its name, language and platform.
@@ -97,22 +100,48 @@ pub struct Status {
 }
 
 impl fmt::Display for Status {
+    /// The status as a project of the new layout reads it (see [`Status::shown`]).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", Shown(self, Layout::Tminus))
+    }
+}
+
+/// A status as a project of a layout reads it (see [`Status::shown`]).
+struct Shown<'a>(&'a Status, Layout);
+
+impl fmt::Display for Shown<'_> {
     /// One line per fact and one per change, without a line break at the end.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let basics = &self.basics;
+        let Shown(status, layout) = *self;
+        let basics = &status.basics;
         write!(f, "Project: {}", basics.name)?;
         write!(f, " · language {}", basics.language)?;
         writeln!(f, " · platform {}", basics.platform)?;
-        let brief = if self.brief { BRIEF } else { NO_BRIEF };
+        let brief = if status.brief { BRIEF } else { NO_BRIEF };
         writeln!(f, "Brief: {brief}")?;
-        let g0 = if self.g0 { G0_OK } else { G0_PENDING };
-        writeln!(f, "G0: {g0}")?;
-        let zones = if self.zones.approved() {
+        let g0 = if status.g0 { G0_OK } else { G0_PENDING };
+        writeln!(f, "G0: {}", layout.localize(g0))?;
+        let zones = if status.zones.approved() {
             "approved"
         } else {
             "pending"
         };
-        writeln!(f, "Red zones: {zones} · {}", self.zones.message())?;
+        let message = layout.localize(status.zones.message());
+        writeln!(f, "Red zones: {zones} · {message}")?;
+        status.rest(f, layout)
+    }
+}
+
+impl Status {
+    /// The status as a project of `layout` reads it, one line per fact and one per change,
+    /// without a line break at the end: the files and the agent commands it names are the
+    /// project's (see [`Layout::localize`]); the command it names is always `tminus`.
+    pub fn shown(&self, layout: Layout) -> String {
+        Shown(self, layout).to_string()
+    }
+
+    /// The lines of the status after its red zones, as a project of `layout` reads them.
+    fn rest(&self, f: &mut fmt::Formatter<'_>, layout: Layout) -> fmt::Result {
         let selftest = self.selftest.as_deref().unwrap_or("not run");
         writeln!(f, "Harness self-test: {selftest}")?;
         write!(f, "Scenarios in {}/: ", self.scenarios_dir)?;
@@ -132,7 +161,7 @@ impl fmt::Display for Status {
         }
         known_debt(f, &self.debt)?;
         if self.without_mutation {
-            writeln!(f, "{NO_MUTATION}")?;
+            writeln!(f, "{}", layout.localize(NO_MUTATION))?;
         }
         for line in &self.builder_session {
             writeln!(f, "{line}")?;
@@ -142,11 +171,12 @@ impl fmt::Display for Status {
             write!(f, "\n{line}")?;
         }
         if let Some(lines) = self.log_lines {
-            write!(f, "\nLog: {lines} lines in {} (gdd report)", log::PATH)?;
+            let path = layout.path(log::PATH);
+            write!(f, "\nLog: {lines} lines in {path} (tminus report)")?;
         }
         if !self.second_family.is_empty() {
             let agents = self.second_family.join(", ");
-            let reviewer = format!("set it as the Reviewer in {}", models::PATH);
+            let reviewer = format!("set it as the Reviewer in {}", layout.path(models::PATH));
             write!(f, "\n{SECOND_FAMILY} ({agents}): {reviewer}")?;
         }
         Ok(())
@@ -209,7 +239,7 @@ fn apart_line(apart: &Apart) -> String {
 /// gate commands has no command whose name starts with `mutation`. A commands file that is not
 /// there or cannot be read says nothing.
 pub fn without_mutation(root: &Path) -> bool {
-    let Ok(text) = fs::read_to_string(root.join(COMMANDS)) else {
+    let Ok(text) = fs::read_to_string(layout::join(root, COMMANDS)) else {
         return false;
     };
     let Ok(commands) = Commands::from_toml(&text) else {
@@ -245,7 +275,7 @@ fn known_debt(f: &mut fmt::Formatter<'_>, known: &Result<Vec<Debt>, String>) -> 
     Ok(())
 }
 
-/// The name, language and platform of a project, from `gdd/project.toml`.
+/// The name, language and platform of a project, from `tminus/project.toml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Basics {
     /// Its name; `?` when the file does not say.
@@ -257,7 +287,7 @@ pub struct Basics {
 }
 
 impl Basics {
-    /// Reads them from the text of `gdd/project.toml`; one the file leaves out, or does not
+    /// Reads them from the text of `tminus/project.toml`; one the file leaves out, or does not
     /// give as text, takes its default.
     pub fn from_toml(text: &str) -> Result<Basics, config::Error> {
         let table: toml::Table =
@@ -360,14 +390,14 @@ impl Colors {
     /// Those of the project at `root`; a missing file says nothing, one that cannot be read gives
     /// none.
     fn load(root: &Path) -> Option<Colors> {
-        let zones = fs::read_to_string(root.join(ZONES));
+        let zones = fs::read_to_string(layout::join(root, ZONES));
         let zones = ZoneMap::from_toml(&optional(zones)?).ok()?;
-        let rules = fs::read_to_string(root.join(guard::RULES));
+        let rules = fs::read_to_string(layout::join(root, guard::RULES));
         let table = RulesTable::of_project(&optional(rules)?).ok()?;
         Some(Colors { zones, table })
     }
 
-    /// The color of the plan `change`, as `gdd classify` gives it.
+    /// The color of the plan `change`, as `tminus classify` gives it.
     fn of(&self, change: &Change) -> String {
         let classified = classify(&self.zones, &self.table, change);
         classified.map(|c| c.color.to_string()).unwrap_or_default()
@@ -384,18 +414,19 @@ fn optional(read: io::Result<String>) -> Option<String> {
     }
 }
 
-/// One card per folder of `.gdd/changes/` under the state root `state`, sorted by when the change
-/// was created, then by id. Its color is the one prepare stored, else the one the zone map of the
-/// project at `root` gives its planned paths. It reads, and writes nothing. A folder without a
-/// record is not a change; one whose record cannot be read has a card with its `problem`.
+/// One card per folder of `.tminus/changes/` under the state root `state`, sorted by when the
+/// change was created, then by id. Its color is the one prepare stored, else the one the zone map
+/// of the project at `root` gives its planned paths. It reads, and writes nothing. A folder
+/// without a record is not a change; one whose record cannot be read has a card with its
+/// `problem`.
 pub fn cards(root: &Path, state: &Path) -> Vec<Card> {
-    let dir = state.join(CHANGES);
-    let entries = match fs::read_dir(&dir) {
+    let changes = layout::named(state, CHANGES);
+    let entries = match fs::read_dir(state.join(&changes)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Vec::new(),
         Err(e) => {
-            let problem = format!("cannot read {CHANGES}: {e}");
-            return vec![Card::unreadable(CHANGES, problem)];
+            let problem = format!("cannot read {changes}: {e}");
+            return vec![Card::unreadable(&changes, problem)];
         }
     };
     let folders = entries.flatten().filter(|entry| entry.path().is_dir());
@@ -535,9 +566,50 @@ mod tests {
             "  - lint · since 2026-10-26 · Refactor debt-lint\n",
             "Changes:\n",
             "  - c1 · Drafts · open · no gates yet\n",
-            "Log: 3 lines in .gdd/log.jsonl (gdd report)"
+            "Log: 3 lines in .tminus/log.jsonl (tminus report)"
         );
         assert_eq!(status().to_string(), expected);
+        assert_eq!(status().shown(Layout::Tminus), expected);
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_reads_its_own_files_and_agent_commands_and_tminus() {
+        let old = Status {
+            g0: false,
+            zones: ZonesState::NotApproved,
+            without_mutation: true,
+            second_family: vec!["codex".into()],
+            ..status()
+        };
+        let shown = old.shown(Layout::Gdd);
+        for line in [
+            "\nG0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
+            "\nRed zones: pending · Red zones not approved yet: the Setup asks you to approve \
+             them (the gdd-setup command).\n",
+            "\nno mutation testing command in [g3] of gdd/commands.toml: red changes go \
+             without it\n",
+            "\nLog: 3 lines in .gdd/log.jsonl (tminus report)\n",
+            "(codex): set it as the Reviewer in gdd/models.toml",
+        ] {
+            assert!(shown.contains(line), "{line:?} in {shown}");
+        }
+        assert!(!shown.contains("tminus/"), "{shown}");
+        assert!(!shown.contains("tminus-"), "{shown}");
+        // The new layout keeps the new names; what the project wrote stays as it is.
+        let named = Status {
+            basics: Basics {
+                name: "tminus-notes".into(),
+                ..status().basics
+            },
+            ..old
+        };
+        let new = named.shown(Layout::Tminus);
+        assert_eq!(new, named.to_string());
+        assert!(new.contains("(the tminus-setup command).\n"), "{new}");
+        let logged = "in .tminus/log.jsonl (tminus report)";
+        assert!(new.contains(logged), "{new}");
+        let kept = named.shown(Layout::Gdd);
+        assert!(kept.starts_with("Project: tminus-notes · "), "{kept}");
     }
 
     #[test]
@@ -582,9 +654,9 @@ mod tests {
         let expected = concat!(
             "Project: demo · language es · platform cli\n",
             "Brief: missing (Setup writes it)\n",
-            "G0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
+            "G0: pending · G0 pending: run the Setup (the tminus-setup command).\n",
             "Red zones: pending · Red zones not approved yet: the Setup asks you to approve ",
-            "them (the gdd-setup command).\n",
+            "them (the tminus-setup command).\n",
             "Harness self-test: not run\n",
             "Scenarios in features/: cannot count them: not a folder\n",
             "Security exceptions: none\n",
@@ -594,11 +666,11 @@ mod tests {
         assert_eq!(new.to_string(), expected);
         let unreadable = Status {
             exceptions: Err("deny.toml: invalid TOML: x".into()),
-            debt: Err("gdd/debt.toml: invalid TOML: y".into()),
+            debt: Err("tminus/debt.toml: invalid TOML: y".into()),
             ..status()
         };
         let lines = "\nSecurity exceptions: deny.toml: invalid TOML: x\n\
-                     Known debt: gdd/debt.toml: invalid TOML: y\nChanges:\n";
+                     Known debt: tminus/debt.toml: invalid TOML: y\nChanges:\n";
         assert!(unreadable.to_string().contains(lines), "{unreadable}");
         let changed = Status {
             zones: ZonesState::Changed,
@@ -616,7 +688,7 @@ mod tests {
             ..status()
         };
         let lines = "\n  - lint · since 2026-10-26 · Refactor debt-lint\nno mutation testing command \
-                     in [g3] of gdd/commands.toml: red changes go without it\nChanges:\n";
+                     in [g3] of tminus/commands.toml: red changes go without it\nChanges:\n";
         assert!(without.to_string().contains(lines), "{without}");
         assert!(!status().to_string().contains(NO_MUTATION));
     }
@@ -703,7 +775,7 @@ mod tests {
             ..status()
         };
         let last = "\n  - c1 · Drafts · open · no gates yet\nA second model family is on this \
-                    machine (codex, opencode): set it as the Reviewer in gdd/models.toml";
+                    machine (codex, opencode): set it as the Reviewer in tminus/models.toml";
         assert!(two.to_string().ends_with(last), "{two}");
     }
 
@@ -817,7 +889,7 @@ mod tests {
     fn a_project_without_changes_has_no_cards() {
         let folder = Folder::new("none");
         assert_eq!(cards(&folder.0, &folder.0), Vec::new());
-        folder.write(".gdd/changes/x/inbox.md", "no record here");
+        folder.write(".tminus/changes/x/inbox.md", "no record here");
         assert_eq!(cards(&folder.0, &folder.0), Vec::new());
     }
 
@@ -826,7 +898,7 @@ mod tests {
         let folder = Folder::new("unreadable");
         folder.change("bad", "{not json");
         folder.change("blue", r#"{"decision": {"color": "blue"}}"#);
-        fs::create_dir_all(folder.0.join(".gdd/changes/dir/change.json")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/dir/change.json")).unwrap();
         folder.change("ok", r#"{"title": "Fine"}"#);
         let all = cards(&folder.0, &folder.0);
         let ids: Vec<&str> = all.iter().map(|card| card.id.as_str()).collect();
@@ -847,6 +919,36 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].id, CHANGES);
         let problem = all[0].problem.clone().unwrap_or_default();
+        let start = "cannot read .tminus/changes: ";
+        assert!(problem.starts_with(start), "{problem}");
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_has_its_changes_zones_and_commands_in_its_gdd_folders() {
+        let folder = Folder::new("old-layout");
+        folder.write("gdd/project.toml", "name = \"x\"\n");
+        folder.write("gdd/zones.toml", ZONE_MAP);
+        folder.write(".gdd/changes/a/change.json", r#"{"paths": ["db/a.rs"]}"#);
+        // What the new layout would read is not the project's.
+        folder.write("tminus/zones.toml", "default = \"green\"\n");
+        folder.write(".tminus/changes/b/change.json", "{}");
+        let all = cards(&folder.0, &folder.0);
+        let ids: Vec<(&str, &str)> = all
+            .iter()
+            .map(|card| (card.id.as_str(), card.color.as_str()))
+            .collect();
+        assert_eq!(ids, [("a", "red")]);
+        folder.write("gdd/rules.toml", "not = [toml");
+        assert_eq!(cards(&folder.0, &folder.0)[0].color, "?");
+        assert!(!without_mutation(&folder.0));
+        folder.write("tminus/commands.toml", "[g3]\nmutation = \"cargo mutants\"\n");
+        folder.write("gdd/commands.toml", "[g3]\nacceptance = \"true\"\n");
+        assert!(without_mutation(&folder.0));
+        fs::remove_dir_all(folder.0.join(".gdd/changes")).unwrap();
+        folder.write(".gdd/changes", "not a folder");
+        let all = cards(&folder.0, &folder.0);
+        assert_eq!(all[0].id, ".gdd/changes");
+        let problem = all[0].problem.clone().unwrap_or_default();
         let start = "cannot read .gdd/changes: ";
         assert!(problem.starts_with(start), "{problem}");
     }
@@ -862,9 +964,9 @@ mod tests {
         folder.write(ZONES, "default = \"blue\"");
         assert_eq!(color(&folder), "?");
         fs::remove_file(folder.0.join(ZONES)).unwrap();
-        folder.write("gdd/rules.toml", "not = [toml");
+        folder.write("tminus/rules.toml", "not = [toml");
         assert_eq!(color(&folder), "?");
-        fs::remove_file(folder.0.join("gdd/rules.toml")).unwrap();
+        fs::remove_file(folder.0.join("tminus/rules.toml")).unwrap();
         fs::create_dir_all(folder.0.join(ZONES)).unwrap();
         assert_eq!(color(&folder), "?");
     }

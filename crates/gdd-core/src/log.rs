@@ -9,8 +9,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// Where the log lives, from the state root (see [`crate::state::root`]).
-pub const PATH: &str = ".gdd/log.jsonl";
+use crate::layout;
+
+/// Where the log lives, from the state root (see [`crate::state::root`]), in the new names: a
+/// project of the old layout keeps it in `.gdd/` (see [`crate::layout::join`]).
+pub const PATH: &str = ".tminus/log.jsonl";
 
 /// A machine step for the log: what the tool did by itself. The fields of an agent call (model,
 /// tokens, cost, retry) take the values the log writes when they are not given.
@@ -79,9 +82,9 @@ impl Entry {
 
 /// Adds `line` at the end of the log of the project whose state root is `state`, creating the log
 /// when there is none. The write holds an exclusive lock on the log, which goes when the file
-/// closes: the lines of two gdd processes, each running a change, never mix.
+/// closes: the lines of two tminus processes, each running a change, never mix.
 pub fn append(state: &Path, line: &str) -> io::Result<()> {
-    let path = state.join(PATH);
+    let path = layout::join(state, PATH);
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;
     }
@@ -283,9 +286,9 @@ fn of_gdd(line: &str) -> Option<Record> {
 pub fn left_out(count: usize) -> Option<String> {
     match count {
         0 => None,
-        1 => Some("1 line of the log is not one of gdd's: left out".to_string()),
+        1 => Some("1 line of the log is not one of tminus's: left out".to_string()),
         n => Some(format!(
-            "{n} lines of the log are not one of gdd's: left out"
+            "{n} lines of the log are not one of tminus's: left out"
         )),
     }
 }
@@ -474,9 +477,9 @@ mod tests {
     #[test]
     fn what_a_report_says_of_the_lines_it_left_out_counts_them() {
         assert_eq!(left_out(0), None);
-        let one = "1 line of the log is not one of gdd's: left out";
+        let one = "1 line of the log is not one of tminus's: left out";
         assert_eq!(left_out(1).as_deref(), Some(one));
-        let two = "2 lines of the log are not one of gdd's: left out";
+        let two = "2 lines of the log are not one of tminus's: left out";
         assert_eq!(left_out(2).as_deref(), Some(two));
         let many = left_out(12).unwrap_or_default();
         assert!(many.starts_with("12 lines of the log are "), "{many}");
@@ -533,6 +536,21 @@ mod tests {
         let result = append(&file, "{}");
         let _ = fs::remove_file(&file);
         assert!(result.is_err(), "a project root that is a file");
+    }
+
+    #[test]
+    fn the_log_of_a_project_of_the_old_layout_is_in_its_gdd_folder() {
+        assert_eq!(PATH, ".tminus/log.jsonl");
+        let old = crate::git::tests::Folder::new();
+        old.write("gdd/project.toml", "");
+        append(&old.0, "{\"change\": \"a\"}").unwrap();
+        let text = fs::read_to_string(old.0.join(".gdd/log.jsonl")).unwrap();
+        assert_eq!(text, "{\"change\": \"a\"}\n");
+        assert!(!old.0.join(".tminus").exists());
+        let new = crate::git::tests::Folder::new();
+        append(&new.0, "{}").unwrap();
+        assert!(new.0.join(".tminus/log.jsonl").is_file());
+        assert!(!new.0.join(".gdd").exists());
     }
 
     #[test]

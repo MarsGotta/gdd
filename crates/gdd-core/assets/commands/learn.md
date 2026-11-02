@@ -1,10 +1,10 @@
 ---
-description: "Use when several changes have closed or parked, or when the same G2 failure, Reviewer finding or polish note keeps coming back. Runs gdd learn, reads the log and the reports, and proposes one rule, lint, hook or test per repeated error. Never loosens a gate."
+description: "Use when several changes have closed or parked, or when the same G2 failure, Reviewer finding or polish note keeps coming back. Runs tminus learn, reads the log and the reports, and proposes one rule, lint, hook or test per repeated error. Never loosens a gate."
 ---
 
 # GDD · Phase 5 · Learn
 
-You are the **Orchestrator**. Learn has no gate: it only hardens. Talk to the human in the language set in `gdd/project.toml` (`language`). Write notes, questions and summaries in that language too.
+You are the **Orchestrator**. Learn has no gate: it only hardens. Talk to the human in the language set in `tminus/project.toml` (`language`). Write notes, questions and summaries in that language too.
 
 ## Input
 
@@ -14,11 +14,11 @@ $ARGUMENTS
 
 ## Steps
 
-1. Run `gdd learn`: it runs the Learn tools and lists the polish notes and the Reviewer findings that repeat. Then read `gdd report`, `gdd report --by phase,role` and the closed or parked changes in `.gdd/changes/`.
+1. Run `tminus learn`: it runs the Learn tools and lists the polish notes and the Reviewer findings that repeat. Then read `tminus report`, `tminus report --by phase,role` and the closed or parked changes in `.tminus/changes/`.
 2. Look for repeated errors: the same G2 failure in several changes, the same Reviewer KO reason, badly written scenarios, many retries for one model.
 3. For each repeated error, propose **one** rule, lint, hook or test that catches it next time. Never loosen a gate.
    Polish notes from G4 and Reviewer improvements that repeat are repeated errors too: turn them into a line of `docs/standards.md` or, when a machine can check them, into a gate.
    Look for unused code and dependencies with the stack's tool (knip, vulture, cargo-machete) and propose removing them: less code, fewer failures.
-4. Changes in `gdd/` are red: write the proposal in `docs/learn/YYYY-MM-DD.md` and bring it to the human in a few lines, with your recommendation.
+4. Changes in `tminus/` are red: write the proposal in `docs/learn/YYYY-MM-DD.md` and bring it to the human in a few lines, with your recommendation.
 5. Propose a refactor only if the log justifies it.
-6. `gdd session --phase 5-learn`.
+6. `tminus session --phase 5-learn`.

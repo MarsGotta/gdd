@@ -1,11 +1,11 @@
 # Agent sheet · Claude Code (https://code.claude.com/docs/en/skills, /docs/en/headless)
 name = "claude"
 title = "Claude Code"
-binary = "claude"          # looked up on the PATH of the environment gdd runs in
+binary = "claude"          # looked up on the PATH of the environment tminus runs in
 usage = "claude-json"      # how its JSON output reports tokens, cost and the final text
 
 [commands]
-path = ".claude/skills/{name}/SKILL.md"   # {name} is gdd-<command>
+path = ".claude/skills/{name}/SKILL.md"   # {name} is tminus-<command>
 format = "skill"                           # frontmatter with name and description
 invoke = "/{name}"                         # how a command is called
 
@@ -14,32 +14,32 @@ invoke = "/{name}"                         # how a command is called
 # the arguments of the role below.
 args = ["-p", "{invoke} {args}", "--model", "{model}", "--output-format", "json", "{role_args}"]
 # A Builder call that continues the change's Builder session ([session] builder = "shared" in
-# gdd/models.toml) adds these at the end; {session} is the one the Builder call before it in the
-# same run of gdd reported, which gdd keeps only in memory.
+# tminus/models.toml) adds these at the end; {session} is the one the Builder call before it in the
+# same run of tminus reported, which tminus keeps only in memory.
 resume_args = ["--resume", "{session}"]
 
 # Per role: no MCP servers, its change's state folder among its working folders, what it may run
-# without asking, what it may never do. GDD state is written only through gdd. The agent runs in
+# without asking, what it may never do. GDD state is written only through tminus. The agent runs in
 # the change's worktree and the state lives in the main checkout: the state is denied relative to
 # the agent and by its full path too, {state} being the state root, absolute (Claude's "//"
 # starts an absolute path). A denial wins over a working folder: of the state, only the
 # Orchestrator writes, its replan.
 [roles.builder-build]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
-  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(gdd g2:*)", "Bash(gdd guard:*)", "Bash(gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(gdd gate:*)", "Bash(gdd launch:*)", "Bash(gdd resume:*)", "Bash(gdd merge:*)", "Bash(gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.tminus/changes/{change}",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(tminus g2:*)", "Bash(tminus guard:*)", "Bash(tminus note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Bash(tminus gate:*)", "Bash(tminus launch:*)", "Bash(tminus resume:*)", "Bash(tminus merge:*)", "Bash(tminus release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.tminus/**)", "Write(.tminus/**)", "Edit(/{state}/.tminus/**)", "Write(/{state}/.tminus/**)"]
 
 [roles.builder-test]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
-  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(gdd g2:*)", "Bash(gdd guard:*)", "Bash(gdd note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(gdd gate:*)", "Bash(gdd launch:*)", "Bash(gdd resume:*)", "Bash(gdd merge:*)", "Bash(gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.tminus/changes/{change}",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(tminus g2:*)", "Bash(tminus guard:*)", "Bash(tminus note:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Bash(tminus gate:*)", "Bash(tminus launch:*)", "Bash(tminus resume:*)", "Bash(tminus merge:*)", "Bash(tminus release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.tminus/**)", "Write(.tminus/**)", "Edit(/{state}/.tminus/**)", "Write(/{state}/.tminus/**)"]
 
 [roles.reviewer]
-args = ["--strict-mcp-config", "--permission-mode", "plan", "--add-dir", "{state}/.gdd/changes/{change}",
+args = ["--strict-mcp-config", "--permission-mode", "plan", "--add-dir", "{state}/.tminus/changes/{change}",
   "--allowedTools", "Read", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Bash(gdd gate:*)", "Bash(gdd launch:*)", "Bash(gdd resume:*)", "Bash(gdd merge:*)", "Bash(gdd release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.gdd/**)", "Write(.gdd/**)", "Edit(/{state}/.gdd/**)", "Write(/{state}/.gdd/**)"]
+  "--disallowedTools", "Bash(tminus gate:*)", "Bash(tminus launch:*)", "Bash(tminus resume:*)", "Bash(tminus merge:*)", "Bash(tminus release:*)", "Bash(git commit:*)", "Bash(git switch:*)", "Bash(git checkout:*)", "Bash(git push:*)", "WebFetch", "WebSearch", "Edit(.tminus/**)", "Write(.tminus/**)", "Edit(/{state}/.tminus/**)", "Write(/{state}/.tminus/**)"]
 
 [roles.orchestrator]
-args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.gdd/changes/{change}",
-  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(gdd status:*)", "Bash(gdd classify:*)", "Bash(gdd note:*)", "Bash(gdd report:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
-  "--disallowedTools", "Edit(.gdd/log.jsonl)", "Write(.gdd/log.jsonl)", "Edit(.gdd/changes/*/change.json)", "Write(.gdd/changes/*/change.json)", "Edit(/{state}/.gdd/log.jsonl)", "Write(/{state}/.gdd/log.jsonl)", "Edit(/{state}/.gdd/changes/*/change.json)", "Write(/{state}/.gdd/changes/*/change.json)"]
+args = ["--strict-mcp-config", "--permission-mode", "acceptEdits", "--add-dir", "{state}/.tminus/changes/{change}",
+  "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(tminus status:*)", "Bash(tminus classify:*)", "Bash(tminus note:*)", "Bash(tminus report:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(ls:*)",
+  "--disallowedTools", "Edit(.tminus/log.jsonl)", "Write(.tminus/log.jsonl)", "Edit(.tminus/changes/*/change.json)", "Write(.tminus/changes/*/change.json)", "Edit(/{state}/.tminus/log.jsonl)", "Write(/{state}/.tminus/log.jsonl)", "Edit(/{state}/.tminus/changes/*/change.json)", "Write(/{state}/.tminus/changes/*/change.json)"]

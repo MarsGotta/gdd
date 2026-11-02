@@ -18,14 +18,15 @@ use crate::change::{self, Record};
 use crate::classify::classify;
 use crate::config;
 use crate::git::{self, Git};
+use crate::layout::Layout;
 use crate::rules::RulesTable;
 use crate::zones::{ZoneMap, glob_matches};
 
 /// The hash of a path where there is no file.
 pub const DELETED: &str = "deleted";
 
-/// The rules file of a project, from its root.
-pub const RULES: &str = "gdd/rules.toml";
+/// The rules file of a project, from its root, in the new names (see [`crate::layout`]).
+pub const RULES: &str = "tminus/rules.toml";
 
 /// Hashes of the paths a change touched, at one moment: path -> SHA-256 in hex, or [`DELETED`].
 pub type Hashes = BTreeMap<String, String>;
@@ -53,13 +54,23 @@ impl Settings {
         toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))
     }
 
-    /// What the rules file said at the commit `commit`: the defaults when there was none.
-    fn committed(git: &Git, commit: &str) -> Result<Settings, Error> {
-        let bytes = git.file_at(commit, RULES)?.unwrap_or_default();
-        String::from_utf8(bytes)
-            .map_err(|e| config::Error::Toml(e.to_string()))
-            .and_then(|text| Settings::from_toml(&text))
-            .map_err(|e| Error::Rules(commit.to_string(), e))
+    /// What the rules file said at the commit `commit`, under the name it has in each layout
+    /// (see [`crate::layout`]): the defaults where there was none. Moving the file to the name
+    /// of the other layout frees no one from what it protected.
+    fn committed(git: &Git, commit: &str) -> Result<Vec<Settings>, Error> {
+        let mut found = Vec::new();
+        for layout in [Layout::Tminus, Layout::Gdd] {
+            let file = layout.path(RULES);
+            let bytes = git.file_at(commit, &file)?.unwrap_or_default();
+            let read = String::from_utf8(bytes)
+                .map_err(|e| config::Error::Toml(e.to_string()))
+                .and_then(|text| Settings::from_toml(&text));
+            match read {
+                Ok(settings) => found.push(settings),
+                Err(e) => return Err(Error::Rules(file, commit.to_string(), e)),
+            }
+        }
+        Ok(found)
     }
 
     /// The patterns `role` must not touch: those of `all`, then its own.
@@ -83,8 +94,9 @@ pub enum Error {
     Read(String, io::Error),
     /// The zone map or the rules table could not classify the plan.
     Config(config::Error),
-    /// The rules file at a commit, the one where a build started, is not valid.
-    Rules(String, config::Error),
+    /// A rules file at a commit, the one where a build started, is not valid: the file, the
+    /// commit and why.
+    Rules(String, String, config::Error),
     /// The change has no starting point: it was never prepared.
     NotPrepared(String),
 }
@@ -95,7 +107,7 @@ impl fmt::Display for Error {
             Error::Git(e) => write!(f, "{e}"),
             Error::Read(path, e) => write!(f, "cannot read {path}: {e}"),
             Error::Config(e) => write!(f, "{e}"),
-            Error::Rules(commit, e) => write!(f, "{RULES} at {commit}: {e}"),
+            Error::Rules(file, commit, e) => write!(f, "{file} at {commit}: {e}"),
             Error::NotPrepared(id) => write!(
                 f,
                 "change {id} has not been prepared: its record has no build_start"
@@ -197,8 +209,8 @@ pub fn path_guard(
         touched = changed_after(root, touched, before)?;
     }
     let at_start = Settings::committed(&git, start)?;
-    let protected: Vec<&str> = [settings, &at_start]
-        .into_iter()
+    let protected: Vec<&str> = std::iter::once(settings)
+        .chain(&at_start)
         .flat_map(|rules| rules.protected(role))
         .collect();
     let mut failures: Vec<String> = touched
@@ -324,7 +336,7 @@ mod tests {
 
     const RULES: &str = r#"
 [protected]
-all = ["gdd/**"]
+all = ["tminus/**"]
 builder_build = ["features/**"]
 builder_test = ["src/**"]
 "#;
@@ -367,7 +379,7 @@ paths = ["src/storage/**"]
     /// branch; and the commit it started at.
     fn started() -> (Repo, String) {
         let repo = Repo::new();
-        repo.write("gdd/rules.toml", RULES);
+        repo.write("tminus/rules.toml", RULES);
         repo.write("features/a.feature", "Feature: a\n");
         repo.commit();
         let start = repo.start("c1");
@@ -397,10 +409,10 @@ paths = ["src/storage/**"]
         let text = format!("main_branch = \"trunk\"\n[color.red.full]\nmutation = true\n{RULES}");
         let read = Settings::from_toml(&text).unwrap();
         assert_eq!(read.main_branch, "trunk");
-        assert_eq!(read.protected("builder-build"), ["gdd/**", "features/**"]);
-        assert_eq!(read.protected("builder_test"), ["gdd/**", "src/**"]);
-        assert_eq!(read.protected("reviewer"), ["gdd/**"]);
-        let wrong = Settings::from_toml("[protected]\nall = \"gdd/**\"\n");
+        assert_eq!(read.protected("builder-build"), ["tminus/**", "features/**"]);
+        assert_eq!(read.protected("builder_test"), ["tminus/**", "src/**"]);
+        assert_eq!(read.protected("reviewer"), ["tminus/**"]);
+        let wrong = Settings::from_toml("[protected]\nall = \"tminus/**\"\n");
         assert!(matches!(wrong, Err(config::Error::Toml(_))));
     }
 
@@ -457,24 +469,24 @@ paths = ["src/storage/**"]
         repo.write("src/a.rs", "x\n");
         repo.write("features/b.feature", "Feature: b\n");
         repo.commit();
-        repo.write("gdd/rules.toml", "# touched\n");
+        repo.write("tminus/rules.toml", "# touched\n");
         assert_eq!(
             guard(&repo, &record, "builder-build", None),
             [
                 "features/b.feature: protected path for builder-build",
-                "gdd/rules.toml: protected path for builder-build",
+                "tminus/rules.toml: protected path for builder-build",
             ]
         );
         assert_eq!(
             guard(&repo, &record, "builder-test", None),
             [
-                "gdd/rules.toml: protected path for builder-test",
                 "src/a.rs: protected path for builder-test",
+                "tminus/rules.toml: protected path for builder-test",
             ]
         );
         assert_eq!(
             guard(&repo, &record, "reviewer", None),
-            ["gdd/rules.toml: protected path for reviewer"]
+            ["tminus/rules.toml: protected path for reviewer"]
         );
     }
 
@@ -545,7 +557,7 @@ paths = ["src/storage/**"]
             let verdict = path_guard(repo.root(), "c1", &record, now, "builder-build", None);
             verdict.unwrap().failures
         };
-        fs::remove_file(repo.root().join("gdd/rules.toml")).unwrap();
+        fs::remove_file(repo.root().join("tminus/rules.toml")).unwrap();
         repo.write("features/b.feature", "Feature: b\n");
         repo.write("docs/x.md", "x\n");
         let empty = Settings::from_toml("").unwrap();
@@ -553,7 +565,7 @@ paths = ["src/storage/**"]
             failures(&empty),
             [
                 "features/b.feature: protected path for builder-build",
-                "gdd/rules.toml: protected path for builder-build",
+                "tminus/rules.toml: protected path for builder-build",
             ]
         );
         let added = Settings::from_toml("[protected]\nbuilder_build = [\"docs/**\"]\n").unwrap();
@@ -562,9 +574,38 @@ paths = ["src/storage/**"]
             [
                 "docs/x.md: protected path for builder-build",
                 "features/b.feature: protected path for builder-build",
-                "gdd/rules.toml: protected path for builder-build",
+                "tminus/rules.toml: protected path for builder-build",
             ]
         );
+    }
+
+    #[test]
+    fn moving_the_rules_to_the_name_of_the_other_layout_frees_no_one() {
+        for (from, to) in [("gdd", "tminus"), ("tminus", "gdd")] {
+            // The rules where the build started, under the name of one layout.
+            let repo = Repo::new();
+            let rules = format!(
+                "[protected]\nall = [\"{from}/**\"]\nbuilder_build = [\"features/**\"]\n"
+            );
+            repo.write(&format!("{from}/project.toml"), "");
+            repo.write(&format!("{from}/rules.toml"), &rules);
+            repo.commit();
+            let start = repo.start("c1");
+            let record = record(&[], Some(&start));
+            // Moved to the other one, without any protection.
+            fs::remove_dir_all(repo.root().join(from)).unwrap();
+            repo.write(&format!("{to}/project.toml"), "");
+            repo.write(&format!("{to}/rules.toml"), "");
+            repo.write("features/b.feature", "Feature: b\n");
+            let empty = Settings::from_toml("").unwrap();
+            let verdict = path_guard(repo.root(), "c1", &record, &empty, "builder-build", None);
+            let failures = verdict.unwrap().failures;
+            let guarded = "features/b.feature: protected path for builder-build";
+            assert_eq!(failures[0], guarded);
+            let left = format!("{from}/");
+            let moved = failures.iter().filter(|f| f.starts_with(&left)).count();
+            assert_eq!((failures.len(), moved), (3, 2), "{from}: {failures:?}");
+        }
     }
 
     #[test]
@@ -579,18 +620,22 @@ paths = ["src/storage/**"]
 
     #[test]
     fn broken_rules_where_the_build_started_are_an_error_that_names_them() {
-        let broken: [&[u8]; 2] = [b"[protected]\nall = \"gdd/**\"\n", &[0xff, 0xfe]];
-        for text in broken {
+        let broken: [&[u8]; 2] = [b"[protected]\nall = \"tminus/**\"\n", &[0xff, 0xfe]];
+        for (text, folder) in broken.into_iter().zip(["tminus", "gdd"]) {
             let repo = Repo::new();
-            fs::create_dir_all(repo.root().join("gdd")).unwrap();
-            fs::write(repo.root().join("gdd/rules.toml"), text).unwrap();
+            fs::create_dir_all(repo.root().join(folder)).unwrap();
+            fs::write(repo.root().join(folder).join("rules.toml"), text).unwrap();
             repo.commit();
             let start = repo.start("c1");
             let record = record(&[], Some(&start));
             let result = path_guard(repo.root(), "c1", &record, &settings(), "reviewer", None);
             let err = result.unwrap_err();
-            assert!(matches!(&err, Error::Rules(commit, _) if *commit == start));
-            let prefix = format!("gdd/rules.toml at {start}: invalid TOML: ");
+            let file = format!("{folder}/rules.toml");
+            let Error::Rules(named, commit, _) = &err else {
+                panic!("not the rules: {err:?}");
+            };
+            assert_eq!((named, commit), (&file, &start));
+            let prefix = format!("{file} at {start}: invalid TOML: ");
             assert!(err.to_string().starts_with(&prefix), "{err}");
         }
     }
@@ -682,7 +727,7 @@ paths = ["src/storage/**"]
         assert_eq!(touched(&plain.0, "c1", &settings()).unwrap(), NOTHING);
         let (repo, _) = started();
         repo.write("src/storage/db.rs", "x\n");
-        repo.write(".gdd/changes/c1/change.json", "{}");
+        repo.write(".tminus/changes/c1/change.json", "{}");
         assert_eq!(
             touched(repo.root(), "c1", &settings()).unwrap(),
             ["src/storage/db.rs"]
@@ -707,7 +752,8 @@ paths = ["src/storage/**"]
         );
         let read = Error::Read("a.rs".into(), io::Error::other("busy"));
         assert_eq!(read.to_string(), "cannot read a.rs: busy");
-        let rules = Error::Rules("37cc864".into(), config::Error::Toml("bad".into()));
+        let bad = config::Error::Toml("bad".into());
+        let rules = Error::Rules("gdd/rules.toml".into(), "37cc864".into(), bad);
         assert_eq!(
             rules.to_string(),
             "gdd/rules.toml at 37cc864: invalid TOML: bad"

@@ -91,11 +91,11 @@ impl fmt::Display for Error {
             Error::CoreSwitchedOff { key, value } => write!(
                 f,
                 "red changes always get mutation testing, the Reviewer and the human G4 \
-                 (the core of GDD): remove {key} = {value} from gdd/rules.toml"
+                 (the core of GDD): remove {key} = {value} from tminus/rules.toml"
             ),
             Error::UnknownDepth { key, value } => write!(
                 f,
-                "review must be quick or deep: {key} = {value} in gdd/rules.toml"
+                "review must be quick or deep: {key} = {value} in tminus/rules.toml"
             ),
         }
     }

@@ -1,5 +1,5 @@
-name: gdd
-# Written by gdd init {version}. G2 and G3 in CI: they block even if an agent skips a step.
+name: tminus
+# Written by tminus init {version}. G2 and G3 in CI: they block even if an agent skips a step.
 on:
   pull_request:
   push:
@@ -19,7 +19,7 @@ jobs:
           curl -sSfLO https://github.com/gitleaks/gitleaks/releases/download/v$V/gitleaks_${V}_checksums.txt
           grep "gitleaks_${V}_linux_x64.tar.gz" gitleaks_${V}_checksums.txt | sha256sum -c -
           sudo tar -xzf gitleaks_${V}_linux_x64.tar.gz -C /usr/local/bin gitleaks
-      - name: Install gdd {version}
+      - name: Install tminus {version}
         run: cargo install --locked --git https://github.com/MarsGotta/gdd --tag v{version} gdd
       - name: GDD gates (Path Guard, G2, G3)
-        run: gdd ci
+        run: tminus ci

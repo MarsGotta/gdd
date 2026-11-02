@@ -446,7 +446,7 @@ mod tests {
             value: "\"medium\"".into(),
         };
         let expected = "review must be quick or deep: color.yellow.full.review = \"medium\" in \
-                        gdd/rules.toml";
+                        tminus/rules.toml";
         assert_eq!(said.to_string(), expected);
         // Only the rules the table reads are checked, and a valid depth beside a bad one passes.
         let ignored = "[color.yellow.slow]\nreview = \"x\"\n[color.yellow.full]\nnote = \"x\"\n";
@@ -567,13 +567,13 @@ mod tests {
         let said = core_off("color.red.full.mutation").unwrap_err().to_string();
         let expected = "red changes always get mutation testing, the Reviewer and the human G4 \
                         (the core of GDD): remove color.red.full.mutation = false from \
-                        gdd/rules.toml";
+                        tminus/rules.toml";
         assert_eq!(said, expected);
         let quick = switched_off("color.red.review", "\"quick\"");
         let said = quick.unwrap_err().to_string();
         let expected = "red changes always get mutation testing, the Reviewer and the human G4 \
                         (the core of GDD): remove color.red.review = \"quick\" from \
-                        gdd/rules.toml";
+                        tminus/rules.toml";
         assert_eq!(said, expected);
     }
 

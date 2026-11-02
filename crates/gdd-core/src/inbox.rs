@@ -17,6 +17,7 @@ use crate::change::{self, NOTE_KINDS, POLISH, Variant};
 use crate::gates::{Gate, debt, verdict};
 use crate::git::Git;
 use crate::guard;
+use crate::layout;
 use crate::recipe::worktree;
 use crate::rules::RulesTable;
 
@@ -55,7 +56,7 @@ const DEBT_PAID: &str = "Known debt paid";
 pub type Group = (&'static str, Vec<String>);
 
 /// What the header says of a change that has neither a color nor a lane yet.
-const UNDECIDED: &str = "Color and lane not decided yet (gdd decides them at launch)";
+const UNDECIDED: &str = "Color and lane not decided yet (tminus decides them at launch)";
 
 /// What the paths outside the package that the scope check accepted say among the decisions.
 const ACCEPTED: &str = "Paths outside the package, same or lower color, accepted by rule:";
@@ -153,7 +154,7 @@ struct RawNote {
 }
 
 /// The Decision Inbox of change `id`, from the text of its record, the text of its `review`
-/// (empty when there is none, `None` when it cannot be read), `asked`, the requests gdd adds
+/// (empty when there is none, `None` when it cannot be read), `asked`, the requests tminus adds
 /// first under `Needs your decision` (see [`g1_request`]), and `reported`, the groups from its
 /// gate reports (see [`save`]), without a line break at the end: its title, color, lane and
 /// state; then how the change works, when the review says it (see [`how_it_works`]), or that the
@@ -335,8 +336,9 @@ pub fn save(state: &Path, id: &str, record: &str) -> Result<String, String> {
     ];
     let review = review_of(state, id).map(|review| unlinked(&review, &roots(state, id)));
     let asked: Vec<String> = g1_request(state, id, record).into_iter().collect();
+    let path = layout::named(state, &change::record_path(id));
     let rendered = render(id, record, review.as_deref(), &asked, &reported)
-        .map_err(|e| format!("{}: {e}", change::record_path(id)))?;
+        .map_err(|e| format!("{path}: {e}"))?;
     change::write(state, &change::inbox_path(id), &format!("{rendered}\n"))?;
     Ok(rendered)
 }
@@ -354,7 +356,7 @@ pub fn g1_request(state: &Path, id: &str, record: &str) -> Option<String> {
         Ok(false) => None,
         Ok(true) => Some(format!(
             "G1 · Scenario Gate: read the scenarios of change/{id}, then answer your agent (or the \
-             sitting screen, gdd sitting {id}): OK approves and seals them, KO with your words \
+             sitting screen, tminus sitting {id}): OK approves and seals them, KO with your words \
              sends them back to be rewritten."
         )),
         Err(why) => Some(format!(
@@ -366,10 +368,13 @@ pub fn g1_request(state: &Path, id: &str, record: &str) -> Option<String> {
 /// Whether the branch of change `id` adds or changes scenario files that G1 has not sealed as
 /// they are in `record`. A change without a branch, or without such files, waits for nothing.
 fn g1_waits(state: &Path, id: &str, record: &Value) -> Result<bool, String> {
-    let rules = match fs::read_to_string(state.join(guard::RULES)) {
+    let rules = match fs::read_to_string(layout::join(state, guard::RULES)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("cannot read {}: {e}", guard::RULES)),
+        Err(e) => {
+            let path = layout::named(state, guard::RULES);
+            return Err(format!("cannot read {path}: {e}"));
+        }
     };
     let table = RulesTable::of_project(&rules).map_err(|e| e.to_string())?;
     let settings = guard::Settings::from_toml(&rules).map_err(|e| e.to_string())?;
@@ -411,7 +416,7 @@ fn sha256(bytes: &[u8]) -> String {
 /// Where a link of a review of change `id` may point to a file of the project whose state root
 /// is `state`: the project folder inside the worktree of the change, then the project itself.
 pub fn roots(state: &Path, id: &str) -> Vec<PathBuf> {
-    let rules = fs::read_to_string(state.join(guard::RULES)).unwrap_or_default();
+    let rules = fs::read_to_string(layout::join(state, guard::RULES)).unwrap_or_default();
     let mut roots = Vec::new();
     if let Ok(folder) = worktree::folder(state, &rules) {
         let tree = folder.join(id);
@@ -470,7 +475,7 @@ fn link_at(after: &str) -> Option<(&str, &str, &str)> {
 /// The text of the review of change `id` of the project whose state root is `state`: empty when
 /// there is none, `None` when it cannot be read. Bytes that are not UTF-8 are replaced.
 fn review_of(state: &Path, id: &str) -> Option<String> {
-    match fs::read(state.join(verdict::review_path(id))) {
+    match fs::read(layout::join(state, &verdict::review_path(id))) {
         Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
         Err(e) if e.kind() == ErrorKind::NotFound => Some(String::new()),
         Err(_) => None,
@@ -504,7 +509,7 @@ fn added_exceptions(state: &Path, id: &str) -> Result<Vec<String>, String> {
         #[serde(default)]
         added_exceptions: Vec<String>,
     }
-    let path = Gate::G3.report_path(id);
+    let path = layout::named(state, &Gate::G3.report_path(id));
     let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -568,7 +573,7 @@ mod tests {
     fn a_record_that_says_little_gets_an_inbox_with_nothing() {
         let expected = concat!(
             "# Decision Inbox · c2 · \n\n",
-            "Color and lane not decided yet (gdd decides them at launch) · state ?\n\n",
+            "Color and lane not decided yet (tminus decides them at launch) · state ?\n\n",
             "## Needs your decision\n- Nothing.\n\n",
             "## Decided without you\n- Nothing.\n\n",
             "## Parked\n- Nothing."
@@ -721,9 +726,9 @@ mod tests {
                      {"name": "types", "tail": "x", "count": 3, "known": 5},
                      {"name": "quality", "tail": "y", "count": 3}],
                      "paid_debt": ["unit"]}"#;
-        folder.write(".gdd/changes/c1/g2.json", g2);
+        folder.write(".tminus/changes/c1/g2.json", g2);
         let g3 = r#"{"added_exceptions": ["exception added: A"], "paid_debt": ["security"]}"#;
-        folder.write(".gdd/changes/c1/g3.json", g3);
+        folder.write(".tminus/changes/c1/g3.json", g3);
         let saved = save(&folder.0, "c1", "{}").unwrap();
         let end = concat!(
             "## Parked\n- Nothing.\n\n",
@@ -735,15 +740,15 @@ mod tests {
             "## Known debt paid\n- unit (G2)\n- security (G3)"
         );
         assert!(saved.ends_with(end), "{saved}");
-        folder.write(".gdd/changes/c1/g2.json", "{not json");
+        folder.write(".tminus/changes/c1/g2.json", "{not json");
         let err = save(&folder.0, "c1", "{}").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/g2.json: "), "{err}");
+        assert!(err.starts_with(".tminus/changes/c1/g2.json: "), "{err}");
     }
 
     #[test]
     fn the_saved_inbox_shows_the_exceptions_the_last_g3_named_as_added() {
         let folder = Folder::new();
-        let report = ".gdd/changes/c1/g3.json";
+        let report = ".tminus/changes/c1/g3.json";
         let added = r#"{"ok": true, "added_exceptions": ["exception added: A", "added: B"]}"#;
         folder.write(report, added);
         let saved = save(&folder.0, "c1", "{}").unwrap();
@@ -754,12 +759,64 @@ mod tests {
         assert_eq!(saved, render("c1", "{}", NO_REVIEW, &[], &NONE).unwrap());
         folder.write(report, "{not json");
         let err = save(&folder.0, "c1", "{}").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
+        assert!(err.starts_with(".tminus/changes/c1/g3.json: "), "{err}");
         fs::remove_file(folder.0.join(report)).unwrap();
         fs::create_dir_all(folder.0.join(report)).unwrap();
         let err = save(&folder.0, "c1", "{}").unwrap_err();
+        let start = "cannot read .tminus/changes/c1/g3.json: ";
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    /// A project of the old layout: `gdd/project.toml`, its files in `gdd/` and its state in
+    /// `.gdd/`.
+    fn old_layout() -> Folder {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "name = \"x\"\n");
+        folder
+    }
+
+    #[test]
+    fn the_inbox_of_a_project_of_the_old_layout_reads_and_writes_its_gdd_folder() {
+        let folder = old_layout();
+        let added = r#"{"added_exceptions": ["exception added: A"]}"#;
+        folder.write(".gdd/changes/c1/g3.json", added);
+        let review = "## How it works\nOne pure function.\nVERDICT: OK\n";
+        folder.write(".gdd/changes/c1/review.md", review);
+        let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
+        assert!(saved.contains("\n- exception added: A"), "{saved}");
+        let explained = "## How it works\nOne pure function.\n";
+        assert!(saved.contains(explained), "{saved}");
+        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        assert_eq!(text, format!("{saved}\n"));
+        let err = save(&folder.0, "c1", "{not json").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        folder.write(".gdd/changes/c1/g3.json", "{not json");
+        let err = save(&folder.0, "c1", "{}").unwrap_err();
+        assert!(err.starts_with(".gdd/changes/c1/g3.json: "), "{err}");
+        fs::remove_file(folder.0.join(".gdd/changes/c1/g3.json")).unwrap();
+        fs::create_dir_all(folder.0.join(".gdd/changes/c1/g3.json")).unwrap();
+        let err = save(&folder.0, "c1", "{}").unwrap_err();
         let start = "cannot read .gdd/changes/c1/g3.json: ";
         assert!(err.starts_with(start), "{err}");
+        assert!(!folder.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn the_rules_of_a_project_of_the_old_layout_are_in_its_gdd_folder() {
+        let folder = old_layout();
+        // The worktree folder the rules name, and only those of gdd/.
+        folder.write("tminus/rules.toml", "[parallel]\nfolder = \"/other\"\n");
+        folder.write("gdd/rules.toml", "[parallel]\nfolder = \"/trees\"\n");
+        let trees = [PathBuf::from("/trees/c1"), folder.0.clone()];
+        assert_eq!(roots(&folder.0, "c1"), trees);
+        let on_branch = [("features/a.feature", Some(SCENARIO))];
+        let repo = repo_with(&[("gdd/project.toml", "")], &on_branch);
+        let record = record_of("open", "none", &[]);
+        fs::create_dir_all(repo.root().join("gdd/rules.toml")).unwrap();
+        let text = g1_request(repo.root(), "c1", &record).unwrap();
+        let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: cannot read \
+                     gdd/rules.toml: ";
+        assert!(text.starts_with(start), "{text}");
     }
 
     #[test]
@@ -844,7 +901,7 @@ mod tests {
             let record = format!(r#"{{"state": "{state}"}}"#);
             let text = render("c1", &record, Some(review), &[], &NONE).unwrap();
             let start = format!(
-                "# Decision Inbox · c1 · \n\nColor and lane not decided yet (gdd decides them \
+                "# Decision Inbox · c1 · \n\nColor and lane not decided yet (tminus decides them \
                  at launch) · state {state}\n\n\
                  ## How it works\nThe export reads each note.\n  - As it is\n\n\
                  ## Needs your decision\n"
@@ -876,7 +933,7 @@ mod tests {
         let record = r#"{"state": "in-pre"}"#;
         let saved = save(&folder.0, "c1", record).unwrap();
         assert!(saved.contains(UNEXPLAINED), "{saved}");
-        let review = ".gdd/changes/c1/review.md";
+        let review = ".tminus/changes/c1/review.md";
         folder.write(review, "## How it works\nOne pure function.\nVERDICT: OK\n");
         let saved = save(&folder.0, "c1", record).unwrap();
         let group = "## How it works\nOne pure function.\n\n";
@@ -907,14 +964,15 @@ mod tests {
         let folder = Folder::new();
         let saved = save(&folder.0, "c1", RECORD).unwrap();
         assert_eq!(saved, render("c1", RECORD, NO_REVIEW, &[], &NONE).unwrap());
-        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let text = fs::read_to_string(folder.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         assert_eq!(text, format!("{saved}\n"));
         let err = save(&folder.0, "c1", "{not json").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
-        fs::remove_file(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let start = ".tminus/changes/c1/change.json: ";
+        assert!(err.starts_with(start), "{err}");
+        fs::remove_file(folder.0.join(".tminus/changes/c1/inbox.md")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         let err = save(&folder.0, "c1", RECORD).unwrap_err();
-        let start = "cannot write .gdd/changes/c1/inbox.md: ";
+        let start = "cannot write .tminus/changes/c1/inbox.md: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -968,7 +1026,7 @@ mod tests {
     }
 
     #[test]
-    fn the_requests_gdd_adds_come_first() {
+    fn the_requests_tminus_adds_come_first() {
         let record = format!(r#"{{"state": "open", {NEEDS}}}"#);
         let asked = ["Read it".to_string()];
         let text = render("c1", &record, NO_REVIEW, &asked, &NONE).unwrap();
@@ -1022,7 +1080,7 @@ mod tests {
         let sealed = [("features/a.feature", SCENARIO)];
         let text = g1_request(repo.root(), "c1", &record_of("open", "none", &[])).unwrap();
         let expected = "G1 · Scenario Gate: read the scenarios of change/c1, then answer your \
-                        agent (or the sitting screen, gdd sitting c1): OK approves and seals \
+                        agent (or the sitting screen, tminus sitting c1): OK approves and seals \
                         them, KO with your words sends them back to be rewritten.";
         assert_eq!(text, expected);
         assert!(!asks_g1(&repo, &record_of("open", "ok", &sealed)));
@@ -1067,18 +1125,18 @@ mod tests {
         let on_branch = [("features/a.feature", Some(SCENARIO))];
         let repo = repo_with(&[], &on_branch);
         let record = record_of("open", "none", &[]);
-        repo.write("gdd/rules.toml", "[acceptance]\ndir = \"specs\"\n");
+        repo.write("tminus/rules.toml", "[acceptance]\ndir = \"specs\"\n");
         assert_eq!(g1_request(repo.root(), "c1", &record), None);
-        fs::write(repo.root().join("gdd/rules.toml"), "[acceptance").unwrap();
+        fs::write(repo.root().join("tminus/rules.toml"), "[acceptance").unwrap();
         let text = g1_request(repo.root(), "c1", &record).unwrap();
         let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: ";
         assert!(text.starts_with(start), "{text}");
-        fs::remove_file(repo.root().join("gdd/rules.toml")).unwrap();
-        fs::create_dir_all(repo.root().join("gdd/rules.toml")).unwrap();
+        fs::remove_file(repo.root().join("tminus/rules.toml")).unwrap();
+        fs::create_dir_all(repo.root().join("tminus/rules.toml")).unwrap();
         let text = g1_request(repo.root(), "c1", &record).unwrap();
-        let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: cannot read ";
+        let start = "G1 · Scenario Gate: the scenarios of change/c1 cannot be read: cannot read \
+                     tminus/rules.toml: ";
         assert!(text.starts_with(start), "{text}");
-        assert!(text.contains("gdd/rules.toml"), "{text}");
     }
 
     #[test]
@@ -1127,10 +1185,10 @@ mod tests {
         let folder = Folder::new();
         let tree = worktree::folder(&folder.0, "").unwrap().join("c1");
         assert_eq!(roots(&folder.0, "c1"), [tree, folder.0.clone()]);
-        folder.write("gdd/rules.toml", "[parallel]\nfolder = \"/trees\"\n");
+        folder.write("tminus/rules.toml", "[parallel]\nfolder = \"/trees\"\n");
         let trees = [PathBuf::from("/trees/c1"), folder.0.clone()];
         assert_eq!(roots(&folder.0, "c1"), trees);
-        folder.write("gdd/rules.toml", "[parallel");
+        folder.write("tminus/rules.toml", "[parallel");
         assert_eq!(roots(&folder.0, "c1"), std::slice::from_ref(&folder.0));
     }
 
@@ -1142,7 +1200,7 @@ mod tests {
             "## How it works\n- [a.rs:3]({}/src/a.rs:3) checks it\n\nVERDICT: OK\n",
             tree.display()
         );
-        folder.write(".gdd/changes/c1/review.md", &review);
+        folder.write(".tminus/changes/c1/review.md", &review);
         let saved = save(&folder.0, "c1", r#"{"state": "in-pre"}"#).unwrap();
         let shown = "## How it works\n- src/a.rs:3 checks it\n";
         assert!(saved.contains(shown), "{saved}");

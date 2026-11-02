@@ -1,4 +1,4 @@
-# Skeleton of a new rust project, written by gdd init when the folder has no project of this
+# Skeleton of a new rust project, written by tminus init when the folder has no project of this
 # stack yet (none of its detect files). Checked for real on 2026-10-27: every gate command of the
 # sheet green, red on a surviving mutant and on a step without code. {package} is the project
 # name as an identifier.
@@ -96,9 +96,9 @@ path = "tests/acceptance.rs"
 content = '''
 //! The Gherkin scenarios of `features/`, run with cucumber-rs.
 //!
-//! - `GDD_FEATURES`: the features to run, one path per line from the project root; all when
+//! - `TMINUS_FEATURES`: the features to run, one path per line from the project root; all when
 //!   empty (G2 runs the ones a change touches).
-//! - `GDD_HIDDEN=1`: also run `features/hidden/` (G3).
+//! - `TMINUS_HIDDEN=1`: also run `features/hidden/` (G3).
 //!
 //! Steps live in `tests/acceptance/`, one module per feature.
 
@@ -115,14 +115,14 @@ use acceptance::world::AppWorld;
 
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let listed: HashSet<PathBuf> = std::env::var("GDD_FEATURES")
+    let listed: HashSet<PathBuf> = std::env::var("TMINUS_FEATURES")
         .unwrap_or_default()
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .filter_map(|line| root.join(line).canonicalize().ok())
         .collect();
-    let hidden = std::env::var("GDD_HIDDEN").as_deref() == Ok("1");
+    let hidden = std::env::var("TMINUS_HIDDEN").as_deref() == Ok("1");
     let hidden_dir = root.join("features").join("hidden");
     futures::executor::block_on(
         AppWorld::cucumber()
