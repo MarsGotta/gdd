@@ -18,6 +18,9 @@
 //! 6. A change that needs the human G4 waits for `gdd resume`. Any other is promoted and
 //!    observed: closed.
 //!
+//! An agent that says it cannot do the task parks the change at once, test mode after its Path
+//! Guard (see [`Run::call`]).
+//!
 //! A spike has a recipe of its own (see [`Run::spiked`]): rounds of build mode in `mode=spike`
 //! against its own G2 (see [`crate::gates::spike`]), within a budget checked after each of its
 //! agent calls (see [`Run::within_budget`]); green, it pauses at G4 without G3, Reviewer, merge
@@ -1466,8 +1469,18 @@ impl<S: Steps> Run<'_, S> {
     /// what the change spent, in its record, by gdd alone (see [`Run::spent_on`]), whatever the
     /// call did, even when the state folder it left cannot go; GDD state that cannot be put back
     /// stops the recipe before gdd writes there. After a call of a spike that ended, its budget
-    /// (see [`Run::within_budget`]): a call is never cut.
+    /// (see [`Run::within_budget`]): a call is never cut. An agent that says it cannot do the task
+    /// (see [`invoke::Error::Cannot`]) parks the change with its reason, at once: no gate runs
+    /// and no answer is read after it.
     fn call(&mut self, who: Who, args: &str) -> Result<(), Stop> {
+        let cannot = self.called(who, args)?;
+        cannot.map_or(Ok(()), |why| Err(Stop::Park(why)))
+    }
+
+    /// The call of [`Run::call`], with its checks: the reason, for the human, of an agent that
+    /// says it cannot do the task, which is no stop yet, so test mode answers to Path Guard first
+    /// (see [`Run::test_mode`]).
+    fn called(&mut self, who: Who, args: &str) -> Result<Option<String>, Stop> {
         let Project { state, work, .. } = *self.project;
         let call = Call {
             who,
@@ -1499,11 +1512,14 @@ impl<S: Steps> Run<'_, S> {
                 return Err(Stop::Park(why));
             }
         }
+        if let Err(cannot @ invoke::Error::Cannot(..)) = &called {
+            return Ok(Some(cannot.to_string()));
+        }
         called?;
         if self.decided.spike() {
             self.within_budget()?;
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Adds what a call used, `used`, to what the change spent, in its record under the state
@@ -1537,16 +1553,22 @@ impl<S: Steps> Run<'_, S> {
     }
 
     /// The Builder in test mode with `args`, then Path Guard for it, since the round snapshot
-    /// with `since_snapshot`: a failure parks. Then the build snapshot; after a round judged
-    /// since the round snapshot, moved only for what test mode changed in it (see
+    /// with `since_snapshot`: a failure parks. A Builder that said it cannot do the task is judged
+    /// by Path Guard all the same, then parks: with Path Guard's failures first, when it failed,
+    /// and its own reason. Then the build snapshot; after a round judged since the round
+    /// snapshot, moved only for what test mode changed in it (see
     /// [`Snapshot::BuildAfterRound`]), so what build mode wrote before stays its own.
     fn test_mode(&mut self, args: &str, since_snapshot: bool) -> Result<(), Stop> {
-        self.call(Who::BuilderTest, args)?;
+        let cannot = self.called(Who::BuilderTest, args)?;
         let failures = self.steps.guard_test(since_snapshot)?;
+        let mut why = Vec::new();
         if !failures.is_empty() {
             let failures = failures.join("; ");
-            let why = format!("Path Guard failed after test mode: {failures}");
-            return Err(Stop::Park(why));
+            why.push(format!("Path Guard failed after test mode: {failures}"));
+        }
+        why.extend(cannot);
+        if !why.is_empty() {
+            return Err(Stop::Park(why.join("; ")));
         }
         let snapshot = if since_snapshot {
             Snapshot::BuildAfterRound
@@ -2243,7 +2265,9 @@ mod tests {
     /// Each call of a role in
     /// `costly` reports it used `used`, a cent and a few tokens unless a test says otherwise
     /// ([`CENT`]); the others, nothing. A release step, a decision on a gate, or a snapshot
-    /// (`snapshot`), named in `fails` fails with what it gives.
+    /// (`snapshot`), named in `fails` fails with what it gives. A call whose step, as `ran` names
+    /// it, is in `cannot` does and says what it does, then says it cannot do the task, for the
+    /// reason given there.
     struct Played<'a> {
         root: &'a Path,
         work: PathBuf,
@@ -2266,6 +2290,7 @@ mod tests {
         acts: Vec<(Who, Act)>,
         released: Vec<(&'static str, Act)>,
         fails: Vec<(&'static str, &'static str)>,
+        cannot: Vec<(&'static str, &'static str)>,
     }
 
     /// What an agent does on the project root when it is called.
@@ -2302,6 +2327,7 @@ mod tests {
             acts: Vec::new(),
             released: Vec::new(),
             fails: Vec::new(),
+            cannot: Vec::new(),
         }
     }
 
@@ -2355,6 +2381,8 @@ mod tests {
             let name = call.model.get("model").and_then(Value::as_str);
             let name = name.unwrap_or_default();
             let step = format!("{} {name} {}", short(call.who), call.args);
+            let cannot = self.cannot.iter().find(|(said, _)| *said == step);
+            let cannot = cannot.map(|(_, why)| why.to_string());
             self.ran.push(step);
             self.sessions.push(call.builder_session);
             let acts = self.acts.iter().filter(|(who, _)| *who == call.who);
@@ -2375,7 +2403,8 @@ mod tests {
                 Who::Orchestrator => self.answer(&verdict::replan_path("c1"), self.replan),
                 Who::BuilderTest | Who::BuilderBuild => {}
             }
-            (used, Ok(()))
+            let cannot = cannot.map(|why| invoke::Error::Cannot(call.who, why));
+            (used, cannot.map_or(Ok(()), Err))
         }
 
         fn guard_test(&mut self, since_snapshot: bool) -> Result<Vec<String>, String> {
@@ -2981,6 +3010,94 @@ mod tests {
         steps.fails = vec![("observe", "release.observe failed")];
         let failed = Stop::Fail("release.observe failed".into());
         assert_eq!(launched(&mut steps, 1), Err(failed));
+    }
+
+    /// Why a change parks when its Builder in build mode says it cannot do the task.
+    const NO_CURRENCY: &str = "the Builder in build mode says it cannot do the task: no currency";
+
+    #[test]
+    fn a_builder_that_says_it_cannot_parks_at_once_and_never_counts_as_green() {
+        // With G2 red, its rounds and the replan would follow; with G2 green, G3.
+        for g2 in [vec![false; 9], vec![]] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.g2 = VecDeque::from(g2.clone());
+            steps.cannot = vec![("build b mode=build", "no currency")];
+            assert_eq!(launched(&mut steps, 1), park(NO_CURRENCY), "{g2:?}");
+            let ran = [
+                "test t mode=test",
+                "guard since=false",
+                "snapshot Build",
+                "build b mode=build",
+            ];
+            assert_eq!(steps.ran, ran, "{g2:?}");
+        }
+    }
+
+    #[test]
+    fn an_agent_that_says_it_cannot_parks_the_change_in_any_round() {
+        for (step, who) in [
+            ("replan o reason=g2", Who::Orchestrator),
+            ("build b mode=build after=replan", Who::BuilderBuild),
+            ("build b mode=build fix=g3", Who::BuilderBuild),
+            ("build b mode=build fix=review", Who::BuilderBuild),
+        ] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.tests_first = false;
+            steps.decided.retries = 1;
+            steps.g2 = VecDeque::from([false]);
+            steps.g3 = VecDeque::from([false]);
+            steps.reviews = VecDeque::from(["VERDICT: KO"]);
+            steps.cannot = vec![(step, "stuck")];
+            let why = format!("the {who} says it cannot do the task: stuck");
+            assert_eq!(launched(&mut steps, 1), park(&why), "{step}");
+            assert_eq!(last(&steps), step);
+        }
+    }
+
+    #[test]
+    fn a_reviewer_that_says_it_cannot_parks_with_no_verdict_read_and_no_fix() {
+        for said in ["VERDICT: OK", "VERDICT: KO"] {
+            let folder = repo_folder();
+            let mut steps = played(&folder.0);
+            steps.decided.resume_green = true;
+            steps.reviews = VecDeque::from([said]);
+            steps.cannot = vec![("review r round=1", "too large")];
+            let why = "the Reviewer says it cannot do the task: too large";
+            assert_eq!(launched(&mut steps, 1), park(why), "{said}");
+            assert_eq!(steps.ran, ["G3", "review r round=1"], "{said}");
+            let none = guard::Hashes::new();
+            assert_eq!(reviews_of(&folder.0), [kept(1, None, None, &none)]);
+            // No verdict was read: reading it logs it.
+            assert!(!folder.0.join(log::PATH).exists(), "{said}");
+        }
+    }
+
+    #[test]
+    fn test_mode_that_says_it_cannot_answers_to_path_guard_and_then_parks() {
+        let folder = repo_folder();
+        let cannot = "the Builder in test mode says it cannot do the task: no screen";
+        let mut steps = played(&folder.0);
+        steps.cannot = vec![("test t mode=test", "no screen")];
+        assert_eq!(launched(&mut steps, 1), park(cannot));
+        assert_eq!(steps.ran, ["test t mode=test", "guard since=false"]);
+        // Path Guard failures come first, its reason after them.
+        let mut steps = played(&folder.0);
+        steps.cannot = vec![("test t mode=test", "no screen")];
+        steps.guard = vec!["src/a.rs: x".into(), "src/b.rs: y".into()];
+        let guard = "Path Guard failed after test mode: src/a.rs: x; src/b.rs: y";
+        let why = format!("{guard}; {cannot}");
+        assert_eq!(launched(&mut steps, 1), park(&why));
+        assert_eq!(steps.ran, ["test t mode=test", "guard since=false"]);
+        // A round of test mode a replan asked for, judged since its round snapshot.
+        let mut steps = played(&folder.0);
+        steps.decided.retries = 1;
+        steps.replan = "NEXT: test";
+        steps.g2 = VecDeque::from([false]);
+        steps.cannot = vec![("test t mode=test after=replan", "no screen")];
+        assert_eq!(launched(&mut steps, 1), park(cannot));
+        assert_eq!(last(&steps), "guard since=true");
     }
 
     /// Runs the recipe of a launch on change `c1` of the project at `folder`, where each call of
@@ -4211,6 +4328,21 @@ mod tests {
         let said = launch(&repo.project(), "c1", &mut steps);
         assert!(parked(said).starts_with("Change c1 parked: "));
         assert_eq!(steps.ran, ["prepare", "build b mode=spike"]);
+    }
+
+    #[test]
+    fn a_launch_whose_agent_says_it_cannot_parks_with_its_reason_for_the_human() {
+        let repo = repo_with_change(RECORD);
+        let root = repo.root();
+        let mut steps = played(root);
+        steps.cannot = vec![("build b mode=build", "no currency")];
+        let said = parked(launch(&repo.project(), "c1", &mut steps));
+        let inbox = "Message in .tminus/changes/c1/inbox.md";
+        assert_eq!(said, format!("Change c1 parked: {NO_CURRENCY}. {inbox}"));
+        // What the change touched is kept, so the next run judges what the Builder left.
+        assert_eq!(last(&steps), "snapshot Parked");
+        assert_eq!(record(root)["state"], "parked");
+        assert!(inbox_of(root).contains(NO_CURRENCY));
     }
 
     #[test]
@@ -5960,6 +6092,24 @@ mod tests {
         let parked = &record(root)["variants"][0];
         assert_eq!(parked["state"], "parked");
         assert_eq!(parked["reason"], why.as_str());
+        assert!(steps.ran.contains(&ready_said(2, "Postgres")));
+    }
+
+    #[test]
+    fn a_variant_that_says_it_cannot_parks_as_that_variant_and_the_others_run() {
+        let repo = spike_with_variants();
+        let root = repo.root();
+        let mut steps = spike_played(root);
+        steps.acts = vec![(Who::BuilderBuild, decides)];
+        steps.cannot = vec![("build b mode=spike variant=1", "no data")];
+        assert_eq!(launched_variants(&repo, &mut steps, 5.0), Ok(Ended::Paused));
+        // No G2 after its call.
+        let first = ["in c1-v1", "build b mode=spike variant=1", "in c1"];
+        assert_eq!(steps.ran[..3], first);
+        let why = "the Builder in build mode says it cannot do the task: no data";
+        let parked = &record(root)["variants"][0];
+        assert_eq!(parked["state"], "parked");
+        assert_eq!(parked["reason"], why);
         assert!(steps.ran.contains(&ready_said(2, "Postgres")));
     }
 
