@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::files;
 use crate::config;
-use crate::gates::{Gate, Report};
+use crate::gates::{Gate, Report, verdict};
 use crate::layout::{self, Layout};
 
 /// The file of the known debt, from the project root, in the new names (see [`crate::layout`]).
@@ -401,7 +401,7 @@ pub fn reported(state: &Path, id: &str) -> Result<Reported, String> {
     }
     let mut reported = Reported::default();
     for gate in [Gate::G2, Gate::G3] {
-        let path = layout::named(state, &gate.report_path(id));
+        let path = verdict::change_file(state, id, &format!("{}.json", gate.key()));
         let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
         let Some(bytes) = bytes else {
             continue;
@@ -683,6 +683,11 @@ mod tests {
         folder.write(".gdd/changes/c1/g2.json", r#"{"paid_debt": ["unit"]}"#);
         let said = reported(&folder.0, "c1").unwrap();
         assert_eq!(said.paid, paid(&[(Gate::G2, "unit")]));
+        // An id that holds the new name stays as it is.
+        let renamed = ".gdd/changes/rename-tminus/g3.json";
+        folder.write(renamed, r#"{"paid_debt": ["lint"]}"#);
+        let said = reported(&folder.0, "rename-tminus").unwrap();
+        assert_eq!(said.paid, paid(&[(Gate::G3, "lint")]));
     }
 
     #[test]
@@ -865,7 +870,10 @@ mod tests {
                      {"name": "types", "tail": "y", "count": 3, "known": 5}],
                      "paid_debt": ["unit"]}"#;
         folder.write(".tminus/changes/c1/g2.json", g2);
-        folder.write(".tminus/changes/c1/g3.json", r#"{"paid_debt": ["security"]}"#);
+        folder.write(
+            ".tminus/changes/c1/g3.json",
+            r#"{"paid_debt": ["security"]}"#,
+        );
         let lint = Owed {
             tail: "x".into(),
             ..owing("lint", None)

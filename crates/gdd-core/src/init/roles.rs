@@ -377,7 +377,7 @@ mod tests {
     fn the_models_file_gives_each_role_its_model_and_each_agent_its_family() {
         let cast = of(&["claude", "codex"], false).unwrap();
         let text = cast.models("9.9.9");
-        let expected = "# Models · GDD (written by gdd init 9.9.9)\n\
+        let expected = "# Models · GDD (written by tminus init 9.9.9)\n\
              # Who plays each role: an agent (integration) and its model. The Reviewer is of\n\
              # another model family than the Builder, so it does not share its blind spots.\n\n\
              [orchestrator]\nintegration = \"claude\"\nmodel = \"opus\"\n\n\

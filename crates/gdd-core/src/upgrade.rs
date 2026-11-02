@@ -1,18 +1,24 @@
-//! `gdd upgrade`: what this gdd writes of the files `gdd init` wrote once, merged with what the
-//! project made of them, proposed on the branch `gdd-upgrade` for a person to review and merge.
-//! Those files are the project's: nothing on the main branch changes, and nothing is pushed.
+//! `tminus upgrade`: what this tminus writes of the files `tminus init` wrote once, merged with
+//! what the project made of them, proposed on the branch `tminus-upgrade` for a person to review
+//! and merge. Those files are the project's: nothing on the main branch changes, and nothing is
+//! pushed.
 //!
 //! Each file is merged three ways, as Copier updates a project from its template: the base is
-//! what the older gdd wrote, kept in the last commit that touched `gdd/generated.toml`; ours, the
-//! file on the main branch; theirs, what this gdd renders from the answers gdd init recorded (see
-//! [`init::render_once`]). The merge is git's own (`git merge-file`), through files in a fresh
-//! folder under `.gdd/upgrade/` of the state root, removed afterwards. The branch gets two
-//! commits: what this gdd writes, pure, with the new `gdd/generated.toml` (the base of the next
-//! upgrade), then the merge with the project's changes. Both are made in a worktree of their own,
-//! in the folder of the changes' worktrees, which goes whatever happens (and that folder with it
-//! when the run made it and nothing else came into it); the branch is made last, on the second
-//! commit, so a run that fails leaves none. Where this gdd writes a file and the project has
-//! something else (a folder, a link), the upgrade stops before writing anything.
+//! what the older tminus wrote, kept in the last commit that touched `tminus/generated.toml`;
+//! ours, the file on the main branch; theirs, what this tminus renders from the answers tminus
+//! init recorded (see [`init::render_once`]). The merge is git's own (`git merge-file`), through
+//! files in a fresh folder under `.tminus/upgrade/` of the state root, removed afterwards. The
+//! branch gets two commits: what this tminus writes, pure, with the new `tminus/generated.toml`
+//! (the base of the next upgrade), then the merge with the project's changes. Both are made in a
+//! worktree of their own, in the folder of the changes' worktrees, which goes whatever happens
+//! (and that folder with it when the run made it and nothing else came into it); the branch is
+//! made last, on the second commit, so a run that fails leaves none. Where this tminus writes a
+//! file and the project has something else (a folder, a link), the upgrade stops before writing
+//! anything.
+//!
+//! A project set up before the rename (see [`crate::layout`]) is upgraded in its own names: its
+//! files in `gdd/`, the folder of the merges in `.gdd/`, the branch `gdd-upgrade`, and what this
+//! tminus writes, its commits and its conflict marks as gdd wrote them.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -27,49 +33,48 @@ use crate::gates::approve;
 use crate::git::{self, Git};
 use crate::guard::{self, Settings};
 use crate::init::{self, Answers, GENERATED};
+use crate::layout::Layout;
 use crate::recipe::worktree;
 use crate::stacks;
 
-/// The branch the upgrade is proposed on.
-const BRANCH: &str = "gdd-upgrade";
+/// The branch the upgrade is proposed on, in the new names: a project of the old layout gets it
+/// as it names things (see [`Layout::localize`]).
+const BRANCH: &str = "tminus-upgrade";
 
-/// The folder of the merges' files, from the state root: a fresh folder in it for each run.
-const SCRATCH: &str = ".gdd/upgrade";
+/// The folder of the merges' files, from the state root, in the new names: a fresh folder in it
+/// for each run.
+const SCRATCH: &str = ".tminus/upgrade";
 
 /// How the conflict marks name the project's side.
 const YOURS: &str = "yours";
 
 /// Why a Builder or a Reviewer cannot upgrade.
-const NOT_FOR_AGENTS: &str = "Builders and Reviewers cannot run gdd upgrade: a person runs it, \
-                              then reviews and merges its branch";
+const NOT_FOR_AGENTS: &str = "Builders and Reviewers cannot run tminus upgrade: a person runs \
+                              it, then reviews and merges its branch";
 
-/// Why a project without `gdd/generated.toml` cannot be upgraded.
-const MISSING: &str = "gdd/generated.toml is missing: this project was set up before gdd recorded \
-                       what it writes, so gdd upgrade has no base to merge from";
+/// Why a project without its generated file cannot be upgraded, after the file.
+const MISSING: &str = "is missing: this project was set up before tminus recorded what it \
+                       writes, so tminus upgrade has no base to merge from";
 
-/// Why a project whose `gdd/generated.toml` has no answers cannot be upgraded.
-const NO_ANSWERS: &str = "gdd/generated.toml has no [answers]: it was written before gdd \
-                          recorded them, add them as gdd init writes them now";
+/// Why a project whose generated file has no answers cannot be upgraded, after the file.
+const NO_ANSWERS: &str = "has no [answers]: it was written before tminus recorded them, add \
+                          them as tminus init writes them now";
 
-/// Why a project whose `gdd/generated.toml` no commit holds cannot be upgraded.
-const UNCOMMITTED_RECORD: &str = "gdd/generated.toml is in no commit: commit it first, gdd \
-                                  upgrade merges from the commit that wrote it";
+/// Why a project whose generated file no commit holds cannot be upgraded, after the file.
+const UNCOMMITTED_RECORD: &str = "is in no commit: commit it first, tminus upgrade merges from \
+                                  the commit that wrote it";
 
 /// Why a project with uncommitted changes cannot be upgraded.
 const UNCOMMITTED: &str = "commit or stash your changes first";
 
 /// What a run that failed once it started on its branch says, before why.
-const NO_BRANCH: &str = "gdd upgrade made no branch and main is as it was";
-
-/// Why a project whose upgrade branch is there cannot be upgraded again.
-const BRANCH_THERE: &str = "the branch gdd-upgrade is already there: merge it or delete it (git \
-                            branch -D gdd-upgrade) first";
+const NO_BRANCH: &str = "tminus upgrade made no branch and main is as it was";
 
 /// An environment: its variables, with their values.
 type Env = [(String, String)];
 
-/// What `gdd/generated.toml` says: the version of the gdd that wrote it, the files that gdd
-/// writes once and, when it recorded them, what gdd init was asked.
+/// What the generated file says: the version of the tminus that wrote it, the files that tminus
+/// writes once and, when it recorded them, what tminus init was asked.
 #[derive(Debug, Deserialize)]
 struct Generated {
     version: String,
@@ -80,13 +85,13 @@ struct Generated {
 /// What becomes of a file of the upgrade on its branch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fate {
-    /// This gdd writes it as the older one did: the project's file stays.
+    /// This tminus writes it as the older one did: the project's file stays.
     Kept,
-    /// This gdd no longer writes it: the project's file stays.
+    /// This tminus no longer writes it: the project's file stays.
     Dropped,
-    /// New in this gdd, and the project has none: this gdd's.
+    /// New in this tminus, and the project has none: this tminus's.
     Added,
-    /// The project had not changed it: this gdd's.
+    /// The project had not changed it: this tminus's.
     Updated,
     /// The project removed it: it stays out.
     LeftOut,
@@ -98,9 +103,9 @@ impl Fate {
     /// What the output says of a file with this fate.
     fn said(self) -> String {
         match self {
-            Fate::Kept => "yours, gdd writes it as before".to_string(),
-            Fate::Dropped => format!("yours, gdd {VERSION} no longer writes it"),
-            Fate::Added => format!("added (new in gdd {VERSION})"),
+            Fate::Kept => "yours, tminus writes it as before".to_string(),
+            Fate::Dropped => format!("yours, tminus {VERSION} no longer writes it"),
+            Fate::Added => format!("added (new in tminus {VERSION})"),
             Fate::Updated => "updated (you had not changed it)".to_string(),
             Fate::LeftOut => "left out: you removed it".to_string(),
             Fate::Merged(0) => "merged with your changes".to_string(),
@@ -109,20 +114,20 @@ impl Fate {
     }
 }
 
-/// Which text a file of the upgrade takes, from what the older gdd wrote, what the project has
-/// and what this gdd writes.
+/// Which text a file of the upgrade takes, from what the older tminus wrote, what the project
+/// has and what this tminus writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Choice {
     /// The project's, with this fate.
     Ours(Fate),
-    /// This gdd's, with this fate.
+    /// This tminus's, with this fate.
     Theirs(Fate),
-    /// The three merged, against an empty base when the older gdd wrote none.
+    /// The three merged, against an empty base when the older tminus wrote none.
     Merge,
 }
 
-/// Which text a file takes from what the older gdd wrote of it (`base`), what the project has
-/// (`ours`) and what this gdd writes (`theirs`), each `None` where there is no file.
+/// Which text a file takes from what the older tminus wrote of it (`base`), what the project has
+/// (`ours`) and what this tminus writes (`theirs`), each `None` where there is no file.
 fn choose(base: Option<&[u8]>, ours: Option<&[u8]>, theirs: Option<&[u8]>) -> Choice {
     match (base, ours, theirs) {
         (base, _, theirs) if theirs == base => Choice::Ours(Fate::Kept),
@@ -141,39 +146,49 @@ struct Settled {
     path: String,
     /// What becomes of it.
     fate: Fate,
-    /// Its text after the first commit: this gdd's when it writes it, else the project's; `None`
-    /// where there is no file.
+    /// Its text after the first commit: this tminus's when it writes it, else the project's;
+    /// `None` where there is no file.
     first: Option<Vec<u8>>,
     /// Its text after the second commit; `None` where there is no file.
     last: Option<Vec<u8>>,
 }
 
-/// `gdd upgrade` in the project at `root`, the folder of the main checkout (and so its state root,
-/// see [`crate::state::root`]), for the role `role` (`None` for a person), with git and the agents
-/// on the `PATH` of `env`, the environment gdd runs in (see the module). A Builder or a Reviewer
-/// is refused first; then a project whose `gdd/generated.toml` is missing or has no answers, one
-/// whose checkout is not on the main branch of `gdd/rules.toml`, one with tracked changes not
-/// committed and one where the branch `gdd-upgrade` is already there, in that order, with nothing
-/// written. What it says: what became of each file and how to review and take the branch, or that
-/// there is nothing to propose; without a line break at the end.
+/// `tminus upgrade` in the project at `root`, the folder of the main checkout (and so its state
+/// root, see [`crate::state::root`]), for the role `role` (`None` for a person), with git and the
+/// agents on the `PATH` of `env`, the environment tminus runs in (see the module). A Builder or a
+/// Reviewer is refused first; then a project whose generated file is missing or has no answers,
+/// one whose checkout is not on the main branch of its rules file, one with tracked changes not
+/// committed and one where the upgrade branch is already there, in that order, with nothing
+/// written. Files, folders and the branch are named as the project names them (see
+/// [`Layout::at`]). What it says: what became of each file and how to review and take the
+/// branch, or that there is nothing to propose; without a line break at the end.
 pub fn upgrade(root: &Path, role: Option<&str>, env: &Env) -> Result<String, String> {
     approve::may_record(role).map_err(|_| NOT_FOR_AGENTS.to_string())?;
-    let generated = recorded(root)?;
-    let answers = generated.answers.ok_or(NO_ANSWERS)?;
-    let rules = read(root, guard::RULES)?.unwrap_or_default();
+    let layout = Layout::at(root);
+    let record = layout.path(GENERATED);
+    let generated = recorded(root, &record)?;
+    let no_answers = || format!("{record} {NO_ANSWERS}");
+    let answers = generated.answers.ok_or_else(no_answers)?;
+    let rules_file = layout.path(guard::RULES);
+    let rules = read(root, &rules_file)?.unwrap_or_default();
     let rules = String::from_utf8_lossy(&rules).into_owned();
-    let unreadable = |e: config::Error| format!("{}: {e}", guard::RULES);
+    let unreadable = |e: config::Error| format!("{rules_file}: {e}");
     let settings = Settings::from_toml(&rules).map_err(unreadable)?;
     let main = settings.main_branch;
     let git = Git::in_env(root, env);
-    check(&git, &main)?;
-    let base = git.last_commit_of(GENERATED).map_err(said)?;
-    let base = base.ok_or(UNCOMMITTED_RECORD)?;
-    let theirs = init::render_once(&answers, env).map_err(unrendered)?;
+    let branch = layout.localize(BRANCH);
+    check(&git, &main, &branch)?;
+    let base = git.last_commit_of(&record).map_err(said)?;
+    let uncommitted = || format!("{record} {UNCOMMITTED_RECORD}");
+    let base = base.ok_or_else(uncommitted)?;
+    let rendered = init::render_once(&answers, env, layout);
+    let theirs = rendered.map_err(unrendered)?;
     let upgrade = Upgrade {
         root,
         git,
         env,
+        layout,
+        branch,
         main,
         old: generated.version,
         base,
@@ -182,57 +197,70 @@ pub fn upgrade(root: &Path, role: Option<&str>, env: &Env) -> Result<String, Str
     };
     let files = upgrade.settle()?;
     if files.iter().all(|file| file.fate == Fate::Kept) {
-        let nothing = format!("Already up to date with gdd {VERSION}: nothing to propose.");
+        let nothing = format!("Already up to date with tminus {VERSION}: nothing to propose.");
         return Ok(nothing);
     }
     let folder = worktree::folder(root, &rules).map_err(unreadable)?;
-    let path = worktree::path(&folder, BRANCH)?;
+    let path = worktree::path(&folder, &upgrade.branch)?;
     let proposed = upgrade.propose(&folder, &path, &files);
     proposed.map_err(|why| format!("{NO_BRANCH}: {why}"))?;
     Ok(upgrade.said(&files))
 }
 
 /// The checks on the checkout of `git` before an upgrade, after its record: on the branch `main`,
-/// with no tracked change uncommitted, and without the branch `gdd-upgrade`.
-fn check(git: &Git, main: &str) -> Result<(), String> {
+/// with no tracked change uncommitted, and without the upgrade branch `branch`.
+fn check(git: &Git, main: &str, branch: &str) -> Result<(), String> {
     if git.current_branch().map_err(said)? != main {
         let switch = format!("git switch {main}, then run it again");
-        return Err(format!("gdd upgrade runs on {main}: {switch}"));
+        return Err(format!("tminus upgrade runs on {main}: {switch}"));
     }
     if git.has_tracked_changes().map_err(said)? {
         return Err(UNCOMMITTED.to_string());
     }
-    if git.exists(&format!("refs/heads/{BRANCH}")).map_err(said)? {
-        return Err(BRANCH_THERE.to_string());
+    if git.exists(&format!("refs/heads/{branch}")).map_err(said)? {
+        return Err(branch_there(branch));
     }
     Ok(())
+}
+
+/// Why a project whose upgrade branch `branch` is there cannot be upgraded again.
+fn branch_there(branch: &str) -> String {
+    format!(
+        "the branch {branch} is already there: merge it or delete it (git branch -D {branch}) \
+         first"
+    )
 }
 
 /// What an upgrade works with.
 struct Upgrade<'a> {
     /// The folder of the project in the main checkout, and its state root.
     root: &'a Path,
-    /// Git there, in the environment gdd runs in.
+    /// Git there, in the environment tminus runs in.
     git: Git,
-    /// The environment gdd runs in.
+    /// The environment tminus runs in.
     env: &'a Env,
+    /// The layout of the project: the names of its files, its branch, its commits and its marks.
+    layout: Layout,
+    /// The branch the upgrade is proposed on, as the project names it.
+    branch: String,
     /// The main branch.
     main: String,
-    /// The version of the gdd that wrote the files last.
+    /// The version of the tminus that wrote the files last.
     old: String,
-    /// The commit with what it wrote: the last that touched `gdd/generated.toml`.
+    /// The commit with what it wrote: the last that touched the generated file.
     base: String,
     /// The files it wrote once.
     listed: Vec<String>,
-    /// What this gdd writes once, and its `gdd/generated.toml`: their paths and texts, in order.
+    /// What this tminus writes once, and its generated file: their paths and texts, in order, as
+    /// the project names them.
     theirs: Vec<(String, String)>,
 }
 
 impl Upgrade<'_> {
-    /// The files of the upgrade, settled, merged in a fresh folder under `.gdd/upgrade/` of the
-    /// state root, which goes whatever happened.
+    /// The files of the upgrade, settled, merged in a fresh folder under the folder of the
+    /// merges of the state root, which goes whatever happened.
     fn settle(&self) -> Result<Vec<Settled>, String> {
-        let scratch = format!("{SCRATCH}/{}", std::process::id());
+        let scratch = format!("{}/{}", self.layout.path(SCRATCH), std::process::id());
         remove(self.root, &scratch)?;
         let paths = self.paths();
         let settle = |path: &String| self.file(path, &scratch);
@@ -243,19 +271,20 @@ impl Upgrade<'_> {
         Ok(settled)
     }
 
-    /// The paths of the upgrade: those this gdd writes once, in its order, then those only the
-    /// older one wrote, each once. Never `gdd/generated.toml`: this gdd's is taken as it is.
+    /// The paths of the upgrade: those this tminus writes once, in its order, then those only the
+    /// older one wrote, each once. Never the generated file: this tminus's is taken as it is.
     fn paths(&self) -> Vec<String> {
+        let generated = self.layout.path(GENERATED);
         let theirs = self.theirs.iter().map(|(path, _)| path);
         let all = theirs.chain(&self.listed);
-        stacks::once(all.filter(|path| *path != GENERATED))
+        stacks::once(all.filter(|path| **path != generated))
     }
 
     /// The file `path` settled, merged in the folder `scratch` of the state root when it must be.
     fn file(&self, path: &str, scratch: &str) -> Result<Settled, String> {
         let theirs = self.theirs.iter().find(|(at, _)| at == path);
         let theirs = theirs.map(|(_, text)| text.as_bytes().to_vec());
-        // What the older gdd did not list it did not write, whatever its commit holds there.
+        // What the older tminus did not list it did not write, whatever its commit holds there.
         let base = if self.listed.iter().any(|at| at == path) {
             self.git.file_at(&self.base, path).map_err(said)?
         } else {
@@ -280,8 +309,9 @@ impl Upgrade<'_> {
         })
     }
 
-    /// The `texts` of the project, the older gdd and this one, in that order, merged by git
-    /// through files in the folder `scratch` of the state root: the text and its conflicts.
+    /// The `texts` of the project, the older tminus and this one, in that order, merged by git
+    /// through files in the folder `scratch` of the state root: the text and its conflicts. The
+    /// marks name each tminus as the project names the tool.
     fn merge(&self, texts: [&[u8]; 3], scratch: &str) -> Result<(Vec<u8>, usize), String> {
         let names = [YOURS, "base", "theirs"];
         let names = names.map(|name| format!("{scratch}/{name}"));
@@ -290,7 +320,9 @@ impl Upgrade<'_> {
         }
         // From the root, where git runs.
         let [ours, base, theirs] = names.each_ref().map(Path::new);
-        let (old, new) = (format!("gdd {}", self.old), format!("gdd {VERSION}"));
+        let tool = self.layout.name();
+        let old = format!("{tool} {}", self.old);
+        let new = format!("{tool} {VERSION}");
         let labels = [YOURS, old.as_str(), new.as_str()];
         let conflicts = self.git.merge_file(ours, base, theirs, labels);
         let conflicts = conflicts.map_err(said)?;
@@ -308,7 +340,7 @@ impl Upgrade<'_> {
         let tidied = if made { tidy(folder) } else { Ok(()) };
         let last = last?;
         tidied?;
-        self.git.create_branch(BRANCH, &last).map_err(said)
+        self.git.create_branch(&self.branch, &last).map_err(said)
     }
 
     /// Makes the two commits of the `files` in a worktree of their own at `path`, from the main
@@ -324,9 +356,10 @@ impl Upgrade<'_> {
         Ok(last)
     }
 
-    /// Makes, in the worktree at `path`, the commit of what this gdd writes, then the one of the
-    /// `files` as they end: the id of the second. Nothing is written when one of the files would
-    /// take the place of something of the project's (see [`Upgrade::free`]).
+    /// Makes, in the worktree at `path`, the commit of what this tminus writes, then the one of
+    /// the `files` as they end: the id of the second. Their messages name the tool as the project
+    /// does. Nothing is written when one of the files would take the place of something of the
+    /// project's (see [`Upgrade::free`]).
     fn commit(&self, path: &Path, files: &[Settled]) -> Result<String, String> {
         let work = worktree::project_root(self.root, path)?;
         let git = Git::in_env(&work, self.env);
@@ -337,8 +370,9 @@ impl Upgrade<'_> {
             write(&work, file, text.as_bytes())?;
         }
         let written: Vec<String> = self.theirs.iter().map(|(file, _)| file.clone()).collect();
-        let upgrade = format!("gdd upgrade {} to {VERSION}", self.old);
-        let pure = format!("{upgrade}: what gdd {VERSION} writes");
+        let tool = self.layout.name();
+        let upgrade = format!("{tool} upgrade {} to {VERSION}", self.old);
+        let pure = format!("{upgrade}: what {tool} {VERSION} writes");
         git.commit_files(&written, &pure).map_err(said)?;
         for file in files.iter().filter(|file| file.last != file.first) {
             match &file.last {
@@ -351,22 +385,22 @@ impl Upgrade<'_> {
         git.head().map_err(said)
     }
 
-    /// Whether this gdd may write its file `path` in the worktree at `work`, checked out from the
-    /// main branch: a file is there or nothing, with only folders on the way. Anything else (a
-    /// folder, a link or a submodule there, a file or a link on the way) is the project's, and
+    /// Whether this tminus may write its file `path` in the worktree at `work`, checked out from
+    /// the main branch: a file is there or nothing, with only folders on the way. Anything else
+    /// (a folder, a link or a submodule there, a file or a link on the way) is the project's, and
     /// writing would remove it (see [`files::replace`]).
     fn free(&self, work: &Path, path: &str) -> Result<(), String> {
         files::found(work, path).map(drop).map_err(|e| {
             let main = &self.main;
-            let next = "move what is in the way, commit, then run gdd upgrade again";
-            format!("{path} on {main}: {e}, where gdd {VERSION} writes a file: {next}")
+            let next = "move what is in the way, commit, then run tminus upgrade again";
+            format!("{path} on {main}: {e}, where tminus {VERSION} writes a file: {next}")
         })
     }
 
     /// What the upgrade says of the `files` proposed.
     fn said(&self, files: &[Settled]) -> String {
-        let (old, main) = (&self.old, &self.main);
-        let title = format!("gdd upgrade {old} to {VERSION}, on the branch {BRANCH}:");
+        let (old, main, branch) = (&self.old, &self.main, &self.branch);
+        let title = format!("tminus upgrade {old} to {VERSION}, on the branch {branch}:");
         let mut lines = vec![title];
         for file in files {
             lines.push(format!("  {}: {}", file.path, file.fate.said()));
@@ -374,23 +408,24 @@ impl Upgrade<'_> {
         let marked = |file: &Settled| matches!(file.fate, Fate::Merged(marks) if marks > 0);
         if files.iter().any(marked) {
             let settle = format!("settle the marks, commit, then git switch {main}");
-            lines.push(format!("Conflicts: git switch {BRANCH}, {settle}."));
+            lines.push(format!("Conflicts: git switch {branch}, {settle}."));
         }
-        let review = format!("Review it: git diff {main} {BRANCH}");
-        let merge = format!("git merge {BRANCH}, git branch -d {BRANCH}");
-        let take = format!("Take it: {merge}, then gdd agents install");
+        let review = format!("Review it: git diff {main} {branch}");
+        let merge = format!("git merge {branch}, git branch -d {branch}");
+        let take = format!("Take it: {merge}, then tminus agents install");
         lines.extend([review, take]);
         lines.join("\n")
     }
 }
 
-/// What `gdd/generated.toml` of the folder `root` says; without one, why it cannot be upgraded.
-fn recorded(root: &Path) -> Result<Generated, String> {
-    let Some(bytes) = read(root, GENERATED)? else {
-        return Err(MISSING.to_string());
+/// What the generated file `record` of the folder `root` says; without one, why it cannot be
+/// upgraded.
+fn recorded(root: &Path, record: &str) -> Result<Generated, String> {
+    let Some(bytes) = read(root, record)? else {
+        return Err(format!("{record} {MISSING}"));
     };
     let text = String::from_utf8_lossy(&bytes);
-    toml::from_str(&text).map_err(|e| format!("{GENERATED}: {e}"))
+    toml::from_str(&text).map_err(|e| format!("{record}: {e}"))
 }
 
 /// The bytes of the file `path` of the folder `root`, never through a link (see
@@ -425,7 +460,8 @@ fn said(e: git::Error) -> String {
     e.to_string()
 }
 
-/// Why the files cannot be rendered from the answers, without the `error: ` gdd init starts with.
+/// Why the files cannot be rendered from the answers, without the `error: ` tminus init starts
+/// with.
 fn unrendered(e: init::Error) -> String {
     match e {
         init::Error::Failed(why) => why,
@@ -441,20 +477,34 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
 
-    const WORKFLOW: &str = ".github/workflows/gdd.yml";
-    const BASICS: &str = "gdd/project.toml";
-    const ZONES: &str = "gdd/zones.toml";
+    const WORKFLOW: &str = ".github/workflows/tminus.yml";
+    const BASICS: &str = "tminus/project.toml";
+    const ZONES: &str = "tminus/zones.toml";
     const BRIEF: &str = "docs/brief.md";
+
+    /// The files tminus init writes once, with its generated file, and the `.gitignore`.
+    const ONCE: [&str; 9] = [
+        BASICS,
+        "tminus/commands.toml",
+        guard::RULES,
+        ZONES,
+        "tminus/models.toml",
+        GENERATED,
+        BRIEF,
+        WORKFLOW,
+        ".gitignore",
+    ];
 
     fn names(named: &[&str]) -> Vec<String> {
         named.iter().map(|name| name.to_string()).collect()
     }
 
-    /// A project gdd init set up, for Claude Code and Codex, in the folder `project` of a folder
-    /// of its own, which also holds the folder of its worktrees.
+    /// A project tminus init set up, for Claude Code and Codex, in the folder `project` of a
+    /// folder of its own, which also holds the folder of its worktrees.
     struct Project {
         folder: Folder,
         root: PathBuf,
+        layout: Layout,
     }
 
     impl Project {
@@ -473,7 +523,38 @@ mod tests {
                 accept_same_family: false,
             };
             init::init(&root, &options, &env()).unwrap();
-            Project { folder, root }
+            Project {
+                folder,
+                root,
+                layout: Layout::Tminus,
+            }
+        }
+
+        /// [`Project::new`] as gdd set it up before the rename: the files it writes once in the
+        /// old names, with the texts it wrote, committed.
+        fn old() -> Project {
+            let mut project = Project::new();
+            for path in ONCE {
+                let text = project.read(path);
+                project.remove(path);
+                let old = Layout::Gdd.path(path);
+                project.write(&old, &Layout::Gdd.localize(&text));
+            }
+            fs::remove_dir(project.root.join("tminus")).unwrap();
+            project.commit("gdd init");
+            project.layout = Layout::Gdd;
+            assert_eq!(Layout::at(&project.root), Layout::Gdd);
+            project
+        }
+
+        /// Its generated file, as it names it.
+        fn generated(&self) -> String {
+            self.layout.path(GENERATED)
+        }
+
+        /// The branch of its upgrade, as it names it.
+        fn branch(&self) -> String {
+            self.layout.localize(BRANCH)
         }
 
         /// Runs git in the project, in the environment of the tests: what it printed, trimmed.
@@ -512,35 +593,37 @@ mod tests {
             self.git(&["commit", "-q", "-m", message]);
         }
 
-        /// Plays an older gdd `version` that wrote the project as it is now, with the files
-        /// `unlisted` out of `gdd/generated.toml` and the files `listed` in it: committed as
-        /// gdd init commits.
+        /// Plays an older tminus `version` that wrote the project as it is now, with the files
+        /// `unlisted` out of its generated file and the files `listed` in it: committed as
+        /// tminus init commits.
         fn older(&self, version: &str, unlisted: &[&str], listed: &[&str]) {
-            let mut generated: toml::Table = toml::from_str(&self.read(GENERATED)).unwrap();
+            let path = self.generated();
+            let mut generated: toml::Table = toml::from_str(&self.read(&path)).unwrap();
             let files = generated["files"].as_array().unwrap().iter();
             let kept = files.filter(|file| !unlisted.contains(&file.as_str().unwrap()));
             let mut files: Vec<toml::Value> = kept.cloned().collect();
             files.extend(listed.iter().map(|&file| toml::Value::from(file)));
             generated.insert("files".to_string(), toml::Value::Array(files));
             generated.insert("version".to_string(), version.into());
-            self.write(GENERATED, &toml::to_string(&generated).unwrap());
-            self.commit(&format!("gdd init {version}"));
+            self.write(&path, &toml::to_string(&generated).unwrap());
+            self.commit(&format!("{} init {version}", self.layout.name()));
         }
 
         fn upgrade(&self) -> Result<String, String> {
             upgrade(&self.root, None, &env())
         }
 
-        /// The file `path` on the branch `gdd-upgrade`; `None` without one.
+        /// The file `path` on the branch of its upgrade; `None` without one.
         fn on_branch(&self, path: &str) -> Option<String> {
             let git = Git::in_env(&self.root, &env());
-            let bytes = git.file_at(BRANCH, path).unwrap();
+            let bytes = git.file_at(&self.branch(), path).unwrap();
             bytes.map(|bytes| String::from_utf8(bytes).unwrap())
         }
 
         fn has_branch(&self) -> bool {
             let git = Git::in_env(&self.root, &env());
-            git.exists(&format!("refs/heads/{BRANCH}")).unwrap()
+            let branch = format!("refs/heads/{}", self.branch());
+            git.exists(&branch).unwrap()
         }
 
         /// The folder of its worktrees, next to it.
@@ -554,7 +637,7 @@ mod tests {
             let listed = self.git(&["worktree", "list", "--porcelain"]);
             let worktrees = listed.matches("worktree ").count();
             let id = std::process::id().to_string();
-            let scratch = self.root.join(SCRATCH).join(id);
+            let scratch = self.root.join(self.layout.path(SCRATCH)).join(id);
             !self.worktrees().exists() && worktrees == 1 && !scratch.exists()
         }
 
@@ -595,10 +678,13 @@ mod tests {
     #[test]
     fn each_fate_says_what_became_of_the_file() {
         let says = |fate: Fate| fate.said();
-        assert_eq!(says(Fate::Kept), "yours, gdd writes it as before");
-        let dropped = format!("yours, gdd {VERSION} no longer writes it");
+        assert_eq!(says(Fate::Kept), "yours, tminus writes it as before");
+        let dropped = format!("yours, tminus {VERSION} no longer writes it");
         assert_eq!(says(Fate::Dropped), dropped);
-        assert_eq!(says(Fate::Added), format!("added (new in gdd {VERSION})"));
+        assert_eq!(
+            says(Fate::Added),
+            format!("added (new in tminus {VERSION})")
+        );
         assert_eq!(says(Fate::Updated), "updated (you had not changed it)");
         assert_eq!(says(Fate::LeftOut), "left out: you removed it");
         assert_eq!(says(Fate::Merged(0)), "merged with your changes");
@@ -606,14 +692,16 @@ mod tests {
     }
 
     #[test]
-    fn the_files_are_those_this_gdd_writes_then_those_only_the_older_one_wrote() {
+    fn the_files_are_those_this_tminus_writes_then_those_only_the_older_one_wrote() {
         let theirs = ["gdd/a.toml", GENERATED, "docs/c.md"];
         let theirs = theirs.map(|path| (path.to_string(), String::new()));
         let listed = ["docs/b.md", GENERATED, "gdd/a.toml", "x.md", "docs/b.md"];
-        let upgrade = Upgrade {
+        let mut upgrade = Upgrade {
             root: Path::new("."),
             git: Git::new(Path::new(".")),
             env: &[],
+            layout: Layout::Tminus,
+            branch: BRANCH.to_string(),
             main: "main".to_string(),
             old: "0.0.0".to_string(),
             base: "HEAD".to_string(),
@@ -622,70 +710,78 @@ mod tests {
         };
         let paths = ["gdd/a.toml", "docs/c.md", "docs/b.md", "x.md"];
         assert_eq!(upgrade.paths(), paths);
+        // In the old layout, its own generated file is the one left out.
+        upgrade.layout = Layout::Gdd;
+        upgrade.listed.push("gdd/generated.toml".to_string());
+        let paths = upgrade.paths();
+        assert_eq!(paths[..2], ["gdd/a.toml", GENERATED]);
+        assert_eq!(paths.len(), 5, "{paths:?}");
     }
 
     #[test]
-    fn this_gdd_s_text_is_proposed_merged_with_the_project_s_on_a_branch_of_its_own() {
+    fn this_tminus_s_text_is_proposed_merged_with_the_project_s_on_a_branch_of_its_own() {
         let project = Project::new();
-        let commands = project.read("gdd/commands.toml");
+        let commands = project.read("tminus/commands.toml");
         let zones = project.read(ZONES);
-        let models = project.read("gdd/models.toml");
+        let models = project.read("tminus/models.toml");
         let generated = project.read(GENERATED);
-        // What the older gdd wrote.
+        // What the older tminus wrote.
         project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
         project.replace(BASICS, "language = \"en\"", "language = \"es\"");
         project.replace(BRIEF, "# Project Brief", "# The Brief");
-        project.write("gdd/commands.toml", &format!("{commands}# older\n"));
-        project.remove("gdd/models.toml");
+        project.write("tminus/commands.toml", &format!("{commands}# older\n"));
+        project.remove("tminus/models.toml");
         project.write("docs/old.md", "old\n");
-        project.older("0.0.0", &["gdd/models.toml"], &["docs/old.md"]);
+        project.older("0.0.0", &["tminus/models.toml"], &["docs/old.md"]);
         // What the project made of it.
         project.replace(BASICS, "name = \"Notes\"", "name = \"Our notes\"");
         project.replace(BRIEF, "# The Brief", "# Our Brief");
         project.replace(ZONES, "Documentation", "Documentation and notes");
-        project.remove("gdd/commands.toml");
+        project.remove("tminus/commands.toml");
         project.commit("ours");
         let main = project.git(&["rev-parse", "main"]);
         let said = project.upgrade().unwrap();
         let expected = format!(
-            "gdd upgrade 0.0.0 to {VERSION}, on the branch gdd-upgrade:\n\
-             \x20 gdd/project.toml: merged with your changes\n\
-             \x20 gdd/commands.toml: left out: you removed it\n\
-             \x20 gdd/rules.toml: yours, gdd writes it as before\n\
-             \x20 gdd/zones.toml: yours, gdd writes it as before\n\
-             \x20 gdd/models.toml: added (new in gdd {VERSION})\n\
+            "tminus upgrade 0.0.0 to {VERSION}, on the branch tminus-upgrade:\n\
+             \x20 tminus/project.toml: merged with your changes\n\
+             \x20 tminus/commands.toml: left out: you removed it\n\
+             \x20 tminus/rules.toml: yours, tminus writes it as before\n\
+             \x20 tminus/zones.toml: yours, tminus writes it as before\n\
+             \x20 tminus/models.toml: added (new in tminus {VERSION})\n\
              \x20 docs/brief.md: conflict, settle the marks (1)\n\
-             \x20 .github/workflows/gdd.yml: updated (you had not changed it)\n\
-             \x20 docs/old.md: yours, gdd {VERSION} no longer writes it\n\
-             Conflicts: git switch gdd-upgrade, settle the marks, commit, then git switch main.\n\
-             Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then gdd agents install"
+             \x20 .github/workflows/tminus.yml: updated (you had not changed it)\n\
+             \x20 docs/old.md: yours, tminus {VERSION} no longer writes it\n\
+             Conflicts: git switch tminus-upgrade, settle the marks, commit, then git switch \
+             main.\n\
+             Review it: git diff main tminus-upgrade\n\
+             Take it: git merge tminus-upgrade, git branch -d tminus-upgrade, then tminus agents \
+             install"
         );
         assert_eq!(said, expected);
         let ours = project.on_branch(BASICS).unwrap();
         assert!(ours.contains("\nname = \"Our notes\"\n"), "{ours}");
         assert!(ours.contains("\nlanguage = \"en\""), "{ours}");
-        assert_eq!(project.on_branch("gdd/commands.toml"), None);
+        assert_eq!(project.on_branch("tminus/commands.toml"), None);
         let edited = zones.replacen("Documentation", "Documentation and notes", 1);
         assert_eq!(project.on_branch(ZONES), Some(edited));
-        assert_eq!(project.on_branch("gdd/models.toml"), Some(models));
+        assert_eq!(project.on_branch("tminus/models.toml"), Some(models));
         let brief = project.on_branch(BRIEF).unwrap();
         let marked = format!(
-            "<<<<<<< yours\n# Our Brief · Notes\n=======\n# Project Brief · Notes\n>>>>>>> gdd \
+            "<<<<<<< yours\n# Our Brief · Notes\n=======\n# Project Brief · Notes\n>>>>>>> tminus \
              {VERSION}\n"
         );
         assert!(brief.starts_with(&marked), "{brief}");
         let workflow = project.on_branch(WORKFLOW).unwrap();
         assert!(workflow.contains("actions/checkout@v4"), "{workflow}");
         assert_eq!(project.on_branch("docs/old.md").as_deref(), Some("old\n"));
-        // gdd/generated.toml is this gdd's, as gdd init wrote it for the same answers.
+        // tminus/generated.toml is this tminus's, as tminus init wrote it for the same answers.
         assert_eq!(project.on_branch(GENERATED), Some(generated));
-        // First what this gdd writes, pure; then the merge, without gdd/generated.toml.
+        // First what this tminus writes, pure; then the merge, without tminus/generated.toml.
         let range = format!("main..{BRANCH}");
         let subjects = project.git(&["log", "--format=%s", &range]);
-        let upgrade = format!("gdd upgrade 0.0.0 to {VERSION}");
+        let upgrade = format!("tminus upgrade 0.0.0 to {VERSION}");
         let both = format!(
-            "{upgrade}: merged with the project's changes\n{upgrade}: what gdd {VERSION} writes"
+            "{upgrade}: merged with the project's changes\n{upgrade}: what tminus {VERSION} writes"
         );
         assert_eq!(subjects, both);
         let before = format!("{BRANCH}~2");
@@ -693,16 +789,95 @@ mod tests {
         let first = format!("{BRANCH}~1");
         let zones_first = project.git(&["show", &format!("{first}:{ZONES}")]);
         assert_eq!(zones_first, zones.trim());
-        let commands_first = project.git(&["show", &format!("{first}:gdd/commands.toml")]);
+        let show = format!("{first}:tminus/commands.toml");
+        let commands_first = project.git(&["show", &show]);
         assert_eq!(commands_first, commands.trim());
         let merged = project.git(&["diff", "--name-only", &first, BRANCH]);
-        let paths = "docs/brief.md\ngdd/commands.toml\ngdd/project.toml\ngdd/zones.toml";
+        let paths = "docs/brief.md\ntminus/commands.toml\ntminus/project.toml\ntminus/zones.toml";
         assert_eq!(merged, paths);
         // The main checkout stays on main, as it was.
         assert_eq!(project.git(&["rev-parse", "HEAD"]), main);
         assert_eq!(project.git(&["branch", "--show-current"]), "main");
         assert_eq!(project.git(&["status", "--porcelain"]), "");
         assert!(project.left_nothing());
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_is_upgraded_in_its_own_names() {
+        let project = Project::old();
+        let workflow = ".github/workflows/gdd.yml";
+        let generated = project.read("gdd/generated.toml");
+        // What the older gdd wrote, then what the project made of it.
+        project.replace(workflow, "actions/checkout@v4", "actions/checkout@v3");
+        project.replace(BRIEF, "# Project Brief", "# The Brief");
+        project.older("0.0.0", &[], &[]);
+        project.replace(BRIEF, "# The Brief", "# Our Brief");
+        project.commit("ours");
+        let said = project.upgrade().unwrap();
+        let kept = "yours, tminus writes it as before";
+        let expected = format!(
+            "tminus upgrade 0.0.0 to {VERSION}, on the branch gdd-upgrade:\n\
+             \x20 gdd/project.toml: {kept}\n\
+             \x20 gdd/commands.toml: {kept}\n\
+             \x20 gdd/rules.toml: {kept}\n\
+             \x20 gdd/zones.toml: {kept}\n\
+             \x20 gdd/models.toml: {kept}\n\
+             \x20 docs/brief.md: conflict, settle the marks (1)\n\
+             \x20 .github/workflows/gdd.yml: updated (you had not changed it)\n\
+             Conflicts: git switch gdd-upgrade, settle the marks, commit, then git switch main.\n\
+             Review it: git diff main gdd-upgrade\n\
+             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then tminus agents install"
+        );
+        assert_eq!(said, expected);
+        // What it writes, its marks and its commits, as gdd wrote them.
+        let brief = project.on_branch(BRIEF).unwrap();
+        let marked = format!(
+            "<<<<<<< yours\n# Our Brief · Notes\n=======\n# Project Brief · Notes\n>>>>>>> gdd \
+             {VERSION}\n"
+        );
+        assert!(brief.starts_with(&marked), "{brief}");
+        let new = project.on_branch(workflow).unwrap();
+        assert!(new.contains("actions/checkout@v4"), "{new}");
+        assert!(new.contains("\n        run: gdd ci\n"), "{new}");
+        assert!(!new.to_lowercase().contains("tminus"), "{new}");
+        assert_eq!(project.on_branch("gdd/generated.toml"), Some(generated));
+        let subjects = project.git(&["log", "--format=%s", "main..gdd-upgrade"]);
+        let upgrade = format!("gdd upgrade 0.0.0 to {VERSION}");
+        let both = format!(
+            "{upgrade}: merged with the project's changes\n{upgrade}: what gdd {VERSION} writes"
+        );
+        assert_eq!(subjects, both);
+        // Nothing of the new layout: no tminus/ on the branch, no .tminus/, no tminus-upgrade.
+        let tree = project.git(&["ls-tree", "-r", "--name-only", "gdd-upgrade"]);
+        let new_files = tree.lines().filter(|path| path.starts_with("tminus/"));
+        assert_eq!(new_files.count(), 0, "{tree}");
+        assert!(tree.lines().any(|path| path == "gdd/rules.toml"), "{tree}");
+        assert!(!project.root.join(".tminus").exists());
+        let new_branch = project.git(&["branch", "--list", BRANCH]);
+        assert_eq!(new_branch, "");
+        assert!(project.left_nothing());
+        // The branch already there is named as the project names it.
+        let there = "the branch gdd-upgrade is already there: merge it or delete it (git branch \
+                     -D gdd-upgrade) first";
+        assert_eq!(project.upgrade(), Err(there.to_string()));
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_names_its_own_record() {
+        let project = Project::old();
+        let generated = project.read("gdd/generated.toml");
+        project.remove("gdd/generated.toml");
+        let missing = "gdd/generated.toml is missing: this project was set up before tminus \
+                       recorded what it writes, so tminus upgrade has no base to merge from";
+        assert_eq!(project.upgrade(), Err(missing.to_string()));
+        let (without, _) = generated.split_once("\n[answers]\n").unwrap();
+        project.write("gdd/generated.toml", without);
+        let none = format!("gdd/generated.toml {NO_ANSWERS}");
+        assert_eq!(project.upgrade(), Err(none));
+        project.write("gdd/generated.toml", &generated);
+        project.write("gdd/rules.toml", "main_branch = [\n");
+        let said = project.upgrade().unwrap_err();
+        assert!(said.starts_with("gdd/rules.toml: "), "{said}");
     }
 
     #[test]
@@ -713,30 +888,31 @@ mod tests {
         project.replace(WORKFLOW, "runs-on: ubuntu-latest", "runs-on: ubuntu-24.04");
         project.commit("ours");
         let said = project.upgrade().unwrap();
-        let kept = "yours, gdd writes it as before";
+        let kept = "yours, tminus writes it as before";
         let expected = format!(
-            "gdd upgrade 0.0.0 to {VERSION}, on the branch gdd-upgrade:\n\
-             \x20 gdd/project.toml: {kept}\n\
-             \x20 gdd/commands.toml: {kept}\n\
-             \x20 gdd/rules.toml: {kept}\n\
-             \x20 gdd/zones.toml: {kept}\n\
-             \x20 gdd/models.toml: {kept}\n\
+            "tminus upgrade 0.0.0 to {VERSION}, on the branch tminus-upgrade:\n\
+             \x20 tminus/project.toml: {kept}\n\
+             \x20 tminus/commands.toml: {kept}\n\
+             \x20 tminus/rules.toml: {kept}\n\
+             \x20 tminus/zones.toml: {kept}\n\
+             \x20 tminus/models.toml: {kept}\n\
              \x20 docs/brief.md: {kept}\n\
-             \x20 .github/workflows/gdd.yml: merged with your changes\n\
-             Review it: git diff main gdd-upgrade\n\
-             Take it: git merge gdd-upgrade, git branch -d gdd-upgrade, then gdd agents install"
+             \x20 .github/workflows/tminus.yml: merged with your changes\n\
+             Review it: git diff main tminus-upgrade\n\
+             Take it: git merge tminus-upgrade, git branch -d tminus-upgrade, then tminus agents \
+             install"
         );
         assert_eq!(said, expected);
         let workflow = project.on_branch(WORKFLOW).unwrap();
         assert!(workflow.contains("actions/checkout@v4\n"), "{workflow}");
         assert!(workflow.contains("runs-on: ubuntu-24.04\n"), "{workflow}");
-        // Taken, the next upgrade starts from what this gdd wrote: nothing to propose.
+        // Taken, the next upgrade starts from what this tminus wrote: nothing to propose.
         project.git(&["merge", "-q", "--no-edit", BRANCH]);
         project.git(&["branch", "-q", "-d", BRANCH]);
         let base = project.git(&["log", "-1", "--format=%s", "--", GENERATED]);
-        let pure = format!("gdd upgrade 0.0.0 to {VERSION}: what gdd {VERSION} writes");
+        let pure = format!("tminus upgrade 0.0.0 to {VERSION}: what tminus {VERSION} writes");
         assert_eq!(base, pure);
-        let nothing = format!("Already up to date with gdd {VERSION}: nothing to propose.");
+        let nothing = format!("Already up to date with tminus {VERSION}: nothing to propose.");
         assert_eq!(project.upgrade(), Ok(nothing));
         assert!(!project.has_branch());
     }
@@ -747,7 +923,7 @@ mod tests {
         project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
         project.older("0.0.0", &[], &[]);
         let said = project.upgrade().unwrap();
-        let updated = "  .github/workflows/gdd.yml: updated (you had not changed it)\n";
+        let updated = "  .github/workflows/tminus.yml: updated (you had not changed it)\n";
         assert!(said.contains(updated), "{said}");
         assert!(!said.contains("Conflicts"), "{said}");
         let workflow = project.on_branch(WORKFLOW).unwrap();
@@ -755,43 +931,49 @@ mod tests {
         assert!(project.read(WORKFLOW).contains("actions/checkout@v3"));
         let subjects = project.git(&["log", "--format=%s", &format!("main..{BRANCH}")]);
         assert_eq!(subjects.lines().count(), 2, "{subjects}");
-        assert!(subjects.starts_with("gdd upgrade 0.0.0 to "));
+        assert!(subjects.starts_with("tminus upgrade 0.0.0 to "));
         let first = format!("{BRANCH}~1");
         assert_eq!(project.git(&["diff", "--name-only", &first, BRANCH]), "");
         assert!(project.left_nothing());
     }
 
     #[test]
-    fn nothing_is_proposed_when_this_gdd_writes_what_the_older_one_did() {
+    fn nothing_is_proposed_when_this_tminus_writes_what_the_older_one_did() {
         let project = Project::new();
         // The project's own changes are no reason to propose anything.
         project.replace(ZONES, "Documentation", "Docs");
         project.remove(BRIEF);
         project.commit("ours");
-        let nothing = format!("Already up to date with gdd {VERSION}: nothing to propose.");
-        assert_eq!(project.upgrade(), Ok(nothing));
+        let nothing = format!("Already up to date with tminus {VERSION}: nothing to propose.");
+        assert_eq!(project.upgrade(), Ok(nothing.clone()));
         assert!(!project.has_branch());
         assert!(!project.root.join(SCRATCH).exists());
         assert!(project.left_nothing());
+        // A project of the old layout, too, without a folder of the new one.
+        let old = Project::old();
+        assert_eq!(old.upgrade(), Ok(nothing));
+        assert!(!old.has_branch());
+        assert!(!old.root.join(".tminus").exists());
+        assert!(old.left_nothing());
     }
 
     #[test]
-    fn a_file_the_older_gdd_did_not_list_is_merged_against_an_empty_base() {
+    fn a_file_the_older_tminus_did_not_list_is_merged_against_an_empty_base() {
         let project = Project::new();
-        // The older gdd did not write the models file, which the project already had.
-        project.older("0.0.0", &["gdd/models.toml"], &[]);
-        project.replace("gdd/models.toml", "# Models · GDD", "# Our models");
+        // The older tminus did not write the models file, which the project already had.
+        project.older("0.0.0", &["tminus/models.toml"], &[]);
+        project.replace("tminus/models.toml", "# Models · GDD", "# Our models");
         project.commit("ours");
         let said = project.upgrade().unwrap();
-        let conflict = "\n  gdd/models.toml: conflict, settle the marks (1)\n";
+        let conflict = "\n  tminus/models.toml: conflict, settle the marks (1)\n";
         assert!(said.contains(conflict), "{said}");
-        let switch = "\nConflicts: git switch gdd-upgrade, settle the marks, commit, then git \
+        let switch = "\nConflicts: git switch tminus-upgrade, settle the marks, commit, then git \
                       switch main.\n";
         assert!(said.contains(switch), "{said}");
-        let models = project.on_branch("gdd/models.toml").unwrap();
+        let models = project.on_branch("tminus/models.toml").unwrap();
         let ours = "<<<<<<< yours\n# Our models";
         assert!(models.starts_with(ours), "{models}");
-        let written = format!("# Models · GDD (written by gdd init {VERSION})");
+        let written = format!("# Models · GDD (written by tminus init {VERSION})");
         let theirs = format!("=======\n{written}\n>>>>>>> ");
         assert!(models.contains(&theirs), "{models}");
     }
@@ -805,28 +987,26 @@ mod tests {
             let refused = upgrade(&project.root, Some(role), &env());
             assert_eq!(refused, Err(NOT_FOR_AGENTS.to_string()), "{role}");
         }
-        let said = "Builders and Reviewers cannot run gdd upgrade: a person runs it, then \
+        let said = "Builders and Reviewers cannot run tminus upgrade: a person runs it, then \
                     reviews and merges its branch";
         assert_eq!(NOT_FOR_AGENTS, said);
         // The record first, even with uncommitted changes.
         let generated = project.read(GENERATED);
         project.remove(GENERATED);
-        assert_eq!(project.upgrade(), Err(MISSING.to_string()));
-        let missing = "gdd/generated.toml is missing: this project was set up before gdd \
-                       recorded what it writes, so gdd upgrade has no base to merge from";
-        assert_eq!(MISSING, missing);
+        let missing = "tminus/generated.toml is missing: this project was set up before tminus \
+                       recorded what it writes, so tminus upgrade has no base to merge from";
+        assert_eq!(project.upgrade(), Err(missing.to_string()));
         let (without, _) = generated.split_once("\n[answers]\n").unwrap();
         project.write(GENERATED, without);
-        assert_eq!(project.upgrade(), Err(NO_ANSWERS.to_string()));
-        let none = "gdd/generated.toml has no [answers]: it was written before gdd recorded \
-                    them, add them as gdd init writes them now";
-        assert_eq!(NO_ANSWERS, none);
+        let none = "tminus/generated.toml has no [answers]: it was written before tminus \
+                    recorded them, add them as tminus init writes them now";
+        assert_eq!(project.upgrade(), Err(none.to_string()));
         project.write(GENERATED, &generated);
         // Then the main branch the rules name; the replanning agent is still refused first.
         project.git(&["checkout", "-q", "-b", "other"]);
         let runs_on = |main: &str| -> Result<String, String> {
             let switch = format!("git switch {main}, then run it again");
-            Err(format!("gdd upgrade runs on {main}: {switch}"))
+            Err(format!("tminus upgrade runs on {main}: {switch}"))
         };
         assert_eq!(project.upgrade(), runs_on("main"));
         let orchestrator = upgrade(&project.root, Some("orchestrator"), &env());
@@ -846,10 +1026,10 @@ mod tests {
         project.git(&["checkout", "-q", "--", ZONES]);
         // Then the branch of an upgrade already there.
         project.git(&["branch", BRANCH]);
-        assert_eq!(project.upgrade(), Err(BRANCH_THERE.to_string()));
-        let there = "the branch gdd-upgrade is already there: merge it or delete it (git branch \
-                     -D gdd-upgrade) first";
-        assert_eq!(BRANCH_THERE, there);
+        let there = "the branch tminus-upgrade is already there: merge it or delete it (git \
+                     branch -D tminus-upgrade) first";
+        assert_eq!(project.upgrade(), Err(there.to_string()));
+        assert_eq!(branch_there(BRANCH), there);
         project.git(&["branch", "-q", "-D", BRANCH]);
         assert!(!project.root.join(SCRATCH).exists());
         assert!(project.left_nothing());
@@ -863,17 +1043,17 @@ mod tests {
         let project = Project::new();
         project.write(GENERATED, "files = [");
         let said = project.upgrade().unwrap_err();
-        assert!(said.starts_with("gdd/generated.toml: "), "{said}");
+        assert!(said.starts_with("tminus/generated.toml: "), "{said}");
         project.remove(GENERATED);
         fs::create_dir(project.root.join(GENERATED)).unwrap();
         let said = project.upgrade().unwrap_err();
-        let unreadable = "cannot read gdd/generated.toml: ";
+        let unreadable = "cannot read tminus/generated.toml: ";
         assert!(said.starts_with(unreadable), "{said}");
         fs::remove_dir(project.root.join(GENERATED)).unwrap();
         project.git(&["checkout", "-q", "--", GENERATED]);
         project.write(guard::RULES, "main_branch = [\n");
         let said = project.upgrade().unwrap_err();
-        assert!(said.starts_with("gdd/rules.toml: "), "{said}");
+        assert!(said.starts_with("tminus/rules.toml: "), "{said}");
         project.git(&["checkout", "-q", "--", guard::RULES]);
         // A repository where no commit ever held it.
         fs::remove_dir_all(project.root.join(".git")).unwrap();
@@ -881,7 +1061,9 @@ mod tests {
         project.git(&["add", "-A"]);
         project.git(&["reset", "-q", "--", GENERATED]);
         project.git(&["commit", "-q", "-m", "without the record"]);
-        assert_eq!(project.upgrade(), Err(UNCOMMITTED_RECORD.to_string()));
+        let uncommitted = "tminus/generated.toml is in no commit: commit it first, tminus \
+                           upgrade merges from the commit that wrote it";
+        assert_eq!(project.upgrade(), Err(uncommitted.to_string()));
         assert!(!project.has_branch());
     }
 
@@ -908,7 +1090,7 @@ mod tests {
         // A hook that refuses every commit.
         project.before_each_commit("exit 1");
         let said = project.upgrade().unwrap_err();
-        let commit = format!("git commit -q -m gdd upgrade 0.0.0 to {VERSION}: what ");
+        let commit = format!("git commit -q -m tminus upgrade 0.0.0 to {VERSION}: what ");
         let start = format!("{NO_BRANCH}: {commit}");
         assert!(said.starts_with(&start), "{said}");
         assert!(!project.has_branch());
@@ -918,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn what_the_project_put_where_this_gdd_writes_a_file_is_never_taken() {
+    fn what_the_project_put_where_this_tminus_writes_a_file_is_never_taken() {
         let not_own = "not a file of its own (a link, a folder or a file with other names)";
         let folder: fn(&Project) = |project| {
             project.remove(BRIEF);
@@ -940,7 +1122,7 @@ mod tests {
         ];
         for (ours, path, why) in cases {
             let project = Project::new();
-            // This gdd writes another workflow: there is something to propose.
+            // This tminus writes another workflow: there is something to propose.
             project.replace(WORKFLOW, "actions/checkout@v4", "actions/checkout@v3");
             project.older("0.0.0", &[], &[]);
             ours(&project);
@@ -948,9 +1130,9 @@ mod tests {
             let main = project.git(&["rev-parse", "main"]);
             let tracked = project.git(&["ls-tree", "-r", "main"]);
             let said = project.upgrade().unwrap_err();
-            let next = "move what is in the way, commit, then run gdd upgrade again";
+            let next = "move what is in the way, commit, then run tminus upgrade again";
             let refused = format!(
-                "{NO_BRANCH}: {path} on main: {why}, where gdd {VERSION} writes a file: {next}"
+                "{NO_BRANCH}: {path} on main: {why}, where tminus {VERSION} writes a file: {next}"
             );
             assert_eq!(said, refused);
             assert!(!project.has_branch(), "{why}");

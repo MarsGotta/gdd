@@ -1,9 +1,9 @@
 //! The changelog, for the people who use the project: each change carries one line in its merge
 //! commit as git trailers, `Changelog: <section> · <line>` and `Breaking: yes|no`. `CHANGELOG.md`
-//! is the project's, in the Keep a Changelog 1.1.0 format: `gdd changelog` compares it with
+//! is the project's, in the Keep a Changelog 1.1.0 format: `tminus changelog` compares it with
 //! those commits on the main branch and adds only what is missing, each line with a comment that
 //! names its commit (see [`missing`] and [`add`]); every word of the file stays. The line of a
-//! change is set with `gdd changelog-line` and kept in its
+//! change is set with `tminus changelog-line` and kept in its
 //! record (see [`record`]); without one, its title goes under the section of its kind of work,
 //! and Refactors, Spikes and No-code changes are left out (see [`of_change`]).
 
@@ -17,6 +17,7 @@ use crate::agents::files;
 use crate::change;
 use crate::gates::approve;
 use crate::git::{self, Git, Logged};
+use crate::layout::{self, Layout};
 use crate::log;
 
 /// The sections of Keep a Changelog, in the order a version lists them.
@@ -68,25 +69,28 @@ const SECTION_MARK: &str = "### ";
 /// What starts a list item, after the spaces.
 const BULLETS: [&str; 2] = ["- ", "* "];
 
-/// What starts the comment of a line gdd added: `<!-- gdd: <commit> -->`.
-const COMMENT: &str = "gdd:";
+/// What starts the comment of a line the tool added, `<!-- tminus: <commit> -->`, or
+/// `<!-- gdd: <commit> -->` as it wrote it before the rename, and still writes it in a project of
+/// the old layout: both count in every project, which keeps its old comments when it changes
+/// layout.
+const COMMENTS: [&str; 2] = ["tminus:", "gdd:"];
 
 /// What a breaking line starts with.
 const BREAKING: &str = "**Breaking:**";
 
-/// How many characters of its commit a line gdd adds names, and how few of them are enough to
+/// How many characters of its commit a line tminus adds names, and how few of them are enough to
 /// count when a person wrote the comment.
 const ID_LEN: usize = 12;
 const MIN_ID: usize = 7;
 
-/// What `gdd changelog` says before the list of what is missing, after it, and before and after
-/// asking.
+/// What `tminus changelog` says before the list of what is missing, after it, and before and
+/// after asking.
 const SHOWN: &str = "Missing from CHANGELOG.md:";
-const NOT_WRITTEN: &str = "Nothing written: gdd changelog --write adds them.";
+const NOT_WRITTEN: &str = "Nothing written: tminus changelog --write adds them.";
 const ASK: &str = "Add them to CHANGELOG.md? [y/N] ";
 const NOT_WRITTEN_ASKED: &str = "Nothing written.";
 
-/// What `gdd changelog` says when nothing is missing.
+/// What `tminus changelog` says when nothing is missing.
 pub const COVERED: &str = "CHANGELOG.md covers every change on main.";
 
 /// Why a line without words is refused.
@@ -100,8 +104,8 @@ const BREAKS: [char; 2] = ['\u{2028}', '\u{2029}'];
 const NOT_ONE_LINE: &str = "the changelog line must be one line, without line breaks or other \
                             control characters";
 
-/// Why a record whose line is not one `gdd changelog-line` writes is refused.
-const NOT_A_LINE: &str = "the field \"changelog\" of the record is not a line of gdd \
+/// Why a record whose line is not one `tminus changelog-line` writes is refused.
+const NOT_A_LINE: &str = "the field \"changelog\" of the record is not a line of tminus \
                           changelog-line: a section, the line and whether it is breaking, or \
                           none";
 
@@ -135,7 +139,7 @@ impl Line {
         Ok(())
     }
 
-    /// The line as gdd shows it: `<section> · <text>`.
+    /// The line as tminus shows it: `<section> · <text>`.
     pub fn shown(&self) -> String {
         format!("{}{SEPARATOR}{}", self.section, self.text)
     }
@@ -173,11 +177,11 @@ pub(crate) fn once<T: AsRef<Line>>(mut lines: Vec<T>) -> Vec<T> {
     lines
 }
 
-/// The line of the change whose record is `record`: the one `gdd changelog-line` gave it, or
+/// The line of the change whose record is `record`: the one `tminus changelog-line` gave it, or
 /// none when it left the change out. Without either, its title, on one line, under the section
 /// of its kind of work: Feature, Added; Hotfix, Fixed; Migration, Changed. The other kinds, and a
 /// change without a title, have none. A line the record keeps that is not one
-/// `gdd changelog-line` writes is an error.
+/// `tminus changelog-line` writes is an error.
 pub fn of_change(record: &Value) -> Result<Option<Line>, String> {
     let given = &record[FIELD];
     if given.is_null() {
@@ -233,9 +237,10 @@ fn one_line(text: &str) -> String {
 
 /// Records on change `id` of the project whose state root is `state` its line in the changelog,
 /// `line`, without the spaces around its words; with `None`, that it is left out. For the role
-/// `role` (`None` for a person or the Orchestrator), and logged. An agent gdd started is
+/// `role` (`None` for a person or the Orchestrator), and logged. An agent tminus started is
 /// refused before anything else (see [`approve::may_record`]), then a line that cannot be one as
 /// it was given, a line break at either end too (see [`Line::check`]). What it says, in one line.
+/// The record, as the state root names it (see [`crate::layout`]).
 pub fn record(
     state: &Path,
     id: &str,
@@ -252,7 +257,7 @@ pub fn record(
         ..line
     });
     let text = change::read_record(state, id)?;
-    let path = change::record_path(id);
+    let path = layout::named(state, &change::record_path(id));
     let (field, said) = match &line {
         Some(line) => {
             let field = serde_json::json!({
@@ -291,15 +296,16 @@ pub struct Missing {
 }
 
 /// What the changelog of the project at `root`, [`PATH`], lacks from the commits of its main
-/// branch `main` (see [`versions`]). Nothing is written. It is never read through a link, nor a
-/// file with other names (see [`files`]); a file that is not UTF-8 text is an error.
+/// branch `main` (see [`versions`]), its lines with the comments the layout of the project writes
+/// (see [`Layout::at`]). Nothing is written. It is never read through a link, nor a file with
+/// other names (see [`files`]); a file that is not UTF-8 text is an error.
 pub fn missing(root: &Path, main: &str) -> Result<Missing, String> {
     let found = files::found(root, PATH).map_err(|e| format!("cannot read {PATH}: {e}"))?;
     let git = Git::new(root);
     let said = |e: git::Error| e.to_string();
     let history = git.first_parents(main, &KEYS).map_err(said)?;
     let tags = git.tags().map_err(said)?;
-    let all = versions(&history, &tags);
+    let all = versions(&history, &tags, Layout::at(root));
     let Some(found) = found else {
         let versions = lacking(&all, &Items::default());
         return Ok(Missing {
@@ -344,7 +350,7 @@ impl Missing {
     }
 
     /// The blocks to add: each version with its sections and its items, with their comments.
-    /// What `gdd changelog --check` prints with its failure too.
+    /// What `tminus changelog --check` prints with its failure too.
     pub fn list(&self) -> String {
         let blocks: Vec<String> = self
             .versions
@@ -354,23 +360,24 @@ impl Missing {
         blocks.join("\n\n")
     }
 
-    /// What `gdd changelog` shows when it does not ask: the list, and that nothing was written.
+    /// What `tminus changelog` shows when it does not ask: the list, and that nothing was
+    /// written.
     pub fn shown(&self) -> String {
         format!("{SHOWN}\n\n{}\n\n{NOT_WRITTEN}", self.list())
     }
 
-    /// What `gdd changelog` shows before it asks (see [`answered`]), without a line break at the
-    /// end.
+    /// What `tminus changelog` shows before it asks (see [`answered`]), without a line break at
+    /// the end.
     pub fn offered(&self) -> String {
         format!("{SHOWN}\n\n{}\n\n{ASK}", self.list())
     }
 
-    /// Why `gdd changelog --check` fails.
+    /// Why `tminus changelog --check` fails.
     pub fn failure(&self) -> String {
         let count = self.count();
         format!(
-            "{PATH} misses {count} line(s): gdd changelog shows them, \
-             gdd changelog --write adds them"
+            "{PATH} misses {count} line(s): tminus changelog shows them, \
+             tminus changelog --write adds them"
         )
     }
 }
@@ -398,7 +405,7 @@ pub fn add(root: &Path, missing: &Missing) -> Result<String, String> {
 }
 
 /// Fails when the file is not as [`missing`] read it (or there is one now, where there was none):
-/// someone saved it while gdd waited, and writing the old text over it would lose that.
+/// someone saved it while tminus waited, and writing the old text over it would lose that.
 fn unchanged(root: &Path, missing: &Missing) -> Result<(), String> {
     let now = files::read(root, PATH).map_err(|e| format!("cannot write {PATH}: {e}"))?;
     let before = missing.existing.as_ref().map(|(text, _)| text.as_bytes());
@@ -406,7 +413,7 @@ fn unchanged(root: &Path, missing: &Missing) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{PATH} changed since gdd read it: nothing written, run gdd changelog again"
+            "{PATH} changed since tminus read it: nothing written, run tminus changelog again"
         ))
     }
 }
@@ -441,7 +448,7 @@ pub fn release(root: &Path, main: &str, version: &str, day: &str) -> Result<(), 
 /// The lines a commit carries that a file has, as its list items say.
 #[derive(Debug, Default)]
 struct Items {
-    /// The commit ids its `<!-- gdd: <id> -->` comments name.
+    /// The commit ids its `<!-- tminus: <id> -->` and `<!-- gdd: <id> -->` comments name.
     ids: Vec<String>,
     /// The words of its items, without bullet, comments nor `**Breaking:**`.
     texts: Vec<String>,
@@ -453,7 +460,7 @@ impl Items {
         let mut items = Items::default();
         for item in text.lines().filter_map(bullet) {
             let (outside, comments) = split_comments(item);
-            let ids = comments.iter().filter_map(|c| c.strip_prefix(COMMENT));
+            let ids = comments.iter().copied().filter_map(commit_of);
             items.ids.extend(ids.map(|id| id.trim().to_string()));
             let words = outside.trim();
             let words = words.strip_prefix(BREAKING).unwrap_or(words);
@@ -468,6 +475,14 @@ impl Items {
         let named = |id: &String| id.len() >= MIN_ID && carried.commit.starts_with(id.as_str());
         self.ids.iter().any(named) || self.texts.contains(&carried.line.text)
     }
+}
+
+/// The commit the text of a comment, `comment`, names when the tool wrote it, in either layout:
+/// what follows `tminus:` or `gdd:` (see [`COMMENTS`]).
+fn commit_of(comment: &str) -> Option<&str> {
+    COMMENTS
+        .iter()
+        .find_map(|start| comment.strip_prefix(start))
 }
 
 /// What follows the bullet of the list item `line`, when it is one.
@@ -502,6 +517,8 @@ struct Carried {
     line: Line,
     /// Its full id.
     commit: String,
+    /// The layout of the project whose changelog gets it, whose name its comment takes.
+    layout: Layout,
 }
 
 impl AsRef<Line> for Carried {
@@ -511,11 +528,13 @@ impl AsRef<Line> for Carried {
 }
 
 impl Carried {
-    /// The item as gdd adds it: the line and a comment with the first [`ID_LEN`] characters of
-    /// the commit.
+    /// The item as tminus adds it: the line and a comment with the name of the tool in the
+    /// layout of the project, `<!-- tminus: <id> -->` or `<!-- gdd: <id> -->`, and the first
+    /// [`ID_LEN`] characters of the commit.
     fn item(&self) -> String {
         let id: String = self.commit.chars().take(ID_LEN).collect();
-        format!("{} <!-- gdd: {id} -->", self.line.item())
+        let tool = self.layout.name();
+        format!("{} <!-- {tool}: {id} -->", self.line.item())
     }
 }
 
@@ -538,8 +557,9 @@ impl Version {
 /// The versions of `history`, the commits of the main branch along its first parents, newest
 /// first: what no tag released yet, under Unreleased, then each version a tag of `tags`, each
 /// with the commit it names, released (see [`released`]), with the day of its commit. Each
-/// version has the lines its commits carry (see [`carried`]), each once (see [`once`]).
-fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
+/// version has the lines its commits carry (see [`carried`]), each once (see [`once`]), for the
+/// changelog of a project of `layout`.
+fn versions(history: &[Logged], tags: &[(String, String)], layout: Layout) -> Vec<Version> {
     let released = released(tags);
     let mut versions = Vec::new();
     let mut current = Version::new(UNRELEASED.to_string());
@@ -552,6 +572,7 @@ fn versions(history: &[Logged], tags: &[(String, String)]) -> Vec<Version> {
         let carry = |line| Carried {
             line,
             commit: commit.clone(),
+            layout,
         };
         current.lines.extend(carried(logged).map(carry));
     }
@@ -815,7 +836,8 @@ impl Style {
         }
     }
 
-    /// `heading`, as gdd builds it (`## [<version>] - <day>` or `## [Unreleased]`), in this style.
+    /// `heading`, as tminus builds it (`## [<version>] - <day>` or `## [Unreleased]`), in this
+    /// style.
     fn heading(&self, heading: &str) -> String {
         if heading == UNRELEASED {
             return self.unreleased();
@@ -1238,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn a_line_of_the_record_that_gdd_does_not_write_is_an_error() {
+    fn a_line_of_the_record_that_tminus_does_not_write_is_an_error() {
         for wrong in [
             r#"{"changelog": {"section": "Added", "line": "x", "breaking": "yes"}}"#,
             r#"{"changelog": {"section": "Added"}}"#,
@@ -1260,7 +1282,7 @@ mod tests {
     fn with_change() -> Folder {
         let folder = Folder::new();
         let record = r#"{"id": "c1", "title": "App", "type": "Feature", "x": 1}"#;
-        folder.write(".gdd/changes/c1/change.json", record);
+        folder.write(".tminus/changes/c1/change.json", record);
         folder
     }
 
@@ -1317,7 +1339,7 @@ mod tests {
         let before = record_of(&folder);
         let refused = approve::may_record(Some("reviewer")).unwrap_err();
         let refused = refused.to_string();
-        let start = "An agent gdd started cannot";
+        let start = "An agent tminus started cannot";
         assert!(refused.starts_with(start), "{refused}");
         for role in ["builder-build", "builder-test", "reviewer", "orchestrator"] {
             let err = record(&folder.0, "c1", None, Some(role)).unwrap_err();
@@ -1345,12 +1367,32 @@ mod tests {
         assert!(logged(&folder).is_empty());
         let err = record(&folder.0, "c9", None, None).unwrap_err();
         assert!(err.starts_with("change c9 does not exist"), "{err}");
+        folder.write(".tminus/changes/c2/change.json", "[]");
+        let err = record(&folder.0, "c2", None, None).unwrap_err();
+        let start = ".tminus/changes/c2/change.json: ";
+        assert!(err.starts_with(start), "{err}");
+        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
+        let err = record(&folder.0, "c1", None, None).unwrap_err();
+        let start = "cannot write .tminus/log.jsonl: ";
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_records_the_line_in_its_gdd_folder() {
+        let folder = Folder::new();
+        folder.write("gdd/project.toml", "");
+        let record_text = r#"{"id": "c1", "title": "App", "type": "Feature"}"#;
+        folder.write(".gdd/changes/c1/change.json", record_text);
+        let given = line("Added", "Export", false);
+        record(&folder.0, "c1", Some(given), None).unwrap();
+        let text = fs::read_to_string(folder.0.join(".gdd/changes/c1/change.json")).unwrap();
+        let read = of_change(&json(&text)).unwrap();
+        assert_eq!(read, Some(line("Added", "Export", false)));
+        assert!(folder.0.join(".gdd/log.jsonl").is_file());
+        assert!(!folder.0.join(".tminus").exists());
         folder.write(".gdd/changes/c2/change.json", "[]");
         let err = record(&folder.0, "c2", None, None).unwrap_err();
         assert!(err.starts_with(".gdd/changes/c2/change.json: "), "{err}");
-        fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
-        let err = record(&folder.0, "c1", None, None).unwrap_err();
-        assert!(err.starts_with("cannot write .gdd/log.jsonl: "), "{err}");
     }
 
     #[test]
@@ -1434,7 +1476,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_changed_while_gdd_waited_is_not_written_over() {
+    fn a_file_that_changed_while_tminus_waited_is_not_written_over() {
         let repo = repository();
         repo.write(PATH, "# Mine\n");
         let missing = missing(repo.root(), "main").unwrap();
@@ -1531,7 +1573,7 @@ mod tests {
             commit("a", "2026-10-24", &["Added · One"], &["no"]),
         ];
         let tags = [tag("v1.1.0", "d"), tag("v1.0.0", "b"), tag("v9.0.0", "z")];
-        let split = versions(&history, &tags);
+        let split = versions(&history, &tags, Layout::Tminus);
         let expected = [
             Version {
                 heading: UNRELEASED.to_string(),
@@ -1550,11 +1592,16 @@ mod tests {
             },
         ];
         assert_eq!(split, expected);
-        let fresh = versions(&history[..1], &[tag("v1.0.0", "e")]);
+        let fresh = versions(&history[..1], &[tag("v1.0.0", "e")], Layout::Tminus);
         let empty = Version::new(UNRELEASED.to_string());
         assert_eq!(fresh[0], empty);
         assert_eq!(fresh[1].heading, "## [1.0.0] - 2026-10-28");
-        assert_eq!(versions(&[], &[]), [empty]);
+        assert_eq!(versions(&[], &[], Layout::Gdd), [empty]);
+        // A project of the old layout gets the lines as the tool wrote them before the rename.
+        let old = versions(&history, &tags, Layout::Gdd);
+        assert_eq!(old[0].lines[0].layout, Layout::Gdd);
+        assert_eq!(old[0].lines[0].item(), "- Five <!-- gdd: e -->");
+        assert_eq!(split[0].lines[0].item(), "- Five <!-- tminus: e -->");
     }
 
     #[test]
@@ -1566,7 +1613,7 @@ mod tests {
             commit("b", "2026-10-27", &["Added · Export"], &["no"]),
             commit("a", "2026-10-26", &["Added · Import"], &["no"]),
         ];
-        let split = versions(&history, &[tag("v1.0.0", "b")]);
+        let split = versions(&history, &[tag("v1.0.0", "b")], Layout::Tminus);
         // The newest of the same section and words stays; another section is another line.
         let unreleased = [
             by("e", line("Added", "Export", true)),
@@ -1596,10 +1643,12 @@ mod tests {
 
     const ID: &str = "0123456789abcdef0123456789abcdef01234567";
 
+    /// The line `line` that `commit` carries, for a project of the new layout.
     fn by(commit: &str, line: Line) -> Carried {
         Carried {
             line,
             commit: commit.to_string(),
+            layout: Layout::Tminus,
         }
     }
 
@@ -1626,10 +1675,10 @@ mod tests {
         ];
         let expected = format!(
             "{HEADER}\n\n## [Unreleased]\n\n\
-             ### Added\n\n- Export <!-- gdd: 0123456789ab -->\n\
-             - **Breaking:** Import <!-- gdd: 0123456789ab -->\n\n\
-             ### Fixed\n\n- Crash <!-- gdd: 0123456789ab -->\n\n\
-             ### Security\n\n- Locks <!-- gdd: 0123456789ab -->\n\n\
+             ### Added\n\n- Export <!-- tminus: 0123456789ab -->\n\
+             - **Breaking:** Import <!-- tminus: 0123456789ab -->\n\n\
+             ### Fixed\n\n- Crash <!-- tminus: 0123456789ab -->\n\n\
+             ### Security\n\n- Locks <!-- tminus: 0123456789ab -->\n\n\
              ## [1.0.0] - 2026-10-20\n"
         );
         assert_eq!(fresh(&versions), expected);
@@ -1644,7 +1693,7 @@ mod tests {
     fn a_line_is_covered_by_the_commit_a_comment_names_or_by_its_words() {
         let text = "# Notes\n\n\
                     ## [Unreleased]\n\n\
-                    - Reworded <!-- gdd: 0123456 -->\n\
+                    - Reworded <!-- tminus: 0123456 -->\n\
                     \x20 * **Breaking:** Same words <!-- a note --> <!-- other -->\n\
                     - Short <!-- gdd: 012345 -->\n\
                     Export is not a list item\n\
@@ -1665,6 +1714,16 @@ mod tests {
         assert!(!covers("ffffff0", "Export is not a list item"));
         let short = Items::of("- Short <!-- gdd: 012345 -->\n");
         assert!(!short.cover(&by(ID, line("Added", "Other", false))));
+        // Only the comments the tool writes name a commit, in either layout.
+        let other = Items::of("- X <!-- tgdd: 0123456 -->\n- Y <!-- Tminus: 0123456 -->\n");
+        assert!(!other.cover(&by(ID, line("Added", "Other", false))));
+        for marker in ["tminus", "gdd"] {
+            let named = Items::of(&format!("- X <!-- {marker}: 0123456 -->\n"));
+            assert!(
+                named.cover(&by(ID, line("Added", "Other", false))),
+                "{marker}"
+            );
+        }
         let bare = "- A <!-- never closed\n";
         assert_eq!(Items::of(bare).texts, ["A <!-- never closed"]);
     }
@@ -1756,7 +1815,7 @@ mod tests {
                     ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n### Added\n\n- Old\n";
         let missing = [version(UNRELEASED, vec![added("Added", "Export")])];
         let expected = "# Notes\n\n## [Unreleased]\n\n### Added\n\n- Dark theme\n  more words\n\
-                        - Export <!-- gdd: 0123456789ab -->\n\n\
+                        - Export <!-- tminus: 0123456789ab -->\n\n\
                         ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n### Added\n\n- Old\n";
         assert_eq!(merged(text, &missing), expected);
         let two = [version(
@@ -1764,8 +1823,8 @@ mod tests {
             vec![added("Added", "A"), added("Added", "B")],
         )];
         let result = merged(text, &two);
-        let tail = "### Added\n\n- Old\n- A <!-- gdd: 0123456789ab -->\n\
-                    - B <!-- gdd: 0123456789ab -->\n";
+        let tail = "### Added\n\n- Old\n- A <!-- tminus: 0123456789ab -->\n\
+                    - B <!-- tminus: 0123456789ab -->\n";
         assert!(result.ends_with(tail), "{result}");
         assert!(keeps(text, &result));
     }
@@ -1776,29 +1835,30 @@ mod tests {
                     ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
         let one = |section| [version(UNRELEASED, vec![added(section, "New")])];
         let before = merged(text, &one("Added"));
-        let expected = "## [Unreleased]\n\n### Added\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+        let expected = "## [Unreleased]\n\n### Added\n\n- New <!-- tminus: 0123456789ab -->\n\n\
                         ### Removed\n\n- Old\n\n### Notes\n\n- x\n\n\
                         ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
         assert_eq!(before, expected);
         let end = merged(text, &one("Security"));
         let expected = "## [Unreleased]\n\n### Removed\n\n- Old\n\n### Notes\n\n- x\n\n\
-                        ### Security\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+                        ### Security\n\n- New <!-- tminus: 0123456789ab -->\n\n\
                         ## [1.0.0] - 2026-10-20\n\n### Added\n\n- A\n";
         assert_eq!(end, expected);
         let bare = "## [Unreleased]\n## [1.0.0]\n### Added\n- A\n";
         let result = merged(bare, &one("Fixed"));
-        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- tminus: 0123456789ab -->\n\n\
                         ## [1.0.0]\n### Added\n- A\n";
         assert_eq!(result, expected);
         let empty = "## [Unreleased]\n\n### Fixed\n\n## [1.0.0]\n";
         let result = merged(empty, &one("Fixed"));
-        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n\
+        let expected = "## [Unreleased]\n\n### Fixed\n\n- New <!-- tminus: 0123456789ab -->\n\n\
                         ## [1.0.0]\n";
         assert_eq!(result, expected);
         let tight = "## [Unreleased]\n### Fixed\n## [1.0.0]\n";
         let result = merged(tight, &one("Fixed"));
         assert!(keeps(tight, &result), "{result}");
-        assert!(result.contains("### Fixed\n\n- New <!-- gdd: 0123456789ab -->\n\n## [1.0.0]\n"));
+        let new = "### Fixed\n\n- New <!-- tminus: 0123456789ab -->\n\n## [1.0.0]\n";
+        assert!(result.contains(new), "{result}");
     }
 
     #[test]
@@ -1812,8 +1872,8 @@ mod tests {
         let result = merged(&text, &both);
         let expected = format!(
             "# Notes\n\nSome words.\n\n## Upcoming\n\n\
-             ## [Unreleased]\n\n### Fixed\n\n- Now <!-- gdd: 0123456789ab -->\n\n\
-             ## [1.5.0] - 2026-10-25\n\n### Added\n\n- Mid <!-- gdd: 0123456789ab -->\n\n\
+             ## [Unreleased]\n\n### Fixed\n\n- Now <!-- tminus: 0123456789ab -->\n\n\
+             ## [1.5.0] - 2026-10-25\n\n### Added\n\n- Mid <!-- tminus: 0123456789ab -->\n\n\
              {old}\n## [0.1.0] - 2026\n"
         );
         assert_eq!(result, expected);
@@ -1824,11 +1884,11 @@ mod tests {
         )];
         let result = merged(&text, &oldest);
         let tail = "## [0.1.0] - 2026\n\n## [0.0.1] - 2026-01-01\n\n### Added\n\n\
-                    - First <!-- gdd: 0123456789ab -->\n";
+                    - First <!-- tminus: 0123456789ab -->\n";
         assert!(result.ends_with(tail), "{result}");
         let no_heading = merged("Words\n", &oldest);
         let expected = "Words\n\n## [0.0.1] - 2026-01-01\n\n### Added\n\n\
-                        - First <!-- gdd: 0123456789ab -->\n";
+                        - First <!-- tminus: 0123456789ab -->\n";
         assert_eq!(no_heading, expected);
         let from_nothing = merged("", &oldest);
         assert!(
@@ -1842,7 +1902,7 @@ mod tests {
         let text = "## [Unreleased]\n\n### Added\n\n- A\n\n\n## [1.0.0]\n";
         let missing = [version(UNRELEASED, vec![added("Security", "New")])];
         let expected = "## [Unreleased]\n\n### Added\n\n- A\n\n\
-                        ### Security\n\n- New <!-- gdd: 0123456789ab -->\n\n\n## [1.0.0]\n";
+                        ### Security\n\n- New <!-- tminus: 0123456789ab -->\n\n\n## [1.0.0]\n";
         assert_eq!(merged(text, &missing), expected);
     }
 
@@ -1949,7 +2009,7 @@ mod tests {
         let list = missing.list();
         assert!(list.starts_with("## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file"));
         assert!(list.contains(&format!(
-            "\n\n## [1.0.0] - {day}\n\n### Added\n\n- Export <!-- gdd: "
+            "\n\n## [1.0.0] - {day}\n\n### Added\n\n- Export <!-- tminus: "
         )));
         assert!(
             missing
@@ -1959,15 +2019,15 @@ mod tests {
         assert!(
             missing
                 .shown()
-                .ends_with("\n\nNothing written: gdd changelog --write adds them.")
+                .ends_with("\n\nNothing written: tminus changelog --write adds them.")
         );
         assert!(
             missing
                 .offered()
                 .ends_with("\n\nAdd them to CHANGELOG.md? [y/N] ")
         );
-        let failure = "CHANGELOG.md misses 2 line(s): gdd changelog shows them, \
-                       gdd changelog --write adds them";
+        let failure = "CHANGELOG.md misses 2 line(s): tminus changelog shows them, \
+                       tminus changelog --write adds them";
         assert_eq!(missing.failure(), failure);
         assert!(!repo.root().join(PATH).exists());
         let said = add(repo.root(), &missing).unwrap();
@@ -1975,13 +2035,39 @@ mod tests {
         let text = read(&repo);
         assert!(text.starts_with(HEADER), "{text}");
         assert!(text.contains(
-            "## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file per folder <!-- gdd: "
+            "## [Unreleased]\n\n### Changed\n\n- **Breaking:** One file per folder <!-- tminus: "
         ));
         assert!(!text.contains("Inside the branch"), "{text}");
         assert_eq!(repo.git(&["status", "--porcelain"]), "?? CHANGELOG.md");
         // What it wrote covers everything.
         let again = super::missing(repo.root(), "main").unwrap();
         assert_eq!(again.count(), 0);
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_gets_the_old_comments_and_both_kinds_name_their_commit() {
+        let repo = repository();
+        repo.write("gdd/project.toml", "");
+        let missing = missing(repo.root(), "main").unwrap();
+        let list = missing.list();
+        assert!(list.contains("- Export <!-- gdd: "), "{list}");
+        assert!(!list.contains("tminus"), "{list}");
+        add(repo.root(), &missing).unwrap();
+        // Other words: only the comments name the lines now.
+        let old = read(&repo).replace("Export", "Exported notes");
+        let old = old.replace("One file per folder", "Folders");
+        repo.write(PATH, &old);
+        let count = || super::missing(repo.root(), "main").unwrap().count();
+        assert_eq!(count(), 0);
+        // The project moves to the new layout: its old comments still count.
+        fs::remove_file(repo.root().join("gdd/project.toml")).unwrap();
+        assert_eq!(count(), 0);
+        // And the comments of the new layout count in a project of the old one.
+        repo.write(PATH, &old.replace("<!-- gdd: ", "<!-- tminus: "));
+        repo.write("gdd/project.toml", "");
+        assert_eq!(count(), 0);
+        repo.write(PATH, &old.replace("<!-- gdd: ", "<!-- other: "));
+        assert_eq!(count(), 2);
     }
 
     #[test]
@@ -2032,7 +2118,7 @@ mod tests {
     }
 
     #[test]
-    fn a_file_gdd_cannot_read_or_write_is_an_error_and_stays() {
+    fn a_file_tminus_cannot_read_or_write_is_an_error_and_stays() {
         let repo = repository();
         repo.write(PATH, "# My own notes\n");
         // Never through a link, nor over a file with other names.
@@ -2100,7 +2186,7 @@ mod tests {
     #[test]
     fn a_new_version_follows_the_style_of_the_newest_one() {
         let new = version("## [0.3.0] - 2026-10-28", vec![added("Added", "New")]);
-        let item = "- New <!-- gdd: 0123456789ab -->";
+        let item = "- New <!-- tminus: 0123456789ab -->";
         for (text, heading) in [
             ("## v0.2.0 - 2026-10-20\n\n- A\n", "## v0.3.0 - 2026-10-28"),
             ("## 0.2.0 (2026-10-20)\n\n- A\n", "## 0.3.0 (2026-10-28)"),
@@ -2122,7 +2208,7 @@ mod tests {
     #[test]
     fn lines_go_plain_in_a_file_without_sections() {
         let new = version(UNRELEASED, vec![added("Added", "New")]);
-        let item = "- New <!-- gdd: 0123456789ab -->";
+        let item = "- New <!-- tminus: 0123456789ab -->";
         let after_items = merged(
             "## Unreleased\n\n- A\n\n## 0.1.0\n",
             std::slice::from_ref(&new),
@@ -2175,7 +2261,7 @@ mod tests {
         let new = version(UNRELEASED, vec![added("Added", "New")]);
         let text = "## 1.0.0 - 2026-10-20\n\n- A\n";
         let result = merged(text, &[new]);
-        let item = "- New <!-- gdd: 0123456789ab -->";
+        let item = "- New <!-- tminus: 0123456789ab -->";
         assert_eq!(result, format!("## Unreleased\n\n{item}\n\n{text}"));
     }
 
@@ -2187,7 +2273,7 @@ mod tests {
                     ## [1.0.0] - 2026-10-20\n\n- Old\n";
         let missing = [version(UNRELEASED, vec![added("Added", "Export")])];
         let expected = "# Notes\n\nOur words.\n\n## [unreleased]\n\n## [1.1.0] - 2026-10-28\n\n\
-                        ### Added\n\n- Export <!-- gdd: 0123456789ab -->\n\n\
+                        ### Added\n\n- Export <!-- tminus: 0123456789ab -->\n\n\
                         ### Fixed\n\n- Crash\n\n## [1.0.0] - 2026-10-20\n\n- Old\n";
         assert_eq!(with_release(text, &missing, RELEASED), expected);
         let nothing_missing = with_release("## [Unreleased]\n\n- A\n", &[], RELEASED);
@@ -2219,7 +2305,7 @@ mod tests {
             assert_eq!(result.matches(RELEASED).count(), 1, "{result:?}");
             let new = result.to_lowercase().find("## [unreleased]").unwrap();
             assert!(new < result.find(RELEASED).unwrap(), "{result:?}");
-            assert!(result.contains("- New <!-- gdd: "), "{result:?}");
+            assert!(result.contains("- New <!-- tminus: "), "{result:?}");
         }
         // Only the first Unreleased heading turns; the second stays as it was.
         let two = with_release(texts[4], &[], RELEASED);
@@ -2243,8 +2329,8 @@ mod tests {
             version("## [1.0.0] - 2026-10-20", vec![added("Added", "Older")]),
         ];
         let expected = "# Notes\n\n## [1.1.0] - 2026-10-28\n\n### Fixed\n\n\
-                        - Crash <!-- gdd: 0123456789ab -->\n\n## [1.0.0] - 2026-10-20\n\n\
-                        ### Added\n\n- Old\n- Older <!-- gdd: 0123456789ab -->\n";
+                        - Crash <!-- tminus: 0123456789ab -->\n\n## [1.0.0] - 2026-10-20\n\n\
+                        ### Added\n\n- Old\n- Older <!-- tminus: 0123456789ab -->\n";
         let result = with_release(text, &missing, RELEASED);
         assert_eq!(result, expected);
         assert!(keeps(text, &result));
@@ -2263,7 +2349,7 @@ mod tests {
         release(repo.root(), "main", "1.1.0", "2026-10-28").unwrap();
         let text = read(&repo);
         let start = "# Mine\n\n## [Unreleased]\n\n## [1.1.0] - 2026-10-28\n\n### Changed\n\n\
-                     - **Breaking:** One file per folder <!-- gdd: ";
+                     - **Breaking:** One file per folder <!-- tminus: ";
         assert!(text.starts_with(start), "{text}");
         // The version the file lacked comes after it.
         assert!(text.contains("\n\n## [1.0.0] - "), "{text}");

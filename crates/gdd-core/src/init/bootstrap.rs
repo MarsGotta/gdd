@@ -1,11 +1,13 @@
-//! `gdd bootstrap`: the first install of each stack of a project, which writes its lock file.
-//! gdd init stays offline; this is where a new project gets its tools. It runs the `bootstrap`
+//! `tminus bootstrap`: the first install of each stack of a project, which writes its lock file.
+//! tminus init stays offline; this is where a new project gets its tools. It runs the `bootstrap`
 //! command of each sheet, in the order of the stacks, from the project root with the shell (see
-//! [`exec::run`]) in the environment gdd runs in, and stops at the first that fails. Then it
-//! commits, as `gdd bootstrap`, the files of the stacks' supply chain that the run created or
+//! [`exec::run`]) in the environment tminus runs in, and stops at the first that fails. Then it
+//! commits, as `tminus bootstrap`, the files of the stacks' supply chain that the run created or
 //! changed and git does not ignore, and nothing else of the working tree. Before the first
 //! install, it refuses a symbolic link on the way to any of those files and a file of them with
-//! other names (a hard link): the installs would write out of the project.
+//! other names (a hard link): the installs would write out of the project. A project set up
+//! before the rename (see [`crate::layout`]) gets its commit, and the name of the Setup command,
+//! as gdd named them: `gdd bootstrap`, `gdd-setup`.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -16,17 +18,19 @@ use super::{Env, stack_sheets};
 use crate::agents::render::first_link;
 use crate::exec;
 use crate::git::{self, Git};
+use crate::layout::Layout;
 use crate::stacks::{Sheet, once};
 
-/// The message of its commit.
-const MESSAGE: &str = "gdd bootstrap";
+/// The message of its commit, in the new names (see [`Layout::localize`]).
+const MESSAGE: &str = "tminus bootstrap";
 /// What it says when the run wrote nothing to commit.
 const NOTHING: &str = "Nothing new to commit.";
-/// What to do once the stacks are installed.
-const NEXT: &str = "Next: in your coding agent, the gdd-setup command finishes the Setup \
-                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+/// What to do once the stacks are installed, in the new names: a project of the old layout gets
+/// the Setup command as it names it (see [`Layout::localize`]).
+const NEXT: &str = "Next: in your coding agent, the tminus-setup command finishes the Setup \
+                    (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).";
 
-/// Why gdd bootstrap stopped, and what it said until then.
+/// Why tminus bootstrap stopped, and what it said until then.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stopped {
     /// What it said before it stopped: each install it ran, with its output.
@@ -58,8 +62,9 @@ fn installed(root: &Path, stacks: &[String], env: &Env, said: &mut String) -> Re
 
 /// Runs each of `installs`, a stack and its command, in the project at `root` (see
 /// [`install`]), then commits the files of `supply_chain` they created or changed and git does
-/// not ignore (see [`commit`]). What it says goes to `said`. Nothing runs when the installs
-/// would write through a link (see [`check_links`]).
+/// not ignore (see [`commit`]), as the project at `root` names things (see [`Layout::at`]). What
+/// it says goes to `said`. Nothing runs when the installs would write through a link (see
+/// [`check_links`]).
 fn steps(
     root: &Path,
     installs: &[(&str, &str)],
@@ -83,7 +88,7 @@ fn steps(
             written.push(path.clone());
         }
     }
-    commit(&git, &written, said)
+    commit(&git, Layout::at(root), &written, said)
 }
 
 /// Checks that the installs, which write the files of `supply_chain` in the project at `root`,
@@ -96,7 +101,7 @@ fn check_links(root: &Path, supply_chain: &[String]) -> Result<(), String> {
         if let Some(link) = link {
             let link = link.display();
             return Err(format!(
-                "cannot write {path}: {link} is a symbolic link, which gdd bootstrap does not \
+                "cannot write {path}: {link} is a symbolic link, which tminus bootstrap does not \
                  write through: remove the link and run it again"
             ));
         }
@@ -105,8 +110,8 @@ fn check_links(root: &Path, supply_chain: &[String]) -> Result<(), String> {
         let meta = fs::symlink_metadata(root.join(path));
         if meta.is_ok_and(|meta| meta.is_file() && meta.nlink() > 1) {
             return Err(format!(
-                "{path} has other names (a hard link): gdd bootstrap never writes through one: \
-                 copy it to a file of its own and run it again"
+                "{path} has other names (a hard link): tminus bootstrap never writes through \
+                 one: copy it to a file of its own and run it again"
             ));
         }
     }
@@ -150,18 +155,19 @@ fn install(
     }
 }
 
-/// Commits the files `written` with `git`, as gdd bootstrap, and says which in `said`, or that
-/// there was nothing new to commit; then the next step.
-fn commit(git: &Git, written: &[String], said: &mut String) -> Result<(), String> {
+/// Commits the files `written` with `git`, as tminus bootstrap, in a project of `layout`, and
+/// says which in `said`, or that there was nothing new to commit; then the next step. The commit
+/// and the next step name things as the project does.
+fn commit(git: &Git, layout: Layout, written: &[String], said: &mut String) -> Result<(), String> {
     if written.is_empty() {
         said.push_str(NOTHING);
     } else {
-        let committed = git.commit_files(written, MESSAGE);
+        let committed = git.commit_files(written, &layout.localize(MESSAGE));
         committed.map_err(|e| e.to_string())?;
         said.push_str(&format!("Committed: {}", written.join(", ")));
     }
     said.push('\n');
-    said.push_str(NEXT);
+    said.push_str(&layout.localize(NEXT));
     Ok(())
 }
 
@@ -240,11 +246,30 @@ mod tests {
         assert_eq!(why, "");
         let end = format!("\nCommitted: a.lock, b.lock\n{NEXT}");
         assert!(said.ends_with(&end), "{said}");
-        assert_eq!(last_commit(&folder), "gdd bootstrap");
+        assert_eq!(last_commit(&folder), "tminus bootstrap");
         let last = git(&folder, &["show", "--name-only", "--format=", "HEAD"]);
         assert_eq!(last, "a.lock\nb.lock");
         let status = git(&folder, &["status", "--porcelain"]);
         assert_eq!(status, "M d.lock\n?? other");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_gets_the_commit_and_the_next_step_in_its_names() {
+        let folder = project(&[("gdd/project.toml", "name = \"x\"\n")]);
+        let (why, said) = ran(&folder, &[("x", "echo 1 > a.lock")], &["a.lock"]);
+        assert_eq!(why, "");
+        let next = "Next: in your coding agent, the gdd-setup command finishes the Setup \
+                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).";
+        let end = format!("\nCommitted: a.lock\n{next}");
+        assert!(said.ends_with(&end), "{said}");
+        assert_eq!(last_commit(&folder), "gdd bootstrap");
+        let (_, said) = ran(&folder, &[("x", "true")], &[]);
+        let end = format!("\nNothing new to commit.\n{next}");
+        assert!(said.ends_with(&end), "{said}");
+        // A project of the new layout gets the new names.
+        let new = "Next: in your coding agent, the tminus-setup command finishes the Setup \
+                   (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).";
+        assert_eq!(NEXT, new);
     }
 
     #[test]
@@ -275,15 +300,15 @@ mod tests {
         let folder = project(&[("deny.toml", "")]);
         std::os::unix::fs::symlink(&outside, folder.0.join("Cargo.lock")).unwrap();
         let stopped = bootstrap(&folder.0, &rust, &env).unwrap_err();
-        let why = "cannot write Cargo.lock: Cargo.lock is a symbolic link, which gdd bootstrap \
-                   does not write through: remove the link and run it again";
+        let why = "cannot write Cargo.lock: Cargo.lock is a symbolic link, which tminus \
+                   bootstrap does not write through: remove the link and run it again";
         assert_eq!((stopped.said.as_str(), stopped.why.as_str()), ("", why));
         assert!(!folder.0.join("ran").exists());
         let folder = project(&[("deny.toml", "")]);
         fs::hard_link(&outside, folder.0.join("Cargo.lock")).unwrap();
         let stopped = bootstrap(&folder.0, &rust, &env).unwrap_err();
-        let why = "Cargo.lock has other names (a hard link): gdd bootstrap never writes through \
-                   one: copy it to a file of its own and run it again";
+        let why = "Cargo.lock has other names (a hard link): tminus bootstrap never writes \
+                   through one: copy it to a file of its own and run it again";
         assert_eq!((stopped.said.as_str(), stopped.why.as_str()), ("", why));
         assert!(!folder.0.join("ran").exists());
         // A folder on the way that is a link counts too.

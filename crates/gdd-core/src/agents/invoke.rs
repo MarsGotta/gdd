@@ -1,15 +1,19 @@
 //! Starting an agent of the recipe: the program its agent sheet names, found on the `PATH` of the
-//! environment gdd runs in, with the arguments the sheet gives its command and its role where the
-//! call runs (see [`Place`]), and never through a shell. It runs from the project root, the
-//! change's worktree, with that environment without its secrets (see [`Env`]) plus `GDD_CHANGE`,
-//! `GDD_ROOT` (the project root), `GDD_STATE` (the state root) and `GDD_ROLE`. What it prints is
-//! read with the reader of its sheet (see [`usage`]): its final text and its output are kept next
-//! to the change, the Reviewer's text is its review, and the call goes to the log. The tool prints
+//! environment tminus runs in, with the arguments the sheet gives its command and its role where
+//! the call runs (see [`Place`]), and never through a shell. It runs from the project root, the
+//! change's worktree, with that environment without its secrets (see [`Env`]) plus
+//! `TMINUS_CHANGE`, `TMINUS_ROOT` (the project root), `TMINUS_STATE` (the state root) and
+//! `TMINUS_ROLE`, named as the project names them (see [`VARIABLES`]). What it prints is read
+//! with the reader of its sheet (see [`usage`]): its final text and its output are kept next to
+//! the change, the Reviewer's text is its review, and the call goes to the log. The tool prints
 //! none of it, and writes none of it through a link the agent could have left (see [`files`]).
 //!
+//! The sheet names the agent's commands, the tool and its state folder as the project does (see
+//! [`Sheet::in_layout`]): `gdd-build` and `.gdd/` in a project set up before the rename.
+//!
 //! On a change whose Builder session is shared, each Builder call continues the session the
-//! Builder call before it reported in the same run of gdd (see [`Ongoing`]); the Reviewer and the
-//! Orchestrator never join it. Nothing on disk holds it: nothing an agent writes chooses the
+//! Builder call before it reported in the same run of tminus (see [`Ongoing`]); the Reviewer and
+//! the Orchestrator never join it. Nothing on disk holds it: nothing an agent writes chooses the
 //! session of the next call, and a new run starts a session of its own.
 //!
 //! Each call runs in a process group of its own and has a time limit. When the call ends, or its
@@ -18,6 +22,7 @@
 //! the call, so an old answer never counts.
 
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, ErrorKind, Read};
@@ -37,6 +42,7 @@ use crate::agents::models::{self, Model, Roles, Session};
 use crate::agents::sheets::{self, Place, Sheet};
 use crate::agents::usage::{self, Price, Said, Usage};
 use crate::gates::verdict;
+use crate::layout::{self, Layout};
 use crate::log::CostBasis;
 use crate::{config, exec, log};
 
@@ -44,8 +50,18 @@ use crate::{config, exec, log};
 const POLL: Duration = Duration::from_millis(50);
 
 /// Where the sessions of the Claude Code calls are kept, one per line, from the state root (see
-/// [`crate::state::root`]).
-pub(crate) const SESSIONS: &str = ".gdd/headless_sessions.txt";
+/// [`crate::state::root`]), in the new names (see [`crate::layout`]).
+pub(crate) const SESSIONS: &str = ".tminus/headless_sessions.txt";
+
+/// The variables each agent gets, in the new names: a project of the old layout gets them as it
+/// names them (see [`Layout::localize`]). The change, the project root, the state root and the
+/// role.
+const VARIABLES: [&str; 4] = [
+    "TMINUS_CHANGE",
+    "TMINUS_ROOT",
+    "TMINUS_STATE",
+    "TMINUS_ROLE",
+];
 
 /// Who the recipe calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,7 +77,7 @@ pub enum Who {
 }
 
 impl Who {
-    /// The GDD command it runs, `gdd-<command>` in every agent.
+    /// The GDD command it runs, `tminus-<command>` in every agent (see [`sheets::name_in`]).
     fn command(self) -> &'static str {
         match self {
             Who::BuilderTest => "build-test",
@@ -71,7 +87,7 @@ impl Who {
         }
     }
 
-    /// Its role, as the sheets, the log, `GDD_ROLE` and its outputs name it.
+    /// Its role, as the sheets, the log, `TMINUS_ROLE` and its outputs name it.
     pub(crate) fn role(self) -> &'static str {
         match self {
             Who::BuilderTest => "builder-test",
@@ -120,8 +136,8 @@ impl fmt::Display for Who {
 pub struct Call<'a> {
     /// Who.
     pub who: Who,
-    /// Its model, as `gdd/models.toml` writes it: the integration, the model name and the effort
-    /// count.
+    /// Its model, as `tminus/models.toml` writes it: the integration, the model name and the
+    /// effort count.
     pub model: &'a Model,
     /// The arguments of its command after `change=<id>`: `mode=build fix=g3`...
     pub args: &'a str,
@@ -130,10 +146,10 @@ pub struct Call<'a> {
     pub builder_session: Session,
 }
 
-/// The Builder session of a change for one run of gdd, a `gdd launch` or a `gdd resume`: the
-/// session the last Builder call of the run that shares it reported, once it can be passed on (see
-/// [`session_id`]). Only memory holds it: nothing an agent writes chooses it, and a new run starts
-/// without one.
+/// The Builder session of a change for one run of tminus, a `tminus launch` or a `tminus resume`:
+/// the session the last Builder call of the run that shares it reported, once it can be passed on
+/// (see [`session_id`]). Only memory holds it: nothing an agent writes chooses it, and a new run
+/// starts without one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ongoing(Option<String>);
 
@@ -147,9 +163,9 @@ impl Ongoing {
     }
 }
 
-/// What `gdd/models.toml` says of the agents besides the model of each role: the variables they
-/// get on purpose (`[env] pass`) and the price of each model (`[prices.<model>]`), for the agents
-/// that report no cost.
+/// What `tminus/models.toml` says of the agents besides the model of each role: the variables
+/// they get on purpose (`[env] pass`) and the price of each model (`[prices.<model>]`), for the
+/// agents that report no cost.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -205,7 +221,7 @@ impl Settings {
 
 /// Refuses the price of `model` unless each of its fields is a number of dollars, 0 or more. TOML
 /// takes `nan` and `inf`, which price a call at no number, and a price below 0 makes a cost below
-/// 0, a line the reports leave out as one gdd never writes (see [`log::read`]).
+/// 0, a line the reports leave out as one tminus never writes (see [`log::read`]).
 fn priceable(model: &str, price: &Price) -> Result<(), config::Error> {
     let fields = [
         ("input", price.input),
@@ -224,16 +240,17 @@ fn priceable(model: &str, price: &Price) -> Result<(), config::Error> {
 /// What a call reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
-    /// The project root: the agent runs from it. The recipe runs a change in its worktree.
+    /// The project root: the agent runs from it. The recipe runs a change in its worktree. Its
+    /// layout names the agent's commands and the variables it gets (see [`Layout::at`]).
     pub root: &'a Path,
-    /// The state root, whose `.gdd/` keeps what the call said and the log (see
-    /// [`crate::state::root`]).
+    /// The state root, whose `.tminus/` (`.gdd/` in the old layout) keeps what the call said and
+    /// the log (see [`crate::state::root`]).
     pub state: &'a Path,
     /// The change.
     pub id: &'a str,
-    /// The environment gdd runs in.
+    /// The environment tminus runs in.
     pub env: &'a [(String, String)],
-    /// What `gdd/models.toml` says of the agents.
+    /// What `tminus/models.toml` says of the agents.
     pub settings: &'a Settings,
     /// The time an agent has to answer.
     pub timeout: Duration,
@@ -242,8 +259,9 @@ pub struct Project<'a> {
 /// Why a call to an agent did not end well.
 #[derive(Debug)]
 pub enum Error {
-    /// The model of the role cannot be started: who, and why.
-    Model(Who, String),
+    /// The model of the role cannot be started: the models file, as the project names it
+    /// (`tminus/models.toml`, or `gdd/models.toml` in the old layout), who, and why.
+    Model(String, Who, String),
     /// The program of an agent is not on the `PATH`: the program, and the agent's name.
     Missing(String, String),
     /// A file could not be removed before the call: which, and why.
@@ -271,7 +289,7 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Model(who, why) => write!(f, "{}: the {who} {why}", models::PATH),
+            Error::Model(file, who, why) => write!(f, "{file}: the {who} {why}"),
             Error::Missing(program, agent) => {
                 write!(f, "cannot find the {program} program of {agent} on PATH")
             }
@@ -289,20 +307,20 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Checks that the model of each role in `roles` can be started, in the order Orchestrator,
-/// Builder, Builder in test mode, Reviewer: first that each has an agent sheet (see
-/// [`startable`]), then that the program of each is on the `PATH` of `env`, the environment gdd
-/// runs in. The recipe does it before anything runs.
-pub fn check(roles: &Roles, env: &[(String, String)]) -> Result<(), Error> {
+/// Checks that the model of each role in `roles`, the roles of the project at `root`, can be
+/// started, in the order Orchestrator, Builder, Builder in test mode, Reviewer: first that each
+/// has an agent sheet (see [`startable`]), then that the program of each is on the `PATH` of
+/// `env`, the environment tminus runs in. The recipe does it before anything runs.
+pub fn check(root: &Path, roles: &Roles, env: &[(String, String)]) -> Result<(), Error> {
     let each = [
         (Who::Orchestrator, &roles.orchestrator),
         (Who::BuilderBuild, &roles.builder),
         (Who::BuilderTest, &roles.builder_test),
         (Who::Reviewer, &roles.reviewer_model),
     ];
-    let mut sheets = Vec::new();
+    let (layout, mut sheets) = (Layout::at(root), Vec::new());
     for (who, model) in each {
-        let (_, sheet, _) = startable(who, model)?;
+        let (_, sheet, _) = startable(layout, who, model)?;
         sheets.push(sheet);
     }
     for sheet in &sheets {
@@ -311,27 +329,30 @@ pub fn check(roles: &Roles, env: &[(String, String)]) -> Result<(), Error> {
     Ok(())
 }
 
-/// The integration of `model`, the model of `who`, its agent sheet and its model name. A model
-/// without a name, or whose integration has no sheet, cannot be started.
-fn startable(who: Who, model: &Model) -> Result<(&str, Sheet, &str), Error> {
+/// The integration of `model`, the model of `who` in a project of `layout`, its agent sheet for
+/// that project (see [`Sheet::in_layout`]) and its model name. A model without a name, or whose
+/// integration has no sheet, cannot be started: the error names the models file as the project
+/// does.
+fn startable(layout: Layout, who: Who, model: &Model) -> Result<(&str, Sheet, &str), Error> {
     let text = |key| model.get(key).and_then(Value::as_str).unwrap_or_default();
     let (integration, name) = (text("integration"), text("model"));
+    let file = layout.path(models::PATH);
     if name.is_empty() {
-        return Err(Error::Model(who, "has no model".to_string()));
+        return Err(Error::Model(file, who, "has no model".to_string()));
     }
     let sheet = sheets::sheet(integration).map_err(|e| {
         let why = match e {
             sheets::Error::Missing(_) => format!(", which has no agent sheet ({})", sheets::NAMES),
             invalid @ sheets::Error::Invalid(..) => format!(": {invalid}"),
         };
-        Error::Model(who, format!("uses {integration:?}{why}"))
+        Error::Model(file, who, format!("uses {integration:?}{why}"))
     })?;
-    Ok((integration, sheet, name))
+    Ok((integration, sheet.in_layout(layout), name))
 }
 
 /// The program of the agent of `sheet`: the first file of its name that can be run, in the
-/// folders of the `PATH` of `env`, the environment gdd runs in. Folders that are not absolute are
-/// left out: what they find would depend on the folder gdd runs from.
+/// folders of the `PATH` of `env`, the environment tminus runs in. Folders that are not absolute
+/// are left out: what they find would depend on the folder tminus runs from.
 pub(crate) fn program(sheet: &Sheet, env: &[(String, String)]) -> Result<PathBuf, Error> {
     let path = env.iter().rev().find(|(name, _)| name == "PATH");
     let folders = path.map_or("", |(_, folders)| folders.as_str());
@@ -360,19 +381,22 @@ struct Start<'a> {
     shares: bool,
 }
 
-/// What starts `call` on change `id`, whose state root is `state`: the `launch.args` of the
-/// sheet of its integration (see [`Sheet::launch`]) for its command and its role, with
-/// `change=<id> <args>` as the words of the command and the `effort` of its model, if it has
-/// one. A Builder call on a change whose Builder session is shared shares it.
-fn start<'a>(call: &Call<'a>, id: &str, state: &Path) -> Result<Start<'a>, Error> {
-    let (integration, sheet, model) = startable(call.who, call.model)?;
+/// What starts `call` on change `id` of the project at `root`, whose state root is `state`: the
+/// `launch.args` of the sheet of its integration for that project (see [`Sheet::launch`]) for
+/// its command and its role, with `change=<id> <args>` as the words of the command and the
+/// `effort` of its model, if it has one; what names the state folder names it as `state` does.
+/// A Builder call on a change whose Builder session is shared shares it.
+fn start<'a>(call: &Call<'a>, id: &str, root: &Path, state: &Path) -> Result<Start<'a>, Error> {
+    let (integration, sheet, model) = startable(Layout::at(root), call.who, call.model)?;
     let words = format!("change={id} {}", call.args);
     let effort = call.model.get("effort").and_then(Value::as_str);
     let (command, role) = (call.who.command(), call.who.role());
+    let layout = Layout::at(state);
     let state = state.to_string_lossy();
     let place = Place {
         state: &state,
         change: id,
+        layout,
     };
     let args = sheet.launch(command, &words, model, role, effort, place);
     Ok(Start {
@@ -444,14 +468,14 @@ fn started<'a>(
     call: &Call<'a>,
     ongoing: &Ongoing,
 ) -> Result<(Start<'a>, Ran), Error> {
-    let mut start = start(call, project.id, project.state)?;
+    let mut start = start(call, project.id, project.root, project.state)?;
     if let Some(session) = ongoing.0.as_deref().filter(|_| start.shares) {
         let resume = start.sheet.resume(session);
         start.args.extend(resume);
     }
     let program = program(&start.sheet, project.env)?;
     if let Some(answer) = call.who.answer(project.id) {
-        remove(project.state, &answer)?;
+        remove(project.state, &of_state(project.state, &answer))?;
     }
     let ran = spawned(project, call.who, &program, &start.args)?;
     Ok((start, ran))
@@ -459,19 +483,24 @@ fn started<'a>(
 
 /// Starts `program` with `args` for `who` on the change of `project` and waits for it to end and
 /// close its output, the time limit at most; then its process group is killed, with whatever it
-/// left running.
+/// left running. It gets the [`variables`] of the call and none of their twins (see
+/// [`layout::twin`]): an inherited twin would override what the tool set.
 fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Result<Ran, Error> {
     let shown = program.display().to_string();
     let failed = |e| Error::Start(shown.clone(), e);
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .current_dir(project.root)
         .env_clear()
-        .envs(project.settings.env.of_agent(project.env))
-        .env("GDD_CHANGE", project.id)
-        .env("GDD_ROOT", project.root)
-        .env("GDD_STATE", project.state)
-        .env("GDD_ROLE", who.role())
+        .envs(project.settings.env.of_agent(project.env));
+    for (name, value) in variables(project, who) {
+        if let Some(twin) = layout::twin(&name) {
+            command.env_remove(twin);
+        }
+        command.env(name, value);
+    }
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -499,7 +528,7 @@ fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Resu
         }
         thread::sleep(POLL);
     };
-    // Whatever is left of its group, its output elsewhere, could still write after gdd checks
+    // Whatever is left of its group, its output elsewhere, could still write after tminus checks
     // what the call did.
     exec::kill_group(&mut child);
     let status = child.wait().map_err(failed)?;
@@ -515,6 +544,20 @@ fn spawned(project: &Project, who: Who, program: &Path, args: &[String]) -> Resu
         out: out.map_err(failed)?,
         duration: start.elapsed(),
     })
+}
+
+/// The variables `who` gets on the change of `project` (see [`VARIABLES`]), named as the project
+/// names them: the change, the project root, the state root and the role.
+fn variables<'a>(project: &Project<'a>, who: Who) -> Vec<(String, &'a OsStr)> {
+    let layout = Layout::at(project.root);
+    let values = [
+        OsStr::new(project.id),
+        project.root.as_os_str(),
+        project.state.as_os_str(),
+        OsStr::new(who.role()),
+    ];
+    let names = VARIABLES.map(|name| layout.localize(name));
+    names.into_iter().zip(values).collect()
 }
 
 /// The exit code of `status`, or minus the signal that killed it. On Unix a process that ended
@@ -554,19 +597,22 @@ struct Line<'a> {
 /// number, stops it before it writes anything.
 fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Result<(), Error> {
     let (state, id, role) = (project.state, project.id, who.role());
-    let unwritten = |e| Error::Write(log::PATH.to_string(), e);
+    let log_file = of_state(state, log::PATH);
+    let unwritten = |e| Error::Write(log_file.clone(), e);
     let earlier = earlier_lines(state, id, role)?;
     let usage = said.usage;
     let priced = project.settings.cost(start.model, &usage);
     let (cost_usd, basis) = priced.map_err(|why| unwritten(io::Error::other(why)))?;
-    let outputs = format!(".gdd/changes/{id}/outputs/{role}-{}", earlier + 1);
+    let outputs = format!(".tminus/changes/{id}/outputs/{role}-{}", earlier + 1);
+    let outputs = of_state(state, &outputs);
     save(state, &format!("{outputs}.md"), said.text.as_bytes())?;
     save(state, &format!("{outputs}.raw"), &ran.out)?;
     if who == Who::Reviewer {
-        save(state, &verdict::review_path(id), said.text.as_bytes())?;
+        let review = of_state(state, &verdict::review_path(id));
+        save(state, &review, said.text.as_bytes())?;
     }
     if let Some(session) = &said.session {
-        append(state, SESSIONS, &format!("{session}\n"))?;
+        append(state, &of_state(state, SESSIONS), &format!("{session}\n"))?;
     }
     let result = match ran.ended {
         Ended::Code(0) => "ok".to_string(),
@@ -574,7 +620,8 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
         Ended::Timeout => "timeout".to_string(),
     };
     let (phase, gate) = who.stage();
-    let (ts, note) = (log::now(), format!("/{}", sheets::name(who.command())));
+    let command = sheets::name_in(start.sheet.layout(), who.command());
+    let (ts, note) = (log::now(), format!("/{command}"));
     let line = Line {
         ts: &ts,
         change: id,
@@ -597,6 +644,16 @@ fn keep(project: &Project, who: Who, start: &Start, ran: &Ran, said: Said) -> Re
     log::append(state, &line).map_err(unwritten)
 }
 
+/// `path`, a file of the state written in the new names (`.tminus/changes/<id>/...`), as the
+/// state root `state` names it (see [`layout::named`]): only its first folder is renamed, so a
+/// change whose id has `tminus` in it keeps its id.
+fn of_state(state: &Path, path: &str) -> String {
+    match path.split_once('/') {
+        Some((folder, rest)) => format!("{}/{rest}", layout::named(state, folder)),
+        None => layout::named(state, path),
+    }
+}
+
 /// `duration` in seconds, to the tenth, as the log writes it.
 fn seconds(duration: Duration) -> f64 {
     (duration.as_secs_f64() * 10.0).round() / 10.0
@@ -606,8 +663,9 @@ fn seconds(duration: Duration) -> f64 {
 /// that are not JSON objects are left out. A log that is not a file of its own (see
 /// [`files::read`]) is an error.
 fn earlier_lines(state: &Path, id: &str, role: &str) -> Result<usize, Error> {
-    let unread = |e| Error::Read(log::PATH.to_string(), e);
-    let bytes = files::read(state, log::PATH).map_err(unread)?;
+    let log_file = of_state(state, log::PATH);
+    let unread = |e| Error::Read(log_file.clone(), e);
+    let bytes = files::read(state, &log_file).map_err(unread)?;
     let text = String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned();
     let says =
         |line: &Value, key: &str, value: &str| line.get(key).and_then(Value::as_str) == Some(value);
@@ -678,7 +736,8 @@ mod tests {
             args,
             builder_session: Session::Separate,
         };
-        let started = start(&call, "c1", Path::new("/state"));
+        let state = Path::new("/state");
+        let started = start(&call, "c1", state, state);
         started.map(|start| start.args).unwrap_or_default()
     }
 
@@ -687,7 +746,7 @@ mod tests {
         let args = line(Who::BuilderBuild, "claude", "mode=build fix=g3");
         let expected = [
             "-p",
-            "/gdd-build change=c1 mode=build fix=g3",
+            "/tminus-build change=c1 mode=build fix=g3",
             "--model",
             "m-1",
             "--output-format",
@@ -706,7 +765,7 @@ mod tests {
             "mcp_servers={}",
             "-c",
             "model_reasoning_effort=high",
-            "$gdd-review change=c1 round=2",
+            "$tminus-review change=c1 round=2",
             "--model",
             "m-1",
             "--json",
@@ -716,7 +775,7 @@ mod tests {
         let expected = [
             "run",
             "--command",
-            "gdd-replan",
+            "tminus-replan",
             "-m",
             "m-1",
             "--format",
@@ -725,29 +784,68 @@ mod tests {
         ];
         assert_eq!(args, expected);
         let test = line(Who::BuilderTest, "claude", "mode=test");
-        assert_eq!(test[1], "/gdd-build-test change=c1 mode=test");
+        assert_eq!(test[1], "/tminus-build-test change=c1 mode=test");
         assert_eq!(line(Who::Reviewer, "claude", "round=1")[8], "plan");
         let sandbox = &line(Who::BuilderTest, "codex", "mode=test")[2..5];
-        let own = "/state/.gdd/changes/c1";
+        let own = "/state/.tminus/changes/c1";
         assert_eq!(sandbox, ["workspace-write", "--add-dir", own]);
         let build = line(Who::BuilderBuild, "claude", "mode=build");
-        assert!(build.contains(&"Write(//state/.gdd/**)".to_string()));
+        assert!(build.contains(&"Write(//state/.tminus/**)".to_string()));
         // A model without an effort, or whose effort is not text, takes none.
         let mut table = model("codex", "m-1");
         table.remove("effort");
         let none = line_of(Who::Reviewer, &table, "round=1");
         table.insert("effort".into(), 3.into());
         assert_eq!(line_of(Who::Reviewer, &table, "round=1"), none);
-        assert_eq!(none[5], "$gdd-review change=c1 round=1");
+        assert_eq!(none[5], "$tminus-review change=c1 round=1");
+    }
+
+    #[test]
+    fn a_project_set_up_before_the_rename_starts_its_agents_with_its_own_names() {
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        let table = model("claude", "m-1");
+        let call = Call {
+            who: Who::BuilderBuild,
+            model: &table,
+            args: "mode=build",
+            builder_session: Session::Separate,
+        };
+        let started = start(&call, "c1", &old.0, &old.0);
+        let args = started.map(|start| start.args).unwrap_or_default();
+        let state = old.0.display().to_string();
+        assert_eq!(args[1], "/gdd-build change=c1 mode=build");
+        for named in [
+            format!("{state}/.gdd/changes/c1"),
+            "Bash(gdd g2:*)".to_string(),
+            "Write(.gdd/**)".to_string(),
+            format!("Write(/{state}/.gdd/**)"),
+        ] {
+            assert!(args.contains(&named), "{named}: {args:?}");
+        }
+        // Whatever the name of the folder the test runs in.
+        let new_name = |arg: &String| arg.replace(&state, "").contains("tminus");
+        assert!(!args.iter().any(new_name), "{args:?}");
+        // A branch that moved its files to tminus/, while its state root keeps .gdd/: the
+        // commands take the names of the project, the state folder those of its root.
+        let branch = Folder::new();
+        branch.write("tminus/project.toml", "");
+        let started = start(&call, "c1", &branch.0, &old.0);
+        let args = started.map(|start| start.args).unwrap_or_default();
+        assert_eq!(args[1], "/tminus-build change=c1 mode=build");
+        let own = format!("{state}/.gdd/changes/c1");
+        assert!(args.contains(&own), "{args:?}");
+        let denied = "Write(.tminus/**)".to_string();
+        assert!(args.contains(&denied), "{args:?}");
     }
 
     #[test]
     fn a_model_that_cannot_be_started_names_the_role() {
-        let gemini = "gdd/models.toml: the Reviewer uses \"gemini\", which has no agent sheet \
+        let gemini = "tminus/models.toml: the Reviewer uses \"gemini\", which has no agent sheet \
                       (claude, codex, opencode)";
-        let nameless = "gdd/models.toml: the Reviewer has no model";
-        let none = "gdd/models.toml: the Reviewer uses \"\", which has no agent sheet (claude, \
-                    codex, opencode)";
+        let nameless = "tminus/models.toml: the Reviewer has no model";
+        let none = "tminus/models.toml: the Reviewer uses \"\", which has no agent sheet \
+                    (claude, codex, opencode)";
         let mut number = model("claude", "x");
         number.insert("integration".into(), 7.into());
         for (table, why) in [
@@ -763,7 +861,8 @@ mod tests {
                 args: "round=1",
                 builder_session: Session::Shared,
             };
-            let err = start(&call, "c1", Path::new("/state")).err().unwrap();
+            let state = Path::new("/state");
+            let err = start(&call, "c1", state, state).err().unwrap();
             assert!(!err.parks());
             assert_eq!(err.to_string(), why);
         }
@@ -785,14 +884,15 @@ mod tests {
         // Only the folder of the fake: the tests may have a real Codex on their PATH.
         let bin = faked.folder.0.join("bin").display().to_string();
         let env = &[("PATH".to_string(), bin)];
-        assert!(check(&roles(), env).is_ok());
-        let said = |all: &Roles| check(all, env).unwrap_err().to_string();
+        let root = &faked.folder.0;
+        assert!(check(root, &roles(), env).is_ok());
+        let said = |all: &Roles| check(root, all, env).unwrap_err().to_string();
         let mut one = roles();
         one.orchestrator = model("gemini", "g");
-        let gemini = "gdd/models.toml: the Orchestrator uses \"gemini\", which has no agent \
+        let gemini = "tminus/models.toml: the Orchestrator uses \"gemini\", which has no agent \
                       sheet (claude, codex, opencode)";
         assert_eq!(said(&one), gemini);
-        let start = |who: Who| format!("gdd/models.toml: the {who} uses \"gemini\"");
+        let start = |who: Who| format!("tminus/models.toml: the {who} uses \"gemini\"");
         let mut one = roles();
         one.builder = model("gemini", "g");
         assert!(said(&one).starts_with(&start(Who::BuilderBuild)));
@@ -804,15 +904,21 @@ mod tests {
         assert!(said(&one).starts_with(&start(Who::BuilderTest)));
         let mut one = roles();
         one.reviewer_model = Model::new();
-        assert_eq!(said(&one), "gdd/models.toml: the Reviewer has no model");
+        let nameless = "tminus/models.toml: the Reviewer has no model";
+        assert_eq!(said(&one), nameless);
+        // A project set up before the rename names its models file as it does.
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        let err = check(&old.0, &one, env).unwrap_err().to_string();
+        assert_eq!(err, "gdd/models.toml: the Reviewer has no model");
         // Every sheet first, then every program.
-        let missing = check(&roles(), &[]).unwrap_err();
+        let missing = check(root, &roles(), &[]).unwrap_err();
         assert!(!missing.parks());
         let claude = "cannot find the claude program of Claude Code on PATH";
         assert_eq!(missing.to_string(), claude);
         let mut one = roles();
         one.reviewer_model = model("gemini", "g");
-        let err = check(&one, &[]).unwrap_err().to_string();
+        let err = check(root, &one, &[]).unwrap_err().to_string();
         assert!(err.starts_with(&start(Who::Reviewer)), "{err}");
         let mut one = roles();
         one.reviewer_model = model("codex", "g");
@@ -937,8 +1043,8 @@ mod tests {
     }
 
     /// A project whose `claude` is the shell script `script`, in its folder `bin`, the
-    /// environment gdd runs in, with that folder first on the `PATH`, the settings of its
-    /// agents, the Builder session of its change and the run of gdd its calls belong to.
+    /// environment tminus runs in, with that folder first on the `PATH`, the settings of its
+    /// agents, the Builder session of its change and the run of tminus its calls belong to.
     struct Faked {
         folder: Folder,
         /// The state root: the project folder itself, unless a test moves it.
@@ -968,7 +1074,7 @@ mod tests {
             }
         }
 
-        /// The calls after it belong to another run of gdd: a relaunch, say.
+        /// The calls after it belong to another run of tminus: a relaunch, say.
         fn new_run(&self) {
             *self.run.borrow_mut() = Ongoing::default();
         }
@@ -1022,7 +1128,7 @@ mod tests {
 
         /// The output `name` the calls left next to change `c1`.
         fn output(&self, name: &str) -> String {
-            self.read(&format!(".gdd/changes/c1/outputs/{name}"))
+            self.read(&format!(".tminus/changes/c1/outputs/{name}"))
         }
 
         fn has(&self, path: &str) -> bool {
@@ -1041,13 +1147,16 @@ mod tests {
 
     #[test]
     fn the_agent_runs_from_the_root_with_its_role_and_without_secrets() {
-        let script = "{ pwd -P; echo \"$GDD_CHANGE|$GDD_ROOT|$GDD_STATE|$GDD_ROLE|${EDITOR-}|\
-                      ${OPENAI_API_KEY-none}|${HOME-none}\"; printf '%s;' \"$@\"; } > seen; \
+        let script = "{ pwd -P; echo \"$TMINUS_CHANGE|$TMINUS_ROOT|$TMINUS_STATE|$TMINUS_ROLE|\
+                      ${EDITOR-}|${OPENAI_API_KEY-none}|${HOME-none}|${GDD_ROLE-none}|\
+                      ${GDD_STATE-none}\"; printf '%s;' \"$@\"; } > seen; \
                       read x && exit 7; echo err >&2";
         let mut faked = Faked::new(script);
         for (name, value) in [
             ("EDITOR", "vim"),
             ("OPENAI_API_KEY", "sk"),
+            ("TMINUS_ROLE", "x"),
+            ("TMINUS_STATE", "/elsewhere"),
             ("GDD_ROLE", "x"),
             ("GDD_STATE", "/elsewhere"),
         ] {
@@ -1060,19 +1169,78 @@ mod tests {
         let cwd = fs::canonicalize(&faked.folder.0).unwrap();
         let (cwd, root, state) = (cwd.display(), faked.folder.0.display(), state.0.display());
         let args = format!(
-            "-p;/gdd-build change=c1 round=1;--model;opus;--output-format;json;\
+            "-p;/tminus-build change=c1 round=1;--model;opus;--output-format;json;\
              --strict-mcp-config;--permission-mode;acceptEdits;\
-             --add-dir;{state}/.gdd/changes/c1;--allowedTools;"
+             --add-dir;{state}/.tminus/changes/c1;--allowedTools;"
         );
-        let env = format!("c1|{root}|{state}|builder-build|vim|none|none");
+        // The variables of the old layout, inherited, never reach it.
+        let env = format!("c1|{root}|{state}|builder-build|vim|none|none|none|none");
         assert!(seen.starts_with(&format!("{cwd}\n{env}\n{args}")), "{seen}");
-        let denied = format!(";Write(/{state}/.gdd/**);");
+        let denied = format!(";Write(/{state}/.tminus/**);");
         assert!(seen.contains(&denied), "{seen}");
         // A project passes a secret on purpose.
         faked.settings = Settings::from_toml("[env]\npass = [\"OPENAI_API_KEY\"]\n").unwrap();
         faked.call(Who::Reviewer, LONG).unwrap();
         let seen = faked.read("seen");
-        assert!(seen.contains("|reviewer|vim|sk|none\n"), "{seen}");
+        let reviewer = "|reviewer|vim|sk|none|none|none\n";
+        assert!(seen.contains(reviewer), "{seen}");
+    }
+
+    #[test]
+    fn an_agent_of_a_project_set_up_before_the_rename_gets_the_old_names() {
+        let script = "{ echo \"$GDD_CHANGE|$GDD_ROOT|$GDD_STATE|$GDD_ROLE|${TMINUS_CHANGE-none}|\
+                      ${TMINUS_ROLE-none}|${TMINUS_STATE-none}\"; printf '%s;' \"$@\"; } > seen; \
+                      cat said";
+        let mut faked = Faked::new(script);
+        faked.write("gdd/project.toml", "");
+        faked.write("said", RESULT);
+        for (name, value) in [
+            ("TMINUS_CHANGE", "c9"),
+            ("TMINUS_ROLE", "x"),
+            ("GDD_ROLE", "y"),
+        ] {
+            faked.env.push((name.into(), value.into()));
+        }
+        faked.call(Who::BuilderBuild, LONG).unwrap();
+        let seen = faked.read("seen");
+        let root = faked.folder.0.display().to_string();
+        let env = format!("c1|{root}|{root}|builder-build|none|none|none\n");
+        assert!(seen.starts_with(&env), "{seen}");
+        let args = &seen[env.len()..];
+        let build = "-p;/gdd-build change=c1 round=1;";
+        assert!(args.starts_with(build), "{args}");
+        for named in [
+            format!(";--add-dir;{root}/.gdd/changes/c1;"),
+            ";Bash(gdd g2:*);".to_string(),
+            ";Write(.gdd/**);".to_string(),
+            format!(";Write(/{root}/.gdd/**);"),
+        ] {
+            assert!(args.contains(&named), "{named}: {args}");
+        }
+        assert!(!args.replace(&root, "").contains("tminus"), "{args}");
+        // What it said is kept in .gdd/, and the log names its command as the project does.
+        let outputs = faked.read(".gdd/changes/c1/outputs/builder-build-1.md");
+        assert_eq!(outputs, "all done");
+        assert_eq!(faked.read(".gdd/headless_sessions.txt"), "s-9\n");
+        let log = faked.read(".gdd/log.jsonl");
+        let line = log.lines().last().unwrap_or_default();
+        assert!(line.ends_with(r#""note":"/gdd-build"}"#), "{log}");
+        assert!(!faked.has(".tminus"));
+    }
+
+    #[test]
+    fn a_file_of_the_state_is_named_as_its_root_names_its_state_folder() {
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        // A change whose id has the new name in it keeps its id.
+        let review = verdict::review_path("rename-tminus");
+        let kept = ".gdd/changes/rename-tminus/review.md";
+        assert_eq!(of_state(&old.0, &review), kept);
+        assert_eq!(of_state(&old.0, log::PATH), ".gdd/log.jsonl");
+        assert_eq!(of_state(&old.0, ".tminus"), ".gdd");
+        let new = Folder::new();
+        assert_eq!(of_state(&new.0, &review), review);
+        assert_eq!(of_state(&new.0, SESSIONS), SESSIONS);
     }
 
     /// What the fake agent prints: the file `said` of the project.
@@ -1097,11 +1265,12 @@ mod tests {
         faked.call(Who::Reviewer, LONG).unwrap();
         let kept = |path: &str| fs::read_to_string(state.0.join(path)).unwrap_or_default();
         assert_eq!(kept(&verdict::review_path("c1")), "all done");
-        assert_eq!(kept(".gdd/changes/c1/outputs/reviewer-1.md"), "all done");
+        let output = ".tminus/changes/c1/outputs/reviewer-1.md";
+        assert_eq!(kept(output), "all done");
         assert_eq!(kept(SESSIONS), "s-9\ns-9\n");
         assert_eq!(kept(log::PATH).lines().count(), 2);
         assert!(faked.has("ran"));
-        assert!(!faked.has(".gdd"));
+        assert!(!faked.has(".tminus"));
     }
 
     #[test]
@@ -1128,7 +1297,7 @@ mod tests {
         );
         assert!(line.starts_with("{\"ts\":\""), "{line}");
         assert!(line.contains(fields), "{line}");
-        let tail = r#","result":"ok","retry":1,"note":"/gdd-build"}"#;
+        let tail = r#","result":"ok","retry":1,"note":"/tminus-build"}"#;
         assert!(line.ends_with(tail), "{line}");
         assert!(faked.logged().duration_s < 10.0);
         // The Reviewer's text is its review.
@@ -1141,7 +1310,7 @@ mod tests {
             ("gate", "G3"),
             ("role", "reviewer"),
             ("retry", "1"),
-            ("note", "/gdd-review"),
+            ("note", "/tminus-review"),
         ] {
             assert_eq!(reviewed.text(field), value, "{field}");
         }
@@ -1149,7 +1318,7 @@ mod tests {
         faked.call(Who::BuilderTest, LONG).unwrap();
         assert_eq!(faked.output("builder-test-1.md"), "all done");
         let tested = faked.logged();
-        assert_eq!(tested.text("note"), "/gdd-build-test");
+        assert_eq!(tested.text("note"), "/tminus-build-test");
         assert_eq!(tested.text("retry"), "0");
         assert_eq!(tested.text("gate"), "G2");
         faked.call(Who::Orchestrator, LONG).unwrap();
@@ -1234,16 +1403,17 @@ mod tests {
         faked.settings = Settings::from_toml("[prices.opus]\noutput = 1e308\n").unwrap();
         let (used, ended) = faked.used(Who::Reviewer, LONG);
         let err = ended.unwrap_err();
-        let unwritten = "cannot write .gdd/log.jsonl: the cost of opus is not a finite number: inf";
+        let unwritten =
+            "cannot write .tminus/log.jsonl: the cost of opus is not a finite number: inf";
         assert_eq!(err.to_string(), unwritten);
         assert!(!err.parks());
         // What the agent reported still counts; nothing it said was kept.
         assert_eq!(used.tokens_out, 1_000_000);
-        for path in [log::PATH, ".gdd/changes/c1/outputs", SESSIONS] {
+        for path in [log::PATH, ".tminus/changes/c1/outputs", SESSIONS] {
             assert!(!faked.has(path), "{path}");
         }
         assert!(!faked.has(&verdict::review_path("c1")));
-        // With a price gdd can stand behind, the next call is the first of its role.
+        // With a price tminus can stand behind, the next call is the first of its role.
         faked.settings = Settings::from_toml("[prices.opus]\noutput = 15\n").unwrap();
         faked.call(Who::Reviewer, LONG).unwrap();
         assert_eq!(faked.logged().cost_usd, 15.0);
@@ -1269,9 +1439,11 @@ mod tests {
 
     #[test]
     fn the_answer_file_goes_away_before_the_call() {
+        // In a project set up before the rename, whose state is in .gdd/.
         let script = "case $GDD_ROLE in orchestrator) f=replan.md ;; *) f=review.md ;; esac; \
                       test -f .gdd/changes/c1/$f && exit 4; echo '{\"result\": \"new\"}'";
         let faked = Faked::new(script);
+        faked.write("gdd/project.toml", "");
         faked.write(".gdd/changes/c1/review.md", "VERDICT: OK\n");
         faked.write(".gdd/changes/c1/replan.md", "NEXT: test\n");
         assert!(faked.call(Who::Reviewer, LONG).is_ok());
@@ -1352,7 +1524,7 @@ mod tests {
         let outside = Folder::new();
         outside.write("f", "outside");
         let (f, root) = (outside.0.join("f"), &faked.folder.0);
-        let outputs = root.join(".gdd/changes/c1/outputs");
+        let outputs = root.join(".tminus/changes/c1/outputs");
         fs::create_dir_all(&outputs).unwrap();
         symlink(&f, outputs.join("reviewer-1.md")).unwrap();
         fs::hard_link(&f, outputs.join("reviewer-1.raw")).unwrap();
@@ -1427,7 +1599,7 @@ mod tests {
     #[test]
     fn nothing_an_agent_started_writes_after_its_call() {
         // The Reviewer ends at once and well; what it left behind, its output elsewhere, would
-        // write a second later, after gdd checked that it only read.
+        // write a second later, after tminus checked that it only read.
         let faked = Faked::new("(sleep 1; echo late > late) >/dev/null 2>&1 & echo $! > child");
         faked.call(Who::Reviewer, LONG).unwrap();
         let child = faked.read("child");
@@ -1465,7 +1637,7 @@ mod tests {
         // its arguments.
         says("s-2");
         faked.call(Who::BuilderBuild, LONG).unwrap();
-        let build = "-p;/gdd-build change=c1 round=1;";
+        let build = "-p;/tminus-build change=c1 round=1;";
         assert!(seen().starts_with(build), "{}", seen());
         assert!(resumes("s-1"), "{}", seen());
         // The Reviewer and the Orchestrator neither join it nor change it.
@@ -1489,8 +1661,8 @@ mod tests {
         // outputs.
         let log = faked.read(log::PATH);
         assert!(!log.contains("\"session\""), "{log}");
-        let outputs = fs::read_dir(faked.folder.0.join(".gdd/changes/c1/outputs")).unwrap();
-        for output in outputs {
+        let outputs = faked.folder.0.join(".tminus/changes/c1/outputs");
+        for output in fs::read_dir(outputs).unwrap() {
             let name = output.unwrap().file_name().to_string_lossy().into_owned();
             assert!(name.ends_with(".md") || name.ends_with(".raw"), "{name}");
         }
@@ -1524,12 +1696,12 @@ mod tests {
 
     #[test]
     fn what_an_agent_leaves_on_disk_never_chooses_the_session() {
-        // A Builder call that plants a session where gdd once kept them, next to its outputs, and
-        // forges a line of the log with another.
+        // A Builder call that plants a session where tminus once kept them, next to its outputs,
+        // and forges a line of the log with another.
         let forged = r#"{"change":"c1","role":"builder-test","session":"s-evil"}"#;
         let plants = format!(
-            "mkdir -p .gdd/changes/c1/outputs; for n in 1 2 3; do \
-             printf s-evil > .gdd/changes/c1/outputs/builder-build-$n.session; done; \
+            "mkdir -p .tminus/changes/c1/outputs; for n in 1 2 3; do \
+             printf s-evil > .tminus/changes/c1/outputs/builder-build-$n.session; done; \
              echo '{forged}' >> {}; {SEES}",
             log::PATH
         );
@@ -1537,7 +1709,8 @@ mod tests {
         faked.session = Session::Shared;
         // What is there before the run is not its session: its first call starts one of its own.
         faked.write(log::PATH, &format!("{}\n", forged.replace("test", "build")));
-        faked.write(".gdd/changes/c1/outputs/builder-test-1.session", "s-evil");
+        let planted = ".tminus/changes/c1/outputs/builder-test-1.session";
+        faked.write(planted, "s-evil");
         faked.write("said", "plain words");
         let seen = || faked.read("seen");
         faked.call(Who::BuilderTest, LONG).unwrap();

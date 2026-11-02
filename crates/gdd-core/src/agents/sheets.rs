@@ -167,15 +167,11 @@ impl Sheet {
         self.layout
     }
 
-    /// `template`, a text of this sheet, as the project of its layout names things.
-    fn localized(&self, template: &str) -> String {
-        self.layout.localize(template)
-    }
-
-    /// The file of `command` for this agent, from the project root.
+    /// The file of `command` for this agent, from the project root. Each text of a sheet is
+    /// localized for the layout of the project (see [`Layout::localize`]) before it is filled in.
     pub fn path(&self, command: &str) -> String {
-        let name = name_in(self.layout, command);
-        fill(&self.localized(&self.commands.path), &[("name", &name)])
+        let (name, path) = (name_in(self.layout, command), &self.commands.path);
+        fill(&self.layout.localize(path), &[("name", &name)])
     }
 
     /// What the file of a command holds before its text.
@@ -185,8 +181,8 @@ impl Sheet {
 
     /// How this agent calls `command`.
     pub fn invoke(&self, command: &str) -> String {
-        let name = name_in(self.layout, command);
-        fill(&self.localized(&self.commands.invoke), &[("name", &name)])
+        let (name, invoke) = (name_in(self.layout, command), &self.commands.invoke);
+        fill(&self.layout.localize(invoke), &[("name", &name)])
     }
 
     /// The name of this agent for people.
@@ -214,7 +210,7 @@ impl Sheet {
     pub fn resume(&self, session: &str) -> Vec<String> {
         let values = [("session", session)];
         let args = self.launch.resume_args.iter();
-        let filled = args.map(|arg| fill(&self.localized(arg), &values));
+        let filled = args.map(|arg| fill(&self.layout.localize(arg), &values));
         filled.collect()
     }
 
@@ -242,7 +238,7 @@ impl Sheet {
             if arg == ROLE_ARGS {
                 launch.extend(self.role_args(role, effort, place));
             } else {
-                launch.push(fill(&self.localized(arg), &values));
+                launch.push(fill(&self.layout.localize(arg), &values));
             }
         }
         launch
@@ -266,7 +262,7 @@ impl Sheet {
         if let Some(effort) = effort {
             let values = [("effort", effort)];
             let effort_args = self.launch.effort_args.iter();
-            let more = effort_args.map(|arg| fill(&self.localized(arg), &values));
+            let more = effort_args.map(|arg| fill(&self.layout.localize(arg), &values));
             args.extend(more);
         }
         args

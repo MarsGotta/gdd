@@ -333,7 +333,10 @@ mod tests {
         assert!(workflow.contains(gitleaks), "{workflow}");
         let install = format!("--tag v{VERSION} gdd\n");
         assert!(workflow.contains(&install), "{workflow}");
-        assert!(workflow.ends_with("\n        run: tminus ci\n"), "{workflow}");
+        assert!(
+            workflow.ends_with("\n        run: tminus ci\n"),
+            "{workflow}"
+        );
     }
 
     #[test]

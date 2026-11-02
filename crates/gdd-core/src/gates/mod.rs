@@ -61,7 +61,7 @@ const NOT_CONFIGURED: &str =
     "tminus/commands.toml has no commands for this gate. The Setup fills them in.";
 
 /// The variables each gate command gets, in the new names: a project of the old layout gets them
-/// as it names them (see [`Layout::variable`]). The change, its color, what it touched and its
+/// as it names them (see [`Layout::localize`]). The change, its color, what it touched and its
 /// scenario files.
 const VARIABLES: [&str; 4] = [
     "TMINUS_CHANGE",
@@ -758,7 +758,7 @@ impl Judged<'_> {
         let color = self.decision.color.to_string();
         let (diff, features) = (self.diff.join("\n"), self.features.join("\n"));
         let layout = Layout::at(root);
-        let names = VARIABLES.map(|name| layout.variable(name));
+        let names = VARIABLES.map(|name| layout.localize(name));
         let values = [self.id, color.as_str(), diff.as_str(), features.as_str()];
         let env: Vec<(&str, &str)> = names.iter().map(String::as_str).zip(values).collect();
         for (name, command) in commands.of(report.gate) {

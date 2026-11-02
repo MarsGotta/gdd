@@ -1,10 +1,12 @@
-//! Merging a change (`gdd merge`): once G3 is open, the last work of the change is committed on
-//! its branch, where it is checked out, and the branch merges into the main branch, in the main
-//! checkout, with a merge commit that carries the record of the change: what a pull request
+//! Merging a change (`tminus merge`): once G3 is open, the last work of the change is committed
+//! on its branch, where it is checked out, and the branch merges into the main branch, in the
+//! main checkout, with a merge commit that carries the record of the change: what a pull request
 //! description would hold, and its line in the changelog as trailers (see [`changelog`]). The
-//! full working files stay in `.gdd/changes/<id>/`, which git does not keep. The known debt the
-//! change paid goes off the list in that same merge commit, and the counts it lowered go down
-//! there. Then main is pushed when the rules
+//! full working files stay in `.tminus/changes/<id>/` (`.gdd/` in a project of the old layout,
+//! see [`crate::layout`]), which git does not keep; the commits name the tool as the project
+//! does, `tminus(<id>): ` or `gdd(<id>): `. The known debt the change paid goes off the list in
+//! that same merge commit, and the counts it lowered go down there. Then main is pushed when the
+//! rules
 //! ask for it and there is a remote, and the artifact is built and deployed to pre from the main
 //! checkout: as the main branch configures them once the change merged into it, not as the
 //! branch of the change had them.
@@ -26,10 +28,11 @@ use crate::classify::Classification;
 use crate::config::{self, Color};
 use crate::gates::release::{self, Passed, Steps};
 use crate::gates::spike::{self, ADR_FOLDER};
-use crate::gates::verdict::unlinked;
+use crate::gates::verdict::{self, unlinked};
 use crate::gates::{self, Gate, approve, debt};
 use crate::git::Git;
 use crate::guard;
+use crate::layout::{self, Layout};
 use crate::log;
 use crate::rules;
 
@@ -42,13 +45,16 @@ const LINE_LENGTH: usize = 220;
 /// Decisions taken without the human the message lists: the last ones.
 const DECIDED: usize = 8;
 
+/// The record of a change, in its folder (see [`change::record_path`]).
+const RECORD: &str = "change.json";
+
 /// What merging a change reads from the project.
 #[derive(Debug, Clone, Copy)]
 pub struct Project<'a> {
     /// The project root, where the branch of the change is checked out: the main checkout or the
     /// worktree of the change.
     pub root: &'a Path,
-    /// The state root, whose `.gdd/` holds the record of the change (see
+    /// The state root, whose `.tminus/` holds the record of the change (see
     /// [`crate::state::root`]): the project root in the main checkout, where the change merges.
     pub state: &'a Path,
     /// The branch the change merges into.
@@ -72,7 +78,7 @@ fn push_main(rules: &str) -> Result<bool, config::Error> {
 /// work is. In a worktree, the main checkout must have the main branch checked out and no
 /// uncommitted changes in tracked files (see [`not_ready`]); the main checkout itself on the
 /// branch of the change goes to the main branch. The known debt its latest G2 and G3 named as
-/// paid goes off `gdd/debt.toml` in the merge commit, and each count they saved below the one
+/// paid goes off the known debt file in the merge commit, and each count they saved below the one
 /// recorded lowers it (see [`debt::lowered`] and [`debt::pay`]); when it cannot, the merge is
 /// given up. The record goes to state `merged` with the merge commit, and the merge is
 /// logged; then the rules file and the release commands are read as the merge left them, and a
@@ -96,7 +102,8 @@ pub fn merge(
     let names = debt::by_risk(paid.iter().map(|(_, name)| name.as_str()));
     let message = message(state, id, &record, classification, &names, &lowered)?;
     if work.has_changes().map_err(said)? {
-        let work_done = format!("gdd({id}): change work");
+        let tool = Layout::at(root).name();
+        let work_done = format!("{tool}({id}): change work");
         work.commit_all(&work_done).map_err(said)?;
     }
     // The main checkout, where the change merges and what follows runs.
@@ -110,7 +117,7 @@ pub fn merge(
         merge_paying(&git, state, &branch, &message, &paid, &lowered)?;
     }
     let commit = git.head().map_err(said)?;
-    let path = change::record_path(id);
+    let path = verdict::change_file(state, id, RECORD);
     let fields = vec![
         ("state", Value::from("merged")),
         ("commit", Value::from(commit.as_str())),
@@ -243,10 +250,11 @@ pub struct Adrs<'a> {
 /// OK at the G4 of spike `id`, titled `title`: its ADR files that main lacks, `from` its branch or
 /// the one of the variant the human chose, with what `from` appends (see [`to_bring`]), written
 /// in the main checkout `main_checkout`, and committed alone on the main branch `main`, with the
-/// message `gdd(<id>): Spike ADR · <title>`: no changelog trailer, as spikes are not in the
-/// changelog. The main checkout must be able to take a merge (see [`not_ready`]); with nothing to
-/// bring, there is no commit. When a file cannot be written or the commit fails, the main
-/// checkout gets back what it held (see [`put_back`]). The paths it committed.
+/// message `tminus(<id>): Spike ADR · <title>` (`gdd(<id>): ` in a project of the old layout): no
+/// changelog trailer, as spikes are not in the changelog. The main checkout must be able to take
+/// a merge (see [`not_ready`]); with nothing to bring, there is no commit. When a file cannot be
+/// written or the commit fails, the main checkout gets back what it held (see [`put_back`]). The
+/// paths it committed.
 pub fn adr_only(
     main_checkout: &Path,
     main: &str,
@@ -268,7 +276,8 @@ pub fn adr_only(
         let written = files::replace(main_checkout, &adr.path, &adr.bytes);
         written.map_err(|e| format!("cannot write {}: {e}", adr.path))
     });
-    let message = format!("gdd({id}): Spike ADR · {title}");
+    let tool = Layout::at(main_checkout).name();
+    let message = format!("{tool}({id}): Spike ADR · {title}");
     let committed = written.and_then(|()| git.commit_files(&paths, &message).map_err(said));
     committed.map_err(|e| put_back(&git, main_checkout, &adrs, &e))?;
     Ok(paths)
@@ -297,7 +306,7 @@ fn to_bring(git: &Git, root: &Path, main: &str, from: &Adrs) -> Result<Vec<Adr>,
         }
         let held = files::found(root, &path).map_err(|e| {
             format!(
-                "cannot write {path} in the main checkout ({shown}): {e}. gdd writes neither \
+                "cannot write {path} in the main checkout ({shown}): {e}. tminus writes neither \
                  through a link nor over what is not a file: move it away, then answer again"
             )
         })?;
@@ -367,14 +376,17 @@ fn merge_paying(
 
 /// Whether to push the main branch, and the release commands with the time limit of the rules
 /// (see [`rules::command_seconds`]), as the project at `root` has them in its working tree:
-/// after the merge, the main branch's. A missing file says nothing.
+/// after the merge, the main branch's. Each file is the one of the project's layout (see
+/// [`layout::named`]). A missing file says nothing.
 fn configured(root: &Path) -> Result<(bool, Steps), String> {
-    let rules = configuration(root, guard::RULES)?;
-    let in_rules = |e: config::Error| format!("{}: {e}", guard::RULES);
+    let rules_file = layout::named(root, guard::RULES);
+    let rules = configuration(root, &rules_file)?;
+    let in_rules = |e: config::Error| format!("{rules_file}: {e}");
     let push = push_main(&rules).map_err(in_rules)?;
     let limit = rules::command_seconds(&rules).map_err(in_rules)?;
-    let commands = configuration(root, gates::COMMANDS)?;
-    let in_commands = |e: config::Error| format!("{}: {e}", gates::COMMANDS);
+    let commands_file = layout::named(root, gates::COMMANDS);
+    let commands = configuration(root, &commands_file)?;
+    let in_commands = |e: config::Error| format!("{commands_file}: {e}");
     let steps = Steps::from_toml(&commands, limit).map_err(in_commands)?;
     Ok((push, steps))
 }
@@ -406,8 +418,9 @@ pub fn message(
     let title = record["title"].as_str().unwrap_or_default();
     let kind = record["type"].as_str().unwrap_or("-");
     let (color, lane) = (classification.color, classification.lane);
+    let tool = Layout::at(state).name();
     let mut lines = vec![
-        format!("gdd({id}): G3 Merge Gate · {title}"),
+        format!("{tool}({id}): G3 Merge Gate · {title}"),
         String::new(),
         format!("Color: {color} · lane {lane} · type {kind}"),
     ];
@@ -439,8 +452,9 @@ pub fn message(
         let lowered: Vec<String> = lowered.iter().map(debt::Lowered::to_string).collect();
         lines.push(format!("Known debt lowered: {}", lowered.join(", ")));
     }
-    lines.push(format!("Record: .gdd/changes/{id}/ (local)"));
-    let path = change::record_path(id);
+    let folder = verdict::change_file(state, id, "");
+    lines.push(format!("Record: {folder} (local)"));
+    let path = verdict::change_file(state, id, RECORD);
     let line = changelog::of_change(record).map_err(|e| format!("{path}: {e}"))?;
     if let Some(line) = line {
         lines.push(String::new());
@@ -483,10 +497,12 @@ fn approval(decided: &Value, extra: &str) -> String {
     format!("{decision} ({by}, {day}{extra})")
 }
 
-/// The JSON object a file of the tool under the state root `state` holds: `None` when there is no
-/// file, or it holds no object or an empty one.
+/// The JSON object a file of the tool under the state root `state`, `path` in the new names, holds
+/// where that root keeps it (see [`layout::named`]): `None` when there is no file, or it holds no
+/// object or an empty one.
 fn saved(state: &Path, path: &str) -> Result<Option<Value>, String> {
-    let text = match fs::read_to_string(state.join(path)) {
+    let path = layout::named(state, path);
+    let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("cannot read {path}: {e}")),
@@ -496,10 +512,10 @@ fn saved(state: &Path, path: &str) -> Result<Option<Value>, String> {
 }
 
 /// The lines of the Reviewer: its verdicts, in the order of its outputs
-/// (`.gdd/changes/<id>/outputs/reviewer-*.md`), then the points of each output (its lines that
+/// (`.tminus/changes/<id>/outputs/reviewer-*.md`), then the points of each output (its lines that
 /// start with `- **`), as plain text. Nothing without outputs.
 fn reviews(state: &Path, id: &str) -> Result<Vec<String>, String> {
-    let folder = format!(".gdd/changes/{id}/outputs");
+    let folder = verdict::change_file(state, id, "outputs");
     let entries = match fs::read_dir(state.join(&folder)) {
         Ok(entries) => entries,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
@@ -547,12 +563,13 @@ fn verdict(output: &str) -> &'static str {
 /// [`log::Record::is_agent_call`]), what they cost (see [`cost`]) and how many they are, in one
 /// line: nothing when there are none.
 fn tokens(state: &Path, id: &str) -> Result<Option<String>, String> {
-    let text = match fs::read_to_string(state.join(log::PATH)) {
+    let path = layout::named(state, log::PATH);
+    let text = match fs::read_to_string(state.join(&path)) {
         Ok(text) => text,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("cannot read {}: {e}", log::PATH)),
+        Err(e) => return Err(format!("cannot read {path}: {e}")),
     };
-    let records = log::parse(&text).map_err(|e| format!("{}, {e}", log::PATH))?;
+    let records = log::parse(&text).map_err(|e| format!("{path}, {e}"))?;
     let change = Value::from(id);
     let calls: Vec<&log::Record> = records
         .iter()
@@ -669,10 +686,10 @@ mod tests {
         let record = json(record);
         let app = classified("src/app.rs");
         let text = message(&folder.0, "c1", &record, &app, &[], &[]).unwrap();
-        let expected = "gdd(c1): G3 Merge Gate · App\n\n\
+        let expected = "tminus(c1): G3 Merge Gate · App\n\n\
                         Color: yellow · lane full · type Feature\n\
                         Approvals: none needed\n\
-                        Record: .gdd/changes/c1/ (local)\n\n\
+                        Record: .tminus/changes/c1/ (local)\n\n\
                         Changelog: Added · App\n\
                         Breaking: no";
         assert_eq!(text, expected);
@@ -695,7 +712,7 @@ mod tests {
         let line = "\nApprovals: none needed\nKnown debt lowered: lint from 5 to 3\nRecord: ";
         assert!(text.contains(line), "{text}");
         let bare = message(&folder.0, "c1", &json("{}"), &app, &[], &[]).unwrap();
-        let start = "gdd(c1): G3 Merge Gate · \n\nColor: yellow · lane full · type -\n";
+        let start = "tminus(c1): G3 Merge Gate · \n\nColor: yellow · lane full · type -\n";
         assert!(bare.starts_with(start), "{bare}");
     }
 
@@ -706,7 +723,7 @@ mod tests {
         folder.write(approve::ZONES_PATH, zones);
         let first = "Notes\n- **Blocking** none\nVERDICT: KO\n\
                      - **Fix** [the guard](src/a.rs#L3) now\n";
-        let outputs = ".gdd/changes/c1/outputs";
+        let outputs = ".tminus/changes/c1/outputs";
         folder.write(&format!("{outputs}/reviewer-1.md"), first);
         folder.write(&format!("{outputs}/reviewer-2.md"), "VERDICT:\n  OK\n");
         folder.write(&format!("{outputs}/reviewer-3.md"), "no verdict\n");
@@ -746,7 +763,7 @@ mod tests {
         let tokens = "Tokens: in 1,500 · cache 3,000 · out 57 · \
                       0.76 USD (estimate) · 2 agent call(s)";
         let mut expected = vec![
-            "gdd(c1): G3 Merge Gate · Save".to_string(),
+            "tminus(c1): G3 Merge Gate · Save".to_string(),
             String::new(),
             "Color: red · lane full · type Feature".to_string(),
             approvals.to_string(),
@@ -757,7 +774,7 @@ mod tests {
         ];
         expected.extend((2..=9).map(|n| format!("  - Choice {n} with reason")));
         expected.push(tokens.to_string());
-        expected.push("Record: .gdd/changes/c1/ (local)".to_string());
+        expected.push("Record: .tminus/changes/c1/ (local)".to_string());
         expected.push(String::new());
         expected.push("Changelog: Added · Save\nBreaking: no".to_string());
         assert_eq!(text, expected.join("\n"));
@@ -777,7 +794,7 @@ mod tests {
                 {"section": "Changed", "line": "Notes in one file", "breaking": true}}"#,
         );
         let text = message(repo.root(), "c1", &record, &yellow, &["lint"], &[]).unwrap();
-        let end = "\nKnown debt paid: lint\nRecord: .gdd/changes/c1/ (local)\n\n\
+        let end = "\nKnown debt paid: lint\nRecord: .tminus/changes/c1/ (local)\n\n\
                    Changelog: Changed · Notes in one file\nBreaking: yes";
         assert!(text.ends_with(end), "{text}");
         repo.write("message.txt", &text);
@@ -793,14 +810,14 @@ mod tests {
         ] {
             let text = message(repo.root(), "c1", &json(left_out), &yellow, &[], &[]).unwrap();
             assert!(
-                text.ends_with("\nRecord: .gdd/changes/c1/ (local)"),
+                text.ends_with("\nRecord: .tminus/changes/c1/ (local)"),
                 "{text}"
             );
             assert!(!text.contains("Changelog:"), "{text}");
         }
         let wrong = json(r#"{"changelog": {"section": "Improved", "line": "x"}}"#);
         let err = message(repo.root(), "c1", &wrong, &yellow, &[], &[]).unwrap_err();
-        let start = ".gdd/changes/c1/change.json: the section must be one of ";
+        let start = ".tminus/changes/c1/change.json: the section must be one of ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -862,7 +879,8 @@ mod tests {
         fs::remove_file(folder.0.join(approve::ZONES_PATH)).unwrap();
         fs::create_dir_all(folder.0.join(approve::ZONES_PATH)).unwrap();
         let err = message(&folder.0, "c1", &json("{}"), &red, &[], &[]).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/zones.json: "), "{err}");
+        let start = format!("cannot read {}: ", approve::ZONES_PATH);
+        assert!(err.starts_with(&start), "{err}");
     }
 
     #[test]
@@ -871,20 +889,20 @@ mod tests {
         let yellow = classified("src/app.rs");
         folder.write(log::PATH, "{not json\n");
         let err = message(&folder.0, "c1", &json("{}"), &yellow, &[], &[]).unwrap_err();
-        assert!(err.starts_with(".gdd/log.jsonl, line 1: "), "{err}");
+        assert!(err.starts_with(".tminus/log.jsonl, line 1: "), "{err}");
         fs::remove_file(folder.0.join(log::PATH)).unwrap();
         fs::create_dir_all(folder.0.join(log::PATH)).unwrap();
         let err = message(&folder.0, "c1", &json("{}"), &yellow, &[], &[]).unwrap_err();
-        assert!(err.starts_with("cannot read .gdd/log.jsonl: "), "{err}");
+        assert!(err.starts_with("cannot read .tminus/log.jsonl: "), "{err}");
         fs::remove_dir(folder.0.join(log::PATH)).unwrap();
-        folder.write(".gdd/changes/c1/outputs", "not a folder");
+        folder.write(".tminus/changes/c1/outputs", "not a folder");
         let err = message(&folder.0, "c1", &json("{}"), &yellow, &[], &[]).unwrap_err();
-        let start = "cannot read .gdd/changes/c1/outputs: ";
+        let start = "cannot read .tminus/changes/c1/outputs: ";
         assert!(err.starts_with(start), "{err}");
-        fs::remove_file(folder.0.join(".gdd/changes/c1/outputs")).unwrap();
-        fs::create_dir_all(folder.0.join(".gdd/changes/c1/outputs/reviewer-1.md")).unwrap();
+        fs::remove_file(folder.0.join(".tminus/changes/c1/outputs")).unwrap();
+        fs::create_dir_all(folder.0.join(".tminus/changes/c1/outputs/reviewer-1.md")).unwrap();
         let err = message(&folder.0, "c1", &json("{}"), &yellow, &[], &[]).unwrap_err();
-        let start = "cannot read .gdd/changes/c1/outputs/reviewer-1.md: ";
+        let start = "cannot read .tminus/changes/c1/outputs/reviewer-1.md: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -917,7 +935,7 @@ mod tests {
         let record = r#"{"id": "c1", "title": "App", "type": "Feature", "state": "building",
                          "gates": {"G3": {"decision": "ok", "by": "machines"}},
                          "inbox": [], "x": 1}"#;
-        repo.write(".gdd/changes/c1/change.json", record);
+        repo.write(".tminus/changes/c1/change.json", record);
         repo
     }
 
@@ -935,14 +953,14 @@ mod tests {
     }
 
     fn agents(repo: &Repo) -> Vec<String> {
-        let text = fs::read_to_string(repo.root().join(log::PATH)).unwrap();
+        let text = fs::read_to_string(layout::join(repo.root(), log::PATH)).unwrap();
         let records = log::parse(&text).unwrap();
         records.iter().map(|r| r.text("agent")).collect()
     }
 
     #[test]
     fn merge_keeps_the_last_work_and_records_the_change_in_the_merge_commit() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.write("src/app.rs", "fn main() {}\n");
         let out = json(&merged(&repo).unwrap());
         assert_eq!(out["ok"], true);
@@ -951,9 +969,10 @@ mod tests {
         assert_eq!(repo.git(&["branch", "--show-current"]), "main");
         repo.git(&["cat-file", "-e", "main:src/app.rs"]);
         let work = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(work, "gdd(c1): change work");
+        assert_eq!(work, "tminus(c1): change work");
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
-        let expected = "gdd(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature";
+        let expected = "tminus(c1): G3 Merge Gate · App\n\n\
+                        Color: yellow · lane full · type Feature";
         assert!(message.starts_with(expected), "{message}");
         let line = repo.git(&["log", "-1", "--format=%(trailers:key=Changelog)", "main"]);
         assert_eq!(line, "Changelog: Added · App");
@@ -975,7 +994,7 @@ mod tests {
     /// The project of [`started`] back on `main`, and a worktree on `change/c1` with work of
     /// the change to commit: the main checkout keeps the state.
     fn in_worktree() -> (Repo, Folder) {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.git(&["checkout", "-q", "main"]);
         let trees = Folder::new();
         let worktree = trees.0.join("c1");
@@ -1001,15 +1020,15 @@ mod tests {
         assert!(merged_from(&repo, &worktree).is_ok());
         repo.git(&["cat-file", "-e", "main:src/app.rs"]);
         let message = repo.git(&["log", "-1", "--format=%s", "main"]);
-        assert_eq!(message, "gdd(c1): G3 Merge Gate · App");
+        assert_eq!(message, "tminus(c1): G3 Merge Gate · App");
         let work = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(work, "gdd(c1): change work");
+        assert_eq!(work, "tminus(c1): change work");
         assert_eq!(repo.git(&["branch", "--show-current"]), "main");
         assert!(repo.root().join("src/app.rs").is_file());
         assert_eq!(Git::new(&worktree).current_branch().unwrap(), "change/c1");
         assert_eq!(record(&repo)["state"], "merged");
         assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
-        assert!(!worktree.join(".gdd").exists());
+        assert!(!worktree.join(".tminus").exists());
     }
 
     #[test]
@@ -1063,7 +1082,7 @@ mod tests {
         let expected = "Not on branch change/c1: merge runs where the last work of the change is.";
         assert_eq!(may_merge(&off, "c1"), Err(expected.to_string()));
         let closed = r#"{"gates": {"G3": {"decision": "ko"}}}"#;
-        repo.write(".gdd/changes/c1/change.json", closed);
+        repo.write(".tminus/changes/c1/change.json", closed);
         assert_eq!(may_merge(&project, "c1"), Err(G3_CLOSED.to_string()));
         let err = may_merge(&project, "c9").unwrap_err();
         assert!(err.starts_with("change c9 does not exist"), "{err}");
@@ -1074,13 +1093,47 @@ mod tests {
 
     #[test]
     fn a_branch_with_nothing_left_to_commit_merges_as_it_is() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.write("src/app.rs", "x\n");
         repo.commit();
         let tip = repo.git(&["rev-parse", "HEAD"]);
         assert!(merged(&repo).is_ok());
         assert_eq!(repo.git(&["rev-parse", "change/c1"]), tip);
         assert_eq!(repo.git(&["rev-parse", "HEAD^2"]), tip);
+    }
+
+    #[test]
+    fn a_project_of_the_old_layout_merges_with_its_gdd_names() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write(".gitignore", ".gdd/*\n");
+        repo.write("gdd/project.toml", "name = \"x\"\n");
+        repo.write("gdd/commands.toml", COMMANDS);
+        repo.commit();
+        repo.start("c1");
+        let text = r#"{"id": "c1", "title": "App", "type": "Feature", "state": "building",
+                       "gates": {"G3": {"decision": "ok", "by": "machines"}}}"#;
+        repo.write(".gdd/changes/c1/change.json", text);
+        repo.write("src/app.rs", "x\n");
+        assert_eq!(json(&merged(&repo).unwrap())["ok"], true);
+        let work = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
+        assert_eq!(work, "gdd(c1): change work");
+        let message = repo.git(&["log", "-1", "--format=%B", "main"]);
+        let start = "gdd(c1): G3 Merge Gate · App\n";
+        assert!(message.starts_with(start), "{message}");
+        let folder = "\nRecord: .gdd/changes/c1/ (local)";
+        assert!(message.contains(folder), "{message}");
+        assert_eq!(record(&repo)["state"], "merged");
+        assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
+        assert!(!repo.root().join(".tminus").exists());
+        // The ADR of a spike reaches main with the same name.
+        repo.git(&["checkout", "-q", "-b", "change/c2"]);
+        repo.write("docs/adr/0002-storage.md", STORAGE);
+        repo.commit();
+        repo.git(&["checkout", "-q", "main"]);
+        assert!(adr_ok(&repo, "c2", "Storage").is_ok());
+        let message = repo.git(&["log", "-1", "--format=%B", "main"]);
+        assert_eq!(message, "gdd(c2): Spike ADR · Storage");
     }
 
     #[test]
@@ -1101,14 +1154,14 @@ mod tests {
     /// The project of [`started`] with `known` as its known debt on `main` before the change
     /// started, the latest G2 of `c1` naming `paid` as paid, and work of the change to commit.
     fn paying(known: &str, paid: &str) -> Repo {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.git(&["checkout", "-q", "main"]);
         repo.write(debt::PATH, known);
         repo.commit();
         repo.git(&["checkout", "-q", "change/c1"]);
         repo.git(&["merge", "-q", "main"]);
         let g2 = format!(r#"{{"ok": true, "paid_debt": {paid}}}"#);
-        repo.write(".gdd/changes/c1/g2.json", &g2);
+        repo.write(".tminus/changes/c1/g2.json", &g2);
         repo.write("src/app.rs", "x\n");
         repo
     }
@@ -1117,7 +1170,7 @@ mod tests {
     fn the_merge_commit_takes_the_paid_debt_off_the_list() {
         let repo = paying(DEBT, r#"["lint"]"#);
         let g3 = r#"{"ok": true, "paid_debt": ["security"]}"#;
-        repo.write(".gdd/changes/c1/g3.json", g3);
+        repo.write(".tminus/changes/c1/g3.json", g3);
         assert!(merged(&repo).is_ok());
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         let paid = "\nKnown debt paid: security, lint\n";
@@ -1125,12 +1178,12 @@ mod tests {
         let parents = repo.git(&["log", "-1", "--format=%P", "main"]);
         assert_eq!(parents.split(' ').count(), 2, "a merge commit");
         // Only the debt of the gate that paid it goes: lint stays in G3.
-        let left = repo.git(&["show", "main:gdd/debt.toml"]);
+        let left = repo.git(&["show", "main:tminus/debt.toml"]);
         assert_eq!(left.matches("[[debt]]").count(), 1, "{left}");
         let lint = "command = \"lint\"\ngate = \"g3\"";
         assert!(left.contains(lint), "{left}");
         // The branch of the change keeps the list as it was: the merge commit pays.
-        let branch = repo.git(&["show", "change/c1:gdd/debt.toml"]);
+        let branch = repo.git(&["show", "change/c1:tminus/debt.toml"]);
         assert_eq!(branch, DEBT.trim_end());
         assert_eq!(repo.git(&["status", "--porcelain"]), "");
         assert_eq!(record(&repo)["state"], "merged");
@@ -1143,7 +1196,7 @@ mod tests {
         let repo = paying(only, r#"["lint"]"#);
         assert!(merged(&repo).is_ok());
         assert!(!repo.root().join(debt::PATH).exists());
-        let listed = repo.git(&["ls-tree", "--name-only", "main", "gdd/"]);
+        let listed = repo.git(&["ls-tree", "--name-only", "main", "tminus/"]);
         assert_eq!(listed, gates::COMMANDS);
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         assert!(message.contains("\nKnown debt paid: lint\n"), "{message}");
@@ -1166,14 +1219,14 @@ mod tests {
     #[test]
     fn the_merge_commit_lowers_the_counts_the_change_lowered() {
         let repo = paying(COUNTED, "[]");
-        repo.write(".gdd/changes/c1/g2.json", &owing("lint", 3, 5));
+        repo.write(".tminus/changes/c1/g2.json", &owing("lint", 3, 5));
         assert!(merged(&repo).is_ok());
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         let line = "\nKnown debt lowered: lint from 5 to 3\nRecord: ";
         assert!(message.contains(line), "{message}");
         let parents = repo.git(&["log", "-1", "--format=%P", "main"]);
         assert_eq!(parents.split(' ').count(), 2, "a merge commit");
-        let left = repo.git(&["show", "main:gdd/debt.toml"]);
+        let left = repo.git(&["show", "main:tminus/debt.toml"]);
         let lint = "command = \"lint\"\ngate = \"g2\"\nsince = \"2026-10-27\"\ncount = 3\n";
         assert!(left.contains(lint), "{left}");
         let security = "gate = \"g3\"\nsince = \"2026-10-27\"\ncount = 2";
@@ -1184,12 +1237,12 @@ mod tests {
     #[test]
     fn the_debt_paid_and_the_counts_lowered_go_in_the_same_commit() {
         let repo = paying(COUNTED, r#"["lint"]"#);
-        repo.write(".gdd/changes/c1/g3.json", &owing("security", 1, 2));
+        repo.write(".tminus/changes/c1/g3.json", &owing("security", 1, 2));
         assert!(merged(&repo).is_ok());
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
         let lines = "\nKnown debt paid: lint\nKnown debt lowered: security from 2 to 1\nRecord: ";
         assert!(message.contains(lines), "{message}");
-        let left = repo.git(&["show", "main:gdd/debt.toml"]);
+        let left = repo.git(&["show", "main:tminus/debt.toml"]);
         assert_eq!(left.matches("[[debt]]").count(), 1, "{left}");
         let security = "gate = \"g3\"\nsince = \"2026-10-27\"\ncount = 1";
         assert!(left.ends_with(security), "{left}");
@@ -1199,11 +1252,11 @@ mod tests {
     fn a_count_kept_or_above_leaves_the_list_and_the_message_as_they_were() {
         for count in [5, 7] {
             let repo = paying(COUNTED, "[]");
-            repo.write(".gdd/changes/c1/g2.json", &owing("lint", count, 5));
+            repo.write(".tminus/changes/c1/g2.json", &owing("lint", count, 5));
             assert!(merged(&repo).is_ok());
             let message = repo.git(&["log", "-1", "--format=%B", "main"]);
             assert!(!message.contains("Known debt"), "{message}");
-            let left = repo.git(&["show", "main:gdd/debt.toml"]);
+            let left = repo.git(&["show", "main:tminus/debt.toml"]);
             assert_eq!(left, COUNTED.trim_end(), "{count}");
         }
     }
@@ -1212,12 +1265,13 @@ mod tests {
     fn a_debt_list_that_cannot_be_paid_gives_the_merge_up() {
         let repo = paying("[[debt]", "\"lint\"");
         let err = merged(&repo).unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/g2.json: "), "{err}");
+        assert!(err.starts_with(".tminus/changes/c1/g2.json: "), "{err}");
         assert_eq!(repo.git(&["branch", "--show-current"]), "change/c1");
-        repo.write(".gdd/changes/c1/g2.json", r#"{"paid_debt": ["lint"]}"#);
+        repo.write(".tminus/changes/c1/g2.json", r#"{"paid_debt": ["lint"]}"#);
         let main = repo.git(&["rev-parse", "main"]);
         let err = merged(&repo).unwrap_err();
-        assert!(err.starts_with("gdd/debt.toml: invalid TOML: "), "{err}");
+        let invalid = "tminus/debt.toml: invalid TOML: ";
+        assert!(err.starts_with(invalid), "{err}");
         let given_up = "The merge was given up: main is as it was.";
         assert!(err.ends_with(given_up), "{err}");
         assert_eq!(repo.git(&["rev-parse", "main"]), main);
@@ -1228,17 +1282,17 @@ mod tests {
 
     #[test]
     fn merge_needs_g3_and_the_branch_of_the_change() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         let main = repo.git(&["rev-parse", "main"]);
         let closed: Result<String, String> = Err(G3_CLOSED.to_string());
         for gates in ["{}", r#"{"G3": {"decision": "ko"}}"#, r#"{"G3": "ok"}"#] {
             let record = format!(r#"{{"id": "c1", "gates": {gates}}}"#);
-            repo.write(".gdd/changes/c1/change.json", &record);
+            repo.write(".tminus/changes/c1/change.json", &record);
             assert_eq!(merged(&repo), closed, "{gates}");
         }
         assert_eq!(G3_CLOSED, "G3 is not open.");
         let open = r#"{"gates": {"G3": {"decision": "ok"}}}"#;
-        repo.write(".gdd/changes/c1/change.json", open);
+        repo.write(".tminus/changes/c1/change.json", open);
         repo.git(&["checkout", "-q", "main"]);
         repo.write("src/loose.rs", "x\n");
         let expected = "Not on branch change/c1: merge runs where the last work of the change is.";
@@ -1257,7 +1311,7 @@ mod tests {
 
     #[test]
     fn a_failed_build_or_deploy_fails_the_merge_after_it_is_recorded() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         let broken = "[release]\nsimulated = true\nbuild = \"echo no; exit 3\"\n";
         repo.write(gates::COMMANDS, broken);
         let err = merged(&repo).unwrap_err();
@@ -1265,7 +1319,7 @@ mod tests {
         assert_eq!(err, expected);
         assert_eq!(record(&repo)["state"], "merged");
         assert_eq!(agents(&repo), ["merge", "build"]);
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.write(gates::COMMANDS, "[release]\nbuild = \"true\"\n");
         let err = merged(&repo).unwrap_err();
         let expected = "Could not deploy to pre: release.deploy_pre failed:\n\
@@ -1275,13 +1329,14 @@ mod tests {
 
     #[test]
     fn the_build_and_the_deploy_after_the_merge_run_within_the_time_limit_of_the_rules() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         let slow = "[release]\nbuild = \"true\"\ndeploy_pre = \"echo started; sleep 5\"\n";
         repo.write(gates::COMMANDS, slow);
         repo.write(guard::RULES, "[limits]\ncommand_seconds = 1\n");
         let err = merged(&repo).unwrap_err();
         let expected = "Could not deploy to pre: release.deploy_pre failed (exit code 124):\n\
-                        started\ntimed out (1s): raise limits.command_seconds in gdd/rules.toml";
+                        started\ntimed out (1s): raise limits.command_seconds in \
+                        tminus/rules.toml";
         assert_eq!(err, expected);
         assert_eq!(agents(&repo), ["merge", "build", "deploy_pre"]);
     }
@@ -1298,10 +1353,10 @@ mod tests {
     #[test]
     fn main_is_pushed_only_when_the_rules_ask_and_there_is_a_remote() {
         let asked = "push_main = true\n";
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.write(guard::RULES, asked);
         assert!(merged(&repo).is_ok(), "no remote");
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         let remote = remote(&repo);
         assert!(merged(&repo).is_ok());
         let origin = Git::new(&remote.0);
@@ -1311,7 +1366,7 @@ mod tests {
         assert!(merged(&repo).is_ok());
         let pushed = origin.merge_base("main", "main").unwrap();
         assert_eq!(pushed, repo.git(&["rev-parse", "main"]));
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         repo.git(&["remote", "add", "origin", "/nonexistent/gdd-remote"]);
         repo.write(guard::RULES, asked);
         let err = merged(&repo).unwrap_err();
@@ -1322,7 +1377,7 @@ mod tests {
 
     #[test]
     fn what_follows_the_merge_runs_as_main_configures_it() {
-        let repo = started(".gdd/*\n");
+        let repo = started(".tminus/*\n");
         let remote = remote(&repo);
         // The main branch changed its release after the branch of the change left it.
         repo.git(&["checkout", "-q", "main"]);
@@ -1342,7 +1397,7 @@ mod tests {
     #[test]
     fn a_configuration_that_cannot_be_read_fails_the_merge_after_it_is_recorded() {
         let failed = |path: &str, text: &str| {
-            let repo = started(".gdd/*\n");
+            let repo = started(".tminus/*\n");
             repo.write(path, text);
             let err = merged(&repo).unwrap_err();
             assert_eq!(record(&repo)["state"], "merged", "{path}");
@@ -1350,18 +1405,18 @@ mod tests {
             err
         };
         let err = failed(gates::COMMANDS, "[release\n");
-        let start = "gdd/commands.toml: invalid TOML";
+        let start = "tminus/commands.toml: invalid TOML";
         assert!(err.starts_with(start), "{err}");
         let err = failed(guard::RULES, "push_main = \"yes\"\n");
-        let start = "gdd/rules.toml: invalid TOML";
+        let start = "tminus/rules.toml: invalid TOML";
         assert!(err.starts_with(start), "{err}");
         let err = failed(guard::RULES, "[limits]\ncommand_seconds = 0\n");
-        let said = "gdd/rules.toml: invalid TOML: limits.command_seconds must be a whole number \
-                    of seconds above 0, not 0";
+        let said = "tminus/rules.toml: invalid TOML: limits.command_seconds must be a whole \
+                    number of seconds above 0, not 0";
         assert_eq!(err, said);
         // A folder where the rules file should be.
-        let err = failed("gdd/rules.toml/x", "");
-        let start = "cannot read gdd/rules.toml: ";
+        let err = failed("tminus/rules.toml/x", "");
+        let start = "cannot read tminus/rules.toml: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -1374,7 +1429,7 @@ mod tests {
     fn spiked() -> Repo {
         let repo = Repo::new();
         repo.identify();
-        repo.write(".gitignore", ".gdd/\n");
+        repo.write(".gitignore", ".tminus/\n");
         repo.write("docs/adr/0000-gone.md", "# 0000\n");
         repo.write("docs/adr/0001-old.md", "# 0001\n");
         repo.commit();
@@ -1427,7 +1482,7 @@ mod tests {
         let committed = adr_ok(&repo, "c1", "Storage").unwrap();
         assert_eq!(committed, adrs);
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
-        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        assert_eq!(message, "tminus(c1): Spike ADR · Storage");
         assert_eq!(repo.git(&["rev-parse", "main~1"]), before);
         let merges = repo.git(&["rev-list", "--count", "--merges", "main"]);
         assert_eq!(merges, "0");
@@ -1493,7 +1548,7 @@ mod tests {
         let brought = adr_only(repo.root(), "main", "c1", "Storage", &from).unwrap();
         assert_eq!(brought, adrs);
         let message = repo.git(&["log", "-1", "--format=%B", "main"]);
-        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        assert_eq!(message, "tminus(c1): Spike ADR · Storage");
         assert_eq!(last_commit_paths(&repo), adrs);
         let expected = format!("{postgres}\n\n{section}");
         assert_eq!(held(&repo, "docs/adr/0002-storage.md"), expected);

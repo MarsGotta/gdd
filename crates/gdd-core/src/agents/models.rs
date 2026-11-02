@@ -1,8 +1,9 @@
-//! The model of each role, from `gdd/models.toml`: the Builder by the color of the change, the
-//! Builder in test mode, the Reviewer and the Orchestrator. And the family of a model: the
-//! Reviewer must not be of the Builder's family, or it would share its blind spots, unless the
-//! human accepted it at the Setup ([`same_family_accepted`]). And whether the Builder's calls on
-//! a change share one session ([`Session`]).
+//! The model of each role, from `tminus/models.toml` (`gdd/models.toml` in a project set up
+//! before the rename, see [`crate::layout`]): the Builder by the color of the change, the Builder
+//! in test mode, the Reviewer and the Orchestrator. And the family of a model: the Reviewer must
+//! not be of the Builder's family, or it would share its blind spots, unless the human accepted
+//! it at the Setup ([`same_family_accepted`]). And whether the Builder's calls on a change share
+//! one session ([`Session`]).
 
 use std::collections::BTreeMap;
 
@@ -13,8 +14,9 @@ use toml::Spanned;
 use crate::agents::sheets;
 use crate::config::{self, Color};
 
-/// Where the models of a project live, from its root.
-pub const PATH: &str = "gdd/models.toml";
+/// Where the models of a project live, from its root, in the new names: a project of the old
+/// layout keeps them in `gdd/models.toml` (see [`crate::layout::join`]).
+pub const PATH: &str = "tminus/models.toml";
 
 /// The key of the Reviewer's table that records the day (`YYYY-MM-DD`) the human accepted a
 /// Reviewer of the Builder's model family.
@@ -23,11 +25,11 @@ pub const SAME_FAMILY_ACCEPTED: &str = "same_family_accepted";
 /// Why a models file is refused when `[session] builder` is neither of its values.
 const SESSION_VALUES: &str = "session.builder must be separate or shared";
 
-/// A model as `gdd/models.toml` writes it: its table as it is (`integration`, `model`, and what
-/// else it says, such as `effort`). Empty when the file says nothing about it.
+/// A model as `tminus/models.toml` writes it: its table as it is (`integration`, `model`, and
+/// what else it says, such as `effort`). Empty when the file says nothing about it.
 pub type Model = Map<String, Value>;
 
-/// How the Builder's calls on a change run: `[session] builder` of `gdd/models.toml`.
+/// How the Builder's calls on a change run: `[session] builder` of `tminus/models.toml`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Session {
@@ -423,6 +425,14 @@ effort = "high"
         assert_eq!(set.roles(Color::Red), models.roles(Color::Red));
         let unset = sharing.with_session(Session::Separate);
         assert_eq!(unset.builder_session(Color::Red), Session::Separate);
+    }
+
+    #[test]
+    fn the_models_file_is_named_as_the_project_names_it() {
+        use crate::layout::Layout;
+        assert_eq!(PATH, "tminus/models.toml");
+        assert_eq!(Layout::Tminus.path(PATH), PATH);
+        assert_eq!(Layout::Gdd.path(PATH), "gdd/models.toml");
     }
 
     #[test]

@@ -9,7 +9,7 @@
 //! tool writes into a project of the old layout (its agents' commands, its commits, its workflow)
 //! is what it wrote before the rename: [`Layout::localize`] is the exact reverse of the rename.
 
-use std::fs;
+use std::fs::{self, Metadata};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
@@ -63,15 +63,21 @@ impl Layout {
     }
 
     /// `path`, written in the new names (`.tminus/changes`, `tminus/zones.toml`...), as a
-    /// project of this layout names it (see [`Layout::localize`]).
+    /// project of this layout names it (see [`Layout::localize`]). Under the folder of the files
+    /// (`tminus/`) or of the state (`.tminus/`), only that folder takes the old name: what comes
+    /// after it, such as the id of a change (`.tminus/changes/rename-tminus/g2.json`), is data
+    /// and stays as it is; a path already under `gdd/` or `.gdd/` stays whole, so naming a path
+    /// twice names it once. Any other path (`.github/workflows/tminus.yml`) is localized whole.
     pub fn path(self, path: &str) -> String {
-        self.localize(path)
-    }
-
-    /// The variable `name`, written in the new names (`TMINUS_CHANGE`...), as the tool sets it
-    /// for what it starts in a project of this layout (see [`Layout::localize`]).
-    pub fn variable(self, name: &str) -> String {
-        self.localize(name)
+        let (first, rest) = match path.split_once('/') {
+            Some((first, rest)) => (first, Some(rest)),
+            None => (path, None),
+        };
+        match (first, rest) {
+            ("tminus" | ".tminus", Some(rest)) => format!("{}/{rest}", self.localize(first)),
+            ("gdd" | ".gdd", _) => path.to_string(),
+            _ => self.localize(path),
+        }
     }
 }
 
@@ -115,13 +121,13 @@ pub fn check(project_root: &Path, state_root: &Path) -> Result<(), String> {
         Layout::Gdd => ("gdd/", ".tminus", ".gdd", "new"),
     };
     let path = state_root.join(other);
-    match fs::symlink_metadata(&path) {
-        Ok(_) => Err(format!(
+    match seen(fs::symlink_metadata(&path)) {
+        Ok(Some(_)) => Err(format!(
             "{} keeps its files in {files} but has {other}/, the state of the {kind} layout: move \
              {other} to {own} or remove it",
             state_root.display()
         )),
-        Err(e) if absent(&e) => Ok(()),
+        Ok(None) => Ok(()),
         Err(e) => Err(format!("cannot read {}: {e}", path.display())),
     }
 }
@@ -147,60 +153,50 @@ fn one_project(folder: &Path) -> Result<(), String> {
 }
 
 /// Whether `path` is a file, following symbolic links: not when nothing is there, or when a
-/// folder on the way is a file. Any other error is an error.
+/// folder on the way is a file (see [`seen`]). Any other error is an error.
 fn is_file(path: &Path) -> io::Result<bool> {
-    match fs::metadata(path) {
-        Ok(meta) => Ok(meta.is_file()),
-        Err(e) if absent(&e) => Ok(false),
+    Ok(seen(fs::metadata(path))?.is_some_and(|meta| meta.is_file()))
+}
+
+/// What a look at a path (`fs::metadata`, or `fs::symlink_metadata` not to follow a link) found
+/// there: `None` when nothing is there, the path does not exist or a folder on the way is a file.
+/// Any other error is an error.
+fn seen(looked: io::Result<Metadata>) -> io::Result<Option<Metadata>> {
+    match looked {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => Ok(None),
         Err(e) => Err(e),
     }
 }
 
-/// Whether `error` says that nothing is there: the path does not exist, or a folder on the way
-/// is a file.
-fn absent(error: &io::Error) -> bool {
-    matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory)
+/// Whether `c` is an ASCII letter, an ASCII digit or `_`: what a name touching it would belong
+/// to.
+fn word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
 }
 
-/// Whether `byte` is an ASCII letter, an ASCII digit or `_`: what a name touching it would
-/// belong to.
-fn word(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-/// `text` in the old names (see [`Layout::localize`]): scanned by hand, a byte at a time.
+/// `text` in the old names (see [`Layout::localize`]), name by name: a name is a run of
+/// [`word`] characters as long as it goes, so a name that touches none on either side is a
+/// whole run.
 fn to_old_names(text: &str) -> String {
-    const NEW: &[u8] = b"tminus";
-    const NEW_PREFIX: &[u8] = b"TMINUS_";
-    let bytes = text.as_bytes();
-    let mut renamed = String::with_capacity(text.len());
-    let (mut at, mut copied) = (0, 0);
-    while at < bytes.len() {
-        let free_before = at == 0 || !word(bytes[at - 1]);
-        let rest = &bytes[at..];
-        let (found, old) = if !free_before {
-            (0, "")
-        } else if rest.starts_with(NEW) && !rest.get(NEW.len()).is_some_and(|&b| word(b)) {
-            (NEW.len(), "gdd")
-        } else if rest.starts_with(NEW_PREFIX)
-            && rest.get(NEW_PREFIX.len()).is_some_and(u8::is_ascii_uppercase)
-        {
-            (NEW_PREFIX.len(), "GDD_")
-        } else {
-            (0, "")
-        };
-        if found == 0 {
-            at += 1;
-            continue;
-        }
-        // Both names are ASCII: `at` and `at + found` are on character boundaries.
-        renamed.push_str(&text[copied..at]);
-        renamed.push_str(old);
-        at += found;
-        copied = at;
+    text.split_inclusive(|c: char| !word(c))
+        .map(|piece| {
+            let name = piece.trim_end_matches(|c: char| !word(c));
+            format!("{}{}", old_name(name), &piece[name.len()..])
+        })
+        .collect()
+}
+
+/// The whole name `name` in the old names: `tminus` is `gdd`, and `TMINUS_` before a capital
+/// letter is `GDD_`. Any other name stays.
+fn old_name(name: &str) -> String {
+    if name == "tminus" {
+        return "gdd".to_string();
     }
-    renamed.push_str(&text[copied..]);
-    renamed
+    match name.strip_prefix("TMINUS_") {
+        Some(rest) if rest.starts_with(|c: char| c.is_ascii_uppercase()) => format!("GDD_{rest}"),
+        _ => name.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -257,7 +253,10 @@ mod tests {
         assert_eq!(Layout::at(&other.0), Layout::Tminus);
         let err = check(&other.0, &other.0).unwrap_err();
         let path = other.0.join("gdd/project.toml");
-        assert!(err.starts_with(&format!("cannot read {}: ", path.display())), "{err}");
+        assert!(
+            err.starts_with(&format!("cannot read {}: ", path.display())),
+            "{err}"
+        );
         let looped = Folder::new();
         std::os::unix::fs::symlink("gdd", looped.0.join("gdd")).unwrap();
         assert_eq!(Layout::at(&looped.0), Layout::Gdd);
@@ -272,11 +271,19 @@ mod tests {
 
     #[test]
     fn each_variable_is_named_as_the_layout_sets_it_and_has_a_twin() {
-        assert_eq!(Layout::Tminus.variable("TMINUS_CHANGE"), "TMINUS_CHANGE");
-        assert_eq!(Layout::Gdd.variable("TMINUS_CHANGE"), "GDD_CHANGE");
+        assert_eq!(Layout::Tminus.localize("TMINUS_CHANGE"), "TMINUS_CHANGE");
+        assert_eq!(Layout::Gdd.localize("TMINUS_CHANGE"), "GDD_CHANGE");
         assert_eq!(twin("TMINUS_CHANGE").as_deref(), Some("GDD_CHANGE"));
         assert_eq!(twin("GDD_DIFF_FILES").as_deref(), Some("TMINUS_DIFF_FILES"));
-        for none in ["TMINUS_", "GDD_", "PATH", "MY_GDD_X", "gdd_x", "XTMINUS_A", ""] {
+        for none in [
+            "TMINUS_",
+            "GDD_",
+            "PATH",
+            "MY_GDD_X",
+            "gdd_x",
+            "XTMINUS_A",
+            "",
+        ] {
             assert_eq!(twin(none), None, "{none:?}");
         }
     }
@@ -297,7 +304,10 @@ mod tests {
         assert_eq!(check(&worktree.0, &folder.0), Err(both));
         assert_eq!(check(&worktree.0, &worktree.0), Ok(()));
         let err = check(&folder.0, &worktree.0).unwrap_err();
-        assert!(err.starts_with(&format!("{} has both", folder.0.display())), "{err}");
+        assert!(
+            err.starts_with(&format!("{} has both", folder.0.display())),
+            "{err}"
+        );
     }
 
     #[test]
@@ -365,12 +375,60 @@ mod tests {
         let old = Folder::new();
         old.write("gdd/project.toml", "");
         assert_eq!(named(&old.0, ".tminus/changes"), ".gdd/changes");
-        assert_eq!(join(&old.0, "tminus/zones.toml"), old.0.join("gdd/zones.toml"));
+        assert_eq!(
+            join(&old.0, "tminus/zones.toml"),
+            old.0.join("gdd/zones.toml")
+        );
         let new = Folder::new();
         assert_eq!(named(&new.0, ".tminus/changes"), ".tminus/changes");
-        assert_eq!(join(&new.0, "tminus/zones.toml"), new.0.join("tminus/zones.toml"));
-        assert_eq!(Layout::Gdd.path(".github/workflows/tminus.yml"), ".github/workflows/gdd.yml");
-        assert_eq!(Layout::Tminus.path("tminus/rules.toml"), "tminus/rules.toml");
+        assert_eq!(
+            join(&new.0, "tminus/zones.toml"),
+            new.0.join("tminus/zones.toml")
+        );
+        assert_eq!(
+            Layout::Gdd.path(".github/workflows/tminus.yml"),
+            ".github/workflows/gdd.yml"
+        );
+        assert_eq!(
+            Layout::Tminus.path("tminus/rules.toml"),
+            "tminus/rules.toml"
+        );
+    }
+
+    #[test]
+    fn under_the_folders_of_the_layout_only_the_folder_takes_the_old_name() {
+        let gdd = Layout::Gdd;
+        for (new, old) in [
+            (
+                ".tminus/changes/rename-tminus/g2.json",
+                ".gdd/changes/rename-tminus/g2.json",
+            ),
+            ("tminus/tminus.toml", "gdd/tminus.toml"),
+            (".tminus/changes/", ".gdd/changes/"),
+            (".tminus/", ".gdd/"),
+            (".tminus", ".gdd"),
+            ("tminus", "gdd"),
+            (".github/workflows/tminus.yml", ".github/workflows/gdd.yml"),
+            ("tminus-x/tminus", "gdd-x/gdd"),
+            ("", ""),
+        ] {
+            assert_eq!(gdd.path(new), old, "{new:?}");
+            assert_eq!(Layout::Tminus.path(new), new, "{new:?}");
+            // Named twice, a path is named once.
+            assert_eq!(gdd.path(old), old, "{old:?}");
+        }
+        for named in [
+            ".gdd/changes/rename-tminus",
+            "gdd/tminus.toml",
+            "gdd",
+            ".gdd",
+        ] {
+            assert_eq!(gdd.path(named), named);
+        }
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        let g2 = ".tminus/changes/rename-tminus/g2.json";
+        assert_eq!(named(&old.0, g2), ".gdd/changes/rename-tminus/g2.json");
     }
 
     #[test]
@@ -386,10 +444,16 @@ mod tests {
             ("tminus/zones.toml", "gdd/zones.toml"),
             ("<!-- tminus: abc -->", "<!-- gdd: abc -->"),
             ("TMINUS_CHANGE", "GDD_CHANGE"),
-            ("$TMINUS_ROLE and ${TMINUS_STATE}", "$GDD_ROLE and ${GDD_STATE}"),
+            (
+                "$TMINUS_ROLE and ${TMINUS_STATE}",
+                "$GDD_ROLE and ${GDD_STATE}",
+            ),
             ("tminus·tminus", "gdd·gdd"),
             ("ñtminusñ", "ñgddñ"),
-            ("GDD · Gate-Driven Development", "GDD · Gate-Driven Development"),
+            (
+                "GDD · Gate-Driven Development",
+                "GDD · Gate-Driven Development",
+            ),
             ("", ""),
         ];
         for (new, old) in pairs {

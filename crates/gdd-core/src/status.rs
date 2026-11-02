@@ -941,7 +941,10 @@ mod tests {
         folder.write("gdd/rules.toml", "not = [toml");
         assert_eq!(cards(&folder.0, &folder.0)[0].color, "?");
         assert!(!without_mutation(&folder.0));
-        folder.write("tminus/commands.toml", "[g3]\nmutation = \"cargo mutants\"\n");
+        folder.write(
+            "tminus/commands.toml",
+            "[g3]\nmutation = \"cargo mutants\"\n",
+        );
         folder.write("gdd/commands.toml", "[g3]\nacceptance = \"true\"\n");
         assert!(without_mutation(&folder.0));
         fs::remove_dir_all(folder.0.join(".gdd/changes")).unwrap();

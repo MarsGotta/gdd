@@ -68,7 +68,7 @@ use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
 use crate::guard;
-use crate::layout::Layout;
+use crate::layout::{self, Layout};
 use crate::repo::merge;
 use crate::zones::glob_matches;
 use crate::{inbox, log};
@@ -149,26 +149,10 @@ const SHARED: [&str; 5] = [
 /// harness binary and the agents' programs, and the files the self-test sets aside.
 const HARNESS: [&str; 2] = [".tminus/bin", ".tminus/selftest"];
 
-/// `path`, a file or folder of the state written in the new names (`.tminus/...`), as the state
-/// of `layout` names it (see [`Layout::path`]): only its first folder is the tool's own name, so
-/// what follows, the id of a change say, stays as it is.
-pub(crate) fn in_layout(layout: Layout, path: &str) -> String {
-    match path.split_once('/') {
-        Some((folder, rest)) => format!("{}/{rest}", layout.path(folder)),
-        None => layout.path(path),
-    }
-}
-
-/// `path`, a file or folder of the state written in the new names, as the state root `state`
-/// names it (see [`in_layout`] and [`Layout::at`]).
-pub(crate) fn in_state(state: &Path, path: &str) -> String {
-    in_layout(Layout::at(state), path)
-}
-
 /// The record of change `id`, from the state root `state`, as that root names it (see
-/// [`in_state`]).
+/// [`layout::named`]): only its first folder is the tool's own name, so the id stays as it is.
 fn record_in(state: &Path, id: &str) -> String {
-    in_state(state, &change::record_path(id))
+    layout::named(state, &change::record_path(id))
 }
 
 /// The message of a commit the tool makes for change `id` in the project at `root`: the name of
@@ -294,7 +278,7 @@ pub trait Steps {
 pub struct Project<'a> {
     /// The project root, where gdd runs: the recipe only runs from the main checkout.
     pub root: &'a Path,
-    /// The state root, whose `.gdd/` holds the record of the change (see
+    /// The state root, whose `.tminus/` holds the record of the change (see
     /// [`crate::state::root`]): the project root itself, but in a linked worktree.
     pub state: &'a Path,
     /// Where the worktree of the change goes (see [`worktree::path`]).
@@ -1154,7 +1138,7 @@ fn g4_request_of(id: &str, kind: &str, variants: usize) -> String {
 /// [`change::park`]).
 fn finish(project: &Project, id: &str, ended: Result<Ended, Stop>) -> Result<Said, String> {
     let root = project.state;
-    let inbox = format!("Message: {}", in_state(root, &change::inbox_path(id)));
+    let inbox = format!("Message: {}", layout::named(root, &change::inbox_path(id)));
     match ended {
         Ok(Ended::Closed) => {
             let tokens = format!("Tokens: tminus report --change {id}");
@@ -1887,7 +1871,7 @@ fn spent(state: &Path, id: &str, variant: Option<usize>) -> Result<f64, String> 
 /// The lines of the log under the state root `state`, in order: no log, none. Lines that are not
 /// JSON are left out; a log that is not a file of its own is an error.
 fn log_lines(state: &Path) -> Result<Vec<Value>, String> {
-    let path = in_state(state, log::PATH);
+    let path = layout::named(state, log::PATH);
     let unread = |e: io::Error| format!("cannot read {path}: {e}");
     let bytes = files::read(state, &path).map_err(unread)?;
     let text = String::from_utf8_lossy(&bytes.unwrap_or_default()).into_owned();
@@ -1899,7 +1883,7 @@ fn log_lines(state: &Path) -> Result<Vec<Value>, String> {
 /// lines of the text of each failure that are not blank, `; ` between them. Nothing without a
 /// report; one that cannot be read, or is not JSON, is an error.
 fn g2_failures(state: &Path, id: &str) -> Result<String, String> {
-    let path = in_state(state, &Gate::G2.report_path(id));
+    let path = layout::named(state, &Gate::G2.report_path(id));
     let bytes = files::read(state, &path).map_err(|e| format!("cannot read {path}: {e}"))?;
     let Some(bytes) = bytes else {
         return Ok(String::new());
@@ -1933,9 +1917,9 @@ enum Kind {
 
 impl Kind {
     /// The kind of the file `path` of GDD state, as the state of `layout` names it (see
-    /// [`in_layout`]), during a call of `who` on change `id`.
+    /// [`Layout::path`]), during a call of `who` on change `id`.
     fn of(path: &str, id: &str, who: Who, layout: Layout) -> Kind {
-        let named = |new: &str| in_layout(layout, new);
+        let named = |new: &str| layout.path(new);
         let own = named(&format!(".tminus/changes/{id}/"));
         let Some(inside) = path.strip_prefix(&own) else {
             let logs = [named(log::PATH), named(invoke::SESSIONS)];
@@ -2037,7 +2021,7 @@ impl<'a> State<'a> {
 }
 
 /// The files of GDD state an agent call is checked on, under the state root `root`, as paths
-/// from it, as that root names them (see [`in_state`]): the ones gdd keeps for every change
+/// from it, as that root names them (see [`Layout::path`]): the ones gdd keeps for every change
 /// ([`SHARED`]), whatever is at their path, the others right in `.tminus/`, and every one in the
 /// folders of [`HARNESS`] and in the folder of change `id`, at any depth. The other folders of
 /// `.tminus/`, other changes' or ones gdd decides nothing from, are left out, and so are the
@@ -2046,7 +2030,7 @@ impl<'a> State<'a> {
 /// file here.
 fn state_files(root: &Path, id: &str) -> Result<BTreeSet<String>, String> {
     let layout = Layout::at(root);
-    let named = |new: &str| in_layout(layout, new);
+    let named = |new: &str| layout.path(new);
     let mut paths: BTreeSet<String> = SHARED.into_iter().map(named).collect();
     listed(root, &named(STATE_FOLDER), false, &mut paths)?;
     for lock in queue::LOCKS {
@@ -2129,14 +2113,14 @@ fn own_fields(bytes: &[u8]) -> Option<Map<String, Value>> {
 }
 
 /// What an agent left in the worktree `work` that only the state root `state` holds: a state
-/// folder, `.tminus` as that root names it (see [`in_state`]), which goes, never what a link
+/// folder, `.tminus` as that root names it (see [`layout::named`]), which goes, never what a link
 /// there points to. Its path, when there was one. Nothing is looked at when the worktree is the
 /// state root itself.
 fn state_left(work: &Path, state: &Path) -> Result<Vec<String>, String> {
     if work == state {
         return Ok(Vec::new());
     }
-    let folder = in_state(state, STATE_FOLDER);
+    let folder = layout::named(state, STATE_FOLDER);
     let path = work.join(&folder);
     let shown = path.display();
     match fs::symlink_metadata(&path) {
@@ -2153,7 +2137,7 @@ fn state_left(work: &Path, state: &Path) -> Result<Vec<String>, String> {
 type Tree = BTreeMap<String, String>;
 
 /// The working tree of the project at `root` outside `.tminus/`, as the project names it (see
-/// [`in_state`]): each file git tracks, or does not track and does not ignore.
+/// [`layout::named`]): each file git tracks, or does not track and does not ignore.
 fn working_tree(root: &Path) -> Result<Tree, String> {
     let git = Git::new(root);
     let said = |e: git::Error| e.to_string();
@@ -2161,7 +2145,7 @@ fn working_tree(root: &Path) -> Result<Tree, String> {
     let branch = git.current_branch().map_err(said)?;
     let mut paths = git.files_at(&head, ".").map_err(said)?;
     paths.extend(git.changed_since(&branch, &head).map_err(said)?);
-    let local = in_state(root, LOCAL_STATE);
+    let local = layout::named(root, LOCAL_STATE);
     paths.retain(|path| !path.starts_with(&local));
     let seen = |path: String| {
         let what = entry(root, &path);
@@ -2987,7 +2971,8 @@ mod tests {
         let why = "the Builder in build mode did not answer within 2 seconds";
         assert_eq!(launched(&mut steps, 1), park(why));
         assert_eq!(last(&steps), "build b mode=build");
-        let unknown = invoke::Error::Model(Who::Reviewer, "has no model".into());
+        let file = crate::agents::models::PATH.to_string();
+        let unknown = invoke::Error::Model(file, Who::Reviewer, "has no model".into());
         let said = unknown.to_string();
         assert!(said.ends_with(": the Reviewer has no model"), "{said}");
         assert_eq!(Stop::from(unknown), Stop::Fail(said));
@@ -3410,7 +3395,7 @@ mod tests {
     fn the_state_of_a_call_in_a_project_set_up_before_the_rename_is_in_gdd() {
         let folder = Folder::new();
         folder.write("gdd/project.toml", "");
-        let shared = SHARED.map(|path| in_layout(Layout::Gdd, path));
+        let shared = SHARED.map(|path| Layout::Gdd.path(path));
         let old = |path: &String| path.starts_with(".gdd/");
         assert!(shared.iter().all(old), "{shared:?}");
         for path in [
@@ -3503,7 +3488,7 @@ mod tests {
         let of = |path: &str, who: Who| Kind::of(path, "rename-tminus", who, Layout::Gdd);
         let build = Who::BuilderBuild;
         assert_eq!(of(".gdd/log.jsonl", build), Kind::Log);
-        let sessions = in_layout(Layout::Gdd, invoke::SESSIONS);
+        let sessions = Layout::Gdd.path(invoke::SESSIONS);
         assert_eq!(of(&sessions, build), Kind::Log);
         let folder = ".gdd/changes/rename-tminus";
         let own = |file: &str, who: Who| of(&format!("{folder}/{file}"), who);
@@ -3525,16 +3510,16 @@ mod tests {
     fn a_path_of_the_state_is_named_as_the_layout_names_it_but_for_the_id_of_a_change() {
         let record = ".tminus/changes/rename-tminus/change.json";
         let old = ".gdd/changes/rename-tminus/change.json";
-        assert_eq!(in_layout(Layout::Gdd, record), old);
-        assert_eq!(in_layout(Layout::Tminus, record), record);
-        assert_eq!(in_layout(Layout::Gdd, STATE_FOLDER), ".gdd");
-        assert_eq!(in_layout(Layout::Gdd, LOCAL_STATE), ".gdd/");
-        assert_eq!(in_layout(Layout::Tminus, STATE_FOLDER), ".tminus");
+        assert_eq!(Layout::Gdd.path(record), old);
+        assert_eq!(Layout::Tminus.path(record), record);
+        assert_eq!(Layout::Gdd.path(STATE_FOLDER), ".gdd");
+        assert_eq!(Layout::Gdd.path(LOCAL_STATE), ".gdd/");
+        assert_eq!(Layout::Tminus.path(STATE_FOLDER), ".tminus");
         let folder = Folder::new();
-        assert_eq!(in_state(&folder.0, record), record);
+        assert_eq!(layout::named(&folder.0, record), record);
         assert_eq!(record_in(&folder.0, "c1"), change::record_path("c1"));
         folder.write("gdd/project.toml", "");
-        assert_eq!(in_state(&folder.0, record), old);
+        assert_eq!(layout::named(&folder.0, record), old);
         assert_eq!(record_in(&folder.0, "rename-tminus"), old);
     }
 
@@ -3800,15 +3785,15 @@ mod tests {
         }
     }
 
-    /// A repository with an author, that ignores `.gdd/`, with change `c1` and its branch, not
+    /// A repository with an author, that ignores `.tminus/`, with change `c1` and its branch, not
     /// checked out, and a folder for the worktree of the change.
     fn repo_with_change(record: &str) -> Checkout {
         let repo = Repo::new();
         repo.identify();
-        repo.write(".gitignore", ".gdd/\n");
+        repo.write(".gitignore", ".tminus/\n");
         repo.commit();
         repo.git(&["branch", "change/c1"]);
-        repo.write(".gdd/changes/c1/change.json", record);
+        repo.write(".tminus/changes/c1/change.json", record);
         let trees = Folder::new();
         Checkout {
             repo,
@@ -3874,8 +3859,8 @@ mod tests {
         let mut steps = played(root);
         let why = |command: &str| {
             format!(
-                "run gdd {command} from the main checkout ({}): the worktrees of the changes are \
-                 made and removed from there",
+                "run tminus {command} from the main checkout ({}): the worktrees of the changes \
+                 are made and removed from there",
                 root.display()
             )
         };
@@ -3899,7 +3884,7 @@ mod tests {
         steps.decided.resume_green = true;
         assert!(launch(&repo.project(), "c1", &mut steps).is_ok());
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        let relaunch = "gdd(c1): work of the earlier run, before relaunch";
+        let relaunch = "tminus(c1): work of the earlier run, before relaunch";
         assert_eq!(subject, relaunch);
         assert_eq!(repo.tool().current_branch().unwrap(), "main");
         assert!(!repo.tool().has_changes().unwrap());
@@ -3958,7 +3943,7 @@ mod tests {
         let ran = relaunched(&repo, Some(Vec::new()));
         assert_eq!(ran[..2], ["guard earlier", "prepare"]);
         let committed = repo.git(&["show", "--name-only", "--format=%s", "change/c1"]);
-        let subject = "gdd(c1): work of the earlier run, before relaunch";
+        let subject = "tminus(c1): work of the earlier run, before relaunch";
         assert_eq!(committed, format!("{subject}\n\ntests/steps/a.txt"));
         let work = Git::new(&repo.work);
         assert!(!work.has_changes().unwrap());
@@ -3996,7 +3981,7 @@ mod tests {
         let work = Git::new(&repo.work);
         let head = work.head().unwrap();
         change::write(&repo.work, "gdd/commands.toml", "[g2]\nunit = \"true\"\n").unwrap();
-        // gdd knows what a person changed by hand since the park, or does not.
+        // tminus knows what a person changed by hand since the park, or does not.
         for (hand, why) in [
             (Some(Vec::new()), not_accepted(&[REFUSED.into()], true)),
             (None, not_accepted(&[REFUSED.into()], false)),
@@ -4038,10 +4023,10 @@ mod tests {
     }
 
     /// The subject of the commit of the hand edits of `c1` on its branch.
-    const BY_HAND: &str = "gdd(c1): changed by hand after the change parked";
+    const BY_HAND: &str = "tminus(c1): changed by hand after the change parked";
 
     /// The subject of the commit of the work of an earlier run of `c1` on its branch.
-    const EARLIER_RUN: &str = "gdd(c1): work of the earlier run, before relaunch";
+    const EARLIER_RUN: &str = "tminus(c1): work of the earlier run, before relaunch";
 
     /// The notes the record of `c1` of the project at `root` keeps as decided.
     fn decided_notes(root: &Path) -> Vec<String> {
@@ -4326,7 +4311,7 @@ mod tests {
         let repo = repo_with_change(&planning_a().replace(r#""inbox": []"#, other));
         let root = repo.root();
         let parked = r#"{"state": "parked", "paths": ["src/**"]}"#;
-        repo.write(".gdd/changes/c2/change.json", parked);
+        repo.write(".tminus/changes/c2/change.json", parked);
         let line = format!("say {OVERLAPS_C2}");
         let warned = line.as_str();
         let mut steps = played(root);
@@ -4353,7 +4338,7 @@ mod tests {
         let repo = repo_with_change(&planning_a());
         let root = repo.root();
         let building = r#"{"state": "building", "paths": ["src/**"]}"#;
-        repo.write(".gdd/changes/c2/change.json", building);
+        repo.write(".tminus/changes/c2/change.json", building);
         repo.git(&["checkout", "-q", "change/c1"]);
         let capped = Project {
             max: 1,
@@ -4416,7 +4401,7 @@ mod tests {
         expected.extend(["promote", "observe"]);
         assert_eq!(steps.ran, expected);
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(subject, "gdd(c1): take the latest main");
+        assert_eq!(subject, "tminus(c1): take the latest main");
         repo.git(&["cat-file", "-e", "change/c1:docs/news.md"]);
         let took_main = repo.git(&["rev-parse", "change/c1"]);
         assert_eq!(record(root)["build_start"], took_main.as_str());
@@ -4461,7 +4446,7 @@ mod tests {
         let said = launch(&repo.project(), "c1", &mut steps);
         let why = format!(
             "Change c1 parked: main moved under it and the merge has conflicts in app.txt: merge \
-             main into change/c1 in its worktree ({}), settle the conflicts, commit, then gdd \
+             main into change/c1 in its worktree ({}), settle the conflicts, commit, then tminus \
              launch c1.",
             repo.work.display()
         );
@@ -4561,7 +4546,7 @@ mod tests {
     fn a_launch_is_judged_once_the_launch_before_it_made_its_change_building() {
         let repo = repo_with_change(&planning_a());
         let root = repo.root();
-        let c2 = ".gdd/changes/c2/change.json";
+        let c2 = ".tminus/changes/c2/change.json";
         repo.write(c2, r#"{"state": "open"}"#);
         // Another launch holds the launch lock, and its change builds before it lets go.
         let held = queue::admission(root).unwrap();
@@ -4618,7 +4603,7 @@ mod tests {
         let ran = unwaited(&steps);
         assert_eq!(ran, [UNOPENED, MOVED, "G3", REOPENED, "merge"]);
         let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(subject, "gdd(c1): take the latest main");
+        assert_eq!(subject, "tminus(c1): take the latest main");
         repo.git(&["cat-file", "-e", "change/c1:docs/news.md"]);
         let took_main = repo.git(&["rev-parse", "change/c1"]);
         assert_eq!(record(root)["build_start"], took_main.as_str());
@@ -4650,7 +4635,7 @@ mod tests {
         let at = merging(&repo);
         let mut steps = played(root);
         assert_eq!(merge(&at, &mut steps).unwrap_err(), "G3 is not open.");
-        repo.write(".gdd/changes/c1/change.json", &g3_open());
+        repo.write(".tminus/changes/c1/change.json", &g3_open());
         let elsewhere = Merging { work: root, ..at };
         let refused = merge(&elsewhere, &mut steps).unwrap_err();
         let off = "Not on branch change/c1: ";
@@ -4671,10 +4656,10 @@ mod tests {
         // The agents act in the worktree.
         let mut steps = played(&repo.work);
         steps.decided.reviewer = false;
-        let writes: Act = |work| change::write(work, ".gdd/changes/c1/change.json", "{}").unwrap();
+        let writes: Act = |work| change::write(work, &change::record_path("c1"), "{}").unwrap();
         steps.acts = vec![(Who::BuilderBuild, writes)];
         let said = launch(&repo.project(), "c1", &mut steps);
-        let left = repo.work.join(".gdd");
+        let left = repo.work.join(".tminus");
         let why = format!(
             "Change c1 parked: the Builder in build mode changed GDD state: {}.",
             left.display()
@@ -4689,11 +4674,11 @@ mod tests {
     fn a_project_in_a_folder_of_its_repository_runs_in_that_folder_of_its_worktree() {
         let repo = Repo::new();
         repo.identify();
-        repo.write("app/.gitignore", ".gdd/\n");
+        repo.write("app/.gitignore", ".tminus/\n");
         repo.commit();
         repo.git(&["branch", "change/c1"]);
         let root = repo.root().join("app");
-        change::write(&root, ".gdd/changes/c1/change.json", RECORD).unwrap();
+        change::write(&root, ".tminus/changes/c1/change.json", RECORD).unwrap();
         let trees = Folder::new();
         let worktree = trees.0.join("c1");
         let work = worktree.join("app");
@@ -4710,10 +4695,10 @@ mod tests {
         // The agents act in the project's folder of the worktree.
         let mut steps = played(&work);
         steps.decided.reviewer = false;
-        let writes: Act = |work| change::write(work, ".gdd/changes/c1/change.json", "{}").unwrap();
+        let writes: Act = |work| change::write(work, &change::record_path("c1"), "{}").unwrap();
         steps.acts = vec![(Who::BuilderBuild, writes)];
         let said = launch(&project, "c1", &mut steps);
-        let left = work.join(".gdd");
+        let left = work.join(".tminus");
         let why = format!(
             "Change c1 parked: the Builder in build mode changed GDD state: {}.",
             left.display()
@@ -4729,21 +4714,28 @@ mod tests {
     fn a_state_folder_left_in_a_worktree_goes_but_never_what_it_links_to() {
         let (work, state) = (Folder::new(), Folder::new());
         assert_eq!(state_left(&work.0, &state.0), Ok(Vec::new()));
-        state.write(".gdd/log.jsonl", "{}\n");
-        symlink(state.0.join(".gdd"), work.0.join(".gdd")).unwrap();
-        let left = work.0.join(".gdd").display().to_string();
+        state.write(".tminus/log.jsonl", "{}\n");
+        symlink(state.0.join(".tminus"), work.0.join(".tminus")).unwrap();
+        let left = work.0.join(".tminus").display().to_string();
         assert_eq!(state_left(&work.0, &state.0), Ok(vec![left]));
-        assert!(fs::symlink_metadata(work.0.join(".gdd")).is_err());
-        assert_eq!(text(&state, ".gdd/log.jsonl"), "{}\n");
+        assert!(fs::symlink_metadata(work.0.join(".tminus")).is_err());
+        assert_eq!(text(&state, ".tminus/log.jsonl"), "{}\n");
         // The state root keeps its own.
         assert_eq!(state_left(&state.0, &state.0), Ok(Vec::new()));
-        assert_eq!(text(&state, ".gdd/log.jsonl"), "{}\n");
+        assert_eq!(text(&state, ".tminus/log.jsonl"), "{}\n");
         // A worktree that cannot be looked at is an error, not one without a state folder.
         work.write("file", "");
         let under = work.0.join("file");
         let err = state_left(&under, &state.0).unwrap_err();
-        let start = format!("cannot look at {}: ", under.join(".gdd").display());
+        let start = format!("cannot look at {}: ", under.join(".tminus").display());
         assert!(err.starts_with(&start), "{err}");
+        // A state root of the old layout keeps `.gdd`: what a worktree left of it goes.
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        work.write(".gdd/log.jsonl", "{}\n");
+        let left = work.0.join(".gdd").display().to_string();
+        assert_eq!(state_left(&work.0, &old.0), Ok(vec![left]));
+        assert!(!work.0.join(".gdd").exists());
     }
 
     #[test]
@@ -4755,12 +4747,12 @@ mod tests {
         let said = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps);
         assert_eq!(said, Err("Change c1 is not paused at G4.".into()));
         state::pause_at_g4(root, "c1").unwrap();
-        let refused = "An agent gdd started cannot open or close gates.";
+        let refused = "An agent tminus started cannot open or close gates.";
         for role in ["builder-build", "reviewer", "orchestrator"] {
             let said = resume(&here, "c1", Answer::Ok, "", Some(role), None, &mut steps);
             assert_eq!(said, Err(refused.into()), "{role}");
         }
-        let polish = "polish needs your notes: gdd resume c1 --g4 polish --note ...";
+        let polish = "polish needs your notes: tminus resume c1 --g4 polish --note ...";
         let said = resume(&here, "c1", Answer::Polish, " ", None, None, &mut steps);
         assert_eq!(said, Err(polish.into()));
         assert!(steps.ran.is_empty());
@@ -4852,14 +4844,14 @@ mod tests {
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let failed = format!(
             "Promotion of c1 failed: {PROMOTE_FAILED}. Production untouched: the change is \
-             still paused at G4. To retry: gdd resume c1 --g4 ok (or --g4 ko to reject)."
+             still paused at G4. To retry: tminus resume c1 --g4 ok (or --g4 ko to reject)."
         );
         assert_eq!(said, Err(failed));
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote"]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let why = format!(
-            "Promotion failed: {PROMOTE_FAILED}. Fix the cause and answer again: gdd resume c1 \
-             --g4 ok, or --g4 ko."
+            "Promotion failed: {PROMOTE_FAILED}. Fix the cause and answer again: tminus resume \
+             c1 --g4 ok, or --g4 ko."
         );
         let request = g4_request("c1", "Feature");
         assert_eq!(open_requests(root), [why.clone(), request.clone()]);
@@ -4871,7 +4863,7 @@ mod tests {
         steps.fails = vec![("promote", "release.promote failed")];
         assert!(resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).is_err());
         let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
-                   gdd resume c1 --g4 ok, or --g4 ko.";
+                   tminus resume c1 --g4 ok, or --g4 ko.";
         assert_eq!(open_requests(root), [why.to_string(), request]);
         // Fixed, the same answer promotes it.
         let mut steps = played(root);
@@ -4949,7 +4941,11 @@ mod tests {
         change::write(root, &change::record_path("c1"), &promoting).unwrap();
     }
 
-    const UNLOGGED: &str = "cannot write .gdd/log.jsonl: Is a directory (os error 21)";
+    const UNLOGGED: &str = "cannot write .tminus/log.jsonl: Is a directory (os error 21)";
+
+    /// What a record of change `c1` that is a folder says when it is written.
+    const UNWRITTEN: &str =
+        "cannot write .tminus/changes/c1/change.json: Is a directory (os error 21)";
 
     #[test]
     fn a_promotion_that_may_have_reached_production_parks_the_change() {
@@ -4961,9 +4957,9 @@ mod tests {
         steps.fails = vec![("promote", UNLOGGED)];
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let why = format!(
-            "Change c1 parked: production may have it, but gdd cannot go on with it \
+            "Change c1 parked: production may have it, but tminus cannot go on with it \
              ({UNLOGGED}). Check production before anything else: promoting it again could \
-             deploy it twice. Message in .gdd/changes/c1/inbox.md"
+             deploy it twice. Message in .tminus/changes/c1/inbox.md"
         );
         assert_eq!(parked(said), why);
         assert_eq!(steps.ran, ["G4 ok human: Fine", "promote"]);
@@ -4984,8 +4980,8 @@ mod tests {
             let root = repo.root();
             let mut steps = played(root);
             let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
-            let why = "Change c1 parked: production may have it, but gdd cannot go on with it \
-                       (an earlier answer stopped while promoting it). Check production";
+            let why = "Change c1 parked: production may have it, but tminus cannot go on with \
+                       it (an earlier answer stopped while promoting it). Check production";
             assert!(parked(said).starts_with(why), "{answer:?}");
             assert!(steps.ran.is_empty(), "{answer:?}: {:?}", steps.ran);
             assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5000,7 +4996,7 @@ mod tests {
         fs::create_dir_all(root.join(log::PATH)).unwrap();
         let mut steps = played(root);
         let err = resume(&here, "c1", Answer::Ok, "", None, None, &mut steps).unwrap_err();
-        let start = "Change c1 cannot park: production may have it, but gdd cannot go on with it";
+        let start = "Change c1 cannot park: production may have it, but tminus cannot go on";
         assert!(err.starts_with(start), "{err}");
         assert!(err.ends_with(&format!("twice.\n{UNLOGGED}")), "{err}");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
@@ -5011,7 +5007,7 @@ mod tests {
         let repo = paused_in(IN_PRODUCTION);
         let root = repo.root();
         let refused = "Change c1 was promoted already: production has it, so it can no longer \
-                       be rejected or polished. To observe it: gdd resume c1 --g4 ok.";
+                       be rejected or polished. To observe it: tminus resume c1 --g4 ok.";
         for (answer, note) in [(Answer::Ko, "No"), (Answer::Polish, "x")] {
             let mut steps = played(root);
             let said = resume(&repo.project(), "c1", answer, note, None, None, &mut steps);
@@ -5029,12 +5025,11 @@ mod tests {
         let repo = paused_in(IN_PRODUCTION);
         let (root, here) = (repo.root(), repo.project());
         let mut steps = played(root);
-        let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
-        steps.fails = vec![("G4", unwritten)];
+        steps.fails = vec![("G4", UNWRITTEN)];
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let why = format!(
-            "Change c1 parked: production may have it, but gdd cannot go on with it \
-             ({unwritten})."
+            "Change c1 parked: production may have it, but tminus cannot go on with it \
+             ({UNWRITTEN})."
         );
         assert!(parked(said).starts_with(&why));
         assert_eq!(steps.ran, ["G4 ok human: Fine"]);
@@ -5056,7 +5051,7 @@ mod tests {
         let here = repo.project();
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
         let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
-                     whether production has it: cannot read .gdd/changes/c1/change.json: ";
+                     whether production has it: cannot read .tminus/changes/c1/change.json: ";
         let err = said.unwrap_err();
         assert!(err.starts_with(start), "{err}");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
@@ -5069,10 +5064,9 @@ mod tests {
         let here = repo.project();
         // The decision of G4 is not written: nothing is promoted.
         let mut steps = played(root);
-        let unwritten = "cannot write .gdd/changes/c1/change.json: Is a directory (os error 21)";
-        steps.fails = vec![("G4", unwritten)];
+        steps.fails = vec![("G4", UNWRITTEN)];
         let said = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps);
-        let start = format!("Promotion of c1 failed: {unwritten}. Production untouched");
+        let start = format!("Promotion of c1 failed: {UNWRITTEN}. Production untouched");
         let err = said.unwrap_err();
         assert!(err.starts_with(&start), "{err}");
         assert_eq!(steps.ran, ["G4 ok human: Fine"]);
@@ -5087,7 +5081,7 @@ mod tests {
         let err = resume(&here, "c1", Answer::Ok, "Fine", None, None, &mut steps).unwrap_err();
         let start = "Promotion of c1 failed: release.promote failed. Production untouched";
         assert!(err.starts_with(start), "{err}");
-        let unsaved = "\ncannot write .gdd/changes/c1/inbox.md: ";
+        let unsaved = "\ncannot write .tminus/changes/c1/inbox.md: ";
         assert!(err.contains(unsaved), "{err}");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
     }
@@ -5123,7 +5117,7 @@ mod tests {
         repo.git(&["checkout", "-q", "main"]);
         // What main got since is not the pass's: its build starts on the branch, then again
         // where the branch takes the latest main.
-        repo.write("gdd/commands.toml", "[release]\n");
+        repo.write("tminus/commands.toml", "[release]\n");
         repo.commit();
         let here = repo.project();
         let mut steps = played(root);
@@ -5234,17 +5228,17 @@ mod tests {
         let here = broken.project();
         let mut steps = played(root);
         let said = resume(&here, "c1", Answer::Polish, "x", None, None, &mut steps);
-        let start = ".gdd/changes/c1/change.json: missing field";
+        let start = ".tminus/changes/c1/change.json: missing field";
         assert!(said.unwrap_err().starts_with(start));
         assert!(steps.ran.is_empty());
     }
 
-    /// A repository with an author that ignores `.gdd/`, with spike `c1` started on its branch,
-    /// checked out, and its record.
+    /// A repository with an author that ignores `.tminus/`, with spike `c1` started on its
+    /// branch, checked out, and its record.
     fn spike_folder() -> Repo {
         let repo = Repo::new();
         repo.identify();
-        repo.write(".gitignore", ".gdd/\n");
+        repo.write(".gitignore", ".tminus/\n");
         repo.commit();
         repo.start("c1");
         let record = r#"{"id": "c1", "type": "Spike", "state": "building", "inbox": []}"#;
@@ -5286,7 +5280,7 @@ mod tests {
         assert_eq!(steps.ran, ["build b mode=spike", "G2", ADR_SAID]);
         assert_eq!(record(root)["state"], "in-pre");
         let last = repo.git(&["log", "-1", "--format=%s"]);
-        assert_eq!(last, "gdd(c1): spike work");
+        assert_eq!(last, "tminus(c1): spike work");
         repo.git(&["cat-file", "-e", "change/c1:src/app.txt"]);
         assert_eq!(repo.git(&["status", "--porcelain"]), "");
         assert_eq!(repo.git(&["rev-list", "--count", "main"]), "2");
@@ -5344,7 +5338,7 @@ mod tests {
         let Err(Stop::Fail(e)) = launched(&mut steps, 0) else {
             panic!("a report that cannot be read stops the recipe");
         };
-        assert!(e.starts_with(".gdd/changes/c1/g2.json: "), "{e}");
+        assert!(e.starts_with(".tminus/changes/c1/g2.json: "), "{e}");
     }
 
     #[test]
@@ -5476,7 +5470,7 @@ mod tests {
         assert_eq!(call_once(root, &mut steps, None), Err(Stop::Park(timeout)));
         let close = |value: &Value, usd: f64| (value.as_f64().unwrap() - usd).abs() < 1e-9;
         assert!(close(&record(root)["spent_usd"], 1.01), "{}", record(root));
-        // An agent that writes what the change spent in its record: gdd puts it back, then adds
+        // An agent that writes what the change spent in its record: tminus puts it back, then adds
         // what the call used, and the change parks.
         let lowers: Act = |root| {
             let text = r#"{"id": "c1", "spent_usd": 0.0, "spent_tokens": null}"#;
@@ -5490,7 +5484,7 @@ mod tests {
             panic!("an agent that changes the record parks the change");
         };
         assert!(
-            why.ends_with("changed GDD state: .gdd/changes/c1/change.json"),
+            why.ends_with("changed GDD state: .tminus/changes/c1/change.json"),
             "{why}"
         );
         let kept = record(root);
@@ -5511,7 +5505,7 @@ mod tests {
         let Err(Stop::Fail(e)) = call_once(&folder.0, &mut played(&folder.0), None) else {
             panic!("a record that cannot be read stops the recipe");
         };
-        assert!(e.starts_with(".gdd/changes/c1/change.json: "), "{e}");
+        assert!(e.starts_with(".tminus/changes/c1/change.json: "), "{e}");
     }
 
     #[test]
@@ -5541,7 +5535,7 @@ mod tests {
         let Err(Stop::Fail(e)) = call_once(root, &mut steps, Some(3)) else {
             panic!("a variant the record does not have stops the recipe");
         };
-        assert_eq!(e, ".gdd/changes/c1/change.json: no variant 3");
+        assert_eq!(e, ".tminus/changes/c1/change.json: no variant 3");
     }
 
     /// Whether spike `c1`, whose state root is `root`, is still within the budget `spike_usd`
@@ -5605,7 +5599,7 @@ mod tests {
 
     #[test]
     fn what_a_change_spent_is_what_its_record_keeps_never_the_log() {
-        // A record from before gdd kept it has spent nothing.
+        // A record from before tminus kept it has spent nothing.
         let folder = with_record("{}");
         assert_eq!(spent(&folder.0, "c1", None), Ok(0.0));
         log::append(&folder.0, r#"{"change": "c1", "cost_usd": 0.5}"#).unwrap();
@@ -5620,12 +5614,13 @@ mod tests {
         assert_eq!(spent(&folder.0, "c1", Some(1)), Ok(0.25));
         assert_eq!(spent(&folder.0, "c1", Some(2)), Ok(0.0));
         let err = spent(&folder.0, "c1", Some(3)).unwrap_err();
-        assert_eq!(err, ".gdd/changes/c1/change.json: no variant 3");
+        assert_eq!(err, ".tminus/changes/c1/change.json: no variant 3");
         // A record that cannot say it, or no record, is an error.
         folder.write(&change::record_path("c1"), r#"{"spent_usd": "1"}"#);
         let err = spent(&folder.0, "c1", None).unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
-        let missing = "change c2 does not exist: there is no .gdd/changes/c2/change.json";
+        let invalid = ".tminus/changes/c1/change.json: ";
+        assert!(err.starts_with(invalid), "{err}");
+        let missing = "change c2 does not exist: there is no .tminus/changes/c2/change.json";
         assert_eq!(spent(&folder.0, "c2", None), Err(missing.to_string()));
     }
 
@@ -5641,7 +5636,7 @@ mod tests {
         fs::remove_file(folder.0.join(Gate::G2.report_path("c1"))).unwrap();
         fs::create_dir_all(folder.0.join(Gate::G2.report_path("c1"))).unwrap();
         let err = g2_failures(&folder.0, "c1").unwrap_err();
-        let start = "cannot read .gdd/changes/c1/g2.json: ";
+        let start = "cannot read .tminus/changes/c1/g2.json: ";
         assert!(err.starts_with(start), "{err}");
     }
 
@@ -5675,7 +5670,7 @@ mod tests {
         // No promotion, no observation.
         assert_eq!(unwaited(&steps), ["G4 ok human: Go"]);
         let message = repo.git(&["log", "-1", "--format=%s", "main"]);
-        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        assert_eq!(message, "tminus(c1): Spike ADR · Storage");
         repo.git(&["cat-file", "-e", "main:docs/adr/0002-storage.md"]);
         assert_eq!(repo.tool().file_at("main", "src/app.txt").unwrap(), None);
         repo.git(&["cat-file", "-e", "change/c1:src/app.txt"]);
@@ -5712,8 +5707,8 @@ mod tests {
                     branch change/c1, then answer your agent (or the sitting screen): OK brings \
                     only those files to main, in a commit of their own (its code stays on its \
                     branch), KO rejects it (main untouched), polish with your notes runs one \
-                    more Builder round. Your agent runs gdd resume c1 --g4 ok, --g4 ko or --g4 \
-                    polish --note <your notes>.";
+                    more Builder round. Your agent runs tminus resume c1 --g4 ok, --g4 ko or \
+                    --g4 polish --note <your notes>.";
         assert_eq!(request, said);
         for promised in ["demo", " pre", "production", "promot"] {
             assert!(!request.contains(promised), "{promised}: {request}");
@@ -5725,8 +5720,8 @@ mod tests {
         let said = "G4 · Release Gate: check the pre demo and the change message, then answer \
                     your agent (or the sitting screen): OK promotes to production, KO rejects it \
                     (production untouched), polish with your notes runs one more Builder round. \
-                    Your agent runs gdd resume c1 --g4 ok, --g4 ko or --g4 polish --note <your \
-                    notes>.";
+                    Your agent runs tminus resume c1 --g4 ok, --g4 ko or --g4 polish --note \
+                    <your notes>.";
         assert_eq!(feature, said);
         assert_eq!(g4_request("c1", ""), feature);
     }
@@ -5850,7 +5845,7 @@ mod tests {
             let branch = format!("change/c1-v{number}");
             repo.git(&["cat-file", "-e", &format!("{branch}:src/app.txt")]);
             let last = repo.git(&["log", "-1", "--format=%s", &branch]);
-            assert_eq!(last, format!("gdd(c1): variant {number}"));
+            assert_eq!(last, format!("tminus(c1): variant {number}"));
             let tree = variant_tree(&repo, number);
             assert_eq!(Git::new(&tree).current_branch().unwrap(), branch);
             assert_eq!(repo.git(&["merge-base", "main", &branch]), main);
@@ -5902,7 +5897,7 @@ mod tests {
         assert_eq!(parked["g2"], false);
         // Its work stays on its branch, which the human can still read.
         let last = repo.git(&["log", "-1", "--format=%s", "change/c1-v1"]);
-        assert_eq!(last, "gdd(c1): variant 1");
+        assert_eq!(last, "tminus(c1): variant 1");
         // When every variant parks, the spike parks.
         let mut steps = spike_played(root);
         steps.g2 = VecDeque::from([false; 10]);
@@ -5993,8 +5988,8 @@ mod tests {
                     brings only the ADR files of that variant to main, in a commit of their own \
                     that lists the variants not chosen (the code of every variant stays on its \
                     branch), KO rejects them all (main untouched), polish with a variant and \
-                    your notes runs one more Builder round on it. Your agent runs gdd resume c1 \
-                    --g4 ok --variant <n>, --g4 ko or --g4 polish --variant <n> --note <your \
+                    your notes runs one more Builder round on it. Your agent runs tminus resume \
+                    c1 --g4 ok --variant <n>, --g4 ko or --g4 polish --variant <n> --note <your \
                     notes>.";
         assert_eq!(request, said);
         for promised in ["demo", " pre", "production", "promot"] {
@@ -6023,7 +6018,7 @@ mod tests {
         assert_eq!(done(said), CLOSED);
         assert_eq!(unwaited(&steps), ["G4 ok human: Postgres scales"]);
         let message = repo.git(&["log", "-1", "--format=%s", "main"]);
-        assert_eq!(message, "gdd(c1): Spike ADR · Storage");
+        assert_eq!(message, "tminus(c1): Spike ADR · Storage");
         let adr = repo.tool().file_at("main", "docs/adr/0002-storage.md");
         let adr = String::from_utf8(adr.unwrap().unwrap()).unwrap();
         let expected = "# 0002 · Where the notes live\n## Decision\nSQLite.\n\n## Variants\n\
@@ -6053,19 +6048,19 @@ mod tests {
                 Answer::Ok,
                 "",
                 None,
-                "pick a variant: gdd resume c1 --g4 ok --variant 2",
+                "pick a variant: tminus resume c1 --g4 ok --variant 2",
             ),
             (
                 Answer::Polish,
                 "More",
                 None,
-                "pick a variant: gdd resume c1 --g4 polish --variant 2 --note ...",
+                "pick a variant: tminus resume c1 --g4 polish --variant 2 --note ...",
             ),
             (
                 Answer::Ok,
                 "",
                 Some(1),
-                "variant 1 did not pass its gate: pick one that did, gdd resume c1 --g4 ok",
+                "variant 1 did not pass its gate: pick one that did, tminus resume c1 --g4 ok",
             ),
             (Answer::Ok, "", Some(3), "c1 has no variant 3: "),
             (Answer::Ok, "", Some(0), "c1 has no variant 0: "),
@@ -6073,7 +6068,7 @@ mod tests {
                 Answer::Ko,
                 "No",
                 Some(2),
-                "KO rejects every variant of c1: gdd resume c1 --g4 ko, without --variant",
+                "KO rejects every variant of c1: tminus resume c1 --g4 ko, without --variant",
             ),
         ] {
             let mut steps = played(root);
@@ -6089,7 +6084,7 @@ mod tests {
         let mut steps = played(plain.root());
         let here = plain.project();
         let said = resume(&here, "c1", Answer::Ok, "", None, Some(1), &mut steps);
-        let why = "change c1 has no variants: gdd resume c1 --g4 ok, without --variant";
+        let why = "change c1 has no variants: tminus resume c1 --g4 ok, without --variant";
         assert_eq!(said, Err(why.to_string()));
     }
 
@@ -6226,7 +6221,7 @@ mod tests {
         assert_eq!(variant_of(root, "c1", 2).unwrap().named(), "Postgres");
         for missing in [0, 3] {
             let err = variant_of(root, "c1", missing).unwrap_err();
-            let said = format!(".gdd/changes/c1/change.json: no variant {missing}");
+            let said = format!(".tminus/changes/c1/change.json: no variant {missing}");
             assert_eq!(err, said);
             assert!(variant_saved(root, "c1", missing, built_variant()).is_err());
         }

@@ -497,7 +497,8 @@ mod tests {
         assert!(!root.join(".gdd/imported_requests.json.new").exists());
         assert!(!root.join(".tminus").exists());
         // What it cannot read or write, it names as the project names it.
-        sessions.said("s1", &request_line("r3", "opus", 1));
+        // 40 output tokens at this price cost more than a number holds.
+        sessions.said("s1", &request_line("r3", "opus", 40));
         let huge = Settings::from_toml("[prices.opus]\noutput = 1.7e308\n").unwrap();
         let err = sessions.priced(None, &huge).unwrap_err();
         let start = "cannot write .gdd/log.jsonl: the cost of opus";

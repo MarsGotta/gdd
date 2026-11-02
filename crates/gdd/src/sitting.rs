@@ -147,7 +147,7 @@ enum Answer {
 }
 
 impl Answer {
-    /// The word `gdd resume --g4` takes.
+    /// The word `tminus resume --g4` takes.
     fn word(self) -> &'static str {
         match self {
             Answer::Ok => "ok",
@@ -447,7 +447,7 @@ impl Sitting {
     }
 
     /// `y` on the confirmation of a G4 answer: when the change still waits for its G4, chooses
-    /// `gdd resume` and closes the screen; else says what state it is in and chooses nothing.
+    /// `tminus resume` and closes the screen; else says what state it is in and chooses nothing.
     fn choose(&mut self) {
         let Page::Run(answer, words) = &self.page else {
             return;
@@ -784,8 +784,8 @@ fn type_into(text: &mut String, key: Key) {
     }
 }
 
-/// The arguments of `gdd resume` that give the answer `answer` at G4, on the `variant` of a spike
-/// when one was picked, with `words` for a KO or a polish round.
+/// The arguments of `tminus resume` that give the answer `answer` at G4, on the `variant` of a
+/// spike when one was picked, with `words` for a KO or a polish round.
 fn resume_args(id: &str, answer: Answer, words: &str, variant: Option<&str>) -> Vec<String> {
     let mut args: Vec<String> = ["resume", id, "--g4", answer.word()]
         .map(str::to_string)
@@ -1194,7 +1194,7 @@ fn spaced(line: &str) -> String {
 /// approved as it is.
 fn red_zones(root: &Path, state: &Path) -> Result<(Vec<Line<'static>>, Option<usize>), String> {
     let text = crate::read(root, crate::ZONES)?.unwrap_or_default();
-    let cannot = |e: approve::Error| e.to_string();
+    let cannot = |e: approve::Error| e.named_in(root).to_string();
     let zones = approve::zones_state(state, &text).map_err(cannot)?;
     if zones.approved() {
         return Ok((vec![Line::from("Red zones: approved")], None));
@@ -1465,7 +1465,7 @@ mod tests {
     /// A project in a git repository, with a red zone, everything committed on main.
     fn repo() -> Project {
         let project = Project::new();
-        project.write(crate::RULES, "[protected]\nall = [\"gdd/**\"]\n");
+        project.write(crate::RULES, "[protected]\nall = [\"tminus/**\"]\n");
         let zones = "default = \"yellow\"\n\n[[zone]]\ncolor = \"red\"\n\
                      paths = [\"src/storage/**\"]\nreason = \"Losing drafts\"\n";
         project.write(crate::ZONES, zones);
@@ -1502,10 +1502,15 @@ mod tests {
     }
 
     /// The sitting of the change `id`, whose decisions are recorded as a person, whatever
-    /// `GDD_ROLE` says.
+    /// `TMINUS_ROLE` or `GDD_ROLE` say.
     fn open(project: &Project, id: &str) -> Sitting {
-        let mut sitting = Sitting::load(&project.0, id).unwrap();
-        sitting.env.retain(|(name, _)| name != "GDD_ROLE");
+        as_person(Sitting::load(&project.0, id).unwrap())
+    }
+
+    /// `sitting`, without the variables that would make its decisions an agent's.
+    fn as_person(mut sitting: Sitting) -> Sitting {
+        let role = |name: &str| name == "TMINUS_ROLE" || name == "GDD_ROLE";
+        sitting.env.retain(|(name, _)| !role(name));
         sitting
     }
 
@@ -1520,11 +1525,11 @@ mod tests {
     }
 
     fn log(project: &Project) -> String {
-        read(project, ".gdd/log.jsonl")
+        read(project, ".tminus/log.jsonl")
     }
 
     fn record(project: &Project, id: &str) -> String {
-        read(project, &format!(".gdd/changes/{id}/change.json"))
+        read(project, &format!(".tminus/changes/{id}/change.json"))
     }
 
     /// Presses `a` and `y` on the sitting.
@@ -1536,7 +1541,7 @@ mod tests {
     fn the_title_names_the_project_and_the_keys_are_at_the_bottom() {
         let sitting = sitting(vec![Line::from("hello")], Some(approval()));
         let screen = sitting.render(100, 10);
-        assert!(screen.starts_with("┌ gdd · Sitting · demo "), "{screen}");
+        assert!(screen.starts_with("┌ tminus · Sitting · demo "), "{screen}");
         let rows: Vec<&str> = screen.lines().collect();
         assert!(rows[8].contains(KEYS), "{screen}");
         assert!(rows[9].starts_with('└'), "{screen}");
@@ -1787,7 +1792,7 @@ mod tests {
     #[test]
     fn a_record_that_cannot_be_read_is_an_error() {
         let project = repo();
-        project.write(".gdd/changes/z/change.json", "{not json");
+        project.write(".tminus/changes/z/change.json", "{not json");
         let failed = Sitting::load(&project.0, "z").unwrap_err();
         assert!(failed.starts_with("z: "), "{failed}");
     }
@@ -1891,7 +1896,7 @@ mod tests {
         let project = repo();
         change(&project, "c1", "src/storage/db.rs");
         let plan = "# Plan\n\nKeep every draft in one file.\n";
-        project.write(".gdd/changes/c1/plan.md", plan);
+        project.write(".tminus/changes/c1/plan.md", plan);
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Plan", "Keep every draft in one file."]);
         assert_hides(&sitting, &["none written yet"]);
@@ -1902,7 +1907,7 @@ mod tests {
         let project = repo();
         change(&project, "c1", "src/a.rs");
         let text = record(&project, "c1").replace("\"open\"", "\"building\"");
-        project.write(".gdd/changes/c1/change.json", &text);
+        project.write(".tminus/changes/c1/change.json", &text);
         let mut sitting = open(&project, "c1");
         assert_shows(&sitting, &["c1 is building: its sitting is over"]);
         assert_hides(&sitting, &["Scenarios", "Red zones", "Plan"]);
@@ -1920,7 +1925,7 @@ mod tests {
         assert_shows(
             &sitting,
             &[
-                "Next: tell your agent it is approved (it runs gdd launch rec)",
+                "Next: tell your agent it is approved (it runs tminus launch rec)",
                 SCROLL_KEYS,
             ],
         );
@@ -2114,7 +2119,7 @@ mod tests {
             &sitting,
             &[
                 "Recorded",
-                "Next: tell your agent it is approved (it runs gdd launch chg)",
+                "Next: tell your agent it is approved (it runs tminus launch chg)",
             ],
         );
     }
@@ -2138,7 +2143,7 @@ mod tests {
         let mut sitting = open(&project, "pln");
         sitting.press(Key::Char('a'));
         let plan = "# Plan\n\nWritten while the confirmation was open.\n";
-        project.write(".gdd/changes/pln/plan.md", plan);
+        project.write(".tminus/changes/pln/plan.md", plan);
         sitting.press(Key::Char('y'));
         assert_eq!(sitting.page, Page::Main);
         assert_shows(
@@ -2155,7 +2160,7 @@ mod tests {
         let mut sitting = open(&project, "lft");
         sitting.press(Key::Char('a'));
         let text = record(&project, "lft").replace("\"open\"", "\"building\"");
-        project.write(".gdd/changes/lft/change.json", &text);
+        project.write(".tminus/changes/lft/change.json", &text);
         sitting.press(Key::Char('y'));
         let over = "lft is building: its sitting is over";
         assert_shows(&sitting, &[CHANGED, over, SCROLL_KEYS]);
@@ -2171,7 +2176,7 @@ mod tests {
         type_in(&mut sitting, "Too vague");
         press(&mut sitting, &[Key::Enter]);
         let text = record(&project, "kol").replace("\"open\"", "\"building\"");
-        project.write(".gdd/changes/kol/change.json", &text);
+        project.write(".tminus/changes/kol/change.json", &text);
         sitting.press(Key::Char('y'));
         let over = "kol is building: its sitting is over";
         assert_shows(&sitting, &[CHANGED, over, SCROLL_KEYS]);
@@ -2295,8 +2300,7 @@ mod tests {
             .collect();
         assert_eq!(crate::run_as(&words, &app, None).code, 0);
         on_branch(&project, "sub", "app/features/d.feature", "Feature: D\n");
-        let mut sitting = Sitting::load(&app, "sub").unwrap();
-        sitting.env.retain(|(name, _)| name != "GDD_ROLE");
+        let mut sitting = as_person(Sitting::load(&app, "sub").unwrap());
         approve(&mut sitting);
         assert_shows(&sitting, &["Recorded", "G1 ok on sub"]);
         assert_eq!(worktrees(&project), 1);
@@ -2376,11 +2380,11 @@ mod tests {
     #[test]
     fn the_no_terminal_message_names_the_change() {
         let said = no_terminal("c1");
-        let start = "gdd sitting needs a terminal; without one, record";
+        let start = "tminus sitting needs a terminal; without one, record";
         assert!(said.starts_with(start), "{said}");
-        assert!(said.contains("gdd gate G1 ok c1 --by human"), "{said}");
-        assert!(said.contains("gdd gate zones ok --by human"), "{said}");
-        let plan = "gdd gate plan ok c1 --by human for a red change";
+        assert!(said.contains("tminus gate G1 ok c1 --by human"), "{said}");
+        assert!(said.contains("tminus gate zones ok --by human"), "{said}");
+        let plan = "tminus gate plan ok c1 --by human for a red change";
         assert!(said.contains(plan), "{said}");
     }
 
@@ -2426,17 +2430,17 @@ mod tests {
     fn set_record(project: &Project, change: impl FnOnce(&mut Value)) {
         let mut record: Value = serde_json::from_str(&record(project, "c1")).unwrap();
         change(&mut record);
-        project.write(".gdd/changes/c1/change.json", &record.to_string());
+        project.write(".tminus/changes/c1/change.json", &record.to_string());
     }
 
     /// Writes the review of `c1`.
     fn review(project: &Project, text: &str) {
-        project.write(".gdd/changes/c1/review.md", text);
+        project.write(".tminus/changes/c1/review.md", text);
     }
 
     /// Writes the demo file `name` of `c1`.
     fn demo(project: &Project, name: &str, text: &str) {
-        let path = format!(".gdd/changes/c1/demo/{name}");
+        let path = format!(".tminus/changes/c1/demo/{name}");
         project.write(&path, text);
     }
 
@@ -2521,7 +2525,7 @@ mod tests {
         demo(&project, "a.txt", "Recording done\nnot a count\n");
         demo(&project, "b.txt", "Run\n 12 scenarios (12 passed)\n");
         demo(&project, "c.txt", "3 scenarios (3 passed)\n");
-        let shown = "Demo: 12 scenarios (12 passed) · .gdd/changes/c1/demo/b.txt";
+        let shown = "Demo: 12 scenarios (12 passed) · .tminus/changes/c1/demo/b.txt";
         assert_shows(&open(&project, "c1"), &[shown]);
     }
 
@@ -2531,7 +2535,7 @@ mod tests {
         demo(&project, "a.txt", "Recording done\nsecond\n");
         demo(&project, "b.txt", "Other\n");
         let sitting = open(&project, "c1");
-        let shown = "Demo: Recording done · .gdd/changes/c1/demo/a.txt";
+        let shown = "Demo: Recording done · .tminus/changes/c1/demo/a.txt";
         assert_shows(&sitting, &[shown]);
         assert_hides(&sitting, &[NO_DEMO, "second"]);
         let not_counts = [
@@ -2550,12 +2554,12 @@ mod tests {
     fn a_demo_that_cannot_be_read_is_told() {
         let (project, _) = waiting(Value::Null);
         demo(&project, "a.txt", "x");
-        let binary = project.0.join(".gdd/changes/c1/demo/b.txt");
+        let binary = project.0.join(".tminus/changes/c1/demo/b.txt");
         fs::write(binary, [0xff, 0xfe]).unwrap();
-        let told = "Demo: cannot read .gdd/changes/c1/demo/b.txt";
+        let told = "Demo: cannot read .tminus/changes/c1/demo/b.txt";
         assert_shows(&open(&project, "c1"), &[told]);
         let (project, _) = waiting(Value::Null);
-        project.write(".gdd/changes/c1/demo", "a file, not a folder");
+        project.write(".tminus/changes/c1/demo", "a file, not a folder");
         assert_shows(&open(&project, "c1"), &["Demo: cannot read"]);
     }
 
@@ -2618,7 +2622,7 @@ mod tests {
             tree.display(),
             project.0.display()
         );
-        project.write(".gdd/changes/c1/review.md", &review);
+        project.write(".tminus/changes/c1/review.md", &review);
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["- src/a.rs:3 is checked", "· b.rs:4: the name"]);
         assert_hides(&sitting, &["](", &tree.display().to_string()]);
@@ -2631,43 +2635,45 @@ mod tests {
             format!(r#"{{"ts":"{ts}","event":"gate","change":"{change}","gate":"G4"}}"#)
         };
         let other = entry("2026-10-28T10:00:00+00:00", "c2");
-        project.write(".gdd/log.jsonl", &format!("{other}\n"));
+        project.write(".tminus/log.jsonl", &format!("{other}\n"));
         let sitting = open(&project, "c1");
         assert_hides(&sitting, &["Flow time", "c2"]);
         let start = entry("2026-10-28T10:00:00+00:00", "c1");
         let end = entry("2026-10-28T11:00:00+00:00", "c1");
-        project.write(".gdd/log.jsonl", &format!("{other}\n{start}\n{end}\n"));
+        project.write(".tminus/log.jsonl", &format!("{other}\n{start}\n{end}\n"));
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Flow time 1h 00m"]);
         assert_before(&sitting.render(100, 40), BY_TYPE, "Flow time");
-        assert_hides(&sitting, &["is not one of gdd's"]);
-        // A line that is not gdd's is left out, and the sitting says so.
-        let text = format!("not gdd's\n{start}\n{end}\n");
-        project.write(".gdd/log.jsonl", &text);
-        let said = "1 line of the log is not one of gdd's: left out";
+        assert_hides(&sitting, &["is not one of tminus's"]);
+        // A line that is not tminus's is left out, and the sitting says so.
+        let text = format!("not tminus's\n{start}\n{end}\n");
+        project.write(".tminus/log.jsonl", &text);
+        let said = "1 line of the log is not one of tminus's: left out";
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Flow time 1h 00m", said]);
         assert_before(&sitting.render(100, 40), "Flow time", said);
-        project.write(".gdd/log.jsonl", "not gdd's\n");
+        project.write(".tminus/log.jsonl", "not gdd's\n");
         assert_shows(&open(&project, "c1"), &[said]);
         // A line that opens an object but is not JSON is left out too.
-        project.write(".gdd/log.jsonl", &format!("{start}\n{{not json\n{end}\n"));
+        let broken = format!("{start}\n{{not json\n{end}\n");
+        project.write(".tminus/log.jsonl", &broken);
         let sitting = open(&project, "c1");
         assert_shows(&sitting, &["Flow time 1h 00m", said]);
         assert_hides(&sitting, &["cannot be read"]);
         // A log that cannot be read says why.
-        fs::remove_file(project.0.join(".gdd/log.jsonl")).unwrap();
-        fs::create_dir_all(project.0.join(".gdd/log.jsonl")).unwrap();
-        let why = "the log cannot be read: cannot read .gdd/log.jsonl: ";
+        fs::remove_file(project.0.join(".tminus/log.jsonl")).unwrap();
+        fs::create_dir_all(project.0.join(".tminus/log.jsonl")).unwrap();
+        let why = "the log cannot be read: cannot read .tminus/log.jsonl: ";
         assert_shows(&open(&project, "c1"), &[why]);
-        assert_hides(&open(&project, "c1"), &["Flow time", "not one of gdd's"]);
+        let unread = open(&project, "c1");
+        assert_hides(&unread, &["Flow time", "not one of tminus's"]);
     }
 
     #[test]
     fn o_asks_for_confirmation_and_then_chooses_resume_ok() {
         let (_project, mut sitting) = waiting(Value::Null);
         sitting.press(Key::Char('o'));
-        let command = "gdd resume c1 --g4 ok";
+        let command = "tminus resume c1 --g4 ok";
         assert_shows(&sitting, &["This runs, as you:", command]);
         assert_shows(&sitting, &["The change is promoted."]);
         assert_shows(&sitting, &[RUN, SCROLL_KEYS]);
@@ -2699,7 +2705,7 @@ mod tests {
             press(&mut sitting, &[Key::Backspace, Key::Char('d'), Key::Space]);
             assert_shows(&sitting, &["> Not what I asked _"]);
             sitting.press(Key::Enter);
-            let command = format!("gdd resume c1 --g4 {answer} --note \"Not what I asked\"");
+            let command = format!("tminus resume c1 --g4 {answer} --note \"Not what I asked\"");
             assert_shows(&sitting, &["This runs, as you:", &command, follows, RUN]);
             sitting.press(Key::Char('y'));
             assert!(sitting.closed());
@@ -2720,7 +2726,7 @@ mod tests {
         let ok = ["Only its ADR files reach main, in a commit of their own."];
         assert_shows(&sitting, &ok);
         assert_shows(&sitting, &["Its code stays on its branch."]);
-        assert_shows(&sitting, &["gdd resume c1 --g4 ok"]);
+        assert_shows(&sitting, &["tminus resume c1 --g4 ok"]);
         assert_hides(&sitting, &["promoted"]);
         sitting.press(Key::Esc);
         press(&mut sitting, &[Key::Char('p'), Key::Char('x'), Key::Enter]);
@@ -2786,7 +2792,7 @@ mod tests {
         press(&mut sitting, &typed);
         assert_shows(&sitting, &["> 2_"]);
         sitting.press(Key::Enter);
-        assert_shows(&sitting, &["gdd resume c1 --g4 ok --variant 2", RUN]);
+        assert_shows(&sitting, &["tminus resume c1 --g4 ok --variant 2", RUN]);
         sitting.press(Key::Char('y'));
         assert!(sitting.closed());
         let words = ["resume", "c1", "--g4", "ok", "--variant", "2"];
@@ -2800,7 +2806,7 @@ mod tests {
         assert_shows(&sitting, &[QUESTION]);
         type_in(&mut sitting, "Measure");
         sitting.press(Key::Enter);
-        let command = "gdd resume c1 --g4 polish --variant 2 --note \"Measure\"";
+        let command = "tminus resume c1 --g4 polish --variant 2 --note \"Measure\"";
         assert_shows(&sitting, &[command]);
         sitting.press(Key::Char('y'));
         let words = [
@@ -2817,7 +2823,7 @@ mod tests {
         // KO rejects them all: no number.
         let (_, mut sitting) = waiting_variants();
         press(&mut sitting, &[Key::Char('k'), Key::Char('x'), Key::Enter]);
-        assert_shows(&sitting, &["gdd resume c1 --g4 ko --note \"x\""]);
+        assert_shows(&sitting, &["tminus resume c1 --g4 ko --note \"x\""]);
         // Back on the page, the number picked is forgotten.
         let (_project, mut sitting) = waiting_variants();
         let back = [Key::Char('o'), Key::Char('2'), Key::Enter, Key::Esc];
@@ -2835,7 +2841,7 @@ mod tests {
         let object = serde_json::json!({});
         set_record(&project, |record| record["variants"] = object);
         let err = Sitting::load(&project.0, "c1").unwrap_err();
-        assert!(err.starts_with(".gdd/changes/c1/change.json: "), "{err}");
+        assert!(err.starts_with(".tminus/changes/c1/change.json: "), "{err}");
         set_record(&project, |record| record["variants"] = Value::Null);
         assert!(!open(&project, "c1").variants);
     }
@@ -2919,7 +2925,7 @@ mod tests {
     fn a_record_that_cannot_be_read_at_y_chooses_nothing() {
         let (project, mut sitting) = waiting(Value::Null);
         sitting.press(Key::Char('o'));
-        project.write(".gdd/changes/c1/change.json", "{not json");
+        project.write(".tminus/changes/c1/change.json", "{not json");
         sitting.press(Key::Char('y'));
         assert_shows(&sitting, &["Nothing recorded"]);
         assert_eq!(sitting.chosen(), None);
@@ -2944,7 +2950,7 @@ mod tests {
         let (project, _) = waiting(Value::Null);
         let mut review: String = (0..60).map(|n| format!("note {n}\n")).collect();
         review.push_str("VERDICT: OK\n");
-        project.write(".gdd/changes/c1/review.md", &review);
+        project.write(".tminus/changes/c1/review.md", &review);
         let mut sitting = open(&project, "c1");
         let top = sitting.render(80, 24);
         assert!(top.contains("Reviewer: OK"), "{top}");

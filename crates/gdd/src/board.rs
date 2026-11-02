@@ -868,7 +868,8 @@ mod tests {
         assert_shows(&board, &["Discover (2)", "› c1 ·", LIST_KEYS]);
         press(&mut board, &[Key::Esc, Key::Down, Key::Enter]);
         assert_shows(&board, &["c2 · Title of c2", "Paths: none planned"]);
-        assert_shows(&board, &["State: open", "Inbox: .tminus/changes/c2/inbox.md"]);
+        let inbox = "Inbox: .tminus/changes/c2/inbox.md";
+        assert_shows(&board, &["State: open", inbox]);
     }
 
     #[test]
@@ -1046,7 +1047,8 @@ mod tests {
     fn the_board_of_a_project_set_up_before_the_rename_names_its_folders_and_commands() {
         let project = Project::old();
         let mut board = Board::load(&project.0).unwrap();
-        assert_shows(&board, &["tminus · Board · demo", "/gdd-change", "$gdd-change"]);
+        let commands = ["tminus · Board · demo", "/gdd-change", "$gdd-change"];
+        assert_shows(&board, &commands);
         assert_hides(&board, &["tminus-change"]);
         project.write(".gdd/changes/a/change.json", r#"{"title": "Drafts"}"#);
         board.press(Key::Char('r'));

@@ -613,25 +613,27 @@ mod tests {
         let paths: Vec<String> = sheets.iter().map(|sheet| sheet.path("x")).collect();
         assert_eq!(paths, [CODEX, CLAUDE, OPENCODE]);
         let said = agents_in(&new.0, &none, &[]).unwrap_err();
-        assert!(said.starts_with("tminus/models.toml names no agent: "), "{said}");
+        let nameless = "tminus/models.toml names no agent: ";
+        assert!(said.starts_with(nameless), "{said}");
         let old = old_project();
         let sheets = agents_in(&old.0, &models, &["codex".to_string()]).unwrap();
         assert_eq!(sheets[0].layout(), Layout::Gdd);
         assert_eq!(sheets[0].path("x"), ".agents/skills/gdd-x/SKILL.md");
         let said = agents_in(&old.0, &none, &[]).unwrap_err();
-        assert!(said.starts_with("gdd/models.toml names no agent: "), "{said}");
+        let nameless = "gdd/models.toml names no agent: ";
+        assert!(said.starts_with(nameless), "{said}");
     }
 
     #[test]
     fn install_writes_every_command_of_each_agent_and_nothing_else() {
         let folder = Folder::new();
         folder.write(".claude/skills/mine/SKILL.md", "mine\n");
-        folder.write(".claude/skills/gdd-build/SKILL.md", "old\n");
+        folder.write(".claude/skills/tminus-build/SKILL.md", "old\n");
         let agents = [sheet("claude"), sheet("opencode")];
         let written = install(&folder.0, &agents, &[]).unwrap();
         assert_eq!(written.len(), 2 * COMMANDS.len());
-        assert_eq!(written[0], ".claude/skills/gdd-build/SKILL.md");
-        assert_eq!(written[11], ".opencode/commands/gdd-build.md");
+        assert_eq!(written[0], ".claude/skills/tminus-build/SKILL.md");
+        assert_eq!(written[11], ".opencode/commands/tminus-build.md");
         let files = files(&agents, &[]).unwrap();
         let paths: Vec<String> = files.iter().map(|(path, _)| path.clone()).collect();
         assert_eq!(written, paths);
@@ -652,7 +654,7 @@ mod tests {
         let folder = Folder::new();
         folder.write(".opencode/commands", "a file where a folder goes\n");
         let said = install(&folder.0, &[sheet("claude"), sheet("opencode")], &[]).unwrap_err();
-        let start = "cannot write .opencode/commands/gdd-build.md: ";
+        let start = "cannot write .opencode/commands/tminus-build.md: ";
         assert!(said.starts_with(start), "{said}");
         // Nothing is written, not even the commands of the agent before.
         assert!(!folder.0.join(".claude").exists());
@@ -664,9 +666,9 @@ mod tests {
         std::os::unix::fs::symlink(to, path).unwrap();
     }
 
-    /// What gdd says of a command behind `link`.
+    /// What tminus says of a command behind `link`.
     fn behind(link: &str) -> String {
-        let why = "is a symbolic link, which gdd does not write through: remove the link and \
+        let why = "is a symbolic link, which tminus does not write through: remove the link and \
                    install again";
         format!("{link} {why}")
     }
@@ -675,14 +677,14 @@ mod tests {
     fn install_writes_nothing_through_a_symbolic_link() {
         let folder = Folder::new();
         folder.write(".claude/skills/my-skill/SKILL.md", "mine\n");
-        let status = ".claude/skills/gdd-status/SKILL.md";
+        let status = ".claude/skills/tminus-status/SKILL.md";
         link(&folder, status, Path::new("../my-skill/SKILL.md"));
         let said = install(&folder.0, &[sheet("claude")], &[]).unwrap_err();
         assert_eq!(said, format!("cannot write {status}: {}", behind(status)));
         let mine = fs::read_to_string(folder.0.join(".claude/skills/my-skill/SKILL.md")).unwrap();
         assert_eq!(mine, "mine\n");
         // Nothing is written, not even the commands before the link.
-        assert!(!folder.0.join(".claude/skills/gdd-build").exists());
+        assert!(!folder.0.join(".claude/skills/tminus-build").exists());
     }
 
     #[test]
@@ -690,8 +692,8 @@ mod tests {
         let folder = Folder::new();
         let mine = ".claude/skills/my-skill/SKILL.md";
         folder.write(mine, "mine\n");
-        let build = ".claude/skills/gdd-build/SKILL.md";
-        fs::create_dir_all(folder.0.join(".claude/skills/gdd-build")).unwrap();
+        let build = ".claude/skills/tminus-build/SKILL.md";
+        fs::create_dir_all(folder.0.join(".claude/skills/tminus-build")).unwrap();
         fs::hard_link(folder.0.join(mine), folder.0.join(build)).unwrap();
         let agents = [sheet("claude")];
         install(&folder.0, &agents, &[]).unwrap();
@@ -702,7 +704,7 @@ mod tests {
     #[test]
     fn install_says_why_it_cannot_take_the_place_of_a_folder() {
         let folder = Folder::new();
-        let build = ".claude/skills/gdd-build/SKILL.md";
+        let build = ".claude/skills/tminus-build/SKILL.md";
         folder.write(&format!("{build}/notes.md"), "mine\n");
         let said = install(&folder.0, &[sheet("claude")], &[]).unwrap_err();
         // The reason is the folder that cannot be removed, not the file that cannot be made.
@@ -717,13 +719,13 @@ mod tests {
         let (folder, outside) = (Folder::new(), Folder::new());
         link(&folder, ".agents", &outside.0);
         let said = install(&folder.0, &[sheet("codex")], &[]).unwrap_err();
-        let build = ".agents/skills/gdd-build/SKILL.md";
+        let build = ".agents/skills/tminus-build/SKILL.md";
         assert_eq!(said, format!("cannot write {build}: {}", behind(".agents")));
         // A link to nothing yet would make the file where it points.
         let commands = ".opencode/commands";
         link(&folder, commands, &outside.0.join("not yet"));
         let said = install(&folder.0, &[sheet("opencode")], &[]).unwrap_err();
-        let build = ".opencode/commands/gdd-build.md";
+        let build = ".opencode/commands/tminus-build.md";
         assert_eq!(said, format!("cannot write {build}: {}", behind(commands)));
         assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 0);
     }
@@ -733,8 +735,8 @@ mod tests {
         let folder = Folder::new();
         let agents = [sheet("codex")];
         install(&folder.0, &agents, &[]).unwrap();
-        // Even a link to exactly what gdd writes is not a command of its own.
-        let review = ".agents/skills/gdd-review";
+        // Even a link to exactly what tminus writes is not a command of its own.
+        let review = ".agents/skills/tminus-review";
         fs::rename(folder.0.join(review), folder.0.join("review")).unwrap();
         link(&folder, review, Path::new("../../review"));
         let problems = check(&folder.0, &agents, &[]).unwrap();
@@ -746,14 +748,14 @@ mod tests {
         let folder = Folder::new();
         let agents = [sheet("codex")];
         install(&folder.0, &agents, &[]).unwrap();
-        let review = ".agents/skills/gdd-review/SKILL.md";
+        let review = ".agents/skills/tminus-review/SKILL.md";
         fs::remove_file(folder.0.join(review)).unwrap();
-        let build = ".agents/skills/gdd-build/SKILL.md";
+        let build = ".agents/skills/tminus-build/SKILL.md";
         let text = fs::read_to_string(folder.0.join(build)).unwrap();
         folder.write(build, &format!("{text}\n"));
         let problems = check(&folder.0, &agents, &[]).unwrap();
         let expected = [
-            format!("{build}: differs from what gdd writes"),
+            format!("{build}: differs from what tminus writes"),
             format!("{review}: missing"),
         ];
         assert_eq!(problems, expected);

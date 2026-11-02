@@ -1,7 +1,8 @@
-//! The environment of an agent: the one gdd runs in, without the variables that hold a secret,
-//! unless `gdd/models.toml` passes them on purpose in `[env] pass`, by their exact name. A variable
-//! holds a secret when one of the words of its name says so (`AWS_SECRET_ACCESS_KEY`, `DB_PASS`,
-//! `SENTRY_DSN`) or when its value is a URL with a password in it (`postgres://app:pw@db/app`).
+//! The environment of an agent: the one tminus runs in, without the variables that hold a
+//! secret, unless `tminus/models.toml` passes them on purpose in `[env] pass`, by their exact
+//! name. A variable holds a secret when one of the words of its name says so
+//! (`AWS_SECRET_ACCESS_KEY`, `DB_PASS`, `SENTRY_DSN`) or when its value is a URL with a password
+//! in it (`postgres://app:pw@db/app`).
 
 use serde::Deserialize;
 
@@ -23,7 +24,7 @@ const SECRETS: [&str; 14] = [
     "DSN",
 ];
 
-/// The `[env]` table of `gdd/models.toml`.
+/// The `[env]` table of `tminus/models.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Env {
@@ -33,7 +34,8 @@ pub struct Env {
 }
 
 impl Env {
-    /// The variables of `env`, the environment gdd runs in, that an agent gets, in their order.
+    /// The variables of `env`, the environment tminus runs in, that an agent gets, in their
+    /// order.
     pub fn of_agent(&self, env: &[(String, String)]) -> Vec<(String, String)> {
         let gets = |(name, value): &&(String, String)| {
             let secret = secret_name(name) || secret_value(value);

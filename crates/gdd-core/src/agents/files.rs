@@ -1,9 +1,10 @@
-//! The files of `.gdd/` that gdd reads and writes around an agent call, where the agent could
-//! have left a link to a file outside the project, or a second name of one. gdd never reads or
+//! The files of `.tminus/` (`.gdd/` in a project set up before the rename, see
+//! [`crate::layout`]) that tminus reads and writes around an agent call, where the agent could
+//! have left a link to a file outside the project, or a second name of one. tminus never reads or
 //! writes through either: what stands where its folder or its file goes is removed, never what
 //! it points to, and a file is written new, never over another name of it. `root` is the state
-//! root (see [`crate::state::root`]), whose `.gdd/` gets these checks whatever folder gdd runs
-//! in.
+//! root (see [`crate::state::root`]), whose state folder gets these checks whatever folder tminus
+//! runs in. The paths are given as the state root names them.
 
 use std::fs::{self, File, FileType, OpenOptions, Permissions};
 use std::io::{self, ErrorKind, Write};
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 /// Why a file is not read: what is at its path is something else.
 const NOT_OWN: &str = "not a file of its own (a link, a folder or a file with other names)";
 
-/// A file of its own as gdd found it: its bytes and its permissions.
+/// A file of its own as tminus found it: its bytes and its permissions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
     /// What it holds.

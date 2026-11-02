@@ -3,7 +3,7 @@
 //! live in one folder, `[parallel] folder` of the rules file, from the project root;
 //! `../<project folder>.worktrees` by default. Their state stays in the main checkout (see
 //! [`crate::state::root`]). A project in a folder of its repository is in that same folder of
-//! each worktree. gdd makes, reuses and removes them with git from the main checkout, and never
+//! each worktree. tminus makes, reuses and removes them with git from the main checkout, and never
 //! through a link: a worktree is a folder of its own.
 
 use std::fs::{self, Metadata};
@@ -102,7 +102,7 @@ fn opened(checkout: &Path, path: &Path, what: &str, branch: &str) -> Result<(), 
     }
     Err(format!(
         "{} is in the way of the worktree of {what}: it is not a worktree on {branch}. Move it \
-         away, then run gdd again.",
+         away, then run tminus again.",
         path.display()
     ))
 }
@@ -123,8 +123,8 @@ fn seen(path: &Path) -> Result<Option<Metadata>, String> {
     let shown = path.display();
     match fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => Err(format!(
-            "{shown} is a link: gdd keeps the worktrees of the changes in folders of their own. \
-             Remove the link, then run gdd again."
+            "{shown} is a link: tminus keeps the worktrees of the changes in folders of their \
+             own. Remove the link, then run tminus again."
         )),
         Ok(meta) => Ok(Some(meta)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),

@@ -5,6 +5,8 @@ use std::fmt;
 
 use serde::{Serialize, Serializer};
 
+use crate::agents::models;
+use crate::layout::Layout;
 use crate::log::{CostBasis, Record};
 
 /// What a group of agent calls adds up to.
@@ -20,7 +22,8 @@ pub struct Totals {
     pub tokens_out: u64,
     /// Cost in US dollars of the calls whose cost is known.
     pub cost_usd: f64,
-    /// Whether an estimate from the prices of `gdd/models.toml` is in the cost.
+    /// Whether an estimate from the prices of the models file (`tminus/models.toml`) is in the
+    /// cost.
     pub cost_estimated: bool,
     /// Calls whose cost is unknown: their agent reported none, and their model has no price.
     pub calls_without_price: u64,
@@ -101,6 +104,9 @@ pub struct Report {
     pub human_stops: usize,
     /// The models of the calls whose cost is unknown, sorted.
     pub unpriced: BTreeSet<String>,
+    /// The layout of the project, whose models file the report names (see
+    /// [`Report::in_layout`]): the new one, unless said otherwise.
+    layout: Layout,
 }
 
 impl Report {
@@ -130,7 +136,14 @@ impl Report {
             groups,
             human_stops,
             unpriced,
+            layout: Layout::Tminus,
         }
+    }
+
+    /// This report for a project of `layout`: it names the models file as that project does
+    /// (`gdd/models.toml` in a project set up before the rename).
+    pub fn in_layout(self, layout: Layout) -> Report {
+        Report { layout, ..self }
     }
 
     /// What all the agent calls of the report add up to.
@@ -177,13 +190,14 @@ impl fmt::Display for Report {
             thousands(total.tokens_out),
             total.cost_total()
         )?;
+        let file = self.layout.path(models::PATH);
         if total.cost_estimated {
-            writeln!(f, "~ estimated from the prices in gdd/models.toml")?;
+            writeln!(f, "~ estimated from the prices in {file}")?;
         }
         if !self.unpriced.is_empty() {
             let models: Vec<&str> = self.unpriced.iter().map(String::as_str).collect();
             let models = models.join(", ");
-            writeln!(f, "unknown: no price in gdd/models.toml for {models}")?;
+            writeln!(f, "unknown: no price in {file} for {models}")?;
         }
         write!(f, "Human stops logged: {}", self.human_stops)
     }
@@ -435,8 +449,8 @@ mod tests {
              builder-build -> 1 · 100 · 0 · 20 · 0.0100 · 5\n\
              reviewer -> 2 · 100 · 0 · 50 · ~0.0021 + unknown · 10\n\
              TOTAL -> in 200 · cache 0 · out 70 · ~0.0121 USD + unknown (1 call(s) with no price)\n\
-             ~ estimated from the prices in gdd/models.toml\n\
-             unknown: no price in gdd/models.toml for gpt-y\n\
+             ~ estimated from the prices in tminus/models.toml\n\
+             unknown: no price in tminus/models.toml for gpt-y\n\
              Human stops logged: 0"
         );
         // No call with a known cost: unknown, and the models without a price, sorted.
@@ -444,13 +458,13 @@ mod tests {
         let unknown = "\norchestrator -> 2 · 20 · 0 · 8 · unknown · 0\n";
         assert!(none.contains(unknown), "{none}");
         let total = "\nTOTAL -> in 20 · cache 0 · out 8 · unknown (2 call(s) with no price)\n\
-                     unknown: no price in gdd/models.toml for gpt-x, sonnet\nHuman stops";
+                     unknown: no price in tminus/models.toml for gpt-x, sonnet\nHuman stops";
         assert!(none.contains(total), "{none}");
         assert!(!none.contains('~'), "{none}");
         // Only estimates: marked, and nothing unknown.
         let estimated = priced("role", Some("c"));
         let total = "\nTOTAL -> in 50 · cache 0 · out 25 · ~0.0021 USD\n\
-                     ~ estimated from the prices in gdd/models.toml\nHuman stops";
+                     ~ estimated from the prices in tminus/models.toml\nHuman stops";
         assert!(estimated.contains(total), "{estimated}");
         assert!(!estimated.contains("unknown"), "{estimated}");
         // Every model without a price is named once, whatever the grouping.
@@ -458,7 +472,7 @@ mod tests {
         for line in [
             "\na -> 3 · 200 · 0 · 70 · ~0.0121 + unknown · 15\n",
             "\nb -> 2 · 20 · 0 · 8 · unknown · 0\n",
-            "\nunknown: no price in gdd/models.toml for gpt-x, gpt-y, sonnet\n",
+            "\nunknown: no price in tminus/models.toml for gpt-x, gpt-y, sonnet\n",
         ] {
             assert!(mixed.contains(line), "{mixed}");
         }
@@ -482,8 +496,25 @@ mod tests {
         let group = "\nbuilder-build -> 2 · 0 · 0 · 2 · 0.5000 + unknown · 0\n";
         assert!(r.contains(group), "{r}");
         let total = "· 0.5000 USD + unknown (1 call(s) with no price)\nunknown: no price in \
-                     gdd/models.toml for -\nHuman stops logged: 0";
+                     tminus/models.toml for -\nHuman stops logged: 0";
         assert!(r.ends_with(total), "{r}");
+    }
+
+    #[test]
+    fn a_report_for_a_project_of_the_old_layout_names_its_models_file_as_it_does() {
+        let records = log::parse(PRICED).unwrap();
+        let report = Report::new(&records, &by("role"), Some("a"));
+        assert_eq!(report.layout, Layout::Tminus);
+        let old = report.clone().in_layout(Layout::Gdd).to_string();
+        for line in [
+            "\n~ estimated from the prices in gdd/models.toml\n",
+            "\nunknown: no price in gdd/models.toml for gpt-y\n",
+        ] {
+            assert!(old.contains(line), "{old}");
+        }
+        assert!(!old.contains("tminus"), "{old}");
+        let new = report.in_layout(Layout::Tminus).to_string();
+        assert_eq!(new, priced("role", Some("a")));
     }
 
     #[test]

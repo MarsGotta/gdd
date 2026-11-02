@@ -243,7 +243,7 @@ fn changed_after(root: &Path, diff: Vec<String>, before: &Hashes) -> Result<Vec<
 }
 
 /// The hashes of what change `id` of the project at `root` touched since its build started, as
-/// they are now: what `gdd snapshot` records. A change never prepared is an error.
+/// they are now: what `tminus snapshot` records. A change never prepared is an error.
 pub fn snapshot(root: &Path, id: &str, record: &Record) -> Result<Hashes, Error> {
     let Some(start) = record.build_start.as_deref() else {
         return Err(Error::NotPrepared(id.to_string()));
@@ -409,7 +409,10 @@ paths = ["src/storage/**"]
         let text = format!("main_branch = \"trunk\"\n[color.red.full]\nmutation = true\n{RULES}");
         let read = Settings::from_toml(&text).unwrap();
         assert_eq!(read.main_branch, "trunk");
-        assert_eq!(read.protected("builder-build"), ["tminus/**", "features/**"]);
+        assert_eq!(
+            read.protected("builder-build"),
+            ["tminus/**", "features/**"]
+        );
         assert_eq!(read.protected("builder_test"), ["tminus/**", "src/**"]);
         assert_eq!(read.protected("reviewer"), ["tminus/**"]);
         let wrong = Settings::from_toml("[protected]\nall = \"tminus/**\"\n");
@@ -584,9 +587,8 @@ paths = ["src/storage/**"]
         for (from, to) in [("gdd", "tminus"), ("tminus", "gdd")] {
             // The rules where the build started, under the name of one layout.
             let repo = Repo::new();
-            let rules = format!(
-                "[protected]\nall = [\"{from}/**\"]\nbuilder_build = [\"features/**\"]\n"
-            );
+            let rules =
+                format!("[protected]\nall = [\"{from}/**\"]\nbuilder_build = [\"features/**\"]\n");
             repo.write(&format!("{from}/project.toml"), "");
             repo.write(&format!("{from}/rules.toml"), &rules);
             repo.commit();

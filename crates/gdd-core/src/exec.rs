@@ -138,7 +138,9 @@ fn run_saying(
 /// the other layout (see [`layout::twin`]), so an inherited `GDD_CHANGE` never overrides the
 /// `TMINUS_CHANGE` the tool set, or the reverse.
 pub(crate) fn twins(env: &[(&str, &str)]) -> Vec<String> {
-    env.iter().filter_map(|(name, _)| layout::twin(name)).collect()
+    env.iter()
+        .filter_map(|(name, _)| layout::twin(name))
+        .collect()
 }
 
 /// Reads `pipe`, an output of the command, to its end in a thread of its own, so a full pipe
@@ -265,7 +267,11 @@ mod tests {
 
     #[test]
     fn a_variable_set_for_a_command_comes_without_its_twin() {
-        let env = [("TMINUS_CHANGE", "c2"), ("GDD_COLOR", "red"), ("PATH", "/bin")];
+        let env = [
+            ("TMINUS_CHANGE", "c2"),
+            ("GDD_COLOR", "red"),
+            ("PATH", "/bin"),
+        ];
         assert_eq!(twins(&env), ["GDD_CHANGE", "TMINUS_COLOR"]);
         assert!(twins(&[]).is_empty());
         let folder = Folder::new();

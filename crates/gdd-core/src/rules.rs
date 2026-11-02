@@ -179,7 +179,7 @@ impl RulesTable {
     /// The table a project classifies its changes with, from its rules file: the one the file
     /// writes or, when it has no `[color]` section, the colors of the table that ships with the
     /// tool ([`default_table`]) with the file's `[acceptance]`: saying nothing about colors
-    /// switches no gate off. `gdd classify` and the gates share it.
+    /// switches no gate off. `tminus classify` and the gates share it.
     pub fn of_project(text: &str) -> Result<RulesTable, Error> {
         let (table, has_colors) = RulesTable::read(text)?;
         if has_colors {

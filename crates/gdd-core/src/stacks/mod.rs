@@ -4,7 +4,7 @@
 //! supply chain and the tool chosen for each need; and how a new project of it starts: its first
 //! install, its lines of `.gitignore` and the CI steps that set up its tools. Each stack also has
 //! its instructions for the agents and its skeleton, the files a new project of it starts with
-//! ([`skeleton`]). A project names the stacks it uses in `stack` of `gdd/project.toml`
+//! ([`skeleton`]). A project names the stacks it uses in `stack` of `tminus/project.toml`
 //! ([`of_project`]); [`compose()`] says what several sheets give together, and [`checks()`] how
 //! they install and the G2 commands they run.
 
@@ -58,9 +58,9 @@ const SHEETS: [BuiltIn; 3] = [
 pub const NAMES: &str = "python, rust, typescript";
 
 /// Why composing needs a stack, and how to name one.
-const NO_NAME: &str = "name at least one stack: gdd stacks compose <name>...";
+const NO_NAME: &str = "name at least one stack: tminus stacks compose <name>...";
 
-/// Why `stack` of `gdd/project.toml` names no stack.
+/// Why `stack` of `tminus/project.toml` names no stack.
 const NOT_NAMES: &str = "stack is not a name or a list of names";
 
 /// The sections of commands of a sheet, in the order the tool shows them.
@@ -72,7 +72,7 @@ type Commands = Vec<(String, String)>;
 /// The sheet of a stack: what the tool reads of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sheet {
-    /// The name of the stack, as `gdd/project.toml` writes it.
+    /// The name of the stack, as `tminus/project.toml` writes it.
     name: String,
     /// Its name for people.
     title: String,
@@ -328,8 +328,8 @@ impl Sheet {
 }
 
 impl fmt::Display for Sheet {
-    /// As `gdd stacks show` prints it: the stack, its tools, its commands that are not empty and
-    /// its protected paths, without a line break at the end.
+    /// As `tminus stacks show` prints it: the stack, its tools, its commands that are not empty
+    /// and its protected paths, without a line break at the end.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (title, name, runner) = (&self.title, &self.name, &self.scenario_runner);
         write!(f, "{title} ({name}) · scenarios: {runner}")?;
@@ -364,8 +364,9 @@ impl fmt::Display for Tool {
     }
 }
 
-/// The stacks a project uses, from the text of its `gdd/project.toml`: `stack`, one name or a
-/// list of names, each once. A missing or empty `stack` names none.
+/// The stacks a project uses, from the text of its `tminus/project.toml` (`gdd/project.toml` in
+/// a project of the old layout): `stack`, one name or a list of names, each once. A missing or
+/// empty `stack` names none.
 pub fn of_project(text: &str) -> Result<Vec<String>, config::Error> {
     let table: toml::Table =
         toml::from_str(text).map_err(|e| config::Error::Toml(e.to_string()))?;
@@ -475,7 +476,7 @@ mod tests {
         }
         let invalid = Error::Invalid("x".into(), "bad".into()).to_string();
         assert_eq!(invalid, "the x stack sheet is not valid: bad");
-        let none = "name at least one stack: gdd stacks compose <name>...";
+        let none = "name at least one stack: tminus stacks compose <name>...";
         assert_eq!(Error::NoName.to_string(), none);
     }
 
@@ -864,7 +865,7 @@ alternative = "other lint"
             ("typescript", "src/app.ts", "npx"),
         ];
         for (stack, file, tool) in tools {
-            let env = [("GDD_DIFF_FILES", file), ("TMPDIR", missing.as_str())];
+            let env = [("TMINUS_DIFF_FILES", file), ("TMPDIR", missing.as_str())];
             let fakes = [(tool, "exit 0")];
             let (code, output, log) = g3_run(stack, "mutation", &project.0, &fakes, &env);
             assert_eq!((code, log.as_str()), (1, ""), "{stack}: {output}");
@@ -887,7 +888,7 @@ alternative = "other lint"
                  echo 'mutmut: 3/3 done'\nexit {code}"
             )
         };
-        let env = [("GDD_DIFF_FILES", "src/app.py")];
+        let env = [("TMINUS_DIFF_FILES", "src/app.py")];
         let caught = "mutation: every mutant of the changed Python code was caught\n";
         for (code, said) in [(0, caught), (1, "mutmut: 3/3 done\n")] {
             let project = Folder::new();

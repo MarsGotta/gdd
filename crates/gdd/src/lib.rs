@@ -26,7 +26,9 @@ use gdd_core::classify::{classify_with, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
 use gdd_core::guard::{self, Hashes, Settings, Verdict};
-use gdd_core::layout::{self, Layout};
+// `named` and `join` take a path of the tool written in the new names (`tminus/rules.toml`,
+// `.tminus/changes/<id>/change.json`...) to where the project at a root keeps it.
+use gdd_core::layout::{self, Layout, join, named};
 use gdd_core::recipe::{self, Answer, Said, Snapshot, queue};
 use gdd_core::repo::merge;
 use gdd_core::status::{self, Status};
@@ -805,21 +807,24 @@ impl Command {
 }
 
 /// The id of the change a command works on: `given`, else `TMINUS_CHANGE` or `GDD_CHANGE` of the
-/// environment `env` (see [`variable`]).
+/// environment `env` (see [`tool_variable`]).
 fn change_id(given: Option<String>, env: &Env) -> Result<String, String> {
-    let set = given.or_else(|| variable(env, "CHANGE").map(str::to_string));
+    let set = given.or_else(|| tool_variable(env, "CHANGE").map(str::to_string));
     set.ok_or_else(|| MISSING_CHANGE.to_string())
 }
 
-/// The value of the variable `TMINUS_<name>` in the environment `env`, the last one set, when it
-/// is not empty; else the same of `GDD_<name>`, its name before the rename.
-fn variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
-    let set = |prefix: &str| {
-        let full = format!("{prefix}{name}");
-        let (_, value) = env.iter().rev().find(|(known, _)| *known == full)?;
-        Some(value.as_str()).filter(|value| !value.is_empty())
-    };
+/// The value of the variable `TMINUS_<name>` of the tool in the environment `env`, when it is set
+/// and not empty (see [`variable`]); else the same of `GDD_<name>`, its name before the rename.
+fn tool_variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
+    let set = |prefix: &str| variable(env, &format!("{prefix}{name}"));
     set("TMINUS_").or_else(|| set("GDD_"))
+}
+
+/// The value of the variable `name` in the environment `env`, the last one set, when it is not
+/// empty.
+fn variable<'a>(env: &'a Env, name: &str) -> Option<&'a str> {
+    let (_, value) = env.iter().rev().find(|(known, _)| known == name)?;
+    Some(value.as_str()).filter(|value| !value.is_empty())
 }
 
 /// An environment: its variables, with their values.
@@ -1111,7 +1116,7 @@ fn report(state: &Path, args: &ReportArgs) -> Result<Outcome, String> {
     } else if args.dora {
         dora_report(state, &text, args)?
     } else {
-        calls_report(&text, args)?
+        calls_report(&text, args, Layout::at(state))?
     };
     Ok(with_left_out(printed, left_out, args.json))
 }
@@ -1133,11 +1138,12 @@ fn with_left_out(printed: String, count: usize, json: bool) -> Outcome {
 }
 
 /// `gdd report` without `--time` or `--dora`: the agent calls of the log `text`, added up by the
-/// fields `by` of `args` (see [`Report`]), and how many lines of the log it left out.
-fn calls_report(text: &str, args: &ReportArgs) -> Result<(String, usize), String> {
+/// fields `by` of `args` (see [`Report`]), naming the files as a project of `layout` does, and how
+/// many lines of the log it left out.
+fn calls_report(text: &str, args: &ReportArgs, layout: Layout) -> Result<(String, usize), String> {
     let logged = log::read(text);
     let by: Vec<String> = args.by.split(',').map(str::to_string).collect();
-    let report = Report::new(&logged.lines, &by, args.change.as_deref());
+    let report = Report::new(&logged.lines, &by, args.change.as_deref()).in_layout(layout);
     let printed = if args.json {
         serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
     } else {
@@ -1800,7 +1806,7 @@ fn agent_sheets(root: &Path, named: &[String]) -> Result<Vec<Sheet>, String> {
     } else {
         Models::default()
     };
-    render::agents(&models, named)
+    render::agents_in(root, &models, named)
 }
 
 /// The stacks `tminus/project.toml` names (see [`stacks::of_project`]).
@@ -1878,7 +1884,7 @@ impl recipe::Steps for ProjectSteps<'_> {
         let root = self.root.as_path();
         let zones = main_zones(root)?;
         let decided = decide_with(root, self.state, self.id, &zone_map(root, &zones)?)?;
-        invoke::check(&decided.roles, self.env).map_err(|e| e.to_string())?;
+        invoke::check(root, &decided.roles, self.env).map_err(|e| e.to_string())?;
         let printed = prepare_decided(root, self.state, self.id, &decided, &zones)?;
         serde_json::from_str(&printed).map_err(|e| format!("{TOOL} prepare: {e}"))
     }
@@ -2365,7 +2371,7 @@ fn project_status(root: &Path, state: &Path, env: &Env) -> Result<String, String
         basics,
         brief: root.join(approve::BRIEF).is_file(),
         g0: approve::g0_open(state).map_err(|e| e.to_string())?,
-        zones: approve::zones_state(state, &zones).map_err(|e| e.to_string())?,
+        zones: approve::zones_state(state, &zones).map_err(|e| e.named_in(root).to_string())?,
         selftest: selftest.and_then(|text| status::selftest_summary(&text)),
         scenarios_dir: dir,
         scenarios,
@@ -2549,7 +2555,11 @@ fn load_command_limit(root: &Path) -> Result<Duration, String> {
 /// [`versions::Rules`]): as the main branch has it, as the merge reads `push_main`.
 fn load_versions(state: &Path) -> Result<versions::Rules, String> {
     let text = read(state, RULES)?.unwrap_or_default();
-    versions::Rules::from_toml(&text)
+    // Its errors start with the rules file in the new names: the project names it its own way.
+    versions::Rules::from_toml(&text).map_err(|e| match e.strip_prefix(RULES) {
+        Some(rest) => format!("{}{rest}", named(state, RULES)),
+        None => e,
+    })
 }
 
 /// What the rules file says to Path Guard: the main branch and the protected paths.
@@ -2585,23 +2595,6 @@ fn in_file(root: &Path, path: &str, why: impl std::fmt::Display) -> String {
     format!("{}: {why}", named(root, path))
 }
 
-/// `path`, a path of the tool written in the new names (`tminus/rules.toml`,
-/// `.tminus/changes/<id>/change.json`...), as the project at `root` names it (see
-/// [`layout::named`]). Only its first folder is the tool's: what follows, such as the id of a
-/// change (`rename-tminus`), stays as it is.
-fn named(root: &Path, path: &str) -> String {
-    match path.split_once('/') {
-        Some((tool, rest)) => format!("{}/{rest}", layout::named(root, tool)),
-        None => layout::named(root, path),
-    }
-}
-
-/// `root` joined with `path`, a path of the tool written in the new names, where the project at
-/// `root` keeps it (see [`named`]).
-fn join(root: &Path, path: &str) -> PathBuf {
-    root.join(named(root, path))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2621,6 +2614,14 @@ mod tests {
             let _ = fs::remove_dir_all(&path);
             let project = Project(path);
             project.write(PROJECT, "name = \"demo\"\n");
+            project
+        }
+
+        /// A project set up before the rename: its files in `gdd/`, its state in `.gdd/`.
+        pub(super) fn old() -> Project {
+            let project = Project::new();
+            fs::remove_dir_all(project.0.join("tminus")).unwrap();
+            project.write(OLD_PROJECT, "name = \"demo\"\n");
             project
         }
 
@@ -2867,7 +2868,7 @@ mod tests {
             let failed = (2, String::new(), format!("{NO_TERMINAL}\n"));
             assert_eq!((out.code, out.stdout, out.stderr), failed, "{command:?}");
         }
-        let said = "error: gdd init opens its Setup form only in a terminal; else give it the \
+        let said = "error: tminus init opens its Setup form only in a terminal; else give it the \
                     flags --name, --platform and --stack";
         assert_eq!(NO_TERMINAL, said);
     }
@@ -2876,7 +2877,7 @@ mod tests {
     fn the_board_needs_a_terminal_and_the_command_says_what_to_use_instead() {
         let project = Project::new();
         let out = project.run("board");
-        let said = "error: gdd board needs a terminal; gdd status lists the same changes\n";
+        let said = "error: tminus board needs a terminal; tminus status lists the same changes\n";
         assert_eq!((out.code, out.stdout.as_str()), (2, ""));
         assert_eq!(out.stderr, said);
         let asks = |command: &str, stdin, stdout| asks_board(&words(command), stdin, stdout, &[]);
@@ -2908,7 +2909,7 @@ mod tests {
         let project = Project::new();
         let out = project.run("");
         assert_eq!(out.code, 0);
-        assert!(out.stdout.contains("Usage: gdd"), "{}", out.stdout);
+        assert!(out.stdout.contains("Usage: tminus"), "{}", out.stdout);
     }
 
     #[test]
@@ -2995,7 +2996,7 @@ mod tests {
     /// A folder that is not a GDD project, removed when dropped.
     pub(super) fn plain_folder() -> Project {
         let folder = Project::new();
-        fs::remove_dir_all(folder.0.join("gdd")).unwrap();
+        fs::remove_dir_all(folder.0.join("tminus")).unwrap();
         folder
     }
 
@@ -3007,8 +3008,8 @@ mod tests {
                        --language es";
         let out = run_with_env(&words(command), &folder.0, &init_env());
         assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
-        assert!(out.stdout.starts_with("gdd/project.toml\n"), "{out:?}");
-        let next = " $gdd-setup in Codex).\n";
+        assert!(out.stdout.starts_with("tminus/project.toml\n"), "{out:?}");
+        let next = " $tminus-setup in Codex).\n";
         assert!(out.stdout.ends_with(next), "{out:?}");
         let read = |path: &str| fs::read_to_string(folder.0.join(path)).unwrap();
         let project = read(PROJECT);
@@ -3023,7 +3024,7 @@ mod tests {
         let brief = read("docs/brief.md");
         let sensitive = "\n1. Losing notes\n2. Leaks\n";
         assert!(brief.ends_with(sensitive), "{brief}");
-        let models = read("gdd/models.toml");
+        let models = read("tminus/models.toml");
         let codex = "[builder.red]\nintegration = \"codex\"\n";
         assert!(models.contains(codex), "{models}");
         let again = run_with_env(&words(command), &folder.0, &init_env());
@@ -3055,14 +3056,14 @@ mod tests {
     fn init_names_each_file_already_there_and_writes_nothing() {
         let folder = plain_folder();
         folder.write("docs/brief.md", "mine\n");
-        folder.write(".github/workflows/gdd.yml", "mine\n");
+        folder.write(".github/workflows/tminus.yml", "mine\n");
         let command = "init --name Notes --platform cli --stack rust --agents claude codex";
         let out = run_with_env(&words(command), &folder.0, &init_env());
-        let said = "docs/brief.md already exists\n.github/workflows/gdd.yml already exists\n\
-                    error: gdd init never overwrites a file: move or remove these, then run it \
+        let said = "docs/brief.md already exists\n.github/workflows/tminus.yml already exists\n\
+                    error: tminus init never overwrites a file: move or remove these, then run it \
                     again\n";
         assert_eq!(out, Outcome::failure(said.to_string()));
-        assert!(!folder.0.join("gdd").exists());
+        assert!(!folder.0.join("tminus").exists());
         let cobol = words("init --name N --platform cli --stack cobol");
         let out = run_with_env(&cobol, &folder.0, &[]);
         let unknown = "error: unknown stack cobol (known: python, rust, typescript)\n";
@@ -3076,12 +3077,12 @@ mod tests {
         let command = "init --name Notes --platform cli --stack rust --agents claude codex";
         let out = run_with_env(&words(command), &folder.0, &init_env());
         assert_eq!(out.code, 0, "{out:?}");
-        let cargo = ".gdd/bin/cargo";
+        let cargo = ".tminus/bin/cargo";
         folder.write(cargo, "#!/bin/sh\necho lock > Cargo.lock\n");
         let mode = fs::Permissions::from_mode(0o755);
         fs::set_permissions(folder.0.join(cargo), mode).unwrap();
         let mut env = init_env();
-        let bin = folder.0.join(".gdd/bin");
+        let bin = folder.0.join(".tminus/bin");
         for (name, value) in &mut env {
             if name == "PATH" {
                 *value = format!("{}:{value}", bin.display());
@@ -3089,8 +3090,8 @@ mod tests {
         }
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
         let said = "rust: cargo generate-lockfile\nCommitted: Cargo.lock\n\
-                    Next: in your coding agent, the gdd-setup command finishes the Setup \
-                    (/gdd-setup in Claude Code and OpenCode, $gdd-setup in Codex).\n";
+                    Next: in your coding agent, the tminus-setup command finishes the Setup \
+                    (/tminus-setup in Claude Code and OpenCode, $tminus-setup in Codex).\n";
         assert_eq!(out, Outcome::success(said.to_string()));
         folder.write(cargo, "#!/bin/sh\necho broken\nexit 2\n");
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
@@ -3102,7 +3103,7 @@ mod tests {
         assert_eq!(out, stopped);
         folder.write(PROJECT, "stack = 3\n");
         let out = run_with_env(&words("bootstrap"), &folder.0, &env);
-        let wrong = "error: gdd/project.toml: invalid TOML: stack is not a name or a list of \
+        let wrong = "error: tminus/project.toml: invalid TOML: stack is not a name or a list of \
                      names\n";
         assert_eq!(out, Outcome::failure(wrong.to_string()));
     }
@@ -3114,11 +3115,9 @@ mod tests {
         let out = folder.run("report");
         assert_eq!(out.code, 1);
         assert!(out.stdout.is_empty());
-        assert!(
-            out.stderr
-                .starts_with("error: not a GDD project: no gdd/project.toml in "),
-            "{out:?}"
-        );
+        let start = "error: not a GDD project: no tminus/project.toml (nor gdd/project.toml) \
+                     in ";
+        assert!(out.stderr.starts_with(start), "{out:?}");
         assert!(
             out.stderr.ends_with(" or the folders above it\n"),
             "{out:?}"
@@ -3211,7 +3210,7 @@ mod tests {
         let clean = Project::new();
         clean.write(log::PATH, LOG);
         let report = clean.run("report").stdout;
-        let said = "3 lines of the log are not one of gdd's: left out\n";
+        let said = "3 lines of the log are not one of tminus's: left out\n";
         assert_eq!(out, Outcome::success(format!("{report}{said}")));
         // In JSON, the standard output stays JSON and the standard error says it.
         let out = project.run("report --json");
@@ -3222,7 +3221,7 @@ mod tests {
         assert!(!report.contains("left out"), "{report}");
         // A line that opens an object but is not JSON is left out too.
         project.write(log::PATH, &format!("{LOG}{{not json\n"));
-        let one = "1 line of the log is not one of gdd's: left out\n";
+        let one = "1 line of the log is not one of tminus's: left out\n";
         let out = project.run("report");
         assert_eq!(out, Outcome::success(format!("{report}{one}")));
     }
@@ -3310,12 +3309,12 @@ mod tests {
 {"ts": "2026-10-28T11:00:00+00:00", "change": "b", "gate": "-", "role": "machine", "agent": "promote", "result": "ok"}"#;
         let project = Project::new();
         project.write(log::PATH, PROMOTED);
-        project.write(".gdd/changes/a/change.json", r#"{"type": "Hotfix"}"#);
-        project.write(".gdd/changes/b/change.json", r#"{"type": "Feature"}"#);
-        project.write(".gdd/changes/a/outputs/reviewer-1.md", "VERDICT: KO\n");
-        project.write(".gdd/changes/a/outputs/reviewer-2.md", "VERDICT: OK\n");
-        project.write(".gdd/changes/a/outputs/builder-1.md", "VERDICT: KO\n");
-        project.write(".gdd/changes/b/outputs/reviewer-1.md", "no verdict\n");
+        project.write(".tminus/changes/a/change.json", r#"{"type": "Hotfix"}"#);
+        project.write(".tminus/changes/b/change.json", r#"{"type": "Feature"}"#);
+        project.write(".tminus/changes/a/outputs/reviewer-1.md", "VERDICT: KO\n");
+        project.write(".tminus/changes/a/outputs/reviewer-2.md", "VERDICT: OK\n");
+        project.write(".tminus/changes/a/outputs/builder-1.md", "VERDICT: KO\n");
+        project.write(".tminus/changes/b/outputs/reviewer-1.md", "no verdict\n");
         let out = json(&project.run("report --dora --json"));
         assert_eq!(out["rework_rate"], 0.5);
         assert_eq!(out["reviewer_ko_rate"], 0.5);
@@ -3333,7 +3332,7 @@ mod tests {
         let json = project.run("report --time --json").stdout;
         let junk = "{\"change\": \"a\"}\nnot gdd's";
         project.write(log::PATH, &format!("{TIMED}\n{junk}\n"));
-        let said = "2 lines of the log are not one of gdd's: left out\n";
+        let said = "2 lines of the log are not one of tminus's: left out\n";
         let out = project.run("report --time");
         assert_eq!(out, Outcome::success(format!("{timed}{said}")));
         let out = project.run("report --dora");
@@ -3342,7 +3341,7 @@ mod tests {
         assert_eq!((out.stdout, out.stderr.as_str()), (json, said));
         let forged = r#"{"ts": "2026-10-29T09:40:00+00:00", "change": "b", "cost_usd": -1}"#;
         project.write(log::PATH, &format!("{TIMED}{forged}\n"));
-        let one = "1 line of the log is not one of gdd's: left out\n";
+        let one = "1 line of the log is not one of tminus's: left out\n";
         let out = project.run("report --time");
         assert_eq!(out.stdout, format!("{timed}{one}"));
         // A line that opens an object but is not JSON is left out too.
@@ -3361,7 +3360,7 @@ mod tests {
         assert_eq!(out.code, 1);
         assert!(
             out.stderr
-                .starts_with("error: cannot read .gdd/log.jsonl: "),
+                .starts_with("error: cannot read .tminus/log.jsonl: "),
             "{out:?}"
         );
     }
@@ -3371,7 +3370,7 @@ mod tests {
     fn project_with_change(record: &str) -> Project {
         let project = Project::new();
         project.write(ZONES, ZONE_MAP);
-        project.write(".gdd/changes/save/change.json", record);
+        project.write(".tminus/changes/save/change.json", record);
         project
     }
 
@@ -3393,7 +3392,7 @@ mod tests {
         branch.write(PATH, "[session]\nbuilder = \"joint\"\n");
         for (root, state) in [(&branch, &main), (&main, &branch)] {
             let err = load_models_with_session(&root.0, &state.0).unwrap_err();
-            assert!(err.starts_with("gdd/models.toml: "), "{err}");
+            assert!(err.starts_with("tminus/models.toml: "), "{err}");
             assert!(err.contains(refused), "{err}");
         }
     }
@@ -3451,7 +3450,7 @@ mod tests {
         let project = project_with_change(
             r#"{"type": "Refactor", "paths": ["src/storage/a.rs"], "features": ["features/x.feature"]}"#,
         );
-        project.write("gdd/models.toml", MODELS);
+        project.write("tminus/models.toml", MODELS);
         project.write(RULES, "[limits]\nbuilder_retries = 5\n");
         let decision = json(&project.run("classify save"));
         assert_eq!(decision["type"], "Refactor");
@@ -3464,19 +3463,19 @@ mod tests {
         assert_eq!(decision["g1"], true);
         let features = serde_json::json!(["features/x.feature"]);
         assert_eq!(decision["features"], features);
-        project.write("gdd/models.toml", "[reviewer\n");
+        project.write("tminus/models.toml", "[reviewer\n");
         let out = project.run("classify save");
-        let start = "error: gdd/models.toml: invalid TOML";
+        let start = "error: tminus/models.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
-        project.write("gdd/models.toml", MODELS);
+        project.write("tminus/models.toml", MODELS);
         project.write(RULES, "[limits]\nbuilder_retries = \"5\"\n");
         let out = project.run("classify save");
-        let start = "error: gdd/rules.toml: invalid TOML";
+        let start = "error: tminus/rules.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
         project.write(RULES, "");
-        project.write(".gdd/changes/save/change.json", r#"{"type": 3}"#);
+        project.write(".tminus/changes/save/change.json", r#"{"type": 3}"#);
         let out = project.run("classify save");
-        let start = "error: .gdd/changes/save/change.json: invalid type";
+        let start = "error: .tminus/changes/save/change.json: invalid type";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -3485,7 +3484,7 @@ mod tests {
         let record = r#"{"type": "Spike", "paths": ["src/storage/a.rs"],
                          "features": ["features/x.feature"]}"#;
         let project = project_with_change(record);
-        project.write("gdd/models.toml", MODELS);
+        project.write("tminus/models.toml", MODELS);
         let decision = json(&project.run("classify save"));
         assert_eq!(decision["type"], "Spike");
         assert_eq!(decision["color"], "red");
@@ -3518,7 +3517,7 @@ mod tests {
     fn classify_without_zone_map_or_rules_takes_the_tables_of_the_tool() {
         let project = Project::new();
         project.write(
-            ".gdd/changes/save/change.json",
+            ".tminus/changes/save/change.json",
             r#"{"paths": ["a.rs"], "resumable": true}"#,
         );
         let decision = json(&project.run("classify save"));
@@ -3541,7 +3540,7 @@ mod tests {
         assert_eq!(
             out,
             Outcome::failure(
-                "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n"
+                "error: change nope does not exist: there is no .tminus/changes/nope/change.json\n"
                     .into()
             )
         );
@@ -3569,7 +3568,7 @@ mod tests {
         assert_eq!(out.code, 1);
         assert!(
             out.stderr
-                .starts_with("error: .gdd/changes/save/change.json: unknown color \"purple\""),
+                .starts_with("error: .tminus/changes/save/change.json: unknown color \"purple\""),
             "{out:?}"
         );
 
@@ -3578,7 +3577,7 @@ mod tests {
         let out = project.run("classify save");
         assert_eq!(
             out.stderr,
-            "error: gdd/zones.toml: unknown color \"blue\" (use green, yellow or red)\n"
+            "error: tminus/zones.toml: unknown color \"blue\" (use green, yellow or red)\n"
         );
 
         let project = project_with_change("{}");
@@ -3586,18 +3585,18 @@ mod tests {
         let out = project.run("classify save");
         assert_eq!(
             out.stderr,
-            "error: gdd/rules.toml: unknown color \"purple\" (use green, yellow or red)\n"
+            "error: tminus/rules.toml: unknown color \"purple\" (use green, yellow or red)\n"
         );
     }
 
     #[test]
     fn classify_a_record_that_cannot_be_read_is_an_error() {
         let project = Project::new();
-        fs::create_dir_all(project.0.join(".gdd/changes/save/change.json")).unwrap();
+        fs::create_dir_all(project.0.join(".tminus/changes/save/change.json")).unwrap();
         let out = project.run("classify save");
         assert!(
             out.stderr
-                .starts_with("error: cannot read .gdd/changes/save/change.json: "),
+                .starts_with("error: cannot read .tminus/changes/save/change.json: "),
             "{out:?}"
         );
     }
@@ -3626,7 +3625,7 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
-    const PROTECTED: &str = "[protected]\nall = [\"gdd/**\"]\nbuilder_test = [\"src/**\"]\n";
+    const PROTECTED: &str = "[protected]\nall = [\"tminus/**\"]\nbuilder_test = [\"src/**\"]\n";
 
     /// A project in a git repository: its files on `main`, then change `save`, which plans
     /// `src/a.rs`, started on its branch.
@@ -3646,7 +3645,7 @@ mod tests {
         git(&project, &["checkout", "-q", "-b", "change/save"]);
         let start = git(&project, &["rev-parse", "HEAD"]);
         let record = format!(r#"{{"paths": ["src/a.rs"], "build_start": "{start}"}}"#);
-        project.write(".gdd/changes/save/change.json", &record);
+        project.write(".tminus/changes/save/change.json", &record);
         project
     }
 
@@ -3677,8 +3676,8 @@ mod tests {
         let verdict = serde_json::json!({
             "ok": false,
             "failures": [
-                "gdd/zones.toml: protected path for builder-test",
                 "src/a.rs: protected path for builder-test",
+                "tminus/zones.toml: protected path for builder-test",
             ],
         });
         assert_eq!(
@@ -3692,7 +3691,7 @@ mod tests {
         let builder = json(&project.run("guard save"));
         assert_eq!(
             builder["failures"],
-            serde_json::json!(["gdd/zones.toml: protected path for builder"])
+            serde_json::json!(["tminus/zones.toml: protected path for builder"])
         );
     }
 
@@ -3702,7 +3701,7 @@ mod tests {
         project.write("src/a.rs", "1\n");
         let out = project.run("snapshot save");
         assert_eq!(out, Outcome::success("{\"ok\":true}\n".into()));
-        let path = project.0.join(".gdd/changes/save/snapshot.json");
+        let path = project.0.join(".tminus/changes/save/snapshot.json");
         let saved = fs::read_to_string(path).unwrap();
         let hash = guard::file_hash(&project.0.join("src/a.rs")).unwrap();
         assert_eq!(saved, format!("{{\n  \"src/a.rs\": \"{hash}\"\n}}\n"));
@@ -3714,9 +3713,9 @@ mod tests {
         );
         let all = json(&project.run("guard save --role builder-test"));
         assert_eq!(all["failures"].as_array().map(Vec::len), Some(2));
-        project.write(".gdd/changes/save/snapshot.json", "{not json");
+        project.write(".tminus/changes/save/snapshot.json", "{not json");
         let out = project.run("guard save --role builder-test --since-snapshot");
-        let expected = "error: .gdd/changes/save/snapshot.json: ";
+        let expected = "error: .tminus/changes/save/snapshot.json: ";
         assert_eq!(out.code, 1);
         assert!(out.stderr.starts_with(expected), "{out:?}");
         assert_eq!(project.run("guard save --role builder-test").code, 0);
@@ -3729,7 +3728,7 @@ mod tests {
         let out = project.run("guard save --role builder-build --strict");
         assert_eq!(out.code, 1, "{out:?}");
         let printed: serde_json::Value = serde_json::from_str(&out.stdout).unwrap();
-        let failure = "gdd/rules.toml: protected path for builder-build";
+        let failure = "tminus/rules.toml: protected path for builder-build";
         assert_eq!(printed["failures"], serde_json::json!([failure]));
         project.write(RULES, PROTECTED);
         project.write("src/steps.rs", "x\n");
@@ -3788,7 +3787,7 @@ mod tests {
         let invalid =
             "error: invalid change id \"Save\": use lowercase letters, digits and hyphens\n";
         let missing =
-            "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n";
+            "error: change nope does not exist: there is no .tminus/changes/nope/change.json\n";
         for command in ["guard", "scope", "snapshot"] {
             let out = project.run(&format!("{command} Save"));
             assert_eq!(out, Outcome::failure(invalid.into()), "{command}");
@@ -3811,11 +3810,12 @@ mod tests {
     #[test]
     fn guard_names_a_rules_file_that_is_wrong() {
         let project = started_project();
-        project.write(RULES, "[protected]\nall = \"gdd/**\"\n");
+        project.write(RULES, "[protected]\nall = \"tminus/**\"\n");
         for command in ["guard save", "classify save", "g2 save"] {
             let out = project.run(command);
             assert_eq!(out.code, 1, "{command}");
-            assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
+            let rules = "error: tminus/rules.toml: ";
+            assert!(out.stderr.starts_with(rules), "{out:?}");
         }
     }
 
@@ -3840,7 +3840,7 @@ mod tests {
         assert_eq!(failure["name"], "unit");
         assert_eq!(failure["code"], 2);
         assert_eq!(failure["tail"], "boom\n");
-        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g2.json")).unwrap();
+        let saved = fs::read_to_string(project.0.join(".tminus/changes/save/g2.json")).unwrap();
         let head = "{\n  \"ok\": false,\n  \"gate\": \"G2\",\n";
         assert!(saved.starts_with(head), "{saved}");
         assert!(saved.ends_with("}\n"));
@@ -3891,14 +3891,14 @@ mod tests {
         env.push(("GDD_ROLE".to_string(), "builder-build".to_string()));
         let command = words("g2 save --role builder-build");
         let printed = json(&run_with_env(&command, &project.0, &env));
-        let path = project.0.join(".gdd/changes/save/g2.json");
+        let path = project.0.join(".tminus/changes/save/g2.json");
         let saved: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(saved, printed);
         // G3 is the recipe's: an agent cannot run it.
         let g3 = run_with_env(&words("g3 save --role builder-build"), &project.0, &env);
         assert_eq!(g3, agent_refusal("g3"));
-        assert!(!project.0.join(".gdd/changes/save/g3.json").exists());
+        assert!(!project.0.join(".tminus/changes/save/g3.json").exists());
         assert_eq!(fs::read_to_string(project.0.join(log::PATH)).unwrap(), LOG);
     }
 
@@ -3912,7 +3912,7 @@ mod tests {
         let passed = ["acceptance", "path-guard", "scenarios (1)", "exceptions"];
         assert_eq!(printed["passed"], serde_json::json!(passed));
         assert_eq!(out.stderr, "");
-        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g3.json")).unwrap();
+        let saved = fs::read_to_string(project.0.join(".tminus/changes/save/g3.json")).unwrap();
         let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved, printed);
         let records = log_records(&project);
@@ -3933,7 +3933,7 @@ mod tests {
         assert_eq!(out.stderr, format!("{line}\n"));
         let printed = json(&out);
         assert_eq!(printed["added_exceptions"], serde_json::json!([line]));
-        let saved = fs::read_to_string(project.0.join(".gdd/changes/save/g3.json")).unwrap();
+        let saved = fs::read_to_string(project.0.join(".tminus/changes/save/g3.json")).unwrap();
         let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
         assert_eq!(saved, printed);
         let inbox = project.run("inbox save").stdout;
@@ -3959,7 +3959,7 @@ mod tests {
         let printed = json(&project.run("g2 save --role builder-build"));
         assert_eq!(printed["ok"], true, "{printed}");
         assert_eq!(printed["out_of_scope"], serde_json::json!(["docs/x.md"]));
-        let path = project.0.join(".gdd/changes/save/change.json");
+        let path = project.0.join(".tminus/changes/save/change.json");
         let text = fs::read_to_string(&path).unwrap();
         let record: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(record["out_of_scope"], serde_json::json!(["docs/x.md"]));
@@ -4000,7 +4000,7 @@ mod tests {
     #[test]
     fn the_g2_of_a_spike_runs_no_command_and_wants_its_adr() {
         let project = started_with_commands("[g2]\nlint = \"touch ran\"\n");
-        let path = ".gdd/changes/save/change.json";
+        let path = ".tminus/changes/save/change.json";
         let text = fs::read_to_string(project.0.join(path)).unwrap();
         project.write(path, &text.replacen('{', r#"{"type": "Spike", "#, 1));
         let printed = json(&project.run("g2 save --role builder-build"));
@@ -4017,8 +4017,8 @@ mod tests {
     #[test]
     fn build_mode_is_judged_from_the_snapshot_taken_after_test_mode() {
         let project = started_with_commands("[g2]\nlint = \"true\"\n");
-        project.write("gdd/notes.toml", "x\n");
-        let guarded = "gdd/notes.toml: protected path for builder-build";
+        project.write("tminus/notes.toml", "x\n");
+        let guarded = "tminus/notes.toml: protected path for builder-build";
         let printed = json(&project.run("g2 save --role builder-build"));
         let tail = format!("{guarded}\nThe gate commands did not run: Path Guard must pass first.");
         assert_eq!(printed["failures"][0]["tail"], tail);
@@ -4027,16 +4027,16 @@ mod tests {
         let record = load_record(&project.0, "save").unwrap();
         let hashes = guard::snapshot(&project.0, "save", &record).unwrap();
         let build = serde_json::to_string(&hashes).unwrap();
-        project.write(".gdd/changes/save/snapshot-build.json", &build);
+        project.write(".tminus/changes/save/snapshot-build.json", &build);
         let printed = json(&project.run("g2 save --role builder-build"));
         assert_eq!(printed["ok"], true, "{printed}");
         let verdict = json(&project.run("guard save --role builder-build"));
         assert_eq!(verdict["ok"], true, "{verdict}");
         let other = json(&project.run("guard save --role builder-test --since-snapshot"));
         assert_eq!(other["ok"], false, "{other}");
-        project.write(".gdd/changes/save/snapshot-build.json", "{not json");
+        project.write(".tminus/changes/save/snapshot-build.json", "{not json");
         let out = project.run("g2 save --role builder-build");
-        let expected = "error: .gdd/changes/save/snapshot-build.json: ";
+        let expected = "error: .tminus/changes/save/snapshot-build.json: ";
         assert!(out.stderr.starts_with(expected), "{out:?}");
     }
 
@@ -4045,25 +4045,25 @@ mod tests {
         let project = started_with_commands("[g2\n");
         let out = project.run("g2 save");
         assert_eq!(out.code, 1);
-        let expected = "error: gdd/commands.toml: invalid TOML: ";
+        let expected = "error: tminus/commands.toml: invalid TOML: ";
         assert!(out.stderr.starts_with(expected), "{out:?}");
         let project = started_with_commands("[g2]\nlint = \"true\"\n");
         project.write(RULES, "[color.purple]\n");
         let out = project.run("g2 save");
-        let expected = "error: gdd/rules.toml: unknown color";
+        let expected = "error: tminus/rules.toml: unknown color";
         assert!(out.stderr.starts_with(expected), "{out:?}");
         let project = started_with_commands("[g2]\nlint = \"true\"\n");
-        fs::create_dir_all(project.0.join(".gdd/changes/save/g2.json")).unwrap();
+        fs::create_dir_all(project.0.join(".tminus/changes/save/g2.json")).unwrap();
         let out = project.run("g2 save");
-        let expected = "error: cannot write .gdd/changes/save/g2.json: ";
+        let expected = "error: cannot write .tminus/changes/save/g2.json: ";
         assert!(out.stderr.starts_with(expected), "{out:?}");
         let project = started_with_commands("[g2]\nlint = \"true\"\n");
         fs::create_dir_all(project.0.join(log::PATH)).unwrap();
         let out = project.run("g2 save");
-        let expected = "error: cannot write .gdd/log.jsonl: ";
+        let expected = "error: cannot write .tminus/log.jsonl: ";
         assert!(out.stderr.starts_with(expected), "{out:?}");
         let project = started_with_commands("[g2]\nlint = \"true\"\n");
-        let main = "main_branch = \"trunk\"\n[protected]\nall = [\"gdd/**\"]\n";
+        let main = "main_branch = \"trunk\"\n[protected]\nall = [\"tminus/**\"]\n";
         project.write(RULES, main);
         let out = project.run("g3 save");
         assert!(out.stderr.starts_with("error: git diff "), "{out:?}");
@@ -4075,7 +4075,7 @@ mod tests {
         for gate in ["g2", "g3"] {
             let out = project.run(&format!("{gate} nope"));
             let missing =
-                "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n";
+                "error: change nope does not exist: there is no .tminus/changes/nope/change.json\n";
             assert_eq!(out, Outcome::failure(missing.into()), "{gate}");
             let out = project.run(&format!("{gate} Save"));
             assert!(out.stderr.starts_with("error: invalid change id"), "{gate}");
@@ -4087,7 +4087,7 @@ mod tests {
         let project = started_with_commands("[g2]\nlint = \"true\"\n[g3]\nlint = \"true\"\n");
         let missing = Outcome::failure(format!("error: {MISSING_CHANGE}\n"));
         let unknown =
-            "error: change nope does not exist: there is no .gdd/changes/nope/change.json\n";
+            "error: change nope does not exist: there is no .tminus/changes/nope/change.json\n";
         let invalid =
             "error: invalid change id \"Save\": use lowercase letters, digits and hyphens\n";
         for command in [
@@ -4130,8 +4130,9 @@ mod tests {
     #[test]
     fn selftest_prints_its_checks_saves_them_and_fails_unless_all_pass() {
         let project = Project::new();
-        project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
-        project.write(".github/workflows/gdd.yml", "run: gdd ci\n");
+        let protected = "[protected]\nall = [\"tminus/**\", \".github/**\"]\n";
+        project.write(RULES, protected);
+        project.write(".github/workflows/tminus.yml", "run: tminus ci\n");
         project.write(COMMANDS, SELFTEST_COMMANDS);
         let out = project.run("selftest");
         assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
@@ -4150,15 +4151,16 @@ mod tests {
         assert!(out.stdout.ends_with("\nharness 3/4\n"), "{out:?}");
         project.write(COMMANDS, "[selftest\n");
         let out = project.run("selftest");
-        let start = "error: gdd/commands.toml: invalid TOML";
+        let start = "error: tminus/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
     /// A project whose self-test passes, its G2 command `unit`.
     fn selftest_project(unit: &str) -> Project {
         let project = Project::new();
-        project.write(RULES, "[protected]\nall = [\"gdd/**\", \".github/**\"]\n");
-        project.write(".github/workflows/gdd.yml", "run: gdd ci\n");
+        let protected = "[protected]\nall = [\"tminus/**\", \".github/**\"]\n";
+        project.write(RULES, protected);
+        project.write(".github/workflows/tminus.yml", "run: tminus ci\n");
         let unit = format!("unit = \"{unit}\"");
         project.write(COMMANDS, &SELFTEST_COMMANDS.replace(SELFTEST_UNIT, &unit));
         project
@@ -4215,7 +4217,7 @@ mod tests {
     }
 
     fn agent_refusal(name: &str) -> Outcome {
-        let refused = format!("Agents that gdd started cannot run gdd {name}: {FOR_AGENTS}");
+        let refused = format!("Agents that tminus started cannot run tminus {name}: {FOR_AGENTS}");
         Outcome::error(&refused)
     }
 
@@ -4305,6 +4307,55 @@ mod tests {
         assert_eq!(out.code, 0, "{out:?}");
     }
 
+    /// The environment of `pairs`.
+    fn env_of(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        let owned = |&(name, value): &(&str, &str)| (name.to_string(), value.to_string());
+        pairs.iter().map(owned).collect()
+    }
+
+    #[test]
+    fn a_tminus_variable_comes_before_its_gdd_twin_unless_it_is_empty() {
+        let id = |pairs: &[(&str, &str)]| change_id(None, &env_of(pairs));
+        assert_eq!(id(&[("GDD_CHANGE", "old")]), Ok("old".to_string()));
+        assert_eq!(id(&[("TMINUS_CHANGE", "new")]), Ok("new".to_string()));
+        let both = [("TMINUS_CHANGE", "new"), ("GDD_CHANGE", "old")];
+        assert_eq!(id(&both), Ok("new".to_string()));
+        let empty = [("TMINUS_CHANGE", ""), ("GDD_CHANGE", "old")];
+        assert_eq!(id(&empty), Ok("old".to_string()));
+        let none = [("TMINUS_CHANGE", ""), ("GDD_CHANGE", "")];
+        assert_eq!(id(&none), Err(MISSING_CHANGE.to_string()));
+        assert_eq!(id(&[]), Err(MISSING_CHANGE.to_string()));
+        // The last one set counts, and what is given comes first.
+        let twice = [("TMINUS_CHANGE", "a"), ("TMINUS_CHANGE", "b")];
+        assert_eq!(id(&twice), Ok("b".to_string()));
+        let given = change_id(Some("c".to_string()), &env_of(&both));
+        assert_eq!(given, Ok("c".to_string()));
+        assert_eq!(
+            MISSING_CHANGE,
+            "missing change id (argument or TMINUS_CHANGE)"
+        );
+    }
+
+    #[test]
+    fn either_name_of_the_role_makes_a_run_an_agents() {
+        let role = |pairs: &[(&str, &str)]| role_in(&env_of(pairs)).map(str::to_string);
+        let some = |role: &str| Some(role.to_string());
+        assert_eq!(role(&[("GDD_ROLE", "reviewer")]), some("reviewer"));
+        assert_eq!(role(&[("TMINUS_ROLE", "builder")]), some("builder"));
+        let both = [("TMINUS_ROLE", "builder"), ("GDD_ROLE", "reviewer")];
+        assert_eq!(role(&both), some("builder"));
+        // Any value, even an empty one, is an agent's.
+        assert_eq!(role(&[("TMINUS_ROLE", "")]), some(""));
+        assert_eq!(role(&[("PATH", "/bin")]), None);
+        let project = committed_project();
+        let new_change = words("new-change c1 --title Drafts");
+        for name in ["TMINUS_ROLE", "GDD_ROLE"] {
+            let env = env_of(&[(name, "orchestrator")]);
+            let out = run_with_env(&new_change, &project.0, &env);
+            assert_eq!(out, agent_refusal("new-change"), "{name}");
+        }
+    }
+
     /// A standard stream as a test watches it: each write, and each flush, as they happen.
     struct Watched(std::sync::mpsc::Sender<String>);
 
@@ -4363,9 +4414,9 @@ mod tests {
         let project = selftest_project("true");
         let root = project.0.as_path();
         let record = r#"{"id": "c1", "gates": {"G1": {"decision": "ko", "by": "human"}}}"#;
-        project.write(".gdd/changes/c1/change.json", record);
+        project.write(".tminus/changes/c1/change.json", record);
         assert!(save_inbox(root, "c1").is_ok());
-        let saved = fs::read_to_string(root.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let saved = fs::read_to_string(root.join(".tminus/changes/c1/inbox.md")).unwrap();
         assert!(saved.contains("## Your decisions\n- G1 ko"), "{saved}");
         let missing = save_inbox(root, "nope").unwrap_err();
         assert!(missing.contains("change.json"), "{missing}");
@@ -4449,14 +4500,14 @@ mod tests {
         let passed = "G2 green\nG3 green\nCI passed\n";
         assert_eq!(ci("change/c1"), Outcome::success(passed.into()));
         git(&project, &["checkout", "-q", "-b", "change/c1"]);
-        project.write("gdd/x.toml", "x\n");
+        project.write("tminus/x.toml", "x\n");
         git(&project, &["add", "-A"]);
         git(&project, &["commit", "-q", "-m", "harness"]);
-        let failed = "gdd/x.toml: harness path changed inside a change\n\
+        let failed = "tminus/x.toml: harness path changed inside a change\n\
                       G2 green\nG3 green\nCI failed\n";
         let out = ci("");
         assert_eq!((out.code, out.stdout.as_str()), (1, failed));
-        assert!(!project.0.join(".gdd").exists());
+        assert!(!project.0.join(".tminus").exists());
     }
 
     #[test]
@@ -4494,32 +4545,32 @@ mod tests {
         let env = [("HOME".to_string(), home.0.display().to_string())];
         let session = words("session --phase 1-discover");
         // A models file gdd cannot read, or cannot parse, imports nothing.
-        let models = project.0.join("gdd/models.toml");
+        let models = project.0.join("tminus/models.toml");
         fs::create_dir_all(&models).unwrap();
         let out = run_with_env(&session, &project.0, &env);
         assert_eq!(out.code, 1);
-        let unread = "error: cannot read gdd/models.toml: ";
+        let unread = "error: cannot read tminus/models.toml: ";
         assert!(out.stderr.starts_with(unread), "{}", out.stderr);
         fs::remove_dir(&models).unwrap();
-        project.write("gdd/models.toml", "[prices.m\n");
+        project.write("tminus/models.toml", "[prices.m\n");
         let out = run_with_env(&session, &project.0, &env);
-        let invalid = "error: gdd/models.toml: invalid TOML";
+        let invalid = "error: tminus/models.toml: invalid TOML";
         assert!(out.stderr.starts_with(invalid), "{}", out.stderr);
         assert!(!project.0.join(log::PATH).exists());
         // A price that is not a number of dollars imports nothing and marks no request.
         for (price, shown) in [("nan", "NaN"), ("inf", "inf"), ("-1", "-1")] {
             let models = format!("[prices.m]\noutput = {price}\n");
-            project.write("gdd/models.toml", &models);
+            project.write("tminus/models.toml", &models);
             let out = run_with_env(&session, &project.0, &env);
             let refused = format!(
-                "error: gdd/models.toml: invalid TOML: prices.m.output must be a number 0 or \
+                "error: tminus/models.toml: invalid TOML: prices.m.output must be a number 0 or \
                  more, not {shown}\n"
             );
             assert_eq!(out, Outcome::failure(refused));
             assert!(!project.0.join(log::PATH).exists());
-            assert!(!project.0.join(".gdd/imported_requests.json").exists());
+            assert!(!project.0.join(".tminus/imported_requests.json").exists());
         }
-        project.write("gdd/models.toml", "[prices.m]\noutput = 1000000\n");
+        project.write("tminus/models.toml", "[prices.m]\noutput = 1000000\n");
         let out = run_with_env(&session, &project.0, &env);
         assert_eq!(out.code, 0, "{}", out.stderr);
         let records = log_records(&project);
@@ -4705,7 +4756,7 @@ mod tests {
         assert_eq!(again, exists);
         assert_eq!(record_of(&project, "c1")["title"], "First");
         // The branch of a change whose record went away is kept as it is.
-        fs::remove_dir_all(project.0.join(".gdd/changes/c1")).unwrap();
+        fs::remove_dir_all(project.0.join(".tminus/changes/c1")).unwrap();
         git(&project, &["checkout", "-q", "change/c1"]);
         project.write("x.rs", "x\n");
         git(&project, &["add", "--", "x.rs"]);
@@ -4764,7 +4815,7 @@ mod tests {
     fn gate_and_status_show_g0_and_the_red_zones() {
         let project = committed_project();
         let selftest = r#"{"ok": true, "summary": "harness 4/4"}"#;
-        project.write(".gdd/selftest.json", selftest);
+        project.write(".tminus/selftest.json", selftest);
         project.write("docs/brief.md", "# Brief\n");
         let g0 = project.run("gate G0 ok --by machines");
         assert_eq!(g0.stdout, "G0 ok (machines).\n");
@@ -4783,7 +4834,7 @@ mod tests {
             "Known debt: none\n",
             "Changes:\n",
             "  - c1 · Drafts · open · plan:ok\n",
-            "Log: 4 lines in .gdd/log.jsonl (gdd report)\n"
+            "Log: 4 lines in .tminus/log.jsonl (tminus report)\n"
         );
         assert_eq!(project.run("status"), Outcome::success(expected.into()));
         let wider = "[[zone]]\ncolor = \"red\"\npaths = [\"src/**\"]\n";
@@ -4799,9 +4850,9 @@ mod tests {
         let expected = concat!(
             "Project: demo · language en · platform ?\n",
             "Brief: missing (Setup writes it)\n",
-            "G0: pending · G0 pending: run the Setup (the gdd-setup command).\n",
+            "G0: pending · G0 pending: run the Setup (the tminus-setup command).\n",
             "Red zones: pending · Red zones not approved yet: the Setup asks you to approve them ",
-            "(the gdd-setup command).\n",
+            "(the tminus-setup command).\n",
             "Harness self-test: not run\n",
             "Scenarios in features/: 0\n",
             "Security exceptions: none\n",
@@ -4816,7 +4867,7 @@ mod tests {
         assert!(out.stdout.contains(line), "{out:?}");
         project.write(debt::PATH, "[[debt]");
         let out = project.run("status");
-        let line = "\nKnown debt: gdd/debt.toml: invalid TOML: ";
+        let line = "\nKnown debt: tminus/debt.toml: invalid TOML: ";
         assert_eq!(out.code, 0, "{out:?}");
         assert!(out.stdout.contains(line), "{out:?}");
     }
@@ -4830,13 +4881,14 @@ mod tests {
         let out = project.run("adopt");
         assert_eq!((out.code, out.stderr.as_str()), (0, ""), "{out:?}");
         let start = "Passed: unit\nKnown debt: lint\nProposed Refactors, riskiest first:\n  \
-                     1. debt-lint · Pay the known debt of lint · .gdd/adoption/lint.txt\n";
+                     1. debt-lint · Pay the known debt of lint · .tminus/adoption/lint.txt\n";
         assert!(out.stdout.starts_with(start), "{out:?}");
-        assert!(out.stdout.ends_with("($gdd-change in Codex).\n"), "{out:?}");
-        let kept = fs::read_to_string(project.0.join(".gdd/adoption/lint.txt")).unwrap();
+        let create = "($tminus-change in Codex).\n";
+        assert!(out.stdout.ends_with(create), "{out:?}");
+        let kept = fs::read_to_string(project.0.join(".tminus/adoption/lint.txt")).unwrap();
         assert_eq!(kept, "unused import\n");
         let subject = git(&project, &["log", "-1", "--format=%s"]);
-        assert_eq!(subject, "gdd adopt: known debt in lint");
+        assert_eq!(subject, "tminus adopt: known debt in lint");
         let status = project.run("status").stdout;
         let since = exceptions::today();
         let line = format!("  - lint · since {since} · Refactor debt-lint\n");
@@ -4844,11 +4896,11 @@ mod tests {
         assert!(status.contains(&format!("{listed}{line}")), "{status}");
         let again = project.run("adopt");
         let refused = format!("error: this project was already adopted on {since}");
-        let refused = format!("{refused} (gdd/debt.toml)\n");
+        let refused = format!("{refused} (tminus/debt.toml)\n");
         assert_eq!(again, Outcome::failure(refused));
         project.write(COMMANDS, "[g2\n");
         let out = project.run("adopt");
-        let start = "error: gdd/commands.toml: invalid TOML";
+        let start = "error: tminus/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -4856,11 +4908,11 @@ mod tests {
     fn status_lists_the_change_folders_with_a_record_in_order() {
         let project = Project::new();
         let second = r#"{"id": "b2", "title": "Two"}"#;
-        project.write(".gdd/changes/b2/change.json", second);
+        project.write(".tminus/changes/b2/change.json", second);
         let first = r#"{"id": "a1", "state": "parked"}"#;
-        project.write(".gdd/changes/a1/change.json", first);
-        project.write(".gdd/changes/c3/notes.md", "no record\n");
-        project.write(".gdd/changes/README", "not a change\n");
+        project.write(".tminus/changes/a1/change.json", first);
+        project.write(".tminus/changes/c3/notes.md", "no record\n");
+        project.write(".tminus/changes/README", "not a change\n");
         let out = project.run("status");
         let a1 = "  - a1 ·  · parked · no gates yet";
         let b2 = "  - b2 · Two · open · no gates yet";
@@ -4877,11 +4929,11 @@ mod tests {
         let project = Project::new();
         project.write(CHANGES, "not a folder\n");
         let out = project.run("status");
-        let start = "error: cannot read .gdd/changes: ";
+        let start = "error: cannot read .tminus/changes: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
         project.write(PROJECT, "name = ");
         let out = project.run("status");
-        let start = "error: gdd/project.toml: invalid TOML: ";
+        let start = "error: tminus/project.toml: invalid TOML: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -4906,7 +4958,7 @@ mod tests {
         let env = [("PATH".to_string(), path)];
         let out = run_with_env(&words("status"), &project.0, &env);
         let line = "\nA second model family is on this machine (codex): set it as the Reviewer \
-                    in gdd/models.toml\n";
+                    in tminus/models.toml\n";
         assert!(out.stdout.ends_with(line), "{out:?}");
         let models = format!("{roles}{families}");
         project.write(agents::models::PATH, &models);
@@ -4915,7 +4967,7 @@ mod tests {
         assert!(!out.stdout.contains("second model family"), "{out:?}");
         project.write(agents::models::PATH, "[reviewer");
         let out = run_with_env(&words("status"), &project.0, &env);
-        let start = "error: gdd/models.toml: invalid TOML: ";
+        let start = "error: tminus/models.toml: invalid TOML: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -4929,13 +4981,13 @@ mod tests {
         let out = project.run("inbox c1");
         let expected = concat!(
             "# Decision Inbox · c1 · Drafts\n\n",
-            "Color and lane not decided yet (gdd decides them at launch) · state open\n\n",
+            "Color and lane not decided yet (tminus decides them at launch) · state open\n\n",
             "## Needs your decision\n- Pick a --name\n\n",
             "## Decided without you\n- Kept it\n\n",
             "## Parked\n- Nothing.\n"
         );
         assert_eq!(out, Outcome::success(expected.into()));
-        let saved = fs::read_to_string(project.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let saved = fs::read_to_string(project.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         assert_eq!(saved, expected);
         let record = record_of(&project, "c1");
         assert_eq!(record["inbox"][1]["kind"], "decided");
@@ -4987,7 +5039,8 @@ mod tests {
         assert!(out.stderr.starts_with(start), "{out:?}");
         assert_eq!(record_of(&project, "c1")["changelog"], none);
         let out = project.run("changelog-line c9 --none");
-        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        let missing =
+            "error: change c9 does not exist: there is no .tminus/changes/c9/change.json\n";
         assert_eq!(out, Outcome::failure(missing.into()));
     }
 
@@ -4999,17 +5052,17 @@ mod tests {
         let out = project.run("changelog");
         assert_eq!(out.code, 0, "{out:?}");
         let start =
-            "Missing from CHANGELOG.md:\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- gdd: ";
+            "Missing from CHANGELOG.md:\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- tminus:";
         assert!(out.stdout.starts_with(start), "{out:?}");
-        let end = "\n\nNothing written: gdd changelog --write adds them.\n";
+        let end = "\n\nNothing written: tminus changelog --write adds them.\n";
         assert!(out.stdout.ends_with(end), "{out:?}");
         assert!(!project.0.join("CHANGELOG.md").exists());
         let out = project.run("changelog --check");
         assert_eq!(out.code, 1, "{out:?}");
-        let failed = "error: CHANGELOG.md misses 1 line(s): gdd changelog shows them, gdd \
+        let failed = "error: CHANGELOG.md misses 1 line(s): tminus changelog shows them, tminus \
                       changelog --write adds them\n";
         assert_eq!(out.stderr, failed);
-        assert!(out.stdout.contains("- Crash <!-- gdd: "), "{out:?}");
+        assert!(out.stdout.contains("- Crash <!-- tminus:"), "{out:?}");
         assert!(!project.0.join("CHANGELOG.md").exists());
         let out = project.run("changelog --write --check");
         assert_ne!(out.code, 0, "{out:?}");
@@ -5019,7 +5072,7 @@ mod tests {
         let said = "CHANGELOG.md: 1 line(s) added, nothing else changed.\n";
         assert_eq!(out, Outcome::success(said.into()));
         let text = fs::read_to_string(project.0.join("CHANGELOG.md")).unwrap();
-        let end = "# My own notes\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- gdd: ";
+        let end = "# My own notes\n\n## [Unreleased]\n\n### Fixed\n\n- Crash <!-- tminus:";
         assert!(text.starts_with(end), "{text}");
         for command in ["changelog", "changelog --check", "changelog --write"] {
             let out = project.run(command);
@@ -5032,25 +5085,26 @@ mod tests {
         assert!(out.stderr.starts_with("error: git log "), "{out:?}");
         project.write(RULES, "main_branch = [\n");
         let out = project.run("changelog");
-        assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
+        let rules = "error: tminus/rules.toml: ";
+        assert!(out.stderr.starts_with(rules), "{out:?}");
     }
 
     #[test]
     fn notes_and_the_inbox_need_a_record_they_can_read() {
         let project = Project::new();
-        let path = ".gdd/changes/c9/change.json";
+        let path = ".tminus/changes/c9/change.json";
         let missing = format!("error: change c9 does not exist: there is no {path}\n");
         for command in ["note c9 needs Something", "inbox c9"] {
             let out = project.run(command);
             assert_eq!(out, Outcome::failure(missing.clone()), "{command}");
         }
-        project.write(".gdd/changes/c1/change.json", r#"{"inbox": {}}"#);
+        project.write(".tminus/changes/c1/change.json", r#"{"inbox": {}}"#);
         let out = project.run("note c1 needs Something");
-        let start = "error: .gdd/changes/c1/change.json: the field \"inbox\"";
+        let start = "error: .tminus/changes/c1/change.json: the field \"inbox\"";
         assert!(out.stderr.starts_with(start), "{out:?}");
-        project.write(".gdd/changes/c1/change.json", "{not json");
+        project.write(".tminus/changes/c1/change.json", "{not json");
         let out = project.run("inbox c1");
-        let start = "error: .gdd/changes/c1/change.json: ";
+        let start = "error: .tminus/changes/c1/change.json: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -5060,14 +5114,15 @@ mod tests {
         project.run("new-change c1 --title App");
         let out = project.run("park c1 G2 still  red --after 3");
         let message =
-            "Change c1 parked: G2 still red --after 3. Message in .gdd/changes/c1/inbox.md\n";
+            "Change c1 parked: G2 still red --after 3. Message in .tminus/changes/c1/inbox.md\n";
         assert_eq!(out, Outcome::failure(message.into()));
         assert_eq!(record_of(&project, "c1")["state"], "parked");
-        let inbox = fs::read_to_string(project.0.join(".gdd/changes/c1/inbox.md")).unwrap();
+        let inbox = fs::read_to_string(project.0.join(".tminus/changes/c1/inbox.md")).unwrap();
         let parked = "## Parked\n- G2 still red --after 3";
         assert!(inbox.contains(parked), "{inbox}");
         let out = project.run("park c9 Why");
-        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        let missing =
+            "error: change c9 does not exist: there is no .tminus/changes/c9/change.json\n";
         assert_eq!(out, Outcome::failure(missing.into()));
     }
 
@@ -5099,10 +5154,10 @@ mod tests {
         let project = Project::new();
         project.write(RULES, PROTECTED);
         project.write(ZONES, ZONE_MAP);
-        project.write("gdd/models.toml", models);
+        project.write("tminus/models.toml", models);
         project.write(COMMANDS, commands);
         project.write("features/a.feature", "Feature: a\n  Scenario: one\n");
-        project.write(".gitignore", ".gdd/*\n");
+        project.write(".gitignore", ".tminus/*\n");
         git(&project, &["init", "-q", "-b", "main"]);
         identify(&project);
         git(&project, &["add", "-A"]);
@@ -5131,13 +5186,14 @@ mod tests {
         assert_eq!(record["state"], "building");
         assert_eq!(record["decision"]["builder"], sonnet);
         git(&project, &["checkout", "-q", "main"]);
-        let refused = "error: Not on branch change/c1. Launch the change with gdd launch c1.\n";
+        let refused = "error: Not on branch change/c1. Launch the change with tminus launch c1.\n";
         assert_eq!(project.run("prepare c1"), Outcome::failure(refused.into()));
-        let missing = "error: change c9 does not exist: there is no .gdd/changes/c9/change.json\n";
+        let missing =
+            "error: change c9 does not exist: there is no .tminus/changes/c9/change.json\n";
         assert_eq!(project.run("prepare c9"), Outcome::failure(missing.into()));
         project.write(COMMANDS, "[g2\n");
         let out = project.run("prepare c1");
-        let start = "error: gdd/commands.toml: invalid TOML";
+        let start = "error: tminus/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -5170,7 +5226,7 @@ mod tests {
         let out = project.run("prepare c1");
         assert_eq!(out.code, 0, "{out:?}");
         assert_eq!(json(&out)["color"], "red");
-        let g2 = fs::read_to_string(project.0.join(".gdd/changes/c1/g2.json")).unwrap();
+        let g2 = fs::read_to_string(project.0.join(".tminus/changes/c1/g2.json")).unwrap();
         let g2: serde_json::Value = serde_json::from_str(&g2).unwrap();
         assert_eq!(g2["color"], "red", "{g2}");
         // Without a zone map on main, the one checked out counts.
@@ -5196,7 +5252,7 @@ mod tests {
         assert_eq!(merged["detail"]["name"], "deploy_pre");
         assert_eq!(git(&project, &["branch", "--show-current"]), "main");
         let message = git(&project, &["log", "-1", "--format=%B"]);
-        let start = "gdd(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature\n";
+        let start = "tminus(c1): G3 Merge Gate · App\n\nColor: yellow · lane full · type Feature\n";
         assert!(message.starts_with(start), "{message}");
         assert_eq!(record_of(&project, "c1")["state"], "merged");
         for (step, state, said) in [
@@ -5226,10 +5282,10 @@ mod tests {
         assert_eq!(builder, agent_refusal("release"));
         let nothing = "Nothing to release: no change on main carries a changelog line\n";
         assert_eq!(project.run("release"), Outcome::success(nothing.into()));
-        let merge = "gdd(c1): G3 Merge Gate · App\n\nChangelog: Fixed · Crash\nBreaking: no";
+        let merge = "tminus(c1): G3 Merge Gate · App\n\nChangelog: Fixed · Crash\nBreaking: no";
         git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
         let shown = "Next version: v0.1.0 (first version)\n\n### Fixed\n\n- Crash\n\n\
-                     Nothing released: gdd release --yes releases it.\n";
+                     Nothing released: tminus release --yes releases it.\n";
         assert_eq!(project.run("release"), Outcome::success(shown.into()));
         let chosen = project.run("release --version v1.0.0");
         let start = "Next version: v1.0.0 (first version)\n";
@@ -5249,7 +5305,8 @@ mod tests {
         project.write(RULES, &weekly);
         for command in ["release", "release --yes"] {
             let out = project.run(command);
-            assert!(out.stderr.starts_with("error: gdd/rules.toml: "), "{out:?}");
+            let rules = "error: tminus/rules.toml: ";
+            assert!(out.stderr.starts_with(rules), "{out:?}");
         }
     }
 
@@ -5257,7 +5314,7 @@ mod tests {
     fn gdd_release_by_hand_says_apart_that_it_waits_for_the_merge_lock() {
         let project = committed_project();
         identify(&project);
-        let merge = "gdd(c1): G3 Merge Gate · App\n\nChangelog: Added · Export\nBreaking: no";
+        let merge = "tminus(c1): G3 Merge Gate · App\n\nChangelog: Added · Export\nBreaking: no";
         git(&project, &["commit", "-q", "--allow-empty", "-m", merge]);
         let lock = project.0.join(queue::LOCK);
         fs::create_dir_all(lock.parent().unwrap()).unwrap();
@@ -5351,7 +5408,7 @@ mod tests {
         assert_eq!(g3["note"], "automatic chain on top of the latest main");
         git(&project, &["cat-file", "-e", "main:docs/news.md"]);
         let took = git(&project, &["log", "-1", "--format=%s", "main^2"]);
-        assert_eq!(took, "gdd(c1): take the latest main");
+        assert_eq!(took, "tminus(c1): take the latest main");
     }
 
     #[test]
@@ -5474,7 +5531,7 @@ mod tests {
         let [guarded, scoped] = failures.as_slice() else {
             panic!("two failures: {failures:?}");
         };
-        let protected = "gdd/commands.toml: protected path for builder-build";
+        let protected = "tminus/commands.toml: protected path for builder-build";
         assert_eq!(guarded, protected);
         let outside = "src/storage/db.rs: outside the package and red";
         assert!(scoped.starts_with(outside), "{scoped}");
@@ -5482,7 +5539,7 @@ mod tests {
         project.write(RULES, "[protected\n");
         let failures = earlier_failures(root, root, "save", &[]).unwrap().unwrap();
         assert_eq!(failures.len(), 2, "{failures:?}");
-        let unread = |failure: &String| failure.starts_with("gdd/rules.toml: ");
+        let unread = |failure: &String| failure.starts_with("tminus/rules.toml: ");
         assert!(failures.iter().all(unread), "{failures:?}");
         project.write(RULES, PROTECTED);
         // The scope judges with the zone map of main, not the one of the branch.
@@ -5491,7 +5548,8 @@ mod tests {
         let [_, guarded, scoped] = failures.as_slice() else {
             panic!("three failures: {failures:?}");
         };
-        assert_eq!(guarded, "gdd/zones.toml: protected path for builder-build");
+        let zones = "tminus/zones.toml: protected path for builder-build";
+        assert_eq!(guarded, zones);
         assert!(scoped.starts_with(outside), "{scoped}");
         git(&project, &["checkout", "-q", "main"]);
         git(&project, &["commit", "-q", "-m", "zones", "--", ZONES]);
@@ -5500,7 +5558,7 @@ mod tests {
         let [_, scoped] = failures.as_slice() else {
             panic!("two failures: {failures:?}");
         };
-        assert!(scoped.starts_with("gdd/zones.toml: "), "{scoped}");
+        assert!(scoped.starts_with("tminus/zones.toml: "), "{scoped}");
         let none = earlier_failures(root, root, "none", &[]);
         assert!(none.is_ok_and(|none| none.is_none()));
         project.write(&change::build_snapshot_path("none"), "{}");
@@ -5541,7 +5599,7 @@ mod tests {
         fs::remove_file(&snapshot).unwrap();
         fs::create_dir_all(&snapshot).unwrap();
         let unread = earlier_failures(root, root, "save", &hand).unwrap_err();
-        let start = "cannot read .gdd/changes/save/snapshot-build.json: ";
+        let start = "cannot read .tminus/changes/save/snapshot-build.json: ";
         assert!(unread.starts_with(start), "{unread}");
         let file = root.join("a-file");
         fs::write(&file, "x\n").unwrap();
@@ -5589,7 +5647,7 @@ mod tests {
         let parked = root.join(change::parked_snapshot_path("save"));
         fs::create_dir_all(&parked).unwrap();
         let unread = hand_edits(root, root, "save").unwrap_err();
-        let start = "cannot read .gdd/changes/save/snapshot-parked.json: ";
+        let start = "cannot read .tminus/changes/save/snapshot-parked.json: ";
         assert!(unread.starts_with(start), "{unread}");
         let file = root.join("a-file");
         fs::write(&file, "x\n").unwrap();
@@ -5657,14 +5715,14 @@ mod tests {
         let round = root.join(change::snapshot_path("save"));
         fs::create_dir_all(&round).unwrap();
         let unread = save_build_after_round(root, root, "save").unwrap_err();
-        let start = "cannot read .gdd/changes/save/snapshot.json: ";
+        let start = "cannot read .tminus/changes/save/snapshot.json: ";
         assert!(unread.starts_with(start), "{unread}");
         fs::remove_dir(&round).unwrap();
         let build = root.join(change::build_snapshot_path("save"));
         fs::remove_file(&build).unwrap();
         fs::create_dir_all(&build).unwrap();
         let unread = save_build_after_round(root, root, "save").unwrap_err();
-        let start = "cannot read .gdd/changes/save/snapshot-build.json: ";
+        let start = "cannot read .tminus/changes/save/snapshot-build.json: ";
         assert!(unread.starts_with(start), "{unread}");
         let file = root.join("a-file");
         fs::write(&file, "x\n").unwrap();
@@ -5679,7 +5737,7 @@ mod tests {
         let rules = format!("{PROTECTED}\n[parallel]\nmax = 0\n");
         project.write(RULES, &rules);
         let out = project.run("launch c1");
-        let start = "error: gdd/rules.toml: invalid TOML: ";
+        let start = "error: tminus/rules.toml: invalid TOML: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
         assert!(out.stderr.contains("max = 0"), "{out:?}");
     }
@@ -5702,7 +5760,7 @@ mod tests {
         assert_eq!(record_of(&project, "c1")["state"], "rolled-back");
         project.write(COMMANDS, "[release\n");
         let out = project.run("release pre c1");
-        let start = "error: gdd/commands.toml: invalid TOML";
+        let start = "error: tminus/commands.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
         // Merge reads its release commands once merged: G3 comes first.
         assert_eq!(unwaited(project.run("merge c1")), closed);
@@ -5715,7 +5773,7 @@ mod tests {
         let not_paused = "error: Change c1 is not paused at G4.\n";
         assert_eq!(out, Outcome::failure(not_paused.into()));
         let out = project.run("resume c1 --g4 polish");
-        let polish = "error: polish needs your notes: gdd resume c1 --g4 polish --note ...\n";
+        let polish = "error: polish needs your notes: tminus resume c1 --g4 polish --note ...\n";
         assert_eq!(out, Outcome::failure(polish.into()));
         let args = words("resume c1 --g4 ok --note Fine by me");
         let builder = run_as(&args, &project.0, Some("builder-test"));
@@ -5772,7 +5830,7 @@ mod tests {
         let project = launched_project();
         let before = record_of(&project, "c1")["state"].clone();
         let out = project.run("launch c1");
-        let nameless = "error: gdd/models.toml: the Orchestrator has no model\n";
+        let nameless = "error: tminus/models.toml: the Orchestrator has no model\n";
         assert_eq!(out, Outcome::failure(nameless.into()));
         assert_eq!(record_of(&project, "c1")["state"], before);
         // A launch refused before its build leaves no worktree behind.
@@ -5781,12 +5839,12 @@ mod tests {
         // The models of the change are the ones on its branch.
         git(&project, &["checkout", "-q", "change/c1"]);
         let gemini = MODELS.replace("\"codex\"", "\"gemini\"");
-        project.write("gdd/models.toml", &format!("{gemini}{MORE_ROLES}"));
+        project.write("tminus/models.toml", &format!("{gemini}{MORE_ROLES}"));
         git(&project, &["commit", "-q", "-am", "gemini"]);
         git(&project, &["checkout", "-q", "main"]);
         let out = project.run("launch c1");
-        let no_sheet = "error: gdd/models.toml: the Reviewer uses \"gemini\", which has no agent \
-                        sheet (claude, codex, opencode)\n";
+        let no_sheet = "error: tminus/models.toml: the Reviewer uses \"gemini\", which has no \
+                        agent sheet (claude, codex, opencode)\n";
         assert_eq!(out, Outcome::failure(no_sheet.into()));
         assert_eq!(record_of(&project, "c1")["state"], before);
     }
@@ -5794,32 +5852,32 @@ mod tests {
     #[test]
     fn an_agent_that_fails_parks_the_change_and_fails_the_run() {
         let project = launched_project();
-        project.write("gdd/models.toml", &format!("{MODELS}{MORE_ROLES}"));
+        project.write("tminus/models.toml", &format!("{MODELS}{MORE_ROLES}"));
         let env = with_agents(&project, "#!/bin/sh\nexit 1\n");
         let out = launch_in(&project, &env);
         let parked = "Change c1 parked: the Builder in test mode failed (exit 1). Message in \
-                      .gdd/changes/c1/inbox.md\n";
+                      .tminus/changes/c1/inbox.md\n";
         assert_eq!(out, Outcome::failure(parked.into()));
         assert_eq!(record_of(&project, "c1")["state"], "parked");
         // The work of the earlier run on its branch: committed before the relaunch.
         let subject = git(&project, &["log", "-1", "--format=%s", "change/c1"]);
-        let relaunch = "gdd(c1): work of the earlier run, before relaunch";
+        let relaunch = "tminus(c1): work of the earlier run, before relaunch";
         assert_eq!(subject, relaunch);
         // The change waits in its worktree; this checkout is back on main.
         assert_eq!(git(&project, &["branch", "--show-current"]), "main");
-        assert!(project.worktrees().join("c1/gdd/models.toml").is_file());
+        assert!(project.worktrees().join("c1/tminus/models.toml").is_file());
     }
 
     #[test]
     fn launch_starts_nothing_until_the_program_of_each_agent_is_on_the_path() {
         let project = launched_project();
-        project.write("gdd/models.toml", &format!("{MODELS}{MORE_ROLES}"));
+        project.write("tminus/models.toml", &format!("{MODELS}{MORE_ROLES}"));
         git(&project, &["commit", "-q", "-am", "roles"]);
         let before = record_of(&project, "c1")["state"].clone();
         with_agents(&project, "#!/bin/sh\n");
-        fs::remove_file(project.0.join(".gdd/bin/codex")).unwrap();
+        fs::remove_file(project.0.join(".tminus/bin/codex")).unwrap();
         // Only the folder of the fakes: the tests may have a real Codex on their PATH.
-        let fakes = project.0.join(".gdd/bin").display().to_string();
+        let fakes = project.0.join(".tminus/bin").display().to_string();
         let mut env = vec![("PATH".to_string(), fakes)];
         let missing = "error: cannot find the codex program of Codex on PATH\n";
         assert_eq!(launch_in(&project, &env), Outcome::failure(missing.into()));
@@ -5829,10 +5887,10 @@ mod tests {
         let claude = "error: cannot find the claude program of Claude Code on PATH\n";
         assert_eq!(launch_in(&project, &env), Outcome::failure(claude.into()));
         let wrong = format!("{MODELS}{MORE_ROLES}[env]\npass = \"X\"\n");
-        project.write("gdd/models.toml", &wrong);
+        project.write("tminus/models.toml", &wrong);
         git(&project, &["commit", "-q", "-am", "wrong models"]);
         let out = launch_in(&project, &env);
-        let start = "error: gdd/models.toml: ";
+        let start = "error: tminus/models.toml: ";
         assert!(out.stderr.starts_with(start), "{out:?}");
     }
 
@@ -5841,12 +5899,12 @@ mod tests {
                                    [release]\nsimulated = true\n";
 
     /// One agent for every integration (see [`with_agents`]): it keeps its role in
-    /// `.gdd/fake/calls` of the state root, a folder that is not GDD state; test mode writes
+    /// `.tminus/fake/calls` of the state root, a folder that is not GDD state; test mode writes
     /// `@TEST@`, build mode `src/a.rs`, and the Reviewer, of Codex, says OK.
     const FAKE_AGENT: &str = r#"#!/bin/sh
-mkdir -p "$GDD_STATE/.gdd/fake"
-echo "$GDD_ROLE" >> "$GDD_STATE/.gdd/fake/calls"
-case "$GDD_ROLE" in
+mkdir -p "$TMINUS_STATE/.tminus/fake"
+echo "$TMINUS_ROLE" >> "$TMINUS_STATE/.tminus/fake/calls"
+case "$TMINUS_ROLE" in
   builder-test) mkdir -p "$(dirname @TEST@)" && echo t > @TEST@ ;;
   builder-build) mkdir -p src && echo b > src/a.rs ;;
   reviewer) echo '{"type":"item.completed","item":{"type":"agent_message","text":"VERDICT: OK"}}' ;;
@@ -5854,17 +5912,17 @@ esac
 "#;
 
     /// An environment whose `PATH` finds first the agents of `project`: `script`, as `claude`
-    /// and `codex` in its `.gdd/bin/`.
+    /// and `codex` in its `.tminus/bin/`.
     fn with_agents(project: &Project, script: &str) -> Vec<(String, String)> {
         use std::os::unix::fs::PermissionsExt;
         for agent in ["claude", "codex"] {
-            let path = format!(".gdd/bin/{agent}");
+            let path = format!(".tminus/bin/{agent}");
             project.write(&path, script);
             let mode = fs::Permissions::from_mode(0o755);
             fs::set_permissions(project.0.join(path), mode).unwrap();
         }
         let tests = std::env::var("PATH").unwrap_or_default();
-        let path = format!("{}:{tests}", project.0.join(".gdd/bin").display());
+        let path = format!("{}:{tests}", project.0.join(".tminus/bin").display());
         vec![("PATH".to_string(), path)]
     }
 
@@ -5874,7 +5932,7 @@ esac
     }
 
     /// Launches change `c1` of `project` with the fake agents, whose test mode writes
-    /// `test_writes`. Each call is kept in `.gdd/fake/calls`.
+    /// `test_writes`. Each call is kept in `.tminus/fake/calls`.
     fn launch_with_fakes(project: &Project, test_writes: &str) -> Outcome {
         let env = with_agents(project, &FAKE_AGENT.replace("@TEST@", test_writes));
         launch_in(project, &env)
@@ -5885,29 +5943,30 @@ esac
         let models = format!("{MODELS}{MORE_ROLES}");
         let project = launched_with(RECIPE_COMMANDS, &models);
         let out = launch_with_fakes(&project, "tests/t.txt");
-        let closed = "Released v0.1.0\nChange c1 closed. Message: .gdd/changes/c1/inbox.md · \
-                      Tokens: gdd report --change c1\n";
+        let closed = "Released v0.1.0\nChange c1 closed. Message: .tminus/changes/c1/inbox.md · \
+                      Tokens: tminus report --change c1\n";
         assert_eq!(out, Outcome::success(closed.into()));
-        let calls = fs::read_to_string(project.0.join(".gdd/fake/calls")).unwrap();
+        let calls = fs::read_to_string(project.0.join(".tminus/fake/calls")).unwrap();
         assert_eq!(calls, "builder-test\nbuilder-build\nreviewer\n");
-        let review = project.0.join(".gdd/changes/c1/outputs/reviewer-1.md");
+        let review = project.0.join(".tminus/changes/c1/outputs/reviewer-1.md");
         assert_eq!(fs::read_to_string(review).unwrap(), "VERDICT: OK");
         let log = fs::read_to_string(project.0.join(log::PATH)).unwrap();
         let lines = log::parse(&log).unwrap();
         let notes = lines.iter().map(|line| line.text("note"));
-        let agents: Vec<String> = notes.filter(|note| note.starts_with("/gdd-")).collect();
-        assert_eq!(agents, ["/gdd-build-test", "/gdd-build", "/gdd-review"]);
+        let agents: Vec<String> = notes.filter(|note| note.starts_with("/tminus-")).collect();
+        let commands = ["/tminus-build-test", "/tminus-build", "/tminus-review"];
+        assert_eq!(agents, commands);
         let record = record_of(&project, "c1");
         assert_eq!(record["state"], "closed");
         let opened = "automatic chain and Reviewer";
         assert_eq!(record["gates"]["G3"]["note"], opened);
         assert_eq!(record["gates"]["G4"]["by"], "machines");
         for saved in ["g2.json", "g3.json", "snapshot-build.json"] {
-            let path = project.0.join(".gdd/changes/c1").join(saved);
+            let path = project.0.join(".tminus/changes/c1").join(saved);
             assert!(path.is_file(), "{saved}");
         }
         let merged = git(&project, &["log", "-1", "--format=%s", "main"]);
-        assert_eq!(merged, "gdd(c1): G3 Merge Gate · App");
+        assert_eq!(merged, "tminus(c1): G3 Merge Gate · App");
         assert_eq!(record["version"], "0.1.0");
         let tagged = git(&project, &["rev-parse", "v0.1.0^{commit}"]);
         assert_eq!(tagged, git(&project, &["rev-parse", "main"]));
@@ -5919,14 +5978,14 @@ esac
         let project = launched_with(RECIPE_COMMANDS, &models);
         let out = launch_with_fakes(&project, "src/x.rs");
         let parked = "Change c1 parked: Path Guard failed after test mode: src/x.rs: protected \
-                      path for builder-test. Message in .gdd/changes/c1/inbox.md\n";
+                      path for builder-test. Message in .tminus/changes/c1/inbox.md\n";
         assert_eq!(out, Outcome::failure(parked.into()));
     }
 
     #[test]
     fn resume_answers_g4_with_the_rest_of_the_words_as_the_note() {
         let project = launched_project();
-        project.write(".gdd/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
+        project.write(".tminus/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
         let out = project.run("resume c1 --g4 ko --note Not what I asked");
         let rejected = "Change c1 rejected at G4: production untouched.\n";
         assert_eq!(out, Outcome::success(rejected.into()));
@@ -5936,13 +5995,13 @@ esac
         assert_eq!(g4["by"], "human");
         assert_eq!(g4["note"], "Not what I asked");
         assert_eq!(record["state"], "rejected");
-        assert!(!project.0.join(".gdd/changes/c1/run.json").exists());
+        assert!(!project.0.join(".tminus/changes/c1/run.json").exists());
     }
 
     #[test]
     fn resume_refuses_models_whose_builder_session_is_neither() {
         let project = launched_project();
-        project.write(".gdd/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
+        project.write(".tminus/changes/c1/run.json", r#"{"paused_at": "G4"}"#);
         let before = record_of(&project, "c1");
         // The models of main: a change's branch does not choose them.
         git(&project, &["checkout", "-q", "main"]);
@@ -5951,8 +6010,8 @@ esac
         git(&project, &["checkout", "-q", "change/c1"]);
         for answer in ["ko --note No", "polish --note Shorter"] {
             let out = project.run(&format!("resume c1 --g4 {answer}"));
-            let refused = "error: gdd/models.toml: invalid TOML: session.builder must be separate \
-                           or shared, not \"joint\"\n";
+            let refused = "error: tminus/models.toml: invalid TOML: session.builder must be \
+                           separate or shared, not \"joint\"\n";
             assert_eq!(out, Outcome::failure(refused.into()), "{answer}");
             assert_eq!(record_of(&project, "c1"), before, "{answer}");
         }
@@ -5982,8 +6041,8 @@ esac
     #[test]
     fn main_file_reads_the_checkout_without_git() {
         let project = Project::new();
-        project.write("gdd/x.txt", "plain\n");
-        let text = main_file(&project.0, "gdd/x.txt").unwrap();
+        project.write("tminus/x.txt", "plain\n");
+        let text = main_file(&project.0, "tminus/x.txt").unwrap();
         assert_eq!(text.as_deref(), Some("plain\n"));
     }
 
@@ -6006,21 +6065,21 @@ esac
     #[test]
     fn agents_install_writes_the_commands_and_check_names_what_changed() {
         let project = Project::new();
-        project.write("gdd/models.toml", MODELS);
+        project.write("tminus/models.toml", MODELS);
         let out = project.run("agents install");
-        let start = "{\"ok\":true,\"written\":[\".claude/skills/gdd-build/SKILL.md\",";
+        let start = "{\"ok\":true,\"written\":[\".claude/skills/tminus-build/SKILL.md\",";
         assert!(out.stdout.starts_with(start), "{out:?}");
         let paths = written(&out);
         assert_eq!(paths.len(), 22);
-        assert_eq!(paths[11], ".agents/skills/gdd-build/SKILL.md");
+        assert_eq!(paths[11], ".agents/skills/tminus-build/SKILL.md");
         assert!(paths.iter().all(|path| project.0.join(path).is_file()));
         let ok = Outcome::success("{\"ok\":true}\n".into());
         assert_eq!(project.run("agents check"), ok);
-        let build = ".claude/skills/gdd-build/SKILL.md";
+        let build = ".claude/skills/tminus-build/SKILL.md";
         project.write(build, "edited\n");
-        let review = ".agents/skills/gdd-review/SKILL.md";
+        let review = ".agents/skills/tminus-review/SKILL.md";
         fs::remove_file(project.0.join(review)).unwrap();
-        let differs = format!("error: {build}: differs from what gdd writes\n");
+        let differs = format!("error: {build}: differs from what tminus writes\n");
         let missing = format!("error: {review}: missing\n");
         let both = Outcome::failure(format!("{differs}{missing}"));
         assert_eq!(project.run("agents check"), both);
@@ -6029,15 +6088,15 @@ esac
         let out = project.run("agents install --agent opencode --agent codex opencode");
         let paths = written(&out);
         assert_eq!(paths.len(), 22);
-        assert_eq!(paths[0], ".opencode/commands/gdd-build.md");
+        assert_eq!(paths[0], ".opencode/commands/tminus-build.md");
         assert_eq!(project.run("agents check --agent codex"), ok);
     }
 
     #[test]
     fn agents_need_a_sheet_and_someone_to_name_them() {
         let project = Project::new();
-        let none = "error: gdd/models.toml names no agent: name one with --agent (claude, codex, \
-                    opencode)\n";
+        let none = "error: tminus/models.toml names no agent: name one with --agent (claude, \
+                    codex, opencode)\n";
         for command in ["agents install", "agents check"] {
             let out = project.run(command);
             assert_eq!(out, Outcome::failure(none.into()), "{command}");
@@ -6053,9 +6112,9 @@ esac
         }
         assert!(!project.0.join(".claude").exists());
         // The models count only when no agent is named.
-        project.write("gdd/models.toml", "[reviewer\n");
+        project.write("tminus/models.toml", "[reviewer\n");
         let out = project.run("agents check");
-        let start = "error: gdd/models.toml: invalid TOML";
+        let start = "error: tminus/models.toml: invalid TOML";
         assert!(out.stderr.starts_with(start), "{out:?}");
         let out = project.run("agents install --agent claude");
         assert_eq!(written(&out).len(), 11);
@@ -6067,14 +6126,14 @@ esac
         project.write(PROJECT, "stack = [\"rust\", \"python\"]\n");
         let paths = written(&project.run("agents install --agent claude"));
         let instructions = [
-            ".claude/skills/gdd-stack-rust/SKILL.md",
-            ".claude/skills/gdd-stack-python/SKILL.md",
+            ".claude/skills/tminus-stack-rust/SKILL.md",
+            ".claude/skills/tminus-stack-python/SKILL.md",
         ];
         assert_eq!(paths[11..], instructions);
         let ok = Outcome::success("{\"ok\":true}\n".into());
         assert_eq!(project.run("agents check --agent claude"), ok);
         project.write(PROJECT, "stack = \"typescript\"\n");
-        let missing = "error: .claude/skills/gdd-stack-typescript/SKILL.md: missing\n";
+        let missing = "error: .claude/skills/tminus-stack-typescript/SKILL.md: missing\n";
         let out = project.run("agents check --agent claude");
         assert_eq!(out, Outcome::failure(missing.into()));
         project.write(PROJECT, "stack = \"\"\n");
@@ -6095,7 +6154,7 @@ esac
         }
         project.write(PROJECT, "stack = 3\n");
         let out = project.run("agents install --agent claude");
-        let wrong = "error: gdd/project.toml: invalid TOML: stack is not a name or a list of \
+        let wrong = "error: tminus/project.toml: invalid TOML: stack is not a name or a list of \
                      names\n";
         assert_eq!(out, Outcome::failure(wrong.into()));
         assert!(!project.0.join(".claude").exists());
@@ -6117,7 +6176,7 @@ esac
             let out = project.run(command);
             assert_eq!(out, Outcome::failure(unknown.into()), "{command}");
         }
-        let none = "error: name at least one stack: gdd stacks compose <name>...\n";
+        let none = "error: name at least one stack: tminus stacks compose <name>...\n";
         let out = project.run("stacks compose");
         assert_eq!(out, Outcome::failure(none.into()));
     }

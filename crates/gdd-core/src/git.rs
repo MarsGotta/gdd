@@ -14,14 +14,14 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-/// Local state of the tool: it never counts as part of a change.
-const LOCAL_STATE: &str = ".gdd/";
+use crate::layout;
 
-/// The folder of the tool's local state, from the project root.
-const STATE_FOLDER: &str = ".gdd";
+/// The folder of the tool's local state, from the project root, in the new names: `.gdd` in a
+/// project of the old layout (see [`Git::state_folder`]). It never counts as part of a change.
+const STATE_FOLDER: &str = ".tminus";
 
-/// A pathspec for everything but the tool's local state.
-const WITHOUT_STATE: &str = ":(exclude).gdd";
+/// A pathspec for everything but what follows it, the tool's local state.
+const EXCLUDE: &str = ":(exclude)";
 
 /// The mode git gives a symbolic link in a tree.
 const LINK_MODE: &str = "120000";
@@ -108,7 +108,7 @@ impl Git {
     }
 
     /// Git for the project at `root` (see [`Git::new`]), run with `env` as its whole
-    /// environment: the one gdd runs in, which also says who commits.
+    /// environment: the one tminus runs in, which also says who commits.
     pub fn in_env(root: &Path, env: &[(String, String)]) -> Git {
         Git {
             root: root.to_path_buf(),
@@ -248,20 +248,20 @@ impl Git {
 
     /// Paths the change on `branch` touched since the commit `since`: what the branch changed
     /// since then and, when it is the current branch, what the working tree changed or added.
-    /// Sorted, without repeats and without the tool's local state (`.gdd/`).
+    /// Sorted, without repeats and without the tool's local state (see [`Git::state_folder`]).
     pub fn changed_since(&self, branch: &str, since: &str) -> Result<Vec<String>, Error> {
         let paths = if self.current_branch()? == branch {
             [self.diff(&[since])?, self.untracked()?].concat()
         } else {
             self.diff(&[since, branch])?
         };
-        Ok(counted(paths))
+        Ok(counted(paths, &self.state_folder()))
     }
 
     /// Paths the change on `branch` touched against the main branch `main`: what the branch
     /// changed since it left `main` and, when it is the current branch, what the working tree
     /// changed or added. Nothing while the branch does not exist. Sorted, without repeats and
-    /// without the tool's local state (`.gdd/`).
+    /// without the tool's local state (see [`Git::state_folder`]).
     pub fn changed_from(&self, main: &str, branch: &str) -> Result<Vec<String>, Error> {
         if !self.exists(branch)? {
             return Ok(Vec::new());
@@ -271,12 +271,18 @@ impl Git {
             paths.extend(self.diff(&["HEAD"])?);
             paths.extend(self.untracked()?);
         }
-        Ok(counted(paths))
+        Ok(counted(paths, &self.state_folder()))
+    }
+
+    /// The folder of the tool's local state in the project, from its root: `.tminus`, or `.gdd`
+    /// in a project set up before the rename (see [`layout::named`]).
+    fn state_folder(&self) -> String {
+        layout::named(&self.root, STATE_FOLDER)
     }
 
     /// Paths the commits of `head` changed since it left `base`, and nothing else: what CI sees
-    /// of a branch, in git's order (sorted, each once). What the commits hold under `.gdd/`
-    /// counts too: it is no longer local state once it is committed.
+    /// of a branch, in git's order (sorted, each once). What the commits hold under the tool's
+    /// local state counts too: it is no longer local state once it is committed.
     pub fn committed_from(&self, base: &str, head: &str) -> Result<Vec<String>, Error> {
         let range = format!("{}...{}", revision(base)?, revision(head)?);
         self.diff(&[&range])
@@ -433,9 +439,10 @@ impl Git {
     }
 
     /// Whether the project has work to commit: a file changed, deleted or added that git does
-    /// not ignore, outside the tool's local state (`.gdd/`).
+    /// not ignore, outside the tool's local state (see [`Git::state_folder`]).
     pub fn has_work(&self) -> Result<bool, Error> {
-        let status = self.read(&["status", "--porcelain", "--", ".", WITHOUT_STATE])?;
+        let without_state = format!("{EXCLUDE}{}", self.state_folder());
+        let status = self.read(&["status", "--porcelain", "--", ".", &without_state])?;
         Ok(!status.is_empty())
     }
 
@@ -446,7 +453,7 @@ impl Git {
         self.read(&["add", "-A", "--", "."])?;
         // The state goes back out of the commit. An excluding pathspec in `git add` would fail
         // where git ignores the state.
-        self.read(&["reset", "-q", "--", STATE_FOLDER])?;
+        self.read(&["reset", "-q", "--", &self.state_folder()])?;
         self.read(&["commit", "-q", "-m", message])?;
         Ok(())
     }
@@ -607,11 +614,13 @@ fn failed<S: AsRef<OsStr>>(args: &[S], out: &Output) -> Error {
     ))
 }
 
-/// Sorted, without repeats and without the tool's local state.
-fn counted(paths: Vec<String>) -> Vec<String> {
+/// Sorted, without repeats and without what is inside `state`, the folder of the tool's local
+/// state.
+fn counted(paths: Vec<String>, state: &str) -> Vec<String> {
+    let local = format!("{state}/");
     let paths: BTreeSet<String> = paths
         .into_iter()
-        .filter(|path| !path.starts_with(LOCAL_STATE))
+        .filter(|path| !path.starts_with(&local))
         .collect();
     paths.into_iter().collect()
 }
@@ -884,7 +893,7 @@ pub(crate) mod tests {
         repo.write("gdd/rules.toml", "b\n");
         repo.git(&["rm", "-q", "src/old.rs"]);
         repo.write("src/new.rs", "new\n");
-        repo.write(".gdd/changes/c1/change.json", "{}");
+        repo.write(".tminus/changes/c1/change.json", "{}");
         assert_eq!(
             git.changed_since("change/c1", &start).unwrap(),
             [
@@ -894,6 +903,31 @@ pub(crate) mod tests {
                 "src/old.rs",
             ]
         );
+    }
+
+    #[test]
+    fn the_local_state_a_change_never_touches_is_the_one_of_its_layout() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write("gdd/project.toml", "");
+        repo.commit();
+        let start = repo.start("c1");
+        let git = repo.tool();
+        repo.write(".gdd/changes/c1/change.json", "{}");
+        assert_eq!(git.changed_since("change/c1", &start).unwrap(), NOTHING);
+        assert_eq!(git.changed_from("main", "change/c1").unwrap(), NOTHING);
+        assert!(!git.has_work().unwrap());
+        // In a project of the old layout, `.tminus/` is a folder like any other.
+        repo.write(".tminus/x", "x\n");
+        let touched = git.changed_since("change/c1", &start).unwrap();
+        assert_eq!(touched, [".tminus/x"]);
+        assert_eq!(git.changed_from("main", "change/c1").unwrap(), touched);
+        assert!(git.has_work().unwrap());
+        git.commit_work("work").unwrap();
+        let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(committed, ".tminus/x");
+        assert!(repo.root().join(".gdd/changes/c1/change.json").is_file());
+        assert!(!git.has_work().unwrap());
     }
 
     #[test]
@@ -922,7 +956,7 @@ pub(crate) mod tests {
         repo.commit();
         repo.write("README.md", "changed\n");
         repo.write("src/new.rs", "y\n");
-        repo.write(".gdd/log.jsonl", "{}\n");
+        repo.write(".tminus/log.jsonl", "{}\n");
         assert_eq!(
             git.changed_from("main", "change/c1").unwrap(),
             ["README.md", "src/committed.rs", "src/new.rs"]
@@ -941,12 +975,12 @@ pub(crate) mod tests {
         repo.start("c1");
         assert_eq!(git.committed_from("main", "HEAD").unwrap(), NOTHING);
         repo.write("src/committed.rs", "x\n");
-        repo.write(".gdd/bin/tool", "{}\n");
+        repo.write(".tminus/bin/tool", "{}\n");
         repo.commit();
         repo.write("README.md", "changed\n");
         repo.write("src/new.rs", "y\n");
-        repo.write(".gdd/log.jsonl", "{}\n");
-        let committed = [".gdd/bin/tool", "src/committed.rs"];
+        repo.write(".tminus/log.jsonl", "{}\n");
+        let committed = [".tminus/bin/tool", "src/committed.rs"];
         assert_eq!(git.committed_from("main", "HEAD").unwrap(), committed);
         // What main got after the branch left it is not the branch's.
         repo.git(&["checkout", "-q", "main"]);
@@ -1361,7 +1395,7 @@ pub(crate) mod tests {
         let repo = Repo::new();
         repo.identify();
         let git = repo.tool();
-        repo.write(".gdd/changes/c1/change.json", "{}");
+        repo.write(".tminus/changes/c1/change.json", "{}");
         assert!(git.has_changes().unwrap());
         assert!(!git.has_work().unwrap());
         repo.write("src/new.rs", "x\n");
@@ -1371,16 +1405,17 @@ pub(crate) mod tests {
         let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);
         assert_eq!(committed, "README.md\nsrc/new.rs");
         assert!(!git.has_work().unwrap());
-        assert!(repo.root().join(".gdd/changes/c1/change.json").is_file());
+        let record = repo.root().join(".tminus/changes/c1/change.json");
+        assert!(record.is_file());
         let err = git.commit_work("nothing").unwrap_err().to_string();
         assert!(err.starts_with("git commit -q -m nothing failed"), "{err}");
         // Where git ignores the state, and where git tracks some of it.
-        repo.write(".gitignore", ".gdd/\n");
+        repo.write(".gitignore", ".tminus/\n");
         assert!(git.has_work().unwrap());
         git.commit_work("ignored").unwrap();
-        repo.git(&["add", "-f", ".gdd/changes/c1/change.json"]);
+        repo.git(&["add", "-f", ".tminus/changes/c1/change.json"]);
         repo.git(&["commit", "-q", "-m", "tracked"]);
-        repo.write(".gdd/changes/c1/change.json", "{\"state\": \"closed\"}");
+        repo.write(".tminus/changes/c1/change.json", "{\"state\": \"closed\"}");
         repo.write("src/new.rs", "y\n");
         git.commit_work("work").unwrap();
         let committed = repo.git(&["show", "--name-only", "--format=", "HEAD"]);

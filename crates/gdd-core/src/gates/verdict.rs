@@ -1,7 +1,8 @@
 //! What the agents of the recipe answer in their files: the Reviewer's `VERDICT: OK|KO` in
-//! `.gdd/changes/<id>/review.md`, with the files its findings name, and where the replan sends the
-//! change, `NEXT: test|build` in `.gdd/changes/<id>/replan.md`. The last answer of a file counts;
-//! a file without a readable one says KO, and build mode.
+//! `.tminus/changes/<id>/review.md`, with the files its findings name, and where the replan sends
+//! the change, `NEXT: test|build` in `.tminus/changes/<id>/replan.md` (`.gdd/` in a project of the
+//! old layout, see [`crate::layout`]). The last answer of a file counts; a file without a
+//! readable one says KO, and build mode.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -11,6 +12,16 @@ use crate::{change, layout, log};
 
 /// Why a Reviewer without a readable verdict counts as KO.
 const NO_VERDICT: &str = "The Reviewer left no readable VERDICT: counts as KO.";
+
+/// The folder of the changes, from the state root, in the new names.
+const CHANGES: &str = ".tminus/changes";
+
+/// The file `file` of change `id`, from the state root `state`, as the project there names its
+/// state folder (see [`crate::layout`]). Only the folder is named anew: the id stays as it is,
+/// even one that holds the new name, as `rename-tminus` does.
+pub(crate) fn change_file(state: &Path, id: &str, file: &str) -> String {
+    format!("{}/{id}/{file}", layout::named(state, CHANGES))
+}
 
 /// Where the Reviewer of change `id` leaves its verdict, from the state root (see
 /// [`crate::state::root`]), in the new names (see [`crate::layout`]).
@@ -117,7 +128,7 @@ pub fn unlinked(text: &str) -> String {
 /// [`verdict`]): whether it is OK. No file, or no readable verdict, is KO. Logged as a machine
 /// step of G3.
 pub fn review(state: &Path, id: &str) -> Result<bool, String> {
-    let said = verdict(&read(state, &review_path(id))?);
+    let said = verdict(&read(state, &change_file(state, id, "review.md"))?);
     let ok = said == Some(true);
     let entry = log::Entry {
         change: id.to_string(),
@@ -136,21 +147,21 @@ pub fn review(state: &Path, id: &str) -> Result<bool, String> {
 /// The files the findings of the Reviewer of change `id` name (see [`finding_files`]), of the
 /// project whose state root is `state`: none without a review.
 pub fn review_files(state: &Path, id: &str) -> Result<Vec<String>, String> {
-    Ok(finding_files(&read(state, &review_path(id))?))
+    let review = change_file(state, id, "review.md");
+    Ok(finding_files(&read(state, &review)?))
 }
 
 /// Whether the replan of change `id`, of the project whose state root is `state`, sends it back to
 /// test mode (see [`sends_to_test`]). No file says build mode.
 pub fn replanned_to_test(state: &Path, id: &str) -> Result<bool, String> {
-    Ok(sends_to_test(&read(state, &replan_path(id))?))
+    let replan = change_file(state, id, "replan.md");
+    Ok(sends_to_test(&read(state, &replan)?))
 }
 
-/// The text of the file `path`, in the new names, under the state root `state`, where the project
-/// keeps it (see [`crate::layout`]): empty when there is none. Bytes that are not UTF-8 are
-/// replaced.
+/// The text of the file `path`, as the project names it (see [`change_file`]), under the state
+/// root `state`: empty when there is none. Bytes that are not UTF-8 are replaced.
 fn read(state: &Path, path: &str) -> Result<String, String> {
-    let path = layout::named(state, path);
-    match fs::read(state.join(&path)) {
+    match fs::read(state.join(path)) {
         Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(format!("cannot read {path}: {e}")),
@@ -172,7 +183,10 @@ mod tests {
     fn a_project_set_up_before_the_rename_keeps_its_answers_in_gdd() {
         let folder = Folder::new();
         folder.write("gdd/project.toml", "");
-        folder.write(".gdd/changes/c1/review.md", "F1 · a · x.rs:1 · y\nVERDICT: OK\n");
+        folder.write(
+            ".gdd/changes/c1/review.md",
+            "F1 · a · x.rs:1 · y\nVERDICT: OK\n",
+        );
         folder.write(".gdd/changes/c1/replan.md", "NEXT: test\n");
         assert_eq!(review_files(&folder.0, "c1"), Ok(vec!["x.rs".into()]));
         assert_eq!(replanned_to_test(&folder.0, "c1"), Ok(true));
@@ -183,6 +197,19 @@ mod tests {
         let start = "cannot read .gdd/changes/c1/review.md: ";
         assert!(err.starts_with(start), "{err}");
         assert!(!folder.0.join(".tminus").exists());
+    }
+
+    #[test]
+    fn only_the_folder_of_a_change_is_named_as_the_project_names_it() {
+        let (new, old) = (Folder::new(), Folder::new());
+        old.write("gdd/project.toml", "");
+        let id = "rename-tminus";
+        let in_new = change_file(&new.0, id, "review.md");
+        assert_eq!(in_new, ".tminus/changes/rename-tminus/review.md");
+        let in_old = change_file(&old.0, id, "g2.json");
+        assert_eq!(in_old, ".gdd/changes/rename-tminus/g2.json");
+        old.write(".gdd/changes/rename-tminus/replan.md", "NEXT: test\n");
+        assert_eq!(replanned_to_test(&old.0, id), Ok(true));
     }
 
     #[test]

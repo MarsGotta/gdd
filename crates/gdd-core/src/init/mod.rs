@@ -706,7 +706,13 @@ mod tests {
         folder.write(GITIGNORE, "a");
         assert_eq!(ignored(&folder), Ok(Some("\n.tminus/\n".to_string())));
         // The state folder of the old layout is not the one tminus init sets up.
-        for close in ["/.tminus/\n", ".tminus\n", ".tminus/ \n", "# .tminus/\n", ".gdd/\n"] {
+        for close in [
+            "/.tminus/\n",
+            ".tminus\n",
+            ".tminus/ \n",
+            "# .tminus/\n",
+            ".gdd/\n",
+        ] {
             folder.write(GITIGNORE, close);
             assert_eq!(ignored(&folder), state(), "{close:?}");
         }
@@ -789,7 +795,10 @@ mod tests {
         assert!(!said.contains("Cargo.toml"), "{said}");
         let ignored = read(&folder, GITIGNORE);
         assert!(ignored.starts_with("/target\nnode_modules/\n"), "{ignored}");
-        assert!(ignored.ends_with("\n.stryker-tmp/\n.tminus/\n"), "{ignored}");
+        assert!(
+            ignored.ends_with("\n.stryker-tmp/\n.tminus/\n"),
+            "{ignored}"
+        );
         let committed = git(&folder, &["ls-files", "--", "package.json", "Cargo.toml"]);
         assert_eq!(committed, "package.json");
     }
@@ -1040,7 +1049,9 @@ mod tests {
         assert!(other[4].1.contains("\"2030-01-01\""), "{}", other[4].1);
         // Answers that cannot be rendered say why.
         later.stacks = names(&["cobol"]);
-        let said = render_once(&later, &[], Layout::Gdd).unwrap_err().to_string();
+        let said = render_once(&later, &[], Layout::Gdd)
+            .unwrap_err()
+            .to_string();
         assert!(said.starts_with("error: unknown stack cobol"), "{said}");
     }
 
@@ -1098,8 +1109,14 @@ mod tests {
         let project = text_of("gdd/project.toml");
         let head = format!("# Project basics · GDD (written by gdd init {VERSION})\n");
         assert!(project.starts_with(&head), "{project}");
-        assert!(project.contains("   # the stack sheets (gdd stacks)\n"), "{project}");
-        assert!(project.contains("description = \"Notes from tminus\"\n"), "{project}");
+        assert!(
+            project.contains("   # the stack sheets (gdd stacks)\n"),
+            "{project}"
+        );
+        assert!(
+            project.contains("description = \"Notes from tminus\"\n"),
+            "{project}"
+        );
         let generated = text_of("gdd/generated.toml");
         let comment = "# Written by gdd init: the files it writes once and what it was asked, \
                        for gdd upgrade.\n";

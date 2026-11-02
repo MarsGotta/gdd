@@ -353,7 +353,7 @@ impl Spent {
 }
 
 /// What the agent calls of the change whose record is `text` spent (see [`Spent`]): nothing
-/// where the record says nothing, as one from before gdd kept it there.
+/// where the record says nothing, as one from before tminus kept it there.
 pub fn spent(text: &str) -> Result<Spent, serde_json::Error> {
     #[derive(Deserialize)]
     struct Raw {
