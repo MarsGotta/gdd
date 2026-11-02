@@ -72,3 +72,8 @@ Feature: Path Guard
     Then Path Guard passes
     When I run "tminus guard c1 --role builder-test"
     Then Path Guard fails naming "src/app.rs"
+
+  Scenario: A change whose build has not started cannot be judged
+    Given the change "c3" plans "docs/a.md" and its build has not started
+    When I run "tminus guard c3 --role builder-test"
+    Then Path Guard fails naming "not been prepared"

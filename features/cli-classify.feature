@@ -44,3 +44,9 @@ Feature: Classify a change from the command line
   Scenario: Outside a GDD project
     When I run "tminus classify save" outside any GDD project
     Then it fails with a message that contains "not a GDD project"
+
+  Scenario: A change that cannot be resumed takes the full lane
+    Given the planned change "notes" touches "docs/notes.md" and is not resumable
+    When I run "tminus classify notes"
+    Then the JSON field "color" is "green"
+    And the JSON field "lane" is "full"
