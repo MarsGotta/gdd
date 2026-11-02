@@ -23,7 +23,7 @@ You work in the change's worktree; GDD state is not there. It lives in `.gdd/` o
 1. Read `<state>/.gdd/changes/<id>/package.md`, `<state>/.gdd/changes/<id>/g2.json` and the Builder outputs in `<state>/.gdd/changes/<id>/outputs/`.
 2. Decide the cause: task too big, package with too little context, wrong approach or a harness problem.
 3. Write `<state>/.gdd/changes/<id>/replan.md`: the cause in one sentence and the new approach in concrete steps. If the package fell short, extend it there, in `replan.md`, with just what is needed: the package file stays as it is.
-4. If the cause is the harness or something only the human can decide, do not fix it: `gdd note <id> needs "..."`.
+4. If the cause is the harness or something only the human can decide, do not fix it: end your answer (not `replan.md`) with one line `CANNOT: <why, and what the human must decide>`. gdd parks the change with it, without one more build round.
 5. End `replan.md` with exactly one of these lines:
    - `NEXT: test` when the cause is in the steps or tests written in test mode (never the approved `.feature` files): a test-mode round fixes them first, then the build round runs.
    - `NEXT: build` otherwise.

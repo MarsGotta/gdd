@@ -48,7 +48,11 @@ The code already exists and the Orchestrator found the fault in the steps or tes
 
 If something in the package is ambiguous, pick the simplest reading, keep going and note it: `gdd note <id> needs "..."`.
 
-Finish with a three-line summary: which tests you wrote and why they fail now.
+## If you cannot
+
+If you cannot do the task as the package asks (it needs something only the human can give, the package and a scenario disagree, or the only way to tests that fail for the right reason is something this file forbids), stop. Do not weaken a test, a step, a check or a protected file to get there, and do not leave a stub that looks finished. End your answer with one line: `CANNOT: <why, in one sentence, and what you need>`. gdd parks the change at once with that reason for the human, without spending your other rounds; it never counts as green, and Path Guard still judges what you touched.
+
+Finish with a three-line summary: which tests you wrote and why they fail now; then, if you cannot, the `CANNOT:` line.
 
 ## Commands
 
