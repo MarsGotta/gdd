@@ -9,9 +9,10 @@ use std::time::Instant;
 
 use crate::agents::files;
 use crate::change::{self, Record};
-use crate::classify::classify;
+use crate::classify::classify_touched;
 use crate::git::{self, Git};
 use crate::guard::{self, Hashes, Settings};
+use crate::repo::touched::{Software, against_main};
 
 use super::{Error, Gate, PATH_GUARD, Project, Report, tenths};
 
@@ -41,13 +42,15 @@ pub fn run(
     snapshot: Option<&Hashes>,
 ) -> Result<Report, Error> {
     let root = project.root;
-    let touched = guard::touched(root, id, project.settings)?;
-    let mut plan = record.plan.clone();
-    plan.paths.extend(touched.iter().cloned());
-    let classified = classify(project.zones, &project.rules.table, &plan)?;
+    let main = &project.settings.main_branch;
+    let touched = against_main(root, id, main)?;
+    let table = &project.rules.table;
+    let classified = classify_touched(project.zones, table, &record.plan, &touched, &[])?;
     let mut report = Report::new(Gate::G2, classified.color);
     let started = Instant::now();
-    let guarded = guard::path_guard(root, id, record, project.settings, role, snapshot);
+    let mut software = Software::new(root, main);
+    let settings = project.settings;
+    let guarded = guard::path_guard(&mut software, root, id, record, settings, role, snapshot);
     let guarded = guarded.map_or_else(|e| vec![e.to_string()], |verdict| verdict.failures);
     let took = tenths(started.elapsed().as_secs_f64());
     report.took(PATH_GUARD, guarded.is_empty(), took);
