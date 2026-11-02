@@ -1005,7 +1005,7 @@ mod tests {
         assert!(!has_tag(&repo, "v1.2.4"));
         assert_eq!(record(&repo)["version"], Value::Null);
         // The retry takes the same version: nothing was tagged.
-        let check = "test \"$TMINUS_VERSION\" = 1.2.4 && test -z \"${GDD_VERSION+set}\"";
+        let check = "test \"$TMINUS_VERSION\" = 1.2.4 && test \"$GDD_VERSION\" = 1.2.4";
         let seen = steps(check);
         let promoted = promote(&promotion(&repo, &seen, Rules::default()), |line| {
             said.push(line.to_string())

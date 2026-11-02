@@ -153,12 +153,34 @@ impl Flight {
     }
 }
 
+/// Every change in flight of the project whose state root is `state`, whose state folder is the
+/// one of `layout` (see [`Layout::path`]), sorted by id: its id and its state (see
+/// [`IN_FLIGHT`]). None when the folder of the changes is not there; any other folder that
+/// cannot be read, such as a file of that name, is an error that names it.
+pub fn in_flight_all(state: &Path, layout: Layout) -> Result<Vec<(String, String)>, String> {
+    let changes = layout.path(CHANGES);
+    match fs::read_dir(state.join(&changes)) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        _ => {
+            // No change has the empty id: none is left out.
+            let flights = flights_in(state, &changes, "")?;
+            Ok(flights.into_iter().map(|f| (f.id, f.state)).collect())
+        }
+    }
+}
+
 /// The changes in flight of the project whose state root is `state` but change `id`, by id: the
 /// ones whose record is in one of [`IN_FLIGHT`]. A folder without a record holds no change.
 fn in_flight(state: &Path, id: &str) -> Result<Vec<Flight>, String> {
+    flights_in(state, &layout::named(state, CHANGES), id)
+}
+
+/// The changes in flight of [`in_flight`], in the folder of the changes `changes`, from the state
+/// root `state`.
+fn flights_in(state: &Path, changes: &str, id: &str) -> Result<Vec<Flight>, String> {
     let mut flights = Vec::new();
-    for other in others(state, id)? {
-        let path = record_of(state, &other);
+    for other in others(state, changes, id)? {
+        let path = format!("{changes}/{other}/{RECORD}");
         let unread = |e: io::Error| format!("cannot read {path}: {e}");
         let Some(bytes) = files::read(state, &path).map_err(unread)? else {
             continue;
@@ -171,13 +193,12 @@ fn in_flight(state: &Path, id: &str) -> Result<Vec<Flight>, String> {
     Ok(flights)
 }
 
-/// The names in the folder of the changes of the project whose state root is `state` that can
-/// name a change (see [`change::valid_id`]), but `id`, sorted.
-fn others(state: &Path, id: &str) -> Result<Vec<String>, String> {
-    let changes = layout::named(state, CHANGES);
+/// The names in the folder of the changes `changes`, from the state root `state`, that can name a
+/// change (see [`change::valid_id`]), but `id`, sorted.
+fn others(state: &Path, changes: &str, id: &str) -> Result<Vec<String>, String> {
     let unread = |e: io::Error| format!("cannot read {changes}: {e}");
     let mut ids = Vec::new();
-    for entry in fs::read_dir(state.join(&changes)).map_err(unread)? {
+    for entry in fs::read_dir(state.join(changes)).map_err(unread)? {
         let name = entry.map_err(unread)?.file_name();
         let name = name.to_string_lossy();
         if name != id && change::valid_id(&name) {
@@ -606,6 +627,34 @@ pub(crate) mod tests {
             let warning = format!("c9 overlaps c1 ({at}): src/app.txt with src/app.txt");
             assert_eq!(warnings, [format!("{warning}{C9_SETTLED}")]);
         }
+    }
+
+    #[test]
+    fn every_change_in_flight_is_named_with_its_state_from_the_state_folder_asked_for() {
+        let state = Folder::new();
+        assert_eq!(in_flight_all(&state.0, Layout::Gdd), Ok(Vec::new()));
+        for (id, at) in [
+            ("c2", "in-pre"),
+            ("c1", "building"),
+            ("c3", "open"),
+            ("c4", "closed"),
+            ("c5", "rejected"),
+            ("c6", "rolled-back"),
+        ] {
+            let record = serde_json::json!({"id": id, "state": at}).to_string();
+            state.write(&format!(".gdd/changes/{id}/change.json"), &record);
+        }
+        state.write(".gdd/changes/c7/notes.md", "no record\n");
+        let flying = |id: &str, at: &str| (id.to_string(), at.to_string());
+        let both = vec![flying("c1", "building"), flying("c2", "in-pre")];
+        assert_eq!(in_flight_all(&state.0, Layout::Gdd), Ok(both));
+        // Only the state folder of the layout asked for counts.
+        assert_eq!(in_flight_all(&state.0, Layout::Tminus), Ok(Vec::new()));
+        // A file where the folder of the changes goes is not a missing folder.
+        let file = Folder::new();
+        file.write(".gdd/changes", "");
+        let err = in_flight_all(&file.0, Layout::Gdd).unwrap_err();
+        assert!(err.starts_with("cannot read .gdd/changes: "), "{err}");
     }
 
     #[test]

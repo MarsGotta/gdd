@@ -1429,20 +1429,21 @@ show = 'printf "%s|%s|%s|%s" "$TMINUS_CHANGE" "$TMINUS_COLOR" "$TMINUS_DIFF_FILE
     }
 
     #[test]
-    fn commands_get_the_variables_as_the_project_names_them_and_never_their_twins() {
+    fn commands_get_the_variables_as_the_project_names_them_and_a_new_one_under_both_names() {
         let show = r#"[g2]
 show = 'printf "%s|%s|%s|%s|%s" "$GDD_CHANGE" "$GDD_COLOR" "$GDD_DIFF_FILES" "$GDD_FEATURES" "${TMINUS_CHANGE-none}"; exit 1'
 "#;
         let old = started_in("gdd", &["src/app.rs"], show);
         let shown = old.run(Gate::G2, "builder").failures[0].tail.clone();
         assert_eq!(shown, "c1|yellow|src/app.rs||none");
-        // A project of the new layout gets no GDD_ variable, whatever the tool inherited.
+        // A project of the new layout gets each one under its old name too, with its value, so
+        // its own code keeps reading what it read before the rename.
         let twin = r#"[g2]
-show = 'printf "%s|%s" "$TMINUS_CHANGE" "${GDD_CHANGE-none}"; exit 1'
+show = 'printf "%s|%s|%s" "$TMINUS_CHANGE" "$GDD_CHANGE" "$GDD_DIFF_FILES"; exit 1'
 "#;
         let new = started(&["src/app.rs"], twin);
         let shown = new.run(Gate::G2, "builder").failures[0].tail.clone();
-        assert_eq!(shown, "c1|none");
+        assert_eq!(shown, "c1|c1|src/app.rs");
     }
 
     #[test]

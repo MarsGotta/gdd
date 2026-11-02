@@ -70,6 +70,8 @@ const MISSING_CHANGE: &str = "missing change id (argument or TMINUS_CHANGE)";
 const NO_HOME: &str = "HOME is not set: the Claude Code transcripts are under it";
 /// Why `gdd report --since` does not take a day.
 const NOT_A_DAY: &str = "a day is YYYY-MM-DD, such as 2026-10-28";
+/// Why `tminus report --until` does not take a moment.
+const NOT_A_MOMENT: &str = "a moment is a day, YYYY-MM-DD, or a time as the log writes it, such as 2026-10-28T10:00:00+00:00";
 /// The kinds of work a change can be.
 const TYPES: [&str; 6] = [
     "Feature",
@@ -557,9 +559,19 @@ struct ReportArgs {
     /// changes, instead of the agent calls.
     #[arg(long, conflicts_with_all = ["by", "change"], group = "view")]
     dora: bool,
-    /// With --time or --dora, only the changes created on or after this day, YYYY-MM-DD (UTC).
+    /// What the method promises, for every change and by type and color: the changes that ended
+    /// without stopping you, the stops, the time each waited for you, and tokens and cost per
+    /// change.
+    #[arg(long, conflicts_with_all = ["by", "change", "json"], group = "view")]
+    promises: bool,
+    /// With --time, --dora or --promises, only the changes created on or after this day,
+    /// YYYY-MM-DD (UTC).
     #[arg(long, requires = "view", value_parser = parse_day)]
     since: Option<i64>,
+    /// With --promises, the log as it was at the end of this day, YYYY-MM-DD (UTC), or at this
+    /// time, as the log writes it (2026-10-28T10:00:00+00:00).
+    #[arg(long, requires = "promises", value_parser = parse_until)]
+    until: Option<i64>,
 }
 
 /// What `tminus guard` takes.
@@ -720,6 +732,12 @@ fn parse_color(name: &str) -> Result<Color, String> {
 /// A day named on the command line as `YYYY-MM-DD`: days since 1970-01-01 (see [`flow::day`]).
 fn parse_day(text: &str) -> Result<i64, String> {
     flow::day(text).ok_or_else(|| NOT_A_DAY.to_string())
+}
+
+/// A moment named on the command line: a day, or a time as the log writes it (see
+/// [`gdd_core::report::until`]).
+fn parse_until(text: &str) -> Result<i64, String> {
+    gdd_core::report::until(text).ok_or_else(|| NOT_A_MOMENT.to_string())
 }
 
 impl Command {
@@ -931,7 +949,8 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
 /// for the role `role`, in the environment `env` (see [`run_as`]), saying what it says on its way
 /// on `streams`. A command an agent may not run is refused here, once read and before anything
 /// else, naming it as typed. A project that keeps both layouts is refused before any command
-/// works on it (see [`layout::check`]).
+/// works on it (see [`layout::check`]), but for `tminus upgrade` in a project whose state is still
+/// to move to the new names (see [`layout::state_to_move`]): that is what it does.
 fn run_in(
     program: &'static str,
     args: &[String],
@@ -960,7 +979,10 @@ fn run_in(
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
         let state = state::root(&root)?;
-        layout::check(&root, &state)?;
+        let moves_state = matches!(command, Command::Upgrade) && layout::state_to_move(&state)?;
+        if !moves_state {
+            layout::check(&root, &state)?;
+        }
         command.run(&root, &state, role, env, streams)
     });
     ran.unwrap_or_else(|message| Outcome::error(&message))
@@ -1111,6 +1133,8 @@ fn report(state: &Path, args: &ReportArgs) -> Result<Outcome, String> {
         time_report(&text, args)?
     } else if args.dora {
         dora_report(state, &text, args)?
+    } else if args.promises {
+        promises_report(state, &text, args)?
     } else {
         calls_report(&text, args, Layout::at(state))?
     };
@@ -1174,6 +1198,16 @@ fn dora_report(state: &Path, text: &str, args: &ReportArgs) -> Result<(String, u
         delivery.to_string()
     };
     Ok((printed, logged.left_out))
+}
+
+/// `tminus report --promises`: what the method promises to keep low, from the log `text` and the
+/// types of the records of its changes, since the day and until the moment of `args` (see
+/// [`gdd_core::report::Promises`]), and how many lines of the log it left out.
+fn promises_report(state: &Path, text: &str, args: &ReportArgs) -> Result<(String, usize), String> {
+    let logged = flow::read(text);
+    let types = change_records(state, &logged.lines)?.types;
+    let promises = gdd_core::report::Promises::new(&logged.lines, &types, args.since, args.until);
+    Ok((promises.to_string(), logged.left_out))
 }
 
 /// The type and the verdicts of the reviews of each change the log names.
@@ -3186,6 +3220,37 @@ mod tests {
     }
 
     #[test]
+    fn once_its_files_took_the_new_names_only_the_upgrade_runs_and_it_moves_the_state() {
+        let project = Project::new();
+        project.write(".gdd/log.jsonl", LOG);
+        let refused = format!(
+            "error: {} keeps its files in tminus/ but its state is still in .gdd/: run tminus \
+             upgrade to move it to .tminus/\n",
+            project.0.display()
+        );
+        assert_eq!(project.run("status"), Outcome::failure(refused));
+        // An agent is refused first, whatever the state.
+        let agent = run_as(&words("upgrade"), &project.0, Some("builder-build"));
+        assert_eq!(agent.code, 1, "{agent:?}");
+        let refused = "cannot run tminus upgrade";
+        assert!(agent.stderr.contains(refused), "{agent:?}");
+        assert!(project.0.join(".gdd/log.jsonl").is_file());
+        let out = project.run("upgrade");
+        assert_eq!(out.code, 0, "{out:?}");
+        let moved = "Moved .gdd/ to .tminus/: ";
+        assert!(out.stdout.starts_with(moved), "{out:?}");
+        let log = fs::read_to_string(project.0.join(".tminus/log.jsonl")).unwrap();
+        assert_eq!(log, LOG);
+        assert_eq!(project.run("status").code, 0);
+        // With both state folders, the upgrade is refused as every other command.
+        project.write(".gdd/log.jsonl", LOG);
+        let out = project.run("upgrade");
+        let both = "but has .gdd/, the state of the old layout: move .gdd to .tminus or remove it";
+        assert!(out.stderr.contains(both), "{out:?}");
+        assert!(project.0.join(".gdd/log.jsonl").is_file());
+    }
+
+    #[test]
     fn report_prints_the_text_report() {
         let project = Project::new();
         project.write(log::PATH, LOG);
@@ -3267,6 +3332,54 @@ mod tests {
         let one = "1 line of the log is not one of tminus's: left out\n";
         let out = project.run("report");
         assert_eq!(out, Outcome::success(format!("{report}{one}")));
+    }
+
+    #[test]
+    fn report_promises_reads_the_log_until_a_day_or_a_time() {
+        let project = Project::new();
+        project.write(log::PATH, TIMED);
+        let out = project.run("report --promises");
+        assert_eq!(out.code, 0, "{out:?}");
+        let header = "Promises · 2 change(s) created from 2026-10-28 to 2026-10-29\n";
+        assert!(out.stdout.starts_with(header), "{out:?}");
+        assert!(out.stdout.contains("\n- · -: 2 change(s)"), "{out:?}");
+        let out = project.run("report --promises --until 2026-10-28");
+        assert!(
+            out.stdout
+                .starts_with("Promises · 1 change(s) created from"),
+            "{out:?}"
+        );
+        let out = project.run("report --promises --until 2026-10-29T09:00:00+00:00");
+        assert!(out.stdout.starts_with("Promises · 2 change(s)"), "{out:?}");
+        let out = project.run("report --promises --until 2026-10-29T08:59:59+00:00");
+        assert!(out.stdout.starts_with("Promises · 1 change(s)"), "{out:?}");
+        let out = project.run("report --promises --since 2026-10-29");
+        assert!(out.stdout.starts_with("Promises · 1 change(s)"), "{out:?}");
+    }
+
+    #[test]
+    fn report_promises_takes_no_fields_no_change_no_json_and_until_needs_it() {
+        let project = Project::new();
+        project.write(log::PATH, TIMED);
+        for command in [
+            "report --promises --json",
+            "report --promises --by role",
+            "report --promises --change a",
+            "report --promises --time",
+            "report --until 2026-10-20",
+        ] {
+            let out = project.run(command);
+            assert_eq!((out.code, out.stdout.as_str()), (1, ""), "{command}");
+        }
+        let out = project.run("report --promises --until nope");
+        assert!(out.stderr.contains(NOT_A_MOMENT), "{out:?}");
+    }
+
+    #[test]
+    fn report_promises_without_a_log_has_no_change() {
+        let project = Project::new();
+        let out = project.run("report --promises");
+        assert_eq!(out, Outcome::success("No change in the log yet.\n".into()));
     }
 
     /// Two changes in time: `a` still at its sitting, `b` built the next day.
