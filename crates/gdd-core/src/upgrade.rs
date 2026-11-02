@@ -24,6 +24,7 @@
 //! the state cannot ride a branch: the second run renames `.gdd/` to `.tminus/` as it is. Neither
 //! runs while a change is in flight.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -33,7 +34,7 @@ use serde::Deserialize;
 use crate::VERSION;
 use crate::agents::models::{self, Models};
 use crate::agents::sheets::{self, Sheet};
-use crate::agents::{files, render};
+use crate::agents::{Limits, files, render};
 use crate::config;
 use crate::gates::approve;
 use crate::git::{self, Git};
@@ -180,6 +181,9 @@ struct Settled {
     first: Option<Vec<u8>>,
     /// Its text after the second commit; `None` where there is no file.
     last: Option<Vec<u8>>,
+    /// What the upgrade says of the limits of the project it kept in it, a line each (see
+    /// [`kept_limits`]).
+    kept: Vec<String>,
 }
 
 /// `tminus upgrade` in the project at `root`, the folder of the main checkout (and so its state
@@ -489,11 +493,24 @@ impl Upgrade<'_> {
                 (Fate::Merged(conflicts), Some(merged))
             }
         };
+        // Only the rules file has `[limits]`, and a text with conflict marks is no TOML: in any
+        // other file there is nothing to keep.
+        let (last, kept) = match last {
+            Some(text) => {
+                let ours = ours.as_deref().unwrap_or_default();
+                let kept = kept_limits(ours, text);
+                let (text, said) = kept.map_err(|e| format!("{NO_BRANCH}: {path}: {e}"))?;
+                let said = said.iter().map(|line| format!("  {path}: {line}"));
+                (Some(text), said.collect())
+            }
+            None => (None, Vec::new()),
+        };
         Ok(Settled {
             path: path.to_string(),
             fate,
             first,
             last,
+            kept,
         })
     }
 
@@ -707,6 +724,7 @@ impl Upgrade<'_> {
         let mut lines = vec![title];
         for file in files {
             lines.push(format!("  {}: {}", file.path, file.fate.said()));
+            lines.extend_from_slice(&file.kept);
         }
         lines.extend_from_slice(more);
         let marked = |file: &Settled| matches!(file.fate, Fate::Merged(marks) if marks > 0);
@@ -720,6 +738,83 @@ impl Upgrade<'_> {
         lines.extend([review, take]);
         lines.join("\n")
     }
+}
+
+/// The text `text` of a file of an upgrade, with every limit it sets above what the project's
+/// file `ours` sets (see [`Limits::raised_from`]; a file or a key `ours` leaves out counts as
+/// tminus's value) put back as `ours` sets it: its own line when it has one (see [`limit_line`]),
+/// `<key> = <value>` otherwise, each line with the line break it had. A higher limit loosens the
+/// gate, which the team does in a commit of its own, never through an upgrade. What the upgrade
+/// says of each limit kept, a line each, once the text with them read again sets each limit no
+/// higher than `ours` nor `text` do. A text that is no TOML, the project's included, is left as it
+/// is; a limit raised whose line cannot be found in the `[limits]` of `text`, or a text that does
+/// not read as it should once kept, is an error.
+fn kept_limits(ours: &[u8], text: Vec<u8>) -> Result<(Vec<u8>, Vec<String>), String> {
+    let (Some((ours, before)), Some((result, after))) = (limits_in(ours), limits_in(&text)) else {
+        return Ok((text, Vec::new()));
+    };
+    let raised = after.raised_from(&before);
+    if raised.is_empty() {
+        return Ok((text, Vec::new()));
+    }
+    let mut lines: Vec<String> = result.split_inclusive('\n').map(String::from).collect();
+    let mut said = Vec::new();
+    for &(key, old, new) in &raised {
+        let Some(at) = limit_line(result, key) else {
+            return Err(format!(
+                "tminus {VERSION} raises limits.{key} from {old} to {new} and its line cannot be \
+                 found in [limits] to keep yours: set it in a commit of its own"
+            ));
+        };
+        let own = limit_line(ours, key).and_then(|line| ours.lines().nth(line));
+        let own = own.map_or_else(|| format!("{key} = {old}"), str::to_string);
+        let line = &lines[at];
+        let end = &line[line.trim_end_matches(['\r', '\n']).len()..];
+        lines[at] = format!("{own}{end}");
+        said.push(format!(
+            "kept your limits.{key} = {old}, tminus {VERSION} writes {new}: a higher limit \
+             loosens the gate, raise it in a commit of its own"
+        ));
+    }
+    let kept = lines.concat().into_bytes();
+    if limits_in(&kept).map(|(_, limits)| limits) != Some(after.lowest(&before)) {
+        let keys = raised.iter().map(|(key, ..)| format!("limits.{key}"));
+        let keys: Vec<String> = keys.collect();
+        return Err(format!(
+            "tminus {VERSION} raises {} and the text with yours put back does not read as \
+             yours: set them in a commit of their own",
+            keys.join(", ")
+        ));
+    }
+    Ok((kept, said))
+}
+
+/// The text of `bytes` and the limits it sets (see [`Limits::from_toml`]), when it is a text in
+/// TOML.
+fn limits_in(bytes: &[u8]) -> Option<(&str, Limits)> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    Limits::from_toml(text).ok().map(|limits| (text, limits))
+}
+
+/// Which line of the rules text `text`, counted from 0, sets `key` in its `[limits]` table, as
+/// TOML reads it: the line of the value TOML gives `limits.<key>`, so a line inside a string is
+/// none. Only when that line is `<key> = <value>`, a comment after it or not, so the whole line
+/// can be put in its place; `None` otherwise, as when the text is no TOML or does not set it.
+fn limit_line(text: &str, key: &str) -> Option<usize> {
+    #[derive(Default, Deserialize)]
+    #[serde(default)]
+    struct Spans {
+        limits: BTreeMap<String, toml::Spanned<toml::Value>>,
+    }
+    let spans: Spans = toml::from_str(text).ok()?;
+    let value = spans.limits.get(key)?.span();
+    let start = text[..value.start].rfind('\n').map_or(0, |at| at + 1);
+    let end = text[value.end..].find('\n');
+    let end = end.map_or(text.len(), |at| value.end + at);
+    let named = text[start..value.start].trim().strip_suffix('=')?;
+    let rest = text[value.end..end].trim();
+    let alone = named.trim_end() == key && (rest.is_empty() || rest.starts_with('#'));
+    alone.then(|| text[..start].matches('\n').count())
 }
 
 /// The text of the file `path` at the commit `git` has checked out; empty when there is none.
@@ -1887,5 +1982,246 @@ mod tests {
         assert_eq!(read(&folder.0, "deep/a").unwrap(), Some(b"x".to_vec()));
         remove(&folder.0, "deep/a").unwrap();
         assert_eq!(read(&folder.0, "deep/a").unwrap(), None);
+    }
+
+    const RULES: &str = "tminus/rules.toml";
+
+    /// What the upgrade says of the limit `key` of the rules file it kept at `old` where this
+    /// tminus writes `new`, without the file.
+    fn kept_said(key: &str, old: u64, new: u64) -> String {
+        format!(
+            "kept your limits.{key} = {old}, tminus {VERSION} writes {new}: a higher limit \
+             loosens the gate, raise it in a commit of its own"
+        )
+    }
+
+    /// [`kept_limits`] of the texts `ours` and `text`, as text.
+    fn kept_text(ours: &str, text: &str) -> Result<(String, Vec<String>), String> {
+        let (kept, said) = kept_limits(ours.as_bytes(), text.as_bytes().to_vec())?;
+        Ok((String::from_utf8(kept).unwrap(), said))
+    }
+
+    #[test]
+    fn a_limit_this_tminus_raises_keeps_the_project_s_own_line() {
+        let ours = "main_branch = \"main\"\n[limits]\nbuilder_retries = 3\n\
+                    reviewer_fixes = 1 # ours\n";
+        let text = "main_branch = \"main\"\n\n[limits]\nbuilder_retries = 3\n\
+                    reviewer_fixes = 2   # new\ncommand_seconds = 1800\n";
+        let kept = "main_branch = \"main\"\n\n[limits]\nbuilder_retries = 3\n\
+                    reviewer_fixes = 1 # ours\ncommand_seconds = 1800\n";
+        let said = vec![kept_said("reviewer_fixes", 1, 2)];
+        assert_eq!(kept_text(ours, text), Ok((kept.to_string(), said)));
+        // A key, or a file, the project leaves out counts as tminus's value; each line keeps its
+        // line break, the last one too.
+        let text = "[limits]\r\nreviewer_fixes = 2\r\nreplans = 1\r\nbuilder_retries = 4";
+        let kept = "[limits]\r\nreviewer_fixes = 1\r\nreplans = 1\r\nbuilder_retries = 3";
+        let said = vec![
+            kept_said("builder_retries", 3, 4),
+            kept_said("reviewer_fixes", 1, 2),
+        ];
+        for ours in ["[limits]\nbuilder_retries = 3\n", ""] {
+            let expected = Ok((kept.to_string(), said.clone()));
+            assert_eq!(kept_text(ours, text), expected, "{ours:?}");
+        }
+    }
+
+    #[test]
+    fn a_limit_this_tminus_lowers_or_leaves_and_a_text_that_is_no_toml_pass_as_they_are() {
+        let ours = "[limits]\nbuilder_retries = 5\nreviewer_fixes = 2\n";
+        let text = "[limits]\nbuilder_retries = 3\nreviewer_fixes = 2\n";
+        assert_eq!(kept_text(ours, text), Ok((text.to_string(), Vec::new())));
+        let marked = "[limits]\n<<<<<<< yours\nreviewer_fixes = 0\n=======\n\
+                      reviewer_fixes = 2\n>>>>>>> tminus\n";
+        assert_eq!(kept_text("", marked), Ok((marked.to_string(), Vec::new())));
+        let raised = "[limits]\nreviewer_fixes = 2\n";
+        let not_toml = "[limits\nreviewer_fixes = 1\n";
+        let left = Ok((raised.to_string(), Vec::new()));
+        assert_eq!(kept_text(not_toml, raised), left);
+        let bytes = b"[limits]\nreviewer_fixes = 2 # \xff\n".to_vec();
+        assert_eq!(kept_limits(b"", bytes.clone()), Ok((bytes, Vec::new())));
+    }
+
+    #[test]
+    fn a_limit_raised_whose_line_is_not_its_own_is_an_error() {
+        for text in [
+            "limits = { reviewer_fixes = 2 }\n",
+            "limits.reviewer_fixes = 2\n",
+            "[limits]\n\"reviewer_fixes\" = 2\n",
+            "limits = {\n  reviewer_fixes = 2, replans = 1,\n}\n",
+        ] {
+            let said = kept_text("[limits]\nreviewer_fixes = 1\n", text).unwrap_err();
+            let why = format!(
+                "tminus {VERSION} raises limits.reviewer_fixes from 1 to 2 and its line cannot be \
+                 found in [limits] to keep yours: set it in a commit of its own"
+            );
+            assert_eq!(said, why, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_line_of_a_limit_is_the_one_that_sets_it_in_the_limits_table() {
+        let text = "x = 1\n[other]\nreviewer_fixes = 7\n[ limits ] # the agents\n\
+                    reviewer_fixes_x = 3\n  reviewer_fixes= 2\n";
+        assert_eq!(limit_line(text, "reviewer_fixes"), Some(5));
+        assert_eq!(limit_line(text, "x"), None);
+        let other = "[other]\nreviewer_fixes = 7\n[limits]\nreviewer_fixes = 2\n";
+        let kept = "[other]\nreviewer_fixes = 7\n[limits]\nreviewer_fixes = 1\n";
+        let said = vec![kept_said("reviewer_fixes", 1, 2)];
+        assert_eq!(kept_text("", other), Ok((kept.to_string(), said)));
+        for none in [
+            "reviewer_fixes = 2\n",
+            "[limits]\nreplans = 1\n[spike]\nreviewer_fixes = 2\n",
+            "[limits.more]\nreviewer_fixes = 2\n",
+            "[[limits]]\nreviewer_fixes = 2\n",
+            "[limits]\n# reviewer_fixes = 2\n",
+            "[limits]\nnote = \"\"\"\nreviewer_fixes = 2\n\"\"\"\n",
+            "[limits\nreviewer_fixes = 2\n",
+        ] {
+            assert_eq!(limit_line(none, "reviewer_fixes"), None, "{none:?}");
+        }
+        // The table as TOML names it, in quotes too; a text in a string of it is no key.
+        let quoted = "[\"limits\"]\nnote = '''\nreviewer_fixes = 9\n'''\nreviewer_fixes = 2\n";
+        assert_eq!(limit_line(quoted, "reviewer_fixes"), Some(4));
+    }
+
+    #[test]
+    fn a_limit_written_inside_a_string_is_neither_the_line_kept_nor_the_line_put_back() {
+        // The text of a table in a note, before the table itself: TOML reads it as a string.
+        let note = "note = \"\"\"\n[limits]\nreviewer_fixes = 99\n\"\"\"\n";
+        let ours = format!("{note}[limits]\nreviewer_fixes = 1\n");
+        let text = format!("{note}[limits]\nreviewer_fixes = 2\n");
+        assert_eq!(limit_line(&text, "reviewer_fixes"), Some(5));
+        let said = vec![kept_said("reviewer_fixes", 1, 2)];
+        assert_eq!(kept_text(&ours, &text), Ok((ours.clone(), said.clone())));
+        // A project that sets the limit only in a string leaves it out.
+        let kept = format!("{note}[limits]\nreviewer_fixes = 1\n");
+        assert_eq!(kept_text(note, &text), Ok((kept, said)));
+        for (key, old, new) in [
+            ("builder_retries", 3, 4),
+            ("replans", 1, 2),
+            ("reviewer_fixes", 1, 2),
+            ("agent_timeout_s", 3600, 7200),
+        ] {
+            let note = format!("note = '''\n[limits]\n{key} = 99\n'''\n");
+            let ours = format!("{note}[limits]\n{key} = {old} # ours\n");
+            let text = format!("{note}[limits]\n{key} = {new}\n");
+            let said = vec![kept_said(key, old, new)];
+            assert_eq!(kept_text(&ours, &text), Ok((ours.clone(), said)), "{key}");
+        }
+    }
+
+    /// The line of the limit `key` in the text `rules`.
+    fn line_of(rules: &str, key: &str) -> String {
+        let line = rules.lines().find(|line| line.starts_with(key));
+        line.expect("its line").to_string()
+    }
+
+    #[test]
+    fn an_upgrade_keeps_the_limits_the_project_had_and_then_has_nothing_to_propose() {
+        let mut project = Project::new();
+        // An older tminus wrote one fix round; the project left it as it was.
+        project.replace(RULES, "reviewer_fixes = 2", "reviewer_fixes = 1");
+        project.older("0.0.0", &[], &[]);
+        let said = project.upgrade().unwrap();
+        let kept = kept_said("reviewer_fixes", 1, 2);
+        let lines = format!("  {RULES}: updated (you had not changed it)\n  {RULES}: {kept}\n");
+        assert!(said.contains(&lines), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        let ours = line_of(&project.read(RULES), "reviewer_fixes");
+        assert_eq!(line_of(&rules, "reviewer_fixes"), ours);
+        assert!(!rules.contains("reviewer_fixes = 2"), "{rules}");
+        // The first commit is what this tminus writes, pure: the base of the next upgrade.
+        let first = project.git(&["show", &format!("{BRANCH}~1:{RULES}")]);
+        assert!(first.contains("reviewer_fixes = 2"), "{first}");
+        project.take();
+        let nothing = format!("Already up to date with tminus {VERSION}: nothing to propose.");
+        assert_eq!(project.upgrade(), Ok(nothing));
+    }
+
+    #[test]
+    fn a_merged_rules_file_keeps_the_limits_the_project_had_and_takes_the_lower_ones() {
+        let project = Project::new();
+        // An older tminus wrote one fix round and four retries; the project raised its budget.
+        project.replace(RULES, "reviewer_fixes = 2", "reviewer_fixes = 1");
+        project.replace(RULES, "builder_retries = 3", "builder_retries = 4");
+        project.older("0.0.0", &[], &[]);
+        project.replace(RULES, "max_usd = 5", "max_usd = 6");
+        project.commit("ours");
+        let said = project.upgrade().unwrap();
+        let kept = kept_said("reviewer_fixes", 1, 2);
+        let lines = format!("  {RULES}: merged with your changes\n  {RULES}: {kept}\n");
+        assert!(said.contains(&lines), "{said}");
+        assert!(!said.contains("limits.builder_retries"), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        for line in ["max_usd = 6", "builder_retries = 3", "reviewer_fixes = 1 "] {
+            assert!(rules.contains(line), "{line} in {rules}");
+        }
+        assert!(!rules.contains("reviewer_fixes = 2"), "{rules}");
+    }
+
+    #[test]
+    fn a_limit_the_project_left_out_is_written_at_the_value_it_read() {
+        let project = Project::new();
+        let line = line_of(&project.read(RULES), "reviewer_fixes");
+        project.replace(RULES, &format!("{line}\n"), "");
+        project.older("0.0.0", &[], &[]);
+        let said = project.upgrade().unwrap();
+        let kept = kept_said("reviewer_fixes", 1, 2);
+        let lines = format!("  {RULES}: updated (you had not changed it)\n  {RULES}: {kept}\n");
+        assert!(said.contains(&lines), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        assert_eq!(line_of(&rules, "reviewer_fixes"), "reviewer_fixes = 1");
+    }
+
+    #[test]
+    fn a_project_that_edited_the_same_limit_settles_the_marks_itself() {
+        let project = Project::new();
+        project.replace(RULES, "reviewer_fixes = 2", "reviewer_fixes = 1");
+        project.older("0.0.0", &[], &[]);
+        project.replace(RULES, "reviewer_fixes = 1", "reviewer_fixes = 0");
+        project.commit("ours");
+        let said = project.upgrade().unwrap();
+        let marked = format!("  {RULES}: conflict, settle the marks (1)\n");
+        assert!(said.contains(&marked), "{said}");
+        assert!(!said.contains("kept your"), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        let yours = "<<<<<<< yours\nreviewer_fixes = 0";
+        assert!(rules.contains(yours), "{rules}");
+    }
+
+    #[test]
+    fn a_project_moving_to_the_new_names_keeps_its_limits_too() {
+        let project = Project::old();
+        project.replace("gdd/rules.toml", "reviewer_fixes = 2", "reviewer_fixes = 1");
+        project.older("0.0.0", &[], &[]);
+        let said = project.upgrade().unwrap();
+        let kept = kept_said("reviewer_fixes", 1, 2);
+        let lines = format!("  {RULES}: updated (you had not changed it)\n  {RULES}: {kept}\n");
+        assert!(said.contains(&lines), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        assert!(rules.contains("\nreviewer_fixes = 1 "), "{rules}");
+        assert!(!rules.contains("reviewer_fixes = 2"), "{rules}");
+    }
+
+    #[test]
+    fn an_upgrade_keeps_the_limit_toml_reads_not_a_text_that_looks_like_it() {
+        let project = Project::new();
+        project.replace(RULES, "reviewer_fixes = 2", "reviewer_fixes = 1");
+        project.older("0.0.0", &[], &[]);
+        // The project keeps the text of a table in a note, before its own, and names its table
+        // in quotes: neither changes where TOML reads the limit.
+        let note = "note = \"\"\"\n[limits]\nreviewer_fixes = 99\n\"\"\"\n";
+        project.replace(RULES, "[acceptance]", &format!("{note}\n[acceptance]"));
+        project.replace(RULES, "[limits]\nbuilder", "[\"limits\"]\nbuilder");
+        project.commit("ours");
+        let said = project.upgrade().unwrap();
+        let kept = kept_said("reviewer_fixes", 1, 2);
+        let lines = format!("  {RULES}: merged with your changes\n  {RULES}: {kept}\n");
+        assert!(said.contains(&lines), "{said}");
+        let rules = project.on_branch(RULES).unwrap();
+        assert!(rules.contains(note), "{rules}");
+        assert!(rules.contains("\n[\"limits\"]\n"), "{rules}");
+        assert!(!rules.contains("reviewer_fixes = 2"), "{rules}");
+        assert_eq!(Limits::from_toml(&rules).unwrap().reviewer_fixes, 1);
     }
 }

@@ -2300,6 +2300,21 @@ fn reviewer_answers_always(w: &mut GddWorld, answer: String) {
     fake_file(w, "reviews", &format!("{answer}\n"));
 }
 
+// ---- features/reviewer-fixes.feature -------------------------------------------------------
+//
+// The fake Reviewer answers line `n` of `reviews` in round `n`, and its last line after them.
+
+#[given(expr = "the Reviewer says KO {int} times and then {word}")]
+fn reviewer_says_ko_times(w: &mut GddWorld, times: usize, last: String) {
+    assert!(
+        last == "OK" || last == "KO",
+        "the review after the KOs is OK or KO, not {last:?}"
+    );
+    let mut reviews = "VERDICT: KO\n".repeat(times);
+    reviews.push_str(&format!("VERDICT: {last}\n"));
+    fake_file(w, "reviews", &reviews);
+}
+
 #[given(expr = "the agent time limit is {int} seconds")]
 fn agent_time_limit(w: &mut GddWorld, seconds: u64) {
     let root = project_root(w);
