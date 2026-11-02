@@ -40,3 +40,4 @@ crates/gdd-core/src/report.rs
 crates/gdd-core/src/config.rs
 crates/gdd-core/src/lib.rs
 crates/gdd-core/src/layout.rs
+crates/gdd-core/src/gates/decl.rs
