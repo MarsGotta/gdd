@@ -1836,8 +1836,27 @@ n=$(grep -c "^$role|" "$fake/calls")
 text=done
 case "$role" in
   builder-test)
-    mkdir -p tests/steps
-    echo "$n" > tests/steps/app.txt
+    how=
+    if [ -f "$fake/test_writes" ]; then
+      read -r call how path < "$fake/test_writes"
+      [ "$n" = "$call" ] || how=
+    fi
+    if [ -z "$how" ]; then
+      mkdir -p tests/steps
+      echo "$n" > tests/steps/app.txt
+    else
+      mkdir -p "$(dirname "$path")"
+      echo "written by the Builder in test mode" > "$path"
+      case "$how" in
+        never)
+          sleep 1000 &
+          echo $! >> "$fake/pids"
+          echo $$ >> "$fake/pids"
+          wait
+          ;;
+        fails) exit 1 ;;
+      esac
+    fi
     ;;
   builder-build)
     mode=default
@@ -2125,6 +2144,22 @@ fn builder_writes_nothing_for_variant(w: &mut GddWorld, variant: usize) {
     let path = pj(&project_root(w), ".tminus/fake/nothing_variants");
     let before = fs::read_to_string(&path).unwrap_or_default();
     fake_file(w, "nothing_variants", &format!("{before}{variant}\n"));
+}
+
+// ---- features/test-mode-leak.feature ------------------------------------------------------
+//
+// The fake Builder in test mode acts on `test_writes` (`<call> <how> <path>`): on that call it
+// writes only `<path>`, no step, and then fails (`fails`), never answers (`never`) or finishes.
+
+#[given(
+    regex = r#"^the Builder in test mode, on its call (\d+), writes only "([^"]*)" and then (fails|never answers|finishes)$"#
+)]
+fn builder_test_writes_only(w: &mut GddWorld, call: usize, path: String, ending: String) {
+    let how = match ending.as_str() {
+        "never answers" => "never",
+        other => other,
+    };
+    fake_file(w, "test_writes", &format!("{call} {how} {path}\n"));
 }
 
 #[given("the Builder in build mode never answers")]
