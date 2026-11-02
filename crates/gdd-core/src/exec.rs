@@ -79,20 +79,7 @@ fn run_saying(
     after: &str,
 ) -> io::Result<Ran> {
     let start = Instant::now();
-    let mut shell = Command::new("sh");
-    for twin in twins(env) {
-        shell.env_remove(twin);
-    }
-    let mut child = shell
-        .arg("-c")
-        .arg(command)
-        .current_dir(root)
-        .envs(env.iter().copied())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .process_group(0)
-        .spawn()?;
+    let mut child = shell(command, root, env).spawn()?;
     let stdout = read_all(child.stdout.take());
     let stderr = read_all(child.stderr.take());
     // A process the command started may keep its output open after the shell ends: the timeout
@@ -134,13 +121,39 @@ fn run_saying(
     })
 }
 
-/// The variables a command run with `env` must not inherit: the twin of each one `env` sets, of
-/// the other layout (see [`layout::twin`]), so an inherited `GDD_CHANGE` never overrides the
-/// `TMINUS_CHANGE` the tool set, or the reverse.
-pub(crate) fn twins(env: &[(&str, &str)]) -> Vec<String> {
-    env.iter()
-        .filter_map(|(name, _)| layout::twin(name))
-        .collect()
+/// `sh -c command` from `root`, ready to start: with the variables `env` and their twins (see
+/// [`twins`]), nothing on its standard input, its output piped and in a process group of its own.
+fn shell(command: &str, root: &Path, env: &[(&str, &str)]) -> Command {
+    let mut shell = Command::new("sh");
+    for (twin, value) in twins(env) {
+        match value {
+            Some(value) => shell.env(twin, value),
+            None => shell.env_remove(twin),
+        };
+    }
+    shell
+        .arg("-c")
+        .arg(command)
+        .current_dir(root)
+        .envs(env.iter().copied())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0);
+    shell
+}
+
+/// The twin of each variable `env` sets, of the other layout (see [`layout::twin`]), with the
+/// value the command gets: the same as its twin's for a `TMINUS_` one, as a project of the new
+/// layout has them, so the project's own code keeps reading the names it read before the rename;
+/// `None`, not inherited, for a `GDD_` one, as a project of the old layout has them. Set or
+/// removed by the tool, an inherited twin never overrides what the tool set.
+pub(crate) fn twins<'a>(env: &[(&str, &'a str)]) -> Vec<(String, Option<&'a str>)> {
+    let twin = |(name, value): &(&str, &'a str)| {
+        let twin = layout::twin(name)?;
+        Some((twin, name.starts_with("TMINUS_").then_some(*value)))
+    };
+    env.iter().filter_map(twin).collect()
 }
 
 /// Reads `pipe`, an output of the command, to its end in a thread of its own, so a full pipe
@@ -181,6 +194,7 @@ pub(crate) fn kill_group(child: &mut Child) {
 mod tests {
     use super::*;
     use crate::git::tests::Folder;
+    use std::ffi::OsStr;
 
     const SHORT: Duration = Duration::from_millis(300);
 
@@ -266,18 +280,34 @@ mod tests {
     }
 
     #[test]
-    fn a_variable_set_for_a_command_comes_without_its_twin() {
+    fn a_new_variable_comes_under_both_names_and_an_old_one_without_its_twin() {
         let env = [
             ("TMINUS_CHANGE", "c2"),
             ("GDD_COLOR", "red"),
             ("PATH", "/bin"),
         ];
-        assert_eq!(twins(&env), ["GDD_CHANGE", "TMINUS_COLOR"]);
+        let expected = [
+            ("GDD_CHANGE".to_string(), Some("c2")),
+            ("TMINUS_COLOR".to_string(), None),
+        ];
+        assert_eq!(twins(&env), expected);
         assert!(twins(&[]).is_empty());
         let folder = Folder::new();
-        let check = "test \"$TMINUS_CHANGE\" = c2 && test \"$GDD_COLOR\" = red";
+        let check = "test \"$TMINUS_CHANGE\" = c2 && test \"$GDD_CHANGE\" = c2 && \
+                     test \"$GDD_COLOR\" = red && test -z \"${TMINUS_COLOR+set}\"";
         let ran = run(check, &folder.0, &env[..2], TIMEOUT).unwrap();
         assert_eq!(ran.code, 0, "{}", ran.output);
+        // Set or removed by the tool: an inherited GDD_CHANGE or TMINUS_COLOR never overrides.
+        let shell = shell("true", &folder.0, &env[..2]);
+        let set: Vec<(&OsStr, Option<&OsStr>)> = shell.get_envs().collect();
+        let os = OsStr::new;
+        let expected = [
+            (os("GDD_CHANGE"), Some(os("c2"))),
+            (os("GDD_COLOR"), Some(os("red"))),
+            (os("TMINUS_CHANGE"), Some(os("c2"))),
+            (os("TMINUS_COLOR"), None),
+        ];
+        assert_eq!(set, expected);
     }
 
     #[test]

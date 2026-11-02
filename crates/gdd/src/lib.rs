@@ -948,7 +948,8 @@ pub fn run_as(args: &[String], cwd: &Path, role: Option<&str>) -> Outcome {
 /// for the role `role`, in the environment `env` (see [`run_as`]), saying what it says on its way
 /// on `streams`. A command an agent may not run is refused here, once read and before anything
 /// else, naming it as typed. A project that keeps both layouts is refused before any command
-/// works on it (see [`layout::check`]).
+/// works on it (see [`layout::check`]), but for `tminus upgrade` in a project whose state is still
+/// to move to the new names (see [`layout::state_to_move`]): that is what it does.
 fn run_in(
     program: &'static str,
     args: &[String],
@@ -977,7 +978,10 @@ fn run_in(
     let ran = project_root(cwd).and_then(|root| {
         // Once per command, then passed down: git is asked here only.
         let state = state::root(&root)?;
-        layout::check(&root, &state)?;
+        let moves_state = matches!(command, Command::Upgrade) && layout::state_to_move(&state)?;
+        if !moves_state {
+            layout::check(&root, &state)?;
+        }
         command.run(&root, &state, role, env, streams)
     });
     ran.unwrap_or_else(|message| Outcome::error(&message))
@@ -3202,6 +3206,37 @@ mod tests {
         );
         assert_eq!(out, Outcome::failure(refused));
         assert!(!folder.0.join("tminus").exists() && !folder.0.join(".git").exists());
+    }
+
+    #[test]
+    fn once_its_files_took_the_new_names_only_the_upgrade_runs_and_it_moves_the_state() {
+        let project = Project::new();
+        project.write(".gdd/log.jsonl", LOG);
+        let refused = format!(
+            "error: {} keeps its files in tminus/ but its state is still in .gdd/: run tminus \
+             upgrade to move it to .tminus/\n",
+            project.0.display()
+        );
+        assert_eq!(project.run("status"), Outcome::failure(refused));
+        // An agent is refused first, whatever the state.
+        let agent = run_as(&words("upgrade"), &project.0, Some("builder-build"));
+        assert_eq!(agent.code, 1, "{agent:?}");
+        let refused = "cannot run tminus upgrade";
+        assert!(agent.stderr.contains(refused), "{agent:?}");
+        assert!(project.0.join(".gdd/log.jsonl").is_file());
+        let out = project.run("upgrade");
+        assert_eq!(out.code, 0, "{out:?}");
+        let moved = "Moved .gdd/ to .tminus/: ";
+        assert!(out.stdout.starts_with(moved), "{out:?}");
+        let log = fs::read_to_string(project.0.join(".tminus/log.jsonl")).unwrap();
+        assert_eq!(log, LOG);
+        assert_eq!(project.run("status").code, 0);
+        // With both state folders, the upgrade is refused as every other command.
+        project.write(".gdd/log.jsonl", LOG);
+        let out = project.run("upgrade");
+        let both = "but has .gdd/, the state of the old layout: move .gdd to .tminus or remove it";
+        assert!(out.stderr.contains(both), "{out:?}");
+        assert!(project.0.join(".gdd/log.jsonl").is_file());
     }
 
     #[test]

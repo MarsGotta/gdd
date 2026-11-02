@@ -213,6 +213,11 @@ fn built_in(name: &str) -> Result<&'static BuiltIn, Error> {
         .ok_or_else(|| Error::Unknown(name.to_string()))
 }
 
+/// The names of the stacks with a sheet, in order.
+pub(crate) fn names() -> impl Iterator<Item = &'static str> {
+    SHEETS.iter().map(|built_in| built_in.name)
+}
+
 /// The sheet of the stack `name`.
 pub fn sheet(name: &str) -> Result<Sheet, Error> {
     let text = built_in(name)?.sheet;
