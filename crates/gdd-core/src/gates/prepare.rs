@@ -29,6 +29,7 @@ use crate::git::Git;
 use crate::guard;
 use crate::layout::{self, Layout};
 use crate::log;
+use crate::repo::touched::Software;
 
 /// Why a change does not start before the Setup, in the new names: a project of the old layout
 /// names its agent command as it does (see [`Layout::localize`]).
@@ -310,8 +311,10 @@ fn builder_may(
         build_start: Some(start.to_string()),
         ..record.clone()
     };
-    let settings = project.settings;
-    let guarded = guard::path_guard(project.root, id, &from_start, settings, BUILD_ROLE, None);
+    let (root, settings) = (project.root, project.settings);
+    let mut software = Software::new(root, &settings.main_branch);
+    let role = BUILD_ROLE;
+    let guarded = guard::path_guard(&mut software, root, id, &from_start, settings, role, None);
     Ok(guarded.map_err(|e| e.to_string())?.ok)
 }
 
