@@ -453,8 +453,37 @@ impl fmt::Display for Promises {
                 Block::of(&kept).lines(&format!("{kind} · {color}"))
             )?;
         }
+        if let Some(warning) = mostly_red(&self.changes) {
+            write!(f, "\n{warning}")?;
+        }
         Ok(())
     }
+}
+
+/// How many of the last changes that closed the report looks at to say whether almost every change
+/// comes out red (see [`mostly_red`]).
+const LAST_CLOSED: usize = 10;
+
+/// How many of those [`LAST_CLOSED`] changes red are almost every change.
+const ALMOST_ALL: usize = 8;
+
+/// What the report says when at least [`ALMOST_ALL`] of the last [`LAST_CLOSED`] changes of
+/// `changes` that closed, in the order they were created, came out red: the blueprint marks too
+/// much as delicate. `None` when fewer of them are red, or fewer than [`LAST_CLOSED`] closed. A
+/// warning: it stops nothing.
+fn mostly_red(changes: &[Kept]) -> Option<String> {
+    let closed: Vec<&Kept> = changes.iter().filter(|kept| kept.closed).collect();
+    let from = closed.len().checked_sub(LAST_CLOSED)?;
+    let red = closed[from..]
+        .iter()
+        .filter(|kept| kept.color == "red")
+        .count();
+    (red >= ALMOST_ALL).then(|| {
+        format!(
+            "Most changes come out red: {red} of the last {LAST_CLOSED} closed. If almost \
+             everything is red, the blueprint is wrong: the zone map may mark too much as delicate."
+        )
+    })
 }
 
 /// A whole number with a comma every three digits: `1,234,567`.
@@ -910,6 +939,93 @@ mod tests {
         assert_eq!(lines.next(), Some(all));
         let stops = "  Stops: 0.4 per change (3 in 8) · parked 0.1 per change (1 in 8)";
         assert_eq!(lines.next(), Some(stops));
+    }
+
+    /// Changes one after the other, each `(color, state)`: `-` never prepared; `closed`,
+    /// `rejected` (a human KO at G4) or `open`.
+    fn colored(changes: &[(&str, &str)]) -> Promises {
+        let mut rows = Vec::new();
+        for (n, (color, state)) in changes.iter().enumerate() {
+            let id = format!("c{n}");
+            let prepared =
+                format!(r#""role": "machine", "result": "prepared", "note": "{color} · full""#);
+            rows.push((id.clone(), CREATED.to_string()));
+            if *color != "-" {
+                rows.push((id.clone(), prepared));
+            }
+            match *state {
+                "closed" => rows.push((id, OBSERVED.to_string())),
+                "rejected" => rows.push((
+                    id,
+                    r#""role": "human", "gate": "G4", "result": "ko""#.to_string(),
+                )),
+                _ => {}
+            }
+        }
+        let borrowed: Vec<(&str, &str)> =
+            rows.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        promises(&seq(&borrowed))
+    }
+
+    const WARNING: &str = "Most changes come out red";
+
+    fn closed(red: usize, other: usize) -> Vec<(&'static str, &'static str)> {
+        let mut changes = vec![("red", "closed"); red];
+        changes.extend(vec![("yellow", "closed"); other]);
+        changes
+    }
+
+    #[test]
+    fn almost_every_change_red_is_eight_of_the_last_ten_closed() {
+        let eight = mostly_red(&colored(&closed(8, 2)).changes);
+        let said = "Most changes come out red: 8 of the last 10 closed. If almost everything is \
+                    red, the blueprint is wrong: the zone map may mark too much as delicate.";
+        assert_eq!(eight.as_deref(), Some(said));
+        assert_eq!(mostly_red(&colored(&closed(7, 3)).changes), None);
+        let ten = mostly_red(&colored(&closed(10, 0)).changes).unwrap();
+        assert!(ten.starts_with("Most changes come out red: 10 of the last 10 closed."));
+    }
+
+    #[test]
+    fn fewer_than_ten_closed_changes_say_nothing() {
+        assert_eq!(mostly_red(&colored(&closed(9, 0)).changes), None);
+        assert_eq!(mostly_red(&[]), None);
+        let mut nine = closed(9, 0);
+        nine.push(("red", "open"));
+        nine.push(("red", "rejected"));
+        assert_eq!(mostly_red(&colored(&nine).changes), None);
+    }
+
+    #[test]
+    fn only_the_last_ten_closed_changes_count() {
+        let mut old_red = closed(5, 0);
+        old_red.extend(closed(7, 3));
+        assert_eq!(mostly_red(&colored(&old_red).changes), None);
+        let mut old_yellow = closed(0, 5);
+        old_yellow.extend(closed(8, 2));
+        let said = mostly_red(&colored(&old_yellow).changes).unwrap();
+        assert!(said.starts_with("Most changes come out red: 8 of the last 10 closed."));
+        let mut open_last = closed(7, 3);
+        open_last.extend([("red", "open"), ("red", "rejected"), ("red", "open")]);
+        assert_eq!(mostly_red(&colored(&open_last).changes), None);
+    }
+
+    #[test]
+    fn a_change_never_prepared_is_not_red() {
+        let mut changes = closed(7, 0);
+        changes.extend([("-", "closed"), ("green", "closed"), ("-", "closed")]);
+        assert_eq!(mostly_red(&colored(&changes).changes), None);
+    }
+
+    #[test]
+    fn the_report_ends_with_the_warning_and_without_it_is_as_before() {
+        let text = colored(&closed(8, 2)).to_string();
+        let last = text.lines().last().unwrap();
+        assert!(last.starts_with(WARNING), "{text}");
+        assert!(!text.ends_with('\n'));
+        let quiet = colored(&closed(7, 3)).to_string();
+        assert!(!quiet.contains(WARNING), "{quiet}");
+        assert!(quiet.ends_with("Cost: no agent call yet"), "{quiet}");
     }
 
     #[test]

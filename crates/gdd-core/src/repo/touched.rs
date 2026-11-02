@@ -1,45 +1,148 @@
-//! What a change touched, for software: the paths of the project its branch and its working tree
-//! changed, as git lists them, and the rules file as a commit had it. This is the blueprint the
-//! core asks (see [`Blueprint`]); it reports items and bytes, never a verdict, a color or a hash:
-//! judging them is the core's.
+//! The blueprint of software: where a change works (its worktree, on its branch), the marks of
+//! its work (commits), what it touched (the paths of the project its branch and its working tree
+//! changed, as git lists them), the bytes of its files, the rules file as a commit had it, and
+//! what it keeps (commits on its branch). This is the blueprint the core asks (see
+//! [`Blueprint`]); it reports items and bytes, never a verdict, a color or a hash: judging them
+//! is the core's.
 
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::ErrorKind::{NotADirectory, NotFound};
+use std::path::{Path, PathBuf};
 
 use crate::change;
 use crate::git::{self, Git};
-use crate::guard::{Blueprint, Error, ItemId, Mark, Touched};
+use crate::guard::{Blueprint, Error, ItemId, Mark, Place, Touched};
+use crate::recipe::{self, worktree};
 
 /// The blueprint of software: the project at a root, in its git repository, whose changes leave
-/// from a main branch. An item is a path from the project root, a mark a commit id.
+/// from a main branch. An item is a path from the project root, a mark a commit id. With a folder
+/// of places (see [`Software::with_places`]), each change works in its worktree there; without
+/// one, every change works at the root, which it cannot leave or let go.
 #[derive(Debug)]
 pub struct Software<'a> {
-    /// The project root.
+    /// The project root, in the main checkout when there is a folder of places.
     root: &'a Path,
     /// The branch the changes leave from.
     main: &'a str,
+    /// The folder of the worktrees of the changes (see [`worktree::folder`]), if they have one.
+    places: Option<&'a Path>,
+    /// The project root in the worktree of each change asked about so far.
+    works: BTreeMap<String, PathBuf>,
 }
 
 impl<'a> Software<'a> {
-    /// The project at `root`, whose changes leave from the branch `main`.
+    /// The project at `root`, whose changes leave from the branch `main`, where every change
+    /// works: what the checks that only read ask.
     pub fn new(root: &'a Path, main: &'a str) -> Software<'a> {
-        Software { root, main }
+        Software {
+            root,
+            main,
+            places: None,
+            works: BTreeMap::new(),
+        }
+    }
+
+    /// The project at `checkout`, the main checkout, whose changes leave from the branch `main`
+    /// and work each in its worktree in the folder `folder` (see [`worktree::path`]): what the
+    /// recipe asks.
+    pub fn with_places(checkout: &'a Path, folder: &'a Path, main: &'a str) -> Software<'a> {
+        Software {
+            places: Some(folder),
+            ..Software::new(checkout, main)
+        }
+    }
+
+    /// The folder of places, or why change `id` cannot have a place without one.
+    fn folder(&self, id: &str) -> Result<&'a Path, Error> {
+        let none = || Error::Blueprint(format!("{id}: no folder of places"));
+        self.places.ok_or_else(none)
+    }
+
+    /// Where the worktree of change `id` goes (see [`worktree::path`]).
+    fn worktree(&self, id: &str) -> Result<PathBuf, Error> {
+        worktree::path(self.folder(id)?, id).map_err(Error::Blueprint)
+    }
+
+    /// The project root where change `id` works: the root without a folder of places, else the
+    /// same folder in its worktree (see [`worktree::project_root`]), asked of git once.
+    fn work(&mut self, id: &str) -> Result<PathBuf, Error> {
+        if self.places.is_none() {
+            return Ok(self.root.to_path_buf());
+        }
+        if let Some(work) = self.works.get(id) {
+            return Ok(work.clone());
+        }
+        let worktree = self.worktree(id)?;
+        let work = worktree::project_root(self.root, &worktree).map_err(Error::Blueprint)?;
+        self.works.insert(id.to_string(), work.clone());
+        Ok(work)
     }
 }
 
 impl Blueprint for Software<'_> {
-    /// What change `id` touched since the commit `since`: what its branch changed since then
-    /// and, while it is checked out, what the working tree changed, added or removed (see
-    /// [`Git::changed_since`]). Without `since`, against the main branch (see [`against_main`]).
-    /// In the worktree of a variant of a spike, what the variant's branch touched (see
-    /// [`change::branch_at`]).
+    /// The worktree of change `id`, on its branch, from the main checkout (see
+    /// [`worktree::open`]): made when there was nothing at its path, else the one there.
+    fn isolate(&mut self, id: &str) -> Result<Place, Error> {
+        let worktree = self.worktree(id)?;
+        let made = fs::symlink_metadata(&worktree).is_err();
+        worktree::open(self.root, &worktree, id).map_err(Error::Blueprint)?;
+        let work = self.work(id)?;
+        Ok(Place { work, made })
+    }
+
+    /// Where the worktree of change `id` is or goes, its project root there (see
+    /// [`Software::work`]), whether there is one or not: nothing is made, and nothing is asked of
+    /// the worktree. Without a folder of places, the root.
+    fn place(&mut self, id: &str) -> Result<Place, Error> {
+        let work = self.work(id)?;
+        Ok(Place { work, made: false })
+    }
+
+    /// Removes the worktree of `id`, with what it has that git does not, from the main checkout
+    /// (see [`worktree::remove`]); its branch stays.
+    fn vacate(&mut self, id: &str) -> Result<(), Error> {
+        let worktree = self.worktree(id)?;
+        worktree::remove(self.root, &worktree).map_err(Error::Blueprint)
+    }
+
+    /// The commit checked out where `id` works.
+    fn mark(&mut self, id: &str) -> Result<Mark, Error> {
+        let work = self.work(id)?;
+        Ok(Mark::new(Git::new(&work).head()?))
+    }
+
+    /// What change `id` touched since the commit `since`, where it works: what its branch
+    /// changed since then and, while it is checked out, what the working tree changed, added or
+    /// removed (see [`Git::changed_since`]). Without `since`, against the main branch (see
+    /// [`against_main`]). In the worktree of a variant of a spike, what the variant's branch
+    /// touched (see [`change::branch_at`]).
     fn touched(&mut self, id: &str, since: Option<&Mark>) -> Result<Touched, Error> {
+        let work = self.work(id)?;
         let Some(since) = since else {
-            return Ok(against_main(self.root, id, self.main)?);
+            return Ok(against_main(&work, id, self.main)?);
         };
-        let git = Git::new(self.root);
+        let git = Git::new(&work);
         let branch = change::branch_at(&git, id)?;
         let paths = git.changed_since(&branch, since.as_str())?;
         Ok(paths.into_iter().collect())
+    }
+
+    /// The bytes of the file `item` where `id` works, following a link, as
+    /// [`crate::guard::file_hash`] reads it: `None` for nothing, a folder, or a path under a
+    /// file; what cannot be read is an error that names it.
+    fn read(&mut self, id: &str, item: &ItemId) -> Result<Option<Vec<u8>>, Error> {
+        let path = self.work(id)?.join(item.as_str());
+        let unread = |e| Error::Read(item.to_string(), e);
+        let is_file = match fs::metadata(&path) {
+            Ok(meta) => meta.is_file(),
+            Err(e) if matches!(e.kind(), NotFound | NotADirectory) => false,
+            Err(e) => return Err(unread(e)),
+        };
+        if !is_file {
+            return Ok(None);
+        }
+        fs::read(&path).map(Some).map_err(unread)
     }
 
     /// The file `item` as the commit `mark` had it; `None` where it had none (see
@@ -47,6 +150,32 @@ impl Blueprint for Software<'_> {
     fn rules_at(&mut self, mark: &Mark, item: &ItemId) -> Result<Option<Vec<u8>>, Error> {
         let git = Git::new(self.root);
         Ok(git.file_at(mark.as_str(), item.as_str())?)
+    }
+
+    /// Commits, on the branch checked out where `id` works, `items` and nothing else (see
+    /// [`Git::commit_files`]), or all of its work but the state with no `items` (see
+    /// [`Git::commit_work`]), as `tminus(<id>): <why>` (see [`recipe::commit_message`]): nothing
+    /// to commit, no commit. Who keeps it is not written anywhere: the author of the commit is
+    /// the one git has, as for any commit of the tool.
+    fn keep(
+        &mut self,
+        id: &str,
+        _by: &str,
+        why: &str,
+        items: Option<&[ItemId]>,
+    ) -> Result<(), Error> {
+        let work = self.work(id)?;
+        let git = Git::new(&work);
+        let message = recipe::commit_message(&work, id, why);
+        match items {
+            None if git.has_work()? => git.commit_work(&message)?,
+            None | Some([]) => {}
+            Some(items) => {
+                let paths: Vec<String> = items.iter().map(ToString::to_string).collect();
+                git.commit_files(&paths, &message)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -503,5 +632,220 @@ paths = ["src/storage/**"]
         record.decided_color = Some(Color::Green);
         record.plan.min_color = Some(Color::Red);
         assert_eq!(check_scope(&repo, &record).failures, [failure]);
+    }
+
+    /// A repository with an author that ignores `.tminus/`, with change `c1` and its branch, not
+    /// checked out; and a folder of places.
+    fn with_places() -> (Repo, Folder) {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write(".gitignore", ".tminus/\n");
+        repo.commit();
+        repo.git(&["branch", "change/c1"]);
+        (repo, Folder::new())
+    }
+
+    /// The place at `work`, made now or found there.
+    fn place(work: &Path, made: bool) -> Place {
+        let work = work.to_path_buf();
+        Place { work, made }
+    }
+
+    #[test]
+    fn the_place_of_a_change_is_its_worktree_made_once_and_found_after() {
+        let (repo, places) = with_places();
+        let mut software = Software::with_places(repo.root(), &places.0, "main");
+        let work = places.0.join("c1");
+        assert_eq!(software.isolate("c1").unwrap(), place(&work, true));
+        assert_eq!(Git::new(&work).current_branch().unwrap(), "change/c1");
+        assert_eq!(software.isolate("c1").unwrap(), place(&work, false));
+        let mut fresh = Software::with_places(repo.root(), &places.0, "main");
+        assert_eq!(fresh.isolate("c1").unwrap(), place(&work, false));
+        // Let go, it is gone and its branch stays; nothing there to let go is no error.
+        software.vacate("c1").unwrap();
+        assert!(!work.exists());
+        repo.git(&["rev-parse", "--verify", "change/c1"]);
+        software.vacate("c1").unwrap();
+        // Anything else in the way is refused, named.
+        fs::create_dir_all(work.join("mine")).unwrap();
+        let err = software.isolate("c1").unwrap_err().to_string();
+        let way = "is in the way of the worktree of change c1";
+        let shown = format!("{} {way}", work.display());
+        assert!(err.starts_with(&shown), "{err}");
+        let err = software.vacate("c1").unwrap_err().to_string();
+        assert!(err.starts_with("git worktree remove --force -- "), "{err}");
+    }
+
+    #[test]
+    fn where_the_place_of_a_change_is_is_said_without_making_it() {
+        let (repo, places) = with_places();
+        let mut software = Software::with_places(repo.root(), &places.0, "main");
+        let work = places.0.join("c1");
+        assert_eq!(software.place("c1").unwrap(), place(&work, false));
+        assert!(!work.exists(), "a worktree was made");
+        assert_eq!(software.isolate("c1").unwrap(), place(&work, true));
+        assert_eq!(software.place("c1").unwrap(), place(&work, false));
+        // Gone again, it is still where it would be.
+        software.vacate("c1").unwrap();
+        assert_eq!(software.place("c1").unwrap(), place(&work, false));
+        // Without a folder of places, every change is at the root.
+        let mut at_root = Software::new(repo.root(), "main");
+        assert_eq!(at_root.place("c1").unwrap(), place(repo.root(), false));
+    }
+
+    #[test]
+    fn a_project_in_a_folder_of_its_repository_works_in_that_folder_of_its_worktree() {
+        let repo = Repo::new();
+        repo.write("app/README.md", "app\n");
+        repo.commit();
+        repo.git(&["branch", "change/c1"]);
+        let places = Folder::new();
+        let root = repo.root().join("app");
+        let mut software = Software::with_places(&root, &places.0, "main");
+        let work = places.0.join("c1").join("app");
+        assert_eq!(software.place("c1").unwrap(), place(&work, false));
+        assert_eq!(software.isolate("c1").unwrap(), place(&work, true));
+        assert!(work.join("README.md").is_file());
+        fs::write(work.join("new.md"), "x\n").unwrap();
+        let start = Mark::new(repo.git(&["rev-parse", "HEAD"]));
+        let touched = software.touched("c1", Some(&start)).unwrap();
+        assert_eq!(touched.paths(), ["new.md"]);
+    }
+
+    #[test]
+    fn without_a_folder_of_places_a_change_works_at_the_root_and_cannot_leave_it() {
+        let (repo, _) = with_places();
+        let mut software = Software::new(repo.root(), "main");
+        for err in [
+            software.isolate("c1").map(drop).unwrap_err(),
+            software.vacate("c1").unwrap_err(),
+        ] {
+            assert_eq!(err.to_string(), "c1: no folder of places");
+        }
+        let head = repo.git(&["rev-parse", "HEAD"]);
+        assert_eq!(software.mark("c1").unwrap(), Mark::new(head));
+        repo.write("a.txt", "abc");
+        let read = software.read("c1", &ItemId::new("a.txt")).unwrap();
+        assert_eq!(read, Some(b"abc".to_vec()));
+    }
+
+    #[test]
+    fn the_mark_of_a_place_is_the_commit_checked_out_there() {
+        let (repo, places) = with_places();
+        let mut software = Software::with_places(repo.root(), &places.0, "main");
+        let work = software.isolate("c1").unwrap().work;
+        fs::write(work.join("a.txt"), "a\n").unwrap();
+        software.keep("c1", "agents", "work", None).unwrap();
+        let there = Git::new(&work).head().unwrap();
+        assert_ne!(there, repo.git(&["rev-parse", "HEAD"]));
+        assert_eq!(software.mark("c1").unwrap(), Mark::new(there));
+        // A change with no place yet has no mark.
+        assert!(software.mark("c2").is_err());
+    }
+
+    #[test]
+    fn what_is_read_where_a_change_works_is_the_bytes_of_its_files() {
+        let (repo, places) = with_places();
+        let mut software = Software::with_places(repo.root(), &places.0, "main");
+        let work = software.isolate("c1").unwrap().work;
+        fs::write(work.join("a.txt"), "abc").unwrap();
+        fs::create_dir_all(work.join("folder")).unwrap();
+        std::os::unix::fs::symlink(work.join("a.txt"), work.join("link")).unwrap();
+        let mut read = |item: &str| software.read("c1", &ItemId::new(item));
+        assert_eq!(read("a.txt").unwrap(), Some(b"abc".to_vec()));
+        assert_eq!(read("link").unwrap(), Some(b"abc".to_vec()));
+        for nothing in ["folder", "missing.txt", "a.txt/inside"] {
+            assert_eq!(read(nothing).unwrap(), None, "{nothing}");
+        }
+        let long = "x".repeat(300);
+        let err = read(&long).unwrap_err();
+        assert!(matches!(&err, Error::Read(item, _) if *item == long));
+        let start = format!("cannot read {long}: ");
+        assert!(err.to_string().starts_with(&start), "{err}");
+        // Read as `file_hash` reads the disk: one formula for both.
+        let bytes = read("a.txt").unwrap();
+        let on_disk = guard::file_hash(&work.join("a.txt")).unwrap();
+        assert_eq!(guard::hash_of(bytes.as_deref()), on_disk);
+    }
+
+    /// The commits of the branch of `c1` of `repo` since `since`, newest first: the subject of
+    /// each, a blank line, then the files it changed, one a line.
+    fn commits_since(repo: &Repo, since: &str) -> Vec<String> {
+        let range = format!("{since}..change/c1");
+        let count = repo.git(&["rev-list", "--count", &range]);
+        let shown = |back: usize| {
+            let commit = format!("change/c1~{back}");
+            repo.git(&["show", "--name-only", "--format=%s", &commit])
+        };
+        (0..count.parse::<usize>().unwrap()).map(shown).collect()
+    }
+
+    /// The items whose ids are `ids`.
+    fn items(ids: &[&str]) -> Vec<ItemId> {
+        ids.iter().map(|id| ItemId::new(*id)).collect()
+    }
+
+    #[test]
+    fn what_a_change_keeps_is_a_commit_on_its_branch_with_what_was_asked() {
+        let (repo, places) = with_places();
+        let mut software = Software::with_places(repo.root(), &places.0, "main");
+        let work = software.isolate("c1").unwrap().work;
+        let start = Git::new(&work).head().unwrap();
+        // Nothing to keep, or nothing given, keeps nothing.
+        software.keep("c1", "agents", "nothing", None).unwrap();
+        fs::write(work.join("a.txt"), "by hand\n").unwrap();
+        software.keep("c1", "human", "none", Some(&[])).unwrap();
+        assert_eq!(commits_since(&repo, &start), Vec::<String>::new());
+        // The person's first, only what was given; then the rest, but the state.
+        fs::create_dir_all(work.join("tests")).unwrap();
+        fs::write(work.join("tests/b.txt"), "agents\n").unwrap();
+        fs::write(work.join("c.txt"), "by hand too\n").unwrap();
+        let by_hand = "changed by hand after the change parked";
+        let theirs = items(&["a.txt", "c.txt"]);
+        let kept = software.keep("c1", "human", by_hand, Some(&theirs));
+        kept.unwrap();
+        fs::create_dir_all(work.join(".tminus")).unwrap();
+        fs::write(work.join(".tminus/x.json"), "{}").unwrap();
+        fs::remove_file(work.join(".gitignore")).unwrap();
+        let earlier = "work of the earlier run, before relaunch";
+        software.keep("c1", "agents", earlier, None).unwrap();
+        let agents = format!("tminus(c1): {earlier}\n\n.gitignore\ntests/b.txt");
+        let person = format!("tminus(c1): {by_hand}\n\na.txt\nc.txt");
+        assert_eq!(commits_since(&repo, &start), [agents, person]);
+        assert!(work.join(".tminus/x.json").is_file());
+        // What a person kept already is not what is left to keep.
+        let mark = software.mark("c1").unwrap();
+        fs::write(work.join("d.txt"), "d\n").unwrap();
+        let left = software.touched("c1", Some(&mark)).unwrap();
+        assert_eq!(left.paths(), ["d.txt"]);
+    }
+
+    #[test]
+    fn what_a_change_keeps_is_named_after_the_layout_of_its_project() {
+        let repo = Repo::new();
+        repo.identify();
+        repo.write("gdd/project.toml", "");
+        repo.commit();
+        let start = repo.start("c1");
+        repo.write("src/a.rs", "x\n");
+        let mut software = Software::new(repo.root(), "main");
+        let kept = software.keep("c1", "builder-build", "spike work", None);
+        kept.unwrap();
+        let commit = "gdd(c1): spike work\n\nsrc/a.rs";
+        assert_eq!(commits_since(&repo, &start), [commit]);
+        // What cannot be kept says what git said.
+        let err = software.keep("c1", "human", "gone", Some(&items(&["missing.rs"])));
+        let err = err.unwrap_err().to_string();
+        assert!(err.starts_with("git add -- missing.rs failed"), "{err}");
+    }
+
+    #[test]
+    fn the_recipe_leaves_the_places_and_what_they_keep_to_the_blueprint() {
+        let source = include_str!("../recipe/mod.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        assert!(production.len() < source.len(), "the recipe has no tests");
+        for word in ["commit_files", "worktree::open(", "worktree::remove("] {
+            assert!(!production.contains(word), "the recipe names {word}");
+        }
     }
 }
