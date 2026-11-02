@@ -15,6 +15,7 @@ builder_retries = 3   # Builder rounds against G2
 replans = 1           # Orchestrator replans per stuck task
 reviewer_fixes = 1
 agent_timeout_s = 7200   # seconds an agent call may run. Loosened from the default 3600 (Mars, 2026-11-02): the rename-tminus Builder ran out of time mid-work
+command_seconds = 3600   # seconds each gate and release command may run. Loosened from the default 1800 (Mars, 2026-11-02): rename-tminus mutation testing (666 mutants) ran out of time
 
 # What each color gets. "fast" only exists when the color is not red, no .feature changes
 # and the Orchestrator marks the change as resumable.
