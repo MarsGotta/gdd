@@ -133,6 +133,19 @@ pub enum Moved {
     Conflicts(String),
 }
 
+/// Where the work of a task goes once it joined the main line (see [`Blueprint::deliver`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage {
+    /// Where the person tries it before approving it.
+    Pre,
+    /// Where its users get it. `needs_approval`: the core decided it needs the person's approval
+    /// to get there; the blueprint refuses it without one.
+    Production { needs_approval: bool },
+    /// Watched where its users have it: when it gets worse, the blueprint puts back what was there
+    /// before, by itself, and says why it failed.
+    Observe,
+}
+
 /// What the core asks a blueprint about the work of a task (ADR 0002, sections 2 and 5). Every
 /// method that changes something can run twice: a relaunch calls it again.
 pub trait Blueprint {
@@ -155,6 +168,11 @@ pub trait Blueprint {
     /// Joins the work of `id` to the main line, with the color and gates the core decided,
     /// `how`: what it printed. The core holds the lock and checked the gates first.
     fn integrate(&mut self, id: &str, how: &Classification) -> Result<String, Error>;
+
+    /// Delivers the work of `id`, joined to the main line, at `stage`, saying with `say` what it
+    /// says on its way (a wait, what it made). The core asks `Production` only after `Pre`, and
+    /// `Observe` only after `Production`.
+    fn deliver(&mut self, id: &str, stage: Stage, say: &mut dyn FnMut(&str)) -> Result<(), Error>;
 
     /// A place of its own for change `id`, made or reused.
     fn isolate(&mut self, id: &str) -> Result<Place, Error>;
@@ -604,6 +622,10 @@ paths = ["src/storage/**"]
         }
 
         fn integrate(&mut self, id: &str, _how: &Classification) -> Result<String, Error> {
+            Err(Error::Blueprint(format!("{id}: no main line here")))
+        }
+
+        fn deliver(&mut self, id: &str, _: Stage, _: &mut dyn FnMut(&str)) -> Result<(), Error> {
             Err(Error::Blueprint(format!("{id}: no main line here")))
         }
 

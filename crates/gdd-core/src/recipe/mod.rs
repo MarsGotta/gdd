@@ -15,8 +15,8 @@
 //! 5. G3 opened by the machines, the join to the main line, pre. Joins go one at a time; when the
 //!    main line moved since the change was built, the change takes it and passes G3 again on top
 //!    of it before it joins: a conflict, or G3 red, parks it.
-//! 6. A change that needs the human G4 waits for `gdd resume`. Any other is promoted and
-//!    observed: closed.
+//! 6. A change that needs the human G4 waits for `gdd resume`. Any other goes to production, with
+//!    the approval the core classifies then, and is observed: closed.
 //!
 //! An agent that says it cannot do the task parks the change at once, test mode after its Path
 //! Guard (see [`Run::call`]).
@@ -72,7 +72,7 @@ use crate::classify::{Classification, SPIKE, classify_touched, of_kind};
 use crate::gates::spike::{self, ADR_FOLDER};
 use crate::gates::{Gate, approve, release, verdict};
 use crate::git::{self, Git};
-use crate::guard::{self, Blueprint, Hashes, ItemId, Moved, Place};
+use crate::guard::{self, Blueprint, Hashes, ItemId, Moved, Place, Stage};
 use crate::layout::{self, Layout};
 use crate::repo::merge;
 use crate::rules::RulesTable;
@@ -136,7 +136,7 @@ const PROMOTION_FAILED: &str = "Promotion failed: ";
 /// [`g4_request`] and [`answers_g4`]).
 const G4_REQUEST: &str = "G4 · Release Gate:";
 
-/// The state of a change in production (see [`release::promote`]).
+/// The state of a change in production, as its blueprint records it (see [`Stage::Production`]).
 const IN_PRODUCTION: &str = "in-production";
 
 /// Local state of the tool, which the Reviewer's read-only check leaves out.
@@ -247,7 +247,8 @@ pub enum Snapshot {
 
 /// The steps of the recipe that read the configuration of the project, on the change it runs;
 /// those that read or run in the project do it in `place`, where the change works. An error
-/// stops the recipe.
+/// stops the recipe. Delivering the change once it joined the main line is its blueprint's (see
+/// [`Blueprint::deliver`]).
 pub trait Steps {
     /// Checks that the change may enter Build and starts it (`gdd prepare`): what it decided.
     fn prepare(&mut self, place: &Place) -> Result<Decided, String>;
@@ -265,7 +266,8 @@ pub trait Steps {
     fn rules(&mut self, place: &Place) -> Result<guard::Settings, String>;
     /// The zone map as the main line of work has it, and the rules table: what the scope check
     /// of the work of an earlier run judges with (see [`earlier_work`]), and what the change is
-    /// classified with when it joins the main line (see [`classified`]).
+    /// classified with when it joins the main line, and before production without G4 (see
+    /// [`classified`]).
     fn zones(&mut self, place: &Place) -> Result<(ZoneMap, RulesTable), String>;
     /// Runs `gate` for build mode, saved and logged: whether it passed.
     fn gate(&mut self, place: &Place, gate: Gate) -> Result<bool, String>;
@@ -279,8 +281,6 @@ pub trait Steps {
         by: &str,
         note: &str,
     ) -> Result<(), String>;
-    /// The release step `step`: `pre`, `promote` or `observe` (`gdd release`).
-    fn release(&mut self, step: &str) -> Result<(), String>;
     /// Tells the person who runs the recipe `line` on the way, before what the run says at its
     /// end.
     fn say(&mut self, line: &str);
@@ -386,7 +386,7 @@ impl From<invoke::Error> for Stop {
 enum Ended {
     /// In pre, waiting for the human G4.
     Paused,
-    /// Promoted and observed.
+    /// In production, and observed.
     Closed,
 }
 
@@ -1164,11 +1164,13 @@ fn answers_g4(said: &str) -> bool {
     said.starts_with(G4_REQUEST) || said.starts_with(PROMOTION_FAILED)
 }
 
-/// OK at G4 of change `id` of `project`, by the human with `note`, recorded in `place`: the
-/// change promoted unless it is `in_production` already (an earlier OK promoted it and stopped
-/// before observing it: never twice), then observed. Until the promotion passed, it stays paused
-/// at G4 unless production may have it (see [`not_promoted`]); a failed observation rolls it
-/// back, as it does without G4. Closed, `blueprint` lets go of its place (see [`finish`]).
+/// OK at G4 of change `id` of `project`, by the human with `note`, recorded in `place`: then
+/// `blueprint` delivers it to production, with the approval the human just gave, nothing
+/// classified again, unless it is `in_production` already (an earlier OK took it there and
+/// stopped before observing it: never twice), then observes it. Until production has it, it
+/// stays paused at G4 unless production may have it (see [`not_promoted`]); a failed observation
+/// rolls it back, as it does without G4. Closed, `blueprint` lets go of its place (see
+/// [`finish`]).
 fn ok_at_g4(
     project: &Project,
     id: &str,
@@ -1179,15 +1181,19 @@ fn ok_at_g4(
     steps: &mut impl Steps,
 ) -> Result<Said, String> {
     let root = project.state;
-    let mut promotion = steps.decide(place, "G4", "ok", "human", note);
-    if promotion.is_ok() && !in_production {
-        promotion = steps.release("promote");
+    let mut production = steps.decide(place, "G4", "ok", "human", note);
+    if production.is_ok() && !in_production {
+        let approved = Stage::Production {
+            needs_approval: true,
+        };
+        production = delivered(id, approved, blueprint, steps);
     }
-    if let Err(failure) = promotion {
+    if let Err(failure) = production {
         return not_promoted(root, id, &failure);
     }
     state::clear(root, id)?;
-    finish(project, id, observed(steps), blueprint)
+    let ended = observed(id, blueprint, steps);
+    finish(project, id, ended, blueprint)
 }
 
 /// OK at G4 of spike `id` of `project`, by the human with the note of `answer`; its record is
@@ -1497,15 +1503,41 @@ fn pause_at_g4(root: &Path, id: &str, why: Option<&str>) -> Result<(), String> {
     state::pause_at_g4(root, id)
 }
 
-/// Promotes the change and observes it in production.
-fn promoted(steps: &mut impl Steps) -> Result<Ended, Stop> {
-    steps.release("promote")?;
-    observed(steps)
+/// Has `blueprint` deliver change `id` at `stage` (see [`Blueprint::deliver`]): what it says on
+/// its way goes on the voice of `steps`, in order (see [`Steps::say`]). Why it failed, as it
+/// said it.
+fn delivered(
+    id: &str,
+    stage: Stage,
+    blueprint: &mut dyn Blueprint,
+    steps: &mut impl Steps,
+) -> Result<(), String> {
+    let mut say = |line: &str| steps.say(line);
+    let done = blueprint.deliver(id, stage, &mut say);
+    done.map_err(|e| e.to_string())
 }
 
-/// Observes the change in production.
-fn observed(steps: &mut impl Steps) -> Result<Ended, Stop> {
-    steps.release("observe")?;
+/// Change `id` delivered to production by `blueprint`, with `needs_approval` as the core decided
+/// it, then observed there (see [`observed`]).
+fn produced(
+    id: &str,
+    needs_approval: bool,
+    blueprint: &mut dyn Blueprint,
+    steps: &mut impl Steps,
+) -> Result<Ended, Stop> {
+    let stage = Stage::Production { needs_approval };
+    delivered(id, stage, blueprint, steps)?;
+    observed(id, blueprint, steps)
+}
+
+/// Change `id` observed in production by `blueprint`, which rolls it back by itself when it gets
+/// worse: closed.
+fn observed(
+    id: &str,
+    blueprint: &mut dyn Blueprint,
+    steps: &mut impl Steps,
+) -> Result<Ended, Stop> {
+    delivered(id, Stage::Observe, blueprint, steps)?;
     Ok(Ended::Closed)
 }
 
@@ -1915,9 +1947,11 @@ impl<S: Steps> Run<'_, S> {
         Ok(false)
     }
 
-    /// G3, the review, the join to the main line and pre; then the pause at G4, or production. A
-    /// polish pass (`polishing`) whose work has nothing the main line lacks joins nothing (see
-    /// [`Blueprint::ahead`] and [`Run::merged`]).
+    /// G3, the review, the join to the main line and pre, which `blueprint` delivers (see
+    /// [`Blueprint::deliver`]); then the pause at G4, or production, with the approval the core
+    /// classifies now (see [`classified`]), and its observation. A polish pass (`polishing`)
+    /// whose work has nothing the main line lacks joins nothing (see [`Blueprint::ahead`] and
+    /// [`Run::merged`]), and goes to pre all the same.
     fn integrate(&mut self, polishing: bool) -> Result<Ended, Stop> {
         self.g3()?;
         if self.decided.reviewer {
@@ -1929,11 +1963,14 @@ impl<S: Steps> Run<'_, S> {
         if !polishing || self.blueprint.ahead(self.id).map_err(said)? {
             self.merged()?;
         }
-        self.steps.release("pre")?;
+        let (state, id) = (self.project.state, self.id);
+        let (blueprint, steps) = (&mut *self.blueprint, &mut *self.steps);
+        delivered(id, Stage::Pre, blueprint, steps)?;
         if self.decided.g4 {
             return Ok(Ended::Paused);
         }
-        promoted(&mut *self.steps)
+        let needs_approval = classified(state, id, &self.place, blueprint, steps)?.g4;
+        produced(id, needs_approval, blueprint, steps)
     }
 
     /// The join to the main line, one at a time: under the lock of the joins, which the join of
@@ -2554,12 +2591,13 @@ mod tests {
     /// nothing. A step that runs in another place than the step before says so first, as `in
     /// <folder>` (see [`Played::seen`]). Each call of an agent does what `acts` gives it to do,
     /// on the project root while the steps run in the place of the change, `home`, and in the
-    /// place they run in otherwise, and a release step what `released` gives it, on the project
-    /// root. Each call of a role in `costly` reports it used `used`, a cent and a few tokens
-    /// unless a test says otherwise ([`CENT`]); the others, nothing. A release step, a decision on
-    /// a gate, a snapshot (`snapshot`), the rules (`rules`) or the zones (`zones`), named in
-    /// `fails` fails with what it gives. A call whose step, as `ran` names it, is in `cannot`
-    /// does and says what it does, then says it cannot do the task, for the reason given there.
+    /// place they run in otherwise. Each call of a role in `costly` reports it used `used`, a
+    /// cent and a few tokens unless a test says otherwise ([`CENT`]); the others, nothing. A
+    /// decision on a gate, a snapshot (`snapshot`), the rules (`rules`) or the zones (`zones`),
+    /// named in `fails` fails with what it gives. A call whose step, as `ran` names it, is in
+    /// `cannot` does and says what it does, then says it cannot do the task, for the reason given
+    /// there. What the change is delivered at, and what that says, is the main line's (see
+    /// [`Line::deliver`]).
     struct Played<'a> {
         root: &'a Path,
         /// Where the acts of the agents go now.
@@ -2583,7 +2621,6 @@ mod tests {
         guard: Vec<String>,
         stuck: Option<Who>,
         acts: Vec<(Who, Act)>,
-        released: Vec<(&'static str, Act)>,
         fails: Vec<(&'static str, &'static str)>,
         cannot: Vec<(&'static str, &'static str)>,
     }
@@ -2607,7 +2644,10 @@ mod tests {
             at: None,
             costly: Vec::new(),
             used: CENT,
-            line: Line::default(),
+            line: Line {
+                root: root.to_path_buf(),
+                ..Line::default()
+            },
             sessions: Vec::new(),
             decided: decided(),
             g2: VecDeque::new(),
@@ -2620,7 +2660,6 @@ mod tests {
             guard: Vec::new(),
             stuck: None,
             acts: Vec::new(),
-            released: Vec::new(),
             fails: Vec::new(),
             cannot: Vec::new(),
         }
@@ -2801,13 +2840,6 @@ mod tests {
             self.ended(gate)
         }
 
-        fn release(&mut self, step: &str) -> Result<(), String> {
-            self.push(step.into());
-            let acts = self.released.iter().filter(|(name, _)| *name == step);
-            acts.for_each(|(_, act)| act(self.root));
-            self.ended(step)
-        }
-
         fn say(&mut self, line: &str) {
             self.push(format!("say {line}"));
         }
@@ -2822,8 +2854,11 @@ mod tests {
     /// The main line of a test, played: the work of a change is `behind` it or not, taking it
     /// gives `moved`, the work is `ahead` of it or not, `blocked` says why it cannot join, and
     /// joining it prints [`JOINED`]. What it is asked goes in `ran`, with the id of the change
-    /// (and the color it joins with), which a [`Played`] shares: among what its steps ran, in
-    /// order. A call named in `fails` fails with what it gives.
+    /// (and the color it joins with, or the stage it is delivered at, see [`stage_shown`]), which
+    /// a [`Played`] shares: among what its steps ran, in order. A call named in `fails`, or a
+    /// stage by its word (`pre`, `production`, `observe`), fails with what it gives. Delivered at
+    /// a stage, the change does what `acts` gives that stage to do, on the project root `root`,
+    /// and says what `says` gives it, in order, before it fails if it fails.
     #[derive(Clone)]
     struct Line {
         ran: Rc<RefCell<Vec<String>>>,
@@ -2832,10 +2867,14 @@ mod tests {
         moved: Moved,
         ahead: bool,
         fails: Vec<(&'static str, &'static str)>,
+        root: PathBuf,
+        acts: Vec<(&'static str, Act)>,
+        says: Vec<(&'static str, &'static str)>,
     }
 
     impl Default for Line {
-        /// A main line that did not move, which the work of a change is ahead of and may join.
+        /// A main line that did not move, which the work of a change is ahead of and may join, and
+        /// where every stage passes, silent.
         fn default() -> Line {
             Line {
                 ran: Rc::default(),
@@ -2844,9 +2883,47 @@ mod tests {
                 moved: Moved::Taken(Mark::new(TAKEN)),
                 ahead: true,
                 fails: Vec::new(),
+                root: PathBuf::new(),
+                acts: Vec::new(),
+                says: Vec::new(),
             }
         }
     }
+
+    /// The word of `stage`, which the acts, the lines said and the failures of a [`Line`] give
+    /// it by.
+    fn stage_word(stage: Stage) -> &'static str {
+        match stage {
+            Stage::Pre => "pre",
+            Stage::Production { .. } => "production",
+            Stage::Observe => "observe",
+        }
+    }
+
+    /// How a [`Line`] shows `stage` among what ran: its word, and whether production needs the
+    /// person's approval.
+    fn stage_shown(stage: Stage) -> String {
+        match stage {
+            Stage::Production {
+                needs_approval: true,
+            } => "production, approval needed".to_string(),
+            other => stage_word(other).to_string(),
+        }
+    }
+
+    /// What a [`Line`] keeps when change `c1` is delivered to pre.
+    const TO_PRE: &str = "deliver c1 pre";
+
+    /// What a [`Line`] keeps when change `c1` is delivered to production without the need of an
+    /// approval.
+    const TO_PRODUCTION: &str = "deliver c1 production";
+
+    /// What a [`Line`] keeps when change `c1` is delivered to production with the need of the
+    /// person's approval.
+    const APPROVED: &str = "deliver c1 production, approval needed";
+
+    /// What a [`Line`] keeps when change `c1` is observed in production.
+    const OBSERVED: &str = "deliver c1 observe";
 
     impl Line {
         /// Keeps that it was asked `call` about `what`, then how the call ends: with what
@@ -2878,6 +2955,25 @@ mod tests {
         fn integrate(&self, id: &str, how: &Classification) -> Result<String, guard::Error> {
             self.asked("integrate", &format!("{id} {}", how.color))?;
             Ok(JOINED.to_string())
+        }
+
+        fn deliver(
+            &self,
+            id: &str,
+            stage: Stage,
+            say: &mut dyn FnMut(&str),
+        ) -> Result<(), guard::Error> {
+            let shown = format!("deliver {id} {}", stage_shown(stage));
+            self.ran.borrow_mut().push(shown);
+            let word = stage_word(stage);
+            let acts = self.acts.iter().filter(|(at, _)| *at == word);
+            acts.for_each(|(_, act)| act(&self.root));
+            let says = self.says.iter().filter(|(at, _)| *at == word);
+            says.for_each(|&(_, line)| say(line));
+            match self.fails.iter().find(|(failing, _)| *failing == word) {
+                Some((_, why)) => Err(guard::Error::Blueprint(why.to_string())),
+                None => Ok(()),
+            }
         }
     }
 
@@ -2911,6 +3007,15 @@ mod tests {
 
         fn integrate(&mut self, id: &str, how: &Classification) -> Result<String, guard::Error> {
             self.line.integrate(id, how)
+        }
+
+        fn deliver(
+            &mut self,
+            id: &str,
+            stage: Stage,
+            say: &mut dyn FnMut(&str),
+        ) -> Result<(), guard::Error> {
+            self.line.deliver(id, stage, say)
         }
 
         fn isolate(&mut self, id: &str) -> Result<Place, guard::Error> {
@@ -3035,6 +3140,15 @@ mod tests {
             self.line.integrate(id, how)
         }
 
+        fn deliver(
+            &mut self,
+            id: &str,
+            stage: Stage,
+            say: &mut dyn FnMut(&str),
+        ) -> Result<(), guard::Error> {
+            self.line.deliver(id, stage, say)
+        }
+
         fn isolate(&mut self, id: &str) -> Result<Place, guard::Error> {
             self.asked(format!("isolate {id}"), "isolate")?;
             let made = std::mem::take(&mut self.made);
@@ -3150,6 +3264,32 @@ mod tests {
         run.launched()
     }
 
+    /// Runs the recipe of a launch on change `c1` as [`launched`] does, with `blueprint`.
+    fn launched_on(steps: &mut Played, blueprint: &mut dyn Blueprint) -> Result<Ended, Stop> {
+        let root = steps.root;
+        let project = Project {
+            root,
+            state: root,
+            worktree: root,
+            main: "main",
+            replans: 1,
+            fixes: 1,
+            max: 2,
+            spike_usd: 5.0,
+        };
+        let decided = steps.decided.clone();
+        let mut run = Run {
+            project: &project,
+            id: "c1",
+            blueprint,
+            steps,
+            place: found_at(root),
+            decided,
+            variant: None,
+        };
+        run.launched()
+    }
+
     /// The place whose project root is `work`, found there.
     fn found_at(work: &Path) -> Place {
         Place {
@@ -3163,11 +3303,13 @@ mod tests {
     /// What change `c1` asks of a main line that did not move as it joins it, yellow.
     const JOINS: [&str; 3] = ["blocked c1", "behind c1", "integrate c1 yellow"];
 
+    /// What the change is delivered at once it joined, when it needs no G4 and no approval.
+    const DELIVERED: [&str; 3] = [TO_PRE, TO_PRODUCTION, OBSERVED];
+
     /// What runs from G3 on when everything passes and the change needs no G4.
     fn to_production() -> Vec<&'static str> {
         let opened = ["G3", "review r round=1", OPENED];
-        let after = ["pre", "promote", "observe"];
-        [&opened[..], &JOINS, &after].concat()
+        [&opened[..], &JOINS, &DELIVERED].concat()
     }
 
     fn park(why: &str) -> Result<Ended, Stop> {
@@ -3249,7 +3391,93 @@ mod tests {
             "G3",
             OPENED,
         ];
-        assert_eq!(steps.ran(), [&built[..], &JOINS, &["pre"]].concat());
+        assert_eq!(steps.ran(), [&built[..], &JOINS, &[TO_PRE]].concat());
+    }
+
+    /// The steps of a change built already, without a Reviewer, played in a plain folder of a
+    /// repository: they run from G3 on.
+    fn built(folder: &Folder) -> Played<'_> {
+        let mut steps = played(&folder.0);
+        steps.decided.resume_green = true;
+        steps.decided.reviewer = false;
+        steps
+    }
+
+    /// What runs from G3 on, for a change built already and without a Reviewer, until it is
+    /// delivered to pre.
+    const TO_PRE_RAN: [&str; 6] = ["G3", OPENED, JOINS[0], JOINS[1], JOINS[2], TO_PRE];
+
+    #[test]
+    fn a_failed_pre_stops_the_run_before_the_pause_and_before_production() {
+        for g4 in [true, false] {
+            let folder = repo_folder();
+            let mut steps = built(&folder);
+            steps.decided.g4 = g4;
+            steps.line.fails = vec![("pre", "the demo failed")];
+            let failed = Stop::Fail("the demo failed".into());
+            assert_eq!(launched(&mut steps, 1), Err(failed), "g4 {g4}");
+            assert_eq!(steps.ran(), TO_PRE_RAN, "g4 {g4}");
+        }
+    }
+
+    #[test]
+    fn a_failed_production_stops_the_run_and_nothing_is_observed() {
+        let folder = repo_folder();
+        let mut steps = built(&folder);
+        steps.line.fails = vec![("production", "the deploy failed")];
+        let failed = Stop::Fail("the deploy failed".into());
+        assert_eq!(launched(&mut steps, 1), Err(failed));
+        assert_eq!(steps.ran(), [&TO_PRE_RAN[..], &[TO_PRODUCTION]].concat());
+    }
+
+    #[test]
+    fn production_without_g4_needs_the_approval_the_core_classifies_then() {
+        let zones = "default = \"yellow\"\n[[zone]]\ncolor = \"red\"\npaths = [\"src/**\"]\n";
+        for (touched, production) in [("src/a.rs", APPROVED), ("docs/a.md", TO_PRODUCTION)] {
+            let folder = repo_folder();
+            let mut steps = built(&folder);
+            steps.zones = zones;
+            let mut paper = Paper::at(&folder.0);
+            paper.touched = vec![touched.to_string()];
+            paper.line = steps.line.clone();
+            assert_eq!(launched_on(&mut steps, &mut paper), Ok(Ended::Closed));
+            let ran = steps.ran();
+            assert_eq!(ran[ran.len() - 3..], [TO_PRE, production, OBSERVED]);
+            // Classified at the join, then again before production.
+            let asked = ["touched c1 since main"; 2];
+            assert_eq!(paper.kept_asking(), asked, "{touched}");
+        }
+    }
+
+    #[test]
+    fn what_the_blueprint_says_on_its_way_is_said_in_order() {
+        let folder = repo_folder();
+        let mut steps = built(&folder);
+        steps.line.says = vec![
+            ("pre", "demo ready"),
+            ("production", "waiting for another"),
+            ("production", "made v0.1.0"),
+            ("observe", "it holds"),
+        ];
+        assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
+        let said = [
+            TO_PRE,
+            "say demo ready",
+            TO_PRODUCTION,
+            "say waiting for another",
+            "say made v0.1.0",
+            OBSERVED,
+            "say it holds",
+        ];
+        assert_eq!(steps.ran()[TO_PRE_RAN.len() - 1..], said);
+        // After the human's OK too.
+        let repo = paused();
+        let mut steps = played(repo.root());
+        steps.line.says = vec![("production", "made v0.1.0")];
+        let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
+        assert!(done(said).starts_with("Change c1 closed."));
+        let ran = ["G4 ok human: Fine", APPROVED, "say made v0.1.0", OBSERVED];
+        assert_eq!(steps.ran(), ran);
     }
 
     #[test]
@@ -3778,8 +4006,7 @@ mod tests {
         steps.decided.resume_green = true;
         steps.decided.reviewer = false;
         assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
-        let after = ["pre", "promote", "observe"];
-        let ran = [&["G3", OPENED][..], &JOINS, &after].concat();
+        let ran = [&["G3", OPENED][..], &JOINS, &DELIVERED].concat();
         assert_eq!(steps.ran(), ran);
     }
 
@@ -3798,8 +4025,8 @@ mod tests {
         assert_eq!(Stop::from(unknown), Stop::Fail(said));
         let mut steps = played(&folder.0);
         steps.decided.resume_green = true;
-        steps.fails = vec![("observe", "release.observe failed")];
-        let failed = Stop::Fail("release.observe failed".into());
+        steps.line.fails = vec![("observe", "production got worse")];
+        let failed = Stop::Fail("production got worse".into());
         assert_eq!(launched(&mut steps, 1), Err(failed));
     }
 
@@ -5664,8 +5891,7 @@ mod tests {
         let mut steps = behind(&folder);
         assert_eq!(launched(&mut steps, 1), Ok(Ended::Closed));
         let joined = [REOPENED, "integrate c1 yellow"];
-        let after = ["pre", "promote", "observe"];
-        let ran = [&["G3", OPENED][..], &TAKES, &joined, &after].concat();
+        let ran = [&["G3", OPENED][..], &TAKES, &joined, &DELIVERED].concat();
         assert_eq!(steps.ran(), ran);
         // Its build starts again where it took it: what came with it is not its doing.
         assert_eq!(record(&folder.0)["build_start"], TAKEN);
@@ -5752,8 +5978,7 @@ mod tests {
         assert!(done(said).starts_with("Change c1 closed."));
         let waited = format!("say {}", queue::WAITING);
         assert_eq!(steps.ran()[5..7], [OPENED, waited.as_str()]);
-        let after = ["pre", "promote", "observe"];
-        assert_eq!(steps.ran()[7..], [&JOINS[..], &after].concat());
+        assert_eq!(steps.ran()[7..], [&JOINS[..], &DELIVERED].concat());
     }
 
     #[test]
@@ -6078,15 +6303,19 @@ mod tests {
         repo
     }
 
+    /// What runs once the human says OK at G4 to change `c1`: their decision, then production
+    /// with the approval they just gave, then its observation.
+    const OK_AT_G4: [&str; 3] = ["G4 ok human: Fine", APPROVED, OBSERVED];
+
     #[test]
-    fn ok_at_g4_promotes_the_change() {
+    fn ok_at_g4_takes_the_change_to_production_with_the_approval_and_observes_it() {
         let repo = paused();
         let root = repo.root();
         worktree::open(root, &repo.work, "c1").unwrap();
         let mut steps = played(root);
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(steps.ran(), OK_AT_G4);
         assert!(!repo.work.exists(), "the worktree stays");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         let request = &record(root)["inbox"][0];
@@ -6114,7 +6343,7 @@ mod tests {
         let mut steps = played(root);
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(steps.ran(), OK_AT_G4);
         assert_eq!(open_requests(root), ["Which colour?"]);
         let text = change::read_record(root, "c1").unwrap();
         let inbox = inbox::save(root, "c1", &text).unwrap();
@@ -6134,24 +6363,25 @@ mod tests {
         open
     }
 
-    const PROMOTE_FAILED: &str = "release.promote failed (exit code 1):\nregistry down";
+    /// Why production did not take a change, as its blueprint says it.
+    const REGISTRY_DOWN: &str = "the deploy failed (exit code 1):\nregistry down";
 
     #[test]
-    fn a_failed_promotion_leaves_the_change_paused_and_the_same_answer_retries_it() {
+    fn a_failed_production_leaves_the_change_paused_and_the_same_answer_retries_it() {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
-        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        steps.line.fails = vec![("production", REGISTRY_DOWN)];
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let failed = format!(
-            "Promotion of c1 failed: {PROMOTE_FAILED}. Production untouched: the change is \
+            "Promotion of c1 failed: {REGISTRY_DOWN}. Production untouched: the change is \
              still paused at G4. To retry: tminus resume c1 --g4 ok (or --g4 ko to reject)."
         );
         assert_eq!(said, Err(failed));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote"]);
+        assert_eq!(steps.ran(), OK_AT_G4[..2]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let why = format!(
-            "Promotion failed: {PROMOTE_FAILED}. Fix the cause and answer again: tminus resume \
+            "Promotion failed: {REGISTRY_DOWN}. Fix the cause and answer again: tminus resume \
              c1 --g4 ok, or --g4 ko."
         );
         let request = g4_request("c1", "Feature");
@@ -6161,26 +6391,26 @@ mod tests {
         assert!(inbox.contains("G4 · Release Gate"), "{inbox}");
         // Failed again: only the last failure is open.
         let mut steps = played(root);
-        steps.fails = vec![("promote", "release.promote failed")];
+        steps.line.fails = vec![("production", "the deploy failed")];
         assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
-        let why = "Promotion failed: release.promote failed. Fix the cause and answer again: \
-                   tminus resume c1 --g4 ok, or --g4 ko.";
+        let why = "Promotion failed: the deploy failed. Fix the cause and answer again: tminus \
+                   resume c1 --g4 ok, or --g4 ko.";
         assert_eq!(open_requests(root), [why.to_string(), request]);
-        // Fixed, the same answer promotes it.
+        // Fixed, the same answer takes it to production.
         let mut steps = played(root);
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(steps.ran(), OK_AT_G4);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
     }
 
     #[test]
-    fn after_a_failed_promotion_the_human_can_still_reject_the_change() {
+    fn after_a_failed_production_the_human_can_still_reject_the_change() {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
-        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        steps.line.fails = vec![("production", REGISTRY_DOWN)];
         assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
         let mut steps = played(root);
         let said = resumed(&repo, Answer::Ko, "No", None, &mut steps);
@@ -6192,11 +6422,11 @@ mod tests {
     }
 
     #[test]
-    fn after_a_failed_promotion_the_human_can_still_polish_the_change() {
+    fn after_a_failed_production_the_human_can_still_polish_the_change() {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
-        steps.fails = vec![("promote", PROMOTE_FAILED)];
+        steps.line.fails = vec![("production", REGISTRY_DOWN)];
         assert!(resumed(&repo, Answer::Ok, "Fine", None, &mut steps).is_err());
         let mut steps = played(root);
         let note = "Shorter";
@@ -6209,13 +6439,13 @@ mod tests {
     }
 
     #[test]
-    fn a_change_promoted_already_is_only_observed() {
+    fn a_change_in_production_already_is_only_observed() {
         let repo = paused_in(IN_PRODUCTION);
         let root = repo.root();
         let mut steps = played(root);
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         assert!(done(said).starts_with("Change c1 closed."));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "observe"]);
+        assert_eq!(steps.ran(), ["G4 ok human: Fine", OBSERVED]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
     }
 
@@ -6224,20 +6454,20 @@ mod tests {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
-        steps.fails = vec![("observe", "release.observe failed")];
+        steps.line.fails = vec![("observe", "production got worse")];
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
-        assert_eq!(said, Err("release.observe failed".into()));
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(said, Err("production got worse".into()));
+        assert_eq!(steps.ran(), OK_AT_G4);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
     }
 
-    /// What the release step `promote` does before it runs its command: the record of change
-    /// `c1` of the project at `root` says it is promoting.
-    fn promoting(root: &Path) {
+    /// What the blueprint of software does before production runs its command: the record of
+    /// change `c1` of the project at `root` says it is on its way there.
+    fn on_its_way(root: &Path) {
         let text = change::read_record(root, "c1").unwrap();
         let fields = vec![("state", Value::from(release::PROMOTING))];
-        let promoting = change::with_fields(&text, fields).unwrap();
-        change::write(root, &change::record_path("c1"), &promoting).unwrap();
+        let on_its_way = change::with_fields(&text, fields).unwrap();
+        change::write(root, &change::record_path("c1"), &on_its_way).unwrap();
     }
 
     const UNLOGGED: &str = "cannot write .tminus/log.jsonl: Is a directory (os error 21)";
@@ -6247,12 +6477,12 @@ mod tests {
         "cannot write .tminus/changes/c1/change.json: Is a directory (os error 21)";
 
     #[test]
-    fn a_promotion_that_may_have_reached_production_parks_the_change() {
+    fn a_change_that_may_have_reached_production_parks() {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
-        steps.released = vec![("promote", promoting)];
-        steps.fails = vec![("promote", UNLOGGED)];
+        steps.line.acts = vec![("production", on_its_way)];
+        steps.line.fails = vec![("production", UNLOGGED)];
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
         let why = format!(
             "Change c1 parked: production may have it, but tminus cannot go on with it \
@@ -6260,7 +6490,7 @@ mod tests {
              deploy it twice. Message in .tminus/changes/c1/inbox.md"
         );
         assert_eq!(parked(said), why);
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote"]);
+        assert_eq!(steps.ran(), OK_AT_G4[..2]);
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(false));
         assert_eq!(record(root)["state"], "parked");
         assert!(open_requests(root).is_empty(), "{:?}", open_requests(root));
@@ -6335,7 +6565,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_promotion_whose_record_cannot_be_read_keeps_the_pause() {
+    fn a_failed_production_whose_record_cannot_be_read_keeps_the_pause() {
         let repo = paused();
         let root = repo.root();
         let mut steps = played(root);
@@ -6344,11 +6574,11 @@ mod tests {
             fs::remove_file(&record).unwrap();
             fs::create_dir(&record).unwrap();
         };
-        steps.released = vec![("promote", unreadable)];
-        steps.fails = vec![("promote", "release.promote failed")];
+        steps.line.acts = vec![("production", unreadable)];
+        steps.line.fails = vec![("production", "the deploy failed")];
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
-        let start = "Promotion of c1 failed: release.promote failed. Its record cannot say \
-                     whether production has it: cannot read .tminus/changes/c1/change.json: ";
+        let start = "Promotion of c1 failed: the deploy failed. Its record cannot say whether \
+                     production has it: cannot read .tminus/changes/c1/change.json: ";
         let err = said.unwrap_err();
         assert!(err.starts_with(start), "{err}");
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
@@ -6358,7 +6588,7 @@ mod tests {
     fn ok_at_g4_keeps_the_pause_when_the_record_cannot_be_written() {
         let repo = paused();
         let root = repo.root();
-        // The decision of G4 is not written: nothing is promoted.
+        // The decision of G4 is not written: nothing goes to production.
         let mut steps = played(root);
         steps.fails = vec![("G4", UNWRITTEN)];
         let said = resumed(&repo, Answer::Ok, "Fine", None, &mut steps);
@@ -6373,9 +6603,9 @@ mod tests {
         fs::remove_file(&inbox).unwrap();
         fs::create_dir(&inbox).unwrap();
         let mut steps = played(root);
-        steps.fails = vec![("promote", "release.promote failed")];
+        steps.line.fails = vec![("production", "the deploy failed")];
         let err = resumed(&repo, Answer::Ok, "Fine", None, &mut steps).unwrap_err();
-        let start = "Promotion of c1 failed: release.promote failed. Production untouched";
+        let start = "Promotion of c1 failed: the deploy failed. Production untouched";
         assert!(err.starts_with(start), "{err}");
         let unsaved = "\ncannot write .tminus/changes/c1/inbox.md: ";
         assert!(err.contains(unsaved), "{err}");
@@ -6419,7 +6649,7 @@ mod tests {
             OPENED,
             "ahead c1",
         ];
-        let joined = [REOPENED, "integrate c1 yellow", "pre"];
+        let joined = [REOPENED, "integrate c1 yellow", TO_PRE];
         assert_eq!(steps.ran(), [&built[..], &TAKES, &joined].concat());
         assert_eq!(state::paused_at_g4(root, "c1"), Ok(true));
         let record = record(root);
@@ -6469,7 +6699,7 @@ mod tests {
             "review r round=1",
             OPENED,
             "ahead c1",
-            "pre",
+            TO_PRE,
         ];
         assert_eq!(steps.ran(), expected);
     }
@@ -6597,6 +6827,7 @@ mod tests {
         let work = apart.0.join("c1");
         let mut paper = Paper::at(&work);
         let mut steps = played(repo.root());
+        paper.line = steps.line.clone();
         let given = reply(answer, note);
         let said = resume(&repo.project(), "c1", &given, &mut paper, &mut steps);
         assert!(said.is_ok(), "{said:?}");
@@ -6610,7 +6841,7 @@ mod tests {
         // Its decision reads the configuration there, not the one of the main checkout.
         let repo = paused();
         let (steps, asked) = answered_apart(&repo, Answer::Ok, "Fine");
-        assert_eq!(steps.ran(), ["G4 ok human: Fine", "promote", "observe"]);
+        assert_eq!(steps.ran(), OK_AT_G4);
         assert_eq!(asked, ["place c1", "vacate c1"]);
         let repo = paused();
         let (steps, asked) = answered_apart(&repo, Answer::Ko, "No");

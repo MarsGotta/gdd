@@ -25,11 +25,12 @@ use gdd_core::change::{self, Decision, Record};
 use gdd_core::classify::{classify_touched, of_kind};
 use gdd_core::gates::{self, Gate, approve, ci, debt, exceptions, prepare, release, selftest};
 use gdd_core::git::Git;
-use gdd_core::guard::{self, Hashes, Place, Settings, Verdict};
+use gdd_core::guard::{self, Hashes, Place, Settings, Stage, Verdict};
 // `named` and `join` take a path of the tool written in the new names (`tminus/rules.toml`,
 // `.tminus/changes/<id>/change.json`...) to where the project at a root keeps it.
 use gdd_core::layout::{self, Layout, join, named};
 use gdd_core::recipe::{self, Said, Snapshot, queue};
+use gdd_core::repo::deliver;
 use gdd_core::repo::touched::{Software, against_main};
 use gdd_core::status::{self, Status};
 use gdd_core::{
@@ -1631,9 +1632,11 @@ fn after_voice(ran: Result<String, String>, voice: Voice) -> Outcome {
     outcome
 }
 
-/// The release step `step` of change `id` (see [`release`]). Promoting asks whether the change
-/// needs the human G4 as it is classified now, and gives it its version as the rules of the main
-/// checkout ask (see [`versions::promote`]); what it says on its way, it says with `voice`.
+/// The release step `step` of change `id`: change `id` delivered at its stage, as the blueprint
+/// of software delivers it (see [`deliver::at`]), with the release commands of `root`, read
+/// first. Promoting asks whether the change needs the human G4 as it is classified now, from
+/// the main branch the rules file of `root` names; only promoting reads it. What it says on its
+/// way, it says with `voice`.
 fn release_change(
     root: &Path,
     state: &Path,
@@ -1641,26 +1644,19 @@ fn release_change(
     id: &str,
     voice: &mut Voice,
 ) -> Result<String, String> {
-    let steps = load_steps(root)?;
-    match step {
-        "pre" => release::pre(root, state, id, &steps),
+    let steps = deliver::steps(root)?;
+    let (stage, main) = match step {
+        "pre" => (Stage::Pre, String::new()),
         "promote" => {
-            let decided = decide(root, state, id)?;
+            let needs_approval = decide(root, state, id)?.classification.g4;
             let main = load_settings(root)?.main_branch;
-            let promotion = versions::Promotion {
-                root,
-                state,
-                main: &main,
-                id,
-                steps: &steps,
-                needs_g4: decided.classification.g4,
-                rules: load_versions(state)?,
-            };
-            versions::promote(&promotion, |line| voice.say(line))
+            (Stage::Production { needs_approval }, main)
         }
-        "observe" => release::observe(root, state, id, &steps),
-        other => Err(format!("unknown release step {other:?}")),
-    }
+        "observe" => (Stage::Observe, String::new()),
+        other => return Err(format!("unknown release step {other:?}")),
+    };
+    let mut say = |line: &str| voice.say(line);
+    deliver::at(&steps, root, state, &main, id, stage, &mut say)
 }
 
 /// `gdd release` without a step, for the role `role`: agents that gdd started are refused. The
@@ -1678,7 +1674,7 @@ fn release_version(
 ) -> Result<Outcome, String> {
     approve::may_record(role).map_err(|e| e.to_string())?;
     let main = load_settings(root)?.main_branch;
-    let push = load_versions(state)?.push;
+    let push = deliver::version_rules(state)?.push;
     if yes {
         let mut voice = streams.err();
         let waiting = || voice.say(queue::WAITING);
@@ -1996,13 +1992,6 @@ impl recipe::Steps for ProjectSteps<'_> {
         let (voice, errors) = (&mut self.voice, &mut self.errors);
         let warn = |line: &str| errors.say(line);
         record_gate(root, state, &args, None, |line| voice.say(line), warn).map(drop)
-    }
-
-    /// After the merge the change is on the main branch: its release runs from the main checkout,
-    /// the project root of the state root, as the main branch configures it.
-    fn release(&mut self, step: &str) -> Result<(), String> {
-        let (state, id) = (self.state, self.id);
-        release_change(state, state, step, id, &mut self.voice).map(drop)
     }
 
     fn say(&mut self, line: &str) {
@@ -2392,7 +2381,7 @@ fn adopt_project(root: &Path, state: &Path) -> Result<String, String> {
     let commands = read(root, COMMANDS)?.unwrap_or_default();
     let commands = gates::Commands::from_toml(&commands);
     let commands = commands.map_err(|e| in_file(root, COMMANDS, e))?;
-    let limit = load_command_limit(root)?;
+    let limit = deliver::command_limit(root)?;
     adopt::adopt(root, state, &commands, limit).map(|adopted| adopted.to_string())
 }
 
@@ -2530,31 +2519,6 @@ fn load_models_with_session(root: &Path, state: &Path) -> Result<Models, String>
 fn load_limits(root: &Path) -> Result<Limits, String> {
     let text = read(root, RULES)?.unwrap_or_default();
     Limits::from_toml(&text).map_err(|e| in_file(root, RULES, e))
-}
-
-/// The release commands of the project, with the time limit of its rules file.
-fn load_steps(root: &Path) -> Result<release::Steps, String> {
-    let limit = load_command_limit(root)?;
-    let text = read(root, COMMANDS)?.unwrap_or_default();
-    release::Steps::from_toml(&text, limit).map_err(|e| in_file(root, COMMANDS, e))
-}
-
-/// How long each gate and release command of the project may run (see
-/// [`gdd_core::rules::command_seconds`]).
-fn load_command_limit(root: &Path) -> Result<Duration, String> {
-    let text = read(root, RULES)?.unwrap_or_default();
-    gdd_core::rules::command_seconds(&text).map_err(|e| in_file(root, RULES, e))
-}
-
-/// What the rules file of the main checkout, under the state root `state`, says of releases (see
-/// [`versions::Rules`]): as the main branch has it, as the merge reads `push_main`.
-fn load_versions(state: &Path) -> Result<versions::Rules, String> {
-    let text = read(state, RULES)?.unwrap_or_default();
-    // Its errors start with the rules file in the new names: the project names it its own way.
-    versions::Rules::from_toml(&text).map_err(|e| match e.strip_prefix(RULES) {
-        Some(rest) => format!("{}{rest}", named(state, RULES)),
-        None => e,
-    })
 }
 
 /// What the rules file says to Path Guard: the main branch and the protected paths.
