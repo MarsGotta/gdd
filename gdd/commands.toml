@@ -46,3 +46,7 @@ unused = "cargo machete"
 [selftest]
 file = "crates/gdd-core/tests/gdd_selftest_failing.rs"      # path of a deliberately failing test (created and removed)
 content = "#[test]\nfn gdd_selftest_must_fail() {\n    panic!(\"gdd selftest\");\n}\n"   # its content
+
+[close_test.quality]   # quality's close test (gates-close): a badly formatted file that lint must turn red (tightening, Mars, 2026-11-02)
+file = "crates/gdd-core/tests/gdd_selftest_lint.rs"      # created and removed by tminus selftest
+content = "fn  gdd_selftest_badly ( ) { }\n"   # fails cargo fmt --check

@@ -1,13 +1,13 @@
-//! Several changes at once, merged one at a time. Each change runs in its own worktree, so
-//! several can run at once. A change does not launch while `[parallel] max` changes build
-//! already: the agents' subscriptions are shared. One that plans a path that overlaps one of a
-//! change in flight launches with a warning: git settles the overlap when it merges (see
+//! Several changes at once, joined to the main line one at a time. Each change runs in its own
+//! worktree, so several can run at once. A change does not launch while `[parallel] max` changes
+//! build already: the agents' subscriptions are shared. One that plans a path that overlaps one
+//! of a change in flight launches with a warning: git settles the overlap when it merges (see
 //! [`may_launch`]). Launches are judged one at a time, under the launch lock (see
-//! [`admission`]). And merges go one at a time, under the merge lock (see [`lock`]): a change
-//! whose main branch moved since it was built takes the latest main first (see [`main_moved`]
-//! and [`take_main`]), and its build starts again there (see [`restarted`]). A person's write to
-//! the GDD state every change shares waits for the agent calls under way, and no call starts
-//! while it waits (see [`calling`] and [`shared_write`]).
+//! [`admission`]). And joins to the main line go one at a time, under their lock (see
+//! [`lock`]): a change the main line moved under since it was built takes it first, and its
+//! build starts again there (see [`restarted`]). A person's write to the GDD state every change
+//! shares waits for the agent calls under way, and no call starts while it waits (see
+//! [`calling`] and [`shared_write`]).
 
 use std::fs::{self, File, TryLockError};
 use std::io;
@@ -21,7 +21,6 @@ use crate::agents::files;
 use crate::change;
 use crate::config;
 use crate::gates::verdict;
-use crate::git::{self, Git};
 use crate::guard::RULES;
 use crate::layout::{self, Layout};
 
@@ -355,39 +354,8 @@ fn unlocked(path: &str, e: io::Error) -> String {
     format!("cannot lock {path}: {e}")
 }
 
-/// Whether the main branch `main` moved since the change checked out at `work` was last built:
-/// its commits since they parted changed something anywhere in the repository, also outside the
-/// project folder, as the merge brings it all. The merge commit of the change itself, with
-/// nothing else, is no move.
-pub fn main_moved(work: &Path, main: &str) -> Result<bool, git::Error> {
-    Git::new(work).changed_anywhere("HEAD", main)
-}
-
-/// Takes the latest main branch `main` into the branch of change `id`, checked out at `work`:
-/// its work committed first, then main merged into it with a merge commit, never a rebase. A
-/// merge with conflicts is given up, the branch as it was with its work committed: the paths in
-/// conflict, which are none when it merged. The commits start with `tminus(<id>): `, or with
-/// `gdd(<id>): ` in a project set up before the rename (see [`Layout::name`]).
-pub fn take_main(work: &Path, main: &str, id: &str) -> Result<Vec<String>, git::Error> {
-    let git = Git::new(work);
-    let tool = Layout::at(work).name();
-    if git.has_work()? {
-        git.commit_work(&format!("{tool}({id}): change work"))?;
-    }
-    let message = format!("{tool}({id}): take the latest main");
-    let Err(failed) = git.merge(main, &message) else {
-        return Ok(Vec::new());
-    };
-    let conflicts = git.conflicts()?;
-    if conflicts.is_empty() {
-        return Err(failed);
-    }
-    git.abort_merge()?;
-    Ok(conflicts)
-}
-
-/// Starts the build of change `id`, under the state root `state`, again at the commit `start`,
-/// where it took the latest main: what came with main is not its doing, and what it did before
+/// Starts the build of change `id`, under the state root `state`, again at the mark `start`,
+/// where it took the latest main line: what came with it is not its doing, and what it did before
 /// passed its gates. Its snapshots belong to the earlier start, so they go.
 pub fn restarted(state: &Path, id: &str, start: &str) -> Result<(), String> {
     let text = change::read_record(state, id)?;
@@ -405,7 +373,7 @@ pub fn restarted(state: &Path, id: &str, start: &str) -> Result<(), String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::git::tests::{Folder, Repo};
+    use crate::git::tests::Folder;
     use std::os::unix::fs::symlink;
     use std::sync::mpsc;
     use std::thread;
@@ -904,115 +872,6 @@ pub(crate) mod tests {
         assert_eq!(err, "cannot lock .tminus/agents.lock: no locks left");
     }
 
-    /// A repository on `main` with the branch of change `c1`, which adds `app.txt`, checked out
-    /// in a worktree, and main one commit ahead of where the branch left it, with `news.txt`.
-    fn moved() -> (Repo, Folder) {
-        let repo = Repo::new();
-        repo.identify();
-        repo.start("c1");
-        repo.write("app.txt", "change\n");
-        repo.commit();
-        repo.git(&["checkout", "-q", "main"]);
-        let trees = Folder::new();
-        let work = trees.0.join("c1").to_string_lossy().into_owned();
-        repo.git(&["worktree", "add", "-q", &work, "change/c1"]);
-        repo.write("news.txt", "news\n");
-        repo.commit();
-        (repo, trees)
-    }
-
-    #[test]
-    fn main_moved_when_its_last_commit_is_not_in_the_change() {
-        let (repo, trees) = moved();
-        let work = trees.0.join("c1");
-        assert!(main_moved(&work, "main").unwrap());
-        assert!(!main_moved(repo.root(), "main").unwrap());
-        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
-        assert!(!main_moved(&work, "main").unwrap());
-        // The change merged into main, with its own merge commit: main moved nowhere new.
-        repo.git(&["merge", "--no-ff", "-q", "-m", "merged", "change/c1"]);
-        assert!(!main_moved(&work, "main").unwrap());
-        repo.write("later.txt", "later\n");
-        repo.commit();
-        assert!(main_moved(&work, "main").unwrap());
-        assert!(main_moved(&work, "trunk").is_err());
-    }
-
-    #[test]
-    fn main_moved_when_it_changed_only_what_is_outside_the_project_folder() {
-        // The project lives in `app/` of the repository; main changes only `shared/`.
-        let repo = Repo::new();
-        repo.identify();
-        repo.write("app/gdd/project.toml", "name = \"app\"\n");
-        repo.write("shared/lib.txt", "old\n");
-        repo.commit();
-        repo.start("c1");
-        repo.write("app/app.txt", "change\n");
-        repo.commit();
-        repo.git(&["checkout", "-q", "main"]);
-        let trees = Folder::new();
-        let tree = trees.0.join("c1");
-        let path = tree.to_string_lossy().into_owned();
-        repo.git(&["worktree", "add", "-q", &path, "change/c1"]);
-        repo.write("shared/lib.txt", "new\n");
-        repo.commit();
-        let work = tree.join("app");
-        assert!(main_moved(&work, "main").unwrap());
-        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
-        let shared = fs::read_to_string(tree.join("shared/lib.txt")).unwrap();
-        assert_eq!(shared, "new\n");
-        assert!(!main_moved(&work, "main").unwrap());
-    }
-
-    #[test]
-    fn the_change_takes_the_latest_main_with_a_merge_commit_after_its_work() {
-        let (repo, trees) = moved();
-        let work = trees.0.join("c1");
-        fs::write(work.join("work.txt"), "uncommitted\n").unwrap();
-        let before = Git::new(&work).head().unwrap();
-        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
-        let log = repo.git(&["log", "--format=%s", "-2", "change/c1"]);
-        let commits = "tminus(c1): take the latest main\ntminus(c1): change work";
-        assert_eq!(log, commits);
-        let parents = repo.git(&["log", "-1", "--format=%P", "change/c1"]);
-        let main = repo.git(&["rev-parse", "main"]);
-        assert!(parents.ends_with(&main), "{parents}");
-        assert!(work.join("news.txt").is_file());
-        repo.git(&["merge-base", "--is-ancestor", &before, "change/c1"]);
-        assert!(!Git::new(&work).has_changes().unwrap());
-        // Nothing to commit and main where the change has it: nothing happens.
-        let head = Git::new(&work).head().unwrap();
-        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
-        assert_eq!(Git::new(&work).head().unwrap(), head);
-    }
-
-    #[test]
-    fn a_conflict_with_the_latest_main_is_given_up_and_named() {
-        let (repo, trees) = moved();
-        let work = trees.0.join("c1");
-        repo.write("app.txt", "main\n");
-        repo.write("other.txt", "main\n");
-        repo.commit();
-        fs::write(work.join("other.txt"), "change\n").unwrap();
-        let conflicts = take_main(&work, "main", "c1").unwrap();
-        assert_eq!(conflicts, ["app.txt", "other.txt"]);
-        let git = Git::new(&work);
-        let app = fs::read_to_string(work.join("app.txt")).unwrap();
-        assert_eq!(app, "change\n");
-        assert!(!work.join("news.txt").exists());
-        assert!(!git.has_changes().unwrap());
-        assert!(git.conflicts().unwrap().is_empty());
-        let subject = repo.git(&["log", "-1", "--format=%s", "change/c1"]);
-        assert_eq!(subject, "tminus(c1): change work");
-        // A merge that fails for another reason is an error, the branch as it was.
-        let err = take_main(&work, "trunk", "c1").unwrap_err().to_string();
-        let failed = "git merge --no-ff --no-edit -q -m tminus(c1): take the latest main trunk";
-        assert!(err.starts_with(failed), "{err}");
-        assert_eq!(git.head().unwrap(), repo.git(&["rev-parse", "change/c1"]));
-        let plain = Folder::new();
-        assert!(take_main(&plain.0, "main", "c1").is_err());
-    }
-
     #[test]
     fn a_build_restarted_starts_where_the_change_took_main_without_its_snapshots() {
         let record = r#"{"build_start": "abc", "state": "building", "paths": ["a"]}"#;
@@ -1050,14 +909,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_change_of_the_old_layout_takes_main_and_restarts_with_its_gdd_names() {
-        let (repo, trees) = moved();
-        let work = trees.0.join("c1");
-        fs::create_dir_all(work.join("gdd")).unwrap();
-        fs::write(work.join("gdd/project.toml"), "").unwrap();
-        assert!(take_main(&work, "main", "c1").unwrap().is_empty());
-        let log = repo.git(&["log", "--format=%s", "-2", "change/c1"]);
-        assert_eq!(log, "gdd(c1): take the latest main\ngdd(c1): change work");
+    fn a_change_of_the_old_layout_restarts_with_its_gdd_names() {
         let state = Folder::new();
         state.write("gdd/project.toml", "");
         state.write(".gdd/changes/c1/change.json", "{}");
