@@ -2,8 +2,9 @@
 //! its work (commits), what it touched (the paths of the project its branch and its working tree
 //! changed, as git lists them), the bytes of its files, the rules file as a commit had it, what
 //! it keeps (commits on its branch), and how it stands against the main branch: taking it (a
-//! merge of the main branch into its branch, see [`super::integrate`]) and joining it (its merge
-//! into the main branch, see [`merge::merge`]). This is the blueprint the core asks (see
+//! merge of the main branch into its branch, see [`super::integrate`]), joining it (its merge
+//! into the main branch, see [`merge::merge`]) and delivering it from the main checkout once it
+//! joined (see [`deliver::at`]). This is the blueprint the core asks (see
 //! [`Blueprint`]); it reports items and bytes, never a verdict, a color or a hash: judging them
 //! is the core's.
 
@@ -13,13 +14,14 @@ use std::io::ErrorKind::{NotADirectory, NotFound};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
+use super::deliver;
 use super::integrate;
 use super::merge;
 use crate::agents::render::first_link;
 use crate::change;
 use crate::classify::Classification;
 use crate::git::{self, Git};
-use crate::guard::{self, Blueprint, Error, ItemId, Mark, Moved, Place, Settings, Touched};
+use crate::guard::{self, Blueprint, Error, ItemId, Mark, Moved, Place, Settings, Stage, Touched};
 use crate::layout;
 use crate::recipe::{self, worktree};
 
@@ -289,6 +291,17 @@ impl Blueprint for Software<'_> {
             main: self.main,
         };
         merge::merge(&project, id, how).map_err(Error::Blueprint)
+    }
+
+    /// Delivers change `id`, joined to the main branch, at `stage` from the main checkout, the
+    /// state root, with the commands it has there, read first (see [`deliver::steps`]), and the
+    /// rules it has there, never from where the change works (see [`deliver::at`]); what it says
+    /// on its way goes through `say`. What it refused or failed on is the error, as it said it.
+    fn deliver(&mut self, id: &str, stage: Stage, say: &mut dyn FnMut(&str)) -> Result<(), Error> {
+        let (state, main) = (self.state, self.main);
+        let steps = deliver::steps(state).map_err(Error::Blueprint)?;
+        let delivered = deliver::at(&steps, state, state, main, id, stage, say);
+        delivered.map(drop).map_err(Error::Blueprint)
     }
 
     /// Writes `content` as the file `item` where close test `id` works, in place of the file or
