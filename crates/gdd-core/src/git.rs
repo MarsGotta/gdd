@@ -204,6 +204,15 @@ impl Git {
         Ok(())
     }
 
+    /// Adds the working tree `path` to the repository, at the commit `from` names, on no branch
+    /// (detached); git makes the folders on the way.
+    pub fn add_detached_worktree(&self, path: &Path, from: &str) -> Result<(), Error> {
+        let from = OsStr::new(revision(from)?);
+        let args = ["worktree", "add", "-q", "--detach", "--"].map(OsStr::new);
+        self.read(&[&args[..], &[path.as_os_str(), from]].concat())?;
+        Ok(())
+    }
+
     /// Removes the working tree `path` of the repository, with what it has that git does not.
     pub fn remove_worktree(&self, path: &Path) -> Result<(), Error> {
         let args = ["worktree", "remove", "--force", "--"].map(OsStr::new);
@@ -854,6 +863,32 @@ pub(crate) mod tests {
         assert_eq!(git.worktrees().unwrap().len(), 2);
         git.prune_worktrees().unwrap();
         assert_eq!(git.worktrees().unwrap(), [main]);
+    }
+
+    #[test]
+    fn a_detached_worktree_is_on_no_branch_at_the_commit_asked() {
+        let repo = Repo::new();
+        let first = repo.git(&["rev-parse", "HEAD"]);
+        repo.write("later.txt", "later\n");
+        repo.commit();
+        let git = repo.tool();
+        let linked = Folder::new();
+        let worktree = linked.0.join("deep/close.x");
+        git.add_detached_worktree(&worktree, &first).unwrap();
+        let there = Git::new(&worktree);
+        assert_eq!(there.current_branch().unwrap(), "HEAD");
+        assert_eq!(there.head().unwrap(), first);
+        assert!(worktree.join("README.md").is_file());
+        assert!(!worktree.join("later.txt").exists());
+        // Detached, git lists it with no branch.
+        assert_eq!(git.worktrees().unwrap().len(), 1);
+        let other = linked.0.join("other");
+        let option = git.add_detached_worktree(&other, "-x");
+        assert!(matches!(option, Err(Error::Revision(n)) if n == "-x"));
+        let err = git.add_detached_worktree(&other, "trunk").unwrap_err();
+        let shown = other.display();
+        let start = format!("git worktree add -q --detach -- {shown} trunk failed");
+        assert!(err.to_string().starts_with(&start), "{err}");
     }
 
     #[test]

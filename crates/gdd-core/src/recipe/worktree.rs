@@ -107,6 +107,24 @@ fn opened(checkout: &Path, path: &Path, what: &str, branch: &str) -> Result<(), 
     ))
 }
 
+/// Leaves a new worktree at `path`, from the main checkout `checkout`, at the commit `from` names
+/// and on no branch: the place of a close test, made anew each time. A worktree an earlier run
+/// left there goes first, with what it had, and git forgets the worktrees whose folders are
+/// gone; anything else at `path` is refused, named.
+pub fn fresh(checkout: &Path, path: &Path, from: &str) -> Result<(), String> {
+    let git = Git::new(checkout);
+    let said = |e: git::Error| e.to_string();
+    if seen(path)?.is_some() && git.remove_worktree(path).is_err() {
+        return Err(format!(
+            "{} is in the way of the place of a close test: it is not a worktree. Move it \
+             away, then run tminus again.",
+            path.display()
+        ));
+    }
+    git.prune_worktrees().map_err(said)?;
+    git.add_detached_worktree(path, from).map_err(said)
+}
+
 /// Removes the worktree `path`, with what it has that git does not, from the main checkout
 /// `checkout`, and has git forget the worktrees whose folders are gone.
 pub fn remove(checkout: &Path, path: &Path) -> Result<(), String> {
@@ -289,6 +307,55 @@ mod tests {
         assert!(err.starts_with(&named), "{err}");
         let err = open_variant(repo.root(), &trees.0.join("c1-v4"), "c1", 4, "trunk");
         assert!(err.unwrap_err().starts_with("git branch "));
+    }
+
+    #[test]
+    fn the_place_of_a_close_test_is_made_anew_on_no_branch_from_the_commit_asked() {
+        let repo = Repo::new();
+        let main = repo.git(&["rev-parse", "main"]);
+        let trees = Folder::new();
+        let path = trees.0.join("close.x");
+        // Nothing there: it is made, at the commit asked, on no branch.
+        fresh(repo.root(), &path, "main").unwrap();
+        let there = Git::new(&path);
+        assert_eq!(there.current_branch().unwrap(), "HEAD");
+        assert_eq!(there.head().unwrap(), main);
+        // What an earlier run left there goes with it.
+        fs::write(path.join("left.txt"), "x\n").unwrap();
+        fresh(repo.root(), &path, "main").unwrap();
+        assert!(!path.join("left.txt").exists());
+        assert!(path.join("README.md").is_file());
+        // A folder gone without git knowing is forgotten first.
+        fs::remove_dir_all(&path).unwrap();
+        fresh(repo.root(), &path, "main").unwrap();
+        assert_eq!(Git::new(&path).head().unwrap(), main);
+        remove(repo.root(), &path).unwrap();
+        assert_eq!(repo.git(&["worktree", "list"]).lines().count(), 1);
+        let err = fresh(repo.root(), &path, "trunk").unwrap_err();
+        let start = "git worktree add -q --detach -- ";
+        assert!(err.starts_with(start), "{err}");
+    }
+
+    #[test]
+    fn what_is_in_the_way_of_the_place_of_a_close_test_is_refused_by_name() {
+        let repo = Repo::new();
+        let trees = Folder::new();
+        let path = trees.0.join("close.x");
+        fs::create_dir_all(path.join("mine")).unwrap();
+        let err = fresh(repo.root(), &path, "main").unwrap_err();
+        let named = format!(
+            "{} is in the way of the place of a close test: it is not a worktree. Move it away, \
+             then run tminus again.",
+            path.display()
+        );
+        assert_eq!(err, named);
+        assert!(path.join("mine").is_dir());
+        let link = trees.0.join("link");
+        symlink(&path, &link).unwrap();
+        let err = fresh(repo.root(), &link, "main").unwrap_err();
+        let refused = format!("{} is a link: ", link.display());
+        assert!(err.starts_with(&refused), "{err}");
+        assert!(path.join("mine").is_dir());
     }
 
     #[test]

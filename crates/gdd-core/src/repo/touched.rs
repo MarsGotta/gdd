@@ -8,23 +8,37 @@
 //! is the core's.
 
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File};
 use std::io::ErrorKind::{NotADirectory, NotFound};
-use std::path::{Path, PathBuf};
+use std::io::{self, Read, Write};
+use std::path::{Component, Path, PathBuf};
 
 use super::integrate;
 use super::merge;
+use crate::agents::render::first_link;
 use crate::change;
 use crate::classify::Classification;
 use crate::git::{self, Git};
-use crate::guard::{Blueprint, Error, ItemId, Mark, Moved, Place, Touched};
+use crate::guard::{self, Blueprint, Error, ItemId, Mark, Moved, Place, Settings, Touched};
+use crate::layout;
 use crate::recipe::{self, worktree};
+
+/// Where a planted failure asks the blueprint for a secret it makes when it plants it.
+pub const SECRET: &str = "{secret}";
+
+/// What a made secret starts with: the shape of a GitHub token, which secret scanners know.
+const SECRET_SHAPE: &str = "ghp_";
+
+/// How many letters and digits follow [`SECRET_SHAPE`] in a made secret.
+const SECRET_LENGTH: usize = 36;
 
 /// The blueprint of software: the project at a root, in its git repository, whose changes leave
 /// from a main branch and merge into it in the main checkout, the state root. An item is a path
 /// from the project root, a mark a commit id. With a folder of places (see
 /// [`Software::with_places`]), each change works in its worktree there; without one, every
-/// change works at the root, which it cannot leave or let go.
+/// change works at the root, which it cannot leave or let go. For the self-test (see
+/// [`Software::for_close_tests`]), each close test works in a place of its own there instead,
+/// the only places it plants a failure in.
 #[derive(Debug)]
 pub struct Software<'a> {
     /// The project root, in the main checkout when there is a folder of places.
@@ -38,6 +52,9 @@ pub struct Software<'a> {
     places: Option<&'a Path>,
     /// The project root in the worktree of each change asked about so far.
     works: BTreeMap<String, PathBuf>,
+    /// Whether each place is made anew for one close test alone, from the main branch as it is
+    /// and on no branch, the only places it plants in (see [`Software::for_close_tests`]).
+    close_tests: bool,
 }
 
 impl<'a> Software<'a> {
@@ -57,6 +74,21 @@ impl<'a> Software<'a> {
         }
     }
 
+    /// The project at `checkout`, the main checkout, whose places for close tests are made in
+    /// the folder `folder` (see [`places`]), each anew from the main branch `settings` name as it
+    /// is, on no branch (see [`worktree::fresh`]): what the self-test asks. Only in these does it
+    /// plant (see [`Blueprint::plant`]).
+    pub fn for_close_tests(
+        checkout: &'a Path,
+        folder: &'a Path,
+        settings: &'a Settings,
+    ) -> Software<'a> {
+        Software {
+            close_tests: true,
+            ..Software::with_places(checkout, folder, &settings.main_branch)
+        }
+    }
+
     /// The project at `root`, where every change works, whose state root is `state` and whose
     /// changes merge into the branch `main`: what `tminus merge` asks, run where the last work of
     /// the change is.
@@ -67,6 +99,7 @@ impl<'a> Software<'a> {
             main,
             places: None,
             works: BTreeMap::new(),
+            close_tests: false,
         }
     }
 
@@ -99,9 +132,16 @@ impl<'a> Software<'a> {
 
 impl Blueprint for Software<'_> {
     /// The worktree of change `id`, on its branch, from the main checkout (see
-    /// [`worktree::open`]): made when there was nothing at its path, else the one there.
+    /// [`worktree::open`]): made when there was nothing at its path, else the one there. For
+    /// close tests, the place of close test `id`, made anew from the main branch as it is, on no
+    /// branch (see [`worktree::fresh`]).
     fn isolate(&mut self, id: &str) -> Result<Place, Error> {
         let worktree = self.worktree(id)?;
+        if self.close_tests {
+            worktree::fresh(self.root, &worktree, self.main).map_err(Error::Blueprint)?;
+            let work = self.work(id)?;
+            return Ok(Place { work, made: true });
+        }
         let made = fs::symlink_metadata(&worktree).is_err();
         worktree::open(self.root, &worktree, id).map_err(Error::Blueprint)?;
         let work = self.work(id)?;
@@ -250,6 +290,86 @@ impl Blueprint for Software<'_> {
         };
         merge::merge(&project, id, how).map_err(Error::Blueprint)
     }
+
+    /// Writes `content` as the file `item` where close test `id` works, in place of the file or
+    /// link there, which is never followed, each [`SECRET`] in it replaced by a secret made now
+    /// (see [`with_secrets`]): only in a place made for a close test (see
+    /// [`Software::for_close_tests`]). A path that leaves the project (`..`, absolute, `.`), a
+    /// symbolic link on the way to it, or a folder at it, is refused, and nothing is written.
+    fn plant(&mut self, id: &str, item: &ItemId, content: &str) -> Result<(), Error> {
+        if !self.close_tests {
+            let why = format!("{id}: software plants only in the place of a close test");
+            return Err(Error::Blueprint(why));
+        }
+        let path = Path::new(item.as_str());
+        let named = |part: Component| matches!(part, Component::Normal(_));
+        if !path.components().all(named) {
+            let why = format!("cannot plant {item}: it is not a path inside the project");
+            return Err(Error::Blueprint(why));
+        }
+        let work = self.work(id)?;
+        let unplanted = |e: io::Error| Error::Blueprint(format!("cannot plant {item}: {e}"));
+        let link = first_link(&work, item.as_str()).map_err(unplanted)?;
+        if let Some(link) = link.filter(|link| link != path) {
+            let shown = link.display();
+            let why = format!("cannot plant {item}: {shown} is a symbolic link");
+            return Err(Error::Blueprint(why));
+        }
+        let planted = with_secrets(content).map_err(unplanted)?;
+        let at = work.join(path);
+        cleared(&at).map_err(unplanted)?;
+        if let Some(folder) = at.parent() {
+            fs::create_dir_all(folder).map_err(unplanted)?;
+        }
+        let mut file = File::create_new(&at).map_err(unplanted)?;
+        file.write_all(planted.as_bytes()).map_err(unplanted)
+    }
+}
+
+/// Removes the file or link at `path`, never following it; nothing there is nothing to do.
+fn cleared(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() == NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// `content` with each [`SECRET`] in it replaced by a secret of its own, made now (see
+/// [`made_secret`]); without one, as it is, and no secret is made.
+fn with_secrets(content: &str) -> io::Result<String> {
+    let mut parts = content.split(SECRET);
+    let mut planted = parts.next().unwrap_or_default().to_string();
+    for part in parts {
+        planted.push_str(&made_secret()?);
+        planted.push_str(part);
+    }
+    Ok(planted)
+}
+
+/// A secret made now, from the system's random source: [`SECRET_SHAPE`] and
+/// [`SECRET_LENGTH`] letters and digits, one for each byte read, so a secret scanner finds it,
+/// and no two alike. It is never printed, logged or kept.
+pub fn made_secret() -> io::Result<String> {
+    const LETTERS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut random = [0u8; SECRET_LENGTH];
+    File::open("/dev/urandom")?.read_exact(&mut random)?;
+    let letter = |byte: &u8| char::from(LETTERS[usize::from(*byte) % LETTERS.len()]);
+    let letters: String = random.iter().map(letter).collect();
+    Ok(format!("{SECRET_SHAPE}{letters}"))
+}
+
+/// The folder where the places of the changes, and of the close tests, of the project at `root`
+/// go, as its rules file says in the layout of the project (see [`worktree::folder`]): without
+/// a rules file, where one that says nothing puts them. A rules file that cannot be read, or is
+/// not valid, is an error that names it.
+pub fn places(root: &Path) -> Result<PathBuf, String> {
+    let rules = layout::named(root, guard::RULES);
+    let text = match fs::read_to_string(root.join(&rules)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == NotFound => String::new(),
+        Err(e) => return Err(format!("cannot read {rules}: {e}")),
+    };
+    worktree::folder(root, &text).map_err(|e| format!("{rules}: {e}"))
 }
 
 /// What change `id` of the project at `root` touched against the main branch `main`, which
@@ -277,7 +397,9 @@ impl From<git::Error> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     use std::fs;
+    use std::os::unix::fs::symlink;
 
     use crate::change::Record;
     use crate::classify::Change;
@@ -920,5 +1042,197 @@ paths = ["src/storage/**"]
         for word in ["commit_files", "worktree::open(", "worktree::remove("] {
             assert!(!production.contains(word), "the recipe names {word}");
         }
+    }
+
+    /// A repository whose `main` has `src/kept.txt`, a folder for the places of its close
+    /// tests, and settings that say nothing: the main branch is `main`.
+    fn for_close_tests() -> (Repo, Folder, Settings) {
+        let repo = Repo::new();
+        repo.write("src/kept.txt", "committed\n");
+        repo.commit();
+        (repo, Folder::new(), Settings::from_toml("").unwrap())
+    }
+
+    /// The text of the file `item` from `work`.
+    fn text_of(work: &Path, item: &str) -> String {
+        fs::read_to_string(work.join(item)).unwrap()
+    }
+
+    /// Whether `secret` has the shape of a made secret: `ghp_` and 36 letters and digits.
+    fn is_made_secret(secret: &str) -> bool {
+        let rest = secret.strip_prefix("ghp_").unwrap_or_default();
+        rest.len() == 36 && rest.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    }
+
+    #[test]
+    fn the_place_of_a_close_test_is_made_anew_from_the_main_branch_on_no_branch() {
+        let (repo, places, _) = for_close_tests();
+        let trunk = repo.git(&["rev-parse", "main"]);
+        repo.git(&["branch", "trunk"]);
+        // The main branch the rules name stayed behind; the main checkout is on another one.
+        repo.write("src/kept.txt", "on main\n");
+        repo.commit();
+        repo.start("c2");
+        repo.write("src/kept.txt", "on c2\n");
+        repo.commit();
+        let settings = Settings::from_toml("main_branch = \"trunk\"\n").unwrap();
+        let mut software = Software::for_close_tests(repo.root(), &places.0, &settings);
+        let work = places.0.join("close.x");
+        assert_eq!(software.isolate("close.x").unwrap(), place(&work, true));
+        let there = Git::new(&work);
+        assert_eq!(there.current_branch().unwrap(), "HEAD");
+        assert_eq!(there.head().unwrap(), trunk);
+        assert_eq!(text_of(&work, "src/kept.txt"), "committed\n");
+        // What an earlier run left there goes: each close test starts again.
+        fs::write(work.join("left.txt"), "x\n").unwrap();
+        assert_eq!(software.isolate("close.x").unwrap(), place(&work, true));
+        assert!(!work.join("left.txt").exists());
+        // Let go, it is gone and git no longer lists it.
+        software.vacate("close.x").unwrap();
+        assert!(!work.exists());
+        let listed = repo.git(&["worktree", "list", "--porcelain"]);
+        assert!(!listed.contains("close.x"), "{listed}");
+        // Anything else in the way is refused, named, and stays.
+        fs::create_dir_all(work.join("mine")).unwrap();
+        let err = software.isolate("close.x").unwrap_err().to_string();
+        let shown = work.display();
+        let way = format!("{shown} is in the way of the place of a close test");
+        assert!(err.starts_with(&way), "{err}");
+        assert!(work.join("mine").is_dir());
+        // A change still works in its worktree, on its branch.
+        repo.git(&["branch", "change/c1", "main"]);
+        let mut changes = Software::with_places(repo.root(), &places.0, "main");
+        let c1 = places.0.join("c1");
+        assert_eq!(changes.isolate("c1").unwrap(), place(&c1, true));
+        assert_eq!(Git::new(&c1).current_branch().unwrap(), "change/c1");
+    }
+
+    #[test]
+    fn a_failure_is_planted_only_in_the_place_of_a_close_test() {
+        let (repo, places, settings) = for_close_tests();
+        let item = ItemId::new("src/bad.txt");
+        // Where a change works, nothing is planted.
+        let mut at_root = Software::new(repo.root(), "main");
+        let mut changes = Software::with_places(repo.root(), &places.0, "main");
+        let why = "c1: software plants only in the place of a close test";
+        for software in [&mut at_root, &mut changes] {
+            let err = software.plant("c1", &item, "bad\n").unwrap_err();
+            assert_eq!(err.to_string(), why);
+        }
+        assert!(!repo.root().join("src/bad.txt").exists());
+        let mut software = Software::for_close_tests(repo.root(), &places.0, &settings);
+        let work = software.isolate("close.x").unwrap().work;
+        software.plant("close.x", &item, "bad\n").unwrap();
+        assert_eq!(text_of(&work, "src/bad.txt"), "bad\n");
+        assert!(!repo.root().join("src/bad.txt").exists());
+        // A file the main line has there is replaced; the checkout's stays as it was.
+        let kept = ItemId::new("src/kept.txt");
+        software.plant("close.x", &kept, "planted\n").unwrap();
+        assert_eq!(text_of(&work, "src/kept.txt"), "planted\n");
+        assert_eq!(text_of(repo.root(), "src/kept.txt"), "committed\n");
+        // Its folders are made.
+        let deep = ItemId::new("deep/new/bad.txt");
+        software.plant("close.x", &deep, "x").unwrap();
+        assert_eq!(text_of(&work, "deep/new/bad.txt"), "x");
+        assert_eq!(repo.git(&["status", "--porcelain"]), "");
+    }
+
+    #[test]
+    fn each_secret_a_planted_failure_asks_for_is_made_as_it_is_planted() {
+        let (repo, places, settings) = for_close_tests();
+        let mut software = Software::for_close_tests(repo.root(), &places.0, &settings);
+        let work = software.isolate("close.x").unwrap().work;
+        let item = ItemId::new("src/leak.txt");
+        let content = format!("token = {SECRET} {SECRET}\n");
+        software.plant("close.x", &item, &content).unwrap();
+        let text = text_of(&work, "src/leak.txt");
+        assert!(text.starts_with("token = "), "{text}");
+        assert!(text.ends_with('\n'), "{text}");
+        let made: Vec<&str> = text["token = ".len()..].split_whitespace().collect();
+        assert_eq!(made.len(), 2, "{text}");
+        assert!(made.iter().all(|secret| is_made_secret(secret)), "{text}");
+        assert_ne!(made[0], made[1]);
+        assert!(!text.contains(SECRET), "{text}");
+        assert_eq!(SECRET, "{secret}");
+    }
+
+    #[test]
+    fn a_made_secret_has_the_shape_of_a_token_scanners_know_and_is_never_the_same() {
+        let one = made_secret().unwrap();
+        let two = made_secret().unwrap();
+        assert_eq!((one.len(), two.len()), (40, 40));
+        assert!(is_made_secret(&one) && is_made_secret(&two));
+        assert_ne!(one, two);
+        // Spread over its letters and digits, not a few of them.
+        let letters = format!("{}{}", &one[4..], &two[4..]);
+        let distinct: BTreeSet<char> = letters.chars().collect();
+        assert!(distinct.len() > 5, "{distinct:?}");
+    }
+
+    #[test]
+    fn a_failure_is_never_planted_out_of_its_place_through_a_link_or_over_a_folder() {
+        let (repo, places, settings) = for_close_tests();
+        let elsewhere = Folder::new();
+        elsewhere.write("theirs.txt", "theirs\n");
+        let theirs = elsewhere.0.join("theirs.txt");
+        symlink(&elsewhere.0, repo.root().join("linked")).unwrap();
+        symlink(&theirs, repo.root().join("src/link.txt")).unwrap();
+        repo.commit();
+        let mut software = Software::for_close_tests(repo.root(), &places.0, &settings);
+        let work = software.isolate("close.x").unwrap().work;
+        let mut plant = |item: &str| software.plant("close.x", &ItemId::new(item), "bad\n");
+        let absolute = elsewhere.0.join("bad.txt").display().to_string();
+        for outside in [
+            "../c1/src/bad.txt",
+            absolute.as_str(),
+            "src/../bad.txt",
+            "./bad.txt",
+        ] {
+            let err = plant(outside).unwrap_err();
+            let why = format!("cannot plant {outside}: it is not a path inside the project");
+            assert_eq!(err.to_string(), why);
+        }
+        // A link on the way is refused; a link at the path goes, never followed.
+        let err = plant("linked/bad.txt").unwrap_err();
+        let why = "cannot plant linked/bad.txt: linked is a symbolic link";
+        assert_eq!(err.to_string(), why);
+        plant("src/link.txt").unwrap();
+        // A folder there is refused, as the system says it.
+        let err = plant("src").unwrap_err();
+        let why = "cannot plant src: Is a directory (os error 21)";
+        assert_eq!(err.to_string(), why);
+        let link = fs::symlink_metadata(work.join("src/link.txt")).unwrap();
+        assert!(link.is_file());
+        assert_eq!(text_of(&work, "src/link.txt"), "bad\n");
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "theirs\n");
+        assert_eq!(fs::read_dir(&elsewhere.0).unwrap().count(), 1);
+        assert!(!places.0.join("c1").exists());
+        assert!(!work.join("bad.txt").exists());
+        assert_eq!(text_of(&work, "src/kept.txt"), "committed\n");
+    }
+
+    #[test]
+    fn the_places_go_where_the_rules_file_of_the_project_says() {
+        let project = Folder::new();
+        let name = project.0.file_name().unwrap().to_str().unwrap();
+        let next = project.0.join("..").join(format!("{name}.worktrees"));
+        assert_eq!(places(&project.0), Ok(next));
+        project.write("tminus/rules.toml", "[parallel]\nfolder = \"../trees\"\n");
+        assert_eq!(places(&project.0), Ok(project.0.join("../trees")));
+        project.write("tminus/rules.toml", "[parallel");
+        let err = places(&project.0).unwrap_err();
+        let start = "tminus/rules.toml: invalid TOML: ";
+        assert!(err.starts_with(start), "{err}");
+        // A rules file that cannot be read is not a missing one.
+        fs::remove_file(project.0.join("tminus/rules.toml")).unwrap();
+        fs::create_dir_all(project.0.join("tminus/rules.toml")).unwrap();
+        let err = places(&project.0).unwrap_err();
+        let why = "cannot read tminus/rules.toml: Is a directory (os error 21)";
+        assert_eq!(err, why);
+        // A project of the old layout has its rules file in gdd/.
+        let old = Folder::new();
+        old.write("gdd/project.toml", "");
+        old.write("gdd/rules.toml", "[parallel]\nfolder = \"/srv/trees\"\n");
+        assert_eq!(places(&old.0), Ok(PathBuf::from("/srv/trees")));
     }
 }

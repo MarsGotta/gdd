@@ -189,6 +189,17 @@ pub trait Blueprint {
         why: &str,
         items: Option<&[ItemId]>,
     ) -> Result<(), Error>;
+
+    /// Plants `content` at `item`, in place of what is there, in the place [`Blueprint::isolate`]
+    /// made for `id` alone, to see a gate close; where `content` asks for what only the
+    /// blueprint can make (software: a secret for each `{secret}`), it makes it now and keeps it
+    /// nowhere. A blueprint plants only in a place made for a close test, never where a change
+    /// works; one that plants nothing refuses.
+    fn plant(&mut self, id: &str, item: &ItemId, content: &str) -> Result<(), Error> {
+        let _ = (item, content);
+        let why = format!("{id}: this blueprint plants no failure");
+        Err(Error::Blueprint(why))
+    }
 }
 
 /// What the rules file says to Path Guard: the main branch and the paths each role must not
@@ -688,6 +699,17 @@ paths = ["src/storage/**"]
                 assert!(!production.contains(word), "{name} names {word}");
             }
         }
+    }
+
+    #[test]
+    fn a_blueprint_that_plants_nothing_refuses_and_names_the_place() {
+        let mut fake = Fake::default();
+        let item = ItemId::new("src/bad.txt");
+        let err = fake.plant("close.quality", &item, "bad").unwrap_err();
+        assert!(matches!(&err, Error::Blueprint(_)), "{err:?}");
+        let why = "close.quality: this blueprint plants no failure";
+        assert_eq!(err.to_string(), why);
+        assert!(fake.asked.is_empty());
     }
 
     #[test]
