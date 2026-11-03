@@ -318,8 +318,9 @@ enum Command {
         since: Option<i64>,
     },
     /// Harness self-test: a failing test turns a green G2 red, the harness is protected and CI
-    /// runs the gates, rollback works in pre, and zero scenarios fail G3. Saved in
-    /// .tminus/selftest.json and logged; exits with 1 unless all four pass.
+    /// runs the gates, rollback works in pre, and zero scenarios fail G3; then each gate's close
+    /// test, in a place of its own. Saved in .tminus/selftest.json and logged; exits with 1
+    /// unless all four pass and every gate whose close test ran closed.
     Selftest,
     /// What CI runs: on the branch change/<id> (GITHUB_HEAD_REF, else the current one), no
     /// harness path changed against the main branch, and G2 and G3 green. Reads and writes
