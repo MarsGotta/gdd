@@ -50,3 +50,7 @@ content = "#[test]\nfn gdd_selftest_must_fail() {\n    panic!(\"gdd selftest\");
 [close_test.quality]   # quality's close test (gates-close): a badly formatted file that lint must turn red (tightening, Mars, 2026-11-02)
 file = "crates/gdd-core/tests/gdd_selftest_lint.rs"      # created and removed by tminus selftest
 content = "fn  gdd_selftest_badly ( ) { }\n"   # fails cargo fmt --check
+
+[close_test.security]   # security's close test (gates-close-place): tminus puts a secret made at run time where {secret} stands; the secrets command must turn G3 red (tightening, Mars, 2026-11-03)
+file = "crates/gdd-core/tests/gdd_selftest_leak.txt"      # planted in a place of its own, never in the checkout
+content = "token = {secret}\n"

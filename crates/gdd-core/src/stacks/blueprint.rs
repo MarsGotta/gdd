@@ -80,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    fn works_and_quality_close_every_round_and_security_has_no_close_test_yet() {
+    fn works_and_quality_close_every_round_and_security_closes_before_integrating() {
         let declared = gates().unwrap();
         let close = |stage, plant: &str| {
             let plant = plant.to_string();
@@ -90,6 +90,7 @@ mod tests {
         let closes: Vec<_> = closes.collect();
         let works = close(Gate::G2, "selftest");
         let quality = close(Gate::G2, "close_test.quality");
-        assert_eq!(closes, [works, quality, None]);
+        let security = close(Gate::G3, "close_test.security");
+        assert_eq!(closes, [works, quality, security]);
     }
 }
