@@ -49,7 +49,9 @@ They let an agent apply GDD in any project with what the project already has (te
 
 9. **Preparing, from an idea.** `gdd-prepare` works as a guided conversation, from "I want an online shop for cat products" or from an existing repository.
    - It proposes first and asks afterwards: "for a shop, these are the usual zones; correct what doesn't fit". It asks only what changes a zone or a gate (payments, accounts, regulated products, the stack), and when the person doesn't know, it proposes what is usual for the sector.
-   - It may research similar products and the sector's rules, always keeping each source and a copy of what it used. That helps the person decide; the person decides, and it is not legal advice.
+   - In an existing project it starts with a complete analysis: stack, structure, tests and what they cover, CI, linters, dependencies and their health, security findings and documentation, with existing code mapped to risk zones. Complete means it covers everything, not that it reads every file: deterministic tools do the counting (linter totals, coverage, dependency audits) and the agent reads their summaries. If there is nothing yet, it is the greenfield path.
+   - It asks, in any project, for external references that enrich the context: designs (Figma), MCP servers, documentation, templates, API specifications, brand guides. Each one is kept as a copy with its source and date, and the blueprint says which gate needs it, so it doesn't become cross-cutting by accident. MCP servers get the least access their gate needs.
+   - It may research similar products and the sector's rules, only with proven sources (official documentation, the regulation itself, the vendor's own pages before third-party posts), always cited and kept as copies. That helps the person decide; the person decides, and it is not legal advice.
    - It leaves three documents in the repository:
      - **the constitution**: the stack, the tools and the commands to build, test and lint (whatever the agent can't deduce from the code, and in a new project, all of it), plus the rules that don't change from one change to the next (prices in cents, card data is never stored). Only its short GDD core and these essentials are cross-cutting;
      - **the blueprint**: risk zones, the gates of each zone and color, their checks, their context and the model levels, in Markdown with a Mermaid diagram, so the person sees it drawn and agents read it as text. An interactive page can be generated from it on request, never the other way round. No PDF;
@@ -57,7 +59,8 @@ They let an agent apply GDD in any project with what the project already has (te
    - The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, with the blueprint protected by CODEOWNERS.
    - In a new project, the first item of the backlog is building the gates. Then it advises where to start: low-risk functions first, and money only once its gates have held.
    - A change that touches something no zone covers counts as red until the person classifies it, and `gdd-brief` stops to propose updating the blueprint.
-10. **Deterministic first.** Whatever something deterministic can check is checked that way: it costs no tokens and always gives the same answer. When proposing and building gates, climb this ladder and stop at the first step that works:
+10. **Known debt never blocks, and never grows.** In an existing project, what already fails a check (lint errors, low coverage, an outdated dependency) is recorded as known debt with its baseline, and becomes an item of the backlog with the color of its zone, where `gdd-prepare` may recommend a refactor. Gates don't block that debt, but they block any new debt: the baseline may only go down. Recording something as debt loosens a check, so the person approves it, as part of approving the blueprint; it never happens on its own. A test that fails today is debt too, visible in the backlog and the log, never silently skipped.
+11. **Deterministic first.** Whatever something deterministic can check is checked that way: it costs no tokens and always gives the same answer. When proposing and building gates, climb this ladder and stop at the first step that works:
     1. what the stack already brings: types, a linter rule, the test runner;
     2. a mature open-source tool with a solid community or company behind it;
     3. a small script of the project's own, only when nothing exists: simple, nothing it doesn't need yet, protected like any other check and with its bad case;
@@ -65,7 +68,7 @@ They let an agent apply GDD in any project with what the project already has (te
     5. when nothing deterministic works, the reviewer or a person.
 
     The skills ship no scripts: they recommend that projects use their own.
-11. **Reporting progress, briefly.** By default `gdd` tells the person one line per gate (passed or failed, and in how many rounds), the detail only when something fails or the person has to decide, and a summary at the end. Everything else goes to the log.
+12. **Reporting progress, briefly.** By default `gdd` tells the person one line per gate (passed or failed, and in how many rounds), the detail only when something fails or the person has to decide, and a summary at the end. Everything else goes to the log.
 
 ## Still open
 
