@@ -47,6 +47,26 @@ They let an agent apply GDD in any project with what the project already has (te
    Proportion lives in `gdd-brief`: the color comes from what the change touches, and it decides which checks are needed and at which level. `gdd-checks` applies the same proportion: green keeps the existing checks, yellow adds mutation testing, red adds hidden examples written by another hand.
 8. **A shared log for metrics, no extra skill.** `gdd` writes one line per gate when each step closes. Every role ends its work by reporting the same fields: level, rounds, result, what it caught, and time and tokens when its environment provides them. `gdd-harden` reads the log to see what slips through, which piece catches what and what each role costs, so a project can compare itself with itself. An engine fills the same log on its own, with exact figures. Its format is part of the contract below.
 
+9. **Preparing, from an idea.** `gdd-prepare` works as a guided conversation, from "I want an online shop for cat products" or from an existing repository.
+   - It proposes first and asks afterwards: "for a shop, these are the usual zones; correct what doesn't fit". It asks only what changes a zone or a gate (payments, accounts, regulated products, the stack), and when the person doesn't know, it proposes what is usual for the sector.
+   - It may research similar products and the sector's rules, always keeping each source and a copy of what it used. That helps the person decide; the person decides, and it is not legal advice.
+   - It leaves three documents in the repository:
+     - **the constitution**: the stack, the tools and the commands to build, test and lint (whatever the agent can't deduce from the code, and in a new project, all of it), plus the rules that don't change from one change to the next (prices in cents, card data is never stored). Only its short GDD core and these essentials are cross-cutting;
+     - **the blueprint**: risk zones, the gates of each zone and color, their checks, their context and the model levels, in Markdown with a Mermaid diagram, so the person sees it drawn and agents read it as text. An interactive page can be generated from it on request, never the other way round. No PDF;
+     - **the backlog**: the functions to build, each with its expected color. The roadmap, when wanted, is the same backlog ordered in phases. Functions change often; risk zones rarely do, so the blueprint stays stable because it holds no functions.
+   - The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, with the blueprint protected by CODEOWNERS.
+   - In a new project, the first item of the backlog is building the gates. Then it advises where to start: low-risk functions first, and money only once its gates have held.
+   - A change that touches something no zone covers counts as red until the person classifies it, and `gdd-brief` stops to propose updating the blueprint.
+10. **Deterministic first.** Whatever something deterministic can check is checked that way: it costs no tokens and always gives the same answer. When proposing and building gates, climb this ladder and stop at the first step that works:
+    1. what the stack already brings: types, a linter rule, the test runner;
+    2. a mature open-source tool with a solid community or company behind it;
+    3. a small script of the project's own, only when nothing exists: simple, nothing it doesn't need yet, protected like any other check and with its bad case;
+    4. a new or less proven tool, only with a notice (how old it is, who maintains it, its license, what it does with your data), and the person decides;
+    5. when nothing deterministic works, the reviewer or a person.
+
+    The skills ship no scripts: they recommend that projects use their own.
+11. **Reporting progress, briefly.** By default `gdd` tells the person one line per gate (passed or failed, and in how many rounds), the detail only when something fails or the person has to decide, and a summary at the end. Everything else goes to the log.
+
 ## Still open
 
 - The format of what the method leaves in a repository (the blueprint, each brief, the evidence and the log). It is the contract between the skills and any engine.
