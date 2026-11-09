@@ -1,0 +1,5 @@
+Escenario: pagar con tarjeta
+  Dado un carrito de 40 €
+  Cuando pago con una tarjeta válida
+  Entonces el pedido queda pagado
+  Y se me cobran 40 € una sola vez

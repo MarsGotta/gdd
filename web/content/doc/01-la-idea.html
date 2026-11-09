@@ -1,0 +1,25 @@
+<h1>La idea</h1>
+<p>Le pides algo a tu agente, trabaja un buen rato y al final te dice "hecho". Lo pruebas, y no lo está. Así que se lo pides con más cuidado, le escribes unas especificaciones más largas, y vuelve a decirte "hecho" con la misma seguridad. Al final acabas revisándolo todo tú, que era justo lo que querías evitar.</p>
+<p>Yo me pasé mucho tiempo así, hasta que dejé de intentar convencerlo y empecé a ponerle puertas. De ahí sale Gate-Driven Development (GDD), y en el <a href="doc:articulo">Artículo</a> cuento el camino con más calma.</p>
+<p>Una puerta es lo que el agente tiene que demostrar antes de seguir, y eso lo decides tú antes de que empiece: que se cobre una sola vez, que el total nunca baje de cero. Su palabra no abre nada. Lo que abre la puerta es algo que seguramente ya usas y que él no puede tocar, como un test, un linter o la revisión de otra persona. A cada una de esas piezas la llamo comprobación, y una puerta solo se pasa si pasan todas las suyas. Para que pueda cruzarla le das lo que necesita saber, y a eso lo llamo contexto.</p>
+<p>Si el cambio es una errata, casi ni te enteras. Si toca el cobro, le pides bastante más, y puede que te llame para que lo mires tú antes de seguir. El resto del tiempo trabaja solo. Y cuando algo se cuela, que se colará, no te quedas en arreglarlo: lo que habría hecho falta para pillarlo se queda como una comprobación más, y por ahí ya no vuelve a entrar.</p>
+<h2>Un escape room</h2>
+<p>Imagina un piso lleno de puertas. En la entrada, un recepcionista te da la bienvenida al escape room más divertido que vas a vivir: el de crear un producto. Cada puerta esconde un acertijo, y en cada sala hay pistas para resolverlo. Si lo resuelves, te entregan una llave y pasas a la siguiente, así hasta completar la misión.</p>
+<p>Las cerraduras cambian según la dificultad, aunque las puertas sean las mismas. Algunas se refuerzan con un robot vigilante que comprueba que no haces trampa, o con una persona a la que le enseñas lo que has hecho y que decide si te deja pasar. Al terminar, si alguien ha conseguido hacer trampa (muy mal, eh) o el juego ha sido demasiado fácil, el recepcionista revisa qué ha pasado y, si hace falta, blinda las puertas.</p>
+<p><strong>Ahora cambia de lado.</strong> Ya no eres quien entra en el escape room: eres quien lo construye. Las cerraduras del juego son tus comprobaciones, las pistas son el contexto y quienes juegan son tus agentes.</p>
+<h2 id="el-riesgo-es-la-dificultad">El riesgo es la dificultad</h2>
+<p>En tu proyecto, la dificultad es el riesgo: ¿cuánto daño puede hacerle este cambio a mi producto? Yo lo pienso como un semáforo, porque de ese color depende también cuánto te toca hacer a ti.</p>
+<table>
+<thead><tr><th>Riesgo</th><th>Por ejemplo</th><th>Cómo están las puertas</th><th>Qué te toca hacer</th></tr></thead>
+<tbody>
+<tr><td><strong>Verde</strong> (bajo)</td><td>Cambiar un texto</td><td>Las máquinas se encargan, y alguna puerta puede quedarse abierta.</td><td>Nada: pides el cambio y, si pasa las puertas, sale.</td></tr>
+<tr><td><strong>Amarillo</strong> (medio)</td><td>Un filtro nuevo en un listado</td><td>Además de las máquinas, suele mirarlo un vigilante, y una persona si tú lo decides.</td><td>Leer unos pocos escenarios.</td></tr>
+<tr><td><strong>Rojo</strong> (alto)</td><td>Algo que toca el cobro</td><td>En algunas puertas se para hasta que des tu aprobación. Yo lo recomiendo, y lo configura cada proyecto.</td><td>Leer los escenarios y dar tu aprobación donde haga falta.</td></tr>
+</tbody>
+</table>
+<h2>Lo que diseñas</h2>
+<p>Esa es la base de GDD: <strong>no desarrollamos las especificaciones, ni el código, ni siquiera los tests. Diseñamos las puertas por las que pasarán nuestros agentes.</strong></p>
+<p>Lo que ganas es un producto de calidad sin tener que supervisar cada paso, porque lo que antes mirabas tú ahora lo miran las puertas, y a ti te quedan las decisiones que necesitan a alguien.</p>
+<p>¿Y las especificaciones? No desaparecen, pero se quedan en lo que se puede ejecutar. Una especificación larga es tediosa de leer, y leerla tampoco asegura que el agente la cumpla. Un escenario en Gherkin (el formato Dado, Cuando, Entonces) se lee rápido, usa un lenguaje sencillo y además se puede ejecutar, y esa es la diferencia con el desarrollo guiado por especificaciones. Ni siquiera tienes que escribirlo tú: te lo redacta un agente, y tú lo lees y lo corriges.</p>
+<p>No soy la única que ha llegado aquí. <a href="https://openai.com/index/harness-engineering/">OpenAI</a> cuenta que su trabajo de ingeniería ha pasado de escribir código a diseñar el entorno, especificar la intención y construir bucles de retroalimentación, y lo resume en dos frases: "Humans steer. Agents execute." Las personas marcan el rumbo y los agentes ejecutan.</p>
+<p class="sigue">En <a href="doc:manos-a-la-obra">Manos a la obra</a> preparamos las puertas de una tienda online y revisamos cuatro cambios, y no hace falta instalar nada.</p>

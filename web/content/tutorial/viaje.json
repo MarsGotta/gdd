@@ -1,0 +1,386 @@
+{
+  "id": "viaje",
+  "plano": "El plano dice: `pagos/`, `admin/` y las migraciones, rojo. `textos/`, verde. Lo demás, amarillo.",
+  "puertas": [
+    {
+      "id": "escenario",
+      "nombre": "Escenario",
+      "contexto": "La petición y el diseño en Figma"
+    },
+    {
+      "id": "testing",
+      "nombre": "Testing",
+      "contexto": "Los escenarios, los esquemas y el modelo de datos"
+    },
+    {
+      "id": "refactoring",
+      "nombre": "Refactoring",
+      "contexto": "Skills de buenas prácticas"
+    },
+    {
+      "id": "reviewing",
+      "nombre": "Reviewing",
+      "contexto": "La PR"
+    }
+  ],
+  "colores": {
+    "verde": {
+      "nombre": "Verde",
+      "resumen": "Aquí no te llama nadie.",
+      "escenario": {
+        "abierta": true,
+        "comprobaciones": []
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Los tests que ya hay"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters y tipado"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          }
+        ]
+      }
+    },
+    "amarillo": {
+      "nombre": "Amarillo",
+      "resumen": "Te llama una vez, al principio, para que leas unos pocos escenarios.",
+      "escenario": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Están bien escritos"
+          },
+          {
+            "tipo": "persona",
+            "texto": "Lees unos pocos y los apruebas"
+          }
+        ]
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Tests que crea otro modelo"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters, Sonar y tipado"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Vigilante"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Otro vigilante"
+          }
+        ]
+      }
+    },
+    "rojo": {
+      "nombre": "Rojo",
+      "resumen": "Te llama dos veces: para que los leas todos y para que apruebes al final.",
+      "escenario": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Están bien escritos"
+          },
+          {
+            "tipo": "persona",
+            "texto": "Los lees todos y los apruebas"
+          }
+        ]
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Tests que crea otro modelo"
+          },
+          {
+            "tipo": "maquina",
+            "texto": "Tests que recorren la tienda entera"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters, Sonar y tipado"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Vigilante"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Otro vigilante"
+          },
+          {
+            "tipo": "persona",
+            "texto": "Tu aprobación, y compruebas cómo se deshace"
+          }
+        ]
+      }
+    }
+  },
+  "cambios": [
+    {
+      "id": "boton",
+      "nombre": "El texto de un botón",
+      "peticion": "Cambia el texto del botón de comprar",
+      "toca": [
+        "textos/boton.js"
+      ],
+      "color": "verde",
+      "razon": "Solo toca `textos/`, así que el semáforo dice verde.",
+      "auto": true,
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "abierta",
+          "texto": "No hay nada nuevo que decidir, y esta puerta se queda abierta."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "Corren los tests que ya había."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "El linter y el tipado no ponen pegas."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "Pasa CI. El agente dice \"hecho\", es verdad, y sale."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "Había cuatro puertas, y ni te has enterado de que estaban."
+      },
+      "teToco": "Nada"
+    },
+    {
+      "id": "filtro",
+      "nombre": "Un filtro por talla",
+      "peticion": "Añade un filtro por talla al listado",
+      "toca": [
+        "catalogo/listado.js",
+        "catalogo/filtros.js"
+      ],
+      "color": "amarillo",
+      "razon": "Toca `catalogo/`, que ni es delicado ni es inocuo, así que el semáforo dice amarillo.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "El agente redacta los escenarios, y tú lees tres y los apruebas.",
+          "teToca": "Aprobar tres escenarios"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "info",
+          "texto": "Otro modelo los convierte en tests, y fallan, como tiene que ser."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "El agente escribe el código y dice \"hecho\". No lo está: falla el test de una talla sin resultados. El error le vuelve a él y nadie te llama."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "En la siguiente ronda pasan todos."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "Mejora el código, el linter no pone pegas y dice \"hecho\" otra vez. Entonces el vigilante abre la tienda, filtra, pasa a la segunda página y el filtro se ha perdido. Eso no lo pedía ningún test, y también le vuelve al agente."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "Lo arregla, y el vigilante lo da por bueno."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "Pasa CI, pasa el otro vigilante, y sale."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "Ha dicho \"hecho\" dos veces sin estarlo, y a ti solo te ha costado aprobar tres escenarios."
+      },
+      "teToco": "Aprobar tres escenarios"
+    },
+    {
+      "id": "pasarela",
+      "nombre": "La pasarela de pago",
+      "peticion": "Cambia la pasarela de pago",
+      "toca": [
+        "pagos/pasarela.js",
+        "pagos/cobro.js"
+      ],
+      "color": "rojo",
+      "razon": "Toca `pagos/`, y aquí el semáforo se pone rojo. Si esto sale mal, le quitas dinero a tus clientes, y un cobro hecho no se deshace con un commit.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "Ahora sí te toca. Lees los escenarios y ves que falta uno: si alguien pulsa dos veces el botón de pagar, se le cobra una sola vez. Eso no lo iba a saber el agente, y por eso importa que lo leas tú.",
+          "codigo": "Escenario: pulsar dos veces el botón de pagar\n  Dado un carrito de 40 €\n  Cuando pulso dos veces el botón de pagar\n  Entonces se me cobran 40 € una sola vez",
+          "teToca": "Leer los escenarios y añadir uno"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "info",
+          "texto": "Otro modelo crea los tests, también uno que recorre la compra entera contra el entorno de pruebas de la pasarela."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "El agente dice \"hecho\", y falla el test de las dos pulsaciones."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "A la siguiente, en vez de arreglarlo, cambia el test para que pase. La puerta compara el test con el que se guardó antes de empezar, lo ve y lo rechaza, y al agente no le queda otra que arreglar el código."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "Ahora sí pasan todos, con el test tal como estaba."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "Después, el vigilante prueba a pagar con la pasarela caída, y el pedido queda como pagado sin que nadie haya cobrado nada. Vuelta al agente."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "Lo arregla, y el vigilante lo da por bueno."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "tu",
+          "texto": "En la PR pasa CI y pasa el otro vigilante, y entonces te toca a ti: lees el cambio, compruebas cómo se deshace y das tu aprobación.",
+          "teToca": "Comprobar cómo se deshace y aprobar"
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "Con tu aprobación, sale."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "Ha costado rondas, tiempo y tu atención. Ahí es donde tiene que costar."
+      },
+      "teToco": "Leer los escenarios, añadir uno y aprobar"
+    },
+    {
+      "id": "pedidos",
+      "nombre": "Mis pedidos",
+      "peticion": "Añade una página con mis pedidos",
+      "toca": [
+        "pedidos/mis-pedidos.js"
+      ],
+      "color": "amarillo",
+      "razon": "Toca `pedidos/`, que nadie ha marcado como delicado, así que el semáforo dice amarillo.",
+      "siRojo": "Tú le pondrías rojo, y puede que tengas razón, pero el semáforo solo sabe lo que está en el plano.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "Apruebas tres escenarios.",
+          "teToca": "Aprobar tres escenarios"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "Pasan los tests que ha creado el otro modelo."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "Pasan el linter, el tipado y Sonar, y el vigilante lo da por bueno."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "Pasa CI, pasa el otro vigilante, y sale."
+        },
+        {
+          "puerta": null,
+          "tipo": "mal",
+          "texto": "Una semana después, alguien cambia el número de la dirección de la página y ve el pedido de otra persona, con su nombre y su domicilio."
+        }
+      ],
+      "resultado": {
+        "funciono": false,
+        "texto": "El agente hizo lo que le pedimos y las puertas lo comprobaron. Se quedó corto el plano, porque nadie dijo que decidir quién ve qué era delicado, y mira que lo preguntamos: \"¿qué sería grave si sale mal?\"."
+      },
+      "blindar": {
+        "intro": "Aquí llega Blindar, y no basta con arreglar el código:",
+        "items": [
+          "`pedidos/` y todo lo que decide quién ve qué entran en la lista de lo delicado. Es un cambio en el plano, así que lo aprueba el equipo.",
+          "\"Una persona no ve los pedidos de otra\" pasa a ser un escenario que apruebas, con su test, y se queda como comprobación de serie para todos los cambios.",
+          "El vigilante lo lleva a partir de ahora en lo que comprueba."
+        ],
+        "codigo": "Escenario: una persona no ve los pedidos de otra\n  Dado un pedido de Marta\n  Cuando Luis abre la dirección de ese pedido\n  Entonces no lo ve",
+        "boton": "Probarlo con otro cambio igual",
+        "color": "rojo",
+        "paraEn": "testing",
+        "cierre": "Si otro cambio vuelve a dejar ver un pedido ajeno, ahora el semáforo dice rojo, el test falla y la puerta lo para. Por ahí ya no vuelve a entrar."
+      },
+      "teToco": "Aprobar tres escenarios, y después decidir qué cambia en el plano"
+    }
+  ]
+}

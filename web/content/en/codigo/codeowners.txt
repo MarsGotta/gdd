@@ -1,0 +1,3 @@
+/payments/   @your-username
+/.github/    @your-username
+/CODEOWNERS  @your-username

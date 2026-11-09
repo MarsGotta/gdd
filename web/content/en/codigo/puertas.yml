@@ -1,0 +1,38 @@
+# .github/workflows/gates.yml
+name: Gates
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: The checks are still intact
+        env:
+          BRANCH: ${{ github.head_ref }}
+          # What can change without approved checks: what you mark as green.
+          GREEN: '^(docs/|README\.md$)'
+        run: |
+          BASE="$(git merge-base origin/main HEAD)"
+          REF="origin/checks/$BRANCH"
+          if ! git rev-parse --verify -q "$REF" > /dev/null; then
+            REF="$BASE"
+            OUTSIDE="$(git diff --name-only "$BASE" HEAD | grep -vE "$GREEN" || true)"
+            if [ -n "$OUTSIDE" ]; then
+              echo "::error::This branch has no checks/$BRANCH and touches more than what is green:"
+              echo "$OUTSIDE"
+              exit 1
+            fi
+          fi
+          git diff --exit-code --no-renames --diff-filter=DM "$REF" HEAD -- tests/
+          # What decides how the tests run also counts as a check. Adjust it to your project.
+          git diff --exit-code "$REF" HEAD -- package.json package-lock.json 'vitest.config.*' 'vite.config.*'
+      - run: npm ci
+      - run: npm test

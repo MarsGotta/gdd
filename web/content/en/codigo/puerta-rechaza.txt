@@ -1,0 +1,4 @@
+Scenario: the security gate stops a secret
+  Given a change that adds an API token
+  When it reaches the security gate
+  Then the gate rejects it

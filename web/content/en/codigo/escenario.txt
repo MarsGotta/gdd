@@ -1,0 +1,4 @@
+Scenario: 10% code
+  Given a €50 cart
+  When I apply the code SUMMER10
+  Then I pay €45

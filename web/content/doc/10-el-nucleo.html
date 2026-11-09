@@ -1,0 +1,15 @@
+<h1>El núcleo</h1>
+<p>Casi todo lo que hay en esta documentación lo puedes adaptar: cuántas puertas pones, qué pides en cada una, qué prácticas te sirven. Lo que viene ahora no. Es lo que le puedes exigir a cualquier motor que diga aplicar GDD, también al mío, y ninguna configuración lo puede quitar.</p>
+<p><strong>El agente no toca el plano ni las comprobaciones</strong></p>
+<p>Quien cruza una puerta no decide cómo se valida, ni hace de vigilante de su propio trabajo. Tampoco hay excepciones por rango: ningún agente, ni siquiera el orquestador, puede modificar una comprobación una vez sellada (es decir, fuera de su alcance), cambiar las reglas que deciden el riesgo o saltarse una puerta. Si un test está mal, corregirlo crea otra versión, y si la corrección cambia lo que debe pasar, vuelve a una persona. El orden de las puertas tampoco depende de la buena voluntad de un modelo: lo hace cumplir código.</p>
+<p>El riesgo se calcula con lo que se tocó, no con lo que se declaró. Si el agente dice que ha cambiado un texto y resulta que ha tocado el cobro, es rojo. Por eso se recalcula al terminar, y solo puede subir: si sube, al cambio le toca pasar las puertas del nuevo nivel.</p>
+<p><strong>El daño posible está acotado</strong></p>
+<p>El agente trabaja sin acceso a producción y con las credenciales justas, y lo que no se puede deshacer lo confirma una persona. En rojo, además, nada sale sin una forma comprobada de deshacerlo. Si no la hay, una persona lo decide sabiéndolo.</p>
+<p><strong>Hay decisiones que solo toma una persona</strong></p>
+<p>Si cambia lo que debe pasar, lo aprueba el autor. Si cambia el plano, el equipo. Esto no se puede desactivar, y aceptar unas reglas ya hechas también cuenta como cambiar el plano. Lo mismo vale para aflojar: quitarle una comprobación a una puerta, o retirarla, también es cambiar el plano, y nunca ocurre sin aprobación.</p>
+<p>¿Y que una persona revise lo rojo? Yo lo recomiendo, pero no es obligatorio. Lo configura cada proyecto.</p>
+<p>Una aprobación solo cuenta si llega por un camino al que ningún agente tiene acceso. La de un agente nunca ocupa el sitio de una persona, y la tuya vale solo para lo que viste.</p>
+<p>Las urgencias también se piensan antes de que ocurran. Tienen su propia puerta, definida de antemano: la abre una persona, queda registrada y el cambio pasa después por las puertas normales.</p>
+<p><strong>Nada se queda dando vueltas ni a oscuras</strong></p>
+<p>Los intentos, el tiempo y el coste de cada cambio tienen un límite, y al agotarse, el motor lo para y te pregunta. Todo queda registrado: quién hizo qué, qué puerta lo juzgó y cuánto costó.</p>
+<p class="sigue">Todo esto cuesta tokens y esperas, así que la pregunta lógica es si compensa. De eso va <a href="doc:como-se-mide">Cómo se mide</a>.</p>

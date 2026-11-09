@@ -1,0 +1,16 @@
+<h1>A delicate case</h1>
+<p>In <a href="doc:manos-a-la-obra">the shop</a> you reviewed a delicate change. Now you're going inside one: it touches payment, so there's a delicate zone and, as I recommend, your approval.</p>
+<p>Imagine you want to add discount codes to your online store. You have what almost any team has: a repository, CI and an agent. No orchestrators, no special tools. And it's a delicate case on purpose, because it touches payment: if the method feels heavy here, everywhere else it will feel lighter.</p>
+<figure data-embed="sencillo"><figcaption>a delicate case · 1 gate, 6 steps</figcaption></figure>
+<p><strong>Before you start, just once.</strong> You make passing CI mandatory to merge, and you mark <code>payments/</code> and CI itself as delicate with a <code>CODEOWNERS</code>. You give the agent its own credentials, with no access to production. You set this up once, and the full list, with the checks branch, is in <a href="doc:empieza-hoy">Start today</a>.</p>
+<p><strong>1. You decide what has to happen.</strong> You ask an agent for the scenarios, read them and correct them. With this one and two more, an €80 cart and an expired code, you're set:</p>
+<pre><code data-fuente="escenario.txt"></code></pre>
+<p><strong>2. An agent builds the checks.</strong> In a separate session, it turns those scenarios into tests:</p>
+<pre><code data-fuente="tests.txt"></code></pre>
+<p>You run them and they fail, which is what should happen. You make sure they fail because the discount is missing, not because of a broken import, and you save them on a branch the agent can't modify.</p>
+<p><strong>3. Another agent gets through the gate.</strong> You open another session and hand over the job: "Make these tests pass. Don't touch them. If you think they're wrong, stop and tell me. You have two rounds of CI." And you go do something else.</p>
+<p><strong>4. The gate closes.</strong> The agent says "done" and opens the PR. CI says no: the €80 test fails, because the solution it wrote is tailored to the first one. Nobody calls you: the error goes back to the agent and it fixes it. In the second round the tests pass, and CI confirms they're the ones you approved.</p>
+<p><strong>5. You look only where it matters.</strong> Because the change touches <code>payments/</code>, the PR asks for your approval. You read the change, check that it can be undone and give your approval. If it had been the text on a button, you wouldn't even have known.</p>
+<p><strong>6. If something slips through, you harden.</strong> A week later, someone stacks two codes and the total comes out negative. That's what slipped through. You don't rewrite the process: you add a scenario, "the total never drops below €0," and its test. If that bug comes back, the gate stops it.</p>
+<p><strong>And that's it.</strong> You've read a few scenarios, given one approval and added one test, without reviewing every step or installing anything. The rest is gates you add when you need them.</p>
+<p class="sigue">One gate was enough for this change. When you want to see them all together, and what I do when something goes wrong along the way, go to <a href="doc:el-recorrido-entero">The whole path</a>.</p>

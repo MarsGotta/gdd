@@ -1,0 +1,157 @@
+/* Hands-on chapter: the gates by colour, and the journey of four changes.
+   Ink only. Colour is kept for the risk (the lamps) and, at most, for what falls to you (--persona).
+   Nothing is said by colour alone: every state has a mark and a word. */
+.tutorial { container-type: inline-size; margin: 0 0 40px; }
+.tutorial[hidden], .tutorial [hidden] { display: none !important; }
+.tutorial .icono { width: 16px; height: 16px; flex: none; }
+.tutorial__sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* --- Marks of the checks: square = machine, diamond = reviewer, filled circle = a person --- */
+.marca { width: 12px; height: 12px; flex: none; color: var(--tinta); }
+.marca--persona { width: 14px; height: 14px; color: var(--persona); }
+.comprobacion { overflow-wrap: break-word; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin: 0 0 8px; font-size: .8125rem; line-height: 1.3; }
+.comprobacion--persona { font-weight: 600; }
+.pc__checks { margin: 0; padding: 0; list-style: none; }
+.pc__checks > li::marker { content: none; }
+
+/* --- A door seen from above: a gap in a wall, its leaf and its swing --- */
+.glifo { display: block; width: 48px; height: 34px; overflow: visible; color: var(--tinta); }
+.glifo__muro { fill: none; stroke: var(--muro); stroke-width: 3; stroke-linecap: square; }
+.glifo__jamba { fill: none; stroke: var(--muro); stroke-width: 3; }
+.glifo__hoja { stroke: var(--tinta); stroke-width: 3; transform-origin: 12px 29px; transition: transform .35s cubic-bezier(.3, .7, .2, 1); }
+.glifo__arco { fill: none; stroke: var(--tinta-3); stroke-width: 1.2; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset .35s cubic-bezier(.3, .7, .2, 1); }
+.glifo.esta-abierta .glifo__hoja { transform: rotate(-90deg); }
+.glifo.esta-abierta .glifo__arco { stroke-dashoffset: 0; }
+
+/* --- The gates by colour --- */
+.tutorial--puertas { margin: 1.5em 0 1em; }
+.pc__color { min-width: 0; margin: 0 0 14px; padding: 0; border: 0; }
+.pc__color legend { margin-bottom: 8px; padding: 0; font-size: .9375rem; font-weight: 600; }
+.pc__ops { display: flex; flex-wrap: wrap; gap: 8px; }
+.pc__op { position: relative; flex: 1 1 6.5rem; max-width: 11rem; cursor: pointer; }
+.pc__op input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.pc__caja { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 6px 14px; border: 1.5px solid var(--borde-control); border-radius: 2px; font-size: 1rem; }
+.pc__op:hover .pc__caja { border-color: var(--tinta); }
+.pc__op input:checked + .pc__caja { border-color: var(--tinta); box-shadow: inset 0 0 0 1px var(--tinta); font-weight: 600; }
+.pc__op input:focus-visible + .pc__caja { outline: 2px solid var(--tinta); outline-offset: 2px; }
+.pc__puertas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.pc__puerta { min-width: 0; padding: 8px 6px 6px; border: 1.5px solid var(--linea); border-radius: 2px; }
+.pc__puerta .glifo { margin: 0 auto 4px; }
+.pc__nombre { margin: 0 0 8px; font-size: .8125rem; font-weight: 600; line-height: 1.25; text-align: center; }
+.pc__abierta { margin: 0; font-size: .8125rem; font-weight: 600; text-align: center; }
+.pc__cambia { animation: pc-aparece .25s ease; }
+@keyframes pc-aparece { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.pc__leyenda { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0 0; padding: 0; list-style: none; font-size: .875rem; color: var(--tinta-2); }
+.pc__ley { display: flex; align-items: center; gap: 6px; margin: 0; }
+.pc__ley--persona { color: var(--tinta); font-weight: 600; }
+.pc__resumen { margin: 12px 0 0; font-weight: 500; }
+.comprobacion--persona { padding: 3px 4px; background: color-mix(in srgb, var(--persona) 12%, transparent); }
+
+/* The real table below lights the column of the chosen colour (the script writes data-color on it). */
+.tabla[data-color] :is(th, td) { transition: background-color .25s; }
+.tabla[data-color="verde"] :is(th, td):nth-child(2),
+.tabla[data-color="amarillo"] :is(th, td):nth-child(3),
+.tabla[data-color="rojo"] :is(th, td):nth-child(4) { background: var(--lavado); box-shadow: -10px 0 0 var(--lavado); }
+.tabla[data-color="verde"] th:nth-child(2),
+.tabla[data-color="amarillo"] th:nth-child(3),
+.tabla[data-color="rojo"] th:nth-child(4) { box-shadow: -10px 0 0 var(--lavado), inset 0 3px 0 var(--tinta); }
+/* On a phone the table shows the gate and the chosen colour only. */
+@media (max-width: 640px) {
+  .tabla[data-color] :is(th, td) { background: none !important; box-shadow: none !important; }
+  .tabla[data-color="verde"] td:nth-child(n+3),
+  .tabla[data-color="amarillo"] td:nth-child(2), .tabla[data-color="amarillo"] td:nth-child(4),
+  .tabla[data-color="rojo"] td:nth-child(2), .tabla[data-color="rojo"] td:nth-child(3) { display: none; }
+}
+
+/* --- Buttons --- */
+.tbtn { min-height: 44px; padding: 6px 16px; background: var(--papel); color: var(--tinta); border: 1.5px solid var(--borde-control); border-radius: 2px; font: inherit; font-size: 1rem; line-height: 1.25; cursor: pointer; }
+.tbtn:hover:not(:disabled) { border-color: var(--tinta); }
+.tbtn:focus-visible, .eleccion:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
+.tbtn:disabled, .eleccion:disabled { cursor: default; color: var(--tinta-3); }
+.tbtn[aria-pressed="true"], .eleccion[aria-pressed="true"] { color: var(--tinta); border-color: var(--tinta); box-shadow: inset 0 0 0 1px var(--tinta); font-weight: 600; }
+.tbtn--principal { background: var(--tinta); color: var(--papel); border-color: var(--tinta); font-weight: 500; }
+.tbtn--principal:hover:not(:disabled) { background: var(--tinta-2); border-color: var(--tinta-2); }
+.tbtn--suave { background: none; border-color: transparent; padding: 6px 8px; color: var(--tinta-2); font-size: .9375rem; text-decoration: underline; text-underline-offset: 3px; }
+.tbtn--suave:hover:not(:disabled) { color: var(--tinta); border-color: transparent; }
+.eleccion { display: flex; align-items: center; gap: 9px; flex: 1 1 6.5rem; max-width: 11rem; min-height: 48px; padding: 6px 14px; background: var(--papel); color: var(--tinta); border: 1.5px solid var(--borde-control); border-radius: 2px; font: inherit; font-size: 1rem; cursor: pointer; }
+.eleccion:hover:not(:disabled) { border-color: var(--tinta); }
+.eleccion:disabled:not([aria-pressed="true"]) { opacity: .6; }
+
+/* --- The journey --- */
+.tutorial--viaje { margin: 0 0 40px; }
+.viaje__barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; max-width: 46rem; margin: 0 0 14px; }
+.avance { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; padding: 0; list-style: none; }
+.avance__item { display: flex; align-items: center; gap: 5px; margin: 0; font-size: .875rem; color: var(--tinta-2); }
+.avance__n { font-family: var(--mono); font-size: .8125rem; color: var(--tinta-3); }
+.lampara--vacia { background: none; box-shadow: inset 0 0 0 1.5px var(--borde-control); }
+.viaje__pie { max-width: 46rem; margin-top: 4px; }
+
+.cambio { max-width: 46rem; margin: 0 0 28px; padding-top: 20px; border-top: 1.5px solid var(--linea); }
+.cambio__cabeza { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 2px; }
+.cambio__n { font-family: var(--mono); font-size: .875rem; color: var(--tinta-2); }
+.cambio__titulo { margin: 0 0 .4em; scroll-margin-top: 16px; font-size: 1.375rem; font-weight: 500; line-height: 1.2; }
+.cambio__peticion { margin: 0 0 .5em; font-size: 1.125rem; }
+.cambio__toca { margin: 0 0 .5em; }
+.cambio__plano { max-width: 40rem; font-size: .875rem; color: var(--tinta-2); }
+.cambio__razon { max-width: 40rem; margin-top: 1em; }
+.cambio__sirojo, .cambio__tupondrias { max-width: 40rem; color: var(--tinta-2); }
+.cambio__pide, .cambio__pregunta { margin: 1.25em 0 .5em; }
+.cambio__colores { display: flex; flex-wrap: wrap; gap: 8px; max-width: 36rem; }
+.cambio__pasos { max-width: 40rem; }
+.cambio__pasos pre { max-width: 100%; margin-top: .6em; }
+.cambio__acciones { margin: 0 0 20px; }
+.cambio__resp { display: flex; gap: 8px; margin: 0 0 14px; }
+.cambio__juicio, .cambio__toco, .cambio__blindar { max-width: 40rem; }
+.cambio__blindar { margin-top: 1.25em; }
+.cambio__repite { margin: 0 0 14px; }
+.cambio__repite .pasillo { margin-top: 14px; }
+.cambio__fin { margin: 16px 0 0; }
+.cambio__fin:empty { display: none; }
+
+/* --- The corridor: one row, the same at every width --- */
+.pasillo { max-width: 36rem; margin: 18px 0 16px; }
+.pasillo__color { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: .9375rem; font-weight: 600; }
+.pasillo__marcas { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; font-family: var(--mono); font-size: .75rem; color: var(--tinta-2); }
+.pasillo__etq--fin.es-aviso { font-weight: 600; color: var(--tinta); }
+.pasillo__via { position: relative; padding: 0 14px; }
+.pasillo__linea { position: absolute; left: 7px; right: 7px; top: 29px; border-top: 2px dotted var(--borde-control); }
+.pasillo__ini, .pasillo__fin { position: absolute; width: 14px; height: 14px; border: 2px solid var(--tinta); box-sizing: border-box; }
+.pasillo__ini { left: 0; top: 22px; border-radius: 50%; background: var(--papel); }
+.pasillo__fin { right: 0; top: 22px; display: grid; place-items: center; border-radius: 2px; background: var(--papel); }
+.pasillo__fin .icono { width: 10px; height: 10px; }
+.pasillo__fin[data-fin="sale"], .pasillo__fin[data-fin="colado"] { width: 18px; height: 18px; right: -2px; top: 20px; background: var(--tinta); color: var(--papel); }
+.pasillo__fin[data-fin="colado"] { border-style: dashed; border-color: var(--papel); box-shadow: 0 0 0 2px var(--tinta); }
+.pasillo__puertas { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; list-style: none; }
+.puerta { display: flex; flex-direction: column; align-items: center; min-width: 0; margin: 0; text-align: center; }
+.puerta__nombre { margin-top: 2px; border-bottom: 2px solid transparent; font-size: .8125rem; font-weight: 500; line-height: 1.25; }
+.puerta.es-activa .puerta__nombre { border-bottom-color: var(--tinta); font-weight: 600; }
+.puerta__estado { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center; gap: 0 4px; min-height: 2.6em; margin-top: 2px; font-size: .75rem; line-height: 1.3; color: var(--tinta-2); }
+.puerta__estado .icono { width: 14px; height: 14px; margin-top: 0; }
+.puerta[data-estado="vuelve"] .puerta__estado, .puerta[data-estado="tu"] .puerta__estado, .puerta[data-estado="para"] .puerta__estado { color: var(--tinta); font-weight: 600; }
+.pasillo__agente { position: absolute; top: 29px; left: 7px; z-index: 1; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: var(--tinta); border-radius: 50%; box-shadow: 0 0 0 3px var(--papel); transition: left .6s cubic-bezier(.3, .7, .2, 1); }
+.pasillo__bocadillo { position: absolute; bottom: 15px; left: 6px; padding: 1px 7px; background: var(--papel); border: 1.5px solid var(--tinta); border-radius: 2px; font-size: .75rem; line-height: 1.3; white-space: nowrap; }
+.pasillo__panel { margin-top: 10px; padding: 10px 14px; background: var(--lavado); border-left: 3px solid var(--tinta); font-size: .9375rem; }
+.panel__nombre, .panel__fila { margin: 0 0 6px; }
+.panel__fila:last-child { margin-bottom: 0; }
+.panel__fila .pc__checks { margin-top: 4px; }
+.panel__fila .comprobacion { flex-direction: row; align-items: baseline; gap: 8px; margin-bottom: 4px; font-size: .9375rem; }
+.panel__fila .marca { align-self: center; }
+.pasillo__cuentas { display: flex; flex-wrap: wrap; gap: 2px 20px; margin: 8px 0 0; font-size: .875rem; color: var(--tinta-2); }
+
+@container (min-width: 540px) {
+  .pc__puerta { padding: 10px 12px 8px; }
+  .pc__nombre, .puerta__nombre { font-size: .9375rem; }
+  .comprobacion { flex-direction: row; align-items: baseline; gap: 8px; font-size: .9375rem; }
+  .pc__puertas .comprobacion .marca { align-self: center; }
+  .pc__abierta { font-size: .9375rem; }
+  .puerta__estado { font-size: .8125rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pasillo__agente, .glifo__hoja, .glifo__arco, .tabla[data-color] :is(th, td) { transition: none; }
+  .pc__cambia { animation: none; }
+}
+
+/* Without a script nobody has chosen a colour, and the blueprint line is said once. */
+.tutorial--viaje:not(.tutorial--js) .cambio__sirojo { display: none; }
+.tutorial--viaje:not(.tutorial--js) .cambio:not(:first-child) .cambio__plano { display: none; }

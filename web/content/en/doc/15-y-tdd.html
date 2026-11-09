@@ -1,0 +1,15 @@
+<h1>What about TDD?</h1>
+<p>If you come from TDD, GDD will sound familiar. Its cycle is red, green and refactor (you write a failing test, make it pass and clean up the code). GDD starts from the same idea, test first and code after, but it solves a different problem: whoever writes the code is an agent that can take shortcuts.</p>
+<p>Watch the colors, because they don't mean the same thing. In TDD, red and green belong to the test, which fails or passes. In GDD they belong to the risk of the change, and a Red change is a delicate one even if all its tests pass.</p>
+<table>
+<thead><tr><th>Aspect</th><th>TDD</th><th>GDD</th></tr></thead>
+<tbody>
+<tr><td><strong>What comes first</strong></td><td>A failing test</td><td>Everything the agent has to get past: tests, linters, reviews and approvals</td></tr>
+<tr><td><strong>Who writes what</strong></td><td>Usually, the same person writes the test and the code</td><td>Whoever goes through the gate doesn't decide how it's validated</td></tr>
+<tr><td><strong>What prevents cheating</strong></td><td>The discipline of whoever programs</td><td>That the agent can't touch what judges it</td></tr>
+<tr><td><strong>What validates the test</strong></td><td>Seeing it fail for the right reason</td><td>That, and that it catches wrong solutions</td></tr>
+<tr><td><strong>How much is demanded</strong></td><td>The same across all the code</td><td>According to the risk of the change</td></tr>
+</tbody>
+</table>
+<p>Even the shortcut looks alike. In his book, Kent Beck proposes techniques like returning a constant, <code>return "Hello, Ana"</code>, and generalizing it later (<em>fake it</em>), or writing a second case that forces you to generalize (<em>triangulate</em>). A person follows through to the end. An agent in a hurry can stop at the constant, and that's why the checks have more than one case and the agent can't touch them.</p>
+<p><strong>TDD can be part of GDD, so they don't compete.</strong> In <a href="doc:manos-a-la-obra">the shop</a>, the failing tests are your red, and the code that makes them pass, your green. The refactor is still there, with the same tests watching. And if doing TDD inside its own loop works for your agent, go ahead: GDD doesn't tell it how to work, only what it has to prove. It doesn't require it either: in a small experiment, <a href="https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html">Birgitta Böckeler</a> saw no clear value in doing it that way, and it used 3 to more than 8 times as many tokens.</p>

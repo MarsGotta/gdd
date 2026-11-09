@@ -1,0 +1,39 @@
+<h1>The pieces and the roles</h1>
+<h2 id="las-piezas">The pieces</h2>
+<p>You saw the same scene several times in the shop: the agent said "done" and a test said no. Behind that scene are almost all the pieces of the method.</p>
+<p>With the payment gateway, the agent had to prove that the purchase did what the scenarios say, even if someone clicks twice. That is a <strong>gate</strong>. And what proved it was the tests another model had created, like the one that expects a single €40 charge after two clicks. Those tests are the <strong>checks</strong>, and the gate opens only if all of them pass. Nobody asks the agent whether it has finished.</p>
+<p>The text of a button is green <strong>risk</strong>, because little goes wrong if it fails. The payment gateway was red, and it would have been even at three lines. You define that risk when you decide what is delicate, and it's measured by what the change really touches, not by what the agent says about it. What can't be undone is never green.</p>
+<p>All of that, what is delicate, which gates are needed and what each level asks for, is written in the <strong>blueprint</strong>. In the shop it fell short on orders, and that's why it had to change. The blueprint and the checks are exactly what the agent can't touch.</p>
+<div data-anatomia></div>
+<h3>Who checks</h3>
+<p>The payment gateway's tests are machine checks, and there are two kinds. The <strong>custom</strong> ones belong to each change and set what has to pass, like the one for the two clicks. The <strong>standard</strong> ones apply to the whole project and watch quality, security and proportion, with a linter or a size cap per change.</p>
+<p>And watch out, a check is more than the test: it also includes everything that decides its result, like scripts, configuration, references or a scanner's exceptions.</p>
+<p>On top of the machine you can add a reviewer (another agent) or a person who approves, and for the most delicate changes a second person, if your team turns that on. Neither the reviewer nor the people replace a machine check that can be done, and none of them lets you skip the minimum the risk calls for. They don't get mixed up with each other either: what a reviewer passes never counts as a person's approval, and what has to pass and the blueprint are always approved by a person.</p>
+<table>
+<thead><tr><th>Check</th><th>How you check that it works</th></tr></thead>
+<tbody>
+<tr><td><strong>Machine</strong> (tests, linter, Sonar)</td><td>You give it a bad case and it has to reject it.</td></tr>
+<tr><td><strong>Reviewer</strong> (another agent that runs the change)</td><td>It has to catch what already slipped through, or faults planted on purpose.</td></tr>
+<tr><td><strong>Person</strong> (your approval)</td><td>How long it takes is measured, to spot approvals given without reading.</td></tr>
+</tbody>
+</table>
+<h3 id="el-contexto">Context</h3>
+<p>A gate says what the agent has to prove, but not how to get there. With nothing else to go on, it guesses: it fails, guesses again, and you pay for every round. What you give it so it can get through is its context: the request, a Figma design or the data model. It can live in the repository or come from outside: an MCP server, an API, a loose document, an image. Each gate gets what it needs for that gate, because <a href="doc:los-principios#3-a-cada-puerta-su-contexto">handing over everything at once doesn't help either</a>.</p>
+<p>Part of it belongs to no gate, because the agent needs it throughout the flow: how the project works, which tools it uses, the skills for its technologies. I call that the cross-cutting context. Its main piece is the constitution, a short document with the project's rules, the ones that don't change from one change to the next. Since it goes along on every call, it's what costs the most, so the simpler and clearer, the better. That and its gate's context, which can include what the previous gate generated, like the scenarios for creating the tests, is all it gets: every agent starts with a clean context, without anyone else's conversation.</p>
+<p>Checks make the gate real, and context makes it possible to get through. Without the first, the gate is a drawing on the wall. Without the second, it's a wall. That said, context proves nothing: however good it is, what opens the gate is still a check. The agent doesn't rewrite its own instructions or skills, and context never includes what judges the agent, like hidden scenarios. If an agent keeps failing at the same gate, check whether it's missing context before you harden the gate.</p>
+<h3>Better if it's deterministic</h3>
+<p>A gate works better the more deterministic it is: the same change always gets the same result, like a test or a linter. When that isn't possible, you reinforce it in other ways so the agent doesn't leave the lane or slip through a hole.</p>
+<p>Other teams already work this way. At <a href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents-part-2">Stripe</a>, steps like running the linters don't call any model: they just run code. After the deterministic verifiers, <a href="https://engineering.atspotify.com/2025/12/feedback-loops-background-coding-agents-part-3">Spotify</a> adds an LLM-based judge that vetoes about a quarter of the sessions.</p>
+<p>The gates judge what comes out, not what the agent does while it works, and a destructive command happens before it reaches any gate. That's also why the agent works in a bounded environment, with no access to production and with just the credentials it needs, and why a person confirms anything irreversible.</p>
+<h3>Where the escape room comparison breaks down</h3>
+<p>The escape room in <a href="doc:la-idea">The idea</a> breaks in two places. In the game, opening the last door means you won; here it only means the agent got past what could be checked, which may be less than you needed, as with My orders, which got through all four gates and let people see someone else's orders.</p>
+<p>And the agent isn't your rival: there are no puzzles to guess, because it knows in advance almost everything it has to prove. What it can do is take shortcuts even when it knows that's not what you asked for, as <a href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR</a> has observed, and that's why the gate doesn't depend on its goodwill.</p>
+<h2>The roles</h2>
+<p>In the shop you were mostly watching the agent, but around it there are four other parts.</p>
+<ul>
+<li><strong>You, with your team, design the game.</strong> You set the blueprint, approve where it matters and answer for what ships, whoever wrote it. Each change is answered for by its author, the person on the team who has it in charge: the AI never answers for you.</li>
+<li><strong>The orchestrator</strong> receives the change, hires the agent and applies your blueprint to each case. If the change is too big, it proposes a series of smaller ones and the author decides. At the start it can be you. If it's an agent, the same rules bind it: it can propose, but it can't skip a gate or change the blueprint (more in <a href="doc:el-nucleo">The core</a>).</li>
+<li><strong>The agent</strong> is the one who plays: it does the work and gets through the gates.</li>
+<li><strong>Another agent</strong> makes the checks, in its own session. A person can do it too.</li>
+<li><strong>The reviewer</strong> is another agent, in its own session and with a clean context: it runs the change and only passes it if it has checked that it works. It's never the one who did the work (the why is in <a href="doc:los-principios">The seven principles</a>).</li>
+</ul>

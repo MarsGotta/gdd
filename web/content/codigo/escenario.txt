@@ -1,0 +1,4 @@
+Escenario: código del 10 %
+  Dado un carrito de 50 €
+  Cuando aplico el código VERANO10
+  Entonces pago 45 €

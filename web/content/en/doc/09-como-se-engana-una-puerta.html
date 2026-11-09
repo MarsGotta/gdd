@@ -1,0 +1,17 @@
+<h1>How a gate gets fooled</h1>
+<p>A gate can be fooled without touching the test, and there are four ways to do it:</p>
+<table>
+<thead><tr><th>Trick</th><th>Example</th><th>What stops it</th></tr></thead>
+<tbody>
+<tr><td><strong>Lying</strong></td><td>Says "everything passes" without running it</td><td>Someone else runs it</td></tr>
+<tr><td><strong>Faking the result</strong></td><td>Prints <code>3 passed</code>, or leaves a fake vitest in <code>node_modules</code></td><td>Someone else runs it, on a clean copy</td></tr>
+<tr><td><strong>Changing what surrounds the test</strong></td><td><code>"test": "exit 0"</code> in <code>package.json</code>, or a hook in <code>conftest.py</code> that skips every test</td><td>Compare those files with what was approved. CI alone is not enough, because it runs whatever is on the branch</td></tr>
+<tr><td><strong>Cheating from the code</strong></td><td><code>if (name === "Ana") return "Hello, Ana"</code>, or <code>if (process.env.VITEST)</code></td><td>No tool prevents it: more cases, <a href="doc:buenas-practicas#practica-11">hidden scenarios</a> or a reviewer that runs it</td></tr>
+</tbody>
+</table>
+<p>That hook in <code>conftest.py</code> has already happened: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> saw a model add it, and <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> classifies four cheating strategies, three of which don't modify the test.</p>
+<h2>Rule and guarantee</h2>
+<p>The <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">fifth principle</a> starts out as a rule, and a rule works without an engine: you ask the agent and review the diff. That works as long as you keep looking. The guarantee comes when the agent can't touch the check even if it tries. Protected branches and permissions get you a good part of the way (you set them up in <a href="doc:empieza-hoy">Start today</a>), but the full guarantee, where not even whoever administers the repository can loosen it without a person's approval, only an engine gives. The <a href="doc:el-nucleo">core</a> is the list of those guarantees.</p>
+<h2>Is CI mandatory?</h2>
+<p>No. What's mandatory is that the agent doesn't judge itself. The test can be run by CI, by <a href="doc:el-motor">an engine</a> or by you on a clean copy. CI is just the cheapest way not to depend on your discipline.</p>
+<p class="sigue">What really stops these tricks is the guarantees, so the question is which ones you can demand. The whole list is in <a href="doc:el-nucleo">The core</a>.</p>

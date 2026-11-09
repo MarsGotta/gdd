@@ -1,0 +1,109 @@
+<h1>Manifesto: Gate-Driven Development</h1>
+<p class="meta" data-fecha="2026-11-06">Marcela Gotta</p>
+<p class="meta">v0.7 · draft for review</p>
+<p><strong>Add gates to your project and automate with AI agents without losing quality. Your agent says "done." The gate checks if it's true.</strong></p>
+<p>Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. You trust what they prove, not what they say: before the agent starts, you decide what it has to prove, and those are the gates. The more that can go wrong, the stricter they are, and when something slips through, you harden the gate so it doesn't happen again.</p>
+<p>All of GDD fits in one rule (your agent says "done," the gate checks if it's true), seven principles and four moments.</p>
+<h2>The problem</h2>
+<p>Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself.</p>
+<p>In the end it is an untamable beast, and you don't persuade a beast like that with words: you put gates on it.</p>
+<p>That is the basis of GDD: <strong>we don't develop the specifications, or the code, or even the tests. We design the gates our agents will go through.</strong></p>
+<p>I explain how I got here in the <a href="doc:articulo">Article</a>.</p>
+<h2>The pieces</h2>
+<ul>
+<li><strong>Gate:</strong> what has to be proven before moving on.</li>
+<li><strong>Checks:</strong> what proves it, one or several, of three types: machine (tests, linter, Sonar), reviewer (another agent that runs the change and only passes the change if it checks that it works) and person (your approval). You get through the gate only if all of them pass.</li>
+<li><strong>Context:</strong> what you give the agent so it can get through the gate, whether it's in the repository or comes from outside. The agent always starts with a clean context, with only what it needs: the cross-cutting context, which applies to the whole flow (the project's constitution, meaning its rules, and the usual tools and skills), and the context of its gate, which can include what the previous gate generated. It helps it get through, but it proves nothing.</li>
+<li><strong>Risk:</strong> what can go wrong.</li>
+</ul>
+<p>The machine goes first: a reviewer or a person adds, but doesn't replace a machine check that can be done. An agent never takes the place of a person: what has to pass and the blueprint are always approved by a person.</p>
+<p>Risk is how much damage a change can do to your product. We read it as a traffic light, and it also determines how much you have to do:</p>
+<table>
+<thead><tr><th>Risk</th><th>For example</th><th>What you have to do</th></tr></thead>
+<tbody>
+<tr><td><strong>Green</strong> (low)</td><td>Changing some text</td><td>Nothing: you ask for the change and, if it passes the gates, it ships.</td></tr>
+<tr><td><strong>Yellow</strong> (medium)</td><td>A new filter on a list</td><td>Read a few scenarios.</td></tr>
+<tr><td><strong>Red</strong> (high)</td><td>Something that touches payment</td><td>Read the scenarios and give your approval where needed.</td></tr>
+</tbody>
+</table>
+<p>What can't be undone is never green. This table is what we recommend, and each project configures it: on red, it's best for at least one person to review, but it isn't required.</p>
+<h2>The seven principles</h2>
+<p>The pieces say what GDD is made of. The principles say what makes it work.</p>
+<ol>
+<li><strong>Gates come first, and nobody skips them, not even you.</strong> They are defined before the work. If you decide what to check once you can see the result, you end up checking what the agent did and not what you needed.</li>
+<li><strong>A gate that never closes is not a gate.</strong> It's a drawing on the wall. Before you trust a gate, you check that it closes.</li>
+<li><strong>To each gate, its context.</strong> A gate without context is a wall: the agent guesses, fails and guesses again. With too much it also gets lost and costs more, so on top of the cross-cutting context, which always goes along, you give it just what it needs for that gate. It helps it get through, but it proves nothing.</li>
+<li><strong>You get through a gate with facts, not words.</strong> Saying "done" opens nothing. Without facts it doesn't get through, and if it gets stuck, it stops and asks.</li>
+<li><strong>Whoever goes through the gate doesn't decide how it's validated.</strong> The agent never touches the tests that judge it, just as a student doesn't grade their own exam.</li>
+<li><strong>More risk, more checks, and your approval only where it matters.</strong> The size of the change doesn't matter: what can go wrong does. More risk isn't always more tests: often it is another type of check, like a reviewer or a person. You approve when what should happen changes, and on delicate changes if your project asks for it, as we recommend. The gates handle the rest, because someone who has to approve everything ends up approving without reading.</li>
+<li><strong>Gates with cracks get hardened.</strong> What slips through, or keeps repeating, becomes a check and a question on the reviewer's exam. Over time, the method interrupts you less.</li>
+</ol>
+<p>Every change has an author who answers for it, the person on the team who owns it: the AI never answers for you.</p>
+<p>Each principle, with its reason and its evidence, is in <a href="doc:los-principios">The seven principles</a>.</p>
+<h2>The four moments</h2>
+<p>The principles say what makes the method work. The moments say when each thing happens: one at the start, two on every change, and the last when something slips through or repeats.</p>
+<figure data-embed="momentos"><figcaption>the four moments · 1 at the start, 2 on every change, 1 when something slips through</figcaption></figure>
+<table>
+<thead><tr><th>Moment</th><th>When</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td><strong>1. Prepare</strong></td><td>Once per project, and before the first change in each area</td><td>You decide what it is about, what is delicate, which gates are needed, the constitution and what context each gate carries, and you can start from ready-made rules. Machines build the gates from the blueprint, and then you try to beat them on purpose. Until they hold, no change starts in that area.</td></tr>
+<tr><td><strong>2. Brief</strong></td><td>On every change, before it starts</td><td>What has to pass is fixed, along with a first estimate of the risk, with your approval if needed.</td></tr>
+<tr><td><strong>3. Execute</strong></td><td>On every change</td><td>The agent works and gets through the gates, one by one. If it gets stuck, it stops and asks. At the end, the risk is recalculated from what was touched. If it goes up, the gates of the new level are required.</td></tr>
+<tr><td><strong>4. Harden</strong></td><td>When something slips through or repeats</td><td>Cracks become checks, and what slipped through becomes a question on the reviewer's exam.</td></tr>
+</tbody>
+</table>
+<p>They are not four meetings or four documents. Each moment, with its example, is in <a href="doc:los-momentos">The four moments</a>.</p>
+<h2>How to know if a gate is valid</h2>
+<p>Before you accept a gate, ask yourself four questions. If any answer is no, it isn't a gate yet:</p>
+<ul>
+<li>Was it decided before the agent started?</li>
+<li>Is it checked without trusting what the agent says?</li>
+<li>Is it out of the agent's reach, so that touching it does the agent no good?</li>
+<li>Have you seen it reject something done wrong, real or planted on purpose?</li>
+</ul>
+<p>Checking from the same machine the agent works on does not count as out of its reach: things can happen in between.</p>
+<h2>The core</h2>
+<p>Ready-made rules and good practices can be adapted to your project. This can't: it is what no engine or configuration can take away. Any engine that claims to apply GDD has to guarantee these points.</p>
+<ul>
+<li>The agent doesn't touch the blueprint or the checks.</li>
+<li>The possible damage is bounded.</li>
+<li>Some decisions are made only by a person.</li>
+<li>Nothing is left going in circles, and nothing happens unseen.</li>
+</ul>
+<p>The detail of each point is in <a href="doc:el-nucleo">The core</a>.</p>
+<h2>What GDD is not</h2>
+<ul>
+<li><strong>It is not an engine.</strong> It says what makes a gate valid, not which ones you need or how to build them. Meeting the whole core takes an engine, but not a specific one.</li>
+<li><strong>It is not reading everything.</strong> It isn't looking at nothing either: you look where it matters.</li>
+<li><strong>It is not ceremony.</strong> If almost everything comes out red, the blueprint is wrong, and if a gate no longer adds anything, it gets retired. If every change feels like a chore, something is unnecessary.</li>
+<li><strong>It is not a guarantee.</strong> Opening every gate doesn't mean it's right. That's why cracks get hardened and rollbacks exist.</li>
+<li><strong>It is not spec-driven development (SDD) under another name.</strong> There are scenarios, but short, readable and executable. The gate is what counts, not the document.</li>
+<li><strong>It is not TDD under another name.</strong> TDD can be part of it, but GDD also decides who writes what, how much is required depending on the risk, and what happens to whatever slips through.</li>
+<li><strong>It is not only for software.</strong> It is meant for any project, though so far it has been tested on software. Outside it there are fewer machines and more people, and production is where what you do already reaches someone.</li>
+</ul>
+<h2>How it is measured</h2>
+<p>A method that demands facts from agents can't ask you for an act of faith: it has to show that it reduces your load, catches what matters, earns back what it costs and scales. If it can't show that, it gets simplified.</p>
+<p>Those same facts tell you what to improve in your blueprint, and let you compare it with how you worked before and with other ways of working.</p>
+<p><strong>This version doesn't bring its own data yet.</strong> Today it rests on my experience and on what other teams publish. GDD's own data will come in a later version.</p>
+<h2>Where it comes from</h2>
+<p>GDD doesn't set out to invent anything: it standardizes what has worked for me and what has worked for others. What it adds is a shared language, a test for whether a gate is valid, and a path that links risk and hardening.</p>
+<h2>Where to go next</h2>
+<p>GDD has its own language, but it isn't hard to apply: you can start today with what you already have. Meeting the whole core takes an engine: <a href="https://github.com/MarsGotta/tminus">T-minus</a>, which is in development, or another one that meets it.</p>
+<table>
+<thead><tr><th>If you want</th><th>Read</th></tr></thead>
+<tbody>
+<tr><td>To understand the idea, in a minute</td><td><a href="doc:la-idea">The idea</a></td></tr>
+<tr><td>To walk through GDD step by step with an online shop</td><td><a href="doc:manos-a-la-obra">Hands on</a></td></tr>
+<tr><td>To understand each part: pieces, roles, principles and moments</td><td><a href="doc:las-piezas">The pieces and the roles</a>, <a href="doc:los-principios">The seven principles</a> and <a href="doc:los-momentos">The four moments</a></td></tr>
+<tr><td>To try it today, with a first gate ready to copy</td><td><a href="doc:empieza-hoy">Start today</a></td></tr>
+<tr><td>To see the path with all the gates, and what happens when something goes wrong</td><td><a href="doc:el-recorrido-entero">The whole path</a></td></tr>
+<tr><td>To know what an engine has to guarantee, and how it is measured</td><td><a href="doc:el-nucleo">The core</a> and <a href="doc:como-se-mide">How it is measured</a></td></tr>
+<tr><td>To use the engine that enforces GDD</td><td><a href="https://github.com/MarsGotta/tminus">T-minus</a></td></tr>
+<tr><td>To start from ready-made rules for your area</td><td><a href="doc:los-kits">The kits</a></td></tr>
+<tr><td>To learn how to make sure the principles hold in your project</td><td><a href="doc:buenas-practicas">Good practices</a></td></tr>
+<tr><td>To know where each idea comes from, with all the sources</td><td><a href="doc:de-donde-viene">Where it comes from</a></td></tr>
+<tr><td>To read the story of why GDD was born</td><td><a href="doc:articulo">Article</a></td></tr>
+<tr><td>To read it all in order</td><td><a href="doc:documentacion">Documentation</a></td></tr>
+</tbody>
+</table>
+<p>This manifesto is the reference. If T-minus, another engine or the documentation contradicts this manifesto, the manifesto prevails. Within the documentation, everything else takes precedence over good practices.</p>

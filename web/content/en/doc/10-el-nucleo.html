@@ -1,0 +1,15 @@
+<h1>The core</h1>
+<p>You can adapt almost everything in this documentation: how many gates you put up, what you ask for at each one, which practices work for you. What comes next you can't. It's what you can demand of any engine that says it applies GDD, mine included, and no configuration can remove it.</p>
+<p><strong>The agent doesn't touch the blueprint or the checks</strong></p>
+<p>Whoever goes through a gate doesn't decide how it's validated, and doesn't act as the reviewer of their own work. There are no exceptions by rank either: no agent, not even the orchestrator, can modify a check once it's sealed (that is, out of its reach), change the rules that decide the risk or skip a gate. If a test is wrong, fixing it creates another version, and if the fix changes what has to pass, it goes back to a person. The order of the gates doesn't depend on a model's goodwill either: code enforces it.</p>
+<p>The risk is calculated from what was touched, not from what was declared. If the agent says it changed some text and it turns out it touched payment, it's red. That's why it's recalculated at the end, and it can only go up: if it does, the change has to get through the gates of the new level.</p>
+<p><strong>The possible damage is bounded</strong></p>
+<p>The agent works without access to production and with just the credentials it needs, and a person confirms anything that can't be undone. In red, besides, nothing ships without a verified way to undo it. If there isn't one, a person decides knowing that.</p>
+<p><strong>Some decisions are made only by a person</strong></p>
+<p>If what has to pass changes, the author approves it. If the blueprint changes, the team does. This can't be turned off, and accepting ready-made rules also counts as changing the blueprint. The same goes for loosening: taking a check off a gate, or retiring it, is also changing the blueprint, and it never happens without approval.</p>
+<p>And having a person review what's red? I recommend it, but it isn't required. Each project configures it.</p>
+<p>An approval only counts if it arrives by a path no agent has access to. An agent's approval never takes the place of a person's, and yours is valid only for what you saw.</p>
+<p>Emergencies get thought through before they happen, too. They have their own gate, defined in advance: a person opens it, it's recorded, and the change then goes through the normal gates.</p>
+<p><strong>Nothing is left going in circles, and nothing happens unseen</strong></p>
+<p>The attempts, time and cost of each change have a limit, and when it runs out, the engine stops it and asks you. Everything is recorded: who did what, which gate judged it and how much it cost.</p>
+<p class="sigue">All this costs tokens and waiting, so the logical question is whether it pays off. That's what <a href="doc:como-se-mide">How it is measured</a> is about.</p>

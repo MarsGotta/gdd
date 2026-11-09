@@ -1,0 +1,16 @@
+<h1>Un caso delicado</h1>
+<p>En <a href="doc:manos-a-la-obra">la tienda</a> revisaste un cambio delicado. Ahora vas a entrar en uno: toca el cobro, así que hay una zona delicada y, como yo lo recomiendo, tu aprobación.</p>
+<p>Imagina que quieres añadir códigos de descuento a tu tienda online. Tienes lo que tiene casi cualquier equipo: un repositorio, CI y un agente. Nada de orquestadores ni herramientas especiales. Y es un caso delicado a propósito, porque toca el cobro: si aquí no pesa, en lo demás pesa menos.</p>
+<figure data-embed="sencillo"><figcaption>un caso delicado · 1 puerta, 6 pasos</figcaption></figure>
+<p><strong>Antes de empezar, una sola vez.</strong> Haces obligatorio que CI pase para fusionar, y marcas <code>pagos/</code> y el propio CI como delicados con un <code>CODEOWNERS</code>. Al agente le das sus propias credenciales, sin acceso a producción. Esto lo montas una vez, y la lista completa, con la rama de las comprobaciones, está en <a href="doc:empieza-hoy">Empieza hoy</a>.</p>
+<p><strong>1. Decides qué tiene que pasar.</strong> Le pides a un agente los escenarios, los lees y los corriges. Con este y dos más, un carrito de 80 € y un código caducado, ya está:</p>
+<pre><code data-fuente="escenario.txt"></code></pre>
+<p><strong>2. Un agente fabrica las comprobaciones.</strong> En una sesión aparte, convierte esos escenarios en tests:</p>
+<pre><code data-fuente="tests.txt"></code></pre>
+<p>Los ejecutas y fallan, que es lo que toca. Miras que fallan porque falta el descuento, no porque haya un import roto, y los guardas en una rama que el agente no puede modificar.</p>
+<p><strong>3. Otro agente pasa la puerta.</strong> Abres otra sesión y le das el trabajo: "Haz pasar estos tests. No los toques. Si crees que están mal, para y dímelo. Tienes dos rondas de CI". Y te vas a hacer otra cosa.</p>
+<p><strong>4. La puerta se cierra.</strong> El agente dice "hecho" y abre la PR. CI dice que no: el test de 80 € falla, porque la solución que ha escrito está hecha a la medida del primero. Nadie te llama: el error le vuelve y lo arregla. En la segunda ronda, los tests pasan y CI confirma que son los que aprobaste.</p>
+<p><strong>5. Miras solo donde importa.</strong> Como el cambio toca <code>pagos/</code>, la PR te pide aprobación. Lees el cambio, compruebas que se puede deshacer y das tu aprobación. Si hubiera sido el texto de un botón, ni te habrías enterado.</p>
+<p><strong>6. Si algo se cuela, se blinda.</strong> Una semana después, alguien acumula dos códigos y el total sale negativo. Eso es lo que se coló. No reescribes el proceso: añades un escenario, "el total nunca baja de 0 €", y su test. Si ese fallo vuelve, la puerta lo para.</p>
+<p><strong>Y ya está.</strong> Has leído unos escenarios, has dado una aprobación y has añadido un test, sin revisar cada paso ni instalar nada. Lo demás son puertas que añades cuando te hagan falta.</p>
+<p class="sigue">Para este cambio bastaba una puerta. Cuando quieras verlas todas juntas, y saber qué hago yo si algo se tuerce por el camino, está <a href="doc:el-recorrido-entero">El recorrido entero</a>.</p>

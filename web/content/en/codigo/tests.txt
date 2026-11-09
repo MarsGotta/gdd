@@ -1,0 +1,2 @@
+test('10% on €50', () => expect(withDiscount(50, 'SUMMER10')).toBe(45))
+test('10% on €80', () => expect(withDiscount(80, 'SUMMER10')).toBe(72))

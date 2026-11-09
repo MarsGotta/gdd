@@ -1,0 +1,5 @@
+Scenario: paying by card
+  Given a €40 cart
+  When I pay with a valid card
+  Then the order is marked as paid
+  And I'm charged €40 only once

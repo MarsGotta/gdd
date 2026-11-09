@@ -1,0 +1,25 @@
+<h1>The idea</h1>
+<p>You ask your agent for something, it works for a good while and at the end it tells you "done." You try it, and it isn't. So you ask again, more carefully, you write longer specifications, and it says "done" again with the same confidence. You end up reviewing everything yourself, which was exactly what you wanted to avoid.</p>
+<p>I spent a long time like that, until I stopped trying to convince it and started putting gates on it. That's where Gate-Driven Development (GDD) comes from, and I tell the longer story in the <a href="doc:articulo">Article</a>.</p>
+<p>A gate is what the agent has to prove before moving on, and you decide it before it starts: that a customer gets charged only once, that the total never drops below zero. Its word opens nothing. What opens the gate is something you probably already use and the agent can't touch, like a test, a linter or another person's review. I call each of those pieces a check, and you get through a gate only if all of its checks pass. So that it can get through, you give it what it needs to know, and I call that context.</p>
+<p>If the change is a typo, you barely notice. If it touches payment, you ask for a lot more, and it may call you to look at it yourself before going on. The rest of the time it works alone. And when something slips through, which it will, you don't stop at fixing it: whatever would have been needed to catch it stays as one more check, and it can't get in that way again.</p>
+<h2>An escape room</h2>
+<p>Picture an apartment full of doors. At the entrance, a receptionist welcomes you to the most fun escape room you will ever play: the one about building a product. Each door hides a puzzle, and every room has clues to solve it. If you solve it, they hand you a key and you move on to the next one, until the mission is complete.</p>
+<p>The locks change with the difficulty, even when the doors are the same. Some are reinforced with a robot reviewer that checks you aren't cheating, or with a person you show what you have done, who decides whether to let you through. At the end, if someone managed to cheat (very bad, right?) or the game was too easy, the receptionist reviews what happened and, if needed, hardens the gates.</p>
+<p><strong>Now switch sides.</strong> You are no longer the one entering the escape room: you are the one building it. The locks of the game are your checks, the clues are the context and the players are your agents.</p>
+<h2 id="el-riesgo-es-la-dificultad">Risk is the difficulty</h2>
+<p>In your project, difficulty is risk: how much damage can this change do to my product? I think of it as a traffic light, because that color also decides how much is left for you to do.</p>
+<table>
+<thead><tr><th>Risk</th><th>For example</th><th>How the gates are set</th><th>What you have to do</th></tr></thead>
+<tbody>
+<tr><td><strong>Green</strong> (low)</td><td>Changing some text</td><td>Machines handle it, and some gate can stay open.</td><td>Nothing: you ask for the change and, if it passes the gates, it ships.</td></tr>
+<tr><td><strong>Yellow</strong> (medium)</td><td>A new filter in a list</td><td>On top of the machines, a reviewer usually looks at it, and a person if you decide so.</td><td>Read a few scenarios.</td></tr>
+<tr><td><strong>Red</strong> (high)</td><td>Something that touches payment</td><td>Some gates stop until you give your approval. I recommend it, and each project configures it.</td><td>Read the scenarios and give your approval where needed.</td></tr>
+</tbody>
+</table>
+<h2>What you design</h2>
+<p>That is the basis of GDD: <strong>we don't develop the specifications, or the code, or even the tests. We design the gates our agents will go through.</strong></p>
+<p>What you get is a quality product without supervising every step, because what you used to look at yourself is now looked at by the gates, and you're left with the decisions that need someone.</p>
+<p>And the specifications? They don't disappear, but they stay at what can be executed. A long specification is tedious to read, and reading it doesn't ensure the agent will follow it. A Gherkin scenario (the Given, When, Then format) reads fast, uses simple language and can also be executed, and that is the difference from spec-driven development. You don't even have to write it: an agent drafts it, and you read it and correct it.</p>
+<p>I'm not the only one who has gotten here. <a href="https://openai.com/index/harness-engineering/">OpenAI</a> says its engineering work has shifted from writing code to designing the environment, specifying intent and building feedback loops, and it sums that up in two sentences: "Humans steer. Agents execute."</p>
+<p class="sigue">In <a href="doc:manos-a-la-obra">Hands on</a> we prepare the gates of an online shop and review four changes, and you don't need to install anything.</p>

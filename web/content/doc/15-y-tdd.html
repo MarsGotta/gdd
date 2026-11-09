@@ -1,0 +1,15 @@
+<h1>¿Y TDD?</h1>
+<p>Si vienes de TDD, GDD te sonará. Su ciclo es rojo, verde y refactor (escribes un test que falla, haces que pase y limpias el código). GDD parte de la misma idea, primero la prueba y después el código, pero resuelve otro problema: quien escribe el código es un agente que puede tomar atajos.</p>
+<p>Ojo con los colores, porque no significan lo mismo. En TDD, rojo y verde son del test, que falla o pasa. En GDD son del riesgo del cambio, y un cambio rojo es uno delicado aunque todos sus tests pasen.</p>
+<table>
+<thead><tr><th>Aspecto</th><th>TDD</th><th>GDD</th></tr></thead>
+<tbody>
+<tr><td><strong>Qué va primero</strong></td><td>Un test que falla</td><td>Todo lo que el agente tiene que superar: tests, linters, revisiones y aprobaciones</td></tr>
+<tr><td><strong>Quién escribe qué</strong></td><td>Normalmente, la misma persona escribe el test y el código</td><td>Quien cruza la puerta no decide cómo se valida</td></tr>
+<tr><td><strong>Qué evita la trampa</strong></td><td>La disciplina de quien programa</td><td>Que el agente no pueda tocar lo que lo juzga</td></tr>
+<tr><td><strong>Qué valida la prueba</strong></td><td>Verla fallar por la razón correcta</td><td>Eso, y que cace soluciones equivocadas</td></tr>
+<tr><td><strong>Cuánto se exige</strong></td><td>Lo mismo en todo el código</td><td>Según el riesgo del cambio</td></tr>
+</tbody>
+</table>
+<p>Hasta el atajo se parece. En su libro, Kent Beck propone técnicas como devolver una constante, <code>return "Hola, Ana"</code>, para generalizarla después (<em>fake it</em>), o escribir un segundo caso que te obligue a generalizar (<em>triangular</em>). Una persona sigue hasta el final. Un agente con prisa puede quedarse en la constante, y por eso las comprobaciones llevan más de un caso y el agente no las puede tocar.</p>
+<p><strong>TDD puede formar parte de GDD, así que no compiten.</strong> En <a href="doc:manos-a-la-obra">la tienda</a>, los tests que fallan son tu rojo, y el código que los hace pasar, tu verde. El refactor sigue ahí, con las mismas pruebas vigilando. Y si a tu agente le funciona hacer TDD dentro de su propio bucle, adelante: GDD no le marca cómo trabajar, solo qué tiene que demostrar. Tampoco te lo exige: en un experimento pequeño, <a href="https://martinfowler.com/articles/exploring-gen-ai/tdd-in-the-agent-loop.html">Birgitta Böckeler</a> no vio un valor claro en hacerlo así, y gastó de 3 a más de 8 veces más tokens.</p>

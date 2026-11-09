@@ -1,0 +1,78 @@
+<h1>Hands on</h1>
+<p>You know the idea by now, so let's put it to work. This part is guided, so don't worry: I'll go piece by piece and explain each thing just when you need it.</p>
+<p>We've been asked to build an online shop. I think it's an example we all know, and it holds the whole range of risk. A text that goes wrong is irrelevant. A payment gateway that goes wrong charges your customers twice. First we'll prepare the gates together, and then we'll review four changes to see whether what we've prepared holds up. The shop and everything that happens to it are made up.</p>
+<h2>Prepare: before you write a line</h2>
+<p>The first thing is to plan which gates are needed and build them. No code yet, because the gates come first.</p>
+<p>For this step I recommend leaning on a GDD engine, the program that enforces the method, because it takes a lot of what you're about to see off your plate. Mine, <a href="doc:el-motor">T-minus</a>, is still in development, so here we'll use only what you already have at hand day to day: a repository, CI and an agent.</p>
+<p>Before you start planning the agent's environment, I recommend asking yourself these questions. Next to each one is what we'd answer for the shop.</p>
+<table>
+<thead><tr><th>Question</th><th>In the shop</th></tr></thead>
+<tbody>
+<tr><td>What's it about?</td><td>A catalog, a cart, a payment and the customers' accounts</td></tr>
+<tr><td>What would be serious if it goes wrong?</td><td>Charging twice, or someone getting into the admin panel</td></tr>
+<tr><td>What can a machine check, and what does someone have to look at?</td><td>The total of an order is checked by a test. Whether the payment makes sense, someone looks at</td></tr>
+<tr><td>What does it mean to ship?</td><td>That it works in production, not that the agent says so</td></tr>
+<tr><td>Can it be undone?</td><td>A text, yes. A charge that's been made or a migration that deletes data, no</td></tr>
+</tbody>
+</table>
+<p>Gates, like features, evolve over time, and that's part of the magic of GDD. For now, and to keep the example simple, we'll focus on small, concrete cases.</p>
+<h3>What the agent always carries</h3>
+<p>Before the gates, there are things the agent is going to need at all of them: what the shop is about, how we work and what's not up for negotiation. That's the constitution, a short document with the project's rules. In ours we'd write, for example, that prices are stored in cents and that card details are never stored.</p>
+<p>Alongside it go the tools and skills used throughout the flow, like the ones for the shop's technologies. All of that is the cross-cutting context, and the agent always carries it, at every gate. Since it goes along on every call, the simpler and clearer the better: if something only matters at one gate, it stays at that gate. An engine helps you draft it, and it's something T-minus will do during Prepare.</p>
+<h3>The four gates</h3>
+<p>A gate is what the agent has to prove before moving on. For this shop we'll put four, one after another: scenario, testing, refactoring and reviewing. In your project they can be others.</p>
+<p>Each gate carries two things. Its checks are what shows it has really been passed: a test, a linter, another agent or a person. Its context is what we give the agent, on top of what it always carries, so it can get through, and it's what usually gets forgotten. <a href="doc:los-principios#3-a-cada-puerta-su-contexto">A gate without context is a wall</a>: the agent guesses, fails, guesses again, and you pay for every round. That's why each gate gets what it needs for that gate, and nothing more: the agent always starts with a clean context. That does include what the previous gate generated, like the scenarios, but not its conversation.</p>
+<table>
+<thead><tr><th>Gate</th><th>What it has to prove</th><th>Context</th><th>Checks, at most</th></tr></thead>
+<tbody>
+<tr><td>Scenario</td><td>That we know what should happen</td><td>The request and the design in Figma</td><td>The scenarios are well written, and you read them if needed</td></tr>
+<tr><td>Testing</td><td>That it does what the scenarios say</td><td>The scenarios, the schemas and the data model</td><td>Tests created by another model</td></tr>
+<tr><td>Refactoring</td><td>That the code can be maintained</td><td>Good-practice skills</td><td>Linters, Sonar and typing, and a reviewer from another model</td></tr>
+<tr><td>Reviewing</td><td>That it's ready to go in</td><td>The PR</td><td>CI and a code reviewer: another reviewer, a person or both</td></tr>
+</tbody>
+</table>
+<p><strong>Scenario.</strong> Before building anything, we write down what should happen. We do it in Gherkin, a language made to describe behavior with Given, When and Then sentences. Anyone can read it, and a tool like Cucumber can run it. You give an agent the request and the design in Figma, and it writes it for you:</p>
+<pre><code data-fuente="escenario-pago.txt"></code></pre>
+<p><strong>Testing.</strong> This check is shaped to each change, which is why I call it custom. Another model turns the scenarios into tests, and those are the tests our agent will have to pass. There's a reason someone else writes them: whoever goes through the gate doesn't decide how it's validated. Before moving on they have to fail, and for the right reason, because a gate that never closes isn't a gate. We give the agent the scenarios, plus the schemas and the data model, so it doesn't make up the shape of an order.</p>
+<p><strong>Refactoring.</strong> With the tests passing, we ask it to improve the code, because working and being maintainable are different things. The checks on this gate are standard, because they apply to the whole project, and deterministic, because the same code always gives the same result: linters, typing and Sonar, a quality analyzer. For context we give it good-practice skills. And when there's risk, it also carries a reviewer: another agent, from another model and with a clean context, that runs the change the way someone using the shop would and only passes it if it sees that it works.</p>
+<p><strong>Reviewing.</strong> This is the PR phase, where CI and a code reviewer have to pass, and the reviewer can be another model, a person or both. If it's a model, it's one more reviewer: it runs the change and passes it. If it's a person, they approve it, and one never stands in for the other.</p>
+<h3>The traffic light</h3>
+<p>The four gates are always there, but you can't ask the same of a text as of the payment gateway. That's what the traffic light is for: it tells you the risk of each change, and depending on its color the gates get tougher or softer. It can be a deterministic script, a decision model or a person, and an engine gives it to you already built. Whichever it is, it looks at what was touched, not at what the agent says it did, it's recalculated at the end and it can only go up.</p>
+<p>All we need is a script that looks at which files the change touched. What's delicate, which for now is <code>payments/</code>, <code>admin/</code> and the migrations, is red, because what can't be undone is never green. What's harmless, like <code>text/</code>, is green. And everything else, yellow.</p>
+<p>Notice how many times each color calls you. An open gate is one that asks for nothing in that color:</p>
+<figure data-pieza="puertas"></figure>
+<table>
+<thead><tr><th>Gate</th><th>Green</th><th>Yellow</th><th>Red</th></tr></thead>
+<tbody>
+<tr><td>Scenario</td><td>Open</td><td>That they're well written, and you read a few and approve them</td><td>That they're well written, and you read them all and approve them</td></tr>
+<tr><td>Testing</td><td>The tests that already exist</td><td>Another model creates the tests</td><td>Also tests that go through the whole shop, against the payment gateway's test environment</td></tr>
+<tr><td>Refactoring</td><td>Linters and typing</td><td>Linters, Sonar, typing and reviewer</td><td>Linters, Sonar, typing and reviewer</td></tr>
+<tr><td>Reviewing</td><td>CI</td><td>CI and another reviewer</td><td>CI, another reviewer and your approval, and you check how it gets undone</td></tr>
+</tbody>
+</table>
+<p>Everything we've decided so far (what's delicate, which gates are needed and what each color asks for) is written in one place, the blueprint. The team approves it, and the agent can't touch it.</p>
+<p>That table is what I would do, and each project configures it its own way: having a person review the change in red is my recommendation, not an obligation. What can't be taken away is that a person approves what has to pass. A gate staying open in green isn't loosening anything either, because it was already in the blueprint. Taking a check off a gate, though, is changing the blueprint, and the team approves it.</p>
+<h3>Building it</h3>
+<p>Now we build it with what's at hand:</p>
+<ul>
+<li><strong>The machine checks</strong>, in CI, and CI has to pass to merge.</li>
+<li><strong>The traffic light</strong>, as one more CI step, which decides which checks are asked for.</li>
+<li><strong>The context</strong>, in the repository: the constitution in the agent's instructions file, the skills and the data schemas. What comes from outside, like the Figma design, reaches it through an MCP server or with the request.</li>
+<li><strong>What the agent can't touch</strong>, protected with the branch and a <code>CODEOWNERS</code>, the GitHub file that says who has to approve what: the tests, CI, the traffic-light script, the constitution and the blueprint. The approved tests also live on a separate branch, and CI compares it with the agent's. That gives you a good part of the guarantee, and only an engine gives you all of it.</li>
+</ul>
+<p>The gates and the context, together, form the agent's environment, which people also call a harness. One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">Start today</a>.</p>
+<h2>The journey: four changes</h2>
+<p>It's all up, so let's ask the agent for four changes, from less to more risk. In each one your job is the same: look at what happened and decide whether the blueprint worked. Before you see the result, think about what color you'd give it.</p>
+<p>Each change goes through two moments: Brief, where we fix what has to happen, and Execute, where the agent goes through the gates. If something slips through, the last one comes, Harden.</p>
+<figure data-pieza="viaje"></figure>
+<h2 id="los-cuatro-juntos">The four together</h2>
+<table>
+<thead><tr><th>Change</th><th>Color</th><th>What got caught along the way</th><th>What fell to you</th></tr></thead>
+<tbody>
+<tr><td>The text of a button</td><td>Green</td><td>Nothing, it wasn't needed</td><td>Nothing</td></tr>
+<tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving three scenarios</td></tr>
+<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading the scenarios, adding one and approving</td></tr>
+<tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving three scenarios, and then deciding what changes in the blueprint</td></tr>
+</tbody>
+</table>
+<p>The gates were the same four times. What moved is what each change is asked for, and what falls to you. When you want to set it up in your project, start with <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">your first gate</a>.</p>

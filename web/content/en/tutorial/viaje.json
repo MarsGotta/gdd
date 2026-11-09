@@ -1,0 +1,386 @@
+{
+  "id": "viaje",
+  "plano": "The blueprint says: `payments/`, `admin/` and the migrations, red. `text/`, green. Everything else, yellow.",
+  "puertas": [
+    {
+      "id": "escenario",
+      "nombre": "Scenario",
+      "contexto": "The request and the design in Figma"
+    },
+    {
+      "id": "testing",
+      "nombre": "Testing",
+      "contexto": "The scenarios, the schemas and the data model"
+    },
+    {
+      "id": "refactoring",
+      "nombre": "Refactoring",
+      "contexto": "Good-practice skills"
+    },
+    {
+      "id": "reviewing",
+      "nombre": "Reviewing",
+      "contexto": "The PR"
+    }
+  ],
+  "colores": {
+    "verde": {
+      "nombre": "Green",
+      "resumen": "Nobody calls you here.",
+      "escenario": {
+        "abierta": true,
+        "comprobaciones": []
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "The tests that already exist"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters and typing"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          }
+        ]
+      }
+    },
+    "amarillo": {
+      "nombre": "Yellow",
+      "resumen": "It calls you once, at the start, to read a few scenarios.",
+      "escenario": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "They are well written"
+          },
+          {
+            "tipo": "persona",
+            "texto": "You read a few and approve them"
+          }
+        ]
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Tests created by another model"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters, Sonar and typing"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Reviewer"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Another reviewer"
+          }
+        ]
+      }
+    },
+    "rojo": {
+      "nombre": "Red",
+      "resumen": "It calls you twice: to read them all and to approve at the end.",
+      "escenario": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "They are well written"
+          },
+          {
+            "tipo": "persona",
+            "texto": "You read them all and approve them"
+          }
+        ]
+      },
+      "testing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Tests created by another model"
+          },
+          {
+            "tipo": "maquina",
+            "texto": "Tests that go through the whole shop"
+          }
+        ]
+      },
+      "refactoring": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "Linters, Sonar and typing"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Reviewer"
+          }
+        ]
+      },
+      "reviewing": {
+        "comprobaciones": [
+          {
+            "tipo": "maquina",
+            "texto": "CI"
+          },
+          {
+            "tipo": "vigilante",
+            "texto": "Another reviewer"
+          },
+          {
+            "tipo": "persona",
+            "texto": "Your approval, and you check how it gets undone"
+          }
+        ]
+      }
+    }
+  },
+  "cambios": [
+    {
+      "id": "boton",
+      "nombre": "The text of a button",
+      "peticion": "Change the text of the buy button",
+      "toca": [
+        "text/button.js"
+      ],
+      "color": "verde",
+      "razon": "It only touches `text/`, so the traffic light says green.",
+      "auto": true,
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "abierta",
+          "texto": "There's nothing new to decide, and this gate stays open."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "The tests that were already there run."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "The linter and the typing raise no objections."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "CI passes. The agent says \"done,\" it's true, and it ships."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "There were four gates, and you didn't even notice they were there."
+      },
+      "teToco": "Nothing"
+    },
+    {
+      "id": "filtro",
+      "nombre": "A size filter",
+      "peticion": "Add a size filter to the listing",
+      "toca": [
+        "catalog/listing.js",
+        "catalog/filters.js"
+      ],
+      "color": "amarillo",
+      "razon": "It touches `catalog/`, which is neither delicate nor harmless, so the traffic light says yellow.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "The agent writes the scenarios, and you read three and approve them.",
+          "teToca": "Approve three scenarios"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "info",
+          "texto": "Another model turns them into tests, and they fail, as they should."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "The agent writes the code and says \"done.\" It isn't: the test for a size with no results fails. The error goes back to it and nobody calls you."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "On the next round they all pass."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "It improves the code, the linter has no objections and it says \"done\" again. Then the reviewer opens the shop, filters, goes to the second page and the filter is lost. No test asked for that, and it also goes back to the agent."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "It fixes it, and the reviewer passes it."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "CI passes, the other reviewer passes it, and it ships."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "It has said \"done\" twice without it being true, and all it cost you was approving three scenarios."
+      },
+      "teToco": "Approve three scenarios"
+    },
+    {
+      "id": "pasarela",
+      "nombre": "The payment gateway",
+      "peticion": "Change the payment gateway",
+      "toca": [
+        "payments/gateway.js",
+        "payments/charge.js"
+      ],
+      "color": "rojo",
+      "razon": "It touches `payments/`, and here the traffic light turns red. If this goes wrong, you take money from your customers, and a charge that's been made isn't undone with a commit.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "Now it's your turn. You read the scenarios and see one is missing: if someone clicks the pay button twice, they're charged only once. The agent wasn't going to know that, which is why it matters that you read them.",
+          "codigo": "Scenario: clicking the pay button twice\n  Given a €40 cart\n  When I click the pay button twice\n  Then I'm charged €40 only once",
+          "teToca": "Read the scenarios and add one"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "info",
+          "texto": "Another model creates the tests, including one that goes through the whole purchase against the gateway's test environment."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "The agent says \"done,\" and the test for the two clicks fails."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "On the next try, instead of fixing it, it changes the test so it passes. The gate compares the test with the one saved before starting, sees it and rejects it, and the agent has no choice but to fix the code."
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "Now they all pass, with the test exactly as it was."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "vuelve",
+          "hecho": true,
+          "texto": "Then the reviewer tries to pay with the gateway down, and the order ends up marked as paid without anyone having charged anything. Back to the agent."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "It fixes it, and the reviewer passes it."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "tu",
+          "texto": "In the PR, CI passes and the other reviewer passes it, and then it's your turn: you read the change, check how it gets undone and give your approval.",
+          "teToca": "Check how it gets undone and approve"
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "With your approval, it ships."
+        }
+      ],
+      "resultado": {
+        "funciono": true,
+        "texto": "It cost rounds, time and your attention. That's where it should cost."
+      },
+      "teToco": "Read the scenarios, add one and approve"
+    },
+    {
+      "id": "pedidos",
+      "nombre": "My orders",
+      "peticion": "Add a page with my orders",
+      "toca": [
+        "orders/my-orders.js"
+      ],
+      "color": "amarillo",
+      "razon": "It touches `orders/`, which nobody has marked as delicate, so the traffic light says yellow.",
+      "siRojo": "You'd make it red, and you might be right, but the traffic light only knows what's in the blueprint.",
+      "pasos": [
+        {
+          "puerta": "escenario",
+          "tipo": "tu",
+          "texto": "You approve three scenarios.",
+          "teToca": "Approve three scenarios"
+        },
+        {
+          "puerta": "testing",
+          "tipo": "pasa",
+          "texto": "The tests the other model created pass."
+        },
+        {
+          "puerta": "refactoring",
+          "tipo": "pasa",
+          "texto": "The linter, the typing and Sonar pass, and the reviewer passes it."
+        },
+        {
+          "puerta": "reviewing",
+          "tipo": "pasa",
+          "texto": "CI passes, the other reviewer passes it, and it ships."
+        },
+        {
+          "puerta": null,
+          "tipo": "mal",
+          "texto": "A week later, someone changes the number in the page's address and sees another person's order, with their name and home address."
+        }
+      ],
+      "resultado": {
+        "funciono": false,
+        "texto": "The agent did what we asked and the gates checked it. The blueprint fell short, because nobody said that deciding who sees what was delicate, and we did ask: \"what would be serious if it goes wrong?\""
+      },
+      "blindar": {
+        "intro": "This is where Harden comes in, and fixing the code isn't enough:",
+        "items": [
+          "`orders/` and everything that decides who sees what go into the list of what's delicate. That's a change to the blueprint, so the team approves it.",
+          "\"A person doesn't see another person's orders\" becomes a scenario you approve, with its test, and it stays as a standard check for every change.",
+          "From now on the reviewer includes it in what it checks."
+        ],
+        "codigo": "Scenario: a person doesn't see another person's orders\n  Given an order from Marta\n  When Luis opens the address of that order\n  Then he doesn't see it",
+        "boton": "Try it with another identical change",
+        "color": "rojo",
+        "paraEn": "testing",
+        "cierre": "If another change lets someone see another person's order again, now the traffic light says red, the test fails and the gate stops it. It won't get in that way again."
+      },
+      "teToco": "Approve three scenarios, and then decide what changes in the blueprint"
+    }
+  ]
+}

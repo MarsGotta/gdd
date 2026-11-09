@@ -1,0 +1,31 @@
+<h1>El motor</h1>
+<p>Con permisos, protección de ramas y CI ya puedes cumplir los siete principios, pero no el <a href="doc:el-nucleo">núcleo</a> entero. Lo que se queda fuera es lo que exige que alguien lleve la cuenta de todo el cambio, y eso es lo que hace un motor.</p>
+<table>
+<thead><tr><th>Lo que falta</th><th>Por qué</th></tr></thead>
+<tbody>
+<tr><td><strong>Límites por cambio</strong></td><td>Cada agente tiene su tope, pero nadie suma los intentos, el tiempo y el coste de todo el cambio.</td></tr>
+<tr><td><strong>Nada se afloja sin aprobación</strong></td><td>Quien administra el repositorio puede quitar la protección de la rama en los ajustes, sin pasar por ninguna puerta.</td></tr>
+<tr><td><strong>Registro completo</strong></td><td>Git y CI guardan quién hizo qué y qué puerta lo juzgó, pero no cuánto costó; medir se queda a mano.</td></tr>
+<tr><td><strong>El orden de las puertas</strong></td><td>CI comprueba al final, pero nada obliga a seguir el orden antes de la PR.</td></tr>
+</tbody>
+</table>
+<p>Vale cualquier motor que cumpla esas garantías, también uno escrito por ti. El mío es <a href="https://github.com/MarsGotta/tminus">T-minus</a>: quiero que imponga el núcleo, que traiga <a href="doc:los-kits">kits</a> y te deje crear los tuyos o cargar los de otros, y que te dé los datos para ver qué mejorar. Todavía está en desarrollo y no hace todo esto, así que lo que sigue es lo que tiene que hacer su versión 1.0, no lo que hace hoy.</p>
+<h2>El mismo recorrido, sin motor y con T-minus</h2>
+<p>Es lo que hicimos en <a href="doc:manos-a-la-obra">Manos a la obra</a>, primero a mano y después como lo hará T-minus.</p>
+<table>
+<thead><tr><th>Paso</th><th>Lo que pide el método</th><th>Sin motor</th><th>Con T-minus</th></tr></thead>
+<tbody>
+<tr><td><strong>Preparar</strong></td><td>Fijar las puertas y el contexto, y limitar al agente</td><td>Proteges la rama, le das credenciales justas y escribes la constitución</td><td>Partes de un <a href="doc:los-kits">kit</a>, y te ayuda a redactar la constitución y a elegir el contexto transversal</td></tr>
+<tr><td><strong>Encargar</strong></td><td>Decidir qué debe pasar</td><td>Encargas los escenarios a un agente, los apruebas y encargas los tests a otro modelo</td><td>Un agente redacta los escenarios, tú los apruebas y otro fabrica los tests</td></tr>
+<tr><td><strong>Encargar</strong></td><td>Ver que la puerta cierra</td><td>Los ejecutas y fallan</td><td>Lo comprueba él, y sin eso no sigue</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Que el agente no toque las comprobaciones</td><td>Se lo pides y miras el diff, o proteges sus tests con una rama</td><td>No puede tocarlas, están selladas</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Pasar la puerta con hechos</td><td>Ejecutas tú, o CI</td><td>Lo ejecuta fuera del alcance del agente y lo registra</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Parar si se atasca</td><td>Cuentas tú las rondas</td><td>Cuenta los intentos y, al agotarlos, para y te pregunta</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Aprobar solo donde importa</td><td>Decides tú si lo lees</td><td>Calcula el riesgo con lo que se tocó y te avisa si tu <a href="doc:los-momentos#plano">plano</a> lo pide</td></tr>
+<tr><td><strong>Blindar</strong></td><td>Convertir lo que se cuela en comprobación</td><td>Añades un test</td><td>Apruebas el escenario y sale otra versión de la comprobación</td></tr>
+</tbody>
+</table>
+<p>El método te dice qué hay que hacer, y el motor, con cuánta seguridad se hace.</p>
+<h2>Cuándo hace falta un motor</h2>
+<p>No lo necesitas el primer día. Empieza a hacer falta cuando hay varios agentes o muchos cambios a la vez, cuando tienes que demostrar lo que pasó o medir si GDD <a href="doc:como-se-mide">compensa</a>, o cuando no hay un CI debajo, como suele pasar fuera del software.</p>
+<p>Lo que el motor no sustituye son las <a href="doc:buenas-practicas">buenas prácticas</a>, que van aparte: cómo mantener ciertos los principios en cada momento y qué comprobaciones poner en cada parada. Son una propuesta mía, no una norma.</p>
