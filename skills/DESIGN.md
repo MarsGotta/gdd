@@ -30,9 +30,22 @@ They let an agent apply GDD in any project with what the project already has (te
 
    An engine does this split on its own. Without one, the orchestrator does it when it launches each agent, and its skill has to teach it how.
 6. **Everything in English.**
+7. **Seven skills.** One entry skill and six more, each for one role in one moment:
+
+   | Skill | Who loads it | Moment | Reads | Leaves | Level |
+   |---|---|---|---|---|---|
+   | `gdd` (entry) | The orchestrator | Guides all four | The request, the blueprint and where each brief stands | What comes next, who is launched and with which context | standard |
+   | `gdd-prepare` | The orchestrator, with the person, at the start or when the project changes | Prepare | The repository and what it already has (tests, CI) | The blueprint, the cross-cutting core in the constitution and the protections (branches, CODEOWNERS) | deep |
+   | `gdd-brief` | The orchestrator, for each change | Brief | The request and the blueprint | The brief: the scenarios the person approves, the computed color and the gates with their context | standard |
+   | `gdd-checks` | Another agent, never the one that builds | Brief and Execute | The approved brief | Checks that fail for the right reason, proof that they can pass, and their seal | by color |
+   | `gdd-build` | The agent that passes the gate | Execute | The brief and the sealed checks | The change and the facts that prove it | by color |
+   | `gdd-review` | The reviewer, with a clean context | Execute | The change, the blueprint and the checks, never the conversation | The verdict, with its evidence | by color, from another model family |
+   | `gdd-harden` | The orchestrator, with the person, when something slips through | Harden | What slipped through and its brief | The crack, the new check and the blueprint change, for the person to approve | deep |
+
+   Proportion lives in `gdd-brief`: the color comes from what the change touches, and it decides which checks are needed and at which level. `gdd-checks` applies the same proportion: green keeps the existing checks, yellow adds mutation testing, red adds hidden examples written by another hand.
+8. **A shared log for metrics, no extra skill.** `gdd` writes one line per gate when each step closes. Every role ends its work by reporting the same fields: level, rounds, result, what it caught, and time and tokens when its environment provides them. `gdd-harden` reads the log to see what slips through, which piece catches what and what each role costs, so a project can compare itself with itself. An engine fills the same log on its own, with exact figures. Its format is part of the contract below.
 
 ## Still open
 
-- The skill set (see the proposal in the conversation of 09-11-2026).
-- The format of what the method leaves in a repository (the blueprint, each brief, the evidence). It is the contract between the skills and any engine.
+- The format of what the method leaves in a repository (the blueprint, each brief, the evidence and the log). It is the contract between the skills and any engine.
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.
