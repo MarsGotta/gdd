@@ -7,9 +7,9 @@ levels:
   deep: <model for the most reasoning>
 limits:
   fix_rounds_per_gate: 2
-  rounds_per_change: <n>
-  minutes_per_change: <n>
-  lines_per_change: <n, counted with git diff --shortstat>
+  rounds_per_change: 6
+  minutes_per_change: 120
+  lines_per_change: 400  # counted with git diff --shortstat
   tokens_per_change: <n, where the environment reports them>
 checks:
   - id: seal

@@ -12,7 +12,7 @@ It builds the site and publishes `dist/` to `gate-driven.dev` (see `wrangler.jso
 
 ## Change the content
 
-The texts aren't written here: they come from the document exports in `content/`. To update them, replace those files and rebuild:
+The texts are written here, in `content/`, since version 0.8 of the Manifesto. To change them, edit those files and rebuild:
 
 ```
 npm install

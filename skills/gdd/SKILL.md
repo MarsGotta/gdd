@@ -37,7 +37,7 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
 3. **Build.** Launch `gdd-build` with the brief (or the request, on green), starting from the seal (`gdd-seal/<id>`) and with the context of its gates.
 4. **Gates.** Run the checks yourself, out of the builder's reach: CI on the pushed branch, or a clean copy of it. What the builder reports is a claim. The `seal` check goes first: if what judges was touched, nothing else counts. When the blueprint's `guarantee` is `rule`, a clean copy is the best there is and it isn't out of the builder's reach: say so in your summary.
 5. **Review.** Launch `gdd-review` with a clean context, for every change. It recomputes the color on what was actually touched and, when the color's checks include `review`, runs the checks itself and tries to make the change fail. Its verdict is the first word of its answer: `pass`, `fix` or `stop`. Any other word, or a review cut off before its verdict, isn't a pass: launch it again, once.
-   - The color rose: the change stops and goes back to Brief. `gdd-brief` brings the brief up to the new color, the person approves it if that color asks for `brief-approval`, and `gdd-checks` adds what the new color asks for.
+   - The color rose: the change stops and goes back to Brief. `gdd-brief` brings the brief up to the new color, the person approves it if that color asks for `brief-approval`, and `gdd-checks` adds what the new color asks for, working from the base and without reading what was already built.
    - `fix`: back to the builder, within the limits.
    - `stop`: the change doesn't go in. Tell the person why.
 6. **Ship.** When every check its color asks for has passed on the change brought up to date with the main branch, it ships the way the project ships its changes. If several changes go in together and their checks fail, land them one at a time. If those checks include `person-review`, that check is the person approving the pull request on the platform. You never approve anything, and you never ship what is still waiting for a person.
@@ -81,7 +81,7 @@ Tell the person one line per gate (passed or failed, and in how many rounds). Gi
 
 From the T-minus pilot:
 
-- Eight changes that had each passed their gates failed together: three hidden scenarios broke, and one of the changes, on top of the others, was the cause. Run the gates on what you merge, and if they fail, merge one change at a time.
+- Eight changes that had each passed their gates failed together: three hidden examples broke, and one of the changes, on top of the others, was the cause. Run the gates on what you merge, and if they fail, merge one change at a time.
 - The orchestrator sat almost seven hours waiting for an approval on the machine that nobody saw. When something waits for the person, tell them at once.
 - An agent that couldn't touch the file it needed copied seven of its functions into another one, and the reviewer sent the change back. The fix was in the brief's list of what it touches, never in a looser check.
 - An integration ran the same gate again and again for three hours with nothing new in it. A round that changes nothing doesn't get repeated.

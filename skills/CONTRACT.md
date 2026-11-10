@@ -23,6 +23,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 
 - **Ids** use lowercase letters, digits and hyphens: zones, checks, briefs, backlog items and scenarios.
 - **Paths** are git pathspecs from the root of the repository, with `:(glob)` for patterns, so `git diff --name-only <base> -- <pathspec>` gives the same answer to everyone.
+- **Commits** have two names in these files. `<base>` is the commit of the main branch a change starts from: the `brief` step records it in its `color`, and every later comparison uses that same commit. `<start>` is the commit an agent's branch pointed to when it was launched: the seal's commit, or the base on green.
 - **Hashes** are git blob hashes (`git hash-object <file>`), so anyone can recompute them without a script.
 - **Approved files** are never edited by an agent: the blueprint and the gates change through a commit or pull request the person approves, and a brief, approved or not, changes only through a new version.
 - **A green change** has no brief file, unless the blueprint's green asks for `brief-approval`. Its events go to `gdd/log/<id>.jsonl` like any other, with an id the orchestrator picks.
@@ -83,7 +84,7 @@ The front matter is what agents read; the diagram and the table are for the pers
 
 - `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
 - `levels`: which model the project uses for each level. The skills never name one.
-- `limits`: fix rounds per gate, and the caps of a whole change. Two fix rounds per gate is the default; the team sets the rest when preparing. The cap on tokens applies only where the agents' environment reports them.
+- `limits`: fix rounds per gate, and the caps of a whole change. The template's values are provisional, a place to start from: the team sets its own when preparing, and corrects them with what its logs show. The cap on tokens has no default, and applies only where the agents' environment reports them.
 - `checks`: every check a gate can ask for, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution.
 - `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
 - `zones`: each zone's id, color, pathspecs and the file with its standing gates.
@@ -102,9 +103,9 @@ levels:
   deep: <model for the most reasoning>
 limits:
   fix_rounds_per_gate: 2
-  rounds_per_change: <n>
-  minutes_per_change: <n>
-  lines_per_change: <n, counted with git diff --shortstat>
+  rounds_per_change: 6
+  minutes_per_change: 120
+  lines_per_change: 400  # counted with git diff --shortstat
   tokens_per_change: <n, where the environment reports them>
 checks:
   - id: seal

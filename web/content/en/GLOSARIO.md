@@ -30,7 +30,7 @@ Translate from Spanish to American English. The reader is a developer or product
 | semáforo | traffic light |
 | Verde, Amarillo, Rojo | Green, Yellow, Red |
 | (bajo), (medio), (alto) | (low), (medium), (high) |
-| el agente (the one who does the work) | the agent |
+| el agente (the one who does the work) | the agent (the skills call it the builder, because they speak to several agents) |
 | otro agente (the one who makes the checks) | another agent |
 | recepcionista (only in the escape-room story) | receptionist |
 | autor | author |
@@ -49,7 +49,9 @@ Translate from Spanish to American English. The reader is a developer or product
 | lo que debe pasar, qué debe pasar, qué tiene que pasar | what has to pass (never "what should happen" or "what has to happen") |
 | entorno del agente (replaces "harness", except in titles and quotes of sources) | the agent's environment |
 | reglas ya hechas (outside the T-minus part) | ready-made rules |
-| registro | record |
+| registro | log (never "record" as a noun) |
+| ejemplos ocultos (replaces "escenarios ocultos") | hidden examples |
+| comprobaciones de serie | standing checks (never "standard checks") |
 | aprobación, aprobar (replaces "firma", "tu OK") | approval, approve |
 | núcleo | core |
 | momento (the four moments of the method) | moment |

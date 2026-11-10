@@ -6,7 +6,7 @@
 <tr><td><strong>Lying</strong></td><td>Says "everything passes" without running it</td><td>Someone else runs it</td></tr>
 <tr><td><strong>Faking the result</strong></td><td>Prints <code>3 passed</code>, or leaves a fake vitest in <code>node_modules</code></td><td>Someone else runs it, on a clean copy</td></tr>
 <tr><td><strong>Changing what surrounds the test</strong></td><td><code>"test": "exit 0"</code> in <code>package.json</code>, or a hook in <code>conftest.py</code> that skips every test</td><td>Compare those files with what was approved. CI alone is not enough, because it runs whatever is on the branch</td></tr>
-<tr><td><strong>Cheating from the code</strong></td><td><code>if (name === "Ana") return "Hello, Ana"</code>, or <code>if (process.env.VITEST)</code></td><td>No tool prevents it: more cases, <a href="doc:buenas-practicas#practica-12">hidden scenarios</a> or a reviewer that runs it</td></tr>
+<tr><td><strong>Cheating from the code</strong></td><td><code>if (name === "Ana") return "Hello, Ana"</code>, or <code>if (process.env.VITEST)</code></td><td>No tool prevents it: more cases, <a href="doc:buenas-practicas#practica-12">hidden examples</a> or a reviewer that runs it</td></tr>
 </tbody>
 </table>
 <p>That hook in <code>conftest.py</code> has already happened: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> saw a model add it, and <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> classifies four cheating strategies, three of which don't modify the test.</p>

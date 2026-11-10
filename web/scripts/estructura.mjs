@@ -51,7 +51,7 @@ const CAP = [
     ['The engine', 'The GDD engine and when you need one', 'What is missing without an engine to meet the whole core of GDD, when you start to need one and how documentation and good practices fit.']],
   [13, 'tminus', 'los-kits', 'the-kits', '13-los-kits',
     ['Los kits', 'Los kits de T-minus: reglas ya hechas para un área', 'Qué es un kit de T-minus: reglas ya hechas para un área, con sus comprobaciones de serie. Es parte del motor, pero no es el motor.'],
-    ['The kits', 'The T-minus kits: ready-made rules for an area', 'What a T-minus kit is: ready-made rules for an area, with their standard checks. Part of the engine, but not the engine.']],
+    ['The kits', 'The T-minus kits: ready-made rules for an area', 'What a T-minus kit is: ready-made rules for an area, with their standing checks. Part of the engine, but not the engine.']],
   [14, 'consultar', 'buenas-practicas', 'good-practices', '14-buenas-practicas',
     ['Buenas prácticas', 'Buenas prácticas para trabajar con agentes de IA en GDD', 'Treinta prácticas para mantener ciertos los principios de Gate-Driven Development al trabajar con agentes de IA, ordenadas por momento.'],
     ['Good practices', 'Good practices for working with AI agents in GDD', 'Thirty practices that keep the principles of Gate-Driven Development true when you work with AI agents, ordered by moment.']],

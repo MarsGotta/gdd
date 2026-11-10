@@ -17,6 +17,8 @@ Your level is the color's (green light, yellow standard, red deep), and deep for
 
 The brief and its scenarios in `features/`, approved by the person when its color asks for it, or a zone's gates in `gdd/gates/<zone>.feature`. Also the blueprint, for what the color asks for and the id of each check, and the constitution, for the commands.
 
+When a change's color rose and you're adding the checks of its new color, work from the base and don't read what the builder already wrote: a check written with the code in sight ends up agreeing with the code.
+
 ## Climb the ladder
 
 For every check, stop at the first step that works:

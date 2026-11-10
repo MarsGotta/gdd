@@ -6,7 +6,7 @@
 <tr><td><strong>Mentir</strong></td><td>Dice "todo pasa" sin ejecutarlo</td><td>Que ejecute otro</td></tr>
 <tr><td><strong>Falsear el resultado</strong></td><td>Imprime <code>3 passed</code>, o deja un vitest falso en <code>node_modules</code></td><td>Que ejecute otro, en una copia limpia</td></tr>
 <tr><td><strong>Cambiar lo que rodea al test</strong></td><td><code>"test": "exit 0"</code> en <code>package.json</code>, o un hook en <code>conftest.py</code> que salta todos los tests</td><td>Comparar esos archivos con lo aprobado. CI solo no basta, porque ejecuta lo que hay en la rama</td></tr>
-<tr><td><strong>Engañar desde el código</strong></td><td><code>if (nombre === "Ana") return "Hola, Ana"</code>, o <code>if (process.env.VITEST)</code></td><td>Ninguna herramienta lo impide: más casos, <a href="doc:buenas-practicas#practica-12">escenarios ocultos</a> o un vigilante que ejecute</td></tr>
+<tr><td><strong>Engañar desde el código</strong></td><td><code>if (nombre === "Ana") return "Hola, Ana"</code>, o <code>if (process.env.VITEST)</code></td><td>Ninguna herramienta lo impide: más casos, <a href="doc:buenas-practicas#practica-12">ejemplos ocultos</a> o un vigilante que ejecute</td></tr>
 </tbody>
 </table>
 <p>Lo del hook en <code>conftest.py</code> ya ha ocurrido: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> vio a un modelo añadirlo, e <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> clasifica cuatro estrategias de trampa, de las que tres no modifican el test.</p>

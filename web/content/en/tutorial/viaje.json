@@ -371,7 +371,7 @@
         "intro": "This is where Harden comes in, and fixing the code isn't enough:",
         "items": [
           "`orders/` and everything that decides who sees what go into the list of what's delicate. That's a change to the blueprint, so the team approves it.",
-          "\"A person doesn't see another person's orders\" becomes a scenario you approve, with its test, and it stays as a standard check for every change.",
+          "\"A person doesn't see another person's orders\" becomes a scenario you approve, with its test, and it stays as a standing check for every change.",
           "From now on the reviewer includes it in what it checks."
         ],
         "codigo": "Scenario: a person doesn't see another person's orders\n  Given an order from Marta\n  When Luis opens the address of that order\n  Then he doesn't see it",

@@ -96,7 +96,7 @@ Record each try in `gdd/log/blueprint.jsonl`, with its command, its exit code an
 
 Before the first change, write the baseline in the blueprint with the person, from the project's own history: how long a change takes from request to release, how often it stops someone and what slips through. Then ask what figure would make the team drop a gate, and write it under it. Without both, "it's going better" is only an impression.
 
-Set the caps of a change in `limits` with the person too. The template brings a default only for fix rounds per gate, and the cap on tokens makes sense only if the agents' environment reports them.
+Set the caps of a change in `limits` with the person too. The template's values are provisional: keep them only until the project's own logs say otherwise. The cap on tokens has no default, and makes sense only if the agents' environment reports them.
 
 ## Approval
 
