@@ -39,7 +39,7 @@ While you draft, mark each one where it comes up, in the brief or in a scenario,
 
 ## Approval
 
-The person reads the brief and its scenarios and approves them. Give the orchestrator the blob hash of each file they approved (`git hash-object <file>`), so the log records exactly what they saw. On red, recommend approving it as a pull request on the platform: without an engine, an agent may share the person's git identity, so a commit alone proves little.
+Show the person the brief and its scenarios themselves, not a summary of them, because an approval is only worth what was seen. Give the orchestrator the blob hash of each file they approved (`git hash-object <file>`), so the log records exactly what they saw. On red, recommend approving it as a pull request on the platform: without an engine, an agent may share the person's git identity, so a commit alone proves little.
 
 Once approved, a brief is never edited. A change to it is a new version (`version` goes up by one), and if what has to pass changes, it goes back to the person.
 
@@ -52,6 +52,7 @@ It comes back here with its reason. Check the reason against the repository, the
 - Your color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up, so a low estimate saves nothing.
 - A scenario that describes code ("the function returns null") ties the builder's hands and proves little. Describe what someone sees.
 - "It's just a small change" isn't a color. The size doesn't matter; what can go wrong does.
+- A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief. In one run, rules for a later feature got built into the current one, before anyone had asked for that feature.
 
 ## Report
 

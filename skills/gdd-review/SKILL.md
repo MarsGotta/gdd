@@ -35,7 +35,7 @@ On green, unless the blueprint's green asks for `review`, steps 1 and 2 are the 
 
 ## Your verdict
 
-The first line of your answer is one word:
+The first line of your answer is exactly one of these words, because the orchestrator reads it as it is:
 
 - `pass`: you ran it and it works. Minor issues can remain; list them after a line `LATER:`.
 - `fix`: there's a real error the builder has to fix. End with a line `NOTES FOR THE BUILDER:` and, under it, concrete corrections in under 200 words, without writing the solution.
@@ -60,6 +60,8 @@ What the reviewers of the T-minus pilot caught that the machine checks had passe
 - **Inputs that look equal.** An equivalent Unicode spelling replaced a sealed file; a path compared literally missed a different capitalization; a link inside the project pointed outside it; files ignored by git escaped an inventory.
 - **A failure reported as success.** A gate absorbed an error and printed `ok`; a write failed and the approval still read "ok".
 - **Cost that grows.** One process per item turned a tenth of a second into 27 seconds with 5,000 items. When a change loops over something that grows, measure it against the base.
+
+And one about you: stop only what you started, by its process id or group. A reviewer that cleaned up with `pkill -f` matched its own runner and killed it, and its round ended without a verdict.
 
 ## Report
 

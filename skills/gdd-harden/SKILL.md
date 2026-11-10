@@ -37,6 +37,10 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 
 The person approves the change to the blueprint. Then `gdd-checks` builds the check, and `gdd-review` tries to fool it before it counts. Fixing the failure itself is a normal change, through `gdd-brief`.
 
+## The reviewer's exam
+
+Every confirmed failure that slipped through becomes a question on the reviewer's exam: its scenario in the zone's gates. When the reviewer's model, its instructions or its tools change, run the whole exam through it again. If its score drops, the change doesn't stay, because catching real failures counts for more than saving rounds.
+
 ## Reading the logs
 
 When asked, or now and then, read `gdd/log/` to compare the project with itself:

@@ -35,7 +35,7 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
 2. **Checks.** Launch `gdd-checks` with the approved brief. It's never the agent that will build. It writes the checks the color asks for, proves each one fails for the right reason and can pass, and seals them. Green skips this step.
 3. **Build.** Launch `gdd-build` with the brief (or the request, on green), the sealed checks and the context of its gates.
 4. **Gates.** Run the checks yourself, out of the builder's reach: CI on the pushed branch, or a clean copy of it. What the builder reports is a claim.
-5. **Review.** Launch `gdd-review` with a clean context, for every change. It recomputes the color on what was actually touched and, when the color's checks include `review`, runs the checks itself and tries to make the change fail. Its verdict is `pass`, `fix` or `stop`, and a review cut off before its verdict isn't a pass.
+5. **Review.** Launch `gdd-review` with a clean context, for every change. It recomputes the color on what was actually touched and, when the color's checks include `review`, runs the checks itself and tries to make the change fail. Its verdict is the first word of its answer: `pass`, `fix` or `stop`. Any other word, or a review cut off before its verdict, isn't a pass: launch it again, once.
    - The color rose: the change stops. `gdd-checks` adds what the new color asks for, and it goes back to the person if the blueprint says so for that color.
    - `fix`: back to the builder, within the limits.
    - `stop`: the change doesn't go in. Tell the person why.
@@ -63,6 +63,8 @@ Tell the person one line per gate (passed or failed, and in how many rounds). Gi
 
 - **Limits.** The blueprint sets the fix rounds per gate and the caps of a change. When one runs out, stop and ask the person, who decides how to rethink it. Don't run a round again if nothing changed since the last one.
 - **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. Send it back to `gdd-brief` for a new version, and if what has to pass changes, the new version goes back to the person.
+- **Nothing changed.** If the working tree is the same after a build step as before it (`git status --porcelain` and `git diff --stat <start>` show nothing), nothing was built, whatever the message says: an answer, a list or a plan isn't a change. Give the agent the request again, word for word, once, and if it happens again, tell the person.
+- **It asks what's next.** A role that asks what to do next, or offers to go on with something else, doesn't choose: the next change comes from the backlog, with the person.
 - **The environment failed.** An expired session, a used-up quota, a full disk or a machine timeout isn't a failure of the change. Don't count the round: retry once, or tell the person.
 - **It fails on the base too.** If a check also fails without the change, it isn't the change's: it's known debt in `gdd/debt.md`, or an unstable check. Rerun it once and warn. Quarantining a check is the team's decision, never an agent's.
 

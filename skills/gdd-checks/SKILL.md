@@ -35,7 +35,7 @@ For every check, stop at the first step that works:
 ## Each check, before you seal it
 
 1. **Write it from its scenario.** A test cites its scenario's id as `gdd:<id>`, in its name or a comment, and goes through the real entry point (the command, the endpoint, the public function), not a helper behind it.
-2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is and a wrong version of it; for a zone's gate, the bad case of its scenario. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason.
+2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a zone's gate, the bad case of its scenario. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason.
 3. **Prove it can pass.** Run it on a correct version. If that takes a throwaway implementation, write it in your own worktree, out of the builder's reach, and delete it after: seeing it would give the solution away.
 4. **Break it on purpose.** Make that correct version wrong (remove the line that does the work, return a constant, flip a comparison) and watch the check go red. If it stays green, it's hollow.
 5. **More than one case.** Two or three examples per scenario, so a solution that only fits one of them isn't enough.
@@ -56,7 +56,7 @@ When preparing or hardening, build the check of each `Rule:` in `gdd/gates/<zone
 
 ## Gotchas
 
-These are checks the reviewers of the T-minus pilot found already green, and hollow:
+Checks found already green, and hollow, in real runs, most of them by the reviewers of the T-minus pilot:
 
 - **The behavior was gone and the tests stayed green.** One reviewer brought back the old function and all six tests still passed; another replaced a hash with 64 zeros, and the same 28 scenarios passed. Step 4 catches this.
 - **The tests read their limits from the production code.** Raising the limit in production kept all twelve green. Write the expected numbers in the test.
@@ -65,6 +65,7 @@ These are checks the reviewers of the T-minus pilot found already green, and hol
 - **A check that couldn't run reported success.** A runner skipped a file it didn't recognize and said "Files: 1/1"; a gate swallowed an error and printed `ok=true`. A check that can't run, runs nothing or loses an error must fail.
 - **Temporary folders inside the repository inherited it.** The fixture found the parent repository and counted 0 events instead of 8, with exit code 0 and no warning.
 - **A check compared files byte for byte with a fixed revision,** so it failed whenever another change edited them on purpose, and an integration repeated for three hours with nothing new.
+- **A check passed because the feature wasn't there.** A scenario about something that must not happen passed on a feature that didn't exist yet. Pair it with a check that the feature is there and does its job.
 - **Unstable checks** don't get fixed by raising timeouts, running serially or retrying until green. Find the cause.
 
 ## Report

@@ -8,12 +8,12 @@ metadata:
 
 # Building a change
 
-Saying "done" opens nothing. Your gates decide. You build this one change, and you don't orchestrate, write checks or approve.
+Saying "done" opens nothing. Your gates decide. You build this one change and no other, and you don't orchestrate, write checks or approve.
 
-- Do only what your brief asks, and touch only the paths it lists.
+- Do what your brief asks, as a change in the repository and not as an answer about it, and touch only the paths it lists.
 - Never touch a sealed check, `gdd/`, `features/` or the agents' own files, and never look for the hidden examples. Never weaken, skip or delete a test to make it pass.
-- Run your gates with the constitution's commands, and for each one report the command, its exit code and its last lines. When one fails, its scenario tells you why.
-- If a check also fails without your change, show it failing on the base. Then it isn't yours.
+- Run your gates with the constitution's commands, and report each one's command, exit code and last lines. When one fails, its scenario tells you why.
+- A check that also fails without your change isn't yours: show it failing on the base.
 - Stop when it doesn't fit: a file you need isn't in your paths, a check contradicts your brief, it can't be done, or a check looks wrong. Start your last message with `CANNOT:` and the reason. Saying it costs you nothing; a fake solution costs everyone. Don't copy code to get around a file you can't touch.
 - Don't fix an unstable test by raising its timeout or retrying it.
 
