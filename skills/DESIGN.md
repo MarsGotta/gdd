@@ -44,7 +44,7 @@ They let an agent apply GDD in any project with what the project already has (te
 
    Building is split in two. `gdd-prepare` decides with the person which gates each zone needs and writes what each one checks as scenarios (decision 15), but builds nothing. `gdd-checks` builds both kinds of checks: when preparing (and after hardening), the standing gates of each zone from their scenarios, each with the bad case it must reject; when briefing, the checks of each change. `gdd-review` then tries to cheat the new gates on purpose, and no change starts in a zone until its gates hold.
 
-   Proportion lives in `gdd-brief`: the color comes from what the change touches (decision 14), and it decides which checks are needed and at which level. `gdd-checks` applies the same proportion: green keeps the existing checks, yellow adds mutation testing, red adds hidden examples written by another hand.
+   Proportion lives in `gdd-brief`: the color comes from what the change touches (decision 14), and it decides which checks are needed and at which level. `gdd-checks` applies the same proportion: green keeps the existing checks, yellow adds a test for each scenario, each one broken on purpose before it's sealed, and red adds mutation testing where the stack has a tool for it and hidden examples written by another hand.
 8. **A shared log for metrics, no extra skill.** Each brief has its own log, `gdd/log/<id>.jsonl`, where `gdd` appends one event when each step closes. Every role ends its work by reporting the same fields: the skill and its version, level, rounds, result, what it caught, and time and tokens when its environment provides them. `gdd-harden` reads the logs to see what slips through, which piece catches what and what each role costs, so a project can compare itself with itself. An engine fills the same logs on its own, with exact figures. One file per brief keeps branches from colliding when they merge. Its format is part of the contract (decision 13).
 
 9. **Preparing, from an idea.** `gdd-prepare` works as a guided conversation, from "I want an online shop for cat products" or from an existing repository.
@@ -148,6 +148,8 @@ They let an agent apply GDD in any project with what the project already has (te
 
 20. **Where a person approves is in the blueprint.** The team always approves the blueprint, and anything that loosens it. Every other approval is a check of type `person` that a color carries or not, so each project sets how strict each level is: `brief-approval`, the person approving what has to pass before anyone builds, and `person-review`, the person reviewing the change at the end. The template proposes the first on yellow and red and the second on red, and `gdd-prepare` presents them as a proposal. A change whose color rises goes back to Brief, and a new version of a brief goes back to the person only if its color asks for `brief-approval` and what has to pass changes. This follows the Manifesto from version 0.8 on: the colors are levels of strictness, and the blueprint says where a person approves.
 
+21. **Licenses.** The skills and the scripts are under the MIT license, and each SKILL.md says so in its front matter. The Manifesto and the website's texts are under CC BY 4.0. Both are at the root of the repository.
+
 ## Where the method lives
 
 Each principle of the Manifesto and each point of its core, with the part of the contract that carries it and the skill that makes it happen. Without an engine these are rules, not guarantees, so the last column says what only the platform or an engine adds, and what is still missing.
@@ -180,7 +182,6 @@ The website tells a change in six steps, the ones of its delicate case. They are
 ## Still open
 
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.
-- The license, which each skill will also state.
 
 ## Sources
 

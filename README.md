@@ -13,3 +13,7 @@ This repository holds the method:
 - [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is their first version.
 
 The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.
+
+## License
+
+The Manifesto and the website's texts are under [CC BY 4.0](LICENSE-docs.md). The skills, the scripts and the website's code are under the [MIT license](LICENSE).

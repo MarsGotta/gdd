@@ -18,7 +18,7 @@ checks:
     command: <lint command from the constitution>
   - id: mutation
     type: machine
-    command: <mutation command, on the files the change touched>
+    command: <mutation command, on the files the change touched, where the stack has a tool for it>
   - id: hidden
     type: machine
     command: <command that runs the hidden examples>
@@ -33,7 +33,7 @@ colors:
     checks: [tests, lint]
     level: light
   yellow:
-    checks: [brief-approval, tests, lint, mutation, review]
+    checks: [brief-approval, tests, lint, review]
     level: standard
   red:
     checks: [brief-approval, tests, lint, mutation, hidden, review, person-review]
@@ -57,12 +57,12 @@ context:
 flowchart LR
   change([A change]) --> color{Its color}
   color -->|green| green[tests, lint]
-  color -->|yellow| yellow[+ brief approval, mutation, reviewer]
-  color -->|red| red[+ hidden examples, a person's review]
+  color -->|yellow| yellow[+ brief approval, reviewer]
+  color -->|red| red[+ mutation, hidden examples, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Anything no zone covers counts as red until the person classifies it.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. Anything no zone covers counts as red until the person classifies it.

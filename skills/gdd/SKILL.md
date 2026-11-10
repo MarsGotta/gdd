@@ -1,6 +1,7 @@
 ---
 name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -39,7 +40,7 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
    - The color rose: the change stops and goes back to Brief. `gdd-brief` brings the brief up to the new color, the person approves it if that color asks for `brief-approval`, and `gdd-checks` adds what the new color asks for.
    - `fix`: back to the builder, within the limits.
    - `stop`: the change doesn't go in. Tell the person why.
-6. **Ship.** When every check its color asks for has passed, the change ships the way the project ships its changes. If those checks include `person-review`, that check is the person approving the pull request on the platform. You never approve anything, and you never ship what is still waiting for a person.
+6. **Ship.** When every check its color asks for has passed on the change brought up to date with the main branch, it ships the way the project ships its changes. If several changes go in together and their checks fail, land them one at a time. If those checks include `person-review`, that check is the person approving the pull request on the platform. You never approve anything, and you never ship what is still waiting for a person.
 
 ## Launching each role
 

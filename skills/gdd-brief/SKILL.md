@@ -1,6 +1,7 @@
 ---
 name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk, and gets the person's approval when the blueprint asks for it. Loaded by the GDD orchestrator for every change, from a typo to a payment flow, and again when an agent stops because the change doesn't fit its brief. Not for setting up a project, writing checks or building.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -13,7 +14,7 @@ Gates come first. If you decide what to check once the result is in sight, you e
 ## The color: git sets the floor, and judgment can only raise it
 
 1. **The floor.** List every path the change will touch. Each one falls in the zone whose pathspec it matches (`git ls-files -- <pathspec>` lists the existing files of a zone; a new file falls where its path matches the pattern), and the change takes the highest color among them. A path no zone covers counts as red until the person classifies it: stop, and propose updating the blueprint with `gdd-prepare`.
-2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you write down its reason.
+2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you write down its reason. By default, a change that adds behavior someone would see is at least yellow, wherever its paths fall. Behind a switch that is off, nobody sees it yet.
 
 On green there's no brief file, unless the blueprint's green asks for `brief-approval`: report the color with its paths and its reason, and the change goes on with the existing checks. On yellow or red, write the brief.
 

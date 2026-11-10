@@ -1,6 +1,7 @@
 ---
 name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) together with the person, from an idea in a sentence or from existing code, and leaves the blueprint, the constitution, the gates of each zone and the GDD block of AGENTS.md. Loaded by the GDD orchestrator when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -65,7 +66,7 @@ For every check, climb this ladder and stop at the first step that works, becaus
 4. a new or less proven tool, only with a notice (how old it is, who maintains it, its license, what it does with the data), and the person decides;
 5. a reviewer or a person, when nothing deterministic works.
 
-What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds mutation testing and a reviewer, red adds hidden examples written by another hand and, recommended but not required, a person's review. Where a person approves is the team's decision as well. Propose `brief-approval` on yellow and red, so that a person approves what has to pass before anyone builds, and `person-review` on red. Say it's a proposal, and let the team add or remove them on any color.
+What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds a test for each scenario and a reviewer, red adds mutation testing where the stack has a mature tool for it, hidden examples written by another hand and, recommended but not required, a person's review. Where a person approves is the team's decision as well. Propose `brief-approval` on yellow and red, so that a person approves what has to pass before anyone builds, and `person-review` on red. Say it's a proposal, and let the team add or remove them on any color.
 
 ## What you leave
 
@@ -78,7 +79,7 @@ What each color asks for goes in the blueprint's `colors`. The template carries 
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
-Then the protections. Write a `CODEOWNERS` file that asks for the person's review on `gdd/`, on `features/`, on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
+Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
 
 ## Approval
 

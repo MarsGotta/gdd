@@ -1,6 +1,7 @@
 ---
 name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating. Loaded by the GDD orchestrator, with the person, when a failure reaches the main branch or production, when a reviewer catches what the machine checks passed, or when the logs show the same failure coming back. Not for fixing the failure itself.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1

@@ -1,6 +1,7 @@
 ---
 name: gdd-build
 description: Builds one change through its gates in a Gate-Driven Development (GDD) project, from its brief and its sealed checks. Loaded by the agent the GDD orchestrator launches to do the work. Not for writing or changing checks, scenarios or the blueprint.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1

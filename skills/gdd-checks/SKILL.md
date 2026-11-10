@@ -1,6 +1,7 @@
 ---
 name: gdd-checks
 description: Writes the checks of a Gate-Driven Development (GDD) gate. Loaded by the agent the GDD orchestrator launches with a change's brief, or with a zone's gate scenarios when a project is being prepared or hardened. That agent never builds the change it writes checks for. Not for writing the change itself.
+license: MIT
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -28,9 +29,11 @@ For every check, stop at the first step that works:
 
 ## What each color adds
 
+The blueprint's `colors` say what each color asks for, and the blueprint wins. With the template's defaults:
+
 - **Green** keeps the existing checks. You add nothing.
-- **Yellow** adds a test for each scenario and mutation testing on the code the change will touch: the `mutation` check of the blueprint, scoped to those files.
-- **Red** adds hidden examples on top: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go on a branch of their own (`gdd-hidden/<brief id>`) that the builder's working tree never has.
+- **Yellow** adds a test for each scenario. Breaking it on purpose, the fourth step below, is what shows that each one closes.
+- **Red** adds mutation testing on the code the change will touch, where the stack has a tool for it (the `mutation` check of the blueprint, scoped to those files), and hidden examples: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go on a branch of their own (`gdd-hidden/<brief id>`) that the builder's working tree never has.
 
 ## Each check, before you seal it
 

@@ -15,8 +15,8 @@ What it checks:
     skill ends with the report block of the contract;
   - each SKILL.md has front matter that parses as YAML (this needs PyYAML, and
     without it the check fails instead of passing unchecked), a name equal to
-    its folder, a description in the third person, a version and the contract
-    gdd/1;
+    its folder, a description in the third person, the MIT license, a version
+    and the contract gdd/1;
   - the sizes of decision 19 of skills/DESIGN.md: gdd-build about 200 words,
     the GDD block of AGENTS.md under 100, every other SKILL.md under 500 lines;
   - no skill ships scripts, and only gdd can be invoked implicitly in Codex;
@@ -142,6 +142,8 @@ def main():
             problem(skill, "the description is missing or longer than 1024 characters", 3)
         if re.search(r"\b(you|your)\b", description, re.I) or re.match(r"(Use|Load|Run)\b", description):
             problem(skill, "the description isn't in the third person", 3)
+        if fields.get("license") != "MIT":
+            problem(skill, "the license is missing or isn't MIT", 1)
         version = fields.get("version")
         if not version:
             problem(skill, "metadata has no version")
