@@ -12,4 +12,4 @@ This repository holds the method:
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
 - [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. I'm designing them now.
 
-The engine that enforces the method is [T-minus](https://github.com/MarsGotta/tminus). It has its own repository and it's still in development.
+The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.

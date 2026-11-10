@@ -239,7 +239,7 @@ const usar = (i) => {
   FIRMA = `Marcela Gotta, ${fechaLarga(FECHA)}`;
   PDF = tr(`manifiesto-gdd-${VERSION_TXT}.pdf`, `manifesto-gdd-${VERSION_TXT}.pdf`);
 };
-const TMINUS = 'https://github.com/MarsGotta/tminus';
+const TMINUS = 'https://github.com/MarsGotta/t-minus';
 const IMAGEN = () => tr('og.png', 'og-en.png');
 
 // The same page in the other language.
