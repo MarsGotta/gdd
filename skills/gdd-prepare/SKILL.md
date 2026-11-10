@@ -81,6 +81,12 @@ What each color asks for goes in the blueprint's `colors`. The template carries 
 
 Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
 
+## The baseline and the limits
+
+Before the first change, write the baseline in the blueprint with the person, from the project's own history: how long a change takes from request to release, how often it stops someone and what slips through. Then ask what figure would make the team drop a gate, and write it under it. Without both, "it's going better" is only an impression.
+
+Set the caps of a change in `limits` with the person too. The template brings a default only for fix rounds per gate, and the cap on tokens makes sense only if the agents' environment reports them.
+
 ## Approval
 
 The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs. Recording known debt loosens a check, so it's part of that same approval. Then each zone's gates get built and tried, and no change starts in a zone until its gates hold.

@@ -9,6 +9,7 @@ limits:
   rounds_per_change: <n>
   minutes_per_change: <n>
   lines_per_change: <n, counted with git diff --shortstat>
+  tokens_per_change: <n, where the environment reports them>
 checks:
   - id: tests
     type: machine
@@ -66,3 +67,11 @@ flowchart LR
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
 Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. Anything no zone covers counts as red until the person classifies it.
+
+## Baseline
+
+Measured on <date>, over <n> changes, before GDD: <time from request to release>, <stops per change>, <what slipped through>.
+
+## What would make us simplify
+
+<The figure that would make this team drop a gate, in one sentence.>

@@ -48,8 +48,12 @@ When asked, or now and then, read `gdd/log/` to compare the project with itself:
 
 - **Per gate:** how often it fires, how many of those were real failures, what slipped past it and what it costs. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
-- **Per approval:** an approval that lasts seconds is approving blind.
+- **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
+- **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
+- **Per reviewer:** how many of its findings ended as `false` or `minor`. That is its noise.
 - **Per round:** if an agent gives up or disputes the same thing every time, or the reviewer takes long to pass a change, the brief or the checks are wrong.
+
+Compare it with the blueprint's baseline, and with what the team wrote there that would make it simplify.
 
 ## Loosening
 

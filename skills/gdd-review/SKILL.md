@@ -46,6 +46,8 @@ Then, in at most ten lines, what you ran and what came out, and what fails, with
 
 After the first round, retest only what changed. Name the whole class of a failure, not one instance of it; don't repeat findings; and mark as "was already there" whatever the change didn't introduce.
 
+Number your findings (`f1`, `f2`). From the second round on, say how each earlier one ended: `fixed`, `false` if you were wrong, `intended` if the brief or the person wanted it that way, or `minor` if it stays for later. The log keeps both, so the project can see how much of what a reviewer flags is noise.
+
 ## A zone's new gates
 
 When the gates of a zone are new, from preparing or hardening, try to sneak each `Rule:`'s bad case through: change the code, the configuration or what surrounds the check until the bad case passes, or until you're sure it can't. If it gets through, the gate doesn't hold yet, and you explain how it got through. When a check fails, judge it by its gate's scenarios.

@@ -26,6 +26,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 - **Hashes** are git blob hashes (`git hash-object <file>`), so anyone can recompute them without a script.
 - **Approved files** are never edited by an agent: the blueprint and the gates change through a commit or pull request the person approves, and a brief, approved or not, changes only through a new version.
 - **A green change** has no brief file, unless the blueprint's green asks for `brief-approval`. Its events go to `gdd/log/<id>.jsonl` like any other, with an id the orchestrator picks.
+- **What isn't about one change** (approving the blueprint, its gates or its debt, and preparing) goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
 
 ## The GDD block of AGENTS.md
 
@@ -81,7 +82,7 @@ Gates run these same commands, locally and in CI.
 The front matter is what agents read; the diagram and the table are for the person. Its fields:
 
 - `levels`: which model the project uses for each level. The skills never name one.
-- `limits`: fix rounds per gate, and the caps of a whole change. Two fix rounds per gate is the default; the team sets the rest when preparing.
+- `limits`: fix rounds per gate, and the caps of a whole change. Two fix rounds per gate is the default; the team sets the rest when preparing. The cap on tokens applies only where the agents' environment reports them.
 - `checks`: every check a gate can ask for, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution.
 - `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
 - `zones`: each zone's id, color, pathspecs and the file with its standing gates.
@@ -102,6 +103,7 @@ limits:
   rounds_per_change: <n>
   minutes_per_change: <n>
   lines_per_change: <n, counted with git diff --shortstat>
+  tokens_per_change: <n, where the environment reports them>
 checks:
   - id: tests
     type: machine
@@ -159,6 +161,14 @@ flowchart LR
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
 Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. Anything no zone covers counts as red until the person classifies it.
+
+## Baseline
+
+Measured on <date>, over <n> changes, before GDD: <time from request to release>, <stops per change>, <what slipped through>.
+
+## What would make us simplify
+
+<The figure that would make this team drop a gate, in one sentence.>
 ````
 
 ## The gates of a zone
@@ -313,18 +323,24 @@ tokens: <the tokens, if its environment gives them, or unknown>
 
 ## The log
 
-One JSON object per line, appended when each step closes and never rewritten. Every event has `contract`, `ts` (UTC, ISO 8601), `brief` and `event`. A person's actions are `approval` and `waiver`; everything a role does is a `step`, with its report and the fields of its step. A step that stops carries `stop`. `gates` is the orchestrator running the checks out of the agent's reach, and has no report.
+One JSON object per line, appended when each step closes and never rewritten. Every event has `contract`, `ts` (UTC, ISO 8601), `brief` and `event`. A person's actions are `approval` and `waiver`; everything a role does is a `step`, with its report and the fields of its step. A step that stops carries `stop`. `gates` is the orchestrator running the checks out of the agent's reach, and has no report. `ship` is the change going out: it closes its log, and has no report either.
+
+`ask` is the orchestrator starting to wait for a person, written at that moment. Counting them says how often a change stops a person, and the time to the next event says how long each wait lasted.
+
+Each finding of a review has an `id`. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten.
 
 <!-- template: gdd/assets/log-events.jsonl -->
 ```json
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"approval","who":"<person>","of":"<brief, blueprint, gates, debt or waiver>","version":1,"files":{"<path>":"<git blob hash>"},"where":"<commit or pull request URL>"}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"approval","who":"<person>","of":"<brief, change, blueprint, gates, debt or waiver>","version":1,"files":{"<path>":"<git blob hash>"},"where":"<commit or pull request URL>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"waiver","who":"<person>","check":"<check id>","why":"<reason>","backlog":"<item id>"}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"ask","of":"<brief-approval, person-review, waiver, decision or stop>","what":"<one line>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"<version>","level":"deep","rounds":1,"result":"<result>","caught":"<what, or none>","seconds":null,"tokens":null},"files":["<path>"]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","report":{"skill":"gdd-brief","version":"<version>","level":"standard","rounds":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"files":{"<path>":"<git blob hash>"}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","rounds":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"build","report":{"skill":"gdd-build","version":"<version>","level":"<level>","rounds":1,"result":"<done or stopped>","caught":"<what, or none>","seconds":null,"tokens":null},"claims":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"gates","where":"<ci, or a clean copy>","gates":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>","result":"<pass or fail>"}]}
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"review","report":{"skill":"gdd-review","version":"<version>","level":"<level>","rounds":1,"result":"<pass, fix or stop>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"touched","base":"<commit>","head":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"verdict":"<pass, fix or stop>","ran":[{"command":"<command>","exit":0,"tail":"<last lines>"}],"findings":[{"where":"<file:line>","what":"<one line>"}]}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"review","report":{"skill":"gdd-review","version":"<version>","level":"<level>","rounds":1,"result":"<pass, fix or stop>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"touched","base":"<commit>","head":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"verdict":"<pass, fix or stop>","ran":[{"command":"<command>","exit":0,"tail":"<last lines>"}],"findings":[{"id":"<f1>","where":"<file:line>","what":"<one line>"}],"closed":[{"id":"<f1>","outcome":"<fixed, false, intended or minor>"}]}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"ship","where":"<commit or pull request URL>","color":"<color>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"harden","report":{"skill":"gdd-harden","version":"<version>","level":"deep","rounds":1,"result":"proposed","caught":"<what, or none>","seconds":null,"tokens":null},"crack":"<where it got through>","scenario":"<file and Rule>","proposal":"<the blueprint change>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"<step>","report":{"skill":"<skill>","version":"<version>","level":"<level>","rounds":1,"result":"stopped","caught":"none","seconds":null,"tokens":null},"stop":{"reason":"<why it stopped>","needs":"<what would unblock it>"}}
 ```

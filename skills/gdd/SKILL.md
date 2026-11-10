@@ -56,13 +56,13 @@ Only you load this skill on your own. The others are loaded by the role you laun
 
 ## The log and the person
 
-When each step closes, append one event to `gdd/log/<id>.jsonl` from the role's report, with the fields of its step, in the shape of `assets/log-events.jsonl`. Never rewrite a line.
+When each step closes, append one event to `gdd/log/<id>.jsonl` from the role's report, with the fields of its step, in the shape of `assets/log-events.jsonl`. Never rewrite a line. A change's log ends with its `ship` event, and what isn't about one change goes to `gdd/log/blueprint.jsonl`.
 
-Tell the person one line per gate (passed or failed, and in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. Everything else goes to the log. When something is waiting for the person, tell them at once what it is.
+Tell the person one line per gate (passed or failed, and in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. Everything else goes to the log. When something starts waiting for the person, append an `ask` event at that moment and tell them at once what it is.
 
 ## Stopping
 
-- **Limits.** The blueprint sets the fix rounds per gate and the caps of a change. When one runs out, stop and ask the person, who decides how to rethink it. Don't run a round again if nothing changed since the last one.
+- **Limits.** The blueprint sets the fix rounds per gate and the caps of a change. When one runs out, stop and ask the person, who decides how to rethink it. The cap on tokens applies only if your environment reports them: if it doesn't, say so once. Don't run a round again if nothing changed since the last one.
 - **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. Send it back to `gdd-brief` for a new version, and if what has to pass changes and its color asks for `brief-approval`, the new version goes back to the person.
 - **Nothing changed.** If the working tree is the same after a build step as before it (`git status --porcelain` and `git diff --stat <start>` show nothing), nothing was built, whatever the message says: an answer, a list or a plan isn't a change. Give the agent the request again, word for word, once, and if it happens again, tell the person.
 - **It asks what's next.** A role that asks what to do next, or offers to go on with something else, doesn't choose: the next change comes from the backlog, with the person.
