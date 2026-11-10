@@ -1,6 +1,6 @@
 # Skills
 
-Skills for your coding agent, so you can try GDD in your own project before T-minus is ready. This is their first version, and they haven't been tested yet. What was decided about them, and why, is in [DESIGN.md](DESIGN.md), and what they leave in your repository is in [CONTRACT.md](CONTRACT.md).
+Skills for your coding agent, so you can try GDD in your own project before T-minus is ready. This is their first version. What was decided about them, and why, is in [DESIGN.md](DESIGN.md), and what they leave in your repository is in [CONTRACT.md](CONTRACT.md).
 
 | Skill | Who loads it | Moment |
 |---|---|---|

@@ -6,12 +6,17 @@ Usage:
   python3 scripts/check_skills.py --write   first copy every template of
                                             skills/CONTRACT.md into the assets
                                             of the skills that use it
+  uv run --with pyyaml python3 scripts/check_skills.py
+                                            the same check, where PyYAML isn't
+                                            installed
 
 What it checks:
   - every asset is identical to its template in skills/CONTRACT.md, and every
     skill ends with the report block of the contract;
-  - each SKILL.md has a name equal to its folder, a description in the third
-    person, a version and the contract gdd/1;
+  - each SKILL.md has front matter that parses as YAML (this needs PyYAML, and
+    without it the check fails instead of passing unchecked), a name equal to
+    its folder, a description in the third person, a version and the contract
+    gdd/1;
   - the sizes of decision 19 of skills/DESIGN.md: gdd-build about 200 words,
     the GDD block of AGENTS.md under 100, every other SKILL.md under 500 lines;
   - no skill ships scripts, and only gdd can be invoked implicitly in Codex;
@@ -36,6 +41,10 @@ SHARED = [("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md
 BUILD_WORDS = 230
 BLOCK_WORDS = 100
 MAX_LINES = 500
+NO_YAML = (
+    "scripts/check_skills.py: PyYAML is missing, so no front matter was checked as YAML. "
+    "Run it as: uv run --with pyyaml python3 scripts/check_skills.py"
+)
 
 problems = []
 
@@ -67,12 +76,15 @@ def front_matter(path):
         problem(path, "no YAML front matter", 1)
         return {}, text
     try:
-        import yaml  # optional: when it's installed, the front matter must parse as YAML
-        yaml.safe_load(match.group(1))
-    except ImportError:
-        pass
-    except Exception as error:  # a YAML error, which agents would hit too
-        problem(path, f"the front matter isn't valid YAML: {str(error).splitlines()[0]}", 1)
+        import yaml
+    except ImportError:  # a check that can't run must fail, so this one isn't skipped
+        if NO_YAML not in problems:
+            problems.append(NO_YAML)
+    else:
+        try:
+            yaml.safe_load(match.group(1))
+        except Exception as error:  # a YAML error, which agents would hit too
+            problem(path, f"the front matter isn't valid YAML: {str(error).splitlines()[0]}", 1)
     fields = {}
     for line in match.group(1).splitlines():
         item = re.match(r"\s*([a-z_-]+):\s*(.*)", line)

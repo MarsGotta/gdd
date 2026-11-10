@@ -13,7 +13,9 @@ const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split
   await p.goto('http://localhost:8897/en/manifesto/', { waitUntil: 'networkidle' });
   await p.emulateMedia({ media: 'print' });
   await p.addStyleTag({ content: '.indice, .saltar, .copiar, .tema, .idioma, .navegacion, .pie { display: none !important; } .con-indice { display: block !important; } .lectura { max-width: none !important; } .pagina-cabeza p:last-of-type { display: none !important; }' });
-  await p.pdf({ path: raiz + '/content/en/manifesto-gdd-v0.7.pdf', format: 'A4', margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' }, printBackground: true, displayHeaderFooter: false, tagged: true, outline: true });
+  // Los enlaces salen como los de la web publicada, no como los del servidor local que la imprime.
+  await p.evaluate(() => { document.querySelectorAll('a[href]').forEach((a) => { if (a.origin === location.origin && a.pathname !== location.pathname) a.href = 'https://gate-driven.dev' + a.pathname + a.search + a.hash; }); });
+  await p.pdf({ path: raiz + '/content/en/manifesto-gdd-v0.8.pdf', format: 'A4', margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' }, printBackground: true, displayHeaderFooter: false, tagged: true, outline: true });
   // Imagen para compartir: el plano en rojo, con la misma composición que la española.
   const q = await b.newPage({ viewport: { width: 1200, height: 630 } });
   await q.goto('http://localhost:8897/en/', { waitUntil: 'networkidle' });

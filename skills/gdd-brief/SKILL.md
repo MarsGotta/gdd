@@ -1,6 +1,6 @@
 ---
 name: gdd-brief
-description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk, and gets the person's approval. Loaded by the GDD orchestrator for every change, from a typo to a payment flow, and again when an agent stops because the change doesn't fit its brief. Not for setting up a project, writing checks or building.
+description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk, and gets the person's approval when the blueprint asks for it. Loaded by the GDD orchestrator for every change, from a typo to a payment flow, and again when an agent stops because the change doesn't fit its brief. Not for setting up a project, writing checks or building.
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -15,7 +15,7 @@ Gates come first. If you decide what to check once the result is in sight, you e
 1. **The floor.** List every path the change will touch. Each one falls in the zone whose pathspec it matches (`git ls-files -- <pathspec>` lists the existing files of a zone; a new file falls where its path matches the pattern), and the change takes the highest color among them. A path no zone covers counts as red until the person classifies it: stop, and propose updating the blueprint with `gdd-prepare`.
 2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you write down its reason.
 
-On green there's no brief file: report the color with its paths and its reason, and the change goes on with the existing checks. On yellow or red, write the brief.
+On green there's no brief file, unless the blueprint's green asks for `brief-approval`: report the color with its paths and its reason, and the change goes on with the existing checks. On yellow or red, write the brief.
 
 ## The brief
 
@@ -28,24 +28,24 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
   - the fixtures and the existing tests that assert the behavior the change alters;
   - the reference documents of anything it adds, such as an error code, a setting or a command.
   Never the sealed checks or `gdd/`: those aren't the builder's. Check that each path exists, or that its folder does: a typo in one stopped a change in the pilot.
-- **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If an approved scenario says the opposite, the brief changes that scenario too, and the person approves the change. In the pilot, an agent was asked to remove every old URL and forbidden to touch the scenario that still required one.
+- **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a scenario already in `features/` says the opposite, the brief changes that scenario too and says so, because that changes what has to pass. In the pilot, an agent was asked to remove every old URL and forbidden to touch the scenario that still required one.
 - **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use. In the pilot, some 28 changes were merged in six hours and not one item of the roadmap got finished: they were all parts and preparations.
 - **Too big.** Propose a series of changes that the person approves in one go. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning the switch on is another change, at the level of what it turns on. Splitting doesn't lower the risk.
 
 ## Decisions nobody has made
 
-While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person and write their answer into the scenario. A brief can't be approved while `git grep -n "\[DECISION:" -- gdd/briefs features` finds anything.
+While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person and write their answer into the scenario. A brief isn't done while `git grep -n "\[DECISION:" -- gdd/briefs features` finds anything.
 
 ## Approval
 
-Show the person the brief and its scenarios themselves, not a summary of them, because an approval is only worth what was seen. Give the orchestrator the blob hash of each file they approved (`git hash-object <file>`), so the log records exactly what they saw. On red, recommend approving it as a pull request on the platform: without an engine, an agent may share the person's git identity, so a commit alone proves little.
+Give the orchestrator the blob hash of the brief and of each scenario file (`git hash-object <file>`), so the log records exactly what has to pass. Then look in the blueprint whether this color's checks include `brief-approval`. If they don't, the change goes on. If they do, show the person the brief and its scenarios themselves, not a summary of them, because an approval is only worth what was seen, and nothing is built until they approve. On red, recommend approving it as a pull request on the platform: without an engine, an agent may share the person's git identity, so a commit alone proves little.
 
-Once approved, a brief is never edited. A change to it is a new version (`version` goes up by one), and if what has to pass changes, it goes back to the person.
+Once its hashes are in the log, a brief is never edited. A change to it is a new version (`version` goes up by one), and it goes back to the person only if its color asks for `brief-approval` and what has to pass changes.
 
 ## When an agent stops
 
-It comes back here with its reason. Check the reason against the repository, then write a new version: add the missing path, change the scenario it contradicts (with the person's approval), split the change or drop it. Never loosen a check so that it fits.
+It comes back here with its reason. Check the reason against the repository, then write a new version: add the missing path, change the scenario it contradicts (with the person's approval, when the color asks for it), split the change or drop it. Never loosen a check so that it fits.
 
 ## Gotchas
 

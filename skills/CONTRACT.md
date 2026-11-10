@@ -14,7 +14,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `gdd/gates/<zone>.feature` | The standing gates of a zone, in Gherkin | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/backlog.md` | What to build, each item with its expected color | `gdd-prepare`, `gdd-brief`, `gdd-harden` | Freely |
 | `gdd/debt.md` | Known debt, with the baseline of each check | `gdd-prepare` | Down freely; up only with the person's approval |
-| `gdd/briefs/<id>.md` | What the person approves for one change | `gdd-brief` | Never once approved: a new version goes back to the person |
+| `gdd/briefs/<id>.md` | What has to pass for one change, which the person approves when its color asks for `brief-approval` | `gdd-brief` | Never once its hashes are in the log: a change makes a new version, which goes back to the person only if its color asks for `brief-approval` and what has to pass changes |
 | `features/<capability>.feature` | The scenarios of changes, grouped by capability | `gdd-brief`, with the person | Only through a brief |
 | `gdd/log/<id>.jsonl` | Everything that happens to a brief, one event per line | `gdd`, from what each role reports | Only appended |
 | `gdd/context/` | Copies of external references and research | `gdd-prepare` | Refreshed with a new date |
@@ -24,8 +24,8 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 - **Ids** use lowercase letters, digits and hyphens: zones, checks, briefs, backlog items and scenarios.
 - **Paths** are git pathspecs from the root of the repository, with `:(glob)` for patterns, so `git diff --name-only <base> -- <pathspec>` gives the same answer to everyone.
 - **Hashes** are git blob hashes (`git hash-object <file>`), so anyone can recompute them without a script.
-- **Approved files** are never edited by an agent: a brief changes through a new version, and the blueprint and the gates through a commit or pull request the person approves.
-- **A green change** has no brief file. Its events go to `gdd/log/<id>.jsonl` like any other, with an id the orchestrator picks.
+- **Approved files** are never edited by an agent: the blueprint and the gates change through a commit or pull request the person approves, and a brief, approved or not, changes only through a new version.
+- **A green change** has no brief file, unless the blueprint's green asks for `brief-approval`. Its events go to `gdd/log/<id>.jsonl` like any other, with an id the orchestrator picks.
 
 ## The GDD block of AGENTS.md
 
@@ -83,7 +83,7 @@ The front matter is what agents read; the diagram and the table are for the pers
 - `levels`: which model the project uses for each level. The skills never name one.
 - `limits`: fix rounds per gate, and the caps of a whole change. Two fix rounds per gate is the default; the team sets the rest when preparing.
 - `checks`: every check a gate can ask for, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution.
-- `colors`: what each color asks for. `checks` lists the ones that must pass, `level` is the level of the agents that work on it, and `back_to_person` says whether a change whose color rises to this one goes back to the person.
+- `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
 - `zones`: each zone's id, color, pathspecs and the file with its standing gates.
 - `context`: each external reference or MCP server, and the zones or gates that get it (`<zone>`, or `<zone>/<Rule>` for one gate). MCP servers carry the least access their gate needs.
 
@@ -117,21 +117,20 @@ checks:
     command: <command that runs the hidden examples>
   - id: review
     type: reviewer
+  - id: brief-approval
+    type: person
   - id: person-review
     type: person
 colors:
   green:
     checks: [tests, lint]
     level: light
-    back_to_person: false
   yellow:
-    checks: [tests, lint, mutation, review]
+    checks: [brief-approval, tests, lint, mutation, review]
     level: standard
-    back_to_person: false
   red:
-    checks: [tests, lint, mutation, hidden, review, person-review]
+    checks: [brief-approval, tests, lint, mutation, hidden, review, person-review]
     level: deep
-    back_to_person: true
 zones:
   - id: <zone>
     color: <green, yellow or red>
@@ -151,15 +150,15 @@ context:
 flowchart LR
   change([A change]) --> color{Its color}
   color -->|green| green[tests, lint]
-  color -->|yellow| yellow[+ mutation, reviewer]
-  color -->|red| red[+ hidden examples, a person]
+  color -->|yellow| yellow[+ brief approval, mutation, reviewer]
+  color -->|red| red[+ hidden examples, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-On red, a person reviewing the change is recommended, not required: remove `person-review` from red if this project decides otherwise. Anything no zone covers counts as red until the person classifies it.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Anything no zone covers counts as red until the person classifies it.
 ````
 
 ## The gates of a zone
@@ -217,7 +216,7 @@ What already failed a check when GDD arrived, or a check a person waived. A base
 
 ## A brief
 
-The front matter is what the other roles read; the body is what the person reads to approve it. No status and no seals: those go to the log.
+The front matter is what the other roles read; the body is what the person reads when the color asks for their approval. No status and no seals: those go to the log.
 
 <!-- template: gdd-brief/assets/brief.md -->
 ```markdown
@@ -321,7 +320,7 @@ One JSON object per line, appended when each step closes and never rewritten. Ev
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"approval","who":"<person>","of":"<brief, blueprint, gates, debt or waiver>","version":1,"files":{"<path>":"<git blob hash>"},"where":"<commit or pull request URL>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"waiver","who":"<person>","check":"<check id>","why":"<reason>","backlog":"<item id>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"<version>","level":"deep","rounds":1,"result":"<result>","caught":"<what, or none>","seconds":null,"tokens":null},"files":["<path>"]}
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","report":{"skill":"gdd-brief","version":"<version>","level":"standard","rounds":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"}}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","report":{"skill":"gdd-brief","version":"<version>","level":"standard","rounds":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"files":{"<path>":"<git blob hash>"}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","rounds":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"build","report":{"skill":"gdd-build","version":"<version>","level":"<level>","rounds":1,"result":"<done or stopped>","caught":"<what, or none>","seconds":null,"tokens":null},"claims":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"gates","where":"<ci, or a clean copy>","gates":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>","result":"<pass or fail>"}]}
@@ -339,5 +338,5 @@ Traceability needs no script, only greps:
 - A scenario without a test: for each `@id:` in `features/`, `git grep -nw "gdd:<id>"` finds nothing.
 - A check no gate asks for: an id in the blueprint's `checks` with no `@check:<id>` in `gdd/gates/` and in no color.
 - A decision nobody has made: `git grep -n "\[DECISION:" -- gdd/briefs features` finds something.
-- A brief that changed after its approval: `git hash-object gdd/briefs/<id>.md` differs from the last `approval` of that brief in its log.
+- A brief that changed after its hashes went to the log: `git hash-object gdd/briefs/<id>.md` differs from the last `approval` of that brief, or from its `brief` step when its color asks for no approval.
 - A sealed check that changed: `git diff --stat <seal commit> HEAD -- <sealed paths>` shows anything.

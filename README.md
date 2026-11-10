@@ -8,8 +8,8 @@ You ask your agent for something, it works for a while and tells you it's done. 
 
 This repository holds the method:
 
-- [`manifesto/`](manifesto/): the Manifesto, version 0.7, in English and Spanish. If anything else contradicts it, the Manifesto wins.
+- [`manifesto/`](manifesto/): the Manifesto, version 0.8, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. I'm designing them now.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is their first version.
 
 The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.

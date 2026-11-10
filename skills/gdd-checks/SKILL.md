@@ -1,6 +1,6 @@
 ---
 name: gdd-checks
-description: Writes and seals the checks of a Gate-Driven Development (GDD) gate, proving that each one fails for the right reason and that it can pass. Loaded by the agent the GDD orchestrator launches with an approved brief, or with a zone's gate scenarios when a project is being prepared or hardened. That agent never builds the change it writes checks for. Not for writing the change itself.
+description: Writes the checks of a Gate-Driven Development (GDD) gate. Loaded by the agent the GDD orchestrator launches with a change's brief, or with a zone's gate scenarios when a project is being prepared or hardened. That agent never builds the change it writes checks for. Not for writing the change itself.
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -14,7 +14,7 @@ Your level is the color's (green light, yellow standard, red deep), and deep for
 
 ## What you get
 
-The approved brief and its scenarios in `features/`, or a zone's gates in `gdd/gates/<zone>.feature`. Also the blueprint, for what the color asks for and the id of each check, and the constitution, for the commands.
+The brief and its scenarios in `features/`, approved by the person when its color asks for it, or a zone's gates in `gdd/gates/<zone>.feature`. Also the blueprint, for what the color asks for and the id of each check, and the constitution, for the commands.
 
 ## Climb the ladder
 
@@ -48,7 +48,7 @@ Commit the checks on the branch the builder starts from, without the hidden exam
 - the commit of the hidden examples, on red;
 - for each check, the proof: the command, its exit code and its last lines, once rejecting and once passing.
 
-From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new version made by you or by a person, never by the builder, and if the fix changes what has to pass, it goes back to the person.
+From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new version made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
 
 ## A zone's gates
 

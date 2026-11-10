@@ -30,13 +30,13 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
 ## A change, step by step
 
 1. **Brief.** Load `gdd-brief`. It gives the color on what the change will touch.
-   - Green: no brief file. The change passes the existing checks, and its events still go to a log.
-   - Yellow or red: it writes the brief and its scenarios, and the person approves them. Record the approval with the blob hash of each approved file. Nothing is built before that.
-2. **Checks.** Launch `gdd-checks` with the approved brief. It's never the agent that will build. It writes the checks the color asks for, proves each one fails for the right reason and can pass, and seals them. Green skips this step.
+   - Green: no brief file, unless the blueprint's green asks for `brief-approval`. The change passes the existing checks, and its events still go to a log.
+   - Yellow or red: it writes the brief and its scenarios. Record the blob hash of each file. If the color's checks include `brief-approval`, the person approves them, and you record the approval with those hashes. Nothing is built before that.
+2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the checks the color asks for, proves each one fails for the right reason and can pass, and seals them. Green skips this step.
 3. **Build.** Launch `gdd-build` with the brief (or the request, on green), the sealed checks and the context of its gates.
 4. **Gates.** Run the checks yourself, out of the builder's reach: CI on the pushed branch, or a clean copy of it. What the builder reports is a claim.
 5. **Review.** Launch `gdd-review` with a clean context, for every change. It recomputes the color on what was actually touched and, when the color's checks include `review`, runs the checks itself and tries to make the change fail. Its verdict is the first word of its answer: `pass`, `fix` or `stop`. Any other word, or a review cut off before its verdict, isn't a pass: launch it again, once.
-   - The color rose: the change stops. `gdd-checks` adds what the new color asks for, and it goes back to the person if the blueprint says so for that color.
+   - The color rose: the change stops and goes back to Brief. `gdd-brief` brings the brief up to the new color, the person approves it if that color asks for `brief-approval`, and `gdd-checks` adds what the new color asks for.
    - `fix`: back to the builder, within the limits.
    - `stop`: the change doesn't go in. Tell the person why.
 6. **Ship.** When every check its color asks for has passed, the change ships the way the project ships its changes. If those checks include `person-review`, that check is the person approving the pull request on the platform. You never approve anything, and you never ship what is still waiting for a person.
@@ -62,7 +62,7 @@ Tell the person one line per gate (passed or failed, and in how many rounds). Gi
 ## Stopping
 
 - **Limits.** The blueprint sets the fix rounds per gate and the caps of a change. When one runs out, stop and ask the person, who decides how to rethink it. Don't run a round again if nothing changed since the last one.
-- **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. Send it back to `gdd-brief` for a new version, and if what has to pass changes, the new version goes back to the person.
+- **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. Send it back to `gdd-brief` for a new version, and if what has to pass changes and its color asks for `brief-approval`, the new version goes back to the person.
 - **Nothing changed.** If the working tree is the same after a build step as before it (`git status --porcelain` and `git diff --stat <start>` show nothing), nothing was built, whatever the message says: an answer, a list or a plan isn't a change. Give the agent the request again, word for word, once, and if it happens again, tell the person.
 - **It asks what's next.** A role that asks what to do next, or offers to go on with something else, doesn't choose: the next change comes from the backlog, with the person.
 - **The environment failed.** An expired session, a used-up quota, a full disk or a machine timeout isn't a failure of the change. Don't count the round: retry once, or tell the person.
@@ -70,7 +70,7 @@ Tell the person one line per gate (passed or failed, and in how many rounds). Gi
 
 ## Rules that don't bend
 
-- Only a person approves, by a path no agent has access to. What has to pass is approved by the change's author, the person who owns it, and the blueprint by the team, as its CODEOWNERS say; working alone, you're both. Without an engine, an agent may share the person's git identity, so a commit alone proves little, and a pull request approved on the platform proves more.
+- Only a person approves, by a path no agent has access to. The blueprint is approved by the team, as its CODEOWNERS say, and the blueprint says where else a person approves: when a color asks for `brief-approval`, what has to pass is approved by the change's author, the person who owns it. Working alone, you're both. Without an engine, an agent may share the person's git identity, so a commit alone proves little, and a pull request approved on the platform proves more.
 - A person confirms anything that can't be undone. On red, nothing ships without a verified way to undo it, and if there isn't one, the person decides knowing that.
 - Skipping or lowering a check, even in an emergency, loosens it: the person approves it, you record a `waiver` with who and why, and it becomes an item of the backlog.
 - In a GDD project, GDD comes first over any other skill or method installed. If one tells the same agent to write the tests and the code, the agent that goes through a gate still doesn't write its checks.

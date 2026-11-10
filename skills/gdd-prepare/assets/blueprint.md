@@ -24,21 +24,20 @@ checks:
     command: <command that runs the hidden examples>
   - id: review
     type: reviewer
+  - id: brief-approval
+    type: person
   - id: person-review
     type: person
 colors:
   green:
     checks: [tests, lint]
     level: light
-    back_to_person: false
   yellow:
-    checks: [tests, lint, mutation, review]
+    checks: [brief-approval, tests, lint, mutation, review]
     level: standard
-    back_to_person: false
   red:
-    checks: [tests, lint, mutation, hidden, review, person-review]
+    checks: [brief-approval, tests, lint, mutation, hidden, review, person-review]
     level: deep
-    back_to_person: true
 zones:
   - id: <zone>
     color: <green, yellow or red>
@@ -58,12 +57,12 @@ context:
 flowchart LR
   change([A change]) --> color{Its color}
   color -->|green| green[tests, lint]
-  color -->|yellow| yellow[+ mutation, reviewer]
-  color -->|red| red[+ hidden examples, a person]
+  color -->|yellow| yellow[+ brief approval, mutation, reviewer]
+  color -->|red| red[+ hidden examples, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-On red, a person reviewing the change is recommended, not required: remove `person-review` from red if this project decides otherwise. Anything no zone covers counts as red until the person classifies it.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Anything no zone covers counts as red until the person classifies it.

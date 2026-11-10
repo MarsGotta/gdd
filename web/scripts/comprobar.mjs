@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import zlib from 'node:zlib';
 import * as cheerio from 'cheerio';
 import { compara } from './paridad.mjs';
 import { DOCS as ESTRUCTURA, CAPITULOS, TOTAL, REDIRECCIONES } from './estructura.mjs';
@@ -197,7 +198,7 @@ for (const [ruta, html] of Object.entries(paginas)) {
   for (const re of viejo) if (re.test(visible)) fallos.push(`${ruta}: queda texto de la versión anterior (${re})`);
   for (const re of promesas) if (re.test(visible)) fallos.push(`${ruta}: promete algo con fecha (${re})`);
 }
-for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf']) {
+for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf', 'manifiesto-gdd-v0.7.pdf', 'manifesto-gdd-v0.7.pdf']) {
   if (fs.existsSync(path.join(dist, viejo))) fallos.push(`${viejo} sigue en dist/`);
 }
 
@@ -237,6 +238,22 @@ for (const [ruta, html] of Object.entries(paginas)) {
   }
 }
 
+// Where the links of a PDF lead: its /URI entries, which usually sit inside compressed streams.
+// A PDF may write a string between parentheses, with escapes, or in hexadecimal: both are read.
+const enlacesDelPdf = (fichero) => {
+  const crudo = fs.readFileSync(fichero).toString('latin1');
+  const trozos = [crudo];
+  for (const m of crudo.matchAll(/stream\r?\n([\s\S]*?)endstream/g)) {
+    try { trozos.push(zlib.inflateSync(Buffer.from(m[1], 'latin1')).toString('latin1')); } catch { /* not a deflate stream */ }
+  }
+  const literal = (s) => s.replace(/\\([0-7]{1,3}|[\s\S])/g, (_, c) => (/^[0-7]/.test(c) ? String.fromCharCode(parseInt(c, 8)) : ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' }[c] ?? c)));
+  const hex = (s) => Buffer.from(s.replace(/\s+/g, ''), 'hex').toString('latin1');
+  return trozos.flatMap((t) => [
+    ...[...t.matchAll(/\/URI\s*\(((?:\\[\s\S]|[^\\)])*)\)/g)].map((m) => literal(m[1])),
+    ...[...t.matchAll(/\/URI\s*<([0-9A-Fa-f\s]+)>/g)].map((m) => hex(m[1])),
+  ]);
+};
+
 // The version and the draft notice are the manifesto's own, and they appear where a reader lands.
 for (const [i, inicio, pdf, avisos] of [
   ['es', '/index.html', 'manifiesto-gdd', [['en desarrollo', 'T-minus está en desarrollo'], ['Esta versión todavía no trae datos propios', 'GDD aún no tiene datos propios'], ['Diseñamos las puertas por las que pasarán nuestros agentes', 'la idea central']]],
@@ -246,12 +263,50 @@ for (const [i, inicio, pdf, avisos] of [
   for (const ruta of [inicio, DOCS[i].manifiesto]) {
     if (!norm(cheerio.load(paginas[ruta])('body').text()).includes(`${version}, ${estado}`)) fallos.push(`${ruta}: falta "${version}, ${estado}"`);
   }
-  if (!fs.existsSync(path.join(dist, `${pdf}-${version}.pdf`))) fallos.push(`Falta el PDF de la ${version} en ${i}`);
+  const ficheroPdf = `${pdf}-${version}.pdf`;
+  if (!fs.existsSync(path.join(dist, ficheroPdf))) fallos.push(`Falta el PDF de la ${version} en ${i}`);
+  else {
+    // The PDF is the manifesto page printed from a local server, so every link in it has to be a link of that
+    // page as it is published. A link to localhost, or one the page no longer has, means the PDF is stale.
+    const $m = cheerio.load(paginas[DOCS[i].manifiesto]);
+    const base = `https://gate-driven.dev${rutaDe(i, 'manifiesto')}`;
+    const enPagina = new Set($m('a[href]').map((_, a) => new URL($m(a).attr('href'), base).href).get());
+    const enPdf = new Set(enlacesDelPdf(path.join(dist, ficheroPdf)));
+    if (!enPdf.size) fallos.push(`${ficheroPdf}: no encuentro ningún enlace dentro, así que no puedo comprobarlos`);
+    for (const uri of enPdf) {
+      if (!enPagina.has(uri)) fallos.push(`${ficheroPdf}: enlaza a ${uri}, que no es un enlace de ${DOCS[i].manifiesto} publicada`);
+    }
+  }
   const inicioTexto = norm(cheerio.load(paginas[inicio])('main').text());
   for (const [txt, porque] of avisos) {
     if (!inicioTexto.includes(txt)) fallos.push(`${inicio} no dice que ${porque}`);
   }
   console.log(`Versión ${version}, ${estado}; PDF de la ${version} presente.`);
+}
+
+// The number of good practices is written out in words in the map and in the chapter's description,
+// and it has to be the number the chapter really has.
+const EN_LETRAS = {
+  es: { 25: 'veinticinco', 26: 'veintiséis', 27: 'veintisiete', 28: 'veintiocho', 29: 'veintinueve', 30: 'treinta', 31: 'treinta y una', 32: 'treinta y dos', 33: 'treinta y tres', 34: 'treinta y cuatro', 35: 'treinta y cinco' },
+  en: { 25: 'twenty-five', 26: 'twenty-six', 27: 'twenty-seven', 28: 'twenty-eight', 29: 'twenty-nine', 30: 'thirty', 31: 'thirty-one', 32: 'thirty-two', 33: 'thirty-three', 34: 'thirty-four', 35: 'thirty-five' },
+};
+for (const i of IDIOMAS) {
+  const capitulo = DOCS[i]['buenas-practicas'];
+  const $p = cheerio.load(paginas[capitulo]);
+  const cuantas = $p('.practica').length;
+  const letras = EN_LETRAS[i][cuantas];
+  if (!letras) {
+    fallos.push(`${capitulo}: tiene ${cuantas} prácticas y EN_LETRAS no sabe escribir ese número`);
+    continue;
+  }
+  const frase = `${letras} ${i === 'es' ? 'prácticas' : 'practices'}`;
+  for (const [ruta, texto] of [
+    [DOCS[i].documentacion, norm(cheerio.load(paginas[DOCS[i].documentacion])('main').text())],
+    [capitulo, $p('meta[name="description"]').attr('content') ?? ''],
+  ]) {
+    if (!texto.toLowerCase().includes(frase)) fallos.push(`${ruta}: el capítulo tiene ${cuantas} prácticas y aquí no dice "${frase}"`);
+  }
+  console.log(`Buenas prácticas (${i}): ${cuantas}, como dicen el mapa y la descripción.`);
 }
 
 // 6. Every figure on a page carries its source: a link in the same block. Figures of the examples are not data.

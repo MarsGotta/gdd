@@ -65,7 +65,7 @@ For every check, climb this ladder and stop at the first step that works, becaus
 4. a new or less proven tool, only with a notice (how old it is, who maintains it, its license, what it does with the data), and the person decides;
 5. a reviewer or a person, when nothing deterministic works.
 
-What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds mutation testing and a reviewer, red adds hidden examples written by another hand and, recommended but not required, a person's review.
+What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds mutation testing and a reviewer, red adds hidden examples written by another hand and, recommended but not required, a person's review. Where a person approves is the team's decision as well. Propose `brief-approval` on yellow and red, so that a person approves what has to pass before anyone builds, and `person-review` on red. Say it's a proposal, and let the team add or remove them on any color.
 
 ## What you leave
 

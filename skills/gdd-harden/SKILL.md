@@ -1,6 +1,6 @@
 ---
 name: gdd-harden
-description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating, by finding the crack it got through and proposing the check that closes it, for the person to approve. Loaded by the GDD orchestrator, with the person, when a failure reaches the main branch or production, when a reviewer catches what the machine checks passed, or when the logs show the same failure coming back. Not for fixing the failure itself.
+description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating. Loaded by the GDD orchestrator, with the person, when a failure reaches the main branch or production, when a reviewer catches what the machine checks passed, or when the logs show the same failure coming back. Not for fixing the failure itself.
 metadata:
   version: "0.1.0"
   contract: gdd/1
@@ -52,7 +52,7 @@ When asked, or now and then, read `gdd/log/` to compare the project with itself:
 
 ## Loosening
 
-Retiring a gate that no longer adds anything, lowering a color or recording new debt all change the blueprint, so the person approves them, and they never happen on their own. Before deciding a gate adds nothing, check that it still closes: a gate that never fires can mean quality, or that it detects nothing.
+Retiring a gate that no longer adds anything, dropping an approval a color asked for, lowering a color or recording new debt all change the blueprint, so the person approves them, and they never happen on their own. Before deciding a gate adds nothing, check that it still closes: a gate that never fires can mean quality, or that it detects nothing.
 
 ## Gotchas
 

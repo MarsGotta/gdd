@@ -36,8 +36,8 @@ They let an agent apply GDD in any project with what the project already has (te
    |---|---|---|---|---|---|
    | `gdd` (entry) | The orchestrator | Guides all four | The request, the blueprint and where each brief stands | What comes next, who is launched and with which context | standard |
    | `gdd-prepare` | The orchestrator, with the person, at the start or when the project changes | Prepare | The repository and what it already has (tests, CI) | The blueprint with its gates in Gherkin, the constitution, the GDD block in AGENTS.md and the protections (branches, CODEOWNERS) | deep |
-   | `gdd-brief` | The orchestrator, for each change | Brief | The request and the blueprint | The brief: the scenarios the person approves, the expected color and the gates with their context | standard |
-   | `gdd-checks` | Another agent, never the one that builds | Brief and Execute | The approved brief, or the gates of a zone | Checks that fail for the right reason, proof that they can pass, and their seal | by color |
+   | `gdd-brief` | The orchestrator, for each change | Brief | The request and the blueprint | The brief: the scenarios that say what has to pass, the expected color and the gates with their context | standard |
+   | `gdd-checks` | Another agent, never the one that builds | Brief and Execute | The brief, or the gates of a zone | Checks that fail for the right reason, proof that they can pass, and their seal | by color |
    | `gdd-build` | The agent that passes the gate | Execute | The brief and the sealed checks | The change and the facts that prove it | by color |
    | `gdd-review` | The reviewer, with a clean context | Execute | The change, the blueprint and the checks, never the conversation | The verdict and the recomputed color, with the evidence of the checks it ran itself | by color, from another model family |
    | `gdd-harden` | The orchestrator, with the person, when something slips through | Harden | What slipped through and its brief | The crack, the scenario that would have caught it and the blueprint change, for the person to approve | deep |
@@ -79,7 +79,7 @@ They let an agent apply GDD in any project with what the project already has (te
     | `gdd/gates/<zone>.feature` | The standing gates of each zone, in Gherkin | `gdd-prepare`, with the person | Like the blueprint |
     | `gdd/backlog.md` | The functions to build, with their expected color, in phases if wanted | `gdd-prepare`, `gdd-brief`, `gdd-harden` | Freely |
     | `gdd/debt.md` | Known debt, with the baseline of each check | `gdd-prepare` | Down freely; up only with the person's approval |
-    | `gdd/briefs/<id>.md` | What the person approves: the scenarios it adds or changes, what it touches, its gates and its expected color. No status and no seals | `gdd-brief` | Never once approved: a change makes a new version, which goes back to the person |
+    | `gdd/briefs/<id>.md` | What has to pass for one change: the scenarios it adds or changes, what it touches, its gates and its expected color. The person approves it when its color asks for `brief-approval`. No status and no seals | `gdd-brief` | Never once its hashes are in the log: a change makes a new version, which goes back to the person only if its color asks for `brief-approval` and what has to pass changes |
     | `features/<capability>.feature` | The scenarios of changes, grouped by capability, each tagged with its brief and with an id that its test cites | `gdd-brief`, with the person | Only through a brief |
     | `gdd/log/<id>.jsonl` | Everything that happens to a brief, one event per line: the approval with the hash of what was approved, each seal, the color computed and why, each gate's result with its evidence (command, exit code and last lines), the verdict and any waiver | `gdd`, from what each role reports | Only appended |
     | `gdd/context/` | Copies of external references and research, each with its source and date | `gdd-prepare` | Refreshed with a new date |
@@ -89,7 +89,7 @@ They let an agent apply GDD in any project with what the project already has (te
     - **Deterministic.** For each zone, an exact command on the change, such as `git diff --name-only <base> -- ':(glob)src/payments/**'`, and one more that excludes every zone to find what none covers, which counts as red until the person classifies it. It gives the same answer every time, costs no tokens and needs no script.
     - **Judgment.** Then the agent looks for what the paths miss: code that a delicate zone imports, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. It may raise the color, never lower it, and it writes its reason in the log.
 
-    `gdd-brief` does both when briefing, on what the change will touch; at the end, `gdd-review` does them again, with a clean context, on what it actually touched. If the color rises, the change stops: `gdd-checks` adds what the new color asks for, and it goes back to the person if the blueprint says so. Only a blueprint change approved by the person can lower a color, because that is loosening. When `gdd-harden` sees the same reason come back, or a judgment that caught something, it proposes turning it into a pathspec or a zone: what judgment finds today, git checks tomorrow.
+    `gdd-brief` does both when briefing, on what the change will touch; at the end, `gdd-review` does them again, with a clean context, on what it actually touched. If the color rises, the change stops and goes back to Brief: `gdd-checks` adds what the new color asks for, and the person approves the brief again if that color asks for `brief-approval`. Only a blueprint change approved by the person can lower a color, because that is loosening. When `gdd-harden` sees the same reason come back, or a judgment that caught something, it proposes turning it into a pathspec or a zone: what judgment finds today, git checks tomorrow.
 15. **Gates are written in Gherkin.** When preparing, `gdd-prepare` writes the standing gates of each zone with the person in `gdd/gates/<zone>.feature`: one `Rule:` for each thing a gate demonstrates, and under it at least the scenario its check must reject (the bad case) and one it must accept, each tagged with the check that covers it.
 
     ```gherkin
@@ -123,9 +123,9 @@ They let an agent apply GDD in any project with what the project already has (te
     - it reads only what it needs, writes nothing outside its output and never touches secrets;
     - simple and with nothing it doesn't need yet, sealed and protected like any other check, and run with the same command locally and in CI if there is one, a command the constitution records.
 17. **Flows the skills cover.**
-    - **Decisions nobody has made.** While drafting, `gdd-brief` marks each one with `[DECISION: …]`, and a brief can't be approved while `git grep` finds any. Questions like rounding each line or the total come up there, before anyone builds.
+    - **Decisions nobody has made.** While drafting, `gdd-brief` marks each one with `[DECISION: …]`, and a brief isn't done while `git grep` finds any. Questions like rounding each line or the total come up there, before anyone builds.
     - **Traceability.** Every scenario has an id that its test cites, and every check is tagged in a gate, so a grep finds a scenario without a check, or a check no gate asks for.
-    - **It doesn't fit the brief.** The agent stops and says why, and the brief goes back to `gdd-brief` as a new version, which goes back to the person if what must pass changes.
+    - **It doesn't fit the brief.** The agent stops and says why, and the brief goes back to `gdd-brief` as a new version, which goes back to the person if what must pass changes and its color asks for that approval.
     - **Urgencies.** Skipping or lowering a check is loosening: the person approves it, the log records who and why, and it becomes an item of the backlog, like known debt.
     - **Proof that a check can pass.** If it needs a throwaway implementation, the agent that will build never sees it, because it would give away the solution.
     - **Evidence.** What the building agent reports is a claim. `gdd-review` runs the checks itself, and the reported evidence only serves to compare.
@@ -145,6 +145,8 @@ They let an agent apply GDD in any project with what the project already has (te
     - **At all three levels.** The same text behaves differently on a light model, and `gdd-build` runs light on green.
     - **Most effort on verification.** `gdd-checks` and `gdd-review` are the skills that improve results the most.
     - **One source for the contract.** It lives in `skills/CONTRACT.md`, and a check in this repository keeps each skill's templates in line with it. The skills still ship no scripts: that check is ours, not something a project installs.
+
+20. **Where a person approves is in the blueprint.** The team always approves the blueprint, and anything that loosens it. Every other approval is a check of type `person` that a color carries or not, so each project sets how strict each level is: `brief-approval`, the person approving what has to pass before anyone builds, and `person-review`, the person reviewing the change at the end. The template proposes the first on yellow and red and the second on red, and `gdd-prepare` presents them as a proposal. A change whose color rises goes back to Brief, and a new version of a brief goes back to the person only if its color asks for `brief-approval` and what has to pass changes. This follows the Manifesto from version 0.8 on: the colors are levels of strictness, and the blueprint says where a person approves.
 
 ## Still open
 
