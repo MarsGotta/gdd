@@ -66,7 +66,7 @@ For every check, climb this ladder and stop at the first step that works, becaus
 4. a new or less proven tool, only with a notice (how old it is, who maintains it, its license, what it does with the data), and the person decides;
 5. a reviewer or a person, when nothing deterministic works.
 
-What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds a test for each scenario and a reviewer, red adds mutation testing where the stack has a mature tool for it, hidden examples written by another hand and, recommended but not required, a person's review. Where a person approves is the team's decision as well. Propose `brief-approval` on yellow and red, so that a person approves what has to pass before anyone builds, and `person-review` on red. Say it's a proposal, and let the team add or remove them on any color.
+What each color asks for goes in the blueprint's `colors`. The template carries the method's proportion: green keeps the existing checks, yellow adds a test for each scenario and a reviewer, red adds mutation testing where the stack has a mature tool for it and, recommended but not required, a person's review. Every color carries `seal`, the check that nothing that judges was touched. Hidden examples written by another hand join red only when the blueprint's `guarantee` is `platform` or `engine`. Where a person approves is the team's decision as well. Propose `brief-approval` on yellow and red, so that a person approves what has to pass before anyone builds, and `person-review` on red. Say it's a proposal, and let the team add or remove them on any color.
 
 ## What you leave
 
@@ -80,6 +80,17 @@ What each color asks for goes in the blueprint's `colors`. The template carries 
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
 Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
+
+## The probe
+
+A cage counts once you've seen it close. When the protections are in place, try four things from the environment the builder will work in, and watch each one fail:
+
+1. push to the main branch;
+2. write to a `gdd-seal/` ref;
+3. read the hidden examples, if the project has them;
+4. find a credential of production or of the person within reach (an environment variable, a logged-in command line, a connector). Finding it is enough: never use it.
+
+Record each try in `gdd/log/blueprint.jsonl`, with its command, its exit code and its last lines. If all of them fail, the blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`: say so to the person, write it in the blueprint and leave hidden examples out of red, because a builder that can read them isn't being tested by them.
 
 ## The baseline and the limits
 

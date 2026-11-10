@@ -81,6 +81,7 @@ Gates run these same commands, locally and in CI.
 
 The front matter is what agents read; the diagram and the table are for the person. Its fields:
 
+- `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
 - `levels`: which model the project uses for each level. The skills never name one.
 - `limits`: fix rounds per gate, and the caps of a whole change. Two fix rounds per gate is the default; the team sets the rest when preparing. The cap on tokens applies only where the agents' environment reports them.
 - `checks`: every check a gate can ask for, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution.
@@ -94,6 +95,7 @@ Anything no zone covers counts as red until the person classifies it. That rule 
 ````markdown
 ---
 contract: gdd/1
+guarantee: <rule, platform or engine>
 levels:
   light: <model for little reasoning, cheap and fast>
   standard: <model for normal reasoning>
@@ -105,6 +107,9 @@ limits:
   lines_per_change: <n, counted with git diff --shortstat>
   tokens_per_change: <n, where the environment reports them>
 checks:
+  - id: seal
+    type: machine
+    command: <git diff --exit-code of what judges, against the seal and the base>
   - id: tests
     type: machine
     command: <test command from the constitution>
@@ -114,9 +119,6 @@ checks:
   - id: mutation
     type: machine
     command: <mutation command, on the files the change touched, where the stack has a tool for it>
-  - id: hidden
-    type: machine
-    command: <command that runs the hidden examples>
   - id: review
     type: reviewer
   - id: brief-approval
@@ -125,13 +127,13 @@ checks:
     type: person
 colors:
   green:
-    checks: [tests, lint]
+    checks: [seal, tests, lint]
     level: light
   yellow:
-    checks: [brief-approval, tests, lint, review]
+    checks: [brief-approval, seal, tests, lint, review]
     level: standard
   red:
-    checks: [brief-approval, tests, lint, mutation, hidden, review, person-review]
+    checks: [brief-approval, seal, tests, lint, mutation, review, person-review]
     level: deep
 zones:
   - id: <zone>
@@ -151,16 +153,16 @@ context:
 ```mermaid
 flowchart LR
   change([A change]) --> color{Its color}
-  color -->|green| green[tests, lint]
+  color -->|green| green[seal, tests, lint]
   color -->|yellow| yellow[+ brief approval, reviewer]
-  color -->|red| red[+ mutation, hidden examples, a person's review]
+  color -->|red| red[+ mutation, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. Anything no zone covers counts as red until the person classifies it.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them. Anything no zone covers counts as red until the person classifies it.
 
 ## Baseline
 
@@ -334,9 +336,9 @@ Each finding of a review has an `id`. A later round, or the last one before the 
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"approval","who":"<person>","of":"<brief, change, blueprint, gates, debt or waiver>","version":1,"files":{"<path>":"<git blob hash>"},"where":"<commit or pull request URL>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"waiver","who":"<person>","check":"<check id>","why":"<reason>","backlog":"<item id>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"ask","of":"<brief-approval, person-review, waiver, decision or stop>","what":"<one line>"}
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"<version>","level":"deep","rounds":1,"result":"<result>","caught":"<what, or none>","seconds":null,"tokens":null},"files":["<path>"]}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"<version>","level":"deep","rounds":1,"result":"<result>","caught":"<what, or none>","seconds":null,"tokens":null},"files":["<path>"],"probe":[{"try":"<what the builder's environment tried>","command":"<command>","exit":1,"tail":"<last lines>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","report":{"skill":"gdd-brief","version":"<version>","level":"standard","rounds":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"files":{"<path>":"<git blob hash>"}}
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","rounds":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","rounds":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/<id>","commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"build","report":{"skill":"gdd-build","version":"<version>","level":"<level>","rounds":1,"result":"<done or stopped>","caught":"<what, or none>","seconds":null,"tokens":null},"claims":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"gates","where":"<ci, or a clean copy>","gates":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>","result":"<pass or fail>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"review","report":{"skill":"gdd-review","version":"<version>","level":"<level>","rounds":1,"result":"<pass, fix or stop>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"touched","base":"<commit>","head":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"verdict":"<pass, fix or stop>","ran":[{"command":"<command>","exit":0,"tail":"<last lines>"}],"findings":[{"id":"<f1>","where":"<file:line>","what":"<one line>"}],"closed":[{"id":"<f1>","outcome":"<fixed, false, intended or minor>"}]}
@@ -345,7 +347,15 @@ Each finding of a review has an `id`. A later round, or the last one before the 
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"<step>","report":{"skill":"<skill>","version":"<version>","level":"<level>","rounds":1,"result":"stopped","caught":"none","seconds":null,"tokens":null},"stop":{"reason":"<why it stopped>","needs":"<what would unblock it>"}}
 ```
 
-The hidden examples stay outside the working tree of the agent that builds (another branch or worktree) until it finishes, and their commit is in the log from the moment they're sealed, before that agent starts. Without an engine this is a rule that git helps with, not a guarantee.
+## The seal
+
+The seal of a change is a git ref, `gdd-seal/<id>`, that holds its checks, with its commit in the log before anyone builds. The builder starts from it and never writes to it. Who can write to it depends on the blueprint's `guarantee`:
+
+- `rule`: nothing stops the builder, and the `seal` check catches it afterwards. It's a rule that git helps with, not a guarantee.
+- `platform`: a ruleset protects `gdd-seal/*`, and the builder works with credentials of its own.
+- `engine`: the engine holds the seal itself.
+
+Hidden examples exist only from `platform` up. They live where the builder's credentials can't read them, such as another repository or a CI secret, never in a branch of the same repository, and their commit is in the log from the moment they're sealed.
 
 ## Finding what's missing
 
@@ -355,4 +365,4 @@ Traceability needs no script, only greps:
 - A check no gate asks for: an id in the blueprint's `checks` with no `@check:<id>` in `gdd/gates/` and in no color.
 - A decision nobody has made: `git grep -n "\[DECISION:" -- gdd/briefs features` finds something.
 - A brief that changed after its hashes went to the log: `git hash-object gdd/briefs/<id>.md` differs from the last `approval` of that brief, or from its `brief` step when its color asks for no approval.
-- A sealed check that changed: `git diff --stat <seal commit> HEAD -- <sealed paths>` shows anything.
+- A sealed check that changed: `git diff --stat gdd-seal/<id> HEAD -- <sealed paths>` shows anything.

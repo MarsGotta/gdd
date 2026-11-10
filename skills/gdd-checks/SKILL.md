@@ -33,7 +33,8 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 
 - **Green** keeps the existing checks. You add nothing.
 - **Yellow** adds a test for each scenario. Breaking it on purpose, the fourth step below, is what shows that each one closes.
-- **Red** adds mutation testing on the code the change will touch, where the stack has a tool for it (the `mutation` check of the blueprint, scoped to those files), and hidden examples: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go on a branch of their own (`gdd-hidden/<brief id>`) that the builder's working tree never has.
+- **Red** adds mutation testing on the code the change will touch, where the stack has a tool for it (the `mutation` check of the blueprint, scoped to those files).
+- **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint says the builder's credentials can't read them, never to a branch of the same repository.
 
 ## Each check, before you seal it
 
@@ -45,10 +46,10 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 
 ## Sealing
 
-Commit the checks on the branch the builder starts from, without the hidden examples and without any throwaway code. Then report, so the orchestrator writes the seal to the log:
+Commit the checks on `gdd-seal/<brief id>`, a branch cut from the base, without any throwaway code. The builder starts from it and never writes to it. Then report, so the orchestrator writes the seal to the log:
 
-- the commit, and each check file with its blob hash (`git hash-object <file>`);
-- the commit of the hidden examples, on red;
+- the ref and its commit, and each check file with its blob hash (`git hash-object <file>`);
+- the commit of the hidden examples, when the blueprint has them;
 - for each check, the proof: the command, its exit code and its last lines, once rejecting and once passing.
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new version made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.

@@ -24,7 +24,7 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
 
 - **Scenarios** describe what someone can observe, not how it's coded. A few on yellow, every one that matters on red, and the bad cases too: what must not happen.
 - **What it touches.** In the T-minus pilot, agents stopped 69 times, and in two out of three a file they needed was missing from this list. Include:
-  - the twins: a document and its translation, a scenario and its hidden counterpart, a feature and its reference page;
+  - the twins: a document and its translation, a feature and its reference page;
   - the wiring: where the new piece gets registered or connected, such as routes, step definitions, a module index or an installer;
   - the fixtures and the existing tests that assert the behavior the change alters;
   - the reference documents of anything it adds, such as an error code, a setting or a command.

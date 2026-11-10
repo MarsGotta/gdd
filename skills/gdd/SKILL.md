@@ -34,8 +34,8 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
    - Green: no brief file, unless the blueprint's green asks for `brief-approval`. The change passes the existing checks, and its events still go to a log.
    - Yellow or red: it writes the brief and its scenarios. Record the blob hash of each file. If the color's checks include `brief-approval`, the person approves them, and you record the approval with those hashes. Nothing is built before that.
 2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the checks the color asks for, proves each one fails for the right reason and can pass, and seals them. Green skips this step.
-3. **Build.** Launch `gdd-build` with the brief (or the request, on green), the sealed checks and the context of its gates.
-4. **Gates.** Run the checks yourself, out of the builder's reach: CI on the pushed branch, or a clean copy of it. What the builder reports is a claim.
+3. **Build.** Launch `gdd-build` with the brief (or the request, on green), starting from the seal (`gdd-seal/<id>`) and with the context of its gates.
+4. **Gates.** Run the checks yourself, out of the builder's reach: CI on the pushed branch, or a clean copy of it. What the builder reports is a claim. The `seal` check goes first: if what judges was touched, nothing else counts. When the blueprint's `guarantee` is `rule`, a clean copy is the best there is and it isn't out of the builder's reach: say so in your summary.
 5. **Review.** Launch `gdd-review` with a clean context, for every change. It recomputes the color on what was actually touched and, when the color's checks include `review`, runs the checks itself and tries to make the change fail. Its verdict is the first word of its answer: `pass`, `fix` or `stop`. Any other word, or a review cut off before its verdict, isn't a pass: launch it again, once.
    - The color rose: the change stops and goes back to Brief. `gdd-brief` brings the brief up to the new color, the person approves it if that color asks for `brief-approval`, and `gdd-checks` adds what the new color asks for.
    - `fix`: back to the builder, within the limits.
@@ -46,7 +46,7 @@ After Prepare, `gdd-checks` builds each zone's standing gates from their scenari
 
 Every agent starts with a clean context: a new session or subagent, never this conversation.
 
-- **What it gets.** The cross-cutting context (the GDD block of `AGENTS.md` and the constitution, which its environment loads), its skill, named explicitly (`$gdd-build` in Codex, `/gdd-build` or the role's subagent in Claude Code), and what its gate needs: the brief, the sealed checks, the log and the context the blueprint gives that gate.
+- **What it gets.** The cross-cutting context (the GDD block of `AGENTS.md` and the constitution, which its environment loads), its skill, named explicitly (`$gdd-build` in Codex, `/gdd-build` or the role's subagent in Claude Code), and what its gate needs: the brief, the seal and the context the blueprint gives that gate. The reviewer gets the log too; the builder doesn't.
 - **What it never gets.** Your conversation. The agent that builds never gets the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.
 - **Its level.** The blueprint's `levels` say which model is each one. `gdd-prepare` and `gdd-harden` run deep, you and `gdd-brief` standard, and `gdd-checks`, `gdd-build` and `gdd-review` at the level of the change's color. Whenever you can, the reviewer comes from a different model family than the agent that built.
 - **If you can't launch agents,** give the person one line to open the session themselves, with the skill and the brief: `$gdd-build gdd/briefs/<id>.md` in Codex, `/gdd-build gdd/briefs/<id>.md` in Claude Code.

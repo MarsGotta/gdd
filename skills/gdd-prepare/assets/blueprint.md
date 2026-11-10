@@ -1,5 +1,6 @@
 ---
 contract: gdd/1
+guarantee: <rule, platform or engine>
 levels:
   light: <model for little reasoning, cheap and fast>
   standard: <model for normal reasoning>
@@ -11,6 +12,9 @@ limits:
   lines_per_change: <n, counted with git diff --shortstat>
   tokens_per_change: <n, where the environment reports them>
 checks:
+  - id: seal
+    type: machine
+    command: <git diff --exit-code of what judges, against the seal and the base>
   - id: tests
     type: machine
     command: <test command from the constitution>
@@ -20,9 +24,6 @@ checks:
   - id: mutation
     type: machine
     command: <mutation command, on the files the change touched, where the stack has a tool for it>
-  - id: hidden
-    type: machine
-    command: <command that runs the hidden examples>
   - id: review
     type: reviewer
   - id: brief-approval
@@ -31,13 +32,13 @@ checks:
     type: person
 colors:
   green:
-    checks: [tests, lint]
+    checks: [seal, tests, lint]
     level: light
   yellow:
-    checks: [brief-approval, tests, lint, review]
+    checks: [brief-approval, seal, tests, lint, review]
     level: standard
   red:
-    checks: [brief-approval, tests, lint, mutation, hidden, review, person-review]
+    checks: [brief-approval, seal, tests, lint, mutation, review, person-review]
     level: deep
 zones:
   - id: <zone>
@@ -57,16 +58,16 @@ context:
 ```mermaid
 flowchart LR
   change([A change]) --> color{Its color}
-  color -->|green| green[tests, lint]
+  color -->|green| green[seal, tests, lint]
   color -->|yellow| yellow[+ brief approval, reviewer]
-  color -->|red| red[+ mutation, hidden examples, a person's review]
+  color -->|red| red[+ mutation, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. Anything no zone covers counts as red until the person classifies it.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them. Anything no zone covers counts as red until the person classifies it.
 
 ## Baseline
 
