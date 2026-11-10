@@ -21,7 +21,7 @@ On green there's no brief file: report the color with its paths and its reason, 
 
 Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scenarios, which go in `features/<capability>.feature`, each tagged with this brief and an id of its own.
 
-- **Scenarios** say what someone can observe, not how it's coded. A few on yellow, every one that matters on red, and the bad cases too: what must not happen.
+- **Scenarios** describe what someone can observe, not how it's coded. A few on yellow, every one that matters on red, and the bad cases too: what must not happen.
 - **What it touches.** In the T-minus pilot, agents stopped 69 times, and in two out of three a file they needed was missing from this list. Include:
   - the twins: a document and its translation, a scenario and its hidden counterpart, a feature and its reference page;
   - the wiring: where the new piece gets registered or connected, such as routes, step definitions, a module index or an installer;

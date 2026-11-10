@@ -57,7 +57,7 @@ Only you load this skill on your own. The others are loaded by the role you laun
 
 When each step closes, append one event to `gdd/log/<id>.jsonl` from the role's report, with the fields of its step, in the shape of `assets/log-events.jsonl`. Never rewrite a line.
 
-Tell the person one line per gate (passed or failed, and in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. Everything else goes to the log. When something is waiting for the person, say so at once, and say what.
+Tell the person one line per gate (passed or failed, and in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. Everything else goes to the log. When something is waiting for the person, tell them at once what it is.
 
 ## Stopping
 

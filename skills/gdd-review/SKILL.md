@@ -39,7 +39,7 @@ The first line of your answer is one word:
 
 - `pass`: you ran it and it works. Minor issues can remain; list them after a line `LATER:`.
 - `fix`: there's a real error the builder has to fix. End with a line `NOTES FOR THE BUILDER:` and, under it, concrete corrections in under 200 words, without writing the solution.
-- `stop`: it opens what it shouldn't, runs foreign code, leaks a secret, loses data or breaks an existing project, so it can't go in like this.
+- `stop`: it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project, so it can't go in like this.
 
 Then, in at most ten lines, what you ran and what came out, and what fails, with its file and line. Without that, your `pass` doesn't count. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
 
@@ -47,7 +47,7 @@ After the first round, retest only what changed. Name the whole class of a failu
 
 ## A zone's new gates
 
-When the gates of a zone are new, from preparing or hardening, try to sneak each `Rule:`'s bad case through: change the code, the configuration or what surrounds the check until the bad case passes, or until you're sure it can't. If it gets through, the gate doesn't hold yet, and you say how. When a check fails, judge it by its gate's scenarios.
+When the gates of a zone are new, from preparing or hardening, try to sneak each `Rule:`'s bad case through: change the code, the configuration or what surrounds the check until the bad case passes, or until you're sure it can't. If it gets through, the gate doesn't hold yet, and you explain how it got through. When a check fails, judge it by its gate's scenarios.
 
 A gate holds when the answer to four questions is yes. Was it decided before the agent started? Is it checked without trusting what the agent says? Is it out of the agent's reach, so that touching it does the agent no good? Have you seen it reject something done wrong, real or planted on purpose? Checking from the same machine the agent works on doesn't count as out of its reach.
 

@@ -149,7 +149,6 @@ They let an agent apply GDD in any project with what the project already has (te
 ## Still open
 
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.
-- The exact fields of each file and of each log event, which go into `skills/CONTRACT.md` with the first skill.
 - The license, which each skill will also state.
 
 ## Sources
