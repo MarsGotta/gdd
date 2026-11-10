@@ -25,7 +25,7 @@
 <p>The shop in <a href="doc:manos-a-la-obra">Hands on</a> has four gates, but one is enough to start. It's the fourth of the <a href="doc:los-momentos#pasos">six steps of a change</a>, the gate that closes. On GitHub you need this, and on other platforms the names change, but the idea is the same.</p>
 <p><strong>In CI goes the check that acts as the gate,</strong> and for it you work with two branches:</p>
 <ul>
-<li><code>checks/&lt;change&gt;</code>: the approved tests, and only you write to it.</li>
+<li><code>checks/&lt;change&gt;</code>: the approved tests, and only you write to it. It's the seal of the change: what keeps the checks out of the agent's reach.</li>
 <li><code>&lt;change&gt;</code>: the agent's branch, which comes off the one above. It can add tests, but it can't change or delete the approved ones, or touch what decides how they run, like <code>package.json</code>: if it needs to, it stops and asks you.</li>
 </ul>
 <p>CI compares the two. If there's no checks branch, the gate only lets through what you've marked as green in the file. If a change doesn't need new tests, create its <code>checks/&lt;change&gt;</code> branch from <code>main</code>.</p>

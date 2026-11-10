@@ -25,7 +25,7 @@
 <p>La tienda de <a href="doc:manos-a-la-obra">Manos a la obra</a> lleva cuatro puertas, pero para empezar te basta con una. Es el cuarto de los <a href="doc:los-momentos#pasos">seis pasos de un cambio</a>, la puerta que se cierra. En GitHub hace falta esto, y en otras plataformas los nombres cambian, pero la idea es la misma.</p>
 <p><strong>En CI va la comprobación que hace de puerta,</strong> y para ella trabajas con dos ramas:</p>
 <ul>
-<li><code>comprobacion/&lt;cambio&gt;</code>: los tests aprobados, y solo escribes tú.</li>
+<li><code>comprobacion/&lt;cambio&gt;</code>: los tests aprobados, y solo escribes tú. Es el sello del cambio: lo que deja las comprobaciones fuera del alcance del agente.</li>
 <li><code>&lt;cambio&gt;</code>: la rama del agente, que sale de la anterior. Puede añadir tests, pero no cambiar ni borrar los aprobados, ni tocar lo que decide cómo se ejecutan, como <code>package.json</code>: si lo necesita, se para y te lo pide.</li>
 </ul>
 <p>CI compara las dos. Si no hay rama de comprobaciones, la puerta solo deja pasar lo que hayas marcado como verde en el archivo. Si un cambio no necesita tests nuevos, crea su rama <code>comprobacion/&lt;cambio&gt;</code> desde <code>main</code>.</p>
