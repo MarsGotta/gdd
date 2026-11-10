@@ -22,7 +22,7 @@
 <p><strong>And when do I add more?</strong> When something asks for it. Is something slipping through that the tests can't see? Add a reviewer. Does the same failure keep coming back? A standard check. Is splitting up the work eating your time? An orchestrator. Do you want to meet the whole <a href="doc:el-nucleo">core</a> without keeping count by hand? <a href="doc:el-motor">An engine</a>. Every gate costs tokens, waiting and maintenance, so each one has to earn its place.</p>
 <p><strong>And how do I know it pays off?</strong> Write down three things from day one, even by hand: how many times each change gets stopped, how long it takes to ship and what slips through. Before you start, look in your history at what that looked like without GDD, because without that baseline all you'll have is an impression. An engine records it for you, but the question is the same.</p>
 <h2 id="para-empezar-tu-primera-puerta">To start: your first gate</h2>
-<p>The shop in <a href="doc:manos-a-la-obra">Hands on</a> has four gates, but one is enough to start. On GitHub you need this, and on other platforms the names change, but the idea is the same.</p>
+<p>The shop in <a href="doc:manos-a-la-obra">Hands on</a> has four gates, but one is enough to start. It's the fourth of the <a href="doc:los-momentos#pasos">six steps of a change</a>, the gate that closes. On GitHub you need this, and on other platforms the names change, but the idea is the same.</p>
 <p><strong>In CI goes the check that acts as the gate,</strong> and for it you work with two branches:</p>
 <ul>
 <li><code>checks/&lt;change&gt;</code>: the approved tests, and only you write to it.</li>

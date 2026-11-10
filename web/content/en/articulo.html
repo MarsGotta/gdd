@@ -24,7 +24,7 @@
 <h2>An example, from start to finish</h2>
 <p>Imagine you want to add discount codes to your online store. You have what almost any team has: a repository, CI and an agent. No orchestrators or special tools. And it's a delicate case on purpose, because it touches payment: if it isn't a burden here, it's less of one everywhere else.</p>
 <p><strong>Before you start, just once.</strong> You make passing CI mandatory to merge, and you mark <code>payments/</code> and CI itself as delicate with a <code>CODEOWNERS</code> file. You give the agent its own credentials, with no access to production. You never touch this again.</p>
-<p><strong>1. You decide what has to happen.</strong> You ask an agent for the scenarios, read them and fix them. With this one and two more, an €80 cart and an expired code, you're done:</p>
+<p><strong>1. You decide what has to pass.</strong> You ask an agent for the scenarios, read them and fix them. With this one and two more, an €80 cart and an expired code, you're done:</p>
 <pre><code data-fuente="escenario.txt"></code></pre>
 <p><strong>2. The checks get made.</strong> In a separate session, an agent turns those scenarios into tests:</p>
 <pre><code data-fuente="tests.txt"></code></pre>

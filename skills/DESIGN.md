@@ -148,6 +148,35 @@ They let an agent apply GDD in any project with what the project already has (te
 
 20. **Where a person approves is in the blueprint.** The team always approves the blueprint, and anything that loosens it. Every other approval is a check of type `person` that a color carries or not, so each project sets how strict each level is: `brief-approval`, the person approving what has to pass before anyone builds, and `person-review`, the person reviewing the change at the end. The template proposes the first on yellow and red and the second on red, and `gdd-prepare` presents them as a proposal. A change whose color rises goes back to Brief, and a new version of a brief goes back to the person only if its color asks for `brief-approval` and what has to pass changes. This follows the Manifesto from version 0.8 on: the colors are levels of strictness, and the blueprint says where a person approves.
 
+## Where the method lives
+
+Each principle of the Manifesto and each point of its core, with the part of the contract that carries it and the skill that makes it happen. Without an engine these are rules, not guarantees, so the last column says what only the platform or an engine adds, and what is still missing.
+
+| From the Manifesto | In the contract | In the skills | What the platform or an engine adds |
+|---|---|---|---|
+| 1. Gates come first | `gdd/gates/<zone>.feature`, the brief and its scenarios, with their hashes in the log before anyone builds | `gdd-prepare`, `gdd-brief`, `gdd-checks` | That the order can't be skipped: here the orchestrator keeps it |
+| 2. A gate that never closes is not a gate | The `proofs` of each seal: every check once rejecting and once passing | `gdd-checks` (watch it reject, break it on purpose), `gdd-review` (tries to fool a zone's new gates) | Nothing more: the proof is evidence, and the log holds it |
+| 3. To each gate, its context | The blueprint's `context`, `gdd/context/`, the GDD block of `AGENTS.md` and the constitution | `gdd` (what each role gets and never gets), `gdd-prepare` | That a role can't read what it wasn't given |
+| 4. Gates are passed with facts | `claims` and `gates` in the log, the `gdd-report` block, `limits` | `gdd-build` (command, exit code, last lines), `gdd` (runs the gates itself, and stops) | Limits counted by code. Cost isn't in `limits` yet |
+| 5. Whoever goes through the gate doesn't decide how it's validated | The seal (a commit and blob hashes), hidden examples on a branch of their own | `gdd-checks` never builds, `gdd-build` never touches a sealed check, `gdd-review` compares with the seal | That the builder can't write or read them: protected branches and its own credentials on the platform, the whole guarantee from an engine |
+| 6. More risk, more checks | The blueprint's `zones` and `colors`, and the color in the log, planned and touched | `gdd-brief` (git sets the floor, judgment only raises it), `gdd-review` (recomputes it), `gdd-prepare` (proposes what each color asks for) | That nobody edits the blueprint without the team: CODEOWNERS and branch protection |
+| 7. Gates with cracks get hardened | A new `Rule:` in `gdd/gates/`, the `harden` event | `gdd-harden`, then `gdd-checks` and `gdd-review` | The reviewer's exam as something that runs: the contract has no place for its cases or its score yet |
+| Core: the agent doesn't touch the blueprint or the checks | CODEOWNERS on the blueprint and the gates, the seal | `gdd-prepare` (the protections), `gdd-review` (nothing that judges was touched) | The guarantee itself: here it's a rule that git helps with |
+| Core: the possible damage is bounded | Nothing in the contract: it belongs to the agent's environment | `gdd-prepare` (asks the person to confine the agent), `gdd-review` (tries the way back on red), `gdd` (a person confirms what can't be undone) | The sandbox and the credentials. The person applies them, and nothing checks yet that they hold |
+| Core: there are decisions only a person takes | The `approval` and `waiver` events, the checks of type `person` in `colors` | `gdd` (rules that don't bend), `gdd-brief`, `gdd-harden` (loosening) | An approval path no agent can reach: a pull request approved on the platform, or an engine |
+| Core: nothing loops, and nothing stays in the dark | `limits`, the `stop` of a step, one log per brief | `gdd` (stopping), the report every role ends with | Limits enforced by code, and what it cost: tokens are reported only when the environment gives them |
+
+The website tells a change in six steps, the ones of its delicate case. They are the steps of `gdd`, told to a person:
+
+| Step, as the website tells it | In `gdd` | Skill |
+|---|---|---|
+| 1. You decide what has to pass | Brief | `gdd-brief` |
+| 2. An agent builds the checks | Checks | `gdd-checks` |
+| 3. Another agent gets through the gate | Build | `gdd-build` |
+| 4. The gate closes | Gates, then Review | `gdd`, which runs the checks out of the builder's reach, and `gdd-review` |
+| 5. You look only where it matters | Ship, when the color's checks include `person-review` | `gdd` |
+| 6. If something slips through, you harden | Harden | `gdd-harden` |
+
 ## Still open
 
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.

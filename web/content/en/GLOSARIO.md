@@ -44,6 +44,9 @@ Translate from Spanish to American English. The reader is a developer or product
 | motor | engine |
 | caja | box |
 | plano (the project's rules; replaces "normas", "reglas del juego") | blueprint |
+| zona (a set of paths in the blueprint, with its level of risk) | zone (never "area") |
+| área (the field that ready-made rules are for) | area |
+| lo que debe pasar, qué debe pasar, qué tiene que pasar | what has to pass (never "what should happen" or "what has to happen") |
 | entorno del agente (replaces "harness", except in titles and quotes of sources) | the agent's environment |
 | reglas ya hechas (outside the T-minus part) | ready-made rules |
 | registro | record |

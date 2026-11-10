@@ -4,7 +4,7 @@
 <h2>Preparar: antes de escribir una línea</h2>
 <p>Lo primero es planificar qué puertas hacen falta y construirlas. Código, todavía ninguno, porque las puertas van primero.</p>
 <p>En este paso te recomiendo apoyarte en un motor de GDD, el programa que hace cumplir el método, porque te quita de encima mucho de lo que vas a ver. El mío, <a href="doc:el-motor">T-minus</a>, todavía está en desarrollo, y aquí nos vamos a valer solo de lo que ya tienes a mano en tu día a día: un repositorio, CI y un agente.</p>
-<p>Antes de empezar la planificación del harness, te recomiendo hacerte estas preguntas. Yo te pongo al lado lo que responderíamos para la tienda.</p>
+<p>Antes de empezar a planificar el entorno del agente, te recomiendo hacerte estas preguntas. Yo te pongo al lado lo que responderíamos para la tienda.</p>
 <table>
 <thead><tr><th>Pregunta</th><th>En la tienda</th></tr></thead>
 <tbody>
@@ -20,7 +20,7 @@
 <p>Antes de las puertas, hay cosas que el agente va a necesitar en todas: de qué va la tienda, cómo trabajamos y qué no se negocia. Eso es la constitución, un documento corto con las reglas del proyecto. En la nuestra pondríamos, por ejemplo, que los precios se guardan en céntimos y que los datos de una tarjeta no se guardan nunca.</p>
 <p>Junto a ella van las herramientas y las skills que se usan en todo el flujo, como las de las tecnologías de la tienda. Todo eso es el contexto transversal, y el agente lo lleva siempre, en todas las puertas. Como va en cada llamada, cuanto más simple y claro, mejor: si algo solo importa en una puerta, se queda en esa puerta. Un motor te ayuda a redactarlo, y es algo que T-minus hará al preparar.</p>
 <h3>Las cuatro puertas</h3>
-<p>Una puerta es lo que el agente tiene que demostrar antes de seguir. Para esta tienda vamos a poner cuatro, una detrás de otra: escenario, testing, refactoring y reviewing. En tu proyecto pueden ser otras.</p>
+<p>Una puerta es lo que el agente tiene que demostrar antes de seguir. Para esta tienda vamos a poner cuatro, una detrás de otra: escenario, testing, refactoring y reviewing. En tu proyecto pueden ser otras, y lo que se mantiene son los <a href="doc:los-momentos#pasos">seis pasos de un cambio</a>.</p>
 <p>Cada puerta lleva dos cosas. Sus comprobaciones son lo que demuestra que se ha cruzado de verdad: un test, un linter, otro agente o una persona. Su contexto es lo que le damos al agente, además de lo que ya lleva siempre, para que pueda cruzarla, y es lo que se suele olvidar. <a href="doc:los-principios#3-a-cada-puerta-su-contexto">Una puerta sin contexto es una pared</a>: el agente adivina, falla, vuelve a adivinar, y cada vuelta la pagas tú. Por eso a cada puerta le damos lo que necesita para esa puerta, y nada más: el agente arranca siempre con el contexto limpio. Eso sí incluye lo que generó la puerta anterior, como los escenarios, pero no su conversación.</p>
 <table>
 <thead><tr><th>Puerta</th><th>Qué tiene que demostrar</th><th>Contexto</th><th>Comprobaciones, como mucho</th></tr></thead>
@@ -38,7 +38,7 @@
 <p><strong>Reviewing.</strong> Es la fase de la PR, donde tiene que pasar CI y un code reviewer, que puede ser otro modelo, una persona o los dos. Si es un modelo, es un vigilante más: ejecuta el cambio y lo da por bueno. Si es una persona, lo aprueba, y una cosa nunca vale por la otra.</p>
 <h3>El semáforo</h3>
 <p>Las cuatro puertas están siempre, pero no le pueden pedir lo mismo a un texto que a la pasarela de pago. De eso se encarga el semáforo: te indica el riesgo de cada cambio, y según su color las puertas se endurecen o se ablandan. Puede ser un script determinista, un modelo de decisiones o una persona, y un motor te lo da ya construido. Sea cual sea, mira lo que se ha tocado, no lo que el agente dice haber hecho, se vuelve a calcular al terminar y solo puede subir.</p>
-<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. Lo delicado, que de momento es <code>pagos/</code>, <code>admin/</code> y las migraciones, es rojo, porque lo que no se puede deshacer nunca es verde. Lo inocuo, como <code>textos/</code>, es verde. Y todo lo demás, amarillo.</p>
+<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. Lo delicado, que de momento es <code>pagos/</code>, <code>admin/</code> y las migraciones, es rojo, porque lo que no se puede deshacer nunca es verde. Lo inocuo, como <code>textos/</code>, es verde. Y todo lo demás lo marcamos amarillo a propósito, porque lo que nadie ha clasificado cuenta como rojo hasta que alguien lo hace.</p>
 <p>Fíjate en cuántas veces te llama cada color. Una puerta abierta es la que en ese color no pide nada:</p>
 <figure data-pieza="puertas"></figure>
 <table>
