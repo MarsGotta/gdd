@@ -1,6 +1,6 @@
 # The GDD skills
 
-You ask your agent for a filter by size in the catalog. One agent writes down with you what has to pass, another builds the checks, a third does the work, and a reviewer that saw none of it runs the change and tries to make it fail. You hear about it when it needs you, and when it's in.
+You ask your agent for a filter by size in the catalog. One agent writes down with you what has to pass, another builds the checks, a third does the work, and a reviewer that heard none of it runs the change and tries to make it fail. You hear about it when it needs you, and when it's in.
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
 
@@ -75,9 +75,9 @@ Then check it's there:
 
 | Agent | Command | What you should see |
 |---|---|---|
-| Claude Code | `claude plugin list` | `gdd@gdd`, version 0.2.0, enabled |
-| Codex | `codex plugin list` | `gdd@gdd`, installed and enabled, 0.2.0 |
-| Antigravity | `agy plugin list` | `gdd (enabled, 0.2.0)`, with 7 skills |
+| Claude Code | `claude plugin list` | `gdd@gdd`, enabled |
+| Codex | `codex plugin list` | `gdd@gdd`, installed and enabled |
+| Antigravity | `agy plugin list` | `gdd`, enabled, with 7 skills |
 
 From a plugin, the names carry its prefix on Claude Code and Codex: `gdd:gdd`, `gdd:gdd-build` and so on. You rarely type them, because `gdd` loads by itself and launches the rest.
 
@@ -120,7 +120,7 @@ gdd/
 Add a filter by size to the catalog
 ```
 
-**What happens.** The orchestrator hands out the work and builds none of it. Whoever writes the checks, whoever builds and whoever reviews each work in a separate agent, which starts knowing nothing of what the others did.
+**What happens.** The orchestrator hands out the work and builds none of it. Whoever writes the checks, whoever builds and whoever reviews each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there.
 
 ```mermaid
 %%{init: {"sequence": {"diagramMarginX": 160, "mirrorActors": false}}}%%

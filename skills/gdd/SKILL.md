@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   contract: gdd/1
 ---
 
@@ -16,6 +16,7 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 1. Read `gdd/blueprint.md`. If there isn't one, the next moment is Prepare.
 2. Read the request, in the person's words.
 3. For a change already under way, read its log. The log says where it stands, not the brief, which has no status. After a compaction too: trust the log and git, not what you remember.
+4. Before a change, create a git ref and delete it. If you can't, stop and say so: nothing can be sealed.
 
 ## The four moments
 
@@ -48,10 +49,10 @@ Two commits anchor every comparison. `<base>` is the commit of the main branch t
 
 Every agent starts with a clean context: a new session or subagent, never this conversation, and never an earlier agent resumed, not even for a fix round. Launch it from your own copy, at the base, because a role loads its skill from where it's launched and a change can edit it, and have it work in a copy of its own: a worktree your environment gives it or, where it gives none, one the role makes itself with `git worktree add`, inside the project's folder, where its tools can write, in a place git ignores.
 
-- **What it gets.** The cross-cutting context (the GDD block of `AGENTS.md` and the constitution, which its environment loads), its skill, named explicitly (`$gdd-build` in Codex, `/gdd-build` or the role's subagent in Claude Code; when the skills came as a plugin, with its prefix, as in `$gdd:gdd-build`), and what its gate needs: the brief, `<base>` and `<start>`, and the context the blueprint gives that gate. In a fix round, also its branch as the last agent left it and what failed. The reviewer gets the log too. The builder never does.
+- **What it gets.** The cross-cutting context (the GDD block of `AGENTS.md` and the constitution, which its environment loads), its skill, named explicitly (`$gdd-build` in Codex, `/gdd-build` or the role's subagent in Claude Code; from a plugin, with its prefix: `$gdd:gdd-build`), and what its gate needs: the brief, `<base>` and `<start>`, and the context the blueprint gives that gate. In a fix round, also its branch as the last agent left it and what failed. The reviewer gets the log too. The builder never does.
 - **What it never gets.** Your conversation. The agent that builds never gets the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.
 - **Its level.** The blueprint's `levels` say which model is each one, and each role runs at the level of the change's color. A `gdd-checks` that stops on a check it can't write gets one more launch, deep. Whenever you can, the reviewer comes from a different model family than the agent that built.
-- **If you can't launch agents,** give the person one line to open the session themselves, with the skill and the brief, or the request when there's none: `$gdd-build gdd/briefs/<id>.md` in Codex, `/gdd-build gdd/briefs/<id>.md` in Claude Code, prefixed the same way from a plugin.
+- **If you can't launch agents,** give the person one line to open the session themselves, with the skill and the brief, or the request when there's none: `$gdd-build gdd/briefs/<id>.md` in Codex, `/gdd-build gdd/briefs/<id>.md` in Claude Code, prefixed from a plugin.
 - **The report is the canary.** Every role ends with a `gdd-report` block. If it's missing, the skill wasn't followed and the step didn't happen: launch it again, naming the skill.
 
 ## The log and the person

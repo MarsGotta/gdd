@@ -1,0 +1,50 @@
+schema_version: "1.1"
+name: no-change-starts-where-git-cant-be-written
+description: The same typo, in a checkout where git rejects every ref update. The orchestrator finds out before anyone builds, stops and tells the person what's missing.
+tags: [orchestrator, green]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    The footer says "Copyrigth". Fix the typo.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: stops-and-says-why
+    type: llm
+    criteria: The answer says that git can't be written to in this project (ref updates are rejected, or its git metadata is read-only), that the change stopped before anyone built it, and what the person has to do for it to go on. It doesn't say the typo is fixed.
+    weight: 3
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 2
+  - name: leaves-the-typo
+    type: regex
+    target: { source: file, path: src/texts/footer.txt }
+    pattern: 'Copyrigth 2026'
+    weight: 2

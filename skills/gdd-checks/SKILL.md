@@ -3,7 +3,7 @@ name: gdd-checks
 description: Writes and seals the checks of a Gate-Driven Development (GDD) gate, from a change's brief or from a zone's gate scenarios. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
   contract: gdd/1
 ---
 
@@ -76,7 +76,7 @@ Checks found already green, and hollow, in real runs:
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
 ```gdd-report
-skill: gdd-checks 0.2.0
+skill: gdd-checks 0.2.1
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

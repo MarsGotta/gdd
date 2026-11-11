@@ -34,10 +34,13 @@ CI doesn't run them: they need a model and they cost money. It runs the two scri
 | `reviewer-finds-a-color-that-rose` | A change briefed as green touched a yellow path: the reviewer gives the new color and leaves its review to another launch |
 | `a-green-change-stays-light` | A typo in a green zone goes through its gates with no brief file, no seal and no checks agent |
 | `a-path-no-zone-covers-is-asked-about` | A new file where no zone reaches: the orchestrator asks once and builds nothing |
+| `no-change-starts-where-git-cant-be-written` | The same typo, with a `.git` nobody can write to: the orchestrator finds out before anyone builds, stops and names what's missing |
 
 ## The project they run in
 
 `fixtures/shop.sh` builds a small shop already prepared for GDD: its blueprint, its constitution and, for the role cases, one change under way with its brief, its seal and its log. Run it by hand to look at one: `bash evals/fixtures/shop.sh review /tmp/shop`.
+
+One case takes the write permission off the shop's `.git`. The tool can't delete a workspace like that, so each of its runs leaves one folder in the system's temporary directory.
 
 A run doesn't load the `AGENTS.md` of its workspace, so each case gives its agent the GDD block in its system prompt, as an environment would. `scripts/check_skills.py` checks that it's the block of the contract.
 
@@ -45,7 +48,7 @@ No grader runs code. A case checks the last message, the tools that were used an
 
 ## What they cost and what they found
 
-All the passes so far cost 11.44 USD, with the light model for the judges. With the standard model, a role case takes about half a minute and 0.10 USD a run, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
+All the passes so far cost 13.80 USD, with the light model for the judges. With the standard model, a role case takes about half a minute and 0.10 USD a run, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
 
 With the standard model and three runs each, every case passes three times out of three except the green change, where the color reached the log before anyone built in two runs out of three. The twenty requests pass on the three levels, once each.
 
