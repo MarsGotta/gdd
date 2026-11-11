@@ -25,7 +25,7 @@ flowchart LR
 
 ## Try it in your project
 
-1. **Install the skills** in your agent, with [one command](skills/README.md#1-install-the-skills) on Claude Code, Codex or Antigravity.
+1. **Install the skills** in your agent, with [a command or two](skills/README.md#1-install-the-skills) on Claude Code, Codex or Antigravity.
 2. **Ask it to set GDD up.** You decide together what is delicate in your project and which gates it needs.
 3. **Ask for a change,** in your own words, and it goes through its gates before it reaches your main branch.
 
