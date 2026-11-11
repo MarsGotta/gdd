@@ -16,8 +16,35 @@
 </table>
 <p>Whoever builds the checks, whoever builds the change and whoever reviews it each work in a separate agent, which starts knowing nothing of what the others did. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
 <h2 id="instalar">How to install them</h2>
-<p>Copy the seven folders from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into your agent's skills folder: its README says which one that is for each agent. Then ask your agent to set GDD up, or ask it for a change. The first thing it will do is sit down with you to decide what is delicate in your project and which gates it needs.</p>
-<p>That same repository holds the tests the skills are checked with, run with a real model.</p>
+<p>You need a git repository and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin with no code.</p>
+<p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>
+<pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
+<p>On Codex it takes two steps in the terminal: you add the GDD repository as a source of plugins and install it from there.</p>
+<pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
+<p>On Antigravity you clone the repository and install the plugin from its folder.</p>
+<pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
+<p>If you'd rather keep them inside your project, copy the seven folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
+<p>To find out whether they're in, each agent has its own command:</p>
+<table>
+<thead><tr><th>Agent</th><th>Command</th><th>What you should see</th></tr></thead>
+<tbody>
+<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, enabled.</td></tr>
+<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, installed and enabled.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 7 skills.</td></tr>
+</tbody>
+</table>
+<h2 id="empezar">The first thing you ask for</h2>
+<p>With the skills in, ask your agent to set GDD up in your project. There's no command to remember, because <code>gdd</code> loads by itself. That first conversation is with you and needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
+<ol>
+<li>It proposes the zones of your project and the gates of each one, and you correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
+<li>It sets up the protections and tries them. From the environment the building agent will work in, it tries four things, pushing to the main branch among them, and watches each one fail.</li>
+<li>Your team approves the blueprint, with a commit or a pull request from a person, never from an agent.</li>
+<li>Another agent builds the checks of each zone and a reviewer tries to fool them. No change starts in a zone until its gates are on the main branch.</li>
+</ol>
+<p>From there you ask for each change in your own words, and you hear about it when your approval is needed and when it's in. Every step, with what you say, what happens and what you end up with, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
+<h2 id="probado">How far they've been tried</h2>
+<p>Installing them has been tried on the three agents. A whole change, with the orchestrator handing out the work, has only been tried on Claude Code, with the repository's tests and a real model, and those tests don't cover the seven skills yet.</p>
+<p>Tried on 11 November 2026 with Claude Code 2.1.319, Codex CLI 0.166.0 and Antigravity (<code>agy</code> 1.4.2). Claude Code needs version 2.1.275 or later. The versions they keep being tried with are in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
 <h2 id="repositorio">What they leave in your repository</h2>
 <p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates of each zone written as scenarios, the brief of each change and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>

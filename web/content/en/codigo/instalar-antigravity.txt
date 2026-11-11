@@ -1,0 +1,2 @@
+git clone https://github.com/MarsGotta/gdd
+agy plugin install gdd

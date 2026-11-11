@@ -173,8 +173,10 @@ for (const [ruta, html] of Object.entries(paginas)) {
   $('script, style').remove();
   $('.tutorial code').remove(); // the piece shows code literally, and a function can return undefined
   const visible = `${$('body').text()} ${cabeza}`;
+  // "Claude Code" names an agent the skills install in. "Claude" on its own stays out.
+  const sinAgente = visible.replaceAll('Claude Code', '');
   for (const marca of ['—', '–', 'Claude', 'undefined', 'NaN', 'lorem']) {
-    if (visible.includes(marca)) fallos.push(`${ruta}: contiene "${marca}"`);
+    if (sinAgente.includes(marca)) fallos.push(`${ruta}: contiene "${marca}"`);
   }
   if (/data-claude/.test(html)) fallos.push(`${ruta}: quedan atributos internos`);
   const attrs = html.match(/(alt|title|aria-label|content|placeholder)="[^"]*"/g) || [];

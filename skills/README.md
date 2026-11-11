@@ -289,7 +289,7 @@ Without an engine, the agent not touching what judges it is a rule: the skills t
 | | Claude Code | Codex | Antigravity |
 |---|---|---|---|
 | Installs as a plugin | Yes | Yes | Yes |
-| A role's skill stays out of the other agents | One subagent per role, which preloads its skill | It loads only when it's named, as in `$gdd:gdd-build` | No: the seven are offered to the model |
+| What keeps a role's skill for its role | Its description, and one subagent per role that preloads it | It loads only when it's named, as in `$gdd:gdd-build` | Its description: the seven are offered to the model |
 | A whole change, run by the orchestrator | Tried with a real model, in [`evals/`](../evals/) | Not tried from the plugin yet | Not tried yet |
 
 The mapping of each role to its skill is in [adapters/](adapters/).

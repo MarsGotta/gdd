@@ -1,0 +1,1 @@
+/plugin install gdd --marketplace MarsGotta/gdd

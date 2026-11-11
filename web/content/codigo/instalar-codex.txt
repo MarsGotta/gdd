@@ -1,0 +1,2 @@
+codex plugin marketplace add MarsGotta/gdd
+codex plugin add gdd@gdd

@@ -16,8 +16,35 @@
 </table>
 <p>Quien fabrica las comprobaciones, quien construye y quien revisa trabajan cada uno en un agente distinto, que empieza sin saber nada de lo que hicieron los otros. Así el vigilante juzga el cambio que tiene delante, sin haber oído cómo se hizo (<a href="doc:las-piezas">Las piezas y los roles</a>).</p>
 <h2 id="instalar">Cómo se instalan</h2>
-<p>Copia las siete carpetas del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> en la carpeta de skills de tu agente: su README dice cuál es en cada uno. Después pídele a tu agente que prepare GDD, o pídele un cambio. Lo primero que hará es sentarse contigo a decidir qué es delicado en tu proyecto y qué puertas necesita.</p>
-<p>En ese mismo repositorio están las pruebas con que se comprueban las skills, hechas con un modelo real.</p>
+<p>Necesitas un repositorio de git y un agente que cargue skills. En tres de ellos, Claude Code, Codex y Antigravity, las siete entran de una vez, como un plugin sin código.</p>
+<p>En Claude Code lo escribes dentro del agente. Trae también tres subagentes, uno por cada papel que trabaja en un agente propio.</p>
+<pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
+<p>En Codex son dos pasos en la terminal: añades el repositorio de GDD como origen de plugins y lo instalas desde él.</p>
+<pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
+<p>En Antigravity clonas el repositorio e instalas el plugin desde su carpeta.</p>
+<pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
+<p>Si prefieres tenerlas dentro de tu proyecto, copia las siete carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex.</p>
+<p>Para saber si han entrado, cada agente tiene su comando:</p>
+<table>
+<thead><tr><th>Agente</th><th>Comando</th><th>Lo que deberías ver</th></tr></thead>
+<tbody>
+<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, activo.</td></tr>
+<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, instalado y activo.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, activo, con 7 skills.</td></tr>
+</tbody>
+</table>
+<h2 id="empezar">Lo primero que le pides</h2>
+<p>Con las skills dentro, pídele a tu agente que prepare GDD en tu proyecto. No hay ningún comando que recordar, porque <code>gdd</code> se carga sola. Esa primera conversación es contigo y pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
+<ol>
+<li>Te propone las zonas de tu proyecto y las puertas de cada una, y tú corriges lo que no encaje. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
+<li>Monta las protecciones y las prueba. Desde el entorno donde trabajará el agente que construye intenta cuatro cosas, subir a la rama principal entre ellas, y mira cómo falla cada una.</li>
+<li>Tu equipo aprueba el plano, con un commit o una pull request de una persona, nunca de un agente.</li>
+<li>Otro agente fabrica las comprobaciones de cada zona y un vigilante intenta engañarlas. Ningún cambio empieza en una zona hasta que sus puertas están en la rama principal.</li>
+</ol>
+<p>Desde ahí pides cada cambio con tus palabras, y te enteras cuando hace falta tu aprobación y cuando ha entrado. Cada paso, con lo que dices, lo que pasa y con qué te quedas, está en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>, que está en inglés.</p>
+<h2 id="probado">Hasta dónde están probadas</h2>
+<p>La instalación está probada en los tres agentes. Un cambio entero, con el orquestador repartiendo el trabajo, solo lo está en Claude Code, con las pruebas del repositorio y un modelo real, y esas pruebas todavía no cubren las siete skills.</p>
+<p>Probado el 11 de noviembre de 2026 con Claude Code 2.1.319, Codex CLI 0.166.0 y Antigravity (<code>agy</code> 1.4.2). En Claude Code hace falta la versión 2.1.275 o una posterior. Las versiones con que se van probando están en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>.</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
 <p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas de cada zona escritas como escenarios, el encargo de cada cambio y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>
