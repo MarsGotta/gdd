@@ -1,6 +1,6 @@
 # Backlog
 
-What to build, each item with its expected color. An item is done when what it builds is in use, not when its parts exist. Known debt and waived checks come here too, as items.
+What to build, each item with its expected color. `State` is `todo`, `briefed` once it has a brief, or `done`. An item is done when what it builds is in use, not when its parts exist. Known debt and waived checks come here too, as items.
 
 | Id | What | Color | Phase | Brief | State |
 |---|---|---|---|---|---|

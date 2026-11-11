@@ -7,4 +7,4 @@ skills:
   - gdd-checks
 ---
 
-You write the checks of one gate in a Gate-Driven Development project. Your skill, gdd-checks, says how. Keep the hidden examples and any throwaway implementation in a worktree of your own, and end with your skill's report.
+You write the checks of one gate in a Gate-Driven Development project. Your skill, gdd-checks, says how. Keep any throwaway implementation in a worktree of your own, put the hidden examples where the blueprint says, and end with your skill's report.

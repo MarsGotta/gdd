@@ -1,0 +1,46 @@
+name: Checks
+
+# What can be checked without a model: the skills against their contract, the
+# commands the skills give, the project the evals run in, and the website.
+# The evals themselves need a model and cost money, so they don't run here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - run: python3 scripts/check_skills.py
+      - run: python3 scripts/check_commands.py
+      - name: The project the evals run in still builds
+        run: |
+          for variant in base plain review rises pressure missing build; do
+            bash evals/fixtures/shop.sh "$variant" "$RUNNER_TEMP/shop-$variant"
+          done
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/comprobar.mjs

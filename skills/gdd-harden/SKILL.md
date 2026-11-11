@@ -1,15 +1,15 @@
 ---
 name: gdd-harden
-description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating. Loaded by the GDD orchestrator, with the person, when a failure reaches the main branch or production, when a reviewer catches what the machine checks passed, or when the logs show the same failure coming back. Not for fixing the failure itself.
+description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when a reviewer catches what the machine checks passed, or when the logs show the same one coming back. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   contract: gdd/1
 ---
 
 # Hardening
 
-Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Over time, the method interrupts the person less. This runs deep.
+Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. You do it yourself, as the orchestrator, with the person, and it needs the deep level.
 
 ## What counts
 
@@ -32,19 +32,28 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 ## What you propose
 
 - **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it.
-- **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings. If no machine can, its scenario is tagged with the reviewer check, and it becomes a question on the reviewer's exam.
+- **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
+- **A removal,** with the same evidence as an addition. When a gate has gone without catching anything for as long as the blueprint says would make the team simplify, propose retiring it: how often it ran, what it caught, and what it would let through from then on.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.
 
-The person approves the change to the blueprint. Then `gdd-checks` builds the check, and `gdd-review` tries to fool it before it counts. Fixing the failure itself is a normal change, through `gdd-brief`.
+You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs. Then `gdd-checks` builds the check, and `gdd-review` tries to fool it before it counts. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
 
 ## The reviewer's exam
 
-Every confirmed failure that slipped through becomes a question on the reviewer's exam: its scenario in the zone's gates. When the reviewer's model, its instructions or its tools change, run the whole exam through it again. If its score drops, the change doesn't stay, because catching real failures counts for more than saving rounds.
+Every confirmed failure that got past a reviewer becomes a question, in two places. Its scenario, tagged with the reviewer's check in the zone's gates, is asked of every later change there. And the change that carried it goes to `gdd/exam.md` (`assets/exam.md`), as the two commits of the main branch it shipped between, so it can be shown to a reviewer again.
+
+Run the exam when the reviewer's model, its instructions or its tools change, and once before that, to have a mark to compare with. For each row, launch `gdd-review` on a fresh clone at the row's `To`, with its `From` as `<start>` and the brief that change had, and nothing that tells it this is an exam. It catches the question when its verdict isn't `pass` and it names what the row says. Keep a good change or two among the rows, which it has to pass: a reviewer that rejects everything would get full marks. Write an `exam` step to `gdd/log/blueprint.jsonl`, with who was examined, how many it caught and which it missed. If the new reviewer catches fewer than the one it replaces, the change of reviewer doesn't stay, because catching real failures counts for more than saving rounds.
 
 ## Reading the logs
 
-When asked, or now and then, read `gdd/log/` to compare the project with itself:
+When asked, or now and then, read `gdd/log/` to compare the project with itself. Count before you read: the counts come from `grep`, and you open only the logs that stand out.
+
+- `grep -cE '"event": ?"ask"' gdd/log/*.jsonl`: how often each change stopped a person.
+- `grep -lE '"verdict": ?"fix"' gdd/log/*.jsonl`: the changes a reviewer sent back.
+- `grep -hoE '"outcome": ?"[a-z]*"' gdd/log/*.jsonl | sort | uniq -c`: how the reviewers' findings ended.
+
+What to look for:
 
 - **Per gate:** how often it fires, how many of those were real failures, what slipped past it and what it costs. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
@@ -63,16 +72,4 @@ Retiring a gate that no longer adds anything, dropping an approval a color asked
 
 - In the T-minus pilot, the same tests failed now and then without anything changing, and the gate rejected good changes for it. A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
-## Report
-
-End your last message with this block, filled in. `result` is `proposed` or `approved`.
-
-```gdd-report
-skill: gdd-harden 0.1.0
-level: <light, standard or deep>
-rounds: <how many rounds it took>
-result: <what it leaves, in a word or two>
-caught: <what it caught that others missed, or none>
-seconds: <the time, if its environment gives it, or unknown>
-tokens: <the tokens, if its environment gives them, or unknown>
-```
+When you close, write the `harden` step to `gdd/log/blueprint.jsonl`, with the change that let the failure through: its `result` is `proposed` or `approved`.

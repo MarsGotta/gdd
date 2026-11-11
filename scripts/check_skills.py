@@ -11,15 +11,26 @@ Usage:
                                             installed
 
 What it checks:
-  - every asset is identical to its template in skills/CONTRACT.md, and every
-    skill ends with the report block of the contract;
+  - every asset is identical to its template in skills/CONTRACT.md, the three
+    roles that run as their own agent end with the report block of the
+    contract, and the skills the orchestrator runs itself carry none;
+  - the command of the seal check is the same in the contract, in the
+    blueprint's template and in gdd-review;
   - each SKILL.md has front matter that parses as YAML (this needs PyYAML, and
     without it the check fails instead of passing unchecked), a name equal to
     its folder, a description in the third person, the MIT license, a version
     and the contract gdd/1;
   - the sizes of decision 19 of skills/DESIGN.md: gdd-build about 200 words,
-    the GDD block of AGENTS.md under 100, every other SKILL.md under 500 lines;
+    the GDD block of AGENTS.md under 100, every SKILL.md under 500 lines and
+    14,000 bytes, and under 400 characters of description for every skill
+    but gdd, the only one that is found by its description;
   - no skill ships scripts, and only gdd can be invoked implicitly in Codex;
+  - the GDD block the eval cases give their agents is the one of the contract;
+  - what the contract names reaches the skills, and the other way round: every
+    file of the contract, every check of the blueprint and every event and
+    step of the log is named in some SKILL.md, the orchestrator knows the
+    markers the roles answer with, and no skill names a gdd/ path the
+    contract doesn't have;
   - every file a SKILL.md points to exists, shared references are identical,
     and no file has a long or medium dash.
 
@@ -34,13 +45,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
+EVALS = ROOT / "evals"
 CONTRACT = SKILLS / "CONTRACT.md"
 ROLES = ["gdd-prepare", "gdd-brief", "gdd-checks", "gdd-build", "gdd-review", "gdd-harden"]
 ALL = ["gdd"] + ROLES
+LAUNCHED = ["gdd-checks", "gdd-build", "gdd-review"]
 SHARED = [("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md")]
 BUILD_WORDS = 230
 BLOCK_WORDS = 100
 MAX_LINES = 500
+MAX_BYTES = 14_000  # an agent keeps the first 20,000 characters of a skill after a compaction: this leaves room
+DESCRIPTION_CHARS = 400
+SEAL = re.compile(r"git diff --exit-code <start> HEAD -- [^`\n\"]+")
 NO_YAML = (
     "scripts/check_skills.py: PyYAML is missing, so no front matter was checked as YAML. "
     "Run it as: uv run --with pyyaml python3 scripts/check_skills.py"
@@ -140,6 +156,8 @@ def main():
         description = fields.get("description", "")
         if not description or len(description) > 1024:
             problem(skill, "the description is missing or longer than 1024 characters", 3)
+        if name != "gdd" and len(description) > DESCRIPTION_CHARS:
+            problem(skill, f"a description of {len(description)} characters, the limit is {DESCRIPTION_CHARS}", 3)
         if re.search(r"\b(you|your)\b", description, re.I) or re.match(r"(Use|Load|Run)\b", description):
             problem(skill, "the description isn't in the third person", 3)
         if fields.get("license") != "MIT":
@@ -152,15 +170,20 @@ def main():
 
         block = report_block(body)
         expected = found.get("report", "").replace("<skill> <version>", f"{name} {version}")
-        if name != "gdd":
+        if name in LAUNCHED:
             if block is None:
                 problem(skill, "doesn't end with the gdd-report block")
             elif block != expected:
                 problem(skill, "its gdd-report block differs from the one in skills/CONTRACT.md")
+        elif block is not None:
+            problem(skill, "has a gdd-report block, and the orchestrator runs this skill itself")
 
         lines = skill.read_text(encoding="utf-8").count("\n")
         if lines >= MAX_LINES:
             problem(skill, f"{lines} lines, the limit is {MAX_LINES}")
+        size = skill.stat().st_size
+        if size > MAX_BYTES:
+            problem(skill, f"{size} bytes, the limit is {MAX_BYTES}")
         if name == "gdd-build":
             prose = re.sub(r"```gdd-report\n.*?\n```", "", body, flags=re.S)
             count = words(prose)
@@ -184,6 +207,62 @@ def main():
     count = words(re.sub(r"<!--.*?-->", "", block))
     if count >= BLOCK_WORDS:
         problem("skills/gdd-prepare/assets/agents-block.md", f"{count} words, the limit is {BLOCK_WORDS}")
+
+    commands = {}
+    for path in (CONTRACT, SKILLS / "gdd-prepare/assets/blueprint.md", SKILLS / "gdd-review/SKILL.md"):
+        if path.is_file():
+            commands[path] = {match.group(0).strip() for match in SEAL.finditer(path.read_text(encoding="utf-8"))}
+    wanted = commands.get(CONTRACT, set())
+    if len(wanted) != 1:
+        problem(CONTRACT, f"gives {len(wanted)} commands for the seal check, and there must be one")
+    for path, got in commands.items():
+        if got != wanted:
+            problem(path, "its command for the seal check differs from the one in skills/CONTRACT.md")
+
+    block_lines = [line.strip() for line in re.sub(r"<!--.*?-->", "", block).splitlines() if line.strip()]
+    carriers = sorted(EVALS.rglob("case.yaml")) + [EVALS / "fixtures" / "shop.sh"] if EVALS.is_dir() else []
+    for path in carriers:
+        if not path.is_file() or "## GDD" not in path.read_text(encoding="utf-8"):
+            continue  # a case about a project without GDD carries no block
+        text = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+        missing = [line for line in block_lines if line not in text]
+        if missing:
+            problem(path, f"its GDD block differs from the one in skills/CONTRACT.md: {missing[0][:60]!r} is missing")
+
+    contract = CONTRACT.read_text(encoding="utf-8")
+    installed = {}
+    for name in ALL:
+        folder = SKILLS / name
+        installed[name] = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(folder.rglob("*"))
+            if path.is_file() and path.suffix in {".md", ".feature", ".jsonl"}
+        )
+    everything = "\n".join(installed.values())
+    files = sorted(set(re.findall(r"^\| `((?:gdd|features)/[^`<]*)", contract, re.M)))
+    blueprint = found.get("gdd-prepare/assets/blueprint.md", "")
+    checks = sorted(set(re.findall(r"^  - id: ([a-z-]+)$", blueprint, re.M)))
+    log = found.get("gdd/assets/log-events.jsonl", "")
+    steps = sorted(set(re.findall(r'"step":"([a-z]+)"', log)))
+    events = sorted(set(re.findall(r'"event":"([a-z]+)"', log)) - {"step"})
+    prose = "\n".join((SKILLS / name / "SKILL.md").read_text(encoding="utf-8") for name in ALL)
+    examples = {"tests", "lint"}  # checks of the template that stand for a project's own, not the method's
+    for kind, names in (("file", files), ("check", [c for c in checks if c not in examples])):
+        for item in names:
+            if f"`{item}" not in prose:
+                problem(CONTRACT, f"the {kind} `{item}` of the contract is named in no SKILL.md")
+    for kind, names in (("step", steps), ("event", events)):
+        for item in names:
+            if not re.search(rf"\b{item}\b", prose, re.I):
+                problem(CONTRACT, f"the {kind} `{item}` of the log is named in no SKILL.md")
+    orchestrator = installed.get("gdd", "")
+    for marker in ("CANNOT:", "COLOR:", "gdd-report", "`pass`", "`fix`", "`stop`"):
+        if marker not in orchestrator:
+            problem(SKILLS / "gdd" / "SKILL.md", f"doesn't know the marker {marker}, which the roles answer with")
+    for name in ALL:
+        for path in sorted(set(re.findall(r"`(gdd/[a-z]+(?:\.md)?)[/`]", installed[name]))):
+            if path not in contract:
+                problem(SKILLS / name / "SKILL.md", f"names `{path}`, which the contract doesn't have")
 
     for first, second in SHARED:
         a, b = SKILLS / first, SKILLS / second

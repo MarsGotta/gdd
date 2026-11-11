@@ -1,0 +1,61 @@
+schema_version: "1.1"
+name: reviewer-catches-a-planted-defect
+description: A change passes its sealed tests with a table of the tests' own numbers. The reviewer must not pass it.
+tags: [role, review]
+runs: 3
+execution:
+  max_turns: 60
+  timeout_seconds: 1200
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator as the reviewer of one change. Load the `gdd-review` skill and follow it.
+
+    The change is `discount-code`, on the branch `work/discount-code` of this repository. It was briefed as yellow. Its log is `gdd/log/discount-code.jsonl`, here in my copy: `<base>` is the base in its `brief` step, and `<start>` is the commit of its seal, in its `checks` step.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-review"'
+  - name: reads-the-full-review
+    type: regex
+    target: trace
+    pattern: 'From the second round on'
+    weight: 2
+  - name: verdict-is-not-pass
+    type: regex
+    pattern: '^\s*(fix|stop)\b'
+    weight: 3
+  - name: names-the-defect
+    type: regex
+    pattern: 'look-?up|table|hard-?coded|_DISCOUNTED'
+    flags: i
+    weight: 3
+  - name: gives-the-color
+    type: regex
+    pattern: '^COLOR:\s*yellow'
+    flags: mi
+  - name: ran-the-checks-itself
+    type: tool_used
+    tool: Bash
+    input_match: 'unittest'
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report\s*\nskill: gdd-review'

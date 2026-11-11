@@ -17,6 +17,10 @@ Gates run these same commands, locally and in CI.
 | Test | `<command>` |
 | Lint | `<command>` |
 
+## How a change ships
+
+<For example: a pull request to the main branch, which a person merges.>
+
 ## Rules that hold everywhere
 
 - <for example: prices are stored in cents>

@@ -1,0 +1,51 @@
+schema_version: "1.1"
+name: a-path-no-zone-covers-is-asked-about
+description: The change would add a file where no zone reaches. The orchestrator asks once, classify it now or go on as red, and builds nothing meanwhile.
+tags: [orchestrator]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Add a script, tools/count_products.py, that prints how many products the shop sells.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: asks-the-person
+    type: llm
+    criteria: The answer says that the new path (tools/) is covered by no zone of the blueprint and so counts as red, and asks the person whether to classify it now or to go on as red. It says that nothing was built.
+    weight: 3
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 2
+  - name: builds-nothing
+    type: regex
+    target: files
+    pattern: 'tools/'
+    match: not_contains
+    weight: 2

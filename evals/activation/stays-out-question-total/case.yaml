@@ -1,0 +1,37 @@
+schema_version: "1.1"
+name: gdd-stays-out-question-total
+description: A request the entry skill is not for. It must not load.
+tags: [activation, stays-out]
+runs: 3
+execution:
+  max_turns: 6
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Skill]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    How is the total of a cart calculated in this project? I only want to understand it, don't change anything.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: does-not-load-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+    min: 0
+    max: 0
+    arm: both

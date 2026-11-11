@@ -1,0 +1,35 @@
+schema_version: "1.1"
+name: gdd-loads-typo
+description: A request that changes the project, or asks how a change stands. The entry skill has to load.
+tags: [activation, loads]
+runs: 3
+execution:
+  max_turns: 6
+  timeout_seconds: 300
+  allowed_tools: [Read, Glob, Grep, Skill]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    The footer says "Copyrigth". Fix the typo.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+    arm: both

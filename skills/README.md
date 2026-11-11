@@ -1,13 +1,13 @@
 # Skills
 
-Skills for your coding agent, so you can try GDD in your own project before T-minus is ready. This is their first version. What was decided about them, and why, is in [DESIGN.md](DESIGN.md), and what they leave in your repository is in [CONTRACT.md](CONTRACT.md).
+Skills for your coding agent, so you can try GDD in your own project before T-minus is ready. This is version 0.2: the scenarios in [`evals/`](../evals/) try them with a real model, and they don't cover every skill yet. What was decided about them, and why, is in [DESIGN.md](DESIGN.md), and what they leave in your repository is in [CONTRACT.md](CONTRACT.md).
 
 | Skill | Who loads it | Moment |
 |---|---|---|
 | `gdd` | The orchestrator, on its own, when you ask for any change | All four |
 | `gdd-prepare` | The orchestrator, with you | Prepare |
 | `gdd-brief` | The orchestrator | Brief |
-| `gdd-checks` | Another agent, never the one that builds | Brief and Execute |
+| `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden |
 | `gdd-build` | The agent that goes through the gate | Execute |
 | `gdd-review` | The reviewer, with a clean context | Execute |
 | `gdd-harden` | The orchestrator, with you | Harden |
@@ -20,4 +20,4 @@ They install nothing and run nothing of their own: they use what your project al
 
 ## Keeping them in line
 
-`python3 scripts/check_skills.py`, from the root of this repository, checks that every skill's templates match the contract and that each skill keeps to its design. It's for this repository: your project doesn't need it.
+`python3 scripts/check_skills.py`, from the root of this repository, checks that every skill's templates match the contract and that each skill keeps to its design. `python3 scripts/check_commands.py` runs the git commands the skills give in a throwaway repository. And [`evals/`](../evals/) holds scenarios that check, with a real model, how an agent behaves with the skills. All of it is for this repository: your project doesn't need it.

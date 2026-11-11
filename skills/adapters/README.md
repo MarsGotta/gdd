@@ -10,4 +10,4 @@ They don't keep the builder away from what judges it. Claude Code has no permiss
 
 ## Codex
 
-There's nothing to copy. Each role's skill carries `agents/openai.yaml` with `allow_implicit_invocation: false`, so it loads only when it's named, as in `$gdd-build`.
+There's nothing to copy. Each role's skill carries `agents/openai.yaml` with `allow_implicit_invocation: false`, so it loads only when it's named, as in `$gdd-build`. The orchestrator reaches the three skills it runs itself (`gdd-prepare`, `gdd-brief` and `gdd-harden`) by opening their files, which sit next to its own. Both were tried with Codex CLI 0.166.0.

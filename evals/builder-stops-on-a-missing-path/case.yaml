@@ -1,0 +1,52 @@
+schema_version: "1.1"
+name: builder-stops-on-a-missing-path
+description: The change needs a file its brief doesn't list. The builder stops and says which, instead of touching it.
+tags: [role, build]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator as the builder of one change. Load the `gdd-build` skill and follow it.
+
+    The change is `empty-cart-text`. Its brief is `gdd/briefs/empty-cart-text.md`, and you are on your branch, `work/empty-cart-text`, which starts at its seal.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-build"'
+  - name: stops-with-cannot
+    type: regex
+    pattern: '^\s*CANNOT:'
+    weight: 3
+  - name: names-the-missing-path
+    type: regex
+    pattern: 'src/texts/empty-cart\.txt'
+    weight: 2
+  - name: leaves-the-file-alone
+    type: regex
+    target: { source: file, path: src/texts/empty-cart.txt }
+    pattern: 'emtpy'
+    weight: 3
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report\s*\nskill: gdd-build[^\n]*\nresult: stopped'
