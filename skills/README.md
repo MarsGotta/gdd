@@ -24,6 +24,22 @@ On Claude Code 2.1.275 or later you can install them as a plugin instead, in one
 
 It brings the seven skills and the three subagents, under the names `gdd:gdd`, `gdd:gdd-build` and so on, and it updates when this repository does. It carries no code.
 
+On Codex, add this repository as a marketplace and install the plugin from it:
+
+```
+codex plugin marketplace add MarsGotta/gdd
+codex plugin add gdd@gdd
+```
+
+On Antigravity, clone this repository and install the plugin from its folder:
+
+```
+git clone https://github.com/MarsGotta/gdd
+agy plugin install gdd
+```
+
+Both bring the seven skills and nothing else. Each agent reads its own manifest: `.claude-plugin/`, `.codex-plugin/` with `.agents/plugins/marketplace.json`, and `.antigravity-plugin/`.
+
 They install nothing and run nothing of their own: they use what your project already has.
 
 ## Keeping them in line

@@ -1,0 +1,33 @@
+{
+  "name": "gdd",
+  "version": "0.2.0",
+  "description": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it and harden what slipped through.",
+  "author": {
+    "name": "Marcela Gotta",
+    "url": "https://gate-driven.dev"
+  },
+  "homepage": "https://gate-driven.dev",
+  "repository": "https://github.com/MarsGotta/gdd",
+  "license": "MIT",
+  "keywords": [
+    "gdd",
+    "gates",
+    "agents",
+    "testing",
+    "review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Gate-Driven Development",
+    "shortDescription": "Gates your agent has to get through",
+    "longDescription": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it and harden what slipped through. They install nothing and run nothing of their own: they use what your project already has.",
+    "developerName": "Marcela Gotta",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://gate-driven.dev",
+    "defaultPrompt": [
+      "Set GDD up in this project",
+      "Make this change with GDD"
+    ]
+  }
+}
