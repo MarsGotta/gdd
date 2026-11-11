@@ -21,8 +21,12 @@ flowchart LR
     P --> B --> E --> M
     M -. "something slipped through" .-> H
     H -. "one more check" .-> E
+    %% An empty node keeps the right side free: GitHub draws its zoom buttons there
+    H ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
+    classDef room fill:none,stroke:none,color:transparent
     class P,H you
+    class Z room
 ```
 
 Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and you step in only where your blueprint says a person approves. Harden is for the day something gets past every gate, so that what it would have taken to catch it stays as a check.
@@ -119,6 +123,7 @@ Add a filter by size to the catalog
 **What happens.** The orchestrator hands out the work and builds none of it. Whoever writes the checks, whoever builds and whoever reviews each work in a separate agent, which starts knowing nothing of what the others did.
 
 ```mermaid
+%%{init: {"sequence": {"diagramMarginX": 160, "mirrorActors": false}}}%%
 sequenceDiagram
     accTitle: Who does what in one change
     accDescr: You ask the orchestrator for a change. It briefs it, a second agent writes and seals the checks, a third builds, the orchestrator runs the gates, and a reviewer with a clean context gives its verdict. You approve where your blueprint asks for a person.
@@ -183,24 +188,19 @@ gdd/log/<id>.jsonl               everything that happened, one event per line, w
 ### What each color asks for
 
 ```mermaid
-flowchart TB
+%%{init: {"flowchart": {"rankSpacing": 30}}}%%
+flowchart LR
     accTitle: What each color asks for, in the blueprint's template
     accDescr: Green asks for the seal, the tests and the linter. Yellow adds your approval of the brief before anyone builds, and a reviewer. Red adds mutation testing and your review of the change at the end.
-    subgraph G["Green: the text of a button"]
-        direction LR
-        g1["seal"] --> g2["tests"] --> g3["lint"]
-    end
-    subgraph Y["Yellow: a filter by size"]
-        direction LR
-        y0(["brief-approval"]) --> y1["seal"] --> y2["tests"] --> y3["lint"] --> y4["review"]
-    end
-    subgraph R["Red: the payment gateway"]
-        direction LR
-        r0(["brief-approval"]) --> r1["seal"] --> r2["tests"] --> r3["lint"] --> r4["mutation"] --> r5["review"] --> r6(["person-review"])
-    end
-    G ~~~ Y ~~~ R
+    G["Green<br/>the text of a button"] ~~~ g0["brief-approval"] ~~~ g1["seal"] --> g2["tests"] --> g3["lint"]
+    Y["Yellow<br/>a filter by size"] ~~~ y0(["brief-approval"]) --> y1["seal"] --> y2["tests"] --> y3["lint"] ---> y5["review"]
+    R["Red<br/>the payment gateway"] ~~~ r0(["brief-approval"]) --> r1["seal"] --> r2["tests"] --> r3["lint"] --> r4["mutation"] --> r5["review"] --> r6(["person-review"])
+    %% Two empty nodes: g0 lines Green's checks up with the others, Z keeps the right side free for GitHub's zoom buttons
+    r6 ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
+    classDef room fill:none,stroke:none,color:transparent
     class y0,r0,r6 you
+    class g0,Z room
     style G fill:none,stroke:#2da44e,stroke-width:2px
     style Y fill:none,stroke:#bf8700,stroke-width:2px
     style R fill:none,stroke:#cf222e,stroke-width:2px
@@ -223,8 +223,12 @@ flowchart LR
     P --> A(["You<br/>approve it"])
     A --> K["The check is built,<br/>and tried"]
     K --> E(["Every later<br/>change passes it"])
+    %% An empty node keeps the right side free: GitHub draws its zoom buttons there
+    E ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
+    classDef room fill:none,stroke:none,color:transparent
     class A you
+    class Z room
 ```
 
 1. **Someone who knows that part of the product confirms it.** The failure is real, and this is where it was.

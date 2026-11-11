@@ -15,8 +15,12 @@ flowchart LR
     A --> G{"The gate"}
     G -- "its checks pass" --> M(["Your main branch"])
     G -- "a check fails" --> A
+    %% An empty node keeps the right side free: GitHub draws its zoom buttons there
+    M ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
+    classDef room fill:none,stroke:none,color:transparent
     class Y you
+    class Z room
 ```
 
 ## Try it in your project
