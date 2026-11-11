@@ -103,7 +103,7 @@ Gates run these same commands, locally and in CI.
 The front matter is what agents read; the diagram and the table are for the person. Its fields:
 
 - `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
-- `levels`: which model the project uses for each level. The skills never name one.
+- `levels`: which model the project uses for each level, by the name its agents' environment launches it with. The skills never name one.
 - `limits`: fix rounds per gate, and the caps of a whole change. `fix_rounds_per_gate` is how many times the machine checks, and how many times the review, may send a change back to the builder, and `rounds_per_change` how many times it may be sent back in all, a `CANNOT:` and a color that rose included. Minutes count from the first event of its log, without the time it waits for a person (from an `ask` to the event that answers it). Lines are the builder's, `git diff --shortstat <start> HEAD`. The template's values are provisional, a place to start from: the team sets its own when preparing, and corrects them with what its logs show. The cap on tokens has no default, and applies only where the agents' environment reports them.
 - `checks`: every check a gate can ask for, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change.
 - `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
@@ -118,7 +118,7 @@ Anything no zone covers counts as red until the person classifies it. That rule 
 ---
 contract: gdd/1
 guarantee: <rule, platform or engine>
-levels:
+levels:  # each one, a model by the name the agents' environment launches it with
   light: <model for little reasoning, cheap and fast>
   standard: <model for normal reasoning>
   deep: <model for the most reasoning>
@@ -374,7 +374,7 @@ One JSON object per line, appended when each step closes and never rewritten. Ev
 
 `ask` is the orchestrator starting to wait for a person, written at that moment. Its `of` uses the word of the `approval` that will answer it, or `waiver`, `decision` or `stop`. Counting them says how often a change stops a person, and the time to the next event says how long each wait lasted.
 
-An `approval` says in `where` how the person approved, from the strongest to the weakest: a pull request approved on the platform, a commit of theirs, or `conversation`, when they said yes to the orchestrator. Without a platform, the last two are all there is, and they are a rule, not a guarantee.
+An `approval` says in `where` how the person approved, from the strongest to the weakest: a pull request approved on the platform, a commit of theirs, or `conversation`, when they said yes to the orchestrator. Without a platform, the last two are all there is, and they are a rule, not a guarantee. Its `files` are the versions the person saw: a file changed after their yes needs an approval of its own.
 
 Building the standing gates of a zone has a log of its own, `gdd/log/gates-<zone>.jsonl`, named after its backlog item: a `checks` step, with its seal on `gdd-seal/gates-<zone>`, and a `review` step with the verdict. A `harden` step goes to `gdd/log/blueprint.jsonl` and names in `change` the change that let the failure through, whose own log is closed. An `exam` step goes there too, each time the exam is run: who was examined, how many questions it was asked, how many it caught and which it missed.
 

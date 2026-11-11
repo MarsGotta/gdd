@@ -210,7 +210,7 @@ flowchart LR
 
 The rounded blue steps are where a person approves. This is the proportion the blueprint's template brings, and yours decides: which checks each color asks for, and where a person approves, are for you or your team to decide. Whatever its color, a change also passes the standing gates of every zone it touches, and it gets its reviewer, which on green only works the color out again and checks that nothing that judges was touched.
 
-Each color also sets the level of the agents that work on it (light, standard or deep), and your blueprint says which model each level is.
+Each color also sets the level of the agents that work on it (light, standard or deep), and your blueprint says which model each level is, by the name your agents' environment launches it with.
 
 ## 4. Harden what slipped through
 

@@ -1,7 +1,7 @@
 ---
 contract: gdd/1
 guarantee: <rule, platform or engine>
-levels:
+levels:  # each one, a model by the name the agents' environment launches it with
   light: <model for little reasoning, cheap and fast>
   standard: <model for normal reasoning>
   deep: <model for the most reasoning>

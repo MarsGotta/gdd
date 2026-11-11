@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) together with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.2.1"
+  version: "0.2.2"
   contract: gdd/1
 ---
 
@@ -26,7 +26,7 @@ If you're here because a change touches a path no zone covers, or because the pr
 ## What's already there
 
 - An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones: `references/existing-project.md`.
-- An empty one starts from the idea: `references/new-project.md`.
+- An empty one, or one with no code yet (only data or documents), starts from the idea: `references/new-project.md`.
 
 ## Zones
 
@@ -78,7 +78,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | File | From | Notes |
 |---|---|---|
 | `gdd/constitution.md` | `assets/constitution.md` | The stack, the exact commands to build, test and lint, which every gate and CI run as they are, and how a change ships. Only the rules that hold everywhere: a rule of one zone goes to that zone's context in the blueprint. |
-| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. It's the source: a page for people can be generated from it, never the other way round. |
+| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons: look at what the environment offers, or ask. It's the source: a page for people can be generated from it, never the other way round. |
 | `gdd/gates/<zone>.feature` | `assets/gates.feature` | One per zone with standing gates. |
 | `gdd/backlog.md` | `assets/backlog.md` | Its first items set up CI where there is none, and then build each zone's gates. `gdd-checks` writes CI as it writes the gates, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. |
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
@@ -105,13 +105,14 @@ Set the caps of a change in `limits` with the person too. The template's values 
 
 ## Approval
 
-The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs. Recording known debt loosens a check, so it's part of that same approval. Then each zone's gates get built and tried, and no change starts in a zone until its gates hold.
+The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Recording known debt loosens a check, so it's part of that same approval. Then each zone's gates get built and tried, and no change starts in a zone until its gates hold.
 
 ## Gotchas
 
 - In the T-minus pilot, its own gate passed while the project's linter failed: the gate didn't run the same lint. Every gate runs the constitution's commands, the same ones as CI.
 - Eighteen checks already failed on the main branch before anyone touched anything, fourteen scenarios and four unit tests. Without a baseline, every change gets blamed for them, or they quietly disappear.
 - Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file it needed inside the sandbox). Say which checks run outside it, and who runs them.
+- In one run, the blueprint gave each level as how much it reasons, with no model, and the orchestrator launched every role without naming one: all of them ran on its own deep model, while the log said light.
 - An agent's environment can act on the person's accounts. In one run, an agent published the project on the person's own account through a site-publishing plugin of its environment; in another, it used the person's git credentials to create repositories and try to deploy. Confine the environment, not only the project.
 
 When you close, write the `prepare` step to `gdd/log/blueprint.jsonl`: its `result` is `proposed` or `approved`.
