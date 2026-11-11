@@ -441,7 +441,7 @@ const inicio = () => {
   ];
   const seguir = seccion(tr('donde-seguir', 'where-to-go-next'), tr('Por dónde seguir', 'Where to go next'), `
     <p class="grande">${tr('Puedes empezar hoy con lo que ya tienes.', 'You can start today with what you already have.')}</p>
-    <p class="salidas"><a class="boton" href="${DOCS['manos-a-la-obra'][idioma].ruta}">${tr('Manos a la obra', 'Get hands on')}</a><a href="${DOCS['empieza-hoy'][idioma].ruta}">${tr('Monta tu primera puerta', 'Build your first gate')}</a></p>
+    <p class="salidas"><a class="boton" href="${DOCS['manos-a-la-obra'][idioma].ruta}">${tr('Manos a la obra', 'Get hands on')}</a><a href="${DOCS['empieza-hoy'][idioma].ruta}">${tr('Monta tu primera puerta', 'Build your first gate')}</a><a href="${DOCS['las-skills'][idioma].ruta}">${DOCS['las-skills'][idioma].menu}</a></p>
     <div class="caminos">
       ${caminos.map(([k, t, d]) => `<a class="camino" href="${DOCS[k][idioma].ruta}"><strong>${t}</strong><span>${d}</span></a>`).join('\n')}
     </div>

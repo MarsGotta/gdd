@@ -1,0 +1,38 @@
+# .github/workflows/seal.yml
+name: Seal
+# GitHub always runs the version on main. This only compares: nothing from the agent's branch gets installed or run.
+on: pull_request_target
+
+permissions:
+  contents: read
+
+jobs:
+  seal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The checks are still intact
+        env:
+          BRANCH: ${{ github.head_ref }}
+          # What can change without approved checks: what you mark as green.
+          GREEN: '^(docs/|README\.md$)'
+        run: |
+          BASE="$(git merge-base refs/remotes/origin/main HEAD)"
+          REF="refs/remotes/origin/checks/$BRANCH"
+          if ! git rev-parse --verify -q "$REF" > /dev/null; then
+            REF="$BASE"
+            OUTSIDE="$(git diff --name-only "$BASE" HEAD | grep -vE "$GREEN" || true)"
+            if [ -n "$OUTSIDE" ]; then
+              echo "::error::This branch has no checks/$BRANCH and touches more than what is green:"
+              echo "$OUTSIDE"
+              exit 1
+            fi
+          fi
+          git diff --exit-code --no-renames --diff-filter=a "$REF" HEAD -- tests/
+          # What decides how the tests run also counts as a check, and so does CI itself. Adjust it to your project.
+          git diff --exit-code "$REF" HEAD -- .github/ package.json package-lock.json .npmrc 'vitest.config.*' 'vite.config.*'

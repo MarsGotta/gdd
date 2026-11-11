@@ -1,0 +1,38 @@
+# .github/workflows/sello.yml
+name: Sello
+# GitHub ejecuta siempre la versión de main. Aquí solo se compara: nada de la rama del agente se instala ni se ejecuta.
+on: pull_request_target
+
+permissions:
+  contents: read
+
+jobs:
+  sello:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Las comprobaciones siguen intactas
+        env:
+          RAMA: ${{ github.head_ref }}
+          # Lo que puede cambiar sin comprobaciones aprobadas: lo que marcas como verde.
+          VERDES: '^(docs/|README\.md$)'
+        run: |
+          BASE="$(git merge-base refs/remotes/origin/main HEAD)"
+          REF="refs/remotes/origin/comprobacion/$RAMA"
+          if ! git rev-parse --verify -q "$REF" > /dev/null; then
+            REF="$BASE"
+            FUERA="$(git diff --name-only "$BASE" HEAD | grep -vE "$VERDES" || true)"
+            if [ -n "$FUERA" ]; then
+              echo "::error::Esta rama no tiene comprobacion/$RAMA y toca más que lo verde:"
+              echo "$FUERA"
+              exit 1
+            fi
+          fi
+          git diff --exit-code --no-renames --diff-filter=a "$REF" HEAD -- tests/
+          # Lo que decide cómo se ejecutan los tests también cuenta como comprobación, y el propio CI. Ajústalo a tu proyecto.
+          git diff --exit-code "$REF" HEAD -- .github/ package.json package-lock.json .npmrc 'vitest.config.*' 'vite.config.*'
