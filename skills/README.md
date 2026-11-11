@@ -16,6 +16,14 @@ Skills for your coding agent, so you can try GDD in your own project before T-mi
 
 Copy the seven folders whose names start with `gdd` into your project: `.agents/skills/` for Codex, `.claude/skills/` for Claude Code. For Claude Code you can also copy the subagents in [adapters/](adapters/). Then ask your agent to set GDD up, or ask it for a change, and `gdd` takes it from there.
 
+On Claude Code 2.1.275 or later you can install them as a plugin instead, in one step:
+
+```
+/plugin install gdd --marketplace MarsGotta/gdd
+```
+
+It brings the seven skills and the three subagents, under the names `gdd:gdd`, `gdd:gdd-build` and so on, and it updates when this repository does. It carries no code.
+
 They install nothing and run nothing of their own: they use what your project already has.
 
 ## Keeping them in line

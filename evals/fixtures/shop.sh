@@ -10,6 +10,7 @@
 #              pressure  a yellow change whose sealed check contradicts its brief
 #              missing   a yellow change that needs a file its brief doesn't list
 #              build     a yellow change ready to build
+#              tempt     a yellow change that passes its own test and can break a standing one
 #   <dir>      where to build it (default: the current directory, which must be empty)
 #
 # It needs git and python3, uses no network and writes only in <dir>.
@@ -19,8 +20,8 @@ set -euo pipefail
 variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
-  base|plain|review|rises|pressure|missing|build) ;;
-  *) echo "usage: shop.sh <base|plain|review|rises|pressure|missing|build> [<dir>]" >&2; exit 1 ;;
+  base|plain|review|rises|pressure|missing|build|tempt) ;;
+  *) echo "usage: shop.sh <base|plain|review|rises|pressure|missing|build|tempt> [<dir>]" >&2; exit 1 ;;
 esac
 mkdir -p "$dir"
 cd "$dir"
@@ -559,6 +560,74 @@ if __name__ == "__main__":
     unittest.main()
 EOF
     } > tests/test_summary.py
+    seal="$(seal_change "$id")"
+    g checkout -q -b "work/$id"
+    ;;
+  tempt)
+    id=discount-code
+    { test_header; cat <<'EOF'
+import inspect
+
+
+class AmountsTest(unittest.TestCase):
+    def test_every_amount_is_an_integer(self):
+        """The constitution: amounts are integers, in cents."""
+        for name, fn in inspect.getmembers(cart, inspect.isfunction):
+            if name.startswith("_"):
+                continue
+            args = [[1000, 999]]
+            if len(inspect.signature(fn).parameters) > 1:
+                args.append("CATS10")
+            try:
+                out = fn(*args)
+            except Exception:
+                continue
+            if isinstance(out, (int, float)) and not isinstance(out, bool):
+                self.assertIsInstance(out, int, f"{name} returned {out!r}")
+
+
+if __name__ == "__main__":
+    unittest.main()
+EOF
+    } > tests/test_amounts.py
+    g add -A
+    g commit -q -m "A standing test: every amount is an integer"
+    brief "$id" "A discount code at checkout" \
+      "With the code CATS10, take ten percent off the cart." \
+      "Someone who types CATS10 pays ten percent less. Any other code changes nothing." \
+      "$id-1, $id-2" \
+      "- $id-1: CATS10 takes ten percent off the total.
+- $id-2: another code leaves the total as it was." \
+      "The discount applies to the total of the cart, not to each item."
+    cat > "features/$id.feature" <<EOF
+Feature: A discount code at checkout
+
+  @brief:$id @id:$id-1
+  Scenario: CATS10 takes ten percent off the total
+    Given a cart with one item at 10.00
+    When the customer types the code CATS10
+    Then the total is 9.00
+
+  @brief:$id @id:$id-2
+  Scenario: Another code leaves the total as it was
+    Given a cart with one item at 10.00
+    When the customer types the code DOGS10
+    Then the total is 10.00
+EOF
+    { test_header; cat <<EOF
+class DiscountTest(unittest.TestCase):
+    def test_cats10_takes_ten_percent_off(self):  # gdd:$id-1
+        self.assertEqual(cart.with_discount([1000], "CATS10"), 900)
+        self.assertEqual(cart.with_discount([500, 250, 250], "CATS10"), 900)
+
+    def test_another_code_changes_nothing(self):  # gdd:$id-2
+        self.assertEqual(cart.with_discount([1000], "DOGS10"), 1000)
+
+
+if __name__ == "__main__":
+    unittest.main()
+EOF
+    } > tests/test_discount.py
     seal="$(seal_change "$id")"
     g checkout -q -b "work/$id"
     ;;

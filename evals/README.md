@@ -2,7 +2,7 @@
 
 Scenarios that check how an agent behaves with the skills, run with a real model. They live here, outside `skills/`, so nobody installs them with the skills and no agent finds them in the middle of a task.
 
-They run with `claude plugin eval`, which needs Claude Code 2.1.269 or later. That is what the `.claude-plugin/plugin.json` at the root of this repository is for: without it the skills don't load, and every case runs with no skill at all, without saying so.
+They run with `claude plugin eval`, which needs Claude Code 2.1.269 or later. The `.claude-plugin/plugin.json` at the root of this repository, which is also what installs the skills as a plugin, is what makes them load: without it the skills don't load, and every case runs with no skill at all, without saying so.
 
 ## Running them
 

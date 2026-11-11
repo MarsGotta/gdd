@@ -1,0 +1,15 @@
+{
+  "name": "gdd",
+  "description": "Gate-Driven Development (GDD): its seven skills and the agents that run its three roles.",
+  "owner": {
+    "name": "Marcela Gotta",
+    "url": "https://gate-driven.dev"
+  },
+  "plugins": [
+    {
+      "name": "gdd",
+      "source": "./",
+      "description": "The seven skills of Gate-Driven Development (GDD) and the agents that run its three roles."
+    }
+  ]
+}
