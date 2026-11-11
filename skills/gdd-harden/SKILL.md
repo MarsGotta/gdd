@@ -37,7 +37,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 - **A removal,** with the same evidence as an addition. When a gate has gone without catching anything for as long as the blueprint says would make the team simplify, propose retiring it: how often it ran, what it caught, and what it would let through from then on.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.
 
-You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs. Then `gdd-checks` builds the check, and `gdd-review` tries to fool it before it counts. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
+You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs. Then `gdd-checks` builds the check, and `gdd-review` tries to fool it before it counts. A bad case its review leaves under `LATER:` goes to the person, who decides whether the gate takes it. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
 
 ## The reviewer's exam
 

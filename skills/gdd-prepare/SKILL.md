@@ -105,7 +105,7 @@ Set the caps of a change in `limits` with the person too. The template's values 
 
 ## Approval
 
-The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Recording known debt loosens a check, so it's part of that same approval. Then each zone's gates get built and tried, and no change starts in a zone until its gates hold.
+The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Recording known debt loosens a check, so it's part of that same approval. Then each zone's gates get built and tried, and no change starts in a zone until its gates hold. When their review leaves a bad case under `LATER:`, one no scenario describes, bring it to the person: they decide whether the gate takes it.
 
 ## Gotchas
 
