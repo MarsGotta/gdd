@@ -290,7 +290,9 @@ Without an engine, the agent not touching what judges it is a rule: the skills t
 |---|---|---|---|
 | Installs as a plugin | Yes | Yes | Yes |
 | What keeps a role's skill for its role | Its description, and one subagent per role that preloads it | It loads only when it's named, as in `$gdd:gdd-build` | Its description: the seven are offered to the model |
-| A whole change, run by the orchestrator | Tried with a real model, in [`evals/`](../evals/) | Not tried from the plugin yet | Not tried yet |
+| A whole change, run by the orchestrator | Tried with a real model, in [`evals/`](../evals/) | A green change, once: it got through its gates and its review, and it wasn't shipped | Not tried yet |
+
+On Codex that change stopped at Ship because, out of the box, its sandbox keeps the `.git` folder read-only. The run made no branch and no commit, its roles worked in clones outside the project, and the fix was left applied and not committed. For the method to make its branches and commits there, Codex needs permission to write to `.git`, and that hasn't been tried.
 
 The mapping of each role to its skill is in [adapters/](adapters/).
 

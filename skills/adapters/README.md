@@ -11,3 +11,5 @@ They don't keep the builder away from what judges it. Claude Code has no permiss
 ## Codex
 
 There's nothing to copy. Each role's skill carries `agents/openai.yaml` with `allow_implicit_invocation: false`, so it loads only when it's named, as in `$gdd-build`, or `$gdd:gdd-build` when the skills came as a plugin. The orchestrator reaches the three skills it runs itself (`gdd-prepare`, `gdd-brief` and `gdd-harden`) by opening their files, which sit next to its own. Both were tried with Codex CLI 0.166.0.
+
+A whole green change was tried once, with the plugin and `codex exec -s workspace-write`. Codex launched the builder and the reviewer as agents of their own, and each one opened its skill and ended with its report. That sandbox keeps `.git` read-only, so there was no branch, no commit and no worktree inside the project, and the change stopped at Ship.
