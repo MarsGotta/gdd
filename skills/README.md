@@ -4,8 +4,7 @@ You ask your agent for a filter by size in the catalog. One agent writes down wi
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
 
-> [!NOTE]
-> Version 0.2, contract `gdd/1`. The install steps were tried on 2026-11-11 with Claude Code 2.1.319, Codex CLI 0.166.0 and Antigravity's `agy` 1.4.2. The scenarios in [`evals/`](../evals/) try the skills with a real model, and they don't cover every skill yet.
+This is version 0.2, with contract `gdd/1`.
 
 ## The four moments
 
@@ -272,7 +271,7 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 | `gdd-review` | The reviewer, with a clean context | Execute | Its verdict, and the risk worked out again |
 | `gdd-harden` | The orchestrator, with you | Harden | The crack, and the check that would have caught it |
 
-What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file they leave in your repository, with its template, is in [CONTRACT.md](CONTRACT.md): an engine reads and writes those same files, so what you set up today still serves you later.
+What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file they leave in your repository, with its template, is in [CONTRACT.md](CONTRACT.md): an engine reads and writes those same files, so what you set up today still serves you later. The mapping of each role to its skill, for each agent, is in [adapters/](adapters/).
 
 ### What they don't guarantee
 
@@ -283,18 +282,6 @@ Without an engine, the agent not touching what judges it is a rule: the skills t
 | `rule` | The skills tell it, and the `seal` check finds out afterwards |
 | `platform` | Protected branches and your platform's permissions, each one seen closing when you prepared |
 | `engine` | An engine. [T-minus](https://github.com/MarsGotta/t-minus) is still in development |
-
-### What was tried on each agent
-
-| | Claude Code | Codex | Antigravity |
-|---|---|---|---|
-| Installs as a plugin | Yes | Yes | Yes |
-| What keeps a role's skill for its role | Its description, and one subagent per role that preloads it | It loads only when it's named, as in `$gdd:gdd-build` | Its description: the seven are offered to the model |
-| A whole change, run by the orchestrator | Tried with a real model, in [`evals/`](../evals/) | A green change, once: it got through its gates and its review, and it wasn't shipped | Not tried yet |
-
-On Codex that change stopped at Ship because, out of the box, its sandbox keeps the `.git` folder read-only. The run made no branch and no commit, its roles worked in clones outside the project, and the fix was left applied and not committed. For the method to make its branches and commits there, Codex needs permission to write to `.git`, and that hasn't been tried.
-
-The mapping of each role to its skill is in [adapters/](adapters/).
 
 ## Keeping them in line
 

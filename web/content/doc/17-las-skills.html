@@ -42,9 +42,7 @@
 <li>Otro agente fabrica las comprobaciones de cada zona y un vigilante intenta engañarlas. Ningún cambio empieza en una zona hasta que sus puertas están en la rama principal.</li>
 </ol>
 <p>Desde ahí pides cada cambio con tus palabras, y te enteras cuando hace falta tu aprobación y cuando ha entrado. Cada paso, con lo que dices, lo que pasa y con qué te quedas, está en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>, que está en inglés.</p>
-<h2 id="probado">Hasta dónde están probadas</h2>
-<p>La instalación está probada en los tres agentes. Un cambio entero, con el orquestador repartiendo el trabajo, lo está en Claude Code, con las pruebas del repositorio y un modelo real, y esas pruebas todavía no cubren las siete skills. En Codex está probado una vez, con un cambio verde: pasó sus puertas y su revisión y se quedó sin entregar, porque Codex, tal como viene, no deja que el agente escriba en la carpeta <code>.git</code>. En Antigravity no está probado.</p>
-<p>Probado el 11 de noviembre de 2026 con Claude Code 2.1.319, Codex CLI 0.166.0 y Antigravity (<code>agy</code> 1.4.2). En Claude Code hace falta la versión 2.1.275 o una posterior. Las versiones con que se van probando están en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>.</p>
+<p>En ese mismo repositorio están las pruebas con que se comprueban las skills, hechas con un modelo real.</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
 <p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas de cada zona escritas como escenarios, el encargo de cada cambio y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>

@@ -42,9 +42,7 @@
 <li>Another agent builds the checks of each zone and a reviewer tries to fool them. No change starts in a zone until its gates are on the main branch.</li>
 </ol>
 <p>From there you ask for each change in your own words, and you hear about it when your approval is needed and when it's in. Every step, with what you say, what happens and what you end up with, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
-<h2 id="probado">How far they've been tried</h2>
-<p>Installing them has been tried on the three agents. A whole change, with the orchestrator handing out the work, has been tried on Claude Code, with the repository's tests and a real model, and those tests don't cover the seven skills yet. On Codex it has been tried once, with a green change: it got through its gates and its review and it wasn't shipped, because out of the box Codex doesn't let the agent write to the <code>.git</code> folder. On Antigravity it hasn't been tried.</p>
-<p>Tried on 11 November 2026 with Claude Code 2.1.319, Codex CLI 0.166.0 and Antigravity (<code>agy</code> 1.4.2). Claude Code needs version 2.1.275 or later. The versions they keep being tried with are in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
+<p>That same repository holds the tests the skills are checked with, run with a real model.</p>
 <h2 id="repositorio">What they leave in your repository</h2>
 <p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates of each zone written as scenarios, the brief of each change and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>
