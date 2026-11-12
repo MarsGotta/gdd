@@ -200,7 +200,7 @@ for (const [ruta, html] of Object.entries(paginas)) {
   for (const re of viejo) if (re.test(visible)) fallos.push(`${ruta}: queda texto de la versión anterior (${re})`);
   for (const re of promesas) if (re.test(visible)) fallos.push(`${ruta}: promete algo con fecha (${re})`);
 }
-for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf', 'manifiesto-gdd-v0.7.pdf', 'manifesto-gdd-v0.7.pdf', 'manifiesto-gdd-v0.8.pdf', 'manifesto-gdd-v0.8.pdf']) {
+for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf', 'manifiesto-gdd-v0.7.pdf', 'manifesto-gdd-v0.7.pdf', 'manifiesto-gdd-v0.8.pdf', 'manifesto-gdd-v0.8.pdf', 'manifiesto-gdd-v0.9.pdf', 'manifesto-gdd-v0.9.pdf']) {
   if (fs.existsSync(path.join(dist, viejo))) fallos.push(`${viejo} sigue en dist/`);
 }
 

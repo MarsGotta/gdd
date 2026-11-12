@@ -1,8 +1,8 @@
 <h1>Manifesto: Gate-Driven Development</h1>
 <p class="meta" data-fecha="2026-11-12">Marcela Gotta</p>
-<p class="meta">v0.9 · draft for review</p>
+<p class="meta">v0.10 · draft for review</p>
 <p><strong>Add gates to your project and automate with AI agents without losing quality. Your agent says "done." The gate checks if it's true.</strong></p>
-<p>Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. You trust what they prove, not what they say: before the agent starts, you decide what it has to prove, and those are the gates. The more that can go wrong, the stricter they are, and when something slips through, you harden the gate so it doesn't happen again.</p>
+<p>Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. You trust what they prove, not what they say: before the agent starts, you decide what it has to prove, and those are the gates. The more that can go wrong, the stricter they are. When something slips through, you harden the gate so it doesn't happen again, and when one no longer adds anything, you relax it or retire it.</p>
 <p>All of GDD fits in one rule (your agent says "done," the gate checks if it's true), seven principles and four moments.</p>
 <h2>The problem</h2>
 <p>Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself.</p>
@@ -15,9 +15,9 @@
 <li><strong>Checks:</strong> what proves it, one or several, of three types: machine (tests, linter, Sonar), reviewer (another agent that runs the change and only passes the change if it checks that it works) and person (your approval). You get through the gate only if all of them pass.</li>
 <li><strong>Context:</strong> what you give the agent so it can get through the gate, whether it's in the repository or comes from outside. The agent always starts with a clean context, with only what it needs: the cross-cutting context, which applies to the whole flow (the project's constitution, meaning its rules, and the usual tools and skills), and the context of its gate, which can include what the previous gate generated. It helps it get through, but it proves nothing.</li>
 <li><strong>Risk:</strong> what can go wrong.</li>
-<li><strong>Blueprint:</strong> where it's written down what is delicate, which gates are needed, with their checks, and what each level of risk asks for. When a check can be relaxed is decided here too, not in the change. You approve it, or your team if you work with one, and the agent doesn't touch it.</li>
+<li><strong>Blueprint:</strong> where it's written down what is delicate, which gates are needed, with their checks, and what each level of risk asks for. When a check can be relaxed, and what would make you retire a gate, is decided here too, not in the change. You approve it, or your team if you work with one, and the agent doesn't touch it.</li>
 </ul>
-<p>An agent never takes the place of a person. You always approve the blueprint, or your team does, and the blueprint says where else an approval is needed, including the approval of what has to pass.</p>
+<p>An agent never takes the place of a person. You always approve the blueprint, or your team does, and the blueprint says where else an approval is needed, including the approval of what has to pass. And your approval covers what you saw: if it changes afterwards, you are asked again.</p>
 <p>Risk is how much damage a change can do to your product. I read it as a traffic light, and each color is a level of strictness:</p>
 <table>
 <thead><tr><th>Risk</th><th>For example</th></tr></thead>
@@ -29,30 +29,30 @@
 </table>
 <p>What each level asks for is your decision, or your team's, and it's written in the blueprint: how many checks, of which type, and at which moments it waits for you. In some projects a green change ships without anyone looking, and in others even green waits for an approval. What holds in all of them is that more risk asks for more. So you don't start from scratch, <a href="doc:buenas-practicas">Good practices</a> and the <a href="doc:los-kits">ready-made rules</a> suggest what to ask for at each level, by area.</p>
 <p>The blueprint brings the base of what is delicate, and the risk of each change is read against it. Green is only what you have marked as green. The rest isn't red just like that: an agent that won't do the work analyzes it and writes down why, and if it isn't sure, it asks you. What it notes down isn't the blueprint: it proposes it to you, and the blueprint only changes with your yes.</p>
-<p>What can't be undone is never green.</p>
+<p>What can't be undone is never green. And what each level asks for has a single exception, which doesn't depend on your blueprint: on red, nothing ships without a verified way to undo it, and if there isn't one, a person decides knowing that.</p>
 <h2>The seven principles</h2>
 <p>The pieces say what GDD is made of. The principles say what makes it work.</p>
 <ol>
-<li><strong>Gates come first, and nobody skips them, not even you.</strong> They are defined before the work. If you decide what to check once you can see the result, you end up checking what the agent did and not what you needed.</li>
-<li><strong>A gate that never closes is not a gate.</strong> It's a drawing on the wall. Before you trust a gate, you check that it closes.</li>
+<li><strong>Gates come first, and nobody skips them, not even you.</strong> They are defined before the work. If you decide what to check once you can see the result, you end up checking what the agent did and not what you needed. Emergencies have a gate of their own, decided beforehand: a person opens it, it's written down, and the change goes through the others afterwards.</li>
+<li><strong>A gate that never closes is not a gate.</strong> It's a drawing on the wall. Before you trust a gate, you check that it closes, and that it closes for the right reason.</li>
 <li><strong>To each gate, its context.</strong> A gate without context is a wall: the agent guesses, fails and guesses again. With too much it also gets lost and costs more, so on top of the cross-cutting context, which always goes along, you give it just what it needs for that gate. It helps it get through, but it proves nothing.</li>
 <li><strong>You get through a gate with facts, not words.</strong> Saying "done" opens nothing. Without facts it doesn't get through, and if it gets stuck, it stops and asks.</li>
-<li><strong>Whoever goes through the gate doesn't decide how it's validated.</strong> The agent never touches the tests that judge it, just as a student doesn't grade their own exam.</li>
+<li><strong>Whoever goes through the gate doesn't decide how it's validated.</strong> The agent never touches the tests that judge it, just as a student doesn't grade their own exam. If a check is wrong, whoever wrote it or a person corrects it, never whoever has to pass it.</li>
 <li><strong>More risk, more checks, and your approval only where it matters.</strong> The size of the change doesn't matter: what can go wrong does. More risk isn't always more tests: often it is another type of check, like a reviewer or a person. You approve where your blueprint says so. The gates handle the rest, because someone who has to approve everything ends up approving without reading.</li>
-<li><strong>Gates with cracks get hardened.</strong> What slips through, or keeps repeating, becomes a check and a question on the reviewer's exam. Over time, the method interrupts you less.</li>
+<li><strong>Gates with cracks get hardened.</strong> What slips through, or keeps repeating, becomes a check and a question on the reviewer's exam. And hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence you would ask for to add it and after seeing that it still closes. The two keep the balance, and that way, over time, the method interrupts you less.</li>
 </ol>
 <p>Every change has an author who answers for it, the person who owns it: the AI never answers for you.</p>
 <p>Each principle, with its reason and its evidence, is in <a href="doc:los-principios">The seven principles</a>.</p>
 <h2>The four moments</h2>
-<p>The principles say what makes the method work. The moments say when each thing happens: one at the start, which you come back to when the blueprint falls short, two on every change, and the last when something slips through or repeats.</p>
-<figure data-embed="momentos"><figcaption>the four moments · 1 at the start, 2 on every change, 1 when something slips through</figcaption></figure>
+<p>The principles say what makes the method work. The moments say when each thing happens: one at the start, which you come back to when the blueprint falls short, two on every change, and the last when something slips through, repeats or isn't needed.</p>
+<figure data-embed="momentos"><figcaption>the four moments · 1 at the start, 2 on every change, 1 when something slips through or isn't needed</figcaption></figure>
 <table>
 <thead><tr><th>Moment</th><th>When</th><th>What happens</th></tr></thead>
 <tbody>
-<tr><td><strong>1. Prepare</strong></td><td>At the start of the project, and again when the blueprint falls short: there is something new to classify, or a gate is missing, isn't needed or is badly defined</td><td>It has two parts. First the blueprint is made: you decide what it is about, what is delicate, which gates are needed and with which checks, the constitution and what context each gate carries, and you can start from ready-made rules. Then machines build the gates the blueprint has defined, and you try to beat them on purpose. Until they hold, no change that has to go through them starts.</td></tr>
+<tr><td><strong>1. Prepare</strong></td><td>At the start of the project, and again when the blueprint falls short: there is something new to classify, or a gate is missing, isn't needed or is badly defined</td><td>It has two parts. First the blueprint is made: you decide what it is about, what is delicate, which gates are needed and with which checks, the constitution and what context each gate carries, and you can start from ready-made rules. Then the gates the blueprint has defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. An engine can make it easier, but it doesn't take you out of it: this is the most delicate part of the method. Until they hold, no change that has to go through them starts.</td></tr>
 <tr><td><strong>2. Brief</strong></td><td>On every change, before it starts</td><td>What has to pass is fixed, along with a first estimate of the risk, from the base in the blueprint, with your approval if needed. For the checks that ask for them, like the tests that start out red, the cases of this change are written before anyone builds. They are written by someone who won't build, they are seen to fail, and they stay out of the builder's reach.</td></tr>
-<tr><td><strong>3. Execute</strong></td><td>On every change</td><td>The agent works and gets through the gates, one by one. If it gets stuck, it stops and asks. At the end, the risk is recalculated from what was touched. If it goes up, the change goes back to Brief and the checks of the new level are required.</td></tr>
-<tr><td><strong>4. Harden</strong></td><td>When something slips through or repeats</td><td>Cracks become checks, and what slipped through becomes a question on the reviewer's exam.</td></tr>
+<tr><td><strong>3. Execute</strong></td><td>On every change</td><td>The agent works and gets through the gates, one by one. If it gets stuck, it stops and asks. At the end, the risk is recalculated from what was touched, and it can only go up. If it goes up, the change goes back to Brief and the checks of the new level are required.</td></tr>
+<tr><td><strong>4. Harden</strong></td><td>When something slips through or repeats, and when a gate stops adding anything</td><td>Cracks become checks, and what slipped through becomes a question on the reviewer's exam. What no longer adds anything is relaxed or retired. Both change the blueprint, so you go back to Prepare and you approve them, or your team does.</td></tr>
 </tbody>
 </table>
 <p>They are not four meetings or four documents. Each moment, with its example, is in <a href="doc:los-momentos">The four moments</a>.</p>
@@ -64,7 +64,7 @@
 <li>Is it out of the agent's reach, so that touching it does the agent no good?</li>
 <li>Have you seen it reject something done wrong, real or planted on purpose?</li>
 </ul>
-<p>Checking from the same machine the agent works on does not count as out of its reach: things can happen in between. And out of its reach comes in degrees. Asking it and reading the diff is a rule, which works for as long as you look. Protected branches, permissions and an agent that uses its own credentials get you a good part of the way. Only an engine gives the full guarantee, and I explain it in <a href="doc:como-se-engana-una-puerta">How a gate gets fooled</a>.</p>
+<p>Checking from the same machine the agent works on does not count as out of its reach: things can happen in between. The third question is answered with a degree, and there are three, each depending less on the agent obeying. In the rule degree you ask it and read the diff: the gate holds for as long as you look. In the platform degree, protected branches, permissions and credentials that are only its own stop it, and that gets you a good part of the way. In the engine degree an engine enforces it, and it is the only one that gives the full guarantee. Your blueprint says which one you are in, and I explain it in <a href="doc:como-se-engana-una-puerta">How a gate gets fooled</a>.</p>
 <h2>The core</h2>
 <p>Ready-made rules and good practices can be adapted to your project. This can't: it is what no engine or configuration can take away. Any engine that claims to apply GDD has to guarantee these points.</p>
 <ul>
