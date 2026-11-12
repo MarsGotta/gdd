@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.7.1"
+  version: "0.8.0"
   contract: gdd/1
 ---
 

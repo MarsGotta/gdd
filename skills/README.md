@@ -2,9 +2,9 @@
 
 You ask your agent for a filter by size in the catalog. One agent writes down with you what has to pass, another builds the checks, a third does the work, and a reviewer that heard none of it runs the change and tries to make it fail. You hear about it when it needs you, and when it's in.
 
-That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
+That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and run nothing of their own: they use what your project already has, its tests, its linter, its CI and git. The one script they carry is a small runner they offer your project when preparing, so that the log says what each check took. If you take it, it's yours.
 
-This is version 0.7, with contract `gdd/1`.
+This is version 0.8, with contract `gdd/1`.
 
 ## The four moments
 
@@ -107,6 +107,7 @@ CODEOWNERS                   what you or your team always approve
 gdd/
 ├── blueprint.md             gates, zones, colors, checks, levels and limits
 ├── gates/                   one feature for each gate: what it asks of each color, and what it rejects
+├── check.sh                 your runner, if you take it: it times each check and says what it took
 ├── constitution.md          the stack, the commands and the rules that hold everywhere
 ├── backlog.md               what to build, each item with its expected color
 ├── debt.md                  known debt, with the baseline of each check

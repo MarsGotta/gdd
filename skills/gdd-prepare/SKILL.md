@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.7.1"
+  version: "0.8.0"
   contract: gdd/1
 ---
 
@@ -42,7 +42,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 
 ## Gates
 
-Which gates the project needs is the person's decision, and they differ with the area and the project. Propose the usual ones for a project like theirs, each with what it has to demonstrate and the checks that demonstrate it, and let them correct. Few gates, but strict: each one costs something on every change, and you'll add another when something slips through.
+Which gates the project needs is the person's decision, and they differ with the area and the project. Propose the usual ones for a project like theirs, each with what it has to demonstrate and the checks that demonstrate it, and let them correct. Few gates, but strict: each one costs something on every change.
 
 The gates are the project's, the same for every change. A zone gets none of its own when the project is prepared: it gives a change its color, and the color says how much each gate asks, so more risk means more checks, not other gates.
 
@@ -64,12 +64,13 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 |---|---|---|
 | `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Only the rules that hold everywhere: a rule of one zone goes to that zone's context in the blueprint. |
 | `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
+| `gdd/check.sh` | `assets/check.sh` | A runner that times each check, unless the person says no: the constitution's commands go through it, `seal` apart. |
 | `gdd/gates/<gate>.feature` | `assets/gate.feature` | One for each gate of the project. A zone gets one (`assets/gates.feature`) only if the person asked for it. |
 | `gdd/backlog.md` | `assets/backlog.md` | Its first item, `standing-checks`, sets up what the blueprint's `checks` name, and CI where there is none. `gdd-checks` does it, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. |
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
-Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/exam.md`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, a rule that keeps `gdd-seal/*` out of the builder's reach, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
+Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/check.sh`, `gdd/exam.md`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, a rule that keeps `gdd-seal/*` out of the builder's reach, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
 
 ## The probe
 
@@ -84,9 +85,9 @@ Record each try in `gdd/log/blueprint.jsonl`, with its command, its exit code an
 
 ## The baseline and the limits
 
-Before the first change, write the baseline in the blueprint with the person, from the project's own history: how long a change takes from request to release, how often it stops someone and what slips through. A new project has no history: say so there, and take the baseline from its first changes. Then ask what figure would make the team drop a gate, and write it under it. Without both, "it's going better" is only an impression.
+Before the first change, write the baseline in the blueprint with the person, from the project's own history: how long a change takes from request to release, how often it stops someone and what slips through. A new project has no history: say so there, and take the baseline from its first changes. Then ask what figure would make the team drop a gate, and write it under it.
 
-Set the caps of a change in `limits` with the person too. The template's values are provisional: keep them only until the project's own logs say otherwise. The cap on tokens has no default, and makes sense only if the agents' environment reports them.
+Set the caps of a change in `limits` with the person too. The template's values are provisional: keep them only until the project's own logs say otherwise.
 
 ## Approval
 

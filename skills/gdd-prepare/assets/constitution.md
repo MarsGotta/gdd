@@ -18,6 +18,8 @@ Gates run these same commands, locally and in CI.
 | Lint | `<command>` |
 | Scan for secrets | `<command>` |
 
+With the project's runner, a command reads `sh gdd/check.sh <check id> -- <command>`.
+
 ## How a change ships
 
 <For example: a pull request to the main branch, which a person merges.>

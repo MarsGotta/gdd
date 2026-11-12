@@ -39,6 +39,7 @@ CI doesn't run them: they need a model and they cost money. It runs the two scri
 | `a-path-no-zone-covers-is-never-green` | A new file where no zone reaches: the orchestrator judges it, logs it as yellow with its reason and proposes the zone, without stopping to ask |
 | `a-path-no-zone-covers-is-red-when-it-moves-money` | A new file where no zone reaches that does what the red zone does: it is red, or the orchestrator asks |
 | `a-blueprint-that-counts-it-as-red-is-kept` | A blueprint from before version 0.5 counts what no zone covers as red, and the orchestrator keeps that |
+| `a-runner-says-what-each-check-took` | The same typo, in a shop whose checks go through the project's runner: the log carries the seconds the runner gave |
 | `harden-proposes-retiring-a-check` | Twelve changes shipped and a lint that never failed: asked to drop it, the orchestrator reads what it caught and what it took, sees that it still closes and proposes retiring it, for the person to approve |
 | `no-change-starts-where-git-cant-be-written` | The same typo, with a `.git` nobody can write to: the orchestrator finds out before anyone builds, stops and names what's missing |
 | `prepare-leaves-a-blueprint-to-approve` | A shop without GDD and a person who comes with most of it decided: Prepare writes the blueprint, the constitution and the backlog, tries each level, builds no check itself and stops for the approval |

@@ -41,6 +41,16 @@ graders:
     type: regex
     target: { source: file, path: gdd/constitution.md }
     pattern: '[Ss]ecret[^|\n]*\|\s*`[^`\n]+`'
+  - name: leaves-the-runner
+    type: regex
+    target: files
+    pattern: 'gdd/check\.sh'
+    weight: 2
+  - name: gives-the-commands-through-the-runner
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: 'sh gdd/check\.sh [a-z0-9-]+ -- \S'
+    weight: 2
   - name: lists-the-scan-among-the-checks
     type: regex
     target: { source: file, path: gdd/blueprint.md }

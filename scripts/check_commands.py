@@ -330,6 +330,30 @@ def main():
     if failures:
         print(f"{len(failures)} case(s) failed", file=sys.stderr)
         return 1
+    # The project's runner: it passes the exit code on and ends with what the check took.
+    runner = SKILLS / "gdd-prepare/assets/check.sh"
+    with tempfile.TemporaryDirectory() as folder:
+        def check(*args):
+            return subprocess.run(["sh", str(runner), *args], cwd=folder, capture_output=True, text=True)
+
+        passed = check("tests", "--", "sh", "-c", "echo one two; exit 0")
+        last = passed.stdout.strip().splitlines()[-1] if passed.stdout.strip() else ""
+        expect("the runner ends with what a passing check took",
+               passed.returncode == 0 and re.fullmatch(r'gdd-check \{"check":"tests","seconds":\d+,"exit":0\}', last) is not None
+               and "one two" in passed.stdout, passed.stdout)
+        failed = check("lint", "--", "sh", "-c", "exit 3")
+        expect("the runner passes a failing exit code on, and says it",
+               failed.returncode == 3 and failed.stdout.strip().endswith('"exit":3}'), failed.stdout)
+        slow = check("slow", "--", "sleep", "1")
+        took = re.search(r'"seconds":(\d+)', slow.stdout)
+        expect("the runner counts the seconds", took is not None and int(took.group(1)) >= 1, slow.stdout)
+        wrong = check("tests")
+        expect("the runner says how it is called when it is called wrong", wrong.returncode == 2 and "usage" in wrong.stderr, wrong.stderr)
+    shop = (ROOT / "evals/fixtures/shop.sh").read_text(encoding="utf-8")
+    carried = re.search(r"cat > gdd/check\.sh <<'EOF'\n(.*?)EOF\n", shop, re.S)
+    expect("the shop of the eval cases carries the runner as the template gives it",
+           carried is not None and carried.group(1) == runner.read_text(encoding="utf-8"))
+
     print("commands: every command the skills give does what they say")
     return 0
 

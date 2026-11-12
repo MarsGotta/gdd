@@ -11,6 +11,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `AGENTS.md`, GDD block | The cross-cutting core, under 100 words, and the map. It imports the constitution | `gdd-prepare` | With the person's approval |
 | `gdd/constitution.md` | The stack, the commands and the rules that hold everywhere | `gdd-prepare` | With the person's approval |
 | `gdd/blueprint.md` | Levels, limits, checks, colors, zones and the context of each gate, in YAML front matter, plus a Mermaid diagram | `gdd-prepare`, `gdd-harden` | Protected by CODEOWNERS; the person approves |
+| `gdd/check.sh` | The project's runner, when it has one: it runs a check, times it and says what it took | `gdd-prepare`, with the person | Like the blueprint |
 | `gdd/gates/<gate>.feature` | A gate of the project, in Gherkin: which checks it asks of each color, and the bad case each of them rejects | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/gates/<zone>.feature` | A zone's own standing gates, in Gherkin, when the person asked for one or hardening gave it one | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/exam.md` | The reviewer's exam: the changes that got past a reviewer, as commits of the main branch | `gdd-harden`, with the person | Like the blueprint |
@@ -92,6 +93,8 @@ Gates run these same commands, locally and in CI.
 | Lint | `<command>` |
 | Scan for secrets | `<command>` |
 
+With the project's runner, a command reads `sh gdd/check.sh <check id> -- <command>`.
+
 ## How a change ships
 
 <For example: a pull request to the main branch, which a person merges.>
@@ -99,6 +102,39 @@ Gates run these same commands, locally and in CI.
 ## Rules that hold everywhere
 
 - <for example: prices are stored in cents>
+```
+
+## The runner
+
+A project may have a runner of its own, `gdd/check.sh`. It runs one check, times it and ends with a line that says what it took, and that line is where the `seconds` of the `gates` step come from. The commands of the constitution go through it, and so the ones of the blueprint's `checks`, which are the same commands. `seal` stays as it is, because its command is the same in every project. The runner is the project's file, not the skills': `gdd-prepare` proposes it, the person approves it with the blueprint, it lives under `gdd/`, where the seal covers it, and a project that can't run a shell leaves it out. Then the orchestrator times the checks itself, and where it can't, their `seconds` stay `null`. It is the only thing the skills carry that runs, and they never run it from their own folder.
+
+<!-- template: gdd-prepare/assets/check.sh -->
+```sh
+#!/bin/sh
+# The project's runner: it runs one check, times it and says what it took.
+#
+# Usage: sh gdd/check.sh <check id> -- <command> [<argument>...]
+#
+# The command runs as it is, with its own output and its own exit code. The last line is the
+# runner's, and the seconds of a gate in the log come from it:
+#   gdd-check {"check":"<check id>","seconds":<whole seconds>,"exit":<exit code>}
+#
+# The commands of the constitution go through it, and so do the ones of the blueprint's checks,
+# all but seal. It belongs to the project: the person approves it with the blueprint, and a
+# project that can't run it leaves it out, and then nothing says what a check took.
+# Exit code: the command's own, or 2 when it is called wrong.
+if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
+  echo "usage: sh gdd/check.sh <check id> -- <command> [<argument>...]" >&2
+  exit 2
+fi
+id="$1"
+shift 2
+start="$(date +%s)"
+"$@"
+code="$?"
+end="$(date +%s)"
+printf 'gdd-check {"check":"%s","seconds":%s,"exit":%s}\n' "$id" "$((end - start))" "$code"
+exit "$code"
 ```
 
 ## The blueprint
@@ -418,7 +454,7 @@ caught: <what it caught that others missed, or none>
 
 ## The log
 
-One JSON object per line, appended when each step closes and never rewritten. Every event has `contract`, `ts` (UTC, ISO 8601), `brief` and `event`. A person's actions are `approval` and `waiver`; everything a role does is a `step`, with its report and the fields of its step. A step whose role stopped with `CANNOT:` carries `stop`, which is not the reviewer's verdict of the same name: that one goes in `verdict`. `gates` is the orchestrator running the checks out of the agent's reach, and has no report. Each of its entries has `seconds`: how long that check's command took where it ran, as a clock measured it, or `null` when none did. It is never a guess: a cost nobody measured would retire a check on a made-up figure. With the seconds and the tokens of each report and the wait after each `ask`, that is what a gate costs. `ship` is the change going out: it closes its log, and has no report either. In a `report`, `round` is which launch of that role this was for the change, starting at 1.
+One JSON object per line, appended when each step closes and never rewritten. Every event has `contract`, `ts` (UTC, ISO 8601), `brief` and `event`. A person's actions are `approval` and `waiver`; everything a role does is a `step`, with its report and the fields of its step. A step whose role stopped with `CANNOT:` carries `stop`, which is not the reviewer's verdict of the same name: that one goes in `verdict`. `gates` is the orchestrator running the checks out of the agent's reach, and has no report. Each of its entries has `seconds`: how long that check's command took where it ran, as the project's runner or a clock measured it, or `null` when neither did. It is never a guess: a cost nobody measured would retire a check on a made-up figure. With the seconds and the tokens of each report and the wait after each `ask`, that is what a gate costs. `ship` is the change going out: it closes its log, and has no report either. In a `report`, `round` is which launch of that role this was for the change, starting at 1.
 
 `ask` is the orchestrator starting to wait for a person, written at that moment. Its `of` uses the word of the `approval` that will answer it, or `waiver`, `decision` or `stop`. Counting them says how often a change stops a person, and the time to the next event says how long each wait lasted.
 
@@ -437,7 +473,7 @@ Each finding of a review has an `id`. A later round, or the last one before the 
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"<version>","level":"standard","model":null,"round":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","paths":["<path>"],"zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"files":{"<path>":"<git blob hash>"},"seal":"<tip of the seal after this brief, or null>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","model":null,"round":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/<id>","commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"build","report":{"skill":"gdd-build","version":"<version>","level":"<level>","model":null,"round":1,"result":"<done or stopped>","caught":"<what, or none>","seconds":null,"tokens":null},"claims":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>"}]}
-{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"gates","start":"<commit>","where":"<ci, or a fresh clone>","gates":[{"check":"<check id>","seconds":"<what the clock gave for its command, or null>","command":"<command>","exit":0,"tail":"<last lines>","result":"<pass or fail>"}]}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"gates","start":"<commit>","where":"<ci, or a fresh clone>","gates":[{"check":"<check id>","seconds":"<what the runner or the clock gave for its command, or null>","command":"<command>","exit":0,"tail":"<last lines>","result":"<pass or fail>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"review","report":{"skill":"gdd-review","version":"<version>","level":"<level>","model":null,"round":1,"result":"<pass, fix or stop>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"touched","start":"<commit>","head":"<commit>","zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"verdict":"<pass, fix or stop>","ran":[{"command":"<command>","exit":0,"tail":"<last lines>"}],"findings":[{"id":"<f1>","where":"<file:line>","what":"<one line>"}],"closed":[{"id":"<f1>","outcome":"<fixed, false, intended or minor>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"ship","where":"<commit or pull request URL>","color":"<color>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"blueprint","event":"step","step":"harden","report":{"skill":"gdd-harden","version":"<version>","level":"<level>","model":null,"round":1,"result":"proposed","caught":"<what, or none>","seconds":null,"tokens":null},"change":"<id of the change that let it through, or null>","crack":"<where it got through, or what no longer adds anything>","scenario":"<file and Rule, or null>","proposal":"<the blueprint change>"}

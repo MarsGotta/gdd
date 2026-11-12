@@ -24,7 +24,8 @@ What it checks:
     the GDD block of AGENTS.md under 100, every SKILL.md under 500 lines and
     14,000 bytes, and under 400 characters of description for every skill
     but gdd, the only one that is found by its description;
-  - no skill ships scripts, and only gdd can be invoked implicitly in Codex;
+  - no skill ships scripts, but the template of the project's runner in the
+    assets of gdd-prepare, and only gdd can be invoked implicitly in Codex;
   - the GDD block the eval cases give their agents is the one of the contract;
   - what the contract names reaches the skills, and the other way round: every
     file of the contract, every check of the blueprint and every event and
@@ -51,6 +52,8 @@ ROLES = ["gdd-prepare", "gdd-brief", "gdd-checks", "gdd-build", "gdd-review", "g
 ALL = ["gdd"] + ROLES
 LAUNCHED = ["gdd-checks", "gdd-build", "gdd-review"]
 SHARED = [("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md")]
+RUNNER = "gdd-prepare/assets/check.sh"  # a template the project copies and owns: the skills never run it
+SCRIPTS = {".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".ps1"}
 BUILD_WORDS = 230
 BLOCK_WORDS = 100
 MAX_LINES = 500
@@ -196,6 +199,9 @@ def main():
 
         if (folder / "scripts").exists():
             problem(folder / "scripts", "skills ship no scripts")
+        for script in sorted(folder.rglob("*")):
+            if script.is_file() and script.suffix in SCRIPTS and script.relative_to(SKILLS).as_posix() != RUNNER:
+                problem(script, "skills ship no scripts: the only one is the template of the project's runner")
         policy = folder / "agents" / "openai.yaml"
         wanted = "true" if name == "gdd" else "false"
         if not policy.is_file():

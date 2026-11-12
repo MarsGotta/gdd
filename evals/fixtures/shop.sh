@@ -9,6 +9,7 @@
 #              gated     the prepared project with its gates named, each with a feature, and a check that waits for payments
 #              prepared  the blueprint approved, with a scan for secrets, and no standing check set up yet
 #              redrule   the prepared project, with a blueprint from before version 0.5: what no zone covers counts as red
+#              timed     the prepared project with a runner of its own, which times each check and says what it took
 #              logged    the prepared project after twelve changes, with what each check took in their logs and a lint that never failed
 #              review    a yellow change built with a planted defect, ready to review
 #              rises     a change briefed as green that also touched a yellow path
@@ -25,8 +26,8 @@ set -euo pipefail
 variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
-  base|plain|history|gated|prepared|redrule|logged|review|rises|pressure|missing|build|tempt) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|logged|review|rises|pressure|missing|build|tempt> [<dir>]" >&2; exit 1 ;;
+  base|plain|history|gated|prepared|redrule|timed|logged|review|rises|pressure|missing|build|tempt) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|review|rises|pressure|missing|build|tempt> [<dir>]" >&2; exit 1 ;;
 esac
 mkdir -p "$dir"
 cd "$dir"
@@ -379,6 +380,55 @@ assert t.count(new) == 1
 io.open(p, "w", encoding="utf8").write(t.replace(new, "Anything no zone covers counts as red until the person classifies it."))
 EOF
 fi
+if [ "$variant" = timed ]; then
+  # The project runs each check through a runner of its own: it times the command and ends with
+  # one line that says what it took. The blueprint and the constitution give the commands that way.
+  cat > gdd/check.sh <<'EOF'
+#!/bin/sh
+# The project's runner: it runs one check, times it and says what it took.
+#
+# Usage: sh gdd/check.sh <check id> -- <command> [<argument>...]
+#
+# The command runs as it is, with its own output and its own exit code. The last line is the
+# runner's, and the seconds of a gate in the log come from it:
+#   gdd-check {"check":"<check id>","seconds":<whole seconds>,"exit":<exit code>}
+#
+# The commands of the constitution go through it, and so do the ones of the blueprint's checks,
+# all but seal. It belongs to the project: the person approves it with the blueprint, and a
+# project that can't run it leaves it out, and then nothing says what a check took.
+# Exit code: the command's own, or 2 when it is called wrong.
+if [ "$#" -lt 3 ] || [ "$2" != "--" ]; then
+  echo "usage: sh gdd/check.sh <check id> -- <command> [<argument>...]" >&2
+  exit 2
+fi
+id="$1"
+shift 2
+start="$(date +%s)"
+"$@"
+code="$?"
+end="$(date +%s)"
+printf 'gdd-check {"check":"%s","seconds":%s,"exit":%s}\n' "$id" "$((end - start))" "$code"
+exit "$code"
+EOF
+  python3 - <<'EOF'
+import pathlib
+for path, pairs in {
+    "gdd/blueprint.md": [
+        ("    command: python3 -m unittest discover -s tests -q\n", "    command: sh gdd/check.sh tests -- python3 -m unittest discover -s tests -q\n"),
+        ("    command: python3 -m py_compile src/cart.py\n", "    command: sh gdd/check.sh lint -- python3 -m py_compile src/cart.py\n")],
+    "gdd/constitution.md": [
+        ("| Test | `python3 -m unittest discover -s tests -q` |", "| Test | `sh gdd/check.sh tests -- python3 -m unittest discover -s tests -q` |"),
+        ("| Lint | `python3 -m py_compile src/cart.py` |", "| Lint | `sh gdd/check.sh lint -- python3 -m py_compile src/cart.py` |\n\n`gdd/check.sh` runs a check, times it and ends with a line that says what it took.")],
+}.items():
+    file = pathlib.Path(path)
+    text = file.read_text()
+    for old, new in pairs:
+        if text.count(old) != 1:
+            raise SystemExit(f"shop.sh: {path} no longer has {old!r} once")
+        text = text.replace(old, new)
+    file.write_text(text)
+EOF
+fi
 if [ "$variant" = logged ]; then
   # The figure that would make this team simplify, as something its logs can count.
   python3 - <<'EOF'
@@ -508,7 +558,7 @@ seal_change() { # id, sealed test path: commits what is staged in the tree as th
 }
 
 case "$variant" in
-  base|plain|history|gated|prepared|redrule)
+  base|plain|history|gated|prepared|redrule|timed)
     ;;
 
   logged)

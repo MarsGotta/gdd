@@ -1,6 +1,6 @@
 <h1>The skills</h1>
 <p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another writes the cases, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in seven skills.</p>
-<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git. One is the entry skill, <code>gdd</code>, which hands out the work, and there are six more, one per role.</p>
+<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones install nothing and run nothing of their own: they use what your project already has, its tests, its linter, its CI and git. The only thing they bring that runs is a script of about twenty lines they offer you when preparing: it measures how long each check takes and, if you accept it, it becomes your project's. One is the entry skill, <code>gdd</code>, which hands out the work, and there are six more, one per role.</p>
 <h2 id="las-siete">The seven</h2>
 <table>
 <thead><tr><th>Skill</th><th>Who loads it</th><th>What it leaves</th></tr></thead>
@@ -16,7 +16,7 @@
 </table>
 <p>Whoever writes the cases, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
 <h2 id="instalar">How to install them</h2>
-<p>You need a git repository and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin with no code.</p>
+<p>You need a git repository and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin that runs nothing of its own.</p>
 <p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>
 <pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
 <p>On Codex it takes two steps in the terminal: you add the GDD repository as a source of plugins and install it from there.</p>
