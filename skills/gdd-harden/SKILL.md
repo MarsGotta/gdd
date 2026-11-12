@@ -3,7 +3,7 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project after something slipped through its gates or keeps repeating. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when a reviewer catches what the machine checks passed, or when the logs show the same one coming back. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
   contract: gdd/1
 ---
 
@@ -32,7 +32,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 ## What you propose
 
 - **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it. This is where a zone gets gates of its own: when preparing, only if the person asks for one.
-- **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
+- **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
 - **A removal,** with the same evidence as an addition. When a gate has gone without catching anything for as long as the blueprint says would make the team simplify, propose retiring it: how often it ran, what it caught, and what it would let through from then on.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.

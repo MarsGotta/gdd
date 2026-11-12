@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "Gate-Driven Development is free to use. If you write about it or build on it, please credit it like this."
+title: "Gate-Driven Development"
+abstract: "A method to build quality products with AI agents without supervising them step by step: before the agent starts, you decide what it has to prove, and those are the gates."
+type: software
+authors:
+  - family-names: Gotta
+    given-names: Marcela
+url: "https://gate-driven.dev"
+repository-code: "https://github.com/MarsGotta/gdd"
+license:
+  - MIT
+  - CC-BY-4.0
+keywords:
+  - AI agents
+  - software quality
+  - gates
+preferred-citation:
+  type: generic
+  title: "Gate-Driven Development"
+  authors:
+    - family-names: Gotta
+      given-names: Marcela
+  year: 2026
+  url: "https://gate-driven.dev"

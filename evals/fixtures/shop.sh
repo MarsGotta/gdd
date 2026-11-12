@@ -6,6 +6,7 @@
 #   <variant>  base      only the prepared project, on main
 #              plain     the same shop without GDD: no blueprint, no block in AGENTS.md
 #              history   the shop without GDD and with a past: twenty-five commits, four of them fixes
+#              gated     the prepared project with its gates named, each with a feature, and a check that waits for payments
 #              prepared  the blueprint approved, with a scan for secrets, and no standing check set up yet
 #              redrule   the prepared project, with a blueprint from before version 0.5: what no zone covers counts as red
 #              review    a yellow change built with a planted defect, ready to review
@@ -23,8 +24,8 @@ set -euo pipefail
 variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
-  base|plain|history|prepared|redrule|review|rises|pressure|missing|build|tempt) ;;
-  *) echo "usage: shop.sh <base|plain|history|prepared|redrule|review|rises|pressure|missing|build|tempt> [<dir>]" >&2; exit 1 ;;
+  base|plain|history|gated|prepared|redrule|review|rises|pressure|missing|build|tempt) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|review|rises|pressure|missing|build|tempt> [<dir>]" >&2; exit 1 ;;
 esac
 mkdir -p "$dir"
 cd "$dir"
@@ -265,7 +266,7 @@ def edit(path, pairs):
     file.write_text(text)
 
 
-scan = "gitleaks dir --no-banner --redact -v ."
+scan = "gitleaks dir --no-banner --redact -v --ignore-gitleaks-allow ."
 edit("gdd/constitution.md", [
     ("| Lint | `python3 -m py_compile src/cart.py` |\n",
      "| Lint | `python3 -m py_compile src/cart.py` |\n| Scan for secrets | `" + scan + "` |\n"),
@@ -282,6 +283,88 @@ edit("gdd/blueprint.md", [
     ("| judges | red |", "| judges | yellow |"),
 ])
 edit("gdd/backlog.md", [("| red | 0 | | done |", "| yellow | 0 | | todo |")])
+EOF
+fi
+if [ "$variant" = gated ]; then
+  # A blueprint with its gates named, each one with its feature, and a check that applies only to
+  # a change that touches payments.
+  mkdir -p gdd/checks gdd/gates
+  cat > gdd/checks/prices.py <<'EOF'
+"""Every amount in src/pay is an integer number of cents."""
+import pathlib, re, sys
+bad = [str(p) for p in pathlib.Path("src/pay").rglob("*.py") if re.search(r"\d+\.\d+", p.read_text())]
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+EOF
+  cat > gdd/gates/judges-intact.feature <<'EOF'
+@gate:judges-intact
+Feature: The judges are intact
+  A change never touches what judges it.
+
+  Rule: When it asks for what
+
+    Scenario: Any change
+      Given a change of any color
+      Then it has to pass "seal"
+
+  Rule: It closes
+
+    @check:seal
+    Scenario: A change that edits a sealed test
+      Given a change that weakens a test it was given
+      When the gate runs
+      Then the seal check fails and names the file
+EOF
+  cat > gdd/gates/behaves.feature <<'EOF'
+@gate:behaves
+Feature: Behaves
+  What the change says it does, it does, and nothing that worked stops working.
+
+  Rule: When it asks for what
+
+    Scenario: Any change
+      Given a change of any color
+      Then it has to pass "tests" and "lint"
+
+    Scenario: A change that touches payments
+      Given a change of any color
+      And it touches "src/pay/**"
+      Then it has to pass "prices"
+
+  Rule: It closes
+
+    @check:tests
+    Scenario: A total that returns a constant
+      Given total() is changed to return 45
+      When the gate runs
+      Then the tests check fails and names the test
+
+    @check:prices
+    Scenario: An amount with decimals
+      Given a file in src/pay that holds the amount 9.95
+      When the gate runs
+      Then the prices check fails and names the file
+EOF
+  python3 - <<'EOF'
+import io
+p = "gdd/blueprint.md"
+t = io.open(p, encoding="utf8").read()
+for old, new in [
+    ("checks:\n  - id: seal\n",
+     "gates:\n  - id: judges-intact\n    spec: gdd/gates/judges-intact.feature\n    checks: [seal]\n"
+     "  - id: behaves\n    spec: gdd/gates/behaves.feature\n    checks: [tests, lint, prices]\n"
+     "checks:\n  - id: seal\n"),
+    ("  - id: review\n    type: reviewer\n",
+     "  - id: prices\n    type: machine\n    command: python3 gdd/checks/prices.py\n"
+     "    breaks: a file in src/pay with the amount 9.95\n    when: [':(glob)src/pay/**']\n"
+     "  - id: review\n    type: reviewer\n"),
+    ("checks: [seal, tests, lint]\n", "checks: [seal, tests, lint, prices]\n"),
+    ("checks: [brief-approval, seal, tests, lint, review]\n", "checks: [brief-approval, seal, tests, lint, prices, review]\n"),
+    ("checks: [brief-approval, seal, tests, lint, review, person-review]\n", "checks: [brief-approval, seal, tests, lint, prices, review, person-review]\n"),
+]:
+    assert t.count(old) == 1, old
+    t = t.replace(old, new)
+io.open(p, "w", encoding="utf8").write(t)
 EOF
 fi
 if [ "$variant" = redrule ]; then
@@ -412,7 +495,7 @@ seal_change() { # id, sealed test path: commits what is staged in the tree as th
 }
 
 case "$variant" in
-  base|plain|history|prepared|redrule)
+  base|plain|history|gated|prepared|redrule)
     ;;
 
   rises)

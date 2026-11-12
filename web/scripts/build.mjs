@@ -275,6 +275,7 @@ const pie = () => `<footer class="pie"><div class="contenedor pie__dentro">
   <div>
     <p><a href="/${PDF}">${tr('Descargar el manifiesto en PDF', 'Download the manifesto as a PDF')}</a> (${VERSION_TXT}, ${tr('solo el manifiesto', 'manifesto only')}).</p>
     <p><a href="${TMINUS}">${tr('T-minus, en GitHub', 'T-minus on GitHub')}</a></p>
+    <p>${tr('Los textos tienen licencia', 'The texts are under')} <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a> ${tr('y el código, MIT: puedes usarlos y adaptarlos si citas la fuente. Cómo citar: Marcela Gotta, <em>Gate-Driven Development</em>, gate-driven.dev.', 'and the code under MIT: you may use and adapt them if you credit the source. How to cite: Marcela Gotta, <em>Gate-Driven Development</em>, gate-driven.dev.')}</p>
   </div>
   <nav class="pie__paginas" aria-label="${tr('Más páginas', 'More pages')}">
     <ul>${PIE.map((k) => `<li><a href="${DOCS[k][idioma].ruta}">${DOCS[k][idioma].menu}</a></li>`).join('')}</ul>

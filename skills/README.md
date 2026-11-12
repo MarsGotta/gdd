@@ -4,7 +4,7 @@ You ask your agent for a filter by size in the catalog. One agent writes down wi
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
 
-This is version 0.4, with contract `gdd/1`.
+This is version 0.6, with contract `gdd/1`.
 
 ## The four moments
 
@@ -93,7 +93,7 @@ Set GDD up in this project
 
 1. **It proposes first.** You get the usual zones and gates for a project like yours, to correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal or regulated data, the stack, what can't be undone. It also asks, before one happens, what an emergency may skip and who opens that gate.
 2. **You mark the zones.** A zone is a set of paths with a color, by how much damage a change there can do: green, yellow or red. What no zone covers is never green: the orchestrator judges it in each change, tells you why, and asks when it can't tell. In a repository with history, it tries the zones on your last commits before you approve: how many would have come out of each color, what no zone covers and where the fixes fell.
-3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
+3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Each one is written as a short feature in Gherkin, which says which checks it asks of each color and what it rejects; the blueprint holds what runs, and the two are compared when the checks are set up. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
 4. **You choose the models.** It looks at which agents you have installed and which models each one offers, and proposes one for each level (light, standard and deep) and the reviewer's apart, from another model family where you have one. You say yes or correct it, and it launches a role on each one before it counts, so the blueprint never says light while everything runs on the deep model.
 5. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you.
 6. **You approve the blueprint,** or your team does, with a commit or a pull request from a person. The caps of a change (rounds, minutes and lines) go in it, and you set them together.
@@ -105,7 +105,8 @@ Set GDD up in this project
 AGENTS.md                    the GDD block: the cross-cutting core, under 100 words, and the map
 CODEOWNERS                   what you or your team always approve
 gdd/
-├── blueprint.md             zones, colors, checks, levels and limits
+├── blueprint.md             gates, zones, colors, checks, levels and limits
+├── gates/                   one feature for each gate: what it asks of each color, and what it rejects
 ├── constitution.md          the stack, the commands and the rules that hold everywhere
 ├── backlog.md               what to build, each item with its expected color
 ├── debt.md                  known debt, with the baseline of each check

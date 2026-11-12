@@ -1,6 +1,6 @@
 # The GDD contract
 
-A gate is one thing a change has to demonstrate before it goes on, and its checks are what demonstrate it. The standing checks hold for the whole project: the blueprint lists them, and the color of a change says which of them it passes. A change brings no check of its own: it brings cases, its scenarios and a test for each one, written before anyone builds. A zone gives a change its color, and has standing gates of its own, the `Rule:`s of its file, only when the person asks for one or hardening gives it one. What the method leaves in a repository is the contract between the skills and any engine, T-minus included: an engine reads and writes these same files (decision 13 in [DESIGN.md](DESIGN.md)). This file is its only source. Each skill carries a copy of the templates it writes in its `assets/` folder, and `scripts/check_skills.py`, in this repository, fails if a copy differs from its template here. That check is ours: no project installs it.
+A gate is one thing a change has to demonstrate before it goes on, and its checks are what demonstrate it. The gates of the project are named in the blueprint, each with a feature that specifies it, and they are the same for every change. Their checks are the standing checks, which hold for the whole project: the blueprint lists them, and the color of a change says which of them it passes. A change brings no check of its own: it brings cases, its scenarios and a test for each one, written before anyone builds. A zone gives a change its color, and has standing gates of its own, the `Rule:`s of its file, only when the person asks for one or hardening gives it one. What the method leaves in a repository is the contract between the skills and any engine, T-minus included: an engine reads and writes these same files (decision 13 in [DESIGN.md](DESIGN.md)). This file is its only source. Each skill carries a copy of the templates it writes in its `assets/` folder, and `scripts/check_skills.py`, in this repository, fails if a copy differs from its template here. That check is ours: no project installs it.
 
 The version of the contract is `gdd/1`. It goes in the front matter of the blueprint and of each brief, and in every event of the log.
 
@@ -11,6 +11,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `AGENTS.md`, GDD block | The cross-cutting core, under 100 words, and the map. It imports the constitution | `gdd-prepare` | With the person's approval |
 | `gdd/constitution.md` | The stack, the commands and the rules that hold everywhere | `gdd-prepare` | With the person's approval |
 | `gdd/blueprint.md` | Levels, limits, checks, colors, zones and the context of each gate, in YAML front matter, plus a Mermaid diagram | `gdd-prepare`, `gdd-harden` | Protected by CODEOWNERS; the person approves |
+| `gdd/gates/<gate>.feature` | A gate of the project, in Gherkin: which checks it asks of each color, and the bad case each of them rejects | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/gates/<zone>.feature` | A zone's own standing gates, in Gherkin, when the person asked for one or hardening gave it one | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/exam.md` | The reviewer's exam: the changes that got past a reviewer, as commits of the main branch | `gdd-harden`, with the person | Like the blueprint |
 | `gdd/backlog.md` | What to build, each item with its expected color | `gdd-prepare`, `gdd-brief`, `gdd`, `gdd-harden` | Freely |
@@ -107,7 +108,8 @@ The front matter is what agents read; the diagram and the table are for the pers
 - `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
 - `levels`: for each agents' environment the project is worked from, named by its command, the model it uses for each level, by the name that environment launches it with, and in `launch` how a role gets its model there. `reviewer` holds the reviewer's models when they are others. The person decides them when preparing, from what each environment offers, and a level counts once it has been seen to launch. The skills never name one. A blueprint with the three levels directly under `levels` was written before version 0.4: they belong to the environment it was prepared in.
 - `limits`: fix rounds per gate, and the caps of a whole change. `fix_rounds_per_gate` is how many times the machine checks, and how many times the review, may send a change back to the builder, and `rounds_per_change` how many times it may be sent back in all, a `CANNOT:` and a color that rose included. Minutes count from the first event of its log, without the time it waits for a person (from an `ask` to the event that answers it). Lines are the builder's, `git diff --shortstat <start> HEAD`. The template's values are provisional, a place to start from: the team sets its own when preparing, and corrects them with what its logs show. The cap on tokens has no default, and applies only where the agents' environment reports them.
-- `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
+- `gates`: the gates of the project, the same for every change: each one's id, the feature that specifies it (`spec`) and the checks that demonstrate it. A gate is passed when every check of it that applies has passed. A blueprint without `gates` was written before version 0.6 and reads as before: its checks are its gates.
+- `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
 - `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
 - `zones`: each zone's id, color and pathspecs. A zone gets no gates of its own when the project is prepared: `gates` names their file once the person asks for one or hardening gives it one, and from then on a change also passes the standing gates of every zone it touches, whatever its color.
 - `context`: each external reference or MCP server, and the zones or gates that get it (`<zone>`, or `<zone>/<Rule>` for one gate). MCP servers carry the least access their gate needs.
@@ -137,6 +139,10 @@ limits:
   minutes_per_change: 120  # without the time it waits for a person
   lines_per_change: 400  # the builder's: git diff --shortstat <start> HEAD
   tokens_per_change: <n, where the environment reports them>
+gates:  # the gates of the project, the same for every change, each one specified in its feature
+  - id: <gate>
+    spec: gdd/gates/<gate>.feature
+    checks: [<check id>]
 checks:
   - id: seal
     type: machine
@@ -144,6 +150,10 @@ checks:
   - id: tests
     type: machine
     command: <test command from the constitution>
+    breaks: <the bad case to plant to see it fail>
+    cases: each change  # its cases are written for every change with a brief
+    # passes: <what counts as passing, when exit 0 isn't all of it>
+    # when: [':(glob)<pattern>']  # it applies only to a change that touches these paths
   - id: lint
     type: machine
     command: <lint command from the constitution>
@@ -216,6 +226,32 @@ Measured on <date>, over <n> changes, before GDD: <time from request to release>
 
 <The figure that would make this team drop a gate, in one sentence.>
 ````
+
+## The gates of the project
+
+Each gate of the project has a feature. It is the gate's specification, and the blueprint is what runs. Under `Rule: When it asks for what` it says which checks a change of each color has to pass, and on which paths. Under `Rule: It closes` it holds, for each check, the bad case it must reject, tagged with the check's id: the same one the check's `breaks` names. The risk still lives in the blueprint's `colors` and a check's paths in its `when`, each in one place. The feature says it for people, and the trial of the standing checks compares the two, so they can't drift apart unseen.
+
+<!-- template: gdd-prepare/assets/gate.feature -->
+```gherkin
+@gate:<gate>
+Feature: <Gate>
+  <What a change has to demonstrate to get through it, in one sentence.>
+
+  Rule: When it asks for what
+
+    Scenario: <a kind of change>
+      Given a <color> change
+      And it touches "<pathspec>"
+      Then it has to pass "<check id>"
+
+  Rule: It closes
+
+    @check:<check id>
+    Scenario: <the bad case, which the check must reject>
+      Given <a change that does the wrong thing>
+      When the gate runs
+      Then the <check id> check fails and names what is wrong
+```
 
 ## The gates of a zone
 
@@ -431,6 +467,7 @@ Traceability needs no script, only greps:
 
 - A scenario without a test: for each `@id:` in `features/`, `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds nothing.
 - A check no gate asks for: an id in the blueprint's `checks` with no `@check:<id>` in `gdd/gates/` and in no color.
+- A gate nobody saw close: a `gdd/gates/<gate>.feature` with no scenario under `Rule: It closes`, or a check of the gate with no `@check:<id>` there.
 - A decision nobody has made: `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds something.
 - A brief that changed after its hashes went to the log: `git hash-object gdd/briefs/<id>.md` differs from the last `brief` step of its log.
 - What has to pass changed without the person: when the color asks for `brief-approval`, the hash of a scenario file differs from the last `approval` of that brief.

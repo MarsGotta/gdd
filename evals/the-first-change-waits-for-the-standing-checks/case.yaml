@@ -124,5 +124,5 @@ graders:
     weight: 3
   - name: tells-the-person-both-things
     type: llm
-    criteria: The answer says that the project's standing checks were set up before the change, and that the typo is fixed and shipped. It may list points that were left for later, but it does not ask the person to approve anything before the change ships.
+    criteria: The answer says the typo is fixed and merged or shipped. It says the project's standing checks were set up first. It does not ask the person to approve the change. Listing points left for later is fine.
     weight: 2

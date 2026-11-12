@@ -36,7 +36,7 @@ Then read it with them, and let them decide:
 - The fixes pile up in a zone that comes out green: it is marked too low.
 - A zone no commit touched: check its pathspec with `git ls-files -- <pathspec>`. A typo in it covers nothing, and nothing warns.
 
-Correct the proposal and run it again before you ask for the approval, and say what you changed because of it.
+Correct the proposal and run it again before you ask for the approval, and say what you changed because of it. When you show the person the blueprint, give this a heading of its own, `The zones on your history`, with the numbers under it: among the files it gets lost, and it is what lets them judge the zones.
 
 ## The baseline
 

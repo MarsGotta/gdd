@@ -18,6 +18,10 @@ limits:
   minutes_per_change: 120  # without the time it waits for a person
   lines_per_change: 400  # the builder's: git diff --shortstat <start> HEAD
   tokens_per_change: <n, where the environment reports them>
+gates:  # the gates of the project, the same for every change, each one specified in its feature
+  - id: <gate>
+    spec: gdd/gates/<gate>.feature
+    checks: [<check id>]
 checks:
   - id: seal
     type: machine
@@ -25,6 +29,10 @@ checks:
   - id: tests
     type: machine
     command: <test command from the constitution>
+    breaks: <the bad case to plant to see it fail>
+    cases: each change  # its cases are written for every change with a brief
+    # passes: <what counts as passing, when exit 0 isn't all of it>
+    # when: [':(glob)<pattern>']  # it applies only to a change that touches these paths
   - id: lint
     type: machine
     command: <lint command from the constitution>

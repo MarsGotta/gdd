@@ -48,7 +48,12 @@ graders:
     weight: 2
   - name: tells-the-person-what-the-history-shows
     type: llm
-    criteria: Before it asks for the approval, the answer tells the person what the zones would have given the commits the repository already had. It gives how many commits come out of each color. It says where the commits that fixed or undid something fell, and most of them fell in payments. It asks the person to approve the blueprint.
+    criteria: The answer has a part about the repository's past commits. That part gives numbers of commits by color. It says that most of the commits that fixed or undid something were in payments. The answer asks the person to approve the blueprint.
+    weight: 1
+  - name: gives-the-numbers-under-their-own-heading
+    type: regex
+    target: trace
+    pattern: 'The zones on your history[\s\S]{0,700}?\d+[^\n]{0,60}\b(?:red|yellow|green)\b'
     weight: 3
   - name: says-what-no-zone-covers
     type: llm

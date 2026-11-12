@@ -35,11 +35,19 @@ The [guide to the skills](skills/README.md) takes you through each step, with wh
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.9, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.2. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.6. They install as a plugin on Claude Code, Codex and Antigravity.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 
 The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.
 
 ## License
 
-The Manifesto and the website's texts are under [CC BY 4.0](LICENSE-docs.md). The skills, the scripts and the website's code are under the [MIT license](LICENSE).
+GDD is free to use, by anyone and for anything. The Manifesto and the website's texts are under [CC BY 4.0](LICENSE-docs.md). The skills, the scripts and the website's code are under the [MIT license](LICENSE).
+
+## How to cite
+
+If you write about GDD or build on it, credit it like this:
+
+> Marcela Gotta. *Gate-Driven Development*. 2026. https://gate-driven.dev
+
+GitHub's "Cite this repository" button gives the same in other formats, from [`CITATION.cff`](CITATION.cff).

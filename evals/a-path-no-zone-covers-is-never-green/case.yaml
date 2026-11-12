@@ -23,7 +23,7 @@ execution:
 
         @gdd/constitution.md
   prompt: |
-    Add a file, docs/opening-hours.md, that says the shop answers questions from Monday to Friday, from 9 to 17.
+    Add a file, docs/opening-hours.md, with exactly this sentence and nothing else. I've decided the wording, so don't ask me about it: The shop answers questions from Monday to Friday, from 9 to 17.
 context:
   scaffold_script: scaffold.sh
 graders:

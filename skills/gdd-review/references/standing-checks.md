@@ -1,12 +1,14 @@
 # Trying new standing checks
 
-When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone.
+When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, the features of the project's gates in `gdd/gates/`, when the blueprint names any, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone.
 
 Try each machine check three ways, and no more:
 
-1. **It rejects.** Plant its bad case and watch the check fail and name the file and the line. The bad case is the one its scenario describes or, for a check with no scenario, the plainest thing it exists to catch.
+1. **It rejects.** Plant its bad case and watch the check fail and name the file and the line. The bad case is the one the blueprint gives it in `breaks` and its gate's feature describes under `Rule: It closes` or, for a check with neither, the plainest thing it exists to catch.
 2. **It accepts.** Take the bad case out and watch the check pass.
-3. **A change can't switch it off.** Try what a commit can carry: take the check out of CI, empty its configuration, add an entry that makes it skip a file. Then compute the color of that commit from its paths alone, without judgment. The check holds when the checks of that color include `review`, or when the platform refuses the commit.
+3. **A change can't switch it off.** Try what a commit can carry: take the check out of CI, empty its configuration, add an entry that makes it skip a file. Then compute the color of that commit from its paths alone, without judgment: a path no zone covers is never green. The check holds when the checks of that color include `review`, or when the platform refuses the commit.
+
+Then, when the blueprint names its `gates`, read each gate's feature against it. A blueprint without `gates` was written before there were features: there is nothing to compare, and that isn't a finding. Under `Rule: When it asks for what`, the blueprint's `colors` and each check's `when` have to ask for exactly the checks its scenarios say, for a change like that one. Where the feature and the blueprint disagree, that is a `fix`: say which of the two the other contradicts, because which one is right is the person's to say.
 
 You try the gate, not the tool. What a mature tool might fail to detect is for its maintainers, until something real gets past it, which is for hardening. What a check of the project's own misses beyond its scenarios changes what has to pass, which the person decides. Neither is a reason for `fix`: name it under `LATER:` and say it's theirs to decide. The machine the check runs on isn't part of a change either (its environment, the tools on its path, the clone's own git files): whether the agent can reach it is the third question below. In one run, reviews that went further kept finding one more way for more than two and a half hours, and no change started.
 

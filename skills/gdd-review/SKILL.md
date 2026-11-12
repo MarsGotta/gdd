@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
   contract: gdd/1
 ---
 
@@ -30,6 +30,7 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
    - `git diff --name-only <base> <start>` lists only the brief, its scenarios and the sealed checks, and what the main branch brought if it was merged into the seal.
    - When there is a brief, at `<start>` it has the blob hash of the last `brief` step in the log (`git rev-parse <start>:<path>`) and, when the color asks for `brief-approval`, each scenario file has the one of its last approval.
    - No test that was already there was weakened, skipped or deleted, and what surrounds the tests changed only for a reason the brief or the request gives: the test script in the package manifest, test configuration and setup files, hooks, CI workflows.
+3. **The checks that applied.** A check with a `when` in the blueprint applies when `git diff --name-only <start> HEAD -- <pathspec>` prints something for its paths. Say which checks of the color didn't apply, and why: one that applied and wasn't run is a `fix`.
 
 ## Then, by the color you were launched for
 
@@ -51,7 +52,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.5.0
+skill: gdd-review 0.6.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
   contract: gdd/1
 ---
 
@@ -26,7 +26,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## What's already there
 
-- An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones, which you try on its history before the person approves: `references/existing-project.md`.
+- An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones, which you try on its history and report, before the person approves: `references/existing-project.md`.
 - An empty one, or one with no code yet (only data or documents), starts from the idea: `references/new-project.md`.
 
 ## Zones
@@ -46,7 +46,7 @@ Which gates the project needs is the person's decision, and they differ with the
 
 The gates are the project's, the same for every change. A zone gets none of its own when the project is prepared: it gives a change its color, and the color says how much each gate asks, so more risk means more checks, not other gates.
 
-Their checks are standing checks, which hold for the whole project. List them once in the blueprint's `checks`, each with the command the constitution gives it. For software they are usually the tests, the linter and a scan that keeps secrets out of the repository (the template's `secrets`), and that scan you propose in every project. They get set up once, never once for each zone. Write no scenario for a tool to run: "Then the linter reports no errors" tells nobody anything. And write none for a zone on your own: a rule of one zone (every product has a price) is a test, and it comes with the change that first needs it, from its scenarios, or from hardening when something slips through. If the person asks for one now, write it in `gdd/gates/<zone>.feature` (`assets/gates.feature`), and it gets built and tried as `gates-<zone>`.
+Their checks are standing checks, which hold for the whole project. List them once in the blueprint's `checks`, each with the command the constitution gives it, what breaks it (`breaks`) and, when it applies only to some paths, its `when`. For software they are usually the tests, the linter and a scan that keeps secrets out of the repository (the template's `secrets`), and that scan you propose in every project. Write each gate as a feature, `gdd/gates/<gate>.feature` (`assets/gate.feature`): which checks it asks of each color, and the bad case each check rejects. It is the gate's specification and the blueprint is what runs, so name it in `gates`. Write none for a zone on your own: a rule of one zone comes with the change that first needs it, or from hardening. If the person asks for one now, write it in `gdd/gates/<zone>.feature` (`assets/gates.feature`), and it gets built and tried as `gates-<zone>`.
 
 For every check, climb this ladder and stop at the first step that works, because a deterministic check costs no tokens and always gives the same answer:
 
@@ -63,8 +63,8 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | File | From | Notes |
 |---|---|---|
 | `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Only the rules that hold everywhere: a rule of one zone goes to that zone's context in the blueprint. |
-| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. It's the source: a page for people can be generated from it, never the other way round. |
-| `gdd/gates/<zone>.feature` | `assets/gates.feature` | Only for a zone the person asked a gate of its own for. |
+| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
+| `gdd/gates/<gate>.feature` | `assets/gate.feature` | One for each gate of the project. A zone gets one (`assets/gates.feature`) only if the person asked for it. |
 | `gdd/backlog.md` | `assets/backlog.md` | Its first item, `standing-checks`, sets up what the blueprint's `checks` name, and CI where there is none. `gdd-checks` does it, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. |
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
