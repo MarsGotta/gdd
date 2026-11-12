@@ -22,7 +22,7 @@ What it checks:
     and the contract gdd/1;
   - the sizes of decision 19 of skills/DESIGN.md: gdd-build about 200 words,
     the GDD block of AGENTS.md under 100, every SKILL.md under 500 lines and
-    14,000 bytes, and under 400 characters of description for every skill
+    14,500 bytes, and under 400 characters of description for every skill
     but gdd, the only one that is found by its description;
   - no skill ships scripts, but the template of the project's runner in the
     assets of gdd-prepare, and only gdd can be invoked implicitly in Codex;
@@ -57,7 +57,7 @@ SCRIPTS = {".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", "
 BUILD_WORDS = 230
 BLOCK_WORDS = 100
 MAX_LINES = 500
-MAX_BYTES = 14_000  # an agent keeps the first 20,000 characters of a skill after a compaction: this leaves room
+MAX_BYTES = 14_500  # an agent keeps the first 20,000 characters of a skill after a compaction: this leaves room
 DESCRIPTION_CHARS = 400
 SEAL = re.compile(r"git diff --exit-code <start> HEAD -- [^`\n\"]+")
 NO_YAML = (

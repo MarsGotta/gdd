@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.9.0"
+  version: "0.9.1"
   contract: gdd/1
 ---
 
@@ -32,7 +32,7 @@ Prepare, Brief and Harden are yours: load the skill, whose folder is next to thi
 
 ## A change, step by step
 
-`<base>` is the commit of the main branch the change starts from. `<start>` is the commit that holds everything that judges it: the tip of its seal, or the base when nothing was sealed. Whenever the seal moves (a new version of the brief, new checks, the main branch merged in), its tip is the new `<start>`: write it in the log, give it to each role, and merge it into the change's branch before anyone goes on. If that merge conflicts, it's the first thing the builder does in its next round.
+Two commits anchor every comparison. `<base>` is the commit of the main branch the change starts from. `<start>` is the commit that holds everything that judges it: the tip of its seal, or the base when nothing was sealed. Whenever the seal moves (a new version of the brief, new checks, the main branch merged in), its tip is the new `<start>`: write it in the log, give it to each role, and merge it into the change's branch before anyone goes on. If that merge conflicts, it's the first thing the builder does in its next round.
 
 1. **Brief.** Load `gdd-brief`, for every change, a typo or a path no zone covers too: its color goes to the log before anyone builds. It gives the color and, on yellow and red, the brief and its scenarios, committed on `gdd-seal/<id>`. When there's no brief, pick an id for the change's log (lowercase, digits, hyphens). If the color's checks include `brief-approval`, nothing is built before the person approves, and nobody is launched before the `brief` step is in the log.
 2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the cases the color asks for, proves each one fails for the right reason and can pass, and seals them. A change with no brief skips this step.
@@ -56,17 +56,25 @@ Every agent starts with a clean context: a new session or subagent, never this c
 
 ## The log and the person
 
-When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: its level, its round and, when your environment gives them, the model, the time and the tokens. Evidence is a command, its exit code and its last lines, five at most, and never a secret: where a tail shows one, write its kind and where it was. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
+When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it, in this skill's folder, before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: its level, its round and, when your environment gives them, the model, the time and the tokens. Evidence is a command, its exit code and its last lines, five at most, and never a secret: where a tail shows one, write its kind and where it was. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
 
 The log and the backlog are your bookkeeping. Keep them in your own copy, off every change's branch, and commit what the main branch doesn't have yet on top of a change that is about to ship. What you log after that, its `ship` event too, travels with the next one. What reaches the main branch is your copy, never one found on a change's branch.
 
 Send a command's output to a file and read only its end.
 
-Unless they ask for more, a message to the person is under 100 words: what changed in their product or what is waiting, one line per gate, and what you'd do, as a question a yes answers. "Your footer fix is written but not in yet: a test of the cart's text already failed before I touched it. I'd fix that first, then ship both. Yes?" Before sending, count its words and cut every branch, commit and file they needn't open. If they say "you decide" or a way out loosens a check, read `references/person.md` first. When something starts waiting for them, append an `ask` event at that moment and ask at once: in the pilot, one waited seven hours.
+Unless they asked for more, every message to the person is under 100 words, in their language, in this shape:
+
+    <What changed in their product, or what is waiting and why.>
+    <One line per gate that ran.>
+    <If you need something: what you'd do, and one question a yes answers.>
+
+"Your footer fix is written but not in yet: a test of the cart's text already failed before I touched it. I'd fix that first, on its own, then ship both. Yes?" Say "written but not in yet" or "it's in", never a branch or a commit, and name a file only when they have to open it. Before sending, count its words, reread it as someone who never saw the method and, if it asks them something, append its `ask` event to the log first. If they say "you decide", or a way out would loosen a check, read `references/person.md` first.
+
+When something starts waiting for them, append an `ask` event at that moment and ask at once: in the pilot, one waited seven hours unseen.
 
 ## Stopping
 
-- **Limits.** The blueprint caps how many times the checks, and how many the review, may send a change back, how many times in all (a `CANNOT:` and a color that rose count too), its minutes, without the time it waits for a person, and the builder's lines (`git diff --shortstat <start> HEAD`). When one runs out, stop and ask the person how to rethink it. The token cap applies only where your environment reports them. Don't run a round again if nothing changed since the last one: in the pilot, an integration ran the same gate for three hours.
+- **Limits.** The blueprint caps how many times the checks, and how many the review, may send a change back, how many times in all (a `CANNOT:` and a color that rose count too), its minutes, without the time it waits for a person, and the builder's lines (`git diff --shortstat <start> HEAD`). When one runs out, stop and ask the person, who decides how to rethink it. The token cap applies only where your environment reports them. Don't run a round again if nothing changed since the last one: in the pilot, an integration ran the same gate for three hours.
 - **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. If the reason is a check that looks wrong, it goes to `gdd-checks`, or to the person: only they correct a check. Otherwise it goes back to `gdd-brief` for a new version, which goes back to the person if what has to pass changes and its color asks for `brief-approval`, and then `gdd-checks` brings the checks up to it. Each of those moves the seal. The fix is in the brief or in the check, never in a looser check.
 - **Nothing changed.** If a build step ends without `CANNOT:` and left nothing (`git status --porcelain` and `git diff --stat <start>` show nothing), nothing was built: an answer, a list or a plan isn't a change. Give the agent the request again, word for word, once, and if it happens again, tell the person.
 - **It asks what's next.** A role that asks what to do next, or offers something else, doesn't choose: the next change comes from the backlog, with the person.

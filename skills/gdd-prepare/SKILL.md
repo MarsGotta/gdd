@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.9.0"
+  version: "0.9.1"
   contract: gdd/1
 ---
 

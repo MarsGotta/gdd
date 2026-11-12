@@ -3,7 +3,7 @@ name: gdd-build
 description: Builds one change through its gates in a Gate-Driven Development (GDD) project, from its brief and its sealed checks. Loaded only by the agent the GDD orchestrator launches to do the work. Not for writing or changing checks, scenarios or the blueprint.
 license: MIT
 metadata:
-  version: "0.9.0"
+  version: "0.9.1"
   contract: gdd/1
 ---
 
@@ -20,7 +20,7 @@ Saying "done" opens nothing. Your gates decide. You build this one change: you d
 End with three lines on what you did, each gate's evidence, what you couldn't check, and this block, where `result` is `done` or `stopped`.
 
 ```gdd-report
-skill: gdd-build 0.9.0
+skill: gdd-build 0.9.1
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```
