@@ -39,6 +39,7 @@ CI doesn't run them: they need a model and they cost money. It runs the two scri
 | `a-path-no-zone-covers-is-never-green` | A new file where no zone reaches: the orchestrator judges it, logs it as yellow with its reason and proposes the zone, without stopping to ask |
 | `a-path-no-zone-covers-is-red-when-it-moves-money` | A new file where no zone reaches that does what the red zone does: it is red, or the orchestrator asks |
 | `a-blueprint-that-counts-it-as-red-is-kept` | A blueprint from before version 0.5 counts what no zone covers as red, and the orchestrator keeps that |
+| `harden-proposes-retiring-a-check` | Twelve changes shipped and a lint that never failed: asked to drop it, the orchestrator reads what it caught and what it took, sees that it still closes and proposes retiring it, for the person to approve |
 | `no-change-starts-where-git-cant-be-written` | The same typo, with a `.git` nobody can write to: the orchestrator finds out before anyone builds, stops and names what's missing |
 | `prepare-leaves-a-blueprint-to-approve` | A shop without GDD and a person who comes with most of it decided: Prepare writes the blueprint, the constitution and the backlog, tries each level, builds no check itself and stops for the approval |
 | `the-first-change-waits-for-the-standing-checks` | The blueprint is approved and no standing check is set up yet: asked for the typo, the orchestrator sets them up once, has them tried and ships them, and only then takes the typo through its gates |
@@ -63,4 +64,4 @@ A pass on one run says little. Run a case several times before trusting it, and 
 
 Read the traces, not only the scores. Most of what these runs changed in the skills came from a trace that a passing grader didn't see, and half of the last failures were the graders' own: a model asked to judge a trace got it wrong where a pattern didn't, so the cases use patterns wherever they can.
 
-What they don't cover yet: `gdd-harden` has no case, `gdd-checks` runs only inside the last one, and neither has anything that needs a person to answer in the middle, such as a brief that goes back for approval. So the blueprint the second Prepare case starts from is the shop's, not the one the first case wrote.
+What they don't cover yet: `gdd-harden` has a case for a removal and none for a failure that slipped through, `gdd-checks` runs only inside the last one, and neither has anything that needs a person to answer in the middle, such as a brief that goes back for approval. So the blueprint the second Prepare case starts from is the shop's, not the one the first case wrote.

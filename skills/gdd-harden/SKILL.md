@@ -3,7 +3,7 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project in both directions, adding a check after something slipped through its gates or keeps repeating, and relaxing or retiring a gate that adds nothing. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when the logs show it coming back, or when a gate costs more than it catches. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.7.0"
+  version: "0.7.1"
   contract: gdd/1
 ---
 
@@ -35,10 +35,10 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 - **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it. This is where a zone gets gates of its own: when preparing, only if the person asks for one.
 - **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
-- **A removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, propose retiring it: how often it ran, what it caught, what it cost and what it would let through from then on.
+- **A removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, plant its bad case and see it still rejected, and then propose retiring it: how often it ran, what it caught, what it cost and what it would let through from then on.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.
 
-You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs. Then the check gets built and tried before it counts, as the backlog item `gates-<zone>`, the way the standing checks were: the `gdd` skill's reference `standing-checks.md` says how. Tell the person what that trial leaves under `LATER:` and put it in the backlog, without waiting: the gate stays as they approved it unless they change it. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
+You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs, never one you make or offer to make for them. Until then it is a proposal, and you say so: nothing is added or retired yet. Then the check gets built and tried before it counts, as the backlog item `gates-<zone>`, the way the standing checks were: the `gdd` skill's reference `standing-checks.md` says how. Tell the person what that trial leaves under `LATER:` and put it in the backlog, without waiting: the gate stays as they approved it unless they change it. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
 
 ## The reviewer's exam
 

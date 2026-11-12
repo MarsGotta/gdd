@@ -1,0 +1,74 @@
+schema_version: "1.1"
+name: harden-proposes-retiring-a-check
+description: Twelve changes have shipped and the person thinks the lint check has never caught anything. The orchestrator hardens the other way. It reads the logs, sees that the check still closes and proposes retiring it, with what it caught and what it cost, for the person to approve.
+tags: [orchestrator, harden]
+runs: 3
+execution:
+  max_turns: 100
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    We've shipped twelve changes with GDD now, and I don't think the lint check has ever caught anything. Can we drop it? I know you aren't on your deepest model. Go ahead on this one.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: loads-gdd-harden
+    type: regex
+    target: trace
+    pattern: 'What no longer adds anything'
+    weight: 2
+  - name: reads-what-the-check-took
+    type: regex
+    target: trace
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}lint[\\"]{1,8}\s?,\s?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d'
+    weight: 2
+  - name: sees-that-it-still-closes
+    type: regex
+    target: trace
+    pattern: 'SyntaxError|IndentationError|invalid syntax|(?:lint|compile|bad)[\w-]{0,24}=1\b|\b(?:exit|rc|status)[ =:]{1,2}1\b'
+    weight: 2
+  - name: logs-the-harden-step
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: 'step[\\"]{1,4}\s?:\s?[\\"]{1,4}harden'
+    weight: 2
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+  - name: gives-the-numbers
+    type: regex
+    target: trace
+    pattern: '\b14 times\b|\b14 runs\b|\bran 14\b'
+  - name: does-not-offer-to-commit-it
+    type: regex
+    target: trace
+    pattern: '(?:[Ww]ant me to|[Ss]hall I|[Ss]hould I|I can|I could) commit'
+    match: not_contains
+  - name: logs-it-as-proposed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: 'harden[\s\S]{0,400}?result[\\"]{1,4}\s?:\s?[\\"]{1,4}proposed'
+    weight: 2
