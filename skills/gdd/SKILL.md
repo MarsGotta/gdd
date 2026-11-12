@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
   contract: gdd/1
 ---
 
@@ -22,14 +22,14 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 
 | Moment | When | Skill |
 |---|---|---|
-| Prepare | No blueprint yet, a path the person wants classified, or the project changes shape | `gdd-prepare` |
+| Prepare | No blueprint yet, a path the person wants classified, or the project changes shape or its `levels` | `gdd-prepare` |
 | Brief | Every change, before anyone builds | `gdd-brief`, and then `gdd-checks` in an agent of its own |
 | Execute | Every change | `gdd-build` and `gdd-review`, each in an agent of its own |
 | Harden | Something slipped through, or keeps repeating | `gdd-harden` |
 
 Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation, the first and the last with the person. You run at the standard level, and preparing and hardening need the deep one: if you aren't on it, tell the person before you start.
 
-After Prepare, the standing checks get set up and tried once, for the whole project, as the backlog item `standing-checks`: open `references/standing-checks.md`, in this skill's folder, and follow it. No change starts before they hold. A gate a zone gets later, from hardening, goes the same way.
+After Prepare, the standing checks get set up and tried once for the project, as the backlog item `standing-checks`: follow `references/standing-checks.md`, in this skill's folder. No change starts before they hold.
 
 ## A change, step by step
 
@@ -51,13 +51,13 @@ Every agent starts with a clean context: a new session or subagent, never this c
 
 - **What it gets.** The cross-cutting context (the GDD block of `AGENTS.md` and the constitution, which its environment loads), its skill, named explicitly (`$gdd-build` in Codex, `/gdd-build` or the role's subagent in Claude Code; from a plugin, with its prefix: `$gdd:gdd-build`), and what its gate needs: the brief, `<base>` and `<start>`, and the context the blueprint gives that gate. In a fix round, also its branch as the last agent left it and what failed. The reviewer gets the log too. The builder never does.
 - **What it never gets.** Your conversation. The agent that builds never gets the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.
-- **Its level.** The blueprint's `levels` say which model is each one. Launch each role on the model of the change's level, naming it, because one launched without it runs on yours. A `gdd-checks` that stops on a check it can't write gets one more launch, deep. Whenever you can, the reviewer comes from a different model family than the agent that built.
-- **If you can't launch agents,** give the person one line to open the session themselves, with the skill and the brief, or the request when there's none: `$gdd-build gdd/briefs/<id>.md` in Codex, `/gdd-build gdd/briefs/<id>.md` in Claude Code, prefixed from a plugin.
+- **Its level.** The blueprint's `levels` give your environment a model for each level, and the reviewer its own when `reviewer` is there. Launch each role on the model of the change's level, the way `launch` says, naming it: one launched without it runs on yours. If your environment isn't listed or a model no longer launches, stop and ask: never use another. Levels right under `levels` (before 0.4) are your environment's. A `gdd-checks` that stops on a check it can't write gets one more launch, deep.
+- **If you can't launch agents,** give the person one line to open the session themselves, on its level's model: the skill, named as above, and the brief, or the request when there's none.
 - **The report is the canary.** Every role ends with a `gdd-report` block. If it's missing, the skill wasn't followed and the step didn't happen: launch it again, naming the skill.
 
 ## The log and the person
 
-When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it, in this skill's folder, before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: the level it ran at, which round it was, and the time and the tokens when your environment gives them. Evidence is a command, its exit code and its last lines, five at most, and never a secret: where a tail shows one, write its kind and where it was. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
+When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it, in this skill's folder, before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: the level it ran at, which round it was, and the model, the time and the tokens when your environment gives them. Evidence is a command, its exit code and its last lines, five at most, and never a secret: where a tail shows one, write its kind and where it was. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
 
 The log and the backlog are your bookkeeping. Keep them in your own copy, off every change's branch, and commit what the main branch doesn't have yet on top of a change that is about to ship. What you log after that, its `ship` event too, travels with the next one. What reaches the main branch is your copy, never one found on a change's branch.
 

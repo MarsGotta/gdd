@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) together with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
   contract: gdd/1
 ---
 
@@ -13,7 +13,7 @@ You decide with the person what the project is about, what is delicate in it, wh
 
 ## When the project is already prepared
 
-If you're here because a change touches a path no zone covers, or because the project changed shape, do only this. An uncovered path is first a question for the person, asked once: classify it now, or go on as red. If they classify it, or the project changed shape, propose the pathspec or the zone, with its color and why. The person approves that change to the blueprint, and it has to be on the main branch before the change is briefed again, because the color is computed from there. A new zone gets a color and no gates of its own. If that color asks for a check the project hasn't set up yet, it gets set up and tried before any change starts there, as the backlog item `standing-checks-<check id>`. The probe and the baseline aren't repeated, unless the agents' environment changed.
+If you're here because a change touches a path no zone covers, or because the project changed shape, do only this. An uncovered path is first a question for the person, asked once: classify it now, or go on as red. If they classify it, or the project changed shape, propose the pathspec or the zone, with its color and why. The person approves that change to the blueprint, and it has to be on the main branch before the change is briefed again, because the color is computed from there. A new zone gets a color and no gates of its own. If that color asks for a check the project hasn't set up yet, it gets set up and tried before any change starts there, as the backlog item `standing-checks-<check id>`. The probe and the baseline aren't repeated, unless the agents' environment changed. If you're here because an environment or a model of `levels` has to change, do only `references/levels.md`.
 
 ## The conversation
 
@@ -21,6 +21,7 @@ If you're here because a change touches a path no zone covers, or because the pr
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
 - **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications, brand guides. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
 - **Research** similar products and the sector's rules only if it helps the person decide: `references/research.md`.
+- **Ask which models do the work.** See which agents' environments the person has and what each one offers, propose a model for each level and the reviewer's apart, and try each one before it counts: `references/levels.md`.
 - **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
 
 ## What's already there
@@ -45,7 +46,7 @@ Which gates the project needs is the person's decision, and they differ with the
 
 The gates are the project's, the same for every change. A zone gets none of its own when the project is prepared: it gives a change its color, and the color says how much each gate asks, so more risk means more checks, not other gates.
 
-Their checks are standing checks, which hold for the whole project. List them once in the blueprint's `checks`, each with the command the constitution gives it: the tests, the linter and a scan that keeps secrets out of the repository (the template's `secrets`), which you propose in every project. They get set up once, never once for each zone. Write no scenario for a tool to run: "Then the linter reports no errors" tells nobody anything. And write none for a zone on your own: a rule of one zone (every product has a price) is a test, and it comes with the change that first needs it, from its scenarios, or from hardening when something slips through. If the person asks for one now, write it in `gdd/gates/<zone>.feature` (`assets/gates.feature`), and it gets built and tried as `gates-<zone>`.
+Their checks are standing checks, which hold for the whole project. List them once in the blueprint's `checks`, each with the command the constitution gives it. For software they are usually the tests, the linter and a scan that keeps secrets out of the repository (the template's `secrets`), and that scan you propose in every project. They get set up once, never once for each zone. Write no scenario for a tool to run: "Then the linter reports no errors" tells nobody anything. And write none for a zone on your own: a rule of one zone (every product has a price) is a test, and it comes with the change that first needs it, from its scenarios, or from hardening when something slips through. If the person asks for one now, write it in `gdd/gates/<zone>.feature` (`assets/gates.feature`), and it gets built and tried as `gates-<zone>`.
 
 For every check, climb this ladder and stop at the first step that works, because a deterministic check costs no tokens and always gives the same answer:
 
@@ -62,7 +63,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | File | From | Notes |
 |---|---|---|
 | `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Only the rules that hold everywhere: a rule of one zone goes to that zone's context in the blueprint. |
-| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons: look at what the environment offers, or ask. It's the source: a page for people can be generated from it, never the other way round. |
+| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. It's the source: a page for people can be generated from it, never the other way round. |
 | `gdd/gates/<zone>.feature` | `assets/gates.feature` | Only for a zone the person asked a gate of its own for. |
 | `gdd/backlog.md` | `assets/backlog.md` | Its first item, `standing-checks`, sets up what the blueprint's `checks` name, and CI where there is none. `gdd-checks` does it, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. |
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
@@ -72,14 +73,14 @@ Then the protections. Write a `CODEOWNERS` file that asks for the person's revie
 
 ## The probe
 
-A cage counts once you've seen it close. When the protections are in place, try four things from the environment the builder will work in, and watch each one fail. Try each with something harmless you can remove, such as an empty commit or a ref named `gdd-seal/probe`, and if a try succeeds, undo it and tell the person. If you can't work from that environment, ask the person to run them there.
+A cage counts once you've seen it close. When the protections are in place, try four things from each environment in `levels`, in a role launched the way its `launch` says, and watch each one fail. Try each with something harmless you can remove, such as an empty commit or a ref named `gdd-seal/probe`, and if a try succeeds, undo it and tell the person. If you can't work from that environment, ask the person to run them there.
 
 1. push to the main branch;
 2. write to a `gdd-seal/` ref;
 3. read the hidden examples, if the project has them (when a team adds them later, this try runs again);
 4. find a credential of production or of the person within reach (an environment variable, a logged-in command line, a connector). Finding it is enough: never use it.
 
-Record each try in `gdd/log/blueprint.jsonl`, with its command, its exit code and its last lines. If all of them fail, the blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`: say so to the person, write it in the blueprint and leave hidden examples out of red, because a builder that can read them isn't being tested by them.
+Record each try in `gdd/log/blueprint.jsonl`, with its command, its exit code and its last lines. If all of them fail in every one, the blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`: say so to the person, write it in the blueprint and leave hidden examples out of red, because a builder that can read them isn't being tested by them.
 
 ## The baseline and the limits
 
@@ -97,7 +98,7 @@ The person approves the first blueprint, and the approval stays written: a commi
 - Eighteen checks already failed on the main branch before anyone touched anything, fourteen scenarios and four unit tests. Without a baseline, every change gets blamed for them, or they quietly disappear.
 - Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file it needed inside the sandbox). Say which checks run outside it, and who runs them.
 - In one run, the blueprint gave each level as how much it reasons, with no model, and the orchestrator launched every role without naming one: all of them ran on its own deep model, while the log said light.
-- In one run, each zone got gates of its own, with a secret scan in all four, built as the project's own scripts while a mature scanner was installed on the machine. Every review found one more secret they missed, and no change started in more than two hours.
+- In one run, each zone got gates of its own, a secret scan in all four, as scripts of the project's own with a mature scanner installed on the machine. Every review found one more secret they missed, and no change started in more than two hours.
 - An agent's environment can act on the person's accounts. In one run, an agent published the project on the person's own account through a site-publishing plugin of its environment; in another, it used the person's git credentials to create repositories and try to deploy. Confine the environment, not only the project.
 
 When you close, write the `prepare` step to `gdd/log/blueprint.jsonl`: its `result` is `proposed` or `approved`.

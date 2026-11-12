@@ -95,9 +95,11 @@ cat > gdd/blueprint.md <<'EOF'
 contract: gdd/1
 guarantee: rule
 levels:
-  light: haiku
-  standard: sonnet
-  deep: opus
+  claude:
+    launch: the Agent tool, with its model field
+    light: haiku
+    standard: sonnet
+    deep: opus
 limits:
   fix_rounds_per_gate: 2
   rounds_per_change: 6

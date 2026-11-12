@@ -1,10 +1,17 @@
 ---
 contract: gdd/1
 guarantee: <rule, platform or engine>
-levels:  # each one, a model by the name the agents' environment launches it with
-  light: <model for little reasoning, cheap and fast>
-  standard: <model for normal reasoning>
-  deep: <model for the most reasoning>
+levels:  # one block for each agents' environment the project is worked from
+  <environment, by the name of its command>:
+    launch: <how a role gets its model there, by its tool for launching agents or by a new session of its command line>
+    light: <model for little reasoning, cheap and fast, by the name that environment launches it with>
+    standard: <model for normal reasoning>
+    deep: <model for the most reasoning>
+    # reviewer:            # the reviewer's models, when they are others, from another model family where there is one
+    #   launch: <how, when it runs in another environment>
+    #   light: <model>
+    #   standard: <model>
+    #   deep: <model>
 limits:
   fix_rounds_per_gate: 2
   rounds_per_change: 6
