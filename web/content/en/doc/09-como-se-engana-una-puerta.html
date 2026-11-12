@@ -10,8 +10,17 @@
 </tbody>
 </table>
 <p>That hook in <code>conftest.py</code> has already happened: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> saw a model add it, and <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> classifies four cheating strategies, three of which don't modify the test.</p>
-<h2>Rule and guarantee</h2>
-<p>The <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">fifth principle</a> starts out as a rule, and a rule works without an engine: you ask the agent and review the diff. That works as long as you keep looking. The guarantee comes when the agent can't touch the check even if it tries. Your platform's protected branches and permissions get you a good part of the way (you set them up in <a href="doc:empieza-hoy">Start today</a>), but the full guarantee, where not even whoever administers the repository can loosen it without a person's approval, only an engine gives. That makes three degrees: rule, platform and engine. The <a href="doc:el-nucleo">core</a> is the list of those guarantees.</p>
+<h2 id="grados">Rule, platform and engine</h2>
+<p>The <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">fifth principle</a> starts out as a rule, and a rule works without an engine: you ask the agent and review the diff. That works as long as you keep looking. The guarantee comes when the agent can't touch the check even if it tries. Your platform's protected branches and permissions get you a good part of the way (you set them up in <a href="doc:empieza-hoy">Start today</a>), but the full guarantee, where not even whoever administers the repository can loosen it without a person's approval, only an engine gives. That makes three degrees, and each one depends less on the agent obeying. The <a href="doc:el-nucleo">core</a> is the list of those guarantees.</p>
+<table>
+<thead><tr><th>Degree</th><th>What holds the agent back</th><th>What you get it with</th><th>How far it goes</th></tr></thead>
+<tbody>
+<tr><td><strong>Rule</strong></td><td>Its word: you ask it</td><td>A line in its instructions or some skills, and you looking at the diff</td><td>It works as long as you keep looking. Nothing stops it</td></tr>
+<tr><td><strong>Platform</strong></td><td>Your platform doesn't let it</td><td>Protected branches, permissions, CI and an agent with its own credentials</td><td>A good part of the way. Whoever administers can still loosen it</td></tr>
+<tr><td><strong>Engine</strong></td><td>Code that keeps count of the whole change</td><td>An engine that meets the core</td><td>The full guarantee</td></tr>
+</tbody>
+</table>
+<p>Your blueprint says which of the three you're at.</p>
 <h2>Is CI mandatory?</h2>
 <p>No. What's mandatory is that the agent doesn't judge itself. The test can be run by CI, by <a href="doc:el-motor">an engine</a> or by you on a clean copy. CI is just the cheapest way not to depend on your discipline.</p>
 <p class="sigue">What really stops these tricks is the guarantees, so the question is which ones you can demand. The whole list is in <a href="doc:el-nucleo">The core</a>.</p>

@@ -10,8 +10,17 @@
 </tbody>
 </table>
 <p>Lo del hook en <code>conftest.py</code> ya ha ocurrido: <a href="https://openai.com/index/chain-of-thought-monitoring/">OpenAI</a> vio a un modelo añadirlo, e <a href="https://arxiv.org/abs/2510.20270">ImpossibleBench</a> clasifica cuatro estrategias de trampa, de las que tres no modifican el test.</p>
-<h2>Norma y garantía</h2>
-<p>El <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">quinto principio</a> empieza siendo una norma, y una norma se cumple sin motor: se lo pides al agente y revisas el diff. Te sirve mientras mires. La garantía llega cuando el agente no puede tocar la comprobación aunque lo intente. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte (lo montas en <a href="doc:empieza-hoy">Empieza hoy</a>), y la garantía completa, que ni quien administra pueda aflojarlo sin que lo apruebe una persona, solo la da un motor. Son tres grados: norma, plataforma y motor. El <a href="doc:el-nucleo">núcleo</a> es la lista de esas garantías.</p>
+<h2 id="grados">Norma, plataforma y motor</h2>
+<p>El <a href="doc:los-principios#5-quien-cruza-la-puerta-no-decide-como-se-valida">quinto principio</a> empieza siendo una norma, y una norma se cumple sin motor: se lo pides al agente y revisas el diff. Te sirve mientras mires. La garantía llega cuando el agente no puede tocar la comprobación aunque lo intente. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte (lo montas en <a href="doc:empieza-hoy">Empieza hoy</a>), y la garantía completa, que ni quien administra pueda aflojarlo sin que lo apruebe una persona, solo la da un motor. Son tres grados, y cada uno depende menos de que el agente obedezca. El <a href="doc:el-nucleo">núcleo</a> es la lista de esas garantías.</p>
+<table>
+<thead><tr><th>Grado</th><th>Qué frena al agente</th><th>Con qué lo consigues</th><th>Hasta dónde llega</th></tr></thead>
+<tbody>
+<tr><td><strong>Norma</strong></td><td>Su palabra: se lo pides</td><td>Una línea en sus instrucciones o unas skills, y tú mirando el diff</td><td>Te sirve mientras mires. Nada se lo impide</td></tr>
+<tr><td><strong>Plataforma</strong></td><td>Tu plataforma no le deja</td><td>Ramas protegidas, permisos, CI y un agente con sus propias credenciales</td><td>Buena parte. Quien administra todavía puede aflojarlo</td></tr>
+<tr><td><strong>Motor</strong></td><td>Código que lleva la cuenta de todo el cambio</td><td>Un motor que cumpla el núcleo</td><td>La garantía completa</td></tr>
+</tbody>
+</table>
+<p>Tu plano dice en cuál de los tres estás.</p>
 <h2>¿CI es obligatorio?</h2>
 <p>No. Lo obligatorio es que el agente no se juzgue a sí mismo. El test puede ejecutarlo CI, <a href="doc:el-motor">un motor</a> o tú en una copia limpia. CI es la forma más barata de no depender de tu disciplina.</p>
 <p class="sigue">Lo que de verdad para las trampas son las garantías, así que la pregunta es cuáles puedes exigir. La lista entera está en <a href="doc:el-nucleo">El núcleo</a>.</p>
