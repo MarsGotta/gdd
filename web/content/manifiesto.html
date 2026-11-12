@@ -1,6 +1,6 @@
 <h1>Manifiesto: Gate-Driven Development</h1>
-<p class="meta" data-fecha="2026-11-10">Marcela Gotta</p>
-<p class="meta">v0.8 · borrador para revisión</p>
+<p class="meta" data-fecha="2026-11-12">Marcela Gotta</p>
+<p class="meta">v0.9 · borrador para revisión</p>
 <p><strong>Añade puertas a tu proyecto y automatiza con agentes de IA sin perder calidad. Tu agente dice "hecho". La puerta comprueba si es verdad.</strong></p>
 <p>Gate-Driven Development (GDD) es una forma de crear productos de calidad con agentes de IA sin supervisarlos paso a paso. No te fías de lo que dicen, sino de lo que demuestran: antes de que el agente empiece, decides qué tiene que demostrar, y eso son las puertas. Cuanto más puede salir mal, más exigentes son, y cuando algo se cuela, blindas la puerta para que no vuelva a pasar.</p>
 <p>Todo GDD cabe en una regla (tu agente dice "hecho", la puerta comprueba si es verdad), siete principios y cuatro momentos.</p>
@@ -15,9 +15,9 @@
 <li><strong>Comprobaciones:</strong> lo que lo demuestra, una o varias, de tres tipos: de máquina (tests, linter, Sonar), de vigilante (otro agente que ejecuta el cambio y solo da el cambio por bueno si comprueba que funciona) y de persona (tu aprobación). Se pasa la puerta solo si pasan todas.</li>
 <li><strong>Contexto:</strong> lo que le das al agente para que pueda cruzar la puerta, esté en el repositorio o venga de fuera. El agente arranca siempre con el contexto limpio, solo con lo que necesita: el contexto transversal, que vale para todo el flujo (la constitución del proyecto, que son sus reglas, y las herramientas y skills de siempre), y el de su puerta, que puede incluir lo que generó la anterior. Le ayuda a cruzarla, pero no demuestra nada.</li>
 <li><strong>Riesgo:</strong> lo que puede salir mal.</li>
-<li><strong>Plano:</strong> donde queda escrito qué es delicado, qué puertas hacen falta y qué pide cada nivel de riesgo. Lo aprueba tu equipo, y el agente no lo toca.</li>
+<li><strong>Plano:</strong> donde queda escrito qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada nivel de riesgo. Cuándo se puede rebajar una comprobación también se decide aquí, no en el cambio. Lo apruebas tú, o tu equipo si trabajas con uno, y el agente no lo toca.</li>
 </ul>
-<p>La máquina va primero: un vigilante o una persona suman, pero no sustituyen a una comprobación de máquina que se pueda hacer. Un agente nunca ocupa el sitio de una persona. El plano lo aprueba siempre tu equipo, y dónde más hace falta una aprobación, también la de lo que debe pasar, lo dice el plano.</p>
+<p>Un agente nunca ocupa el sitio de una persona. El plano lo apruebas siempre tú, o tu equipo, y dónde más hace falta una aprobación, también la de lo que debe pasar, lo dice el plano.</p>
 <p>El riesgo es cuánto daño puede hacerle un cambio a tu producto. Yo lo leo como un semáforo, y cada color es un nivel de exigencia:</p>
 <table>
 <thead><tr><th>Riesgo</th><th>Por ejemplo</th></tr></thead>
@@ -27,7 +27,8 @@
 <tr><td><strong>Rojo</strong> (alto)</td><td>Algo que toca el cobro</td></tr>
 </tbody>
 </table>
-<p>Qué pide cada nivel lo decide tu equipo y queda escrito en el plano: cuántas comprobaciones, de qué tipo y en qué momentos te espera. Hay proyectos donde un cambio verde sale sin que nadie lo mire y otros donde hasta el verde espera una aprobación. Lo que se mantiene en todos es que a más riesgo se exige más. Para no empezar de cero, las <a href="doc:buenas-practicas">Buenas prácticas</a> y las <a href="doc:los-kits">reglas ya hechas</a> proponen qué pedir en cada nivel según el área.</p>
+<p>Qué pide cada nivel lo decides tú, o tu equipo, y queda escrito en el plano: cuántas comprobaciones, de qué tipo y en qué momentos te espera. Hay proyectos donde un cambio verde sale sin que nadie lo mire y otros donde hasta el verde espera una aprobación. Lo que se mantiene en todos es que a más riesgo se exige más. Para no empezar de cero, las <a href="doc:buenas-practicas">Buenas prácticas</a> y las <a href="doc:los-kits">reglas ya hechas</a> proponen qué pedir en cada nivel según el área.</p>
+<p>El plano trae la base de lo que es delicado, y el riesgo de cada cambio se mira sobre ella. Verde es solo lo que has marcado como verde. Lo demás no es rojo sin más: un agente que no va a hacer el trabajo lo analiza y deja escrito por qué, y si no lo tiene claro, te pregunta. Lo que apunta no es plano: te lo propone, y el plano solo cambia con tu sí.</p>
 <p>Lo que no se puede deshacer nunca es verde.</p>
 <h2>Los siete principios</h2>
 <p>Las piezas dicen de qué está hecho GDD. Los principios dicen qué lo hace funcionar.</p>
@@ -40,17 +41,17 @@
 <li><strong>Más riesgo, más comprobaciones, y tu aprobación solo donde importa.</strong> No manda el tamaño del cambio: manda lo que puede salir mal. Más riesgo no siempre es más tests: muchas veces es otro tipo de comprobación, como un vigilante o una persona. Apruebas donde tu plano lo diga. Lo demás lo resuelven las puertas, porque quien tiene que aprobarlo todo acaba aprobando sin leer.</li>
 <li><strong>Las puertas con grietas se blindan.</strong> Lo que se cuela, o se repite, se convierte en comprobación y en una pregunta del examen del vigilante. Con el tiempo, el método te interrumpe menos.</li>
 </ol>
-<p>De cada cambio responde su autor, la persona del equipo que lo tiene a su cargo: la IA nunca responde por ti.</p>
+<p>De cada cambio responde su autor, la persona que lo tiene a su cargo: la IA nunca responde por ti.</p>
 <p>Cada principio, con su porqué y su evidencia, está en <a href="doc:los-principios">Los siete principios</a>.</p>
 <h2>Los cuatro momentos</h2>
-<p>Los principios dicen qué hace funcionar el método. Los momentos dicen cuándo pasa cada cosa: uno al arrancar, dos en cada cambio y el último cuando algo se cuela o se repite.</p>
+<p>Los principios dicen qué hace funcionar el método. Los momentos dicen cuándo pasa cada cosa: uno al arrancar, al que se vuelve cuando el plano se queda corto, dos en cada cambio y el último cuando algo se cuela o se repite.</p>
 <figure data-embed="momentos"><figcaption>los cuatro momentos · 1 al arrancar, 2 en cada cambio, 1 cuando algo se cuela</figcaption></figure>
 <table>
 <thead><tr><th>Momento</th><th>Cuándo</th><th>Qué pasa</th></tr></thead>
 <tbody>
-<tr><td><strong>1. Preparar</strong> (Prepare)</td><td>Una vez por proyecto, y antes del primer cambio en cada zona</td><td>Decides de qué va, qué es delicado, qué puertas hacen falta, la constitución y qué contexto lleva cada puerta, y puedes partir de reglas ya hechas. Las máquinas construyen las puertas a partir del plano, y después se intenta burlarlas a propósito. Hasta que aguantan, no empieza ningún cambio en esa zona.</td></tr>
-<tr><td><strong>2. Encargar</strong> (Brief)</td><td>En cada cambio, antes de empezar</td><td>Se fija qué tiene que pasar y una primera estimación del riesgo, con tu aprobación si toca.</td></tr>
-<tr><td><strong>3. Ejecutar</strong> (Execute)</td><td>En cada cambio</td><td>El agente trabaja y pasa las puertas, una a una. Si se atasca, se para y pregunta. Al terminar, el riesgo se recalcula con lo que se tocó. Si sube, el cambio vuelve a Encargar y se le exigen las puertas del nuevo nivel.</td></tr>
+<tr><td><strong>1. Preparar</strong> (Prepare)</td><td>Al arrancar el proyecto, y de nuevo cuando el plano se queda corto: hay algo nuevo que clasificar, o una puerta falta, sobra o está mal definida</td><td>Tiene dos partes. Primero se hace el plano: decides de qué va, qué es delicado, qué puertas hacen falta y con qué comprobaciones, la constitución y qué contexto lleva cada puerta, y puedes partir de reglas ya hechas. Después las máquinas construyen las puertas que el plano ha definido, y se intenta burlarlas a propósito. Hasta que aguantan, no empieza ningún cambio que tenga que pasar por ellas.</td></tr>
+<tr><td><strong>2. Encargar</strong> (Brief)</td><td>En cada cambio, antes de empezar</td><td>Se fija qué tiene que pasar y una primera estimación del riesgo, sobre la base del plano, con tu aprobación si toca. Para las comprobaciones que lo piden, como los tests que empiezan en rojo, se escriben los casos de este cambio antes de que nadie construya. Los escribe quien no va a construir, se les ve fallar y quedan fuera de su alcance.</td></tr>
+<tr><td><strong>3. Ejecutar</strong> (Execute)</td><td>En cada cambio</td><td>El agente trabaja y pasa las puertas, una a una. Si se atasca, se para y pregunta. Al terminar, el riesgo se recalcula con lo que se tocó. Si sube, el cambio vuelve a Encargar y se le exigen las comprobaciones del nuevo nivel.</td></tr>
 <tr><td><strong>4. Blindar</strong> (Harden)</td><td>Cuando algo se cuela o se repite</td><td>Las grietas se convierten en comprobaciones, y lo que se coló, en una pregunta del examen del vigilante.</td></tr>
 </tbody>
 </table>

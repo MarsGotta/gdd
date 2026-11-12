@@ -3,12 +3,12 @@
 <p>You saw the same scene several times in the shop: the agent said "done" and a test said no. Behind that scene are almost all the pieces of the method.</p>
 <p>With the payment gateway, the agent had to prove that the purchase did what the scenarios say, even if someone clicks twice. That is a <strong>gate</strong>. And what proved it was the tests another model had created, like the one that expects a single €40 charge after two clicks. Those tests are the <strong>checks</strong>, and the gate opens only if all of them pass. Nobody asks the agent whether it has finished.</p>
 <p>The text of a button is green <strong>risk</strong>, because little goes wrong if it fails. The payment gateway was red, and it would have been even at three lines. You define that risk when you decide what is delicate, and it's measured by what the change really touches, not by what the agent says about it. What can't be undone is never green.</p>
-<p>All of that, what is delicate, which gates are needed and what each level asks for, is written in the <strong>blueprint</strong>. In the shop it fell short on orders, and that's why it had to change. The blueprint and the checks are exactly what the agent can't touch.</p>
+<p>All of that, what is delicate, which gates are needed, with their checks, and what each level asks for, is written in the <strong>blueprint</strong>. In the shop it fell short on orders, and that's why it had to change. The blueprint and the checks are exactly what the agent can't touch.</p>
 <div data-anatomia></div>
 <h3>Who checks</h3>
-<p>The payment gateway's tests are machine checks, and there are two kinds. The <strong>custom</strong> ones belong to each change and set what has to pass, like the one for the two clicks. The <strong>standard</strong> ones apply to the whole project and watch quality, security and proportion, with a linter or a size cap per change.</p>
+<p>The payment gateway's tests are machine checks, and there are two kinds. The <strong>custom</strong> ones are in the blueprint like the rest, but their cases are written on each change and set what has to pass, like the one for the two clicks. The <strong>standing</strong> ones apply to the whole project and watch quality, security and proportion, with a linter or a size cap per change.</p>
 <p>And watch out, a check is more than the test: it also includes everything that decides its result, like scripts, configuration, references or a scanner's exceptions.</p>
-<p>On top of the machine you can add a reviewer (another agent) or a person who approves, and for the most delicate changes a second person, if your team turns that on. Neither the reviewer nor the people replace a machine check that can be done, and none of them lets you skip the minimum the risk calls for. They don't get mixed up with each other either: what a reviewer passes never counts as a person's approval. Your team always approves the blueprint, and the blueprint says where else an approval is needed, including the approval of what has to pass. When I say your team I mean whoever uses the method: you, if you work on your own.</p>
+<p>On top of the machine you can add a reviewer (another agent) or a person who approves, and for the most delicate changes a second person, if your team turns that on. Neither the reviewer nor the people let you skip the minimum the risk calls for. They don't get mixed up with each other either: what a reviewer passes never counts as a person's approval. You always approve the blueprint, or your team does, and the blueprint says where else an approval is needed, including the approval of what has to pass. And when I say just your team, I mean whoever uses the method: you, if you work on your own.</p>
 <table>
 <thead><tr><th>Check</th><th>How you check that it works</th></tr></thead>
 <tbody>
@@ -31,9 +31,9 @@
 <h2>The roles</h2>
 <p>In the shop you were mostly watching the agent, but around it there are four other parts.</p>
 <ul>
-<li><strong>You, with your team, design the game.</strong> You set the blueprint, approve where it matters and answer for what ships, whoever wrote it. Each change is answered for by its author, the person on the team who has it in charge: the AI never answers for you.</li>
+<li><strong>You, alone or with your team, design the game.</strong> You set the blueprint, approve where it matters and answer for what ships, whoever wrote it. Each change is answered for by its author, the person who has it in charge: the AI never answers for you.</li>
 <li><strong>The orchestrator</strong> receives the change, hires the agent and applies your blueprint to each case. If the change is too big, it proposes a series of smaller ones and the author decides. At the start it can be you. If it's an agent, the same rules bind it: it can propose, but it can't skip a gate or change the blueprint (more in <a href="doc:el-nucleo">The core</a>).</li>
 <li><strong>The agent</strong> is the one who plays: it does the work and gets through the gates.</li>
-<li><strong>Another agent</strong> makes the checks, in its own session. A person can do it too.</li>
+<li><strong>Another agent</strong> builds the checks the blueprint defines and writes the cases of each change, in its own session. A person can do it too.</li>
 <li><strong>The reviewer</strong> is another agent, in its own session and with a clean context: it runs the change and only passes it if it has checked that it works. It's never the one who did the work (the why is in <a href="doc:los-principios">The seven principles</a>).</li>
 </ul>

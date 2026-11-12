@@ -1,16 +1,16 @@
 <h1>Los cuatro momentos</h1>
-<p>Preparar lo haces una vez por proyecto, y otra cada vez que entras en una zona nueva. Encargar y Ejecutar van con cada cambio. Y Blindar solo llega cuando algo se cuela o se repite.</p>
+<p>Preparar lo haces al arrancar el proyecto, y vuelves a él cuando el plano se queda corto. Encargar y Ejecutar van con cada cambio. Y Blindar solo llega cuando algo se cuela o se repite.</p>
 <figure data-embed="momentos"><figcaption>los cuatro momentos · 1 al arrancar, 2 en cada cambio, 1 cuando algo se cuela</figcaption></figure>
 <table>
 <thead><tr><th>Momento</th><th>Cuándo</th><th>Qué pasa</th></tr></thead>
 <tbody>
-<tr><td><strong>1. Preparar</strong></td><td>Una vez por proyecto, y antes del primer cambio en cada zona</td><td>Decides de qué va, qué es delicado, qué puertas hacen falta, la constitución y qué contexto lleva cada puerta, y puedes partir de reglas ya hechas. Las máquinas construyen las puertas a partir del plano, y después se intenta burlarlas a propósito. Hasta que aguantan, no empieza ningún cambio en esa zona.</td></tr>
-<tr><td><strong>2. Encargar</strong></td><td>En cada cambio, antes de empezar</td><td>Fijas qué tiene que pasar y se hace una primera estimación del riesgo, con tu aprobación si toca.</td></tr>
-<tr><td><strong>3. Ejecutar</strong></td><td>En cada cambio</td><td>El agente trabaja y pasa las puertas, una a una, y si se atasca, se para y pregunta. Al terminar se recalcula el riesgo con lo que se tocó, y si sube, vuelve a Encargar y tiene que pasar las puertas del nuevo nivel.</td></tr>
+<tr><td><strong>1. Preparar</strong></td><td>Al arrancar el proyecto, y de nuevo cuando el plano se queda corto: hay algo nuevo que clasificar, o una puerta falta, sobra o está mal definida</td><td>Tiene dos partes. Primero se hace el plano: decides de qué va, qué es delicado, qué puertas hacen falta y con qué comprobaciones, la constitución y qué contexto lleva cada puerta, y puedes partir de reglas ya hechas. Después las máquinas construyen las puertas que el plano ha definido, y se intenta burlarlas a propósito. Hasta que aguantan, no empieza ningún cambio que tenga que pasar por ellas.</td></tr>
+<tr><td><strong>2. Encargar</strong></td><td>En cada cambio, antes de empezar</td><td>Fijas qué tiene que pasar y se hace una primera estimación del riesgo, sobre la base del plano, con tu aprobación si toca. Para las comprobaciones que lo piden, como los tests que empiezan en rojo, se escriben los casos de este cambio antes de que nadie construya.</td></tr>
+<tr><td><strong>3. Ejecutar</strong></td><td>En cada cambio</td><td>El agente trabaja y pasa las puertas, una a una, y si se atasca, se para y pregunta. Al terminar se recalcula el riesgo con lo que se tocó, y si sube, vuelve a Encargar y tiene que pasar las comprobaciones del nuevo nivel.</td></tr>
 <tr><td><strong>4. Blindar</strong></td><td>Cuando algo se cuela o se repite</td><td>Lo que se coló pasa a ser una comprobación más, y el vigilante lo lleva ya en su examen.</td></tr>
 </tbody>
 </table>
-<p>Preparar y Encargar se parecen, pero uno construye lo que vale para todo el proyecto, como las comprobaciones de serie, y el otro lo que vale solo para este cambio, su comprobación a medida.</p>
+<p>Preparar y Encargar se parecen, pero uno construye lo que vale para todo el proyecto, como las comprobaciones de serie, y el otro lo que vale solo para este cambio, los casos de sus comprobaciones a medida.</p>
 <p>No son cuatro reuniones ni cuatro documentos. En <a href="doc:manos-a-la-obra">la tienda</a>, Preparar fue decidir la constitución, las puertas, su contexto y el semáforo; Encargar, los escenarios y el color de cada cambio; Ejecutar, el agente contra las puertas; y Blindar, lo que cambiamos cuando alguien vio un pedido ajeno.</p>
 <h2 id="pasos">Un cambio, en seis pasos</h2>
 <p>Encargar y Ejecutar se reparten en cinco pasos, y Blindar pone el sexto. Son los del <a href="doc:un-caso-delicado">caso delicado</a>, donde se ven con un ejemplo.</p>
@@ -18,7 +18,7 @@
 <thead><tr><th>Paso</th><th>Momento</th><th>Qué pasa</th></tr></thead>
 <tbody>
 <tr><td><strong>1. Decides qué tiene que pasar</strong></td><td>Encargar</td><td>Quedan escritos unos pocos escenarios y el riesgo del cambio, antes de que nadie construya.</td></tr>
-<tr><td><strong>2. Un agente fabrica las comprobaciones</strong></td><td>Encargar</td><td>Las hace un agente que no va a hacer el trabajo, y se ve que fallan por la razón correcta.</td></tr>
+<tr><td><strong>2. Un agente escribe los casos</strong></td><td>Encargar</td><td>Los escribe un agente que no va a hacer el trabajo, y se ve que fallan por la razón correcta.</td></tr>
 <tr><td><strong>3. Otro agente pasa la puerta</strong></td><td>Ejecutar</td><td>Trabaja sin tocar las comprobaciones, y si se atasca, se para y pregunta.</td></tr>
 <tr><td><strong>4. La puerta se cierra</strong></td><td>Ejecutar</td><td>Las comprobaciones se ejecutan fuera de su alcance. Si no pasan todas, no sigue.</td></tr>
 <tr><td><strong>5. Miras solo donde importa</strong></td><td>Ejecutar</td><td>Una persona aprueba donde el plano lo pide, con el riesgo ya recalculado.</td></tr>
@@ -27,5 +27,10 @@
 </table>
 <p>Cuánto pesa cada paso lo decide tu plano: hay cambios donde el primero es solo tu petición y el quinto no existe. <a href="doc:empieza-hoy">Empieza hoy</a> monta el cuarto, que es la primera puerta. <a href="doc:manos-a-la-obra">La tienda</a> los reparte en las cuatro puertas que le hacían falta a ese proyecto, y <a href="doc:el-recorrido-entero">El recorrido entero</a> los da a mi manera, con cinco.</p>
 <h2 id="plano">De dónde sale el plano</h2>
-<p>Lo primero que sale de Preparar es el plano: qué es delicado, qué puertas hacen falta y qué pide cada nivel. No tienes que empezar de cero, porque puedes partir de reglas ya hechas para tu área, que es la idea de <a href="doc:los-kits">Los kits</a>.</p>
+<p>Preparar tiene dos partes. La primera es el plano, que define la base de la construcción, como quien diseña un escape room antes de abrirlo: qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada nivel. No tienes que empezar de cero, porque puedes partir de reglas ya hechas para tu área, que es la idea de <a href="doc:los-kits">Los kits</a>.</p>
+<p>La segunda es construir lo que ese plano ha definido y ver que las puertas cierran. Hasta entonces no empieza ningún cambio que tenga que pasar por ellas.</p>
+<h2 id="corto">Cuando el plano se queda corto</h2>
+<p>El plano no se queda quieto. Hay zonas que evolucionan por su naturaleza, y según iteras les vas añadiendo elementos. También vuelves a Preparar cuando ves que una puerta no está bien definida, o que falta o sobra alguna. Muchas veces lo ves al blindar: lo que se coló pide una comprobación nueva, y añadirla al plano y construirla es otra vez Preparar.</p>
+<p>Lo que el plano todavía no cubre nunca sale verde, porque verde es solo lo que has marcado como verde. Tampoco es rojo sin más: un agente que no va a hacer el trabajo lo analiza y deja escrito por qué, y si no lo tiene claro, te pregunta. El cambio sigue con el nivel que le ha puesto, y después el agente te propone cómo dejarlo en el plano, que solo cambia con tu sí.</p>
+<p>Lo que nunca se decide dentro de un cambio es rebajar una comprobación. Si las pruebas de mutación, que estropean el código a propósito para ver si los tests lo notan, solo compensan en lo delicado, o solo sobre lo que se ha tocado, lo dice el plano, y cada cambio cae o no cae en esa regla.</p>
 <p class="sigue">El plano no te pide nada nuevo: se monta con lo que ya tienes en el repositorio. Cómo, en <a href="doc:empieza-hoy">Empieza hoy</a>.</p>

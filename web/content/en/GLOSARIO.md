@@ -31,7 +31,7 @@ Translate from Spanish to American English. The reader is a developer or product
 | Verde, Amarillo, Rojo | Green, Yellow, Red |
 | (bajo), (medio), (alto) | (low), (medium), (high) |
 | el agente (the one who does the work) | the agent (the skills call it the builder, because they speak to several agents) |
-| otro agente (the one who makes the checks) | another agent |
+| otro agente (the one who builds the checks and writes the cases) | another agent |
 | recepcionista (only in the escape-room story) | receptionist |
 | autor | author |
 | equipo | team |
@@ -111,7 +111,7 @@ The site looks these up, so when they appear use exactly this English.
 | Lo que no se puede deshacer nunca es verde. | What can't be undone is never green. |
 | Esta versión todavía no trae datos propios. | This version doesn't bring its own data yet. |
 | Este manifiesto es la referencia. | This manifesto is the reference. |
-| v0.8 · borrador para revisión | v0.8 · draft for review |
+| v0.9 · borrador para revisión | v0.9 · draft for review |
 | Antes de que el agente empiece, decides qué tiene que demostrar. | Before the agent starts, you decide what it has to prove. |
 | Lo comprueban cosas que ya conoces, como tests, linters o una revisión, y el agente no puede tocarlas. | It is checked by things you already know, like tests, linters or a review, and the agent can't touch them. |
 | Cuanto más delicado es el cambio, más comprobaciones tiene que pasar, y solo te llama cuando hace falta tu criterio. | The more delicate the change, the more checks it has to pass, and it only calls you when your judgment is needed. |

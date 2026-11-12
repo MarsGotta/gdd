@@ -1,5 +1,5 @@
 <h1>Las skills</h1>
-<p>Has puesto tu primera puerta a mano y funciona. El siguiente cambio lo quieres dejar entero en manos de tus agentes: que uno escriba los escenarios contigo, que otro fabrique las comprobaciones, que un tercero construya y que alguien que no ha visto nada de eso lo revise. Es mucho que explicar cada vez, así que está escrito una sola vez, en siete skills.</p>
+<p>Has puesto tu primera puerta a mano y funciona. El siguiente cambio lo quieres dejar entero en manos de tus agentes: que uno escriba los escenarios contigo, que otro escriba los casos, que un tercero construya y que alguien que no ha visto nada de eso lo revise. Es mucho que explicar cada vez, así que está escrito una sola vez, en siete skills.</p>
 <p>Una skill es un archivo de instrucciones que tu agente carga cuando le hace falta. Las de GDD no instalan nada ni traen código: usan lo que tu proyecto ya tiene, sus tests, su linter, su CI y git. Hay una de entrada, <code>gdd</code>, que reparte el trabajo, y seis más, una por papel.</p>
 <h2 id="las-siete">Las siete</h2>
 <table>
@@ -8,13 +8,13 @@
 <tr><td><code>gdd</code></td><td>El orquestador. Se carga sola cuando pides un cambio</td><td>Qué toca ahora, y a quién se lanza.</td></tr>
 <tr><td><code>gdd-prepare</code></td><td>El orquestador, contigo</td><td>El plano, con las puertas que le hacen falta a tu proyecto, y la constitución.</td></tr>
 <tr><td><code>gdd-brief</code></td><td>El orquestador, en cada cambio</td><td>Lo que debe pasar, en escenarios, y el riesgo previsto.</td></tr>
-<tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Las comprobaciones, vistas fallar por la razón correcta.</td></tr>
+<tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Las comprobaciones de serie y los casos de cada cambio, vistos fallar por la razón correcta.</td></tr>
 <tr><td><code>gdd-build</code></td><td>El agente que pasa la puerta</td><td>El cambio, y los hechos que lo prueban.</td></tr>
 <tr><td><code>gdd-review</code></td><td>El vigilante, con el contexto limpio</td><td>Su veredicto, y el riesgo recalculado.</td></tr>
 <tr><td><code>gdd-harden</code></td><td>El orquestador, contigo, cuando algo se cuela</td><td>La grieta, y la comprobación que la habría cazado.</td></tr>
 </tbody>
 </table>
-<p>Quien fabrica las comprobaciones, quien construye y quien revisa trabajan cada uno en un agente distinto, que empieza sin la conversación de los otros: recibe lo que dejaron escrito, no cómo llegaron a ello. Así el vigilante juzga el cambio que tiene delante, sin haber oído cómo se hizo (<a href="doc:las-piezas">Las piezas y los roles</a>).</p>
+<p>Quien escribe los casos, quien construye y quien revisa trabajan cada uno en un agente distinto, que empieza sin la conversación de los otros: recibe lo que dejaron escrito, no cómo llegaron a ello. Así el vigilante juzga el cambio que tiene delante, sin haber oído cómo se hizo (<a href="doc:las-piezas">Las piezas y los roles</a>).</p>
 <h2 id="instalar">Cómo se instalan</h2>
 <p>Necesitas un repositorio de git y un agente que cargue skills. En tres de ellos, Claude Code, Codex y Antigravity, las siete entran de una vez, como un plugin sin código.</p>
 <p>En Claude Code lo escribes dentro del agente. Trae también tres subagentes, uno por cada papel que trabaja en un agente propio.</p>

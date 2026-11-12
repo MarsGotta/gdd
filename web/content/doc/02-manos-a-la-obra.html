@@ -38,7 +38,7 @@
 <p><strong>Reviewing.</strong> Es la fase de la PR, donde tiene que pasar CI y un code reviewer, que puede ser otro modelo, una persona o los dos. Si es un modelo, es un vigilante más: ejecuta el cambio y lo da por bueno. Si es una persona, lo aprueba, y una cosa nunca vale por la otra.</p>
 <h3>El semáforo</h3>
 <p>Las cuatro puertas están siempre, pero no le pueden pedir lo mismo a un texto que a la pasarela de pago. De eso se encarga el semáforo: te indica el riesgo de cada cambio, y según su color las puertas se endurecen o se ablandan. Puede ser un script determinista, un modelo de decisiones o una persona, y un motor te lo da ya construido. Sea cual sea, mira lo que se ha tocado, no lo que el agente dice haber hecho, se vuelve a calcular al terminar y solo puede subir.</p>
-<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. Lo delicado, que de momento es <code>pagos/</code>, <code>admin/</code> y las migraciones, es rojo, porque lo que no se puede deshacer nunca es verde. Lo inocuo, como <code>textos/</code>, es verde. Y todo lo demás lo marcamos amarillo a propósito, porque lo que nadie ha clasificado cuenta como rojo hasta que alguien lo hace.</p>
+<p>A nosotros nos basta un script que mira qué archivos ha tocado el cambio. Lo delicado, que de momento es <code>pagos/</code>, <code>admin/</code> y las migraciones, es rojo, porque lo que no se puede deshacer nunca es verde. Lo inocuo, como <code>textos/</code>, es verde. Y todo lo demás lo marcamos amarillo a propósito, porque verde es solo lo que hemos marcado como verde.</p>
 <p>Fíjate en cuántas veces te llama cada color. Una puerta abierta es la que en ese color no pide nada:</p>
 <figure data-pieza="puertas"></figure>
 <table>
@@ -50,7 +50,7 @@
 <tr><td>Reviewing</td><td>CI</td><td>CI y otro vigilante</td><td>CI, otro vigilante y tu aprobación, y compruebas cómo se deshace</td></tr>
 </tbody>
 </table>
-<p>Todo lo que hemos decidido hasta aquí (qué es delicado, qué puertas hacen falta y qué pide cada color) queda escrito en un sitio, el plano. Lo aprueba el equipo, y el agente no lo puede tocar.</p>
+<p>Todo lo que hemos decidido hasta aquí (qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada color) queda escrito en un sitio, el plano. Lo aprueba el equipo, y el agente no lo puede tocar.</p>
 <p>Esa tabla es lo que yo haría, y cada proyecto la configura a su manera: que una persona revise el cambio en rojo es una recomendación mía, no una obligación, y que apruebe lo que debe pasar también lo decide el plano. Que en verde una puerta se quede abierta tampoco es aflojar nada, porque ya estaba en el plano. Quitarle una comprobación a una puerta, eso sí, es cambiar el plano, y lo aprueba el equipo.</p>
 <h3>Construirlo</h3>
 <p>Ahora sí, lo montamos con lo que hay a mano:</p>

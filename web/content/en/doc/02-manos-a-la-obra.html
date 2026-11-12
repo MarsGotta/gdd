@@ -38,7 +38,7 @@
 <p><strong>Reviewing.</strong> This is the PR phase, where CI and a code reviewer have to pass, and the reviewer can be another model, a person or both. If it's a model, it's one more reviewer: it runs the change and passes it. If it's a person, they approve it, and one never stands in for the other.</p>
 <h3>The traffic light</h3>
 <p>The four gates are always there, but you can't ask the same of a text as of the payment gateway. That's what the traffic light is for: it tells you the risk of each change, and depending on its color the gates get tougher or softer. It can be a deterministic script, a decision model or a person, and an engine gives it to you already built. Whichever it is, it looks at what was touched, not at what the agent says it did, it's recalculated at the end and it can only go up.</p>
-<p>All we need is a script that looks at which files the change touched. What's delicate, which for now is <code>payments/</code>, <code>admin/</code> and the migrations, is red, because what can't be undone is never green. What's harmless, like <code>text/</code>, is green. And we mark everything else yellow on purpose, because what nobody has classified counts as red until someone does.</p>
+<p>All we need is a script that looks at which files the change touched. What's delicate, which for now is <code>payments/</code>, <code>admin/</code> and the migrations, is red, because what can't be undone is never green. What's harmless, like <code>text/</code>, is green. And we mark everything else yellow on purpose, because green is only what we have marked as green.</p>
 <p>Notice how many times each color calls you. An open gate is one that asks for nothing in that color:</p>
 <figure data-pieza="puertas"></figure>
 <table>
@@ -50,7 +50,7 @@
 <tr><td>Reviewing</td><td>CI</td><td>CI and another reviewer</td><td>CI, another reviewer and your approval, and you check how it gets undone</td></tr>
 </tbody>
 </table>
-<p>Everything we've decided so far (what's delicate, which gates are needed and what each color asks for) is written in one place, the blueprint. The team approves it, and the agent can't touch it.</p>
+<p>Everything we've decided so far (what's delicate, which gates are needed, with their checks, and what each color asks for) is written in one place, the blueprint. The team approves it, and the agent can't touch it.</p>
 <p>That table is what I would do, and each project configures it its own way: having a person review the change in red is my recommendation, not an obligation, and whether a person approves what has to pass is also up to the blueprint. A gate staying open in green isn't loosening anything either, because it was already in the blueprint. Taking a check off a gate, though, is changing the blueprint, and the team approves it.</p>
 <h3>Building it</h3>
 <p>Now we build it with what's at hand:</p>

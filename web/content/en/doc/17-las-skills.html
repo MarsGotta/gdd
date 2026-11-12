@@ -1,5 +1,5 @@
 <h1>The skills</h1>
-<p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another builds the checks, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in seven skills.</p>
+<p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another writes the cases, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in seven skills.</p>
 <p>A skill is a file of instructions your agent loads when it needs it. The GDD ones install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git. One is the entry skill, <code>gdd</code>, which hands out the work, and there are six more, one per role.</p>
 <h2 id="las-siete">The seven</h2>
 <table>
@@ -8,13 +8,13 @@
 <tr><td><code>gdd</code></td><td>The orchestrator. It loads by itself when you ask for a change</td><td>What comes next, and who gets launched.</td></tr>
 <tr><td><code>gdd-prepare</code></td><td>The orchestrator, with you</td><td>The blueprint, with the gates your project needs, and the constitution.</td></tr>
 <tr><td><code>gdd-brief</code></td><td>The orchestrator, on every change</td><td>What has to pass, as scenarios, and the expected risk.</td></tr>
-<tr><td><code>gdd-checks</code></td><td>Another agent, never the one that builds</td><td>The checks, each seen failing for the right reason.</td></tr>
+<tr><td><code>gdd-checks</code></td><td>Another agent, never the one that builds</td><td>The standing checks and the cases of each change, each seen failing for the right reason.</td></tr>
 <tr><td><code>gdd-build</code></td><td>The agent that goes through the gate</td><td>The change, and the facts that prove it.</td></tr>
 <tr><td><code>gdd-review</code></td><td>The reviewer, with a clean context</td><td>Its verdict, and the risk worked out again.</td></tr>
 <tr><td><code>gdd-harden</code></td><td>The orchestrator, with you, when something slips through</td><td>The crack, and the check that would have caught it.</td></tr>
 </tbody>
 </table>
-<p>Whoever builds the checks, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
+<p>Whoever writes the cases, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
 <h2 id="instalar">How to install them</h2>
 <p>You need a git repository and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin with no code.</p>
 <p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>

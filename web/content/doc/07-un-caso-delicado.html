@@ -5,7 +5,7 @@
 <p><strong>Antes de empezar, una sola vez.</strong> Haces obligatorio que CI pase para fusionar, y marcas <code>pagos/</code> y el propio CI como delicados con un <code>CODEOWNERS</code>. Al agente le das sus propias credenciales, sin acceso a producción. Esto lo montas una vez, y la lista completa, con la rama de las comprobaciones, está en <a href="doc:empieza-hoy">Empieza hoy</a>.</p>
 <p><strong>1. Decides qué tiene que pasar.</strong> Le pides a un agente los escenarios, los lees y los corriges. Con este y dos más, un carrito de 80 € y un código caducado, ya está:</p>
 <pre><code data-fuente="escenario.txt"></code></pre>
-<p><strong>2. Un agente fabrica las comprobaciones.</strong> En una sesión aparte, convierte esos escenarios en tests:</p>
+<p><strong>2. Un agente escribe los casos.</strong> En una sesión aparte, convierte esos escenarios en tests:</p>
 <pre><code data-fuente="tests.txt"></code></pre>
 <p>Los ejecutas y fallan, que es lo que toca. Miras que fallan porque falta el descuento, no porque haya un import roto, y los guardas en una rama que el agente no puede modificar.</p>
 <p><strong>3. Otro agente pasa la puerta.</strong> Abres otra sesión y le das el trabajo: "Haz pasar estos tests. No los toques. Si crees que están mal, para y dímelo. Tienes dos rondas de CI". Y te vas a hacer otra cosa.</p>
