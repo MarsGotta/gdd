@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
   contract: gdd/1
 ---
 
@@ -23,7 +23,7 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
 
 ## Every change
 
-1. **The color, on what was touched.** For each zone, `git diff --name-only <start> HEAD -- <pathspec>`, from the root of the repository; then once more excluding every zone to find what none covers, which counts as red. A path written `':(glob)<pattern>'` is excluded as `':(exclude,glob)<pattern>'`: `:(exclude)` put in front of `:(glob)` excludes nothing and gives no error. Then judgment, on what paths miss: code a delicate zone imports, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files, behavior someone would see that a green change added, and anything that can't be undone, which is never green. The color can only go up.
+1. **The color, on what was touched.** For each zone, `git diff --name-only <start> HEAD -- <pathspec>`, from the root of the repository; then once more excluding every zone to find what none covers, which is never green: judge it as the brief did, against what the blueprint marks as delicate, and take the blueprint's word where it says what that counts as. A path written `':(glob)<pattern>'` is excluded as `':(exclude,glob)<pattern>'`: `:(exclude)` put in front of `:(glob)` excludes nothing and gives no error. Then judgment, on what paths miss: code a delicate zone imports, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files, behavior someone would see that a green change added, and anything that can't be undone, which is never green. The color can only go up.
 2. **Nothing that judges was touched.** That is the `seal` check, and you run it yourself, because a change can edit the very check that compares it:
    - `git diff --exit-code <start> HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude <sealed paths> ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'` shows nothing. Compare with the commit, never with the name `gdd-seal/<id>`, which can be moved. The sealed paths are in the log, each with its blob hash: `git hash-object <file>` gives the same one in your clone.
    - `git diff --name-only <start> HEAD -- gdd/log gdd/backlog.md` lists nothing: those are the orchestrator's, and it adds them after you.
@@ -51,7 +51,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.4.0
+skill: gdd-review 0.5.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

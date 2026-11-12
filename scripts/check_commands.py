@@ -22,7 +22,10 @@ something that slipped through once:
   - excluding a zone written with :(glob) needs :(exclude,glob);
   - the search for decisions sees a brief that isn't tracked yet, the search
     for the tests of a scenario doesn't take another id that begins the same,
-    and the counts of the logs don't depend on spaces in the JSON.
+    and the counts of the logs don't depend on spaces in the JSON;
+  - the zones tried on the history look at the window they say, find the
+    commits of a zone, the ones no zone covers and the ones that fixed
+    something, whatever the case of the word.
 
 It needs git and grep and nothing else, uses no network and writes only in a
 temporary folder. Exit codes: 0 when every case passes, 1 when one fails, 2
@@ -278,6 +281,46 @@ def main():
         expect("the count of asks doesn't depend on spaces", asks.count(":1") == 2, asks)
         expect("the list of changes sent back doesn't depend on spaces", len(fixes.split()) == 2, fixes)
         expect("the count of outcomes doesn't depend on spaces", len(outcomes.strip().splitlines()) == 2, outcomes)
+
+    # The zones, tried on the history: gdd-prepare runs these before the person approves.
+    history = "gdd-prepare/references/existing-project.md"
+    since_cmd = command(history, r"git rev-list --no-merges --skip=200 -n 1 <main branch>")
+    count_cmd = command(history, r"git rev-list --no-merges --count <since>\.\.<main branch>")
+    zone_cmd = command(history, r"git rev-list --no-merges <since>\.\.<main branch> -- <pathspec>")
+    uncovered_cmd = command(history, r"git rev-list --no-merges <since>\.\.<main branch> -- \. ':\(exclude,glob\)<pattern>'")
+    fixes_cmd = command(history, r"git rev-list --no-merges -i --grep=fix --grep=revert <since>\.\.<main branch>")
+    with tempfile.TemporaryDirectory() as folder:
+        repo, base = new_repository(folder)
+        write(repo, "src/pay/a.js", "pay, fixed\n")
+        c1 = commit(repo, "Fix the total")
+        write(repo, "src/ui/b.js", "ui, changed\n")
+        c2 = commit(repo, "Change the button")
+        write(repo, "tools/x.py", "a tool\n")
+        c3 = commit(repo, "Add a tool")
+        write(repo, "src/ui/c.js", "more ui, back\n")
+        c4 = commit(repo, "revert the banner")
+        outside = uncovered_cmd.replace("':(exclude,glob)<pattern>'", excluded)
+
+        short = run(repo, since_cmd, main_branch="main").stdout.strip()
+        expect("a history shorter than the window gives no <since>", short == "", f"got {short}")
+        whole = lambda line: line.replace("<since>..", "")
+        total = run(repo, whole(count_cmd), main_branch="main").stdout.strip()
+        expect("without <since>, the count is the whole history", total == "5", f"got {total}")
+        fixed = run(repo, whole(fixes_cmd), main_branch="main").stdout.split()
+        expect("the fixes are found whatever the case of the word", sorted(fixed) == sorted([c1, c4]), f"got {fixed}")
+
+        since = run(repo, since_cmd.replace("--skip=200", "--skip=3"), main_branch="main").stdout.strip()
+        expect("<since> is the commit just before the window", since == c1, f"got {since}")
+        total = run(repo, count_cmd, since=since, main_branch="main").stdout.strip()
+        expect("the count is the window's", total == "3", f"got {total}")
+        ui = run(repo, zone_cmd, since=since, main_branch="main", pathspec=ZONES[1]).stdout.split()
+        expect("a zone finds its commits in the window", sorted(ui) == sorted([c2, c4]), f"got {ui}")
+        pay = run(repo, zone_cmd, since=since, main_branch="main", pathspec=ZONES[0]).stdout.split()
+        expect("a zone nobody touched in the window finds none", pay == [], f"got {pay}")
+        nozone = run(repo, outside, since=since, main_branch="main").stdout.split()
+        expect("what no zone covers is found, and only that", nozone == [c3], f"got {nozone}")
+        fixed = run(repo, fixes_cmd, since=since, main_branch="main").stdout.split()
+        expect("the fixes are the window's", fixed == [c4], f"got {fixed}")
 
     for failure in failures:
         print(f"scripts/check_commands.py: {failure}")

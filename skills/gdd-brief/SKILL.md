@@ -3,7 +3,7 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
   contract: gdd/1
 ---
 
@@ -15,8 +15,9 @@ Gates come first. If you decide what to check once the result is in sight, you e
 
 Note the base first, the commit of the main branch the change starts from (`git rev-parse <main branch>`): the log's `brief` step carries it.
 
-1. **The floor.** List every path the change will touch. Each one falls in the zone whose pathspec it matches (`git ls-files -- <pathspec>` lists the existing files of a zone; a new file falls where its path matches the pattern), and the change takes the highest color among them. A path no zone covers counts as red until the person classifies it: tell them, and ask once whether to classify it now, with `gdd-prepare`, or to go on as red.
+1. **The floor.** List every path the change will touch. Each one falls in the zone whose pathspec it matches (`git ls-files -- <pathspec>` lists the existing files of a zone; a new file falls where its path matches the pattern), and the change takes the highest color among them. A path no zone covers is never green, because green is only what the person marked as green: its floor is yellow, unless the blueprint says what it counts as.
 2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you write down its reason. By default, a change that adds behavior someone would see is at least yellow, wherever its paths fall. Correcting a text adds none, and behind a switch that is off nobody sees it yet. What can't be undone is never green: deleting data, a migration with no way back, anything sent outside.
+3. **What no zone covers.** Judge it against what the blueprint marks as delicate, and why: red if it does what a red zone does, or feeds one, and yellow if it doesn't. If you can't tell, ask the person before going on. Write the path, its color and the reason in the `brief` step. Then add an item to the backlog that proposes its pathspec or its zone: add it yourself, now, without asking. Don't wait for an answer to it: go on with the change, and tell the person about it when you report. The blueprint changes only when they approve it, with `gdd-prepare`, and until then every change that touches the path is judged again.
 
 The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up, so a low one saves nothing. "It's just a small change" isn't a color either: the size doesn't matter; what can go wrong does.
 

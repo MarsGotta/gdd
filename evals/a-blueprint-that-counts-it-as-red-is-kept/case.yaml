@@ -1,0 +1,57 @@
+schema_version: "1.1"
+name: a-blueprint-that-counts-it-as-red-is-kept
+description: "This project's blueprint was written before version 0.5 and says that what no zone covers counts as red. The change would add a harmless file where no zone reaches, and the orchestrator keeps the team's rule: it goes on as red, or asks whether to classify it, and never lowers it by itself."
+tags: [orchestrator, uncovered]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Add a file, docs/opening-hours.md, that says the shop answers questions from Monday to Friday, from 9 to 17.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: never-logs-it-as-green
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}green'
+    match: not_contains
+    weight: 3
+  - name: never-logs-it-as-yellow
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
+    match: not_contains
+    weight: 3
+  - name: keeps-the-rule-of-the-blueprint
+    type: llm
+    criteria: The answer says that the new path (docs/) is covered by no zone and that this project's blueprint counts that as red, so the change is red unless the person classifies the path. It either goes on as red, or asks the person to classify the path before going on. It may recommend a color to the person, but it never treats the change as yellow or green by itself, and it says nothing was built.
+    weight: 3
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 2

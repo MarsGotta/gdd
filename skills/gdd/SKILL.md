@@ -3,20 +3,21 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
   contract: gdd/1
 ---
 
 # GDD
 
-The agent says "done." The gate checks if it's true. You are the orchestrator: you decide what comes next, launch each role with its skill and its context, keep the log and tell the person what they need to know. You don't write checks, and you don't build the change you orchestrate, because whoever goes through a gate doesn't decide how it's validated, and that includes you.
+The agent says "done." The gate checks if it's true. You are the orchestrator: you decide what comes next, launch each role, keep the log and tell the person what they need to know. You don't write checks, and you don't build the change you orchestrate, because whoever goes through a gate doesn't decide how it's validated, and that includes you.
 
 ## Where things stand
 
 1. Read `gdd/blueprint.md`. If there isn't one, the next moment is Prepare.
 2. Read the request, in the person's words.
-3. For a change already under way, read its log. The log says where it stands, not the brief, which has no status. After a compaction too: trust the log and git, not what you remember.
-4. Before a change, create a git ref and delete it. If you can't, stop and say so: nothing can be sealed.
+3. Read `gdd/backlog.md`. If `standing-checks` isn't `done`, it comes before the request: do it now, as `references/standing-checks.md` says, in this skill's folder. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint.
+4. For a change already under way, read its log. The log says where it stands, not the brief, which has no status. After a compaction too: trust the log and git, not what you remember.
+5. Before a change, create a git ref and delete it. If you can't, stop and say so: nothing can be sealed.
 
 ## The four moments
 
@@ -27,21 +28,19 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 | Execute | Every change | `gdd-build` and `gdd-review`, each in an agent of its own |
 | Harden | Something slipped through, or keeps repeating | `gdd-harden` |
 
-Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation, the first and the last with the person. You run at the standard level, and preparing and hardening need the deep one: if you aren't on it, tell the person before you start.
-
-After Prepare, the standing checks get set up and tried once for the project, as the backlog item `standing-checks`: follow `references/standing-checks.md`, in this skill's folder. No change starts before they hold.
+Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation, the first and the last with the person. You run at the standard level, and preparing and hardening need the deep one: if you aren't on it, say so to the person first.
 
 ## A change, step by step
 
 Two commits anchor every comparison. `<base>` is the commit of the main branch the change starts from. `<start>` is the commit that holds everything that judges it: the tip of its seal, or the base when nothing was sealed. Whenever the seal moves (a new version of the brief, new checks, the main branch merged in), its tip is the new `<start>`: write it in the log, give it to each role, and merge it into the change's branch before anyone goes on. If that merge conflicts, it's the first thing the builder does in its next round.
 
-1. **Brief.** Load `gdd-brief`, for every change, a typo too: its color goes to the log before anyone builds. It gives the color on what the change will touch and, on yellow and red, the brief and its scenarios, committed on `gdd-seal/<id>`. When there's no brief, pick an id for the change's log (lowercase letters, digits and hyphens). If the color's checks include `brief-approval`, nothing is built before the person approves, and nobody is launched before the `brief` step is in the log.
-2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the checks the color asks for, proves each one fails for the right reason and can pass, and seals them. A change with no brief skips this step.
+1. **Brief.** Load `gdd-brief`, for every change, a typo or a path no zone covers too: its color goes to the log before anyone builds. It gives the color and, on yellow and red, the brief and its scenarios, committed on `gdd-seal/<id>`. When there's no brief, pick an id for the change's log (lowercase letters, digits and hyphens). If the color's checks include `brief-approval`, nothing is built before the person approves, and nobody is launched before the `brief` step is in the log.
+2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the cases the color asks for, proves each one fails for the right reason and can pass, and seals them. A change with no brief skips this step.
 3. **Build.** Launch `gdd-build` with the brief, or with the request and the paths you listed when there's none, on a branch of its own that starts at `<start>`, with the context of its gates. It commits its work there.
 4. **Gates.** Run the checks its color asks for, and the standing gates of every zone it touches, yourself and out of the builder's reach: CI on its branch, once pushed, or a fresh clone of it. What the builder reports is a claim. The `seal` check goes first, with `<start>` and the sealed paths from the log: if what judges was touched, nothing else counts, the change stops and you tell the person. Any other check that fails opens a fix round: the builder gets its command, its exit code and its last lines. A check with a baseline in `gdd/debt.md` passes when its number isn't above it. On `rule`, a fresh clone is the best there is, and it's within the builder's reach: say so in your summary.
 5. **Review.** Launch `gdd-review` with a clean context, for every change, green too: where the color's checks don't include `review`, it still recomputes the color on what was touched and checks that nothing that judges was touched. The first word of its answer is its verdict, `pass`, `fix` or `stop`, and the line after it is the color it found, `COLOR:`. Any other first word, or a review cut off before its verdict, isn't a pass: launch it again, once. When the color's checks include `review`, a `pass` counts only if it says what the reviewer ran: the change and its checks, not only git.
    - `stop`: the change doesn't go in, whatever else the answer says. Tell the person why.
-   - A color higher than the one logged at Brief: the change stops and goes back to Brief. `gdd-brief` writes the brief of the new color, the person approves it if that color asks for it, and `gdd-checks` adds its checks from the base, without reading what was built. Both move the seal.
+   - A color higher than the one logged at Brief: the change stops and goes back to Brief. `gdd-brief` writes the brief of the new color, the person approves it if that color asks for it, and `gdd-checks` adds its cases from the base, without reading what was built. Both move the seal.
    - `fix`: a fix round, with the reviewer's notes.
 6. **Ship.** When every check its color and its zones ask for has passed, bring the change up to date: merge the main branch into its seal, which moves it, and run the machine checks again. With nothing sealed, the tip of the main branch is the new `<start>`. Review it again only if that merge touched the files the change touches. Then commit your bookkeeping on top, and only then ask for the person's review, when its color has one: that check is the person approving the pull request on the platform, or the change itself where there's none. It ships the way the constitution says. You never approve anything, and you never ship what is still waiting for a person. Changes that each passed their gates can fail together, as eight did in the pilot: then land them one at a time. Once it's in, remove the copies its roles made, and set its backlog item to `done` when what it builds is in use.
 

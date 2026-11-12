@@ -92,7 +92,7 @@ Set GDD up in this project
 **What happens.** The orchestrator loads `gdd-prepare` and sits down with you to decide what is delicate in your project and which gates it needs.
 
 1. **It proposes first.** You get the usual zones and gates for a project like yours, to correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal or regulated data, the stack, what can't be undone. It also asks, before one happens, what an emergency may skip and who opens that gate.
-2. **You mark the zones.** A zone is a set of paths with a color, by how much damage a change there can do: green, yellow or red. Anything no zone covers counts as red until you classify it.
+2. **You mark the zones.** A zone is a set of paths with a color, by how much damage a change there can do: green, yellow or red. What no zone covers is never green: the orchestrator judges it in each change, tells you why, and asks when it can't tell. In a repository with history, it tries the zones on your last commits before you approve: how many would have come out of each color, what no zone covers and where the fixes fell.
 3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
 4. **You choose the models.** It looks at which agents you have installed and which models each one offers, and proposes one for each level (light, standard and deep) and the reviewer's apart, from another model family where you have one. You say yes or correct it, and it launches a role on each one before it counts, so the blueprint never says light while everything runs on the deep model.
 5. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you.
@@ -120,7 +120,7 @@ gdd/
 Add a filter by size to the catalog
 ```
 
-**What happens.** The orchestrator hands out the work and builds none of it. Whoever writes the checks, whoever builds and whoever reviews each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there.
+**What happens.** The orchestrator hands out the work and builds none of it. Whoever writes the cases, whoever builds and whoever reviews each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there.
 
 ```mermaid
 %%{init: {"sequence": {"diagramMarginX": 160, "mirrorActors": false}}}%%
@@ -160,7 +160,7 @@ sequenceDiagram
 ```
 
 1. **Brief.** The paths the change will touch set the floor of its color, and the orchestrator's judgment can raise it, never lower it. On yellow and red it writes the brief and its scenarios: what someone can observe, with the bad cases too. When it finds a decision nobody has made, such as a limit with no number or what happens with an empty list, it asks you. Where your blueprint asks for `brief-approval`, nothing is built before you approve.
-2. **Checks.** Another agent, never the one that will build, writes the checks the color asks for. It sees each one fail for the right reason, proves it can pass and seals them. A green change has no brief and skips this step: it goes on with the checks that already exist.
+2. **Checks.** Another agent, never the one that will build, writes the cases the color asks for, a test for each scenario. It sees each one fail for the right reason, proves it can pass and seals them. A green change has no brief and skips this step: it goes on with the checks that already exist.
 3. **Build.** The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its checks were made.
 4. **Gates.** The orchestrator runs the checks itself, away from the builder: CI on its branch, or a fresh clone. On `guarantee: rule` that clone is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A check that fails sends the change back with its command, its exit code and its last lines.
 5. **Review.** A reviewer with a clean context runs the change and tries to make it fail. Its verdict is `pass`, `fix` or `stop`, and it works the color out again on what was actually touched. That color can only go up, and if it rose, the change goes back to Brief.

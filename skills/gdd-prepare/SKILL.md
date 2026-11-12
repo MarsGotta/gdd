@@ -1,19 +1,19 @@
 ---
 name: gdd-prepare
-description: Prepares a repository for Gate-Driven Development (GDD) together with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
+description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
   contract: gdd/1
 ---
 
 # Preparing a project
 
-You decide with the person what the project is about, what is delicate in it, which gates it needs, its constitution and what context each gate carries. You build no checks: `gdd-checks` sets them up, and `gdd-review` tries them. You do it yourself, as the orchestrator, with the person, and it needs the deep level, because a wrong blueprint makes every change after it wrong.
+You decide with the person what the project is about, what is delicate in it, which gates it needs, its constitution and what context each gate carries. You build no checks: `gdd-checks` sets them up, and `gdd-review` tries them. You do it yourself, as the orchestrator, with the person: if the `gdd` skill isn't loaded, load it now, because the shapes of the log are there. It needs the deep level, because a wrong blueprint makes every change after it wrong.
 
 ## When the project is already prepared
 
-If you're here because a change touches a path no zone covers, or because the project changed shape, do only this. An uncovered path is first a question for the person, asked once: classify it now, or go on as red. If they classify it, or the project changed shape, propose the pathspec or the zone, with its color and why. The person approves that change to the blueprint, and it has to be on the main branch before the change is briefed again, because the color is computed from there. A new zone gets a color and no gates of its own. If that color asks for a check the project hasn't set up yet, it gets set up and tried before any change starts there, as the backlog item `standing-checks-<check id>`. The probe and the baseline aren't repeated, unless the agents' environment changed. If you're here because an environment or a model of `levels` has to change, do only `references/levels.md`.
+If you're here because the blueprint fell short, do only this: a path no zone covers, which `gdd-brief` judged and left in the backlog, or a project that changed shape. Propose the pathspec or the zone, with its color and why. The person approves that change to the blueprint, and it has to be on the main branch before the next change is briefed, because the color is computed from there. A new zone gets a color and no gates of its own. If that color asks for a check the project hasn't set up yet, it gets set up and tried before any change starts there, as the backlog item `standing-checks-<check id>`. The probe and the baseline aren't repeated, unless the agents' environment changed. If you're here because an environment or a model of `levels` has to change, do only `references/levels.md`.
 
 ## The conversation
 
@@ -26,7 +26,7 @@ If you're here because a change touches a path no zone covers, or because the pr
 
 ## What's already there
 
-- An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones: `references/existing-project.md`.
+- An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones, which you try on its history before the person approves: `references/existing-project.md`.
 - An empty one, or one with no code yet (only data or documents), starts from the idea: `references/new-project.md`.
 
 ## Zones
@@ -37,7 +37,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 - Mark behaviors, not only folders: code outside a delicate zone that configures it, feeds it data or decides what it does belongs to it too.
 - What can't be undone is never green.
 - List the dependency manifests and their lock files in a zone whose color asks for `person-review`. That is all it takes for no new dependency to come in without a person seeing it: there is no check to write.
-- A zone's tests belong to it: list their paths too. Then propose a catch-all zone for what's left, with the color the person chooses, because anything no zone covers counts as red until the person classifies it.
+- A zone's tests belong to it: list their paths too. Then ask about what's left: a catch-all zone with the color the person chooses, or none, and then each change that touches it is judged, and is never green.
 - Functions don't go in the blueprint. They change often and zones rarely do, so they go to the backlog, each with its expected color.
 
 ## Gates
@@ -95,9 +95,9 @@ The person approves the first blueprint, and the approval stays written: a commi
 ## Gotchas
 
 - In the T-minus pilot, its own gate passed while the project's linter failed: the gate didn't run the same lint. Every gate runs the constitution's commands, the same ones as CI.
-- Eighteen checks already failed on the main branch before anyone touched anything, fourteen scenarios and four unit tests. Without a baseline, every change gets blamed for them, or they quietly disappear.
-- Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file it needed inside the sandbox). Say which checks run outside it, and who runs them.
-- In one run, the blueprint gave each level as how much it reasons, with no model, and the orchestrator launched every role without naming one: all of them ran on its own deep model, while the log said light.
+- Eighteen checks already failed on the main branch before anyone touched anything. Without a baseline, every change gets blamed for them, or they quietly disappear.
+- Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file there). Say which checks run outside it, and who runs them.
+- In one run the blueprint gave each level as how much it reasons, with no model: every role ran on the orchestrator's own deep model, while the log said light.
 - In one run, each zone got gates of its own, a secret scan in all four, as scripts of the project's own with a mature scanner installed on the machine. Every review found one more secret they missed, and no change started in more than two hours.
 - An agent's environment can act on the person's accounts. In one run, an agent published the project on the person's own account through a site-publishing plugin of its environment; in another, it used the person's git credentials to create repositories and try to deploy. Confine the environment, not only the project.
 

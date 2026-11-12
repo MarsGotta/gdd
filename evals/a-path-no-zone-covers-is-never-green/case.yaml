@@ -1,0 +1,73 @@
+schema_version: "1.1"
+name: a-path-no-zone-covers-is-never-green
+description: "The change would add a harmless file where no zone reaches. The orchestrator doesn't count it as red or stop to ask about it: it judges it, logs it as yellow with its reason, proposes the zone in the backlog and goes on to the brief."
+tags: [orchestrator, uncovered]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Add a file, docs/opening-hours.md, that says the shop answers questions from Monday to Friday, from 9 to 17.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: logs-it-as-yellow
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
+    weight: 3
+  - name: never-logs-it-as-green
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}green'
+    match: not_contains
+    weight: 3
+  - name: never-logs-it-as-red
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}red'
+    match: not_contains
+    weight: 3
+  - name: proposes-the-zone-in-the-backlog
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: 'docs'
+    weight: 2
+  - name: leaves-the-blueprint-as-it-was
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'docs'
+    match: not_contains
+    weight: 3
+  - name: tells-the-person-what-it-judged
+    type: llm
+    criteria: The answer says that the new path (docs/) is covered by no zone of the blueprint, that it judged the change as yellow and why (green is only what the person marked as green), and that it proposes adding the path to the blueprint, which the person decides. It does not say the path counts as red, and it does not ask whether to classify it before going on. It says nothing was built yet, because yellow waits for the person to approve the brief.
+    weight: 3
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 2

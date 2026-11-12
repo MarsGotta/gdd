@@ -1,0 +1,124 @@
+schema_version: "1.1"
+name: prepare-leaves-a-blueprint-to-approve
+description: A shop without GDD, and a person who comes with most of it decided. Prepare writes the blueprint, the constitution and the backlog, tries each level, builds no check itself and stops for the person's approval.
+tags: [orchestrator, prepare]
+runs: 3
+execution:
+  max_turns: 150
+  timeout_seconds: 3000
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  prompt: |
+    I want to work on this shop with GDD from now on. Prepare it. I've already decided most of it:
+
+    - Payments (src/pay) are the delicate part. The texts are harmless. The cart and its tests are in between.
+    - On every change I want the tests to pass, the code to compile and no secret to get into the repository. Nothing else for now.
+    - I work only from Claude Code. Use haiku for the light level, sonnet for the standard one and opus for the deep one, and the same three for the reviewer.
+    - There's no platform and no CI, and I don't want them yet: a change ships when its branch is merged into main.
+    - We have no history to take a baseline from. Keep the usual limits, and nothing may be skipped in an emergency.
+
+    Propose whatever is left yourself, write the files and show me the blueprint to approve. Don't stop to ask me before that.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: opens-gdd-prepare
+    type: regex
+    target: trace
+    pattern: 'Propose first, ask afterwards'
+  - name: opens-how-the-levels-are-decided
+    type: regex
+    target: trace
+    pattern: 'A level counts once you.ve seen it launch'
+  - name: writes-the-block-of-the-agents-file
+    type: regex
+    target: { source: file, path: AGENTS.md }
+    pattern: 'This project uses Gate-Driven Development \(contract gdd/1\)'
+  - name: gives-the-constitution-a-scan-for-secrets
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '[Ss]ecret[^|\n]*\|\s*`[^`\n]+`'
+  - name: lists-the-scan-among-the-checks
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '-\s*id:\s*secrets\b'
+    weight: 2
+  - name: gives-no-zone-gates-of-its-own
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '(?:^|\n)[ \t]*gates:'
+    match: not_contains
+    weight: 3
+  - name: writes-no-scenarios-for-a-zone
+    type: regex
+    target: files
+    pattern: 'gdd/gates/[^/\n]+\.feature'
+    match: not_contains
+    weight: 2
+  - name: builds-no-check-itself
+    type: regex
+    target: files
+    pattern: '(?:[Ss]ecret|[Ss]can|[Ll]eak)[^/\n]*\.(?:py|sh|js|ts)\b'
+    match: not_contains
+    weight: 2
+  - name: marks-payments-red
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'color:\s*red[^\n]*\n\s*paths:[^\n]*\n(?:\s*-[^\n]*\n)*?\s*-[^\n]*src/pay'
+  - name: says-the-guarantee-is-a-rule
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'guarantee:\s*rule\b'
+  - name: gives-each-level-its-model-by-its-environment
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'levels:[^\n]*\n(?:\s*#[^\n]*\n)*\s+claude[\w-]*:[^\n]*\n[\s\S]*?launch:\s*\S[\s\S]*?light:\s*\S*haiku[\s\S]*?standard:\s*\S*sonnet[\s\S]*?deep:\s*\S*opus'
+    weight: 3
+  - name: tries-the-light-level
+    type: tool_used
+    tool: Agent
+    input_match: '"model"\s*:\s*"[^"]*haiku'
+    min: 1
+  - name: tries-the-standard-level
+    type: tool_used
+    tool: Agent
+    input_match: '"model"\s*:\s*"[^"]*sonnet'
+    min: 1
+  - name: tries-the-deep-level
+    type: tool_used
+    tool: Agent
+    input_match: '"model"\s*:\s*"[^"]*opus'
+    min: 1
+  - name: logs-what-each-try-showed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"levels"\s*:\s*\[\s*\{[^\]]*"model"'
+    weight: 2
+  - name: logs-it-in-the-shape-of-the-contract
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"contract"\s*:\s*"gdd/1"[^\n]*"step"\s*:\s*"prepare"'
+    weight: 2
+  - name: logs-the-blueprint-as-proposed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
+    weight: 2
+  - name: opens-the-backlog-with-the-standing-checks
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: '\|\s*standing-checks\s*\|[^\n]*\|\s*todo\s*\|'
+    weight: 2
+  - name: sets-up-no-check-before-the-approval
+    type: regex
+    target: files
+    pattern: 'gdd/log/standing-checks'
+    match: not_contains
+    weight: 2
+  - name: asks-the-person-to-approve
+    type: llm
+    criteria: The answer points the person to the files it wrote, the blueprint among them, and asks them to approve the blueprint. It says that the standing checks get set up and tried after that approval, or that no change starts before they hold. It does not say the project is ready for changes.
+    weight: 3

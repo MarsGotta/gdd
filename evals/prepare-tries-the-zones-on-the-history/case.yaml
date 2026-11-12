@@ -1,0 +1,56 @@
+schema_version: "1.1"
+name: prepare-tries-the-zones-on-the-history
+description: "A shop without GDD and with twenty-five commits of history. Before it asks the person to approve the blueprint, Prepare tries its zones on those commits with git and tells them what comes out of each color, what no zone covers and where the fixes fell."
+tags: [orchestrator, prepare, history]
+runs: 3
+execution:
+  max_turns: 150
+  timeout_seconds: 3000
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  prompt: |
+    I want to work on this shop with GDD from now on. Prepare it. I've already decided most of it:
+
+    - Payments (src/pay) are the delicate part. The texts are harmless. The cart and its tests are in between.
+    - On every change I want the tests to pass, the code to compile and no secret to get into the repository. Nothing else for now.
+    - I work only from Claude Code. Use haiku for the light level, sonnet for the standard one and opus for the deep one, and the same three for the reviewer.
+    - There's no platform and no CI, and I don't want them yet: a change ships when its branch is merged into main.
+    - The repository has a few weeks of history, and no figures for a baseline yet. Keep the usual limits, and nothing may be skipped in an emergency.
+
+    Propose whatever is left yourself, write the files and show me the blueprint to approve. Don't stop to ask me before that.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: opens-how-an-existing-project-is-prepared
+    type: regex
+    target: trace
+    pattern: 'The zones, tried on the history'
+    weight: 2
+  - name: counts-the-commits-of-a-zone
+    type: regex
+    target: trace
+    pattern: 'rev-list --no-merges[^\n]{0,200}?-- '
+    weight: 2
+  - name: looks-for-the-fixes
+    type: regex
+    target: trace
+    pattern: 'rev-list --no-merges[^\n]{0,80}?--grep'
+    weight: 2
+  - name: sets-up-no-check-before-the-approval
+    type: regex
+    target: files
+    pattern: 'gdd/log/standing-checks'
+    match: not_contains
+    weight: 2
+  - name: tells-the-person-what-the-history-shows
+    type: llm
+    criteria: Before it asks for the approval, the answer tells the person what the zones would have given the commits the repository already had. It gives how many commits come out of each color. It says where the commits that fixed or undid something fell, and most of them fell in payments. It asks the person to approve the blueprint.
+    weight: 3
+  - name: says-what-no-zone-covers
+    type: llm
+    criteria: The answer accounts for the notes folder, which the usual zones of this shop don't cover. Either it says that some commits touched paths no zone covered and what it proposes for them, or the blueprint it shows has a zone that lists notes.
+    weight: 1

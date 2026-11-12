@@ -1,6 +1,6 @@
 {
   "name": "gdd",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it and harden what slipped through.",
   "author": {
     "name": "Marcela Gotta",
