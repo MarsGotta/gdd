@@ -4,7 +4,7 @@ You ask your agent for a filter by size in the catalog. One agent writes down wi
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
 
-This is version 0.2, with contract `gdd/1`.
+This is version 0.3, with contract `gdd/1`.
 
 ## The four moments
 
@@ -33,7 +33,7 @@ Prepare happens once, in a conversation with you. From then on every change goes
 | Step | You say | You end up with |
 |---|---|---|
 | [1. Install the skills](#1-install-the-skills) | A command or two | The seven skills in your agent |
-| [2. Prepare your project](#2-prepare-your-project) | "Set GDD up in this project" | A blueprint you approved, and the gates of each zone |
+| [2. Prepare your project](#2-prepare-your-project) | "Set GDD up in this project" | A blueprint you approved, with the gates your project needs |
 | [3. Ask for a change](#3-ask-for-a-change) | The change, in your own words | The change on your main branch, and a log of how it got there |
 | [4. Harden what slipped through](#4-harden-what-slipped-through) | What got through, or what keeps repeating | A check that catches it from then on |
 
@@ -93,10 +93,10 @@ Set GDD up in this project
 
 1. **It proposes first.** You get the usual zones and gates for a project like yours, to correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal or regulated data, the stack, what can't be undone. It also asks, before one happens, what an emergency may skip and who opens that gate.
 2. **You mark the zones.** A zone is a set of paths with a color, by how much damage a change there can do: green, yellow or red. Anything no zone covers counts as red until you classify it.
-3. **You agree on the gates.** Few, but strict, each written as a scenario: the bad case its check must reject, then one it must accept. Two come proposed in every project: no secret reaches the repository, and no new dependency comes in without a person seeing it.
+3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
 4. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you.
 5. **You approve the blueprint,** or your team does, with a commit or a pull request from a person. The caps of a change (rounds, minutes and lines) go in it, and you set them together.
-6. **Each zone's gates get built and tried.** `gdd-checks` builds them and `gdd-review` tries to fool them on purpose. No change starts in a zone until its gates are on the main branch.
+6. **The checks get set up and tried, once.** `gdd-checks` sets them up, with a tool that already exists before a script of your own, and `gdd-review` tries each one on purpose: it has to reject something done wrong, accept it done right, and hold when a change tries to switch it off. No change starts until they are on the main branch.
 
 **You end up with** files you can read, which make sense without the skills:
 
@@ -106,7 +106,6 @@ CODEOWNERS                   what you or your team always approve
 gdd/
 ├── blueprint.md             zones, colors, checks, levels and limits
 ├── constitution.md          the stack, the commands and the rules that hold everywhere
-├── gates/<zone>.feature     the standing gates of each zone, as scenarios
 ├── backlog.md               what to build, each item with its expected color
 ├── debt.md                  known debt, with the baseline of each check
 └── context/                 copies of the references a gate needs
@@ -193,10 +192,10 @@ gdd/log/<id>.jsonl               everything that happened, one event per line, w
 %%{init: {"flowchart": {"rankSpacing": 30}}}%%
 flowchart LR
     accTitle: What each color asks for, in the blueprint's template
-    accDescr: Green asks for the seal, the tests and the linter. Yellow adds your approval of the brief before anyone builds, and a reviewer. Red adds mutation testing and your review of the change at the end.
-    G["Green<br/>the text of a button"] ~~~ g0["brief-approval"] ~~~ g1["seal"] --> g2["tests"] --> g3["lint"]
-    Y["Yellow<br/>a filter by size"] ~~~ y0(["brief-approval"]) --> y1["seal"] --> y2["tests"] --> y3["lint"] ---> y5["review"]
-    R["Red<br/>the payment gateway"] ~~~ r0(["brief-approval"]) --> r1["seal"] --> r2["tests"] --> r3["lint"] --> r4["mutation"] --> r5["review"] --> r6(["person-review"])
+    accDescr: Green asks for the seal, the tests, the linter and the secret scan. Yellow adds your approval of the brief before anyone builds, and a reviewer. Red adds mutation testing and your review of the change at the end.
+    G["Green<br/>the text of a button"] ~~~ g0["brief-approval"] ~~~ g1["seal"] --> g2["tests"] --> g3["lint, secrets"]
+    Y["Yellow<br/>a filter by size"] ~~~ y0(["brief-approval"]) --> y1["seal"] --> y2["tests"] --> y3["lint, secrets"] ---> y5["review"]
+    R["Red<br/>the payment gateway"] ~~~ r0(["brief-approval"]) --> r1["seal"] --> r2["tests"] --> r3["lint, secrets"] --> r4["mutation"] --> r5["review"] --> r6(["person-review"])
     %% Two empty nodes: g0 lines Green's checks up with the others, Z keeps the right side free for GitHub's zoom buttons
     r6 ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
@@ -208,7 +207,7 @@ flowchart LR
     style R fill:none,stroke:#cf222e,stroke-width:2px
 ```
 
-The rounded blue steps are where a person approves. This is the proportion the blueprint's template brings, and yours decides: which checks each color asks for, and where a person approves, are for you or your team to decide. Whatever its color, a change also passes the standing gates of every zone it touches, and it gets its reviewer, which on green only works the color out again and checks that nothing that judges was touched.
+The rounded blue steps are where a person approves. This is the proportion the blueprint's template brings, and yours decides: which checks each color asks for, and where a person approves, are for you or your team to decide. Whatever its color, a change also passes the gates of the zones it touches, where a zone has gates of its own, and it gets its reviewer, which on green only works the color out again and checks that nothing that judges was touched.
 
 Each color also sets the level of the agents that work on it (light, standard or deep), and your blueprint says which model each level is, by the name your agents' environment launches it with.
 
@@ -267,7 +266,7 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 | Skill | Who loads it | Moment | What it leaves |
 |---|---|---|---|
 | `gdd` | The orchestrator, on its own, when you ask for any change | All four | What comes next, and who gets launched |
-| `gdd-prepare` | The orchestrator, with you | Prepare | The blueprint, the constitution and the gates of each zone |
+| `gdd-prepare` | The orchestrator, with you | Prepare | The blueprint, with the gates the project needs, and the constitution |
 | `gdd-brief` | The orchestrator | Brief | What has to pass, as scenarios, and the expected risk |
 | `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden | The checks, each seen failing for the right reason |
 | `gdd-build` | The agent that goes through the gate | Execute | The change, and the facts that prove it |

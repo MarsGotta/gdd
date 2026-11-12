@@ -1,6 +1,6 @@
 ---
 name: gdd-review
-description: Reviews one GDD change with a clean context, runs it and tries to make it fail. The GDD orchestrator launches it after the change gets through its machine checks, or to try a zone's new gates.
+description: Reviews one GDD change with a clean context, runs it and tries to make it fail. The GDD orchestrator launches it after the change gets through its machine checks, or to try new standing checks.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 skills:

@@ -38,7 +38,7 @@ g init -q -b main .
 git config user.name "Eval"
 git config user.email "eval@example.com"
 git config commit.gpgsign false
-mkdir -p gdd/gates gdd/briefs src/texts src/pay tests features
+mkdir -p gdd/briefs src/texts src/pay tests features
 
 cat > AGENTS.md <<'EOF'
 # The Cat Shop
@@ -134,25 +134,21 @@ zones:
     color: green
     paths:
       - ':(glob)src/texts/**'
-    gates: gdd/gates/texts.feature
   - id: shop
     color: yellow
     paths:
       - ':(glob)src/*.py'
       - ':(glob)tests/test_*.py'
-    gates: gdd/gates/shop.feature
   - id: payments
     color: red
     paths:
       - ':(glob)src/pay/**'
-    gates: gdd/gates/payments.feature
   - id: judges
     color: red
     paths:
       - ':(glob)gdd/**'
       - ':(glob).github/**'
       - 'AGENTS.md'
-    gates: gdd/gates/judges.feature
 context: []
 ---
 
@@ -182,27 +178,6 @@ Measured on 2026-11-01, over 12 changes, before GDD: two days from request to re
 A gate that hasn't caught anything in fifty changes.
 EOF
 
-for zone in texts shop payments judges; do
-  cat > "gdd/gates/$zone.feature" <<EOF
-@zone:$zone
-Feature: Gates of the $zone zone
-
-  Rule: The tests of the project pass
-
-    @check:tests
-    Scenario: A change that breaks a test is rejected
-      Given a change that makes a test fail
-      When the gate runs
-      Then the tests check fails and names the test
-
-    @check:tests
-    Scenario: A change that keeps every test passing is accepted
-      Given a change that leaves every test passing
-      When the gate runs
-      Then the tests check passes
-EOF
-done
-
 cat > gdd/backlog.md <<'EOF'
 # Backlog
 
@@ -210,10 +185,7 @@ What to build, each item with its expected color. `State` is `todo`, `briefed` o
 
 | Id | What | Color | Phase | Brief | State |
 |---|---|---|---|---|---|
-| gates-texts | Build the gates of texts and try to fool them | green | 0 | | done |
-| gates-shop | Build the gates of shop and try to fool them | yellow | 0 | | done |
-| gates-payments | Build the gates of payments and try to fool them | red | 0 | | done |
-| gates-judges | Build the gates of judges and try to fool them | red | 0 | | done |
+| standing-checks | Set up the checks every change passes, and CI, and see each one close | red | 0 | | done |
 | discount-code | A discount code at checkout | yellow | 1 | | todo |
 | empty-cart | A message for an empty cart | yellow | 1 | | todo |
 | line-rounding | Discounts on carts with several items | yellow | 1 | | todo |
@@ -256,19 +228,18 @@ if __name__ == "__main__":
 EOF
 printf '__pycache__/\n.worktrees/\n' > .gitignore
 
-# The project was prepared and its gates were built and tried: the log says so.
+# The project was prepared and its standing checks were set up and tried: the log says so.
 mkdir -p gdd/log
 {
   printf '{"contract":"gdd/1","ts":"2026-11-01T09:00:00Z","brief":"blueprint","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"0.2.0","level":"deep","round":1,"result":"approved","caught":"none","seconds":null,"tokens":null},"files":["gdd/blueprint.md","gdd/constitution.md","gdd/backlog.md"],"probe":[{"try":"push to the main branch","command":"git push origin main","exit":0,"tail":"there is no platform: nothing stops it"}]}\n'
   printf '{"contract":"gdd/1","ts":"2026-11-01T09:30:00Z","brief":"blueprint","event":"approval","who":"Mar","of":"blueprint","version":1,"files":{},"where":"commit"}\n'
 } > gdd/log/blueprint.jsonl
-for zone in texts shop payments judges; do
-  {
-    printf '{"contract":"gdd/1","ts":"2026-11-01T10:00:00Z","brief":"gates-%s","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.2.0","level":"standard","round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/gates-%s","commit":null,"checks":{},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (failures=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n' "$zone" "$zone"
-    printf '{"contract":"gdd/1","ts":"2026-11-01T10:20:00Z","brief":"gates-%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.2.0","level":"standard","round":1,"result":"pass","caught":"none","seconds":null,"tokens":null},"verdict":"pass","ran":[{"command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (failures=1)"}],"findings":[],"closed":[]}\n' "$zone"
-    printf '{"contract":"gdd/1","ts":"2026-11-01T10:30:00Z","brief":"gates-%s","event":"step","step":"ship","where":"commit","color":"red"}\n' "$zone"
-  } > "gdd/log/gates-$zone.jsonl"
-done
+{
+  printf '{"contract":"gdd/1","ts":"2026-11-01T10:00:00Z","brief":"standing-checks","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.2.0","level":"standard","round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/standing-checks","commit":null,"checks":{},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (failures=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n'
+  printf '{"contract":"gdd/1","ts":"2026-11-01T10:20:00Z","brief":"standing-checks","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.2.0","level":"standard","round":1,"result":"pass","caught":"none","seconds":null,"tokens":null},"verdict":"pass","ran":[{"command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (failures=1)"}],"findings":[],"closed":[]}\n'
+  printf '{"contract":"gdd/1","ts":"2026-11-01T10:28:00Z","brief":"standing-checks","event":"approval","who":"Mar","of":"change","version":1,"files":{},"where":"commit"}\n'
+  printf '{"contract":"gdd/1","ts":"2026-11-01T10:30:00Z","brief":"standing-checks","event":"step","step":"ship","where":"commit","color":"red"}\n'
+} > gdd/log/standing-checks.jsonl
 if [ "$variant" = plain ]; then
   rm -rf gdd features
   printf '# The Cat Shop\n\nA small shop for cat products.\n' > AGENTS.md

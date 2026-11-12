@@ -4,5 +4,5 @@ What to build, each item with its expected color. `State` is `todo`, `briefed` o
 
 | Id | What | Color | Phase | Brief | State |
 |---|---|---|---|---|---|
-| gates-<zone> | Build the gates of <zone> and try to fool them | <color> | 0 | | todo |
+| standing-checks | Set up the checks every change passes, and CI, and see each one close | red | 0 | | todo |
 | <id> | <what the person gets> | <color> | 1 | | todo |

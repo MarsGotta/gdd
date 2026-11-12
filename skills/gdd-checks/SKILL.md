@@ -1,9 +1,9 @@
 ---
 name: gdd-checks
-description: Writes and seals the checks of a Gate-Driven Development (GDD) gate, from a change's brief or from a zone's gate scenarios. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
+description: Writes and seals the checks of a Gate-Driven Development (GDD) gate, from a change's brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.2.2"
+  version: "0.3.0"
   contract: gdd/1
 ---
 
@@ -13,7 +13,7 @@ A gate that never closes is not a gate: it's a drawing on the wall. Your checks 
 
 ## What you get
 
-The brief and its scenarios in `features/`, already committed on `gdd-seal/<id>` and approved by the person when its color asks for it, or a zone's gates in `gdd/gates/<zone>.feature`. Also the blueprint, for what the color asks for and the id of each check, the constitution, for the commands, and `<base>`, the commit of the main branch the change starts from.
+The brief and its scenarios in `features/`, already committed on `gdd-seal/<id>` and approved by the person when its color asks for it. After preparing or hardening you get the standing checks to set up instead, which have their own section below. Also the blueprint, for what the color asks for and the id of each check, the constitution, for the commands, and `<base>`, the commit of the main branch the change starts from.
 
 When a change's color rose and you're adding the checks of its new color, work from the base and don't read what the builder already wrote: a check written with the code in sight ends up agreeing with the code.
 
@@ -22,7 +22,7 @@ When a change's color rose and you're adding the checks of its new color, work f
 For every check, stop at the first step that works:
 
 1. what the stack already brings: types, a linter rule, the test runner;
-2. a mature open-source tool with a solid community or company behind it;
+2. a mature open-source tool with a solid community or company behind it, taken as it is;
 3. a small script of the project's own, only when nothing exists, following `references/scripts.md`;
 4. a new or less proven tool, only with a notice (how old it is, who maintains it, its license, what it does with the data), and the person decides;
 5. a reviewer or a person, when nothing deterministic works.
@@ -38,7 +38,7 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 ## Each check, before you seal it
 
 1. **Write it from its scenario.** A test cites its scenario's id as `gdd:<id>`, in its name or a comment, and goes through the real entry point (the command, the endpoint, the public function), not a helper behind it: in one run, a test checked a helper and the real entry point still let the bad value through.
-2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a zone's gate, the bad case of its scenario. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason.
+2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a standing check, a bad case planted for it. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason.
 3. **Prove it can pass.** Run it on a correct version. If that takes a throwaway implementation, write it in your own worktree, out of the builder's reach, and delete it after: seeing it would give the solution away.
 4. **Break it on purpose.** Make that correct version wrong (remove the line that does the work, return a constant, flip a comparison) and watch the check go red. If it stays green, it's hollow: one of the pilot's reviewers brought back the old function and all six tests still passed, and another replaced a hash with 64 zeros and the same 28 scenarios passed.
 5. **More than one case.** Two or three examples per scenario, so a solution that only fits one of them isn't enough. Where a scenario states a rule that holds for every input (the total is never below zero) and the stack has a tool for it, check the rule over generated inputs too, with a fixed seed, so it gives the same answer every time, and keep each case it finds as one more example.
@@ -55,9 +55,15 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
 
-## A zone's gates
+## The standing checks
 
-When preparing or hardening, build the check of each `Rule:` in `gdd/gates/<zone>.feature` from its scenarios, at the lowest step of the ladder that works. Run it on the bad case (it fails, and names the file and the line) and on the good one (it passes), and seal it on `gdd-seal/gates-<zone>`. Then `gdd-review` tries to sneak the bad case through, and until it can't, the zone's gates don't hold.
+After preparing, you set up the machine checks the blueprint's `checks` name, once for the whole project and never once for each zone, and CI where there is none, running the constitution's commands as they are. `mutation` waits for the first red change. Each one goes at the lowest step of the ladder that works. A mature tool is taken as it is: you configure it, and you write no detector of your own beside it for what it might miss. Set the secret scan to report the file, the line and the kind of what it finds, never the secret itself.
+
+Prove each check once, in a throwaway clone, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change starts.
+
+For a zone's own gate, which hardening gave it or the person asked for, do the same for the check of each new `Rule:` in `gdd/gates/<zone>.feature`, built from its scenarios. There, what got past a mature tool in a real change becomes a rule in that tool's own configuration, or a script beside it when it takes none.
+
+A secret never goes into your report, not even one you planted: say what kind it was and where it was. In one run, the log quoted a planted credential, the secret scan flagged the log, which is never rewritten, and three rounds went on it.
 
 ## Gotchas
 
@@ -76,7 +82,7 @@ Checks found already green, and hollow, in real runs:
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
 ```gdd-report
-skill: gdd-checks 0.2.2
+skill: gdd-checks 0.3.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

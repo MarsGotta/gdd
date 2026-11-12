@@ -21,6 +21,9 @@ checks:
   - id: lint
     type: machine
     command: <lint command from the constitution>
+  - id: secrets
+    type: machine
+    command: <secret scan command from the constitution>
   - id: mutation
     type: machine
     command: <mutation command, on the files the change touched, where the stack has a tool for it>
@@ -35,20 +38,20 @@ checks:
     type: person
 colors:
   green:
-    checks: [seal, tests, lint]
+    checks: [seal, tests, lint, secrets]
     level: light
   yellow:
-    checks: [brief-approval, seal, tests, lint, review]
+    checks: [brief-approval, seal, tests, lint, secrets, review]
     level: standard
   red:
-    checks: [brief-approval, seal, tests, lint, mutation, review, person-review]
+    checks: [brief-approval, seal, tests, lint, secrets, mutation, review, person-review]
     level: deep
 zones:
   - id: <zone>
     color: <green, yellow or red>
     paths:
       - ':(glob)<pattern>'
-    gates: gdd/gates/<zone>.feature
+    # gates: gdd/gates/<zone>.feature   # only once this zone has a gate of its own
 # hidden: <where the hidden examples live, when a color asks for them>
 context:
   - file: gdd/context/<file>
@@ -64,7 +67,7 @@ context:
 ```mermaid
 flowchart LR
   change([A change]) --> color{Its color}
-  color -->|green| green[seal, tests, lint]
+  color -->|green| green[seal, tests, lint, secrets]
   color -->|yellow| yellow[+ brief approval, reviewer]
   color -->|red| red[+ mutation, a person's review]
 ```

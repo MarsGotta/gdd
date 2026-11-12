@@ -6,7 +6,7 @@
 <thead><tr><th>Skill</th><th>Quién la carga</th><th>Qué deja</th></tr></thead>
 <tbody>
 <tr><td><code>gdd</code></td><td>El orquestador. Se carga sola cuando pides un cambio</td><td>Qué toca ahora, y a quién se lanza.</td></tr>
-<tr><td><code>gdd-prepare</code></td><td>El orquestador, contigo</td><td>El plano, la constitución y las puertas de cada zona.</td></tr>
+<tr><td><code>gdd-prepare</code></td><td>El orquestador, contigo</td><td>El plano, con las puertas que le hacen falta a tu proyecto, y la constitución.</td></tr>
 <tr><td><code>gdd-brief</code></td><td>El orquestador, en cada cambio</td><td>Lo que debe pasar, en escenarios, y el riesgo previsto.</td></tr>
 <tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Las comprobaciones, vistas fallar por la razón correcta.</td></tr>
 <tr><td><code>gdd-build</code></td><td>El agente que pasa la puerta</td><td>El cambio, y los hechos que lo prueban.</td></tr>
@@ -36,15 +36,15 @@
 <h2 id="empezar">Lo primero que le pides</h2>
 <p>Con las skills dentro, pídele a tu agente que prepare GDD en tu proyecto. No hay ningún comando que recordar, porque <code>gdd</code> se carga sola. Esa primera conversación es contigo y pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
 <ol>
-<li>Te propone las zonas de tu proyecto y las puertas de cada una, y tú corriges lo que no encaje. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
+<li>Te propone las zonas de tu proyecto y las puertas que le hacen falta, y tú corriges lo que no encaje. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
 <li>Prepara las protecciones contigo y las prueba. Él escribe qué archivos piden tu revisión, y lo que hay que aplicar en tu plataforma lo aplicas tú. Después intenta cuatro cosas desde el entorno donde trabajará el agente que construye, subir a la rama principal entre ellas. Si alguna le sale bien, tu plano lo apunta, y que el agente no toque lo que lo juzga se queda en norma.</li>
 <li>El plano lo apruebas tú, o tu equipo si trabajas con uno, con un commit o una pull request de una persona, nunca de un agente.</li>
-<li>Otro agente fabrica las comprobaciones de cada zona y un vigilante intenta engañarlas. Ningún cambio empieza en una zona hasta que sus puertas están en la rama principal.</li>
+<li>Otro agente monta las comprobaciones de serie, una vez para todo el proyecto, y un vigilante intenta engañarlas. Ningún cambio empieza hasta que están en la rama principal.</li>
 </ol>
 <p>Desde ahí pides cada cambio con tus palabras, y te enteras cuando te necesita y cuando ha entrado. Cada paso, con lo que dices, lo que pasa y con qué te quedas, está en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>, que está en inglés.</p>
 <p>En ese mismo repositorio están las pruebas con que se comprueban las skills, hechas con un modelo real.</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
-<p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas de cada zona escritas como escenarios, el encargo de cada cambio y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
+<p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, el encargo de cada cambio con sus escenarios y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>
 <p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás (<a href="doc:como-se-engana-una-puerta">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
 <p class="sigue">Con skills o a mano, lo delicado sigue siendo lo delicado. Qué cambia cuando lo que tocas es el cobro lo cuento en <a href="doc:un-caso-delicado">Un caso delicado</a>.</p>

@@ -1,9 +1,9 @@
 ---
 name: gdd-review
-description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, or tries a zone's new gates before they hold. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
+description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.2.2"
+  version: "0.3.0"
   contract: gdd/1
 ---
 
@@ -11,7 +11,7 @@ metadata:
 
 Your job is to make it fail. You judge the change, not the story about it: what the builder reports is a claim, and it only serves to compare with what you find. You don't build, approve or launch other agents.
 
-If you were given a zone's gates instead of a change, open `references/zone-gates.md`, in this skill's folder, and follow it instead of what comes next.
+If you were given new standing checks instead of a change, open `references/standing-checks.md`, in this skill's folder, and follow it instead of what comes next.
 
 ## What you read
 
@@ -51,7 +51,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.2.2
+skill: gdd-review 0.3.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

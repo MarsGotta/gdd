@@ -16,6 +16,7 @@ Gates run these same commands, locally and in CI.
 | Build | `<command>` |
 | Test | `<command>` |
 | Lint | `<command>` |
+| Scan for secrets | `<command>` |
 
 ## How a change ships
 

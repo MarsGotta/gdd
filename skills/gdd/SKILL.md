@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.2.2"
+  version: "0.3.0"
   contract: gdd/1
 ---
 
@@ -22,14 +22,14 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 
 | Moment | When | Skill |
 |---|---|---|
-| Prepare | No blueprint yet, a path no zone covers, or the project changes shape | `gdd-prepare` |
+| Prepare | No blueprint yet, a path the person wants classified, or the project changes shape | `gdd-prepare` |
 | Brief | Every change, before anyone builds | `gdd-brief`, and then `gdd-checks` in an agent of its own |
 | Execute | Every change | `gdd-build` and `gdd-review`, each in an agent of its own |
 | Harden | Something slipped through, or keeps repeating | `gdd-harden` |
 
 Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation, the first and the last with the person. You run at the standard level, and preparing and hardening need the deep one: if you aren't on it, tell the person before you start.
 
-After Prepare, each zone's standing gates get built as the backlog item `gates-<zone>`, with `gdd/log/gates-<zone>.jsonl` as its log: `gdd-checks` builds them from their scenarios and seals them on `gdd-seal/gates-<zone>`, `gdd-review` tries to fool them, and a `fix` goes back to `gdd-checks`. When they hold, they ship like a change. No change starts in a zone until its gates are on the main branch.
+After Prepare, the standing checks get set up and tried once, for the whole project, as the backlog item `standing-checks`: open `references/standing-checks.md`, in this skill's folder, and follow it. No change starts before they hold. A gate a zone gets later, from hardening, goes the same way.
 
 ## A change, step by step
 
@@ -57,7 +57,7 @@ Every agent starts with a clean context: a new session or subagent, never this c
 
 ## The log and the person
 
-When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it, in this skill's folder, before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: the level it ran at, which round it was, and the time and the tokens when your environment gives them. Evidence is a command, its exit code and its last lines, five at most. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
+When each step closes, append one event to `gdd/log/<id>.jsonl`: one line, in the shape `assets/log-events.jsonl` gives for that step (open it, in this skill's folder, before your first event), with the time it is then (`date -u +%FT%TZ`). Never rewrite a line, and never write the log at the end from memory: its times are what the project measures with. From a role's report you take its result and what it caught, and you add what only you know: the level it ran at, which round it was, and the time and the tokens when your environment gives them. Evidence is a command, its exit code and its last lines, five at most, and never a secret: where a tail shows one, write its kind and where it was. What isn't about one change goes to `gdd/log/blueprint.jsonl`, with `blueprint` as its `brief`.
 
 The log and the backlog are your bookkeeping. Keep them in your own copy, off every change's branch, and commit what the main branch doesn't have yet on top of a change that is about to ship. What you log after that, its `ship` event too, travels with the next one. What reaches the main branch is your copy, never one found on a change's branch.
 

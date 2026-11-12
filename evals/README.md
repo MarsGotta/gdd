@@ -48,7 +48,7 @@ No grader runs code. A case checks the last message, the tools that were used an
 
 ## What they cost and what they found
 
-All the passes so far cost 15.45 USD, with the light model for the judges. With the standard model, a role case takes about half a minute and 0.10 USD a run, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
+All the passes so far cost 16.60 USD, with the light model for the judges. With the standard model, a role case takes about half a minute and 0.10 USD a run, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
 
 With the standard model and three runs each, every case passes three times out of three except the green change, where the color reached the log before anyone built in two runs out of three. The twenty requests pass on the three levels, once each.
 

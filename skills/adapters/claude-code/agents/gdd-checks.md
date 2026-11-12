@@ -1,6 +1,6 @@
 ---
 name: gdd-checks
-description: Writes and seals the checks of a GDD gate. The GDD orchestrator launches it with a change's brief, or with a zone's gate scenarios. It never builds the change it writes checks for.
+description: Writes and seals the checks of a GDD gate. The GDD orchestrator launches it with a change's brief, or to set up a project's standing checks. It never builds the change it writes checks for.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: inherit
 skills:

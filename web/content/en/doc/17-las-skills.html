@@ -6,7 +6,7 @@
 <thead><tr><th>Skill</th><th>Who loads it</th><th>What it leaves</th></tr></thead>
 <tbody>
 <tr><td><code>gdd</code></td><td>The orchestrator. It loads by itself when you ask for a change</td><td>What comes next, and who gets launched.</td></tr>
-<tr><td><code>gdd-prepare</code></td><td>The orchestrator, with you</td><td>The blueprint, the constitution and the gates of each zone.</td></tr>
+<tr><td><code>gdd-prepare</code></td><td>The orchestrator, with you</td><td>The blueprint, with the gates your project needs, and the constitution.</td></tr>
 <tr><td><code>gdd-brief</code></td><td>The orchestrator, on every change</td><td>What has to pass, as scenarios, and the expected risk.</td></tr>
 <tr><td><code>gdd-checks</code></td><td>Another agent, never the one that builds</td><td>The checks, each seen failing for the right reason.</td></tr>
 <tr><td><code>gdd-build</code></td><td>The agent that goes through the gate</td><td>The change, and the facts that prove it.</td></tr>
@@ -36,15 +36,15 @@
 <h2 id="empezar">The first thing you ask for</h2>
 <p>With the skills in, ask your agent to set GDD up in your project. There's no command to remember, because <code>gdd</code> loads by itself. That first conversation is with you and needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
 <ol>
-<li>It proposes the zones of your project and the gates of each one, and you correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
+<li>It proposes the zones of your project and the gates it needs, and you correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
 <li>It prepares the protections with you and tries them. It writes which files ask for your review, and what has to be applied on your platform you apply yourself. Then it tries four things from the environment the building agent will work in, pushing to the main branch among them. If any of them succeeds, your blueprint says so, and the agent not touching what judges it stays a rule.</li>
 <li>You approve the blueprint, or your team does if you work with one, with a commit or a pull request from a person, never from an agent.</li>
-<li>Another agent builds the checks of each zone and a reviewer tries to fool them. No change starts in a zone until its gates are on the main branch.</li>
+<li>Another agent sets up the standing checks, once for the whole project, and a reviewer tries to fool them. No change starts until they are on the main branch.</li>
 </ol>
 <p>From there you ask for each change in your own words, and you hear about it when it needs you and when it's in. Every step, with what you say, what happens and what you end up with, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
 <p>That same repository holds the tests the skills are checked with, run with a real model.</p>
 <h2 id="repositorio">What they leave in your repository</h2>
-<p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates of each zone written as scenarios, the brief of each change and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
+<p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the brief of each change with its scenarios and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>
 <p>What they don't give you is a guarantee. Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. With protected branches and the permissions of your platform you get a good part of the way, and your blueprint says which of the three degrees you're at (<a href="doc:como-se-engana-una-puerta">How a gate gets fooled</a>). Only an engine gives the full guarantee, and what's missing without one is in <a href="doc:el-motor">The engine</a>.</p>
 <p class="sigue">With skills or by hand, what is delicate stays delicate. What changes when the thing you touch is payment, I tell in <a href="doc:un-caso-delicado">A delicate case</a>.</p>
