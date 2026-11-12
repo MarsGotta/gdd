@@ -24,26 +24,31 @@
 <p>En Antigravity clonas el repositorio e instalas el plugin desde su carpeta.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
 <p>Si prefieres tenerlas dentro de tu proyecto, copia las siete carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex.</p>
-<p>Para saber si han entrado, cada agente tiene su comando:</p>
+<p>Van por la versión 0.9. Para saber si han entrado, y para actualizarlas más adelante, cada agente tiene sus comandos:</p>
 <table>
-<thead><tr><th>Agente</th><th>Comando</th><th>Lo que deberías ver</th></tr></thead>
+<thead><tr><th>Agente</th><th>Para comprobarlo</th><th>Lo que deberías ver</th><th>Para actualizarlas</th></tr></thead>
 <tbody>
-<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, activo.</td></tr>
-<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, instalado y activo.</td></tr>
-<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, activo, con 7 skills.</td></tr>
+<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, activo.</td><td><code>claude plugin marketplace update gdd</code> y después <code>claude plugin update gdd@gdd</code>.</td></tr>
+<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, instalado y activo.</td><td><code>codex plugin marketplace upgrade gdd</code> y después <code>codex plugin add gdd@gdd</code>.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, activo, con 7 skills.</td><td><code>git pull</code> en la carpeta que clonaste y después, otra vez, <code>agy plugin install gdd</code>.</td></tr>
 </tbody>
 </table>
 <h2 id="empezar">Lo primero que le pides</h2>
-<p>Con las skills dentro, pídele a tu agente que prepare GDD en tu proyecto. No hay ningún comando que recordar, porque <code>gdd</code> se carga sola. Esa primera conversación es contigo y pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
+<p>Con las skills dentro, pídele a tu agente que prepare GDD en tu proyecto, y si empiezas de cero, cuéntale en el mismo mensaje qué vas a construir. No hay ningún comando que recordar, porque <code>gdd</code> se carga sola. Esa primera conversación es contigo y pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
 <ol>
+<li>En un proyecto nuevo, o si le dejas a él las decisiones, se documenta antes de proponerte nada, porque las herramientas y las reglas de un sector cambian más deprisa que la memoria de un modelo. Busca qué tiene que proteger un proyecto como el tuyo, qué pide su sector y qué herramientas están al día para lo que usas, y guarda una copia de cada fuente. En lo que te propone, separa lo que sale de una fuente de lo que pone él por defecto.</li>
 <li>Te propone las zonas de tu proyecto y las puertas que le hacen falta, y tú corriges lo que no encaje. Cada puerta queda escrita como un escenario: qué exige a cada nivel de riesgo y qué rechaza. Si tu proyecto ya tiene historial, antes de que apruebes pasa las zonas por tus últimos commits y te dice cuántos habrían salido de cada color. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
 <li>Mira qué agentes tienes instalados y qué modelos ofrece cada uno, y te propone cuál hace el trabajo ligero, cuál el normal y cuál el profundo, y cuál hace de vigilante. Decides tú, y antes de darlo por bueno comprueba que cada uno arranca.</li>
 <li>Prepara las protecciones contigo y las prueba. Él escribe qué archivos piden tu revisión, y lo que hay que aplicar en tu plataforma lo aplicas tú. Después intenta cuatro cosas desde el entorno donde trabajará el agente que construye, subir a la rama principal entre ellas. Si alguna le sale bien, tu plano lo apunta, y que el agente no toque lo que lo juzga se queda en norma.</li>
-<li>El plano lo apruebas tú, o tu equipo si trabajas con uno, con un commit o una pull request de una persona, nunca de un agente.</li>
-<li>Otro agente monta las comprobaciones de serie, una vez para todo el proyecto, y un vigilante intenta engañarlas y mira que el plano pide lo que dice cada puerta. Ningún cambio empieza hasta que están en la rama principal.</li>
+<li>El plano lo apruebas tú, o tu equipo si trabajas con uno, con un commit o una pull request de una persona, nunca de un agente. Te lo pide con un mensaje corto: qué archivos leer y, antes de que digas que sí, lo que todavía no protege nada o lo que no ha podido confirmar.</li>
+<li>Otro agente monta las comprobaciones de serie, una vez para todo el proyecto, y un vigilante intenta engañarlas y mira que el plano pide lo que dice cada puerta. Si una comprobación la piden unos colores y otros no, como las pruebas de mutación si las dejas para lo rojo, juzga solo lo que cada cambio añade o modifica. Y si una pide llegar a una cifra, te propone empezar por la que da su herramienta o la que ya saca tu código, no por la más alta. Una cifra inalcanzable no hace la puerta más exigente, la deja cerrada. Ningún cambio empieza hasta que están en la rama principal.</li>
 </ol>
 <p>Desde ahí pides cada cambio con tus palabras, y te enteras cuando te necesita y cuando ha entrado. Cada paso, con lo que dices, lo que pasa y con qué te quedas, está en la <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">guía del repositorio</a>, que está en inglés.</p>
 <p>En ese mismo repositorio están las pruebas con que se comprueban las skills, hechas con un modelo real.</p>
+<h2 id="cuando-te-necesita">Cuando te necesita</h2>
+<p>Mientras trabaja, te habla de tu producto y no del método, y en pocas palabras: una línea por puerta, pasada o no, y el detalle solo cuando algo falla, cuando tienes que decidir o cuando se lo pides. Si necesita algo de ti, te pregunta una sola cosa, con lo que haría él, para que te baste con un sí.</p>
+<p>Si le dices que decida él, decide cómo se hace el trabajo y deja de preguntarte por eso. Lo que sigue siendo tuyo, o de tu equipo, es aprobar el plano y lo que debe pasar, cualquier cosa que afloje una comprobación y lo que no se puede deshacer.</p>
+<p>Así que, aunque le hayas dicho que decida él, no apunta como deuda una comprobación que ya falla sin el cambio, ni la aparta en cuarentena, porque eso es aflojarla. Tampoco construye nada mientras siga fallando, porque ningún cambio la pasaría. Te propone una salida, más o menos así: "Tu arreglo del pie de página está escrito, pero aún no ha entrado, porque un test del texto del carrito ya fallaba antes de que yo tocara nada. Lo arreglaría primero, por separado, y después entrarían los dos. ¿Te parece bien?"</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
 <p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas, el encargo de cada cambio con sus escenarios y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>

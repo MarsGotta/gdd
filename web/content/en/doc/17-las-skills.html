@@ -24,26 +24,31 @@
 <p>On Antigravity you clone the repository and install the plugin from its folder.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
 <p>If you'd rather keep them inside your project, copy the seven folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
-<p>To find out whether they're in, each agent has its own command:</p>
+<p>They're at version 0.9. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
 <table>
-<thead><tr><th>Agent</th><th>Command</th><th>What you should see</th></tr></thead>
+<thead><tr><th>Agent</th><th>To check</th><th>What you should see</th><th>To update them</th></tr></thead>
 <tbody>
-<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, enabled.</td></tr>
-<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, installed and enabled.</td></tr>
-<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 7 skills.</td></tr>
+<tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, enabled.</td><td><code>claude plugin marketplace update gdd</code>, then <code>claude plugin update gdd@gdd</code>.</td></tr>
+<tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, installed and enabled.</td><td><code>codex plugin marketplace upgrade gdd</code>, then <code>codex plugin add gdd@gdd</code>.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 7 skills.</td><td><code>git pull</code> in the folder you cloned, then <code>agy plugin install gdd</code> again.</td></tr>
 </tbody>
 </table>
 <h2 id="empezar">The first thing you ask for</h2>
-<p>With the skills in, ask your agent to set GDD up in your project. There's no command to remember, because <code>gdd</code> loads by itself. That first conversation is with you and needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
+<p>With the skills in, ask your agent to set GDD up in your project, and if you're starting from scratch, tell it in the same message what you're going to build. There's no command to remember, because <code>gdd</code> loads by itself. That first conversation is with you and needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
 <ol>
+<li>In a new project, or if you leave the decisions to it, it reads up before it proposes anything, because tools and a sector's rules change faster than a model's memory. It looks up what a project like yours has to protect, what its sector asks for and which tools are current for what you use, and keeps a copy of each source. In what it proposes, it tells apart what comes from a source and what is its own default.</li>
 <li>It proposes the zones of your project and the gates it needs, and you correct what doesn't fit. Each gate is written as a scenario: what it asks at each level of risk and what it rejects. If your project already has history, before you approve it runs the zones over your last commits and tells you how many would have come out of each color. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
 <li>It looks at which agents you have installed and which models each one offers, and proposes which one does the light work, which the standard and which the deep, and which one reviews. You decide, and before it counts it checks that each one starts.</li>
 <li>It prepares the protections with you and tries them. It writes which files ask for your review, and what has to be applied on your platform you apply yourself. Then it tries four things from the environment the building agent will work in, pushing to the main branch among them. If any of them succeeds, your blueprint says so, and the agent not touching what judges it stays a rule.</li>
-<li>You approve the blueprint, or your team does if you work with one, with a commit or a pull request from a person, never from an agent.</li>
-<li>Another agent sets up the standing checks, once for the whole project, and a reviewer tries to fool them and checks that the blueprint asks for what each gate says. No change starts until they are on the main branch.</li>
+<li>You approve the blueprint, or your team does if you work with one, with a commit or a pull request from a person, never from an agent. It asks you in a short message: which files to read and, before you say yes, what doesn't protect anything yet or what it couldn't confirm.</li>
+<li>Another agent sets up the standing checks, once for the whole project, and a reviewer tries to fool them and checks that the blueprint asks for what each gate says. One that some colors ask for and others don't, such as mutation testing if you keep it for red, judges only what each change adds or modifies. And if one has to reach a number, it proposes starting from the one its tool gives or your code already reaches, not from the highest. A number nobody can reach doesn't make the gate stricter, it keeps it shut. No change starts until they are on the main branch.</li>
 </ol>
 <p>From there you ask for each change in your own words, and you hear about it when it needs you and when it's in. Every step, with what you say, what happens and what you end up with, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
 <p>That same repository holds the tests the skills are checked with, run with a real model.</p>
+<h2 id="cuando-te-necesita">When it needs you</h2>
+<p>While it works, it talks to you about your product and not about the method, and briefly: one line per gate, passed or failed, and the detail only when something fails, when you have to decide or when you ask for it. When it needs something from you, it asks one thing, with what it would do, so that a yes is enough.</p>
+<p>If you tell it to decide, it decides how the work gets done and stops asking you about that. What stays yours, or your team's, is approving the blueprint and what has to pass, anything that loosens a check and what can't be undone.</p>
+<p>So even if you've told it to decide, it won't record as debt a check that already fails without the change, or put it in quarantine, because that loosens it. Nor does it build anything while the check keeps failing, because no change would get through. It proposes one way out, something like this: "Your footer fix is written but not in yet, because a test of the cart's text already failed before I touched anything. I'd fix that first, on its own, and then both would go in. Is that all right?"</p>
 <h2 id="repositorio">What they leave in your repository</h2>
 <p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates, the brief of each change with its scenarios and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>
