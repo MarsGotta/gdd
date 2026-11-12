@@ -60,6 +60,14 @@ graders:
     target: files
     pattern: 'gdd/log/[a-z0-9-]+\.jsonl'
     weight: 2
+  - name: times-its-checks
+    type: regex
+    target: trace
+    pattern: 'time\s+(?:-p\s+)?(?:python3|git|sh\b|bash\b|\(|\{)|date \+%s'
+  - name: logs-what-each-check-took
+    type: regex
+    target: trace
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}[a-z0-9-]+[\\"]{1,8}\s?,\s?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d'
   - name: launches-a-builder
     type: tool_used
     tool: Agent

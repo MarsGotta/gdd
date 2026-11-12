@@ -83,7 +83,7 @@ def run(repo, template, **values):
 def run_in_shell(repo, line):
     """Run a command that needs a shell for its glob or its pipe.
 
-    Only for the three counts of gdd-harden, whose text comes from this
+    Only for the counts of gdd-harden, whose text comes from this
     repository's own skill file and runs in a throwaway folder.
     """
     return subprocess.run(line, cwd=repo, capture_output=True, text=True, shell=True)
@@ -149,8 +149,8 @@ def main():
     decisions = command("gdd-brief/SKILL.md", r"git grep --untracked -n \"\\\[DECISION:\" -- gdd/briefs features")
     cited = command("CONTRACT.md", r"git grep -nE \"gdd:<id>\(\[\^a-z0-9-\]\|\$\)\"")
     counts = re.findall(r"^- `(grep [^`]+)`", (SKILLS / "gdd-harden/SKILL.md").read_text(encoding="utf-8"), re.M)
-    if len(counts) != 3:
-        print(f"skills/gdd-harden/SKILL.md: expected three grep commands, found {len(counts)}", file=sys.stderr)
+    if len(counts) != 4:
+        print(f"skills/gdd-harden/SKILL.md: expected four grep commands, found {len(counts)}", file=sys.stderr)
         return 2
     excluded = " ".join(exclude.replace("<pattern>", zone.strip("'").replace(":(glob)", "")) for zone in ZONES)
     uncovered = f". {excluded}"
@@ -277,7 +277,10 @@ def main():
         # The counts of the logs, with and without spaces in the JSON.
         write(repo, "gdd/log/a.jsonl", '{"event":"ask"}\n{"verdict":"fix","closed":[{"outcome":"false"}]}\n')
         write(repo, "gdd/log/b.jsonl", '{"event": "ask"}\n{"verdict": "fix", "closed": [{"outcome": "minor"}]}\n')
-        asks, fixes, outcomes = (run_in_shell(repo, line).stdout for line in counts)
+        write(repo, "gdd/log/c.jsonl", '{"step":"gates","gates":[{"check":"tests","seconds":4,"command":"x","exit":0,"tail":"a } b","result":"pass"},{"check": "lint", "seconds": 12, "command": "y"},{"check":"fast","seconds":0.4},{"check":"old","command":"z"},{"check":"ci","seconds":null}]}\n')
+        asks, fixes, outcomes, took = (run_in_shell(repo, line).stdout for line in counts)
+        expect("what each check took is read with and without spaces, and only where it was measured",
+               sorted(re.findall(r"[0-9.]+", took)) == ["0.4", "12", "4"] and "old" not in took and "ci" not in took, took)
         expect("the count of asks doesn't depend on spaces", asks.count(":1") == 2, asks)
         expect("the list of changes sent back doesn't depend on spaces", len(fixes.split()) == 2, fixes)
         expect("the count of outcomes doesn't depend on spaces", len(outcomes.strip().splitlines()) == 2, outcomes)

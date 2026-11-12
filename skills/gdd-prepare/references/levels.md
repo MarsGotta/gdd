@@ -36,4 +36,5 @@ Record each try in `gdd/log/blueprint.jsonl`, in the `levels` of the `prepare` s
 
 - **An environment the blueprint doesn't list,** or a model that no longer launches: the orchestrator stops and asks the person. It never puts another model in its place. Adding an environment or changing a model changes the blueprint: try the new one the same way first, and then the person approves it.
 - **The reviewer's model changed:** the reviewer's exam runs again, as `gdd-harden` says.
+- **Any other level's model changed:** no check runs again for it, because a check judges the product and not the model. Leave an item in the backlog to read the logs, as `gdd-harden` says, once a few changes have run on the new one: what it proposes is a lighter level or lower limits for a color, never one check less.
 - **A blueprint with the three levels directly under `levels`** was written before version 0.4: they belong to the environment it was prepared in.

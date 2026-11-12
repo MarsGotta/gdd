@@ -103,4 +103,4 @@ Measured on <date>, over <n> changes, before GDD: <time from request to release>
 
 ## What would make us simplify
 
-<The figure that would make this team drop a gate, in one sentence.>
+<The figure that would make this team drop a check, or a question of the reviewer's, as something its logs can count: how many changes it ran on without catching anything real, or what it may cost each one.>

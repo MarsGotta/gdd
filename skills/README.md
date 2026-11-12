@@ -4,14 +4,14 @@ You ask your agent for a filter by size in the catalog. One agent writes down wi
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and carry no code: they use what your project already has, its tests, its linter, its CI and git.
 
-This is version 0.6, with contract `gdd/1`.
+This is version 0.7, with contract `gdd/1`.
 
 ## The four moments
 
 ```mermaid
 flowchart LR
     accTitle: The four moments of GDD
-    accDescr: Prepare happens once, with you. Every change goes through Brief and Execute before it reaches your main branch. When something slips through, Harden adds one more check, which every later change in that zone has to pass.
+    accDescr: Prepare happens once, with you. Every change goes through Brief and Execute before it reaches your main branch. When something slips through, Harden adds one more check, which every later change in that zone has to pass, and when a gate no longer adds anything, it proposes relaxing or retiring it.
     P["Prepare<br/>once, with you"]
     B["Brief<br/>what has to pass"]
     E["Execute<br/>build, gates, review"]
@@ -19,7 +19,7 @@ flowchart LR
     H["Harden<br/>with you"]
     P --> B --> E --> M
     M -. "something slipped through" .-> H
-    H -. "one more check" .-> E
+    H -. "one check more, or one less" .-> E
     %% An empty node keeps the right side free: GitHub draws its zoom buttons there
     H ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
@@ -28,14 +28,14 @@ flowchart LR
     class Z room
 ```
 
-Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check.
+Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check, and for the day a gate stops adding anything, so that it gets relaxed or retired. The two keep the balance.
 
 | Step | You say | You end up with |
 |---|---|---|
 | [1. Install the skills](#1-install-the-skills) | A command or two | The seven skills in your agent |
 | [2. Prepare your project](#2-prepare-your-project) | "Set GDD up in this project" | A blueprint you approved, with the gates your project needs |
 | [3. Ask for a change](#3-ask-for-a-change) | The change, in your own words | The change on your main branch, and a log of how it got there |
-| [4. Harden what slipped through](#4-harden-what-slipped-through) | What got through, or what keeps repeating | A check that catches it from then on |
+| [4. Harden what slipped through](#4-harden-what-slipped-through) | What got through, what keeps repeating, or the gate that no longer adds anything | A check that catches it from then on, or a gate relaxed or retired |
 
 ## Before you start
 
@@ -215,7 +215,7 @@ Each color also sets the level of the agents that work on it (light, standard or
 
 ## 4. Harden what slipped through
 
-**You say** which failure got through and where you found it, or what keeps repeating: the same finding, the same stop, the same reason for raising a color. Fixing it is a normal change, through step 3. Hardening is the other half: what it would have taken to catch it stays as a check.
+**You say** which failure got through and where you found it, or what keeps repeating: the same finding, the same stop, the same reason for raising a color. Fixing it is a normal change, through step 3. Hardening is the other half: what it would have taken to catch it stays as a check. Or you say which gate is in the way, and the orchestrator reads the logs for what it caught and what it cost.
 
 ```mermaid
 flowchart LR
@@ -240,7 +240,7 @@ flowchart LR
 4. **You approve the change to the blueprint and its gates,** or your team does, with a pull request or a commit from a person.
 5. **The check gets built and tried.** `gdd-checks` builds it and `gdd-review` tries to fool it before it counts. When the failure got past a reviewer, the change that carried it also joins the reviewer's exam, in `gdd/exam.md`.
 
-Hardening goes the other way too. A gate that has gone without catching anything for as long as your blueprint says gets proposed for retirement, with the same evidence, and that's for you or your team to approve as well.
+Hardening goes the other way too. The log keeps what each check took every time it ran, so your blueprint can say what would make you simplify as a figure the logs can count. A check, or a question of the reviewer's, that reaches it gets proposed for retirement, with what it caught and what it cost, and that's for you or your team to approve as well. A new model on one of your levels is no reason to drop a check, which judges your product and not the model: after a few changes the orchestrator reads the logs and may propose a lighter level or lower limits for a color.
 
 ## When it stops
 
@@ -273,7 +273,7 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 | `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden | The checks, each seen failing for the right reason |
 | `gdd-build` | The agent that goes through the gate | Execute | The change, and the facts that prove it |
 | `gdd-review` | The reviewer, with a clean context | Execute | Its verdict, and the risk worked out again |
-| `gdd-harden` | The orchestrator, with you | Harden | The crack, and the check that would have caught it |
+| `gdd-harden` | The orchestrator, with you | Harden | The crack and the check that would have caught it, or the proposal to retire a gate |
 
 What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file they leave in your repository, with its template, is in [CONTRACT.md](CONTRACT.md): an engine will read and write those same files, so what you set up today will still serve you later. The mapping of each role to its skill, for each agent, is in [adapters/](adapters/).
 

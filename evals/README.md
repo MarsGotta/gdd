@@ -33,7 +33,7 @@ CI doesn't run them: they need a model and they cost money. It runs the two scri
 | `builder-stops-on-a-missing-path` | The change needs a file its brief doesn't list: the builder stops and names it |
 | `reviewer-catches-a-planted-defect` | A change passes its sealed tests with a table of the tests' own numbers: the reviewer doesn't pass it |
 | `reviewer-finds-a-color-that-rose` | A change briefed as green touched a yellow path: the reviewer gives the new color and leaves its review to another launch |
-| `a-green-change-stays-light` | A typo in a green zone goes through its gates with no brief file, no seal and no checks agent |
+| `a-green-change-stays-light` | A typo in a green zone goes through its gates with no brief file, no seal and no checks agent, and the log says what each check took |
 | `a-check-waits-for-what-it-watches` | A blueprint with named gates and a check that applies only to payments: a typo in a text goes through the others, and that one is left out because the blueprint says so |
 | `prepare-tries-the-zones-on-the-history` | A shop with a past: before the approval, Prepare tries its zones on the commits it already had and says what comes out of each color and where the fixes fell |
 | `a-path-no-zone-covers-is-never-green` | A new file where no zone reaches: the orchestrator judges it, logs it as yellow with its reason and proposes the zone, without stopping to ask |

@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.6.0"
+  version: "0.7.0"
   contract: gdd/1
 ---
 
@@ -26,7 +26,7 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 | Prepare | No blueprint yet, a path the person wants classified, or the project changes shape or its `levels` | `gdd-prepare` |
 | Brief | Every change, before anyone builds | `gdd-brief`, and then `gdd-checks` in an agent of its own |
 | Execute | Every change | `gdd-build` and `gdd-review`, each in an agent of its own |
-| Harden | Something slipped through, or keeps repeating | `gdd-harden` |
+| Harden | Something slipped through or repeats, or a gate adds nothing | `gdd-harden` |
 
 Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation, the first and the last with the person. You run at the standard level, and preparing and hardening need the deep one: if you aren't on it, say so to the person first.
 
@@ -37,7 +37,7 @@ Two commits anchor every comparison. `<base>` is the commit of the main branch t
 1. **Brief.** Load `gdd-brief`, for every change, a typo or a path no zone covers too: its color goes to the log before anyone builds. It gives the color and, on yellow and red, the brief and its scenarios, committed on `gdd-seal/<id>`. When there's no brief, pick an id for the change's log (lowercase, digits, hyphens). If the color's checks include `brief-approval`, nothing is built before the person approves, and nobody is launched before the `brief` step is in the log.
 2. **Checks.** Launch `gdd-checks` with the brief. It's never the agent that will build. It writes the cases the color asks for, proves each one fails for the right reason and can pass, and seals them. A change with no brief skips this step.
 3. **Build.** Launch `gdd-build` with the brief, or with the request and the paths you listed when there's none, on a branch of its own that starts at `<start>`, with the context of its gates. It commits its work there.
-4. **Gates.** Run the checks its color asks for whose `when`, if any, the change touched, and the standing gates of every zone it touches, yourself and out of the builder's reach: CI on its branch, once pushed, or a fresh clone of it. What the builder reports is a claim. The `seal` check goes first, with `<start>` and the sealed paths from the log: if what judges was touched, nothing else counts, the change stops and you tell the person. Any other check that fails opens a fix round: the builder gets its command, its exit code and its last lines. A check with a baseline in `gdd/debt.md` passes when its number isn't above it. On `rule`, a fresh clone is the best there is, within the builder's reach: say so in your summary.
+4. **Gates.** Run, under `time`, the checks its color asks for whose `when`, if any, the change touched, and the standing gates of every zone it touches, yourself and out of the builder's reach: CI on its branch, once pushed, or a fresh clone of it. What the builder reports is a claim. The `seal` check goes first, with `<start>` and the sealed paths from the log: if what judges was touched, nothing else counts, the change stops and you tell the person. Any other check that fails opens a fix round: the builder gets its command, its exit code and its last lines. A check with a baseline in `gdd/debt.md` passes when its number isn't above it. On `rule`, a fresh clone is the best there is, within the builder's reach: say so in your summary.
 5. **Review.** Launch `gdd-review` with a clean context, for every change, green too: where the color's checks don't include `review`, it still recomputes the color on what was touched and checks that nothing that judges was touched. The first word of its answer is its verdict, `pass`, `fix` or `stop`, and the line after it is the color it found, `COLOR:`. Any other first word, or a review cut off before its verdict, isn't a pass: launch it again, once. When the color's checks include `review`, a `pass` counts only if it says what the reviewer ran: the change and its checks, not only git.
    - `stop`: the change doesn't go in, whatever else the answer says. Tell the person why.
    - A color higher than the one logged at Brief: the change stops and goes back to Brief. `gdd-brief` writes the brief of the new color, the person approves it if that color asks for it, and `gdd-checks` adds its cases from the base, without reading what was built. Both move the seal.
@@ -62,7 +62,7 @@ The log and the backlog are your bookkeeping. Keep them in your own copy, off ev
 
 When you run a command, send its output to a file and read only its end.
 
-Tell the person one line per gate (passed or failed, and in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. When something starts waiting for the person, append an `ask` event at that moment and tell them at once what it is: in the pilot, an orchestrator sat almost seven hours waiting for an approval nobody saw.
+Tell the person one line per gate (passed or failed, in how many rounds). Give the detail only when something fails or they have to decide, and a summary at the end. When something starts waiting for the person, append an `ask` event at that moment and tell them at once what it is: in the pilot, an approval nobody saw waited almost seven hours.
 
 ## Stopping
 
