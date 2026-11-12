@@ -198,7 +198,8 @@ checks:
     command: <secret scan command from the constitution>
   - id: mutation
     type: machine
-    command: <mutation command, on the files the change touched, where the stack has a tool for it>
+    command: <mutation command, on what `git diff <start> HEAD` gives and nothing else, where the stack has a tool for it>
+    # passes: <the score it closes at: the tool's default or what the code reaches, never the highest>
   - id: review
     type: reviewer
   # - id: hidden          # only from platform up, when a color asks for it
@@ -248,7 +249,7 @@ flowchart LR
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
+Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. A check that not every color asks, like `mutation`, judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
 
 ## Emergencies
 

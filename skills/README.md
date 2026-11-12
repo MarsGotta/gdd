@@ -4,7 +4,7 @@ You ask your agent for a filter by size in the catalog. One agent writes down wi
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and run nothing of their own: they use what your project already has, its tests, its linter, its CI and git. The one script they carry is a small runner they offer your project when preparing, so that the log says what each check took. If you take it, it's yours.
 
-This is version 0.8, with contract `gdd/1`.
+This is version 0.9, with contract `gdd/1`.
 
 ## The four moments
 
@@ -81,6 +81,8 @@ Then check it's there:
 
 From a plugin, the names carry its prefix on Claude Code and Codex: `gdd:gdd`, `gdd:gdd-build` and so on. You rarely type them, because `gdd` loads by itself and launches the rest.
 
+To get a newer version later, the [commands to update](../README.md#install) are next to the ones that install.
+
 ## 2. Prepare your project
 
 **You say:**
@@ -91,9 +93,9 @@ Set GDD up in this project
 
 **What happens.** The orchestrator loads `gdd-prepare` and sits down with you to decide what is delicate in your project and which gates it needs.
 
-1. **It proposes first.** You get the usual zones and gates for a project like yours, to correct what doesn't fit. It asks only what changes a zone or a gate: money, accounts and permissions, personal or regulated data, the stack, what can't be undone. It also asks, before one happens, what an emergency may skip and who opens that gate.
+1. **It looks things up, and proposes first.** In a new project, or when you leave the decisions to it, it looks up what a project like yours has to protect, the rules of its sector and the tools that are current for its stack, and keeps a copy of each source. Then you get the usual zones and gates for a project like yours, to correct what doesn't fit, with what comes from a source told apart from its own defaults. It asks only what changes a zone or a gate: money, accounts and permissions, personal or regulated data, the stack, what can't be undone. It also asks, before one happens, what an emergency may skip and who opens that gate.
 2. **You mark the zones.** A zone is a set of paths with a color, by how much damage a change there can do: green, yellow or red. What no zone covers is never green: the orchestrator judges it in each change, tells you why, and asks when it can't tell. In a repository with history, it tries the zones on your last commits before you approve: how many would have come out of each color, what no zone covers and where the fixes fell.
-3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Each one is written as a short feature in Gherkin, which says which checks it asks of each color and what it rejects; the blueprint holds what runs, and the two are compared when the checks are set up. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
+3. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Each one is written as a short feature in Gherkin, which says which checks it asks of each color and what it rejects; the blueprint holds what runs, and the two are compared when the checks are set up. Few, but strict, and the same for every change. A check that only some colors ask, such as mutation testing on red, judges only what the change adds or changes, and one that closes at a number starts from what its tool or your code gives, not from the highest: a zone only gives a change its color, and the color says how much each gate asks. Two things come proposed in every project: a scan that keeps secrets out of the repository, and the dependency manifests in a zone where a person reviews, so that no new dependency comes in unseen.
 4. **You choose the models.** It looks at which agents you have installed and which models each one offers, and proposes one for each level (light, standard and deep) and the reviewer's apart, from another model family where you have one. You say yes or correct it, and it launches a role on each one before it counts, so the blueprint never says light while everything runs on the deep model.
 5. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you.
 6. **You approve the blueprint,** or your team does, with a commit or a pull request from a person. The caps of a change (rounds, minutes and lines) go in it, and you set them together.
@@ -168,7 +170,7 @@ sequenceDiagram
 5. **Review.** A reviewer with a clean context runs the change and tries to make it fail. Its verdict is `pass`, `fix` or `stop`, and it works the color out again on what was actually touched. That color can only go up, and if it rose, the change goes back to Brief.
 6. **Ship.** With every check passed, the change is brought up to date with your main branch and the machine checks run again. Where your blueprint asks for `person-review`, you approve the pull request on your platform. The orchestrator never approves anything.
 
-**What you hear.** One line per gate, passed or failed and in how many rounds. The detail comes only when something fails or you have to decide, and a summary closes it. For the filter by size it could go like this, in your agent's own wording:
+**What you hear.** Plain words, about your product and not about the method, and only what matters to you: one line per gate, passed or failed and in how many rounds. The detail comes only when something fails, when you have to decide or when you ask for it. When it needs something from you it asks one thing, with what it would do, so that a yes is enough. If you tell it to decide, it decides how the work gets done and stops asking about that. What stays yours is approving the blueprint and what has to pass, anything that loosens a check, and what can't be undone. For the filter by size it could go like this, in your agent's own wording:
 
 ```text
 brief     yellow: it touches catalog/. Three scenarios wait for your approval
@@ -255,8 +257,8 @@ Hardening goes the other way too. The log keeps what each check took every time 
 | The color rose | The change touched something more delicate than the brief expected, so it goes back to Brief | Approve the new brief, if that color asks for it |
 | `CANNOT:` and a reason | A role stopped because the change doesn't fit as it was briefed | The brief gets a new version. It comes back to you if what has to pass changes and its color asks for your approval |
 | The `seal` check failed | Something that judges the change was touched | The change stops, and the orchestrator tells you |
-| A limit ran out | Too many rounds, minutes or lines for one change | Decide how to rethink it, as a series of smaller changes for instance |
-| A check fails without the change too | Known debt, or an unstable check | Recording debt and quarantining a check are decisions for you or your team, never for an agent |
+| A limit ran out | Too many rounds, minutes or lines for one change | It tells you how it would rethink it, as a series of smaller changes for instance, and you decide |
+| A check fails without the change too | Known debt, or an unstable check. Nothing gets built under it, because nothing would get through | It proposes one way out and you say yes or no: recording debt and quarantining a check are decisions for you or your team, never for an agent |
 | You need to skip a check, in an emergency | Skipping a check loosens it. Your blueprint says beforehand what an emergency may skip, and who opens that gate | That person approves it. It's logged as a waiver, with who and why, and the change goes through what it skipped afterwards |
 | Your agent can't launch other agents | It gives you one line per role | Open a new session with it, such as `/gdd:gdd-build gdd/briefs/<id>.md` |
 

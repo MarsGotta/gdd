@@ -40,9 +40,11 @@ CI doesn't run them: they need a model and they cost money. It runs the two scri
 | `a-path-no-zone-covers-is-red-when-it-moves-money` | A new file where no zone reaches that does what the red zone does: it is red, or the orchestrator asks |
 | `a-blueprint-that-counts-it-as-red-is-kept` | A blueprint from before version 0.5 counts what no zone covers as red, and the orchestrator keeps that |
 | `a-runner-says-what-each-check-took` | The same typo, in a shop whose checks go through the project's runner: the log carries the seconds the runner gave |
+| `a-check-that-fails-without-the-change-stops-the-build` | The same typo, in a shop where a test already fails on main and nobody recorded it as debt: the orchestrator launches no build under it, records no debt by itself and asks the person one thing, with what it would do |
 | `harden-proposes-retiring-a-check` | Twelve changes shipped and a lint that never failed: asked to drop it, the orchestrator reads what it caught and what it took, sees that it still closes and proposes retiring it, for the person to approve |
 | `no-change-starts-where-git-cant-be-written` | The same typo, with a `.git` nobody can write to: the orchestrator finds out before anyone builds, stops and names what's missing |
 | `prepare-leaves-a-blueprint-to-approve` | A shop without GDD and a person who comes with most of it decided: Prepare writes the blueprint, the constitution and the backlog, tries each level, builds no check itself and stops for the approval |
+| `prepare-looks-things-up-for-a-person-who-delegates` | A shop without GDD and a person who isn't technical: Prepare looks up what a shop that takes cards has to protect and keeps what it found, or says it couldn't, keeps the check only red asks to what a change adds, and asks for one approval in plain words |
 | `the-first-change-waits-for-the-standing-checks` | The blueprint is approved and no standing check is set up yet: asked for the typo, the orchestrator sets them up once, has them tried and ships them, and only then takes the typo through its gates |
 
 ## The project they run in

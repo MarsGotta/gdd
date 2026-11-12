@@ -3,7 +3,7 @@ name: gdd-checks
 description: Writes and seals the cases of a change in Gate-Driven Development (GDD), a test for each scenario of its brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   contract: gdd/1
 ---
 
@@ -32,7 +32,7 @@ For every check, stop at the first step that works:
 The blueprint's `colors` say what each color asks for, and the blueprint wins. With the template's defaults:
 
 - **Every change with a brief** gets a test for each scenario. Breaking it on purpose, the fourth step below, is what shows that each one closes.
-- **Red** adds mutation testing on the code the change will touch, where the stack has a tool for it (the `mutation` check of the blueprint, scoped to those files). That code doesn't exist yet, so you leave the check ready: its command scoped to the brief's paths, and one run on what is already there to see it work. It runs at the gates, on what the builder wrote. A mutant that survives there is a hollow check, which comes back to you, or code no scenario asks for, which the builder takes out.
+- **Red** adds mutation testing, where the stack has a tool for it (the `mutation` check of the blueprint). It judges what the change adds or changes between `<start>` and its head, never the files around it: code that got in under a lighter color never went through it. It runs at the gates, on what the builder wrote. A mutant that survives there is a hollow check, which comes back to you, or code no scenario asks for, which the builder takes out.
 - **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint's `hidden` says, a place the builder's credentials can't read, never to a branch of the same repository.
 
 ## Each check, before you seal it
@@ -57,9 +57,14 @@ From then on, nobody touches a sealed check. If one turns out to be wrong, fixin
 
 ## The standing checks
 
-After preparing, you set up the machine checks the blueprint's `checks` name, once for the whole project and never once for each zone, and CI where there is none, running the constitution's commands as they are. `mutation` waits for the first red change. Each one goes at the lowest step of the ladder that works. A mature tool is taken as it is: you configure it, and you write no detector of your own beside it for what it might miss. Set the secret scan to report the file, the line and the kind of what it finds, never the secret itself, and to ignore the marks in the code that exempt a line from it, which any change could add.
+After preparing, you set up the machine checks the blueprint's `checks` name, once for the whole project and never once for each zone, and CI where there is none, running the constitution's commands as they are. Each one goes at the lowest step of the ladder that works. A mature tool is taken as it is: you configure it, and you write no detector of your own beside it for what it might miss. Set the secret scan to report the file, the line and the kind of what it finds, never the secret itself, and to ignore the marks in the code that exempt a line from it, which any change could add.
 
 Prove each check once, in a throwaway clone, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. The bad case is the one the blueprint gives the check in `breaks`, which its gate's feature repeats under `Rule: It closes`. When there's none, choose the plainest thing the check exists to catch and report it, so that it goes into the blueprint with the person's yes. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change starts.
+
+Two kinds of check need more care, because an empty project proves nothing about them:
+
+- **A check that not every color asks,** like `mutation` with the template's defaults. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it fail, then plant the same outside that commit and watch it pass.
+- **A check that closes at a number,** a score or a budget. Take the tool's own default, or what the code as it is reaches, and report it, so that it goes into the blueprint with the person's yes. The highest number isn't the strictest gate: it's one no change gets through, because some mutants change nothing anyone could observe.
 
 For a zone's own gate, which hardening gave it or the person asked for, do the same for the check of each new `Rule:` in `gdd/gates/<zone>.feature`, built from its scenarios. There, what got past a mature tool in a real change becomes a rule in that tool's own configuration, or a script beside it when it takes none.
 
@@ -76,13 +81,14 @@ Checks found already green, and hollow, in real runs:
 - **A check compared files byte for byte with a fixed revision,** so it failed whenever another change edited them on purpose.
 - **A check passed because the feature wasn't there.** A scenario about something that must not happen passed on a feature that didn't exist yet. Pair it with a check that the feature is there and does its job.
 - **Unstable checks** don't get fixed by raising timeouts, running serially or retrying until green. Find the cause.
+- **A check tried on an empty project.** Mutation over the whole code, at its highest score, passed its trial when there was no code. The first red change found it failing on what a yellow one had shipped, and never got through it.
 
 ## Report
 
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
 ```gdd-report
-skill: gdd-checks 0.8.0
+skill: gdd-checks 0.9.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

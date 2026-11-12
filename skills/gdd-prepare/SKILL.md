@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   contract: gdd/1
 ---
 
@@ -19,8 +19,8 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 - **Propose first, ask afterwards.** "For a project like this, these are the usual zones and gates; correct what doesn't fit." A blank page makes the person design the method for you.
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
-- **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications, brand guides. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
-- **Research** similar products and the sector's rules only if it helps the person decide: `references/research.md`.
+- **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
+- **Research** what is usual in the project's sector before you propose, in a new project or when the person leaves it to you: `references/research.md`.
 - **Ask which models do the work.** See which agents' environments the person has and what each one offers, propose a model for each level and the reviewer's apart, and try each one before it counts: `references/levels.md`.
 - **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
 
@@ -42,7 +42,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 
 ## Gates
 
-Which gates the project needs is the person's decision, and they differ with the area and the project. Propose the usual ones for a project like theirs, each with what it has to demonstrate and the checks that demonstrate it, and let them correct. Few gates, but strict: each one costs something on every change.
+Which gates the project needs is the person's decision, and they differ with the area and the project. Propose the usual ones for a project like theirs, each with what it has to demonstrate and the checks that demonstrate it, and let them correct. Few gates, but strict: each one costs something on every change. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`. One that closes at a number takes it from its tool or the code, never the highest.
 
 The gates are the project's, the same for every change. A zone gets none of its own when the project is prepared: it gives a change its color, and the color says how much each gate asks, so more risk means more checks, not other gates.
 
@@ -70,7 +70,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
-Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/check.sh`, `gdd/exam.md`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, a rule that keeps `gdd-seal/*` out of the builder's reach, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts, such as publishing a site, sending messages or creating repositories.
+Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/check.sh`, `gdd/exam.md`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, a rule that keeps `gdd-seal/*` out of the builder's reach, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts.
 
 ## The probe
 
@@ -91,15 +91,14 @@ Set the caps of a change in `limits` with the person too. The template's values 
 
 ## Approval
 
-The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Recording known debt loosens a check, so it's part of that same approval. Then the standing checks get set up and tried, once for the whole project, and no change starts until they hold. Tell the person what their trial leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
+The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Ask with the message in `assets/approval.md`: copy it, fill it in and send nothing else, because what you decided is in the files. Recording known debt loosens a check, so it's part of that same approval. Then the standing checks get set up and tried, once for the whole project, and no change starts until they hold. Tell the person what their trial leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
 
 ## Gotchas
 
-- In the T-minus pilot, its own gate passed while the project's linter failed: the gate didn't run the same lint. Every gate runs the constitution's commands, the same ones as CI.
+- In the T-minus pilot, a gate passed while the project's linter failed: it didn't run the same lint. Every gate runs the constitution's commands, as CI does.
 - Eighteen checks already failed on the main branch before anyone touched anything. Without a baseline, every change gets blamed for them, or they quietly disappear.
 - Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file there). Say which checks run outside it, and who runs them.
-- In one run the blueprint gave each level as how much it reasons, with no model: every role ran on the orchestrator's own deep model, while the log said light.
-- In one run, each zone got gates of its own, a secret scan in all four, as scripts of the project's own with a mature scanner installed on the machine. Every review found one more secret they missed, and no change started in more than two hours.
-- An agent's environment can act on the person's accounts. In one run, an agent published the project on the person's own account through a site-publishing plugin of its environment; in another, it used the person's git credentials to create repositories and try to deploy. Confine the environment, not only the project.
+- In one run, each zone got gates of its own, a hand-written secret scan in all four with a mature scanner installed. Every review found one more secret they missed, and no change started.
+- In one run, an agent published the project on the person's own account through a plugin of its environment; in another, it used the person's git credentials to create repositories. Confine the environment, not only the project.
 
 When you close, write the `prepare` step to `gdd/log/blueprint.jsonl`: its `result` is `proposed` or `approved`.

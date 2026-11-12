@@ -3,7 +3,7 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.8.0"
+  version: "0.9.0"
   contract: gdd/1
 ---
 
@@ -41,7 +41,7 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
 
 ## Decisions nobody has made
 
-While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person and write their answer into the scenario. A brief isn't done while `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds anything.
+While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person, with what you'd propose, and write their answer into the scenario. What they leave to you, decide and write down the same way: the `gdd` skill, which you have loaded, says what that covers in its reference on writing to the person. A brief isn't done while `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds anything.
 
 A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief. In one run, rules for a later feature got built into the current one, before anyone had asked for that feature.
 

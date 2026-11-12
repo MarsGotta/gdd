@@ -1,0 +1,88 @@
+schema_version: "1.1"
+name: prepare-looks-things-up-for-a-person-who-delegates
+description: A shop without GDD, and a person who isn't technical and leaves the technical decisions to the agent. Prepare looks up what a shop that takes cards has to protect and keeps what it found, or says it couldn't, keeps the check only red asks to what a change adds, and asks for one approval in plain words.
+tags: [orchestrator, prepare, person]
+runs: 3
+execution:
+  max_turns: 150
+  timeout_seconds: 3000
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit, WebSearch, WebFetch]
+  prompt: |
+    I'm not technical. This is my shop for cat products, and it's going to take card payments. I want to work on it with GDD from now on, so prepare it.
+
+    Decide the technical things yourself: I can't judge them. Someone told me to ask for mutation testing on the delicate changes, so add that. There's no platform and no CI, and I don't want them yet. I work only from Claude Code: use haiku, sonnet and opus for the three levels, and the same three for the reviewer.
+
+    Write the files and show me what I have to approve. Don't stop to ask me before that.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: opens-gdd-prepare
+    type: regex
+    target: trace
+    pattern: 'Propose first, ask afterwards'
+  - name: opens-how-to-research
+    type: regex
+    target: trace
+    pattern: 'A few sources, not a study'
+    weight: 2
+  - name: looks-it-up-or-says-it-could-not
+    type: regex
+    target: trace
+    pattern: '(?:"name":\s*"Web(?:Search|Fetch)"|couldn.t look|could not look|to be confirmed|no network)'
+    weight: 2
+  - name: keeps-what-it-found
+    type: regex
+    target: files
+    pattern: 'gdd/context/[\w.-]+\.md'
+  - name: says-which-gate-gets-it
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '(?:^|\n)context:\s*\n\s+-\s*file:\s*gdd/context/'
+  - name: marks-payments-red
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'color:\s*red[^\n]*\n\s*paths:[^\n]*(?:\n\s*-[^\n]*)*?src/pay'
+  - name: keeps-the-check-only-red-asks-to-the-change
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '-\s*id:\s*mutation\b[\s\S]{0,600}?command:[^\n]*<start>'
+    weight: 3
+  - name: does-not-close-it-at-the-highest
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'passes:[^\n]*\b100\b'
+    match: not_contains
+  - name: says-the-guarantee-is-a-rule
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: 'guarantee:\s*rule\b'
+  - name: logs-the-blueprint-as-proposed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
+    weight: 2
+  - name: opens-the-approval-message
+    type: regex
+    target: trace
+    pattern: 'send nothing else: under 200 words'
+  - name: asks-in-about-two-hundred-words
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.){1450,}"'
+    match: not_contains
+    weight: 2
+  - name: names-no-branch-or-commit
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:\b[Cc]ommit|\b[Bb]ranch)'
+    match: not_contains
+    weight: 2
+  - name: asks-for-one-approval-in-plain-words
+    type: llm
+    criteria: The answer is short and in words a shop owner who isn't technical can follow. It names the files to approve, each with what it is for, and asks one thing, to approve them. It tells apart what it took from a source it looked up and what is its own default, or says that it couldn't look anything up. It doesn't quote the skills or their files to justify what it asks.
+    weight: 2
