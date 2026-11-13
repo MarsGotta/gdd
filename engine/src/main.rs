@@ -35,7 +35,7 @@ struct Cli {
 enum Cmd {
     /// The single next step of a change, with the command that runs it; without an id, the project's.
     Next { id: Option<String> },
-    /// Append an event an agent composed, validated: the layer sets its time and checks its hashes.
+    /// Writes nothing: it refuses an event an agent composed and names the command that writes it.
     Log { id: String, event: String },
     /// Start waiting for the person: written at the moment the question goes out.
     Ask {
@@ -87,8 +87,11 @@ enum Cmd {
     /// The brief step: the planned color from the paths, the base, and the sealed files' hashes.
     Brief {
         id: String,
-        #[arg(long, num_args = 1.., required = true)]
+        #[arg(long, num_args = 1.., required_unless_present = "stop")]
         paths: Vec<String>,
+        /// Drop the change, saying why: a brief step whose result is stopped.
+        #[arg(long)]
+        stop: Option<String>,
         /// A color judgment raises it to; it never lowers the floor.
         #[arg(long)]
         color: Option<String>,
@@ -385,6 +388,7 @@ fn main() {
         Cmd::Brief {
             id,
             paths,
+            stop,
             color,
             why,
             level,
@@ -405,6 +409,7 @@ fn main() {
                     level: level.as_deref(),
                     skill_version: skill_version.as_deref(),
                     request: request.as_deref(),
+                    stop: stop.as_deref(),
                 },
             ),
         ),
@@ -629,6 +634,7 @@ fn main() {
             "--command",
             "--done",
             "--request",
+            "--stop",
             "--caught",
             "--crack",
             "--scenario",

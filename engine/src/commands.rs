@@ -54,6 +54,16 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
     check_id(id)?;
     let project = Project::open(&ctx.root);
     let bp = project.blueprint()?;
+    // --head names the commit the state is derived on; one that names nothing is never the branch.
+    if let Some(h) = &ctx.head
+        && git::is_repo(&ctx.root)
+        && git::commit_of(&ctx.root, h).is_none()
+    {
+        return Err(Fail::missing(
+            h.clone(),
+            format!("--head {h} names no commit here"),
+        ));
+    }
     let entries = project.read_log(id);
     let gv = GitView::for_log(
         &ctx.root,
@@ -316,41 +326,78 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
 
 // ----- log and its helpers -----
 
-/// The validated append of an event an agent composed. The layer sets its time, its contract and
-/// its brief, checks every hash against the working copy, and refuses what the state doesn't allow.
+/// The command that writes an event of the contract, and what to call that event. Every event
+/// and every step of the contract has one, which checks what it records.
+fn command_for(id: &str, ev: &str, st: &str) -> Option<(String, String)> {
+    let (what, command) = match (ev, st) {
+        ("approval", _) => (
+            "an approval".to_string(),
+            format!(
+                "gdd approve {id} --of <kind> --version <n> --who <person> --where <where> <file>..."
+            ),
+        ),
+        ("waiver", _) => (
+            "a waiver".into(),
+            format!(
+                "gdd waiver {id} --who <person> --check <check or limit> --why \"<why>\" --backlog <item>"
+            ),
+        ),
+        ("ask", _) => (
+            "a question to the person".into(),
+            format!("gdd ask {id} --of <kind> \"<the question>\""),
+        ),
+        ("answer", _) => (
+            "an answer".into(),
+            format!("gdd answer {id} \"<their words>\""),
+        ),
+        ("correction", _) => (
+            "a correction".into(),
+            format!("gdd correct {id} --line <n> \"<what was wrong>\""),
+        ),
+        ("seal", _) => (
+            "a move of the seal".into(),
+            format!("gdd seal {id} <file>..., or gdd seal {id} --merge-main"),
+        ),
+        ("step", "brief") => (
+            "a brief step".into(),
+            format!(
+                "gdd brief {id} --paths <path>... [<files>], or to drop the change: gdd brief {id} --stop \"<why>\""
+            ),
+        ),
+        ("step", "checks" | "build" | "review" | "reading") => (
+            format!("a {st} step"),
+            format!(
+                "gdd report {id} {st} <the role's last message>, or gdd launch {id} {st} --run"
+            ),
+        ),
+        ("step", "gates") => ("a gates step".into(), format!("gdd gates {id}")),
+        ("step", "ship") => (
+            "a ship step".into(),
+            format!("gdd ship {id} --merge, or gdd ship {id} --done <where>"),
+        ),
+        ("step", "prepare" | "harden" | "exam") => (
+            format!("a {st} step"),
+            format!("gdd step blueprint {st} ..."),
+        ),
+        _ => return None,
+    };
+    Some((what, command))
+}
+
+/// `gdd log` writes nothing. Every event of the contract has a command of its own, which checks
+/// what it records, so an event an agent composes is refused, with the command that writes it.
+/// An event composed by hand could move `<start>` or lower a color where no command would.
 pub fn log_event(ctx: &Ctx, id: &str, json_text: &str) -> Out {
-    run("log", |out| {
-        let l = load(ctx, id)?;
+    run("log", |_out| {
+        check_id(id)?;
         let v: Value = serde_json::from_str(json_text)
             .map_err(|e| Fail::usage(format!("the event isn't JSON: {e}")))?;
-        let Value::Object(mut m) = v else {
+        let Value::Object(m) = v else {
             return Err(Fail::usage("the event isn't a JSON object"));
         };
-        let ev = m
-            .get("event")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let st = m
-            .get("step")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if st == "gates" || st == "ship" {
-            return Err(Fail::refuse(
-                "use-the-command",
-                format!(
-                    "a {st} step is written by `gdd {st}`, which runs or checks what it records"
-                ),
-                format!("gdd {st} {id}"),
-            ));
-        }
-        if m.contains_key("ts") {
-            out.say("its ts was replaced by the clock's: the log's times are when each event was written");
-        }
-        for k in ["contract", "ts", "brief", "event"] {
-            m.remove(k);
-        }
+        let ev = m.get("event").and_then(Value::as_str).unwrap_or("");
+        let st = m.get("step").and_then(Value::as_str).unwrap_or("");
+        // A hash composed by hand is checked first, so the refusal says what was wrong with it too.
         if let Some(Value::Object(files)) = m.get("files") {
             for (p, h) in files {
                 let now = git::hash_object(&ctx.root, p).map_err(|_| {
@@ -365,18 +412,23 @@ pub fn log_event(ctx: &Ctx, id: &str, json_text: &str) -> Out {
                 }
             }
         }
-        let event = new_event(id, &ev, &time::now_string(), m);
-        let line = write(&l, id, &event)?;
-        out.say(format!(
-            "wrote line {line} of gdd/log/{id}.jsonl: {ev}{}",
-            if st.is_empty() {
-                String::new()
-            } else {
-                format!(" {st}")
-            }
-        ));
-        out.fact("line", line);
-        Ok(())
+        Err(match command_for(id, ev, st) {
+            Some((what, command)) => Fail::refuse(
+                "use-the-command",
+                format!(
+                    "{what} has a command of its own, which checks what it records: gdd log writes nothing"
+                ),
+                command,
+            ),
+            None => Fail::refuse(
+                "use-the-command",
+                format!(
+                    "{:?} is not an event of the contract, and each of its events has a command of its own: gdd log writes nothing",
+                    if st.is_empty() { ev } else { st }
+                ),
+                format!("gdd next {id} names the command of the next step"),
+            ),
+        })
     })
 }
 
@@ -657,6 +709,60 @@ pub struct BriefArgs<'a> {
     pub skill_version: Option<&'a str>,
     /// The person's request, word for word.
     pub request: Option<&'a str>,
+    /// Why the change is dropped: the brief step then ends it, with its `result` `stopped`.
+    pub stop: Option<&'a str>,
+}
+
+/// A dropped change: a `brief` step whose `result` is `stopped`, with why. It moves nothing: no
+/// color, no seal, no `<start>`. A new brief takes the change up again.
+fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) -> R<()> {
+    if !a.paths.is_empty() || !a.files.is_empty() || a.color.is_some() {
+        return Err(Fail::usage(
+            "--stop drops the change: it takes no --paths, no --color and no files",
+        ));
+    }
+    let why = why.trim();
+    if why.is_empty() {
+        return Err(Fail::usage("--stop says why the change is dropped"));
+    }
+    let version = l.state.progress.version.unwrap_or(1);
+    let level = a.level.unwrap_or("standard");
+    let ev = new_event(
+        id,
+        "step",
+        &time::now_string(),
+        obj(vec![
+            ("step", json!("brief")),
+            ("version", json!(version)),
+            (
+                "report",
+                report_obj(
+                    "gdd-brief",
+                    a.skill_version.or(Some(env!("CARGO_PKG_VERSION"))),
+                    Some(level),
+                    None,
+                    round_of(&l.state, "brief"),
+                    "stopped",
+                    "none",
+                    None,
+                    None,
+                ),
+            ),
+            ("files", json!({})),
+            ("seal", Value::Null),
+            (
+                "stop",
+                json!({"reason": why, "needs": "a new brief, to take it up again"}),
+            ),
+        ]),
+    );
+    let line = write(l, id, &ev)?;
+    out.say(format!(
+        "{id} is dropped: wrote the brief step, stopped, line {line}"
+    ));
+    out.fact("line", line);
+    out.fact("next", "stopped");
+    Ok(())
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
@@ -664,6 +770,9 @@ pub struct BriefArgs<'a> {
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
     run("brief", |out| {
         let l = load(ctx, id)?;
+        if let Some(why) = a.stop {
+            return brief_stopped(&l, id, why, a, out);
+        }
         if a.paths.is_empty() {
             return Err(Fail::usage(
                 "--paths lists every path the change will touch",
@@ -1660,76 +1769,116 @@ fn log_seal_move(
 
 // ----- gates -----
 
-fn runs_dir(root: &Path, id: &str, what: &str) -> PathBuf {
-    let base = std::env::var("GDD_RUNS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("gdd-runs"));
-    let name = root
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "project".into());
-    let mut h: u64 = 1469598103934665603;
-    for b in root.to_string_lossy().bytes() {
-        h = (h ^ b as u64).wrapping_mul(1099511628211);
-    }
+/// The private folder of one run's outputs (see [`crate::runs`]); when the usual one can't be
+/// trusted, it says so and uses a fresh one.
+fn runs_dir(root: &Path, id: &str, what: &str, out: &mut Out) -> R<PathBuf> {
     let stamp = time::now_string().replace(':', "");
-    let dir = base
-        .join(format!("{name}-{:08x}", h as u32))
-        .join(id)
-        .join(format!("{what}-{stamp}-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    let (dir, note) = crate::runs::for_run(root, id, what, &stamp)
+        .map_err(|e| Fail::missing("a private folder for the outputs", e.to_string()))?;
+    if let Some(n) = note {
+        out.say(n);
+    }
+    Ok(dir)
 }
 
-/// The `<start>` gates judge against: the logged one, or the seal's tip when the seal only moved
-/// by merging the main branch in, or, with nothing sealed, where the main branch was last merged.
-fn effective_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
-    let logged = l.state.progress.start.clone().ok_or(Fail::refuse(
+/// The tip of `gdd-seal/<id>` as the remotes hold it, and the ref's name, when every remote that
+/// has it agrees on one commit.
+fn remote_seal(root: &Path, id: &str) -> Option<(String, String)> {
+    let listed = git::out(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(objectname) %(refname:short)",
+            "refs/remotes/",
+        ],
+    )
+    .ok()?;
+    let suffix = format!("/gdd-seal/{id}");
+    let found: Vec<(&str, &str)> = listed
+        .lines()
+        .filter_map(|l| l.split_once(' '))
+        .filter(|(_, name)| name.ends_with(&suffix))
+        .collect();
+    let (tip, name) = found.first()?;
+    found
+        .iter()
+        .all(|(t, _)| t == tip)
+        .then(|| (tip.to_string(), name.to_string()))
+}
+
+/// The `<start>` gates judge against, from git and not from the log: the tip of `gdd-seal/<id>`
+/// (a remote's, when there is no local one), or, with nothing sealed, the commit of the main
+/// branch the head was last brought up to (the
+/// base, or a later one). The log's `<start>` must agree with it, else nothing is judged: a log
+/// line can say anything, and a `<start>` that holds checks someone loosened passes the seal check.
+fn judged_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
+    let id = &l.state.id;
+    let p = &l.state.progress;
+    let logged = p.start.clone().ok_or(Fail::refuse(
         "out-of-order",
         "no brief step: no <start>",
         "",
     ))?;
     let main = git::main_branch(&ctx.root);
-    if let Some(tip) = &l.state.git.seal_tip {
-        if tip != &logged && git::is_ancestor(&ctx.root, &logged, tip) {
-            let extra = git::out(
-                &ctx.root,
-                &[
-                    "rev-list",
-                    "--no-merges",
-                    tip,
-                    &format!("^{logged}"),
-                    &format!("^{main}"),
-                ],
-            )
-            .unwrap_or_default();
-            if extra.trim().is_empty() {
-                out.say(format!(
-                    "the seal moved by merging {main} in: <start> is now {}",
-                    short(tip)
-                ));
-                return Ok(tip.clone());
-            }
-            out.say(format!(
-                "gdd-seal/{id} has commits the log doesn't: judging from the logged <start> {}",
-                short(&logged),
-                id = l.state.id
+    // In CI there is often no local gdd-seal/<id>: the platform's, as its remote holds it, is the one.
+    let seal = l
+        .state
+        .git
+        .seal_tip
+        .clone()
+        .map(|t| (t, format!("gdd-seal/{id}")))
+        .or_else(|| remote_seal(&ctx.root, id));
+    if let Some((tip, name)) = &seal {
+        if tip != &logged {
+            return Err(Fail::refuse(
+                "seal-moved",
+                format!(
+                    "{name} is at {}, and the log's <start> is {}: the seal moved where the layer didn't record it, so nothing judges from it",
+                    short(tip),
+                    short(&logged)
+                ),
+                format!(
+                    "the seal moves only through gdd seal {id} and the checks role's report (gdd report {id} checks); if nobody you launched moved it, tell the person"
+                ),
             ));
         }
-        return Ok(logged);
+        return Ok(tip.clone());
     }
-    if l.state.progress.sealed.is_empty()
-        && let Some(mb) = git::merge_base(&ctx.root, head, &main)
-        && mb != logged
-        && git::is_ancestor(&ctx.root, &logged, &mb)
-    {
+    if p.sealed_any || !p.sealed.is_empty() {
+        return Err(Fail::refuse(
+            "seal-missing",
+            format!(
+                "the log says gdd-seal/{id} is at {}, and git has no gdd-seal/{id}, nor one its remotes agree on: the gates judge from the seal, never from the log alone",
+                short(&logged)
+            ),
+            format!(
+                "fetch it as a local branch (git fetch <remote> gdd-seal/{id}:gdd-seal/{id}), then gdd gates {id}"
+            ),
+        ));
+    }
+    let mb = git::merge_base(&ctx.root, head, &main).ok_or(Fail::missing(
+        format!("a commit both {} and {main} hold", short(head)),
+        format!("{} shares no commit with {main}", short(head)),
+    ))?;
+    if mb != logged && !git::is_ancestor(&ctx.root, &logged, &mb) {
+        return Err(Fail::refuse(
+            "start-mismatch",
+            format!(
+                "nothing is sealed, so <start> is where {} meets {main}, {}; the log says {}, which is not there nor before it",
+                short(head),
+                short(&mb),
+                short(&logged)
+            ),
+            format!("tell the person: the log of {id} doesn't match git"),
+        ));
+    }
+    if mb != logged {
         out.say(format!(
             "nothing sealed and {main} merged in: <start> is {}",
             short(&mb)
         ));
-        return Ok(mb);
     }
-    Ok(logged)
+    Ok(mb)
 }
 
 pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
@@ -1781,7 +1930,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             .color
             .clone()
             .unwrap_or_else(|| "yellow".into());
-        let start = effective_start(ctx, &l, &head, out)?;
+        let start = judged_start(ctx, &l, &head, out)?;
         if !git::is_ancestor(&ctx.root, &start, &head) {
             return Err(Fail::refuse(
                 "wrong-start",
@@ -1846,7 +1995,15 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 (d, "a fresh worktree")
             }
         };
-        let outputs = runs_dir(&ctx.root, id, "gates");
+        let outputs = match runs_dir(&ctx.root, id, "gates", out) {
+            Ok(d) => d,
+            Err(e) => {
+                if at.is_none() {
+                    let _ = git::worktree_remove(&ctx.root, &dir);
+                }
+                return Err(e);
+            }
+        };
         let mut ran: Vec<gates::Ran> = vec![];
         let mut skipped = vec![];
         let mut stop_rest = false;
@@ -2332,9 +2489,10 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             }
             return Ok(());
         };
-        let runs = runs_dir(&ctx.root, id, role);
+        let runs = runs_dir(&ctx.root, id, role, out)?;
         let prompt_file = runs.join("prompt.txt");
-        std::fs::write(&prompt_file, &prompt).map_err(|e| crate::out::io(&prompt_file, e))?;
+        crate::runs::write_new(&prompt_file, prompt.as_bytes())
+            .map_err(|e| crate::out::io(&prompt_file, e))?;
         let argv = launch::argv(&template, &model, &prompt, &prompt_file.to_string_lossy())
             .map_err(Fail::usage)?;
         let shown: Vec<String> = argv
@@ -2455,29 +2613,37 @@ pub fn ship_describe(ctx: &Ctx, id: &str) -> Out {
     })
 }
 
-/// The head a change ships: the one named with `--head`, else the tip of its branch, else the
-/// commit its last gates judged.
-fn ship_head(ctx: &Ctx, l: &Loaded, id: &str) -> R<String> {
-    ctx.head
-        .as_deref()
-        .and_then(|h| git::commit_of(&ctx.root, h))
-        .or_else(|| l.state.git.head.clone())
-        .or_else(|| {
-            l.state
-                .progress
-                .last_gates
-                .as_ref()
-                .and_then(|g| g.head.clone())
-        })
+/// The head a change ships: the one the state was derived on (named with `--head`, else the tip
+/// of its branch), else, with no branch, the commit that was judged.
+fn ship_head(l: &Loaded, id: &str) -> R<String> {
+    l.state
+        .git
+        .head
+        .clone()
+        .or_else(|| judged_commit(l).map(|(_, j)| j))
         .ok_or(Fail::missing(
             format!("the head of {id}"),
             format!("no head for {id}: no branch and no gates step names one; pass --head"),
         ))
 }
 
+/// The `<start>` and the commit the change was judged on: the head its last passing gates judged,
+/// from the start they judged it from; for a setup log, the head its trial judged.
+fn judged_commit(l: &Loaded) -> Option<(String, String)> {
+    let p = &l.state.progress;
+    if p.kind == Some(LogKind::Setup) {
+        let r = p.last_review.as_ref().filter(|r| r.verdict == "pass")?;
+        Some((r.start.clone().unwrap_or_default(), r.head.clone()?))
+    } else {
+        let g = p.last_gates.as_ref().filter(|g| g.passed)?;
+        Some((g.start.clone(), g.head.clone()?))
+    }
+}
+
 /// What the state must allow before anything ships: the ship step itself, and a next step that
-/// is shipping, so a head nobody judged never goes in.
-fn ready_to_ship(ctx: &Ctx, l: &Loaded, id: &str, place: &str) -> R<()> {
+/// is shipping, derived on the head that ships. `--head` only names that head: it never stands in
+/// for the state being ready, so a head nobody judged never goes in.
+fn ready_to_ship(l: &Loaded, id: &str, place: &str) -> R<()> {
     let probe = new_event(
         id,
         "step",
@@ -2491,7 +2657,7 @@ fn ready_to_ship(ctx: &Ctx, l: &Loaded, id: &str, place: &str) -> R<()> {
     if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
         return Err(Fail::refuse(code, why, l.state.next.command.clone()));
     }
-    if l.state.next.step != "ship" && ctx.head.is_none() {
+    if l.state.next.step != "ship" {
         return Err(Fail::refuse(
             "out-of-order",
             format!("{id} isn't ready to ship: {}", l.state.next.say),
@@ -2501,14 +2667,52 @@ fn ready_to_ship(ctx: &Ctx, l: &Loaded, id: &str, place: &str) -> R<()> {
     Ok(())
 }
 
-/// The orchestrator's bookkeeping in the working copy: every file under `gdd/log/`, journals
-/// included, and the backlog.
+/// The commit the change was judged on, which `head` must be, or stand for by the layer's own
+/// rule (it differs only in the layer's bookkeeping); and on a change, the review judged it too.
+fn judged_for(ctx: &Ctx, l: &Loaded, id: &str, head: &str) -> R<String> {
+    let gv = &l.state.git;
+    let unjudged = |why: String| Fail::refuse("unjudged", why, format!("gdd next {id}"));
+    let Some((_, judged)) = judged_commit(l) else {
+        return Err(unjudged(
+            "no step the layer wrote names the commit that was judged".into(),
+        ));
+    };
+    let stands = |a: &str, b: &str| {
+        a == b || gv.stands_for(a, b) || state::only_bookkeeping(&ctx.root, id, a, b)
+    };
+    if !stands(&judged, head) {
+        return Err(unjudged(format!(
+            "{} is not {}, the commit that was judged, and differs from it in more than the layer's bookkeeping",
+            short(head),
+            short(&judged)
+        )));
+    }
+    if l.state.progress.kind != Some(LogKind::Setup) {
+        let reviewed = l
+            .state
+            .progress
+            .last_review
+            .as_ref()
+            .and_then(|r| r.head.clone());
+        if !reviewed.is_some_and(|r| stands(&r, &judged) || stands(&r, head)) {
+            return Err(unjudged(format!(
+                "the review didn't judge {}, the commit its gates judged",
+                short(&judged)
+            )));
+        }
+    }
+    Ok(judged)
+}
+
+/// The orchestrator's bookkeeping in the working copy: the logs and journals directly in
+/// `gdd/log/` named for a valid id, and the backlog ([`state::is_bookkeeping`]).
 fn bookkeeping_files(root: &Path) -> Vec<String> {
     let mut out = vec![];
     if let Ok(d) = std::fs::read_dir(root.join("gdd/log")) {
         for e in d.flatten() {
-            if e.path().is_file()
+            if e.file_type().is_ok_and(|t| t.is_file())
                 && let Ok(n) = e.file_name().into_string()
+                && state::is_bookkeeping(&format!("gdd/log/{n}"))
             {
                 out.push(format!("gdd/log/{n}"));
             }
@@ -2521,9 +2725,9 @@ fn bookkeeping_files(root: &Path) -> Vec<String> {
     out
 }
 
-/// Commit the bookkeeping on top of the change's branch when its tip doesn't hold it as it is.
-/// Returns the new tip, and whether it moved.
-fn commit_bookkeeping(ctx: &Ctx, l: &Loaded, id: &str, out: &mut Out) -> R<(String, bool)> {
+/// The change's branch and its tip, which must still be `head`, the commit the state was derived
+/// on: a branch that moved since carries what nobody judged.
+fn branch_at(ctx: &Ctx, l: &Loaded, id: &str, head: &str) -> R<(String, String)> {
     let branch = l.state.git.branch.clone().ok_or(Fail::missing(
         format!("the branch of {id}"),
         format!("no branch for {id} (work/{id}, gdd-build/{id}, build/{id}, or gdd-seal/{id} for a setup log): pass --branch"),
@@ -2533,6 +2737,37 @@ fn commit_bookkeeping(ctx: &Ctx, l: &Loaded, id: &str, out: &mut Out) -> R<(Stri
         reference.clone(),
         format!("{branch} is not a local branch"),
     ))?;
+    if tip != head {
+        return Err(branch_moved(&branch, &tip, head, id));
+    }
+    Ok((branch, tip))
+}
+
+fn branch_moved(branch: &str, tip: &str, head: &str, id: &str) -> Fail {
+    Fail::refuse(
+        "branch-moved",
+        format!(
+            "{branch} is at {}, and the commit that stands judged is {}: the branch moved, and what it holds now wasn't judged",
+            short(tip),
+            short(head)
+        ),
+        format!("gdd next {id}: it names what judges the branch as it is now"),
+    )
+}
+
+/// Commit the bookkeeping on top of the change's branch, which must be at `head`, when its tip
+/// doesn't hold it as it is. Returns the new tip, and whether it moved. The commit it makes goes
+/// to the call's journal with the blob of each file it changed: that is how the layer knows later
+/// that a head differs from the judged one only by its own bookkeeping.
+fn commit_bookkeeping(
+    ctx: &Ctx,
+    l: &Loaded,
+    id: &str,
+    head: &str,
+    out: &mut Out,
+) -> R<(String, bool)> {
+    let (branch, tip) = branch_at(ctx, l, id, head)?;
+    let reference = format!("refs/heads/{branch}");
     let files = bookkeeping_files(&ctx.root);
     if files.is_empty() {
         return Ok((tip, false));
@@ -2549,6 +2784,24 @@ fn commit_bookkeeping(ctx: &Ctx, l: &Loaded, id: &str, out: &mut Out) -> R<(Stri
     let msg = format!("Bookkeeping of {id}: its log, the journals and the backlog");
     let c = seal::commit_on(&ctx.root, &reference, &tip, &files, &msg)
         .map_err(|e| Fail::refuse("bookkeeping", e, ""))?;
+    if !c.unchanged {
+        let changed = git::diff_names(&ctx.root, &tip, &c.commit).unwrap_or_default();
+        let blobs: Map<String, Value> = c
+            .files
+            .iter()
+            .filter(|(f, _)| changed.contains(f))
+            .map(|(f, h)| (f.clone(), json!(h)))
+            .collect();
+        let mut journal = match out.journal.take() {
+            Some(Value::Object(m)) => m,
+            _ => Map::new(),
+        };
+        journal.insert(
+            "bookkeeping".into(),
+            json!({"commit": c.commit, "parent": tip, "files": blobs}),
+        );
+        out.journal = Some(Value::Object(journal));
+    }
     Ok((c.commit, !c.unchanged))
 }
 
@@ -2562,8 +2815,10 @@ pub fn ship_bookkeeping(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         git_writes(ctx)?;
-        ready_to_ship(ctx, &l, id, "bookkeeping")?;
-        let (commit, moved) = commit_bookkeeping(ctx, &l, id, out)?;
+        ready_to_ship(&l, id, "bookkeeping")?;
+        let head = ship_head(&l, id)?;
+        judged_for(ctx, &l, id, &head)?;
+        let (commit, moved) = commit_bookkeeping(ctx, &l, id, &head, out)?;
         if moved {
             out.say(format!(
                 "committed the logs, the journals and the backlog on {} as {commit}; the checkout and its index were not touched",
@@ -2625,7 +2880,9 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
         }
         git_writes(ctx)?;
         let main = git::main_branch(&ctx.root);
-        ready_to_ship(ctx, &l, id, "merge")?;
+        ready_to_ship(&l, id, "merge")?;
+        let head = ship_head(&l, id)?;
+        let judged = judged_for(ctx, &l, id, &head)?;
         let on = git::out(&ctx.root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
             .unwrap_or_default();
         if on != main {
@@ -2646,13 +2903,26 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             format!("the branch of {id}"),
             format!("no branch for {id}: pass --branch"),
         ))?;
-        // The bookkeeping first, so the branch holds the copy's logs and backlog as they are.
-        let (tip, moved) = commit_bookkeeping(ctx, &l, id, out)?;
+        // The bookkeeping first, so the branch holds the copy's logs and backlog as they are. The
+        // branch must still be at the head that stands judged, and what merges is that commit,
+        // with the bookkeeping on top, by its hash.
+        let (tip, moved) = commit_bookkeeping(ctx, &l, id, &head, out)?;
         if moved {
             out.say(format!(
                 "committed the bookkeeping on {branch} as {}",
                 short(&tip)
             ));
+            if !state::only_bookkeeping(&ctx.root, id, &judged, &tip) {
+                return Err(Fail::refuse(
+                    "unjudged",
+                    format!(
+                        "{} differs from {}, the commit that was judged, in more than the layer's bookkeeping",
+                        short(&tip),
+                        short(&judged)
+                    ),
+                    format!("gdd next {id}"),
+                ));
+            }
         }
         // Nothing else may be pending: what the copy changed is either bookkeeping, or a file the
         // branch holds as it is (such as the brief and its scenarios), or nothing the merge touches.
@@ -2698,14 +2968,14 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         // Move aside what the merge will bring, as it is.
-        let keep = runs_dir(&ctx.root, id, "merge").join("aside");
+        let keep = runs_dir(&ctx.root, id, "merge", out)?.join("aside");
         for p in &aside {
             let from = ctx.root.join(p);
             let to = keep.join(p);
             if let Some(d) = to.parent() {
-                std::fs::create_dir_all(d).map_err(|e| crate::out::io(d, e))?;
+                crate::runs::create_dirs(d).map_err(|e| crate::out::io(d, e))?;
             }
-            std::fs::copy(&from, &to).map_err(|e| crate::out::io(&from, e))?;
+            crate::runs::copy_new(&from, &to).map_err(|e| crate::out::io(&to, e))?;
             let tracked = git::out(&ctx.root, &["ls-files", "--error-unmatch", "--", p]).is_ok();
             if tracked {
                 git::out(&ctx.root, &["checkout", "--", p])
@@ -2735,10 +3005,22 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             }
             back
         };
+        // What merges is the commit that stands judged, by its hash, never the branch by its name:
+        // if the branch moved meanwhile, nothing merges.
+        let now = git::commit_of(&ctx.root, &format!("refs/heads/{branch}"));
+        if now.as_deref() != Some(tip.as_str()) {
+            put_back(true);
+            return Err(branch_moved(
+                &branch,
+                now.as_deref().unwrap_or("nothing"),
+                &tip,
+                id,
+            ));
+        }
         let msg = format!("Merge {branch}: {id}");
         let merged = git::run_env(
             &ctx.root,
-            &["merge", "--no-ff", "--no-edit", "-m", &msg, &branch],
+            &["merge", "--no-ff", "--no-edit", "-m", &msg, &tip],
             &[("GIT_MERGE_AUTOEDIT", "no")],
         )
         .map_err(|e| Fail::missing("git merge", e))?;
@@ -2802,10 +3084,11 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         out.say(format!(
-            "merged {branch} into {main} as {}",
+            "merged {} ({branch}) into {main} as {}",
+            short(&tip),
             short(&main_tip)
         ));
-        let line = write_ship(&l, id, &main_tip, &tip, out)?;
+        let line = write_ship(&l, id, &main_tip, &tip, None, out)?;
         out.fact("line", line);
         out.fact("head", json!(tip));
         out.fact("merge", json!(main_tip));
@@ -2816,21 +3099,29 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
     })
 }
 
-/// Write the `ship` step and set the change's backlog item to done.
-fn write_ship(l: &Loaded, id: &str, place: &str, head: &str, out: &mut Out) -> R<usize> {
+/// Write the `ship` step and set the change's backlog item to done. `matched_in` is the commit of
+/// the main branch that holds the judged content when the change's commits aren't in it.
+fn write_ship(
+    l: &Loaded,
+    id: &str,
+    place: &str,
+    head: &str,
+    matched_in: Option<&str>,
+    out: &mut Out,
+) -> R<usize> {
     let main = git::main_branch(&l.project.root);
     let color = l.state.progress.color.clone().unwrap_or_default();
-    let ev = new_event(
-        id,
-        "step",
-        &time::now_string(),
-        obj(vec![
-            ("step", json!("ship")),
-            ("where", json!(place)),
-            ("color", json!(color)),
-            ("head", json!(head)),
-        ]),
-    );
+    let mut m = obj(vec![
+        ("step", json!("ship")),
+        ("where", json!(place)),
+        ("color", json!(color)),
+        ("head", json!(head)),
+    ]);
+    if let Some(at) = matched_in {
+        m.insert("matched".into(), json!("content"));
+        m.insert("in".into(), json!(at));
+    }
+    let ev = new_event(id, "step", &time::now_string(), m);
     let line = write(l, id, &ev)?;
     out.say(format!(
         "{} is in {main}: wrote the ship step, line {line}; the log of {id} is closed",
@@ -2876,30 +3167,78 @@ pub fn ship_done(ctx: &Ctx, id: &str, place: &str) -> Out {
             ));
         }
         let main = git::main_branch(&ctx.root);
-        ready_to_ship(ctx, &l, id, place)?;
-        let head = ship_head(ctx, &l, id)?;
+        ready_to_ship(&l, id, place)?;
+        let head = ship_head(&l, id)?;
+        let judged = judged_for(ctx, &l, id, &head)?;
         let main_tip = git::commit_of(&ctx.root, &main).ok_or(Fail::missing(
             format!("refs/heads/{main}"),
             format!("there is no {main} branch"),
         ))?;
-        if !git::is_ancestor(&ctx.root, &head, &main_tip) {
+        // --head names the commit; the branch is still what a pull request merges. If the branch
+        // went into the main branch holding more than what was judged, that is what shipped.
+        if ctx.head.is_some()
+            && let Some(branch) = &l.state.git.branch
+            && let Some(tip) = git::commit_of(&ctx.root, &format!("refs/heads/{branch}"))
+            && tip != head
+            && git::is_ancestor(&ctx.root, &tip, &main_tip)
+            && !(tip == judged || state::only_bookkeeping(&ctx.root, id, &judged, &tip))
+        {
             return Err(Fail::refuse(
-                "not-merged",
+                "unjudged",
                 format!(
-                    "{} is not in {main} yet: a ship is written once the change is in",
-                    short(&head)
+                    "{branch} is in {main} at {}, which differs from {}, the commit that was judged, in more than the layer's bookkeeping",
+                    short(&tip),
+                    short(&judged)
                 ),
+                format!("tell the person: what went into {main} wasn't judged"),
+            ));
+        }
+        let not_merged = |why: String| {
+            Fail::refuse(
+                "not-merged",
+                why,
                 format!(
                     "merge it as the constitution says (gdd ship {id} --merge, or a pull request after gdd ship {id} --bookkeeping), then: gdd ship {id} --done <where>"
                 ),
+            )
+        };
+        // Its commits in the main branch, or, merged by squash or rebase, exactly the content that
+        // was judged in every file the change touched.
+        let (shipped, matched) = if git::is_ancestor(&ctx.root, &head, &main_tip) {
+            (head, None)
+        } else {
+            let (start, _) = judged_commit(&l).unwrap_or_default();
+            match state::holds_judged(&ctx.root, &start, &judged, &main_tip) {
+                Ok(n) => (judged.clone(), Some(n)),
+                Err(why) => {
+                    return Err(not_merged(format!(
+                        "{} is not in {main} yet, and {main} doesn't hold what was judged ({why}): a ship is written once the change is in",
+                        short(&head)
+                    )));
+                }
+            }
+        };
+        if let Some(n) = matched {
+            out.say(format!(
+                "matched by content: {main} at {} holds exactly what was judged at {} in each of the {n} files the change touched, though not its commits (a merge by squash or rebase)",
+                short(&main_tip),
+                short(&judged)
             ));
+            out.fact("matched", "content");
         }
-        let line = write_ship(&l, id, place, &head, out)?;
+        let line = write_ship(
+            &l,
+            id,
+            place,
+            &shipped,
+            matched.map(|_| main_tip.as_str()),
+            out,
+        )?;
         out.say(
             "the ship line stays in this copy and travels with the next change's bookkeeping: it is not something to report to the person",
         );
         out.fact("line", line);
-        out.fact("head", json!(head));
+        out.fact("head", json!(shipped));
         Ok(())
     })
 }

@@ -362,7 +362,7 @@ pub fn run(
     if argv.is_empty() {
         return Err("an empty command".into());
     }
-    let file = std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let file = crate::runs::create_new(out).map_err(|e| format!("{}: {e}", out.display()))?;
     let err = file.try_clone().map_err(|e| e.to_string())?;
     let mut c = Command::new(&argv[0]);
     c.args(&argv[1..])

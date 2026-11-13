@@ -54,7 +54,8 @@ pub fn quote(word: &str) -> String {
     }
 }
 
-/// The `seal` check's command for a change, with its `<start>` and its sealed paths from the log.
+/// The `seal` check's command for a change, with its `<start>` and its sealed paths from the log,
+/// each quoted for `sh`, which runs it.
 pub fn seal_command(bp: &Blueprint, start: &str, sealed: &[String]) -> String {
     let template = bp
         .check("seal")
@@ -62,7 +63,7 @@ pub fn seal_command(bp: &Blueprint, start: &str, sealed: &[String]) -> String {
         .unwrap_or_else(|| SEAL_COMMAND.to_string());
     let paths: Vec<String> = sealed.iter().map(|p| quote(p)).collect();
     template
-        .replace("<start>", start)
+        .replace("<start>", &quote(start))
         .replace("<sealed paths>", &paths.join(" "))
         .replace("  ", " ")
 }
@@ -161,7 +162,7 @@ pub fn zone_gate_checks(feature: &str) -> Vec<String> {
 /// file, and say what came out.
 pub fn run_check(dir: &Path, check: &str, command: &str, tier: &str, output: &Path) -> Ran {
     let started = crate::time::instant();
-    let file = std::fs::File::create(output);
+    let file = crate::runs::create_new(output);
     let status = match file {
         Ok(f) => {
             let err = f.try_clone();
@@ -235,6 +236,12 @@ mod tests {
         assert_eq!(
             c,
             "git diff --exit-code abc HEAD -- gdd features 'tests/t one.py' gdd/briefs/x.md ':(exclude)gdd/log'"
+        );
+        // <start> reaches a shell: it is quoted like the paths.
+        let c = seal_command(&bp(), "abc; touch pwned", &[]);
+        assert!(
+            c.starts_with("git diff --exit-code 'abc; touch pwned' HEAD --"),
+            "{c}"
         );
     }
 

@@ -379,6 +379,20 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                         && first.chars().all(|c| c.is_ascii_hexdigit()))
                     .then(|| first.to_string())
                 });
+                // A change merged by squash or rebase: the commit of the main branch it names holds
+                // exactly what was judged, in every file the change touched.
+                let by_content = |h: &str, m: &str| -> Result<(), String> {
+                    let at = v["in"].as_str().unwrap_or("");
+                    if git::commit_of(root, at).is_none() || !git::is_ancestor(root, at, m) {
+                        return Err(format!("{at:?} is not a commit of {main}"));
+                    }
+                    let start = if p.kind == Some(crate::state::LogKind::Setup) {
+                        p.last_review.as_ref().and_then(|r| r.start.clone())
+                    } else {
+                        p.last_gates.as_ref().map(|g| g.start.clone())
+                    };
+                    crate::state::holds_judged(root, &start.unwrap_or_default(), h, at).map(|_| ())
+                };
                 match (head, &main_tip) {
                     (Some(h), Some(m)) => match git::commit_of(root, &h) {
                         None => push(
@@ -387,6 +401,18 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                             "not-merged",
                             format!("the commit it shipped, {h}, isn't in this repository"),
                         ),
+                        Some(c) if v["matched"] == "content" => {
+                            if let Err(why) = by_content(&c, m) {
+                                push(
+                                    line,
+                                    "error",
+                                    "not-merged",
+                                    format!(
+                                        "it shipped {h} matched by content, and {main} doesn't hold it: {why}"
+                                    ),
+                                );
+                            }
+                        }
                         Some(c) if !git::is_ancestor(root, &c, m) => push(
                             line,
                             "error",
@@ -414,7 +440,7 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                 let g = p.last_gates.as_ref().and_then(|g| g.head.clone());
                 if let (Some(h), Some(g)) = (v["head"].as_str(), &g)
                     && h != g
-                    && !crate::state::only_bookkeeping(root, g, h)
+                    && !crate::state::only_bookkeeping(root, id, g, h)
                 {
                     push(
                         line,
@@ -428,7 +454,7 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                 if let (Some(r), Some(g)) = (p.last_review.as_ref(), &g)
                     && let Some(rh) = &r.head
                     && rh != g
-                    && !crate::state::only_bookkeeping(root, rh, g)
+                    && !crate::state::only_bookkeeping(root, id, rh, g)
                     && !crate::state::review_carries(
                         root,
                         rh,

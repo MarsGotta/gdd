@@ -19,6 +19,6 @@ Without a Rust toolchain nothing builds, and the skills don't work by hand: tell
 On `rule`, the layer is within the reach of the agents that run it, like any file of the repository. What keeps it honest is CI, where no agent writes:
 
 - `gdd verify --all` on every change: it exits 1 when a log is broken, a hash doesn't match or a step came out of order.
-- `gdd gates <id> --at .` where the platform builds the change's branch, with its dependencies installed: it runs the checks the change's color asks for on exactly that commit.
+- `gdd gates <id> --at .` where the platform builds the change's branch, with its dependencies installed and its seal fetched (`gdd-seal/<id>`, which a full fetch brings): it runs the checks the change's color asks for on exactly that commit, from the seal git holds.
 
 CI builds the layer from the same source, with `cargo install --locked --git https://github.com/MarsGotta/gdd gdd`. Both go in the protections you give the person to apply, as required checks of the main branch, because setting them up takes their credentials.

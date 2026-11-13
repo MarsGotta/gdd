@@ -30,7 +30,6 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 | The gates are next | `gdd gates <id>`: it runs them on the change's commit, out of the builder's reach, and writes what ran |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
-| An event no command writes | `gdd log <id> '<event>'`, in the shape `assets/log-events.jsonl` gives, in this skill's folder |
 | A line of a log is wrong | `gdd correct <id> --line <n> "<what was wrong>"`, with `--void` when it must not count |
 
 ## Where things stand

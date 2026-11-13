@@ -49,9 +49,65 @@ pub struct GitView {
     pub same: Vec<(String, String)>,
 }
 
-/// The orchestrator's bookkeeping: the logs, the journals and the backlog.
+/// The orchestrator's bookkeeping, by name: what the layer itself commits as bookkeeping. That is
+/// `gdd/backlog.md`, and the files directly in `gdd/log/` named `<id>.jsonl` or
+/// `<id>.engine.jsonl` for a valid id; nothing in a subfolder, nothing with another name.
 pub fn is_bookkeeping(path: &str) -> bool {
-    path.starts_with("gdd/log/") || path == "gdd/backlog.md"
+    if path == "gdd/backlog.md" {
+        return true;
+    }
+    let Some(name) = path.strip_prefix("gdd/log/") else {
+        return false;
+    };
+    name.strip_suffix(".engine.jsonl")
+        .or_else(|| name.strip_suffix(".jsonl"))
+        .is_some_and(crate::valid_id)
+}
+
+/// The bookkeeping commits the layer made for a change, as its journal in the working copy keeps
+/// them: each commit with the blob of every file it changed.
+fn bookkeeping_commits(
+    root: &std::path::Path,
+    id: &str,
+) -> Vec<(String, BTreeMap<String, String>)> {
+    if !crate::valid_id(id) {
+        return vec![];
+    }
+    crate::journal::read(&root.join(format!("gdd/log/{id}.engine.jsonl")))
+        .iter()
+        .filter(|j| j["command"] == "ship")
+        .filter_map(|j| {
+            let b = &j["bookkeeping"];
+            Some((b["commit"].as_str()?.to_string(), hashes(&b["files"])))
+        })
+        .collect()
+}
+
+/// Whether a bookkeeping file holds, at `b`, what the orchestrator's bookkeeping holds: the blob
+/// of the working copy's file (both absent counts), or the blob a bookkeeping commit of the layer
+/// put there, that commit being between `a` and `b`.
+fn bookkeeping_holds(
+    root: &std::path::Path,
+    a: &str,
+    b: &str,
+    path: &str,
+    commits: &[(String, BTreeMap<String, String>)],
+) -> bool {
+    let at_b = crate::git::blob_at(root, b, path);
+    let copy = root
+        .join(path)
+        .is_file()
+        .then(|| crate::git::hash_object(root, path).ok())
+        .flatten();
+    if at_b == copy {
+        return true;
+    }
+    let Some(blob) = at_b else { return false };
+    commits.iter().any(|(c, files)| {
+        files.get(path) == Some(&blob)
+            && crate::git::is_ancestor(root, a, c)
+            && crate::git::is_ancestor(root, c, b)
+    })
 }
 
 impl GitView {
@@ -84,19 +140,20 @@ impl GitView {
         let mut same = vec![];
         if let Some(h) = gv.head.clone() {
             for j in [&g, &r].into_iter().flatten() {
-                if j != &h && only_bookkeeping(root, j, &h) {
+                if j != &h && only_bookkeeping(root, id, j, &h) {
                     same.push((j.clone(), h.clone()));
                 }
             }
         }
         if let (Some(r), Some(g)) = (&r, &g)
             && r != g
-            && (only_bookkeeping(root, r, g) || review_carries(root, r, g, r_start.as_deref(), &gv))
+            && (only_bookkeeping(root, id, r, g)
+                || review_carries(root, r, g, r_start.as_deref(), &gv))
         {
             same.push((r.clone(), g.clone()));
             if let Some(h) = gv.head.clone()
                 && h != *g
-                && only_bookkeeping(root, g, &h)
+                && only_bookkeeping(root, id, g, &h)
             {
                 same.push((r.clone(), h));
             }
@@ -106,10 +163,48 @@ impl GitView {
     }
 }
 
-/// Whether `b` differs from `a` only in the orchestrator's bookkeeping, `a` being in `b`'s history.
-pub fn only_bookkeeping(root: &std::path::Path, a: &str, b: &str) -> bool {
-    crate::git::is_ancestor(root, a, b)
-        && crate::git::diff_names(root, a, b).is_ok_and(|n| n.iter().all(|p| is_bookkeeping(p)))
+/// Whether `b` differs from `a` only in the orchestrator's bookkeeping of change `id`, `a` being in
+/// `b`'s history: every path that differs is a bookkeeping file by name ([`is_bookkeeping`]), and
+/// holds at `b` the working copy's content or what the layer's own bookkeeping commit put there.
+/// A file a builder put under `gdd/log/` is neither, and the head that carries it is not judged.
+pub fn only_bookkeeping(root: &std::path::Path, id: &str, a: &str, b: &str) -> bool {
+    if !crate::git::is_ancestor(root, a, b) {
+        return false;
+    }
+    let Ok(names) = crate::git::diff_names(root, a, b) else {
+        return false;
+    };
+    if !names.iter().all(|p| is_bookkeeping(p)) {
+        return false;
+    }
+    let commits = bookkeeping_commits(root, id);
+    names
+        .iter()
+        .all(|p| bookkeeping_holds(root, a, b, p, &commits))
+}
+
+/// Whether `at` holds exactly what `judged` holds in every file the change touched from `start` to
+/// `judged`, blob by blob: how a change merged by squash or by rebase, whose commits aren't in the
+/// main branch, is still found there. Returns how many files it compared, or the first that differs.
+pub fn holds_judged(
+    root: &std::path::Path,
+    start: &str,
+    judged: &str,
+    at: &str,
+) -> Result<usize, String> {
+    if start.is_empty() {
+        return Err("no <start> to compare from".into());
+    }
+    let touched = crate::git::diff_names(root, start, judged)?;
+    if touched.is_empty() {
+        return Err("the change touched no file".into());
+    }
+    for p in &touched {
+        if crate::git::blob_at(root, judged, p) != crate::git::blob_at(root, at, p) {
+            return Err(format!("{p} differs"));
+        }
+    }
+    Ok(touched.len())
 }
 
 /// Whether a review of `reviewed` still holds on `judged`: everything between them came from the
@@ -286,6 +381,8 @@ pub struct Progress {
     pub read_since_red: bool,
     /// The seal's moves the log records with a `seal` event.
     pub seal_moves: i64,
+    /// Whether the log knows a seal: a `seal` event, a brief step with its seal, or checks sealed.
+    pub sealed_any: bool,
 }
 
 fn hashes(v: &Value) -> BTreeMap<String, String> {
@@ -431,6 +528,7 @@ impl Progress {
                 .push((line, str_of(v, "of").into(), hashes(&v["files"]))),
             "seal" => {
                 self.seal_moves += 1;
+                self.sealed_any = true;
                 if let Some(to) = v["to"].as_str() {
                     self.start = Some(to.into());
                 }
@@ -480,6 +578,7 @@ impl Progress {
                 }
                 if let Some(s) = v["seal"].as_str() {
                     self.start = Some(s.into());
+                    self.sealed_any = true;
                 } else if self.start.is_none() {
                     self.start = self.base.clone();
                 }
@@ -502,6 +601,7 @@ impl Progress {
                     self.checks_stopped = 0;
                     if let Some(c) = v["seal"]["commit"].as_str() {
                         self.start = Some(c.into());
+                        self.sealed_any = true;
                     }
                     for (p, h) in hashes(&v["seal"]["checks"]) {
                         self.sealed.insert(p, h);
@@ -1182,6 +1282,35 @@ fn next_step(
                 );
             }
             ship_step(id, git)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bookkeeping_is_only_what_the_layer_commits() {
+        for p in [
+            "gdd/backlog.md",
+            "gdd/log/empty-cart.jsonl",
+            "gdd/log/empty-cart.engine.jsonl",
+            "gdd/log/blueprint.engine.jsonl",
+        ] {
+            assert!(is_bookkeeping(p), "{p}");
+        }
+        for p in [
+            "gdd/log/payload.sh",
+            "gdd/log/sub/x.jsonl",
+            "gdd/log/Empty-Cart.jsonl",
+            "gdd/log/.jsonl",
+            "gdd/log/x.jsonl.bak",
+            "gdd/log/x y.jsonl",
+            "gdd/logs/x.jsonl",
+            "gdd/backlog.md.orig",
+        ] {
+            assert!(!is_bookkeeping(p), "{p}");
         }
     }
 }

@@ -241,8 +241,9 @@ pub fn shortstat(root: &Path, a: &str, b: &str) -> Option<(i64, i64, i64)> {
     Some((files, add, del))
 }
 
-/// The lines added and taken out between two commits, without the orchestrator's bookkeeping,
-/// as `git diff --shortstat` counts them.
+/// The lines added and taken out between two commits, without the orchestrator's bookkeeping
+/// (the `.jsonl` files directly in `gdd/log/` and the backlog), as `git diff --shortstat` counts
+/// them: anything else a builder puts under `gdd/log/` counts.
 pub fn changed_lines(root: &Path, a: &str, b: &str) -> Option<i64> {
     let o = out(
         root,
@@ -254,7 +255,7 @@ pub fn changed_lines(root: &Path, a: &str, b: &str) -> Option<i64> {
             b,
             "--",
             ".",
-            ":(exclude)gdd/log",
+            ":(exclude,glob)gdd/log/*.jsonl",
             ":(exclude)gdd/backlog.md",
         ],
     )

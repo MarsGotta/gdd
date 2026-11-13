@@ -20,6 +20,7 @@ pub mod metrics;
 pub mod out;
 pub mod project;
 pub mod report;
+pub mod runs;
 pub mod seal;
 pub mod ship;
 pub mod state;
