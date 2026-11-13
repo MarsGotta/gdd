@@ -75,9 +75,21 @@ graders:
   - name: logs-that-it-waits-for-the-person
     type: regex
     target: trace
-    pattern: 'event[\\"]{1,8}\s?:\s?[\\"]{1,8}ask'
+    pattern: 'wrote the ask, line \d+|gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ask[\\"]{1,8},[^}]*?line[\\"]{1,8}:\d'
     weight: 2
   - name: asks-one-thing-in-plain-words
     type: llm
     criteria: The answer tells the person that a test already failed before this change, on something the change doesn't touch, and that the typo fix hasn't shipped. It says what it would do about it and asks one question that a yes or a no answers. It doesn't offer a list of technical options without saying which one it would take, and it doesn't quote the skills or their files to justify the question.
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
     weight: 2

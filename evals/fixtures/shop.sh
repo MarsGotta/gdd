@@ -19,8 +19,9 @@
 #              build     a yellow change ready to build
 #              tempt     a yellow change that passes its own test and can break a standing one
 #              stocked   the shop without GDD, with a file of products that keeps how many of each are in stock
-#              catalog   a shop prepared with 0.10.1 defaults, its catalog and its cart built, a constitution that
-#                        says nothing is sold without stock, and orders a later item of the backlog
+#              catalog   a shop prepared with 0.10.1 defaults, its catalog and its cart built and shipped through
+#                        their gates, a constitution that says nothing is sold without stock, and orders a later
+#                        item of the backlog
 #              draft     the catalog shop with a draft brief for paying by card that says nothing about stock
 #              slow      the prepared project with a check that drives the shop, which runs before the review
 #              redreview a red change in payments, built and through its gates, ready to review
@@ -29,20 +30,83 @@
 #                        with the project's counter
 #              finished  the same change, whose rounds and minutes ran out and whose last build waits for its gates
 #              briefed   the same change briefed, approved and sealed with its scenarios, before any test is written
+#              asked     the same change briefed and sealed with its scenarios, its approval asked for and not given yet
+#              halfway   the same change sealed, built and through its gates, left there: its review comes next
 #              stopped   the yellow change with a planted defect, which also deleted a test, and a reviewer's stop
 #   <dir>      where to build it (default: the current directory, which must be empty)
 #
-# It needs git and python3, uses no network and writes only in <dir>.
-# Exit codes: 0 built, 1 wrong usage, 2 <dir> isn't empty.
+# Every variant has the layer, GDD's `gdd` command, at .gdd/gdd, and a .gitignore that leaves .gdd/ out
+# of git, as a project has it. The binary comes from GDD_BIN when it is set; otherwise this builds it
+# with engine/build.sh, offline, into GDD_TARGET_DIR or /tmp/gdd-engine-target-<uid>, never inside
+# the repository. A change still under way in review, stopped, briefed, asked and halfway has its
+# times in the last ten minutes, so that its minutes aren't used up; the rest are on 2026-11-10.
+#
+# It needs git and python3, and cargo when GDD_BIN isn't set. It uses no network and writes only in
+# <dir>, and in the layer's build folder when it builds it.
+# Exit codes: 0 built, 1 wrong usage, 2 <dir> isn't empty, 3 no binary of the layer.
 set -euo pipefail
 
 variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
   base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt) ;;
-  stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|stopped) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|stopped> [<dir>]" >&2; exit 1 ;;
+  stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
 esac
+
+layer() { # prints the path of the layer's binary, or says on stderr why there is none
+  if [ -n "${GDD_BIN:-}" ]; then
+    case "$GDD_BIN" in /*) bin="$GDD_BIN" ;; *) bin="$PWD/$GDD_BIN" ;; esac
+    if [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
+      echo "shop.sh: GDD_BIN is $GDD_BIN, which isn't an executable file" >&2
+      return 1
+    fi
+    echo "$bin"
+    return 0
+  fi
+  local repo cargo target output
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  if [ ! -f "$repo/engine/build.sh" ]; then
+    echo "shop.sh: GDD_BIN isn't set and there is no $repo/engine/build.sh to build the layer with" >&2
+    return 1
+  fi
+  cargo="$(command -v cargo || true)"
+  if [ -z "$cargo" ]; then
+    echo "shop.sh: GDD_BIN isn't set and there is no cargo on the PATH to build the layer: set GDD_BIN to the binary 'sh engine/build.sh' printed" >&2
+    return 1
+  fi
+  # `claude plugin eval` runs a scaffold with a home of its own and passes only PATH on, so a
+  # toolchain that rustup installed, and the crates cargo already fetched, are found from cargo.
+  case "$cargo" in
+    */.cargo/bin/cargo)
+      if [ -z "${CARGO_HOME:-}" ] && [ ! -d "$HOME/.cargo" ]; then export CARGO_HOME="${cargo%/bin/cargo}"; fi
+      if [ -z "${RUSTUP_HOME:-}" ] && [ ! -d "$HOME/.rustup" ] && [ -d "${cargo%/.cargo/bin/cargo}/.rustup" ]; then
+        export RUSTUP_HOME="${cargo%/.cargo/bin/cargo}/.rustup"
+      fi
+      ;;
+  esac
+  target="${GDD_TARGET_DIR:-/tmp/gdd-engine-target-$(id -u)}"
+  case "$target" in
+    "$repo"|"$repo"/*)
+      # Cargo hard-links what it builds, and the eval harness refuses a plugin with a file of two names.
+      echo "shop.sh: GDD_TARGET_DIR is $target, inside the repository: build the layer outside it" >&2
+      return 1
+      ;;
+  esac
+  if ! output="$(GDD_TARGET_DIR="$target" CARGO_NET_OFFLINE=true sh "$repo/engine/build.sh" 2>&1)"; then
+    printf '%s\n' "$output" | tail -n 5 >&2
+    echo "shop.sh: the layer didn't build offline: run 'sh engine/build.sh' once, or set GDD_BIN to the binary it printed" >&2
+    return 1
+  fi
+  bin="$(printf '%s\n' "$output" | tail -n 1)"
+  if [ ! -x "$bin" ]; then
+    echo "shop.sh: engine/build.sh printed $bin, which isn't an executable file" >&2
+    return 1
+  fi
+  echo "$bin"
+}
+bin="$(layer)" || exit 3
+
 mkdir -p "$dir"
 cd "$dir"
 if [ -n "$(ls -A . 2>/dev/null)" ]; then
@@ -51,7 +115,17 @@ if [ -n "$(ls -A . 2>/dev/null)" ]; then
 fi
 
 g() { git -c user.name="Eval" -c user.email="eval@example.com" -c commit.gpgsign=false "$@"; }
-now() { echo "2026-11-10T10:0$1:00Z"; }
+case "$variant" in
+  review|stopped|briefed|asked|halfway) clock="$(python3 -c 'import time; print(int(time.time()) // 60 * 60 - 600)')" ;;
+  *) clock="" ;;
+esac
+now() { # the time of a canned event at minute $1: on 2026-11-10, or in the last ten minutes for a change under way
+  if [ -z "$clock" ]; then
+    echo "2026-11-10T10:0$1:00Z"
+  else
+    python3 -c 'import sys, time; print(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(sys.argv[1]) + 60 * int(sys.argv[2]))))' "$clock" "$1"
+  fi
+}
 
 catalog_shop() { # a shop prepared with the defaults of 0.10.1, whose catalog and cart are built
   mkdir -p data tools gdd/briefs
@@ -455,8 +529,58 @@ const approved = !card.endsWith("0002");
 console.log(JSON.stringify({ approved, amount: Number(amount), id: approved ? `pay-${amount}-${card.slice(-4)}` : null }));
 process.exit(approved ? 0 : 1);
 EOF
-  printf '{"contract":"gdd/1","ts":"2026-11-02T10:00:00Z","brief":"catalog","event":"step","step":"ship","where":"commit","color":"yellow"}\n' > gdd/log/catalog.jsonl
-  printf '{"contract":"gdd/1","ts":"2026-11-03T10:00:00Z","brief":"cart","event":"step","step":"ship","where":"commit","color":"yellow"}\n' > gdd/log/cart.jsonl
+  # Their logs go in after the commit that holds them: see shipped_logs.
+}
+
+shipped_logs() { # the logs of the catalog and the cart, each through every step a yellow change takes
+  python3 - "$(g rev-parse HEAD)" <<'EOF'
+import json, pathlib, subprocess, sys
+shop = sys.argv[1]
+TESTS = "python3 -m unittest discover -s tests -q"
+LINT = "python3 -m py_compile src/catalog.py src/cart.py"
+
+
+def blob(path):
+    return subprocess.run(["git", "hash-object", path], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def report(skill, rnd, result, level="standard"):
+    return {"skill": skill, "version": "0.10.1", "level": level, "model": None, "round": rnd, "result": result,
+            "caught": "none", "seconds": None, "tokens": None}
+
+
+for day, change, paths, zones, test in [("02", "catalog", ["src/catalog.py", "data/products.json"], ["catalog"], "tests/test_catalog.py"),
+                                        ("03", "cart", ["src/cart.py"], ["cart"], "tests/test_cart.py")]:
+    minute = iter(range(0, 60, 4))
+
+    def event(kind, **fields):
+        return json.dumps({"contract": "gdd/1", "ts": f"2026-11-{day}T10:{next(minute):02d}:00Z", "brief": change,
+                           "event": kind, **fields}, separators=(",", ":"))
+
+    files = {f"gdd/briefs/{change}.md": blob(f"gdd/briefs/{change}.md"), f"features/{change}.feature": blob(f"features/{change}.feature")}
+    color = {"zones": zones, "uncovered": [], "floor": "yellow", "color": "yellow", "why": ""}
+    seal = f"git diff --exit-code {shop} HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude {test} ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"
+    lines = [
+        event("step", step="brief", version=1, report=report("gdd-brief", 1, "yellow"),
+              color={"on": "planned", "base": shop, "paths": paths, **color}, files=files, seal=None),
+        event("ask", of="brief", what="Approve what it has to do"),
+        event("approval", who="Mar", of="brief", version=1, files=files, where="conversation"),
+        event("step", step="checks", report=report("gdd-checks", 1, "sealed"),
+              seal={"ref": f"gdd-seal/{change}", "commit": None, "checks": {test: blob(test)}, "hidden": None,
+                    "proofs": [{"check": "tests", "case": "rejects", "command": TESTS, "exit": 1, "tail": "FAILED (errors=1)"}]}),
+        event("step", step="build", report=report("gdd-build", 1, "done"), claims=[{"check": "tests", "command": TESTS, "exit": 0, "tail": "OK"}]),
+        event("step", step="gates", start=shop, where="a fresh worktree", head=shop, gates=[
+            {"check": "seal", "seconds": 0.02, "command": seal, "exit": 0, "tail": "", "result": "pass"},
+            {"check": "tests", "seconds": 0.05, "command": TESTS, "exit": 0, "tail": "OK", "result": "pass"},
+            {"check": "lint", "seconds": 0.03, "command": LINT, "exit": 0, "tail": "", "result": "pass"}]),
+        event("step", step="review", report=report("gdd-review", 1, "pass"),
+              color={"on": "touched", "start": shop, "head": shop, **color}, verdict="pass", ran=[], findings=[], closed=[]),
+        event("step", step="ship", where=shop[:12], color="yellow", head=shop),
+    ]
+    pathlib.Path(f"gdd/log/{change}.jsonl").write_text("\n".join(lines) + "\n")
+EOF
+  g add gdd/log
+  g commit -q -m "The logs of the catalog and the cart"
 }
 
 g init -q -b main .
@@ -654,7 +778,11 @@ class TotalTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 EOF
-printf '__pycache__/\n.worktrees/\n' > .gitignore
+printf '__pycache__/\n.worktrees/\n.gdd/\n' > .gitignore
+# The layer, where a project keeps it, out of git.
+mkdir -p .gdd
+cp "$bin" .gdd/gdd
+chmod 755 .gdd/gdd
 
 # The project was prepared and its standing checks were set up and tried: the log says so.
 mkdir -p gdd/log
@@ -880,7 +1008,8 @@ if __name__ == "__main__":
     unittest.main()
 EOF
 fi
-if [ "$variant" = slow ] || [ "$variant" = spent ] || [ "$variant" = finished ] || [ "$variant" = briefed ]; then
+if [ "$variant" = slow ] || [ "$variant" = spent ] || [ "$variant" = finished ] || [ "$variant" = briefed ] \
+  || [ "$variant" = asked ] || [ "$variant" = halfway ]; then
   # The limits of a blueprint written with 0.10.1: what holds for every color, and the caps of each one.
   python3 - <<'EOF'
 import pathlib
@@ -1073,6 +1202,25 @@ for path, old, new in [
     file.write_text(text.replace(old, new))
 EOF
 fi
+# The item of the backlog of a change under way has its brief, as the layer leaves it.
+case "$variant" in
+  review|stopped|tempt) under_way=discount-code ;;
+  pressure) under_way=line-rounding ;;
+  build|style|briefed|asked|halfway) under_way=empty-cart ;;
+  *) under_way="" ;;
+esac
+if [ -n "$under_way" ]; then
+  python3 - "$under_way" <<'EOF'
+import pathlib, re, sys
+item = sys.argv[1]
+file = pathlib.Path("gdd/backlog.md")
+text = file.read_text()
+row = re.compile(r"^\| %s \| (.*?) \| (yellow|red|green) \| (\d+) \| \| todo \|$" % re.escape(item), re.M)
+if len(row.findall(text)) != 1:
+    raise SystemExit(f"shop.sh: gdd/backlog.md no longer has {item} as todo once")
+file.write_text(row.sub(lambda m: f"| {item} | {m.group(1)} | {m.group(2)} | {m.group(3)} | {item} | briefed |", text))
+EOF
+fi
 if [ "$variant" = slow ]; then
   # A check that drives the shop as someone would, through every text it shows. It takes a few
   # seconds, so the blueprint runs it once, before the review, and only when a change touches a text.
@@ -1165,6 +1313,9 @@ if [ "$variant" = history ]; then
   commit_on src/pay/README.md "Revert the new retry"
   commit_on src/texts/empty-cart.txt "Fix a typo in the empty cart"
   for i in 1 2 3; do commit_on notes/ideas.md "Note an idea, $i"; done
+fi
+if [ "$variant" = catalog ] || [ "$variant" = draft ]; then
+  shipped_logs
 fi
 base="$(g rev-parse HEAD)"
 
@@ -1539,7 +1690,7 @@ EOF
     {
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.2.0","level":"standard","round":1,"result":"green","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/texts/footer.txt"],"zones":["texts"],"uncovered":[],"floor":"green","color":"green","why":""},"files":{},"seal":null}\n' "$(now 1)" "$id" "$base"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.2.0","level":"light","round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 2)" "$id"
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude","exit":0,"tail":"","result":"pass"},{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 3)" "$id" "$base" "$base"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 3)" "$id" "$base" "$base"
     } > "gdd/log/$id.jsonl"
     ;;
 
@@ -1657,7 +1808,7 @@ EOF
     log_until_checks "$id" tests/test_discount.py "$seal"
     {
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.2.0","level":"standard","round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"Ran 5 tests in 0.000s\\n\\nOK"},{"check":"lint","command":"python3 -m py_compile src/cart.py","exit":0,"tail":""}]}\n' "$(now 5)" "$id"
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_discount.py","exit":0,"tail":"","result":"pass"},{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"Ran 5 tests in 0.000s\\n\\nOK","result":"pass"},{"check":"lint","command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_discount.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"Ran 5 tests in 0.000s\\n\\nOK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
     } >> "gdd/log/$id.jsonl"
     if [ "$variant" = stopped ]; then
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.10.1","level":"standard","model":null,"round":1,"result":"stop","caught":"a test of the cart was deleted","seconds":null,"tokens":null},"color":{"on":"touched","start":"%s","head":"%s","zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"verdict":"stop","ran":[{"command":"git diff --stat %s work/%s -- tests","exit":0,"tail":"tests/test_cart.py | 3 ---"}],"findings":[{"id":"f1","where":"tests/test_cart.py:13","what":"the test that an empty cart totals zero was deleted, and no brief asks for it"},{"id":"f2","where":"src/cart.py:4","what":"apply_code answers from a table of the tests own numbers"}],"closed":[]}\n' "$(now 7)" "$id" "$seal" "$(g rev-parse "work/$id")" "$seal" "$id" >> "gdd/log/$id.jsonl"
@@ -1698,7 +1849,7 @@ EOF
     g checkout -q -b "work/$id"
     ;;
 
-  build|spent|finished|style|briefed)
+  build|spent|finished|style|briefed|asked|halfway)
     id=empty-cart
     brief "$id" "A message for an empty cart" \
       "When the cart is empty, say so instead of showing a total of zero." \
@@ -1722,8 +1873,9 @@ Feature: The summary of a cart
     When the customer opens it
     Then they read "2 items, 7.50"
 EOF
-    if [ "$variant" = briefed ]; then
-      # Sealed with its brief and its scenarios only: the tests are the checks role's to write.
+    if [ "$variant" = briefed ] || [ "$variant" = asked ]; then
+      # Sealed with its brief and its scenarios only: the tests are the checks role's to write. In
+      # asked the person hasn't answered yet.
       seal="$(seal_change "$id")"
       g checkout -q main
       brief_hash="$(g rev-parse "$seal:gdd/briefs/$id.md")"
@@ -1735,7 +1887,9 @@ EOF
       {
         printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.10.1","level":"standard","model":null,"round":1,"result":"yellow","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/cart.py"],"zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"seal":"%s"}\n' "$(now 1)" "$id" "$base" "$id" "$brief_hash" "$id" "$feature_hash" "$seal"
         printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"ask","of":"brief","what":"Approve the brief and its scenarios"}\n' "$(now 2)" "$id"
-        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"approval","who":"Mar","of":"brief","version":1,"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"where":"conversation"}\n' "$(now 3)" "$id" "$id" "$brief_hash" "$id" "$feature_hash"
+        if [ "$variant" = briefed ]; then
+          printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"approval","who":"Mar","of":"brief","version":1,"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"where":"conversation"}\n' "$(now 3)" "$id" "$id" "$brief_hash" "$id" "$feature_hash"
+        fi
       } > "gdd/log/$id.jsonl"
       echo "shop.sh: built '$variant' in $(pwd), base $base, seal $seal"
       exit 0
@@ -1757,6 +1911,30 @@ EOF
     } > tests/test_summary.py
     seal="$(seal_change "$id")"
     g checkout -q -b "work/$id"
+    if [ "$variant" = halfway ]; then
+      # Built right on the first round and through its gates, and then the session that ran it was
+      # cut: its review comes next.
+      cat >> src/cart.py <<'EOF'
+
+
+def summary(prices):
+    """What someone reads when they open a cart."""
+    if not prices:
+        return "Your cart is empty"
+    cents = sum(prices)
+    items = "1 item" if len(prices) == 1 else f"{len(prices)} items"
+    return f"{items}, {cents // 100}.{cents % 100:02d}"
+EOF
+      g add -A
+      g commit -q -m "A message for an empty cart"
+      head="$(g rev-parse HEAD)"
+      g checkout -q main
+      log_until_checks "$id" tests/test_summary.py "$seal"
+      {
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":"sonnet","round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh worktree","head":"%s","gates":[{"check":"seal","seconds":0.02,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_summary.py '"':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"'","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":0.05,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"Ran 4 tests in 0.000s\\n\\nOK","result":"pass"},{"check":"lint","seconds":0.03,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$head" "$seal"
+      } >> "gdd/log/$id.jsonl"
+    fi
     if [ "$variant" = style ]; then
       # It works for every input, and writes the same formatting twice.
       cat >> src/cart.py <<'EOF'

@@ -3,7 +3,7 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project in both directions, adding a check after something slipped through its gates or keeps repeating, and relaxing or retiring a gate that adds nothing. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when the logs show it coming back, or when a gate costs more than it catches. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.10.1"
+  version: "0.11.0"
   contract: gdd/1
 ---
 
@@ -45,24 +45,19 @@ You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and t
 
 Every confirmed failure that got past a reviewer becomes a question, in two places. Its scenario, tagged with the reviewer's check in the zone's gates, is asked of every later change there. And the change that carried it goes to `gdd/exam.md` (`assets/exam.md`), as the two commits of the main branch it shipped between, so it can be shown to a reviewer again.
 
-Run the exam when the reviewer's model, its instructions or its tools change, and once before that, to have a mark to compare with. For each row, launch `gdd-review` on a fresh clone at the row's `To`, with its `From` as `<start>` and the brief that change had, and nothing that tells it this is an exam. It catches the question when its verdict isn't `pass` and it names what the row says. Keep a good change or two among the rows, which it has to pass: a reviewer that rejects everything would get full marks. Write an `exam` step to `gdd/log/blueprint.jsonl`, with who was examined, how many it caught and which it missed. If the new reviewer catches fewer than the one it replaces, the change of reviewer doesn't stay, because catching real failures counts for more than saving rounds.
+Run the exam when the reviewer's model, its instructions or its tools change, and once before that, to have a mark to compare with. For each row, launch `gdd-review` on a fresh clone at the row's `To`, with its `From` as `<start>` and the brief that change had, and nothing that tells it this is an exam. It catches the question when its verdict isn't `pass` and it names what the row says. Keep a good change or two among the rows, which it has to pass: a reviewer that rejects everything would get full marks. Write the `exam` step: `gdd step blueprint exam --level <level> --model <model> --asked <n> --caught <n>`, and a `--missed <id>` for each it missed. If the new reviewer catches fewer than the one it replaces, the change of reviewer doesn't stay, because catching real failures counts for more than saving rounds.
 
 ## Reading the logs
 
-When asked, or now and then, read `gdd/log/` to compare the project with itself. Count before you read: the counts come from `grep`, and you open only the logs that stand out.
-
-- `grep -cE '"event": ?"ask"' gdd/log/*.jsonl`: how often each change stopped a person.
-- `grep -lE '"verdict": ?"fix"' gdd/log/*.jsonl`: the changes a reviewer sent back.
-- `grep -hoE '"outcome": ?"[a-z]*"' gdd/log/*.jsonl | sort | uniq -c`: how the reviewers' findings ended.
-- `grep -hoE '"check": ?"[a-z0-9-]+", ?"seconds": ?[0-9.]+' gdd/log/*.jsonl`: what each check took, each time it ran at a gate.
+When asked, or now and then, compare the project with itself. Count before you read: `gdd metrics --all --summary` gives the counts, and `gdd metrics --all --format csv --out <folder>` the tables behind them, one row per change, step, check run, question to the person, finding and call of the layer. Open only the logs that stand out.
 
 What to look for:
 
-- **Per gate:** how often it fires, how many of those were real failures, what slipped past it and what it costs: the seconds of its checks, the seconds and the tokens of the reviewer's reports, and the wait after each `ask`. If it always fires for the same thing, that thing can be caught earlier.
+- **Per gate:** how often it fires, how many of those were real failures, what slipped past it and what it costs: the seconds of its checks in `checks`, the seconds and the tokens of the reviewer's reports in `steps`, and the wait after each `ask` in `asks`. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
 - **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
 - **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
-- **Per reviewer:** how many of its findings ended as `false` or `minor`. That is its noise.
+- **Per reviewer:** how many of its findings ended as `false` or `minor`, in `findings`. That is its noise.
 - **Per level:** a `model` in a report that is neither a name its level has in the blueprint's `levels`, in any environment or under `reviewer`, nor the model a `prepare` step saw that name launch. That role ran on something else: tell the person.
 - **Per round:** if an agent gives up or disputes the same thing every time, or the reviewer takes long to pass a change, the brief or the checks are wrong.
 - **After a level's model changed:** the changes since, against the ones before at the same color: rounds, findings, and what each cost. A model that gets through in fewer rounds may let that color run on a lighter level, or with lower limits: propose it. It is no reason to retire a check, which judges the product and not the model.
@@ -77,4 +72,4 @@ Retiring a gate, or a question of the reviewer's, that no longer adds anything, 
 
 - In the T-minus pilot, the same tests failed now and then without anything changing, and the gate rejected good changes for it. A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
-When you close, write the `harden` step to `gdd/log/blueprint.jsonl`, with the change that let the failure through, or `null` for a removal: its `result` is `proposed` or `approved`.
+When you close, write the `harden` step: `gdd step blueprint harden --result <proposed or approved> --change <the change that let it through, or none for a removal> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<the blueprint change>"`.

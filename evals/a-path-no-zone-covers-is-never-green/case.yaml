@@ -35,18 +35,18 @@ graders:
   - name: logs-it-as-yellow
     type: regex
     target: trace
-    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}brief[\\"]{1,8},[\\"]{1,8}color[\\"]{1,8}:[\\"]{1,8}yellow|step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
     weight: 3
   - name: never-logs-it-as-green
     type: regex
     target: trace
-    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}green'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}brief[\\"]{1,8},[\\"]{1,8}color[\\"]{1,8}:[\\"]{1,8}green|step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}green'
     match: not_contains
     weight: 3
   - name: never-logs-it-as-red
     type: regex
     target: trace
-    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}red'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}brief[\\"]{1,8},[\\"]{1,8}color[\\"]{1,8}:[\\"]{1,8}red|step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}red'
     match: not_contains
     weight: 3
   - name: proposes-the-zone-in-the-backlog
@@ -70,4 +70,16 @@ graders:
     input_match: 'gdd-build'
     min: 0
     max: 0
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
     weight: 2

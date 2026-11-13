@@ -40,7 +40,7 @@ graders:
   - name: reads-what-the-check-took
     type: regex
     target: trace
-    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}lint[\\"]{1,8}\s?,\s?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d'
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}lint[\\"]{1,8}\s?,\s?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d|\blint\s+\d+(?:\.\d+)?,\s*\d+(?:\.\d+)?,\s*\d+\b|,lint,(?:each round|before review),(?:[^,"\\]|\\.)*,\d+,\d+(?:\.\d+)?,(?:pass|fail)'
     weight: 2
   - name: sees-that-it-still-closes
     type: regex
@@ -71,4 +71,14 @@ graders:
     type: regex
     target: { source: file, path: gdd/log/blueprint.jsonl }
     pattern: 'harden[\s\S]{0,400}?result[\\"]{1,4}\s?:\s?[\\"]{1,4}proposed'
+    weight: 2
+  - name: logs-it-through-the-layer
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.engine.jsonl }
+    pattern: '"command"\s*:\s*"(?:step|log)"[^\n]*"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"harden"'
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
     weight: 2

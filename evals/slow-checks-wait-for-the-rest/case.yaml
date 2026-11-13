@@ -45,12 +45,12 @@ graders:
   - name: logs-it-after-the-rest
     type: regex
     target: trace
-    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"][^\n]{0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"]'
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"][^\]\n]{0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"]'
     weight: 2
   - name: never-logs-it-before-the-rest
     type: regex
     target: trace
-    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"](?:(?!step[\\"]{1,8}\s?:\s?[\\"]{1,8}gates)[^\n]){0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"]'
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"](?:(?!step[\\"]{1,8}\s?:\s?[\\"]{1,8}gates)[^\]\n]){0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"]'
     match: not_contains
     weight: 3
   - name: launches-a-builder
@@ -68,3 +68,15 @@ graders:
   - name: tells-the-person-briefly
     type: llm
     criteria: The answer tells the person that the typo is fixed and shipped and that its gates passed, the check that drives the shop among them, and it does not ask the person to approve the change.
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2

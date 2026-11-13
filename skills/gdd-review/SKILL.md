@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.10.1"
+  version: "0.11.0"
   contract: gdd/1
 ---
 
@@ -19,7 +19,7 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
 
 - The change: `git diff <start> HEAD`, what the builder did. `<base>` and `<start>` are the commits the orchestrator gave you. `<start>` holds everything that judges the change, and it's the base when nothing was sealed.
 - From `<start>`, never from the change's head: the blueprint, the gates of its zones, the constitution and, when there is one, the brief and its scenarios. A change can edit any of them.
-- The log of the change, with its approvals and its seal.
+- The log of the change, with its approvals and its seal, where a line a later `correction` voids doesn't count.
 
 ## Every change
 
@@ -30,11 +30,11 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
    - `git diff --name-only <base> <start>` lists only the brief, its scenarios and the sealed checks, and what the main branch brought if it was merged into the seal.
    - When there is a brief, at `<start>` it has the blob hash of the last `brief` step in the log (`git rev-parse <start>:<path>`) and, when the color asks for `brief-approval`, each scenario file has the one of its last approval.
    - No test that was already there was weakened, skipped or deleted, and what surrounds the tests changed only for a reason the brief or the request gives: the test script in the package manifest, test configuration and setup files, hooks, CI workflows.
-3. **The checks that applied.** A check with a `when` in the blueprint applies when `git diff --name-only <start> HEAD -- <pathspec>` prints something for its paths. Say which checks of the color didn't apply, and why: one that applied and wasn't run is a `fix`.
+3. **The checks that applied.** A check with a `when` in the blueprint applies when `git diff --name-only <start> HEAD -- <pathspec>` prints something for its paths. Say which checks of the color didn't apply, and why, as the `skipped` of the log's `gates` step does: one that applied and wasn't run is a `fix`.
 
 ## Then, by the color you were launched for
 
-The orchestrator already ran the color's checks at the gates, out of the builder's reach, and the log has what came out: don't run them again.
+The color's checks already ran at the gates, out of the builder's reach, and the log has what came out: don't run them again.
 
 - **Its checks don't include `review`** (green, with the template's defaults): steps 1 and 2 are the whole review, even if you found a higher color: the review of that color is another launch, at its level. Here `pass` means nothing that judges was touched.
 - **Yellow:** read the change against its brief, without running it, in about five minutes, two rounds at most with the template's limits. For each scenario, a test cites it and goes through the real entry point, and the code does what the scenario says for any input, not only the examples: a table of the tests' own numbers, or `if (name === "Ana")`, is a `fix`. Read each test for whether it would pass without the behavior, because on yellow nobody saw it pass or broke it on purpose: one that asserts less than its scenario says, or would pass on a stub or a constant, is a `fix` too, and you name it as a check that is wrong, which goes back to `gdd-checks` and not to the builder. Then look for tests weakened, skipped or deleted, and for anything the brief says it won't do that the change does anyway.
@@ -50,14 +50,14 @@ The first line of your answer is exactly one of these words, with nothing before
 - `fix`: the change breaks a scenario of its brief, a rule of a zone it touches or a rule of the constitution. Write a line `NOTES FOR THE BUILDER:` and, under it, concrete corrections in under 200 words, without writing the solution. Anything else you'd improve, however real, goes under `LATER:`, for the backlog: in one run, a reviewer sent a change back five times, each for a finer defect, and the change took over four hours.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 
-The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you read or ran and what came out, a line each, and what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings (`f1`, `f2`). Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
+The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you read or ran and what came out, a line each, and what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
 
 ## Report
 
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.10.1
+skill: gdd-review 0.11.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

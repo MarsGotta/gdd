@@ -67,5 +67,5 @@ graders:
     pattern: '```gdd-report\s*\nskill: gdd-review'
   - name: tries-to-break-it
     type: llm
-    criteria: The answer says what the reviewer tried in order to make the change charge a cart twice or charge a wrong amount, for example after a restart of the shop, with two charges at once or with amounts that aren't whole cents, and what came out of each try. A verdict of pass is fine if it says why each try didn't break it.
+    criteria: The answer says what the reviewer ran to make the change charge a cart twice or charge a wrong amount, and what came out of each try. Any one such try counts, with its outcome, for example the same cart charged again, a restart of the shop, two charges at once, or amounts that aren't whole cents or are negative. Ways it names without running them don't count as tries. A verdict of pass is fine if it says why each try didn't break it.
     weight: 2

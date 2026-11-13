@@ -169,3 +169,20 @@ graders:
     type: llm
     criteria: The answer points the person to the files it wrote, the blueprint among them, and asks them to approve the blueprint. It says that the standing checks get set up and tried after that approval, or that no change starts before they hold. It does not say the project is ready for changes now, though it may say it will be once the checks hold.
     weight: 3
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2
+  - name: the-layer-wrote-the-prepare-step
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.engine.jsonl }
+    pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
+    weight: 1

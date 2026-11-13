@@ -96,3 +96,20 @@ graders:
     type: llm
     criteria: The answer is short and in words a shop owner who isn't technical can follow. It names the files to approve, each with what it is for, and asks one thing, to approve them. It tells apart what it took from a source it looked up and what is its own default, or says that it couldn't look anything up. It doesn't quote the skills or their files to justify what it asks.
     weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2
+  - name: the-layer-wrote-the-prepare-step
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.engine.jsonl }
+    pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
+    weight: 1

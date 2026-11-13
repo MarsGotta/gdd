@@ -57,9 +57,11 @@ Then check it's there, and come back to the same table when you want a newer ver
 
 If you'd rather keep the skills inside your project, [copy them by hand](skills/README.md#1-install-the-skills).
 
+**The layer.** The plugin also brings `gdd`, a small command that keeps the order of every change, counts its limits and writes its log, so your agent doesn't keep that bookkeeping from memory. It comes as source, in the plugin's `engine/` folder, and the first time your project needs it your agent builds it and leaves it at `.gdd/gdd`, which git ignores. Building it takes [Rust](https://rustup.rs) 1.89 or later: if you don't have it, your agent tells you in one line and waits. Your CI builds the same command, to check every change's log out of the agents' reach.
+
 ## Use it, step by step
 
-Open your agent in your project's folder. From here on there are no commands to remember: you ask for things in your own words, and where your agent needs you it asks one thing at a time, with what it would do, so that a yes is enough.
+Open your agent in your project's folder. From here on you ask for things in your own words, and where your agent needs you it asks one thing at a time, with what it would do, so that a yes is enough. Two commands are worth knowing, and they're in step 5.
 
 ### 1. Set it up, once
 
@@ -99,6 +101,15 @@ One agent writes down what it has to do, another builds the checks, a third buil
 
 When a change is in, you get what changed in your product and one line per gate, passed or failed. The whole trail stays in `gdd/log/`, one event per line, with who approved what.
 
+Two commands read it for you, from your project's folder:
+
+```
+.gdd/gdd waiting
+.gdd/gdd metrics --all --summary
+```
+
+The first lists every question waiting for you, oldest first, and how long it has waited. The second says how your changes went: how they ended, how long each took without the waits for you, how often the gates and the reviewer passed them the first time, what each check costs and what the agents spent.
+
 ### 6. Harden
 
 ```
@@ -115,7 +126,8 @@ The [guide to the skills](skills/README.md) goes through each step in full, with
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.10, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.10. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.11. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.11: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 
 The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.

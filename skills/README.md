@@ -2,9 +2,9 @@
 
 You ask your agent for a filter by size in the catalog. One agent writes down with you what has to pass, another builds the checks, a third does the work, and a reviewer that heard none of it runs the change and tries to make it fail. You hear about it when it needs you, and when it's in.
 
-That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. These install nothing and run nothing of their own: they use what your project already has, its tests, its linter, its CI and git. The two scripts they carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits. If you take them, they're yours.
+That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
 
-This is version 0.10, with contract `gdd/1`.
+This is version 0.11, with contract `gdd/1`.
 
 ## The four moments
 
@@ -41,13 +41,14 @@ Prepare happens once, in a conversation with you. From then on every change goes
 
 - **A git repository.** The skills use what it already has, such as its tests, its linter or its CI.
 - **An agent that loads skills.** Claude Code, Codex or Antigravity.
+- **[Rust](https://rustup.rs) 1.89 or later,** to build the layer, once in each copy of your project and in your CI. Without it nothing gets built, and your agent tells you so in one line.
 - **You, or your team.** GDD works on your own or with a team. With a team, the team approves the blueprint and anything that loosens it, as its `CODEOWNERS` say, and the author of a change approves what has to pass for it. On your own, you are both.
 - **Your agent's deepest model, for Prepare, Harden and the brief of a red change.** If you aren't on it, the orchestrator tells you before it starts.
 - **Protected branches, if your platform has them.** The skills work without them, but then nothing stops the agent from touching what judges it ([what they don't guarantee](#what-they-dont-guarantee)).
 
 ## 1. Install the skills
 
-Pick your agent. Each one reads its own manifest from this repository, and none of them brings code.
+Pick your agent. Each one reads its own manifest from this repository, and each brings the layer's source, in `engine/`, next to the skills.
 
 **Claude Code**, 2.1.275 or later:
 
@@ -69,7 +70,7 @@ git clone https://github.com/MarsGotta/gdd
 agy plugin install gdd
 ```
 
-**By hand,** if you'd rather keep them inside your project: copy the seven folders whose names start with `gdd` into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well.
+**By hand,** if you'd rather keep them inside your project: copy the seven folders whose names start with `gdd` into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well. Then build the layer from a clone of this repository, `sh engine/build.sh`, and copy the binary it prints to `.gdd/gdd` in your project, with `.gdd/` in its `.gitignore`.
 
 Then check it's there:
 
@@ -98,14 +99,15 @@ Set GDD up in this project
 3. **You agree on the rules of your product.** From your project's data and what it looked up, it proposes three to seven things that must never happen, whatever part a change touches (in a shop: nothing sold that isn't in stock), for you to put in your own words. They go in the constitution, and every brief is checked against each one.
 4. **You agree on the gates.** They are yours to decide, and they differ with the area and the project. Each one is written as a short feature in Gherkin, which says which checks it asks of each color and what it rejects; the blueprint holds what runs, and the two are compared when the checks are set up. Few, but strict, and the same for every change: a zone only gives a change its color, and the color says how much each gate asks. A change goes through them in two tiers. Each round: the seal, the tests of the change, lint and types, and a scan that keeps secrets out of the repository, under two minutes together. Then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees. Mutation testing and thresholds of coverage come in only when hardening, at their tool's own default. The dependency manifests go in a zone where a person reviews, so that no new dependency comes in unseen.
 5. **You choose the models.** It looks at which agents you have installed and which models each one offers, and proposes one for each level: light for green changes, standard for yellow ones and for building red ones, deep for Prepare, Harden and the brief of a red change. The reviewer works at the level of the change, on the same family of models, and on another only once it was seen to work. You say yes or correct it, and it launches a role on each one before it counts, so the blueprint never says light while everything runs on the deep model.
-6. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you.
-7. **You approve the blueprint,** or your team does, with a commit or a pull request from a person. The caps of a change of each color go in it, and you set them together: the template starts at 10 minutes of work and one fix round for green, 30 and two for yellow, 60 and three for red.
+6. **The protections get set up and tried.** It writes a `CODEOWNERS` file that asks for a person's review on what you or your team always approve, and gives you the rest to apply on your platform, because that takes your credentials. Then it tries four things from the environment the builder will work in, pushing to the main branch among them. If they all fail, your blueprint's `guarantee` is `platform`. If any succeeds, it's `rule`, and it tells you. Among what you apply is CI running the layer on every change: `gdd verify --all`, which fails when a log is broken, and `gdd gates`, which runs the change's checks on exactly its commit, where no agent writes.
+7. **You approve the blueprint,** or your team does, with a commit or a pull request from a person. The caps of a change of each color go in it, and you set them together: the template starts at 10 minutes of work and one fix round for green, 45 and three for yellow, 60 and three for red.
 8. **The checks get set up and tried, once.** `gdd-checks` sets them up, with a tool that already exists before a script of your own, and `gdd-review` tries each one on purpose: it has to reject something done wrong, accept it done right, and hold when a change tries to switch it off. No change starts until they are on the main branch.
 
 **You end up with** files you can read, which make sense without the skills:
 
 ```text
 AGENTS.md                    the GDD block: the cross-cutting core, under 100 words, and the map
+.gdd/gdd                     the layer, which git ignores: every copy of the project builds its own
 CODEOWNERS                   what you or your team always approve
 gdd/
 ├── blueprint.md             gates, zones, colors, checks, levels and limits
@@ -172,7 +174,7 @@ sequenceDiagram
 1. **Brief.** The paths the change will touch set the floor of its color, and the orchestrator's judgment can raise it, never lower it. On yellow and red it writes the brief and the change's use cases, as scenarios in Gherkin: what someone can observe, with the bad cases too. Before the first scenario it goes through the rules of your product, what the change leaves behind, the features it touches and what it won't do yet, because the paths say where a change lands and not what it does to the rest. A rule of your product only you can answer, such as a rounding or a maximum, it asks you, with what it would do: one question at most on yellow, two on red. What you leave to it, it takes from what is usual in your sector and tells you as an assumption. On red a reviewer reads the brief before anyone builds, and on yellow when the change changes data another part of the product owns. On yellow and red you approve it, in a message under 150 words: what it will do, each scenario in a line and the decisions it took, and on red the rules it touches and up to three things it won't do yet. If your blueprint takes that approval off yellow, you're told in a line what it will do, and nobody waits for you.
 2. **Checks.** Another agent, never the one that will build, writes the tests of the change from those scenarios, one test for each. It sees each one fail for the right reason, and on red it also sees each one pass and breaks it once on purpose, then seals them. It writes nothing no scenario asks for, and what looks missing goes back to the brief. Only then is anything built. A green change has no brief and no scenarios and skips this step: it goes on with the checks that already exist.
 3. **Build.** The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its checks were made.
-4. **Gates.** The orchestrator runs the checks itself, away from the builder: CI on its branch, or a fresh clone. What takes longer runs once, when the rest pass. On `guarantee: rule` that clone is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A check that fails sends the change back with its command, its exit code and its last lines.
+4. **Gates.** The layer runs the checks, away from the builder: in a throwaway copy at exactly the change's commit, or in CI. What takes longer runs once, when the rest pass. On `guarantee: rule` that copy is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A check that fails sends the change back with its command, its exit code and its last lines.
 5. **Review.** A reviewer with a clean context works the color out again on what was actually touched: it can only go up, and if it rose, the change goes back to Brief. On yellow it reads the change against its brief; on red it runs the change and tries to make it fail. Its verdict is `pass`, `fix` or `stop`, and only what breaks a scenario or a rule sends the change back: the rest goes to the backlog.
 6. **Ship.** With every check passed, the change is brought up to date with your main branch and the machine checks run again. Where your blueprint asks for `person-review`, you approve the pull request on your platform. The orchestrator never approves anything.
 
@@ -189,12 +191,15 @@ review    fix: the filter is lost on page 2
 review    pass, yellow
 ```
 
+Two commands read the trail for you: `.gdd/gdd waiting` lists every question waiting for you, oldest first, and `.gdd/gdd metrics --all --summary` says how your changes went, how long they took and what each check costs.
+
 **You end up with** the change on your main branch and its trail next to it:
 
 ```text
 gdd/briefs/<id>.md               what had to pass, on yellow and red
 features/<capability>.feature    its scenarios
 gdd/log/<id>.jsonl               everything that happened, one event per line, with who approved what
+gdd/log/<id>.engine.jsonl        the layer's journal: each time it was called, and what it refused
 ```
 
 ### What each color asks for
@@ -269,6 +274,8 @@ Hardening goes the other way too. The log keeps what each check took every time 
 | A check fails without the change too | Known debt, or an unstable check. Nothing gets built under it, because nothing would get through | It proposes one way out and you say yes or no: recording debt and quarantining a check are decisions for you or your team, never for an agent |
 | You need to skip a check, in an emergency | Skipping a check loosens it. Your blueprint says beforehand what an emergency may skip, and who opens that gate | That person approves it. It's logged as a waiver, with who and why, and the change goes through what it skipped afterwards |
 | Your agent can't launch other agents | It gives you one line per role | Open a new session with it, such as `/gdd:gdd-build gdd/briefs/<id>.md` |
+| The layer refused a step | A step out of order, a file that changed after it was sealed, a cap with no room left | Nothing: it says why and what to run instead, and your agent does that |
+| The layer isn't there | Each copy of the project builds its own, and this one couldn't | Install Rust, and your agent goes on |
 
 A fix never goes into a looser check. When a check looks wrong, only whoever wrote it or a person corrects it, never the agent that has to pass it.
 
@@ -290,7 +297,7 @@ What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file t
 
 ### What they don't guarantee
 
-Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. Your blueprint says which of three degrees you're at.
+Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. The layer keeps the order and the evidence, but while an agent runs it, it is within the agent's reach like any file of the repository: what holds it to account is your CI. Your blueprint says which of three degrees you're at.
 
 | `guarantee` | What keeps the builder away from what judges it |
 |---|---|
@@ -300,4 +307,4 @@ Without an engine, the agent not touching what judges it is a rule: the skills t
 
 ## Keeping them in line
 
-`python3 scripts/check_skills.py`, from the root of this repository, checks that every skill's templates match the contract and that each skill keeps to its design. `python3 scripts/check_commands.py` runs the git commands the skills give in a throwaway repository. And [`evals/`](../evals/) holds scenarios that check, with a real model, how an agent behaves with the skills. All of it is for this repository: your project doesn't need it.
+`python3 scripts/check_skills.py`, from the root of this repository, checks that every skill's templates match the contract, that each skill keeps to its design, and that every command of the layer a skill names is one the layer has. `python3 scripts/check_commands.py` runs the git commands the skills give in a throwaway repository, and checks that every command of the orchestrator's table parses. And [`evals/`](../evals/) holds scenarios that check, with a real model, how an agent behaves with the skills. All of it is for this repository: your project doesn't need it.

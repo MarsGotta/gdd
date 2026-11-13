@@ -37,4 +37,6 @@ Filled in, for a shop:
 
 What stays out, because it is in the files: the zones and their colors, the models, the tools, the limits, what an emergency may skip and how you got here. If they ask about any of it, answer then.
 
+For a person who isn't technical, say what a file is for and give its name only where they have to open it, and use no word of a tool, a model or git: "the checks every change passes" for a linter or mutation testing, "who has to approve a change" for the file of owners, "ready" for committed. In one run, the message named the file of owners, a linter, a mutation tool, the models and "committed".
+
 Before you send it, count its words and reread it as someone who never saw the method.

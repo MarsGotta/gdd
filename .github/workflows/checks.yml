@@ -1,7 +1,7 @@
 name: Checks
 
-# What can be checked without a model: the skills against their contract, the
-# commands the skills give, the project the evals run in, and the website.
+# What can be checked without a model: the layer and its tests, the skills against their contract,
+# the commands the skills give, the project the evals run in, and the website.
 # The evals themselves need a model and cost money, so they don't run here.
 
 on:
@@ -13,7 +13,28 @@ permissions:
   contents: read
 
 jobs:
+  layer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The runner's image comes with rustup. The layer needs Rust 1.89 or later, and its
+      # Cargo.lock holds nothing that needs more, so this pins the oldest it claims.
+      - run: rustup toolchain install 1.89.0 --profile minimal && rustup default 1.89.0
+      - run: sh engine/build.sh test
+      - name: Build the layer once, outside the repository
+        run: |
+          GDD_TARGET_DIR="$RUNNER_TEMP/gdd-engine-target" sh engine/build.sh > "$RUNNER_TEMP/gdd-built"
+          mkdir -p "$RUNNER_TEMP/layer"
+          cp "$(tail -n 1 "$RUNNER_TEMP/gdd-built")" "$RUNNER_TEMP/layer/gdd"
+          "$RUNNER_TEMP/layer/gdd" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gdd
+          path: ${{ runner.temp }}/layer/gdd
+          if-no-files-found: error
+
   skills:
+    needs: layer
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +42,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyyaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: gdd
+          path: ${{ runner.temp }}/layer
+      # An artifact keeps no file modes: the binary comes back without its execute bit.
+      - name: Give the scripts and the fixture the layer
+        run: |
+          chmod 755 "$RUNNER_TEMP/layer/gdd"
+          echo "GDD_BIN=$RUNNER_TEMP/layer/gdd" >> "$GITHUB_ENV"
       - run: python3 scripts/check_skills.py
       - run: python3 scripts/check_commands.py
-      - name: The project the evals run in still builds
+      - name: The project the evals run in still builds, and the layer reads its logs
         run: |
-          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked catalog draft slow redreview style spent finished briefed stopped; do
+          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked catalog draft slow redreview style spent finished briefed asked halfway stopped; do
             bash evals/fixtures/shop.sh "$variant" "$RUNNER_TEMP/shop-$variant"
+            test -z "$(git -C "$RUNNER_TEMP/shop-$variant" status --porcelain -- .gdd)"
+            "$RUNNER_TEMP/shop-$variant/.gdd/gdd" --root "$RUNNER_TEMP/shop-$variant" --no-journal verify --all
           done
 
   web:

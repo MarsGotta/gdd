@@ -43,10 +43,6 @@ graders:
     pattern: 'gdd/briefs/'
     match: not_contains
     weight: 2
-  - name: opens-the-shapes-of-the-log
-    type: regex
-    target: trace
-    pattern: '<UTC time>'
   - name: loads-gdd-brief
     type: regex
     target: trace
@@ -54,20 +50,20 @@ graders:
   - name: logs-the-color-before-building
     type: regex
     target: trace
-    pattern: '^(?:(?!"name":\s*"Agent")[\s\S])*?>>\s*\S*gdd/log/[a-z0-9-]+\.jsonl'
+    pattern: '^(?:(?!"name":"Agent")[\s\S])*?gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}brief[\\"]{1,8},[\\"]{1,8}color'
   - name: keeps-a-log
     type: regex
     target: files
     pattern: 'gdd/log/[a-z0-9-]+\.jsonl'
     weight: 2
-  - name: times-its-checks
+  - name: runs-its-gates-through-the-layer
     type: regex
     target: trace
-    pattern: 'time\s+(?:-p\s+)?(?:python3|git|sh\b|bash\b|\(|\{)|date \+%s'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}gates[\\"]{1,8},[^}]*?passed[\\"]{1,8}:true'
   - name: logs-what-each-check-took
     type: regex
     target: trace
-    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}[a-z0-9-]+[\\"]{1,8}\s?,\s?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d'
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}[a-z0-9-]+[\\"]{1,8}\s?,\s?(?:[\\"]{1,8}result[\\"]{1,8}\s?:\s?[\\"]{1,8}\w+[\\"]{1,8}\s?,\s?)?[\\"]{1,8}seconds[\\"]{1,8}\s?:\s?\d'
   - name: launches-a-builder
     type: tool_used
     tool: Agent
@@ -91,3 +87,20 @@ graders:
   - name: tells-the-person-briefly
     type: llm
     criteria: The answer tells the person that the typo is fixed and shipped, that the change was green and that its gates passed, and it does not ask the person to approve the change.
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2
+  - name: gives-the-builder-the-request-word-for-word
+    type: tool_used
+    tool: Agent
+    input_match: '^(?=[\s\S]*gdd-build)(?=[\s\S]*The footer says\W{1,8}Copyrigth\W{1,8}Fix the typo)'
+    min: 1

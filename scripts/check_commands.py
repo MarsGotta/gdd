@@ -20,9 +20,9 @@ something that slipped through once:
   - after another change ships, the change is brought up to date through its
     seal, and the seal check and the color still see only the builder's work;
   - excluding a zone written with :(glob) needs :(exclude,glob);
-  - the search for decisions sees a brief that isn't tracked yet, the search
-    for the tests of a scenario doesn't take another id that begins the same,
-    and the counts of the logs don't depend on spaces in the JSON;
+  - the search for decisions sees a brief that isn't tracked yet, and the
+    search for the tests of a scenario doesn't take another id that begins
+    the same;
   - the zones tried on the history look at the window they say, find the
     commits of a zone, the ones no zone covers and the ones that fixed
     something, whatever the case of the word;
@@ -33,16 +33,23 @@ something that slipped through once:
     whose rounds or runs before the review ran out, still has a build that is
     already finished judged, through its gates, its review and its shipping,
     never stops one for a slow tier, takes the cap a waiver of a limit gives,
-    and refuses a missing log or a wrong id.
+    and refuses a missing log or a wrong id;
+  - the layer refuses the report of a build that changed nothing and takes
+    the one that changed something, its metrics count the logs the same with
+    and without spaces in the JSON, and every command of the orchestrator's
+    table parses, its flags included, with --help exiting 0.
 
-It needs git and grep and nothing else, uses no network and writes only in a
-temporary folder. Exit codes: 0 when every case passes, 1 when one fails, 2
+It needs git and grep, and a Rust toolchain for the cases of the layer, which
+it builds from engine/ and skips, saying so, where there is none. It uses no
+network and writes only in temporary folders. Exit codes: 0 when every case passes, 1 when one fails, 2
 when a command can't be read from the skills or git can't run. Each failure
 names its case. This check is for this repository: no project installs it.
 """
 
+import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,15 +93,6 @@ def run(repo, template, **values):
         print(f"a placeholder was left in: {line}", file=sys.stderr)
         sys.exit(2)
     return subprocess.run(shlex.split(line), cwd=repo, capture_output=True, text=True)
-
-
-def run_in_shell(repo, line):
-    """Run a command that needs a shell for its glob or its pipe.
-
-    Only for the counts of gdd-harden, whose text comes from this
-    repository's own skill file and runs in a throwaway folder.
-    """
-    return subprocess.run(line, cwd=repo, capture_output=True, text=True, shell=True)
 
 
 def expect(case, condition, detail=""):
@@ -254,6 +252,136 @@ def counter_cases(shop):
            carried is not None and carried.group(1) == counter.read_text(encoding="utf-8"))
 
 
+BLUEPRINT = """---
+contract: gdd/1
+guarantee: rule
+levels:
+  claude:
+    launch: the Agent tool, with its model field
+    light: small
+    standard: middle
+    deep: large
+checks:
+  - id: seal
+    type: machine
+    command: "git diff --exit-code <start> HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude <sealed paths> ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"
+  - id: tests
+    type: machine
+    command: "true"
+  - id: review
+    type: reviewer
+colors:
+  green:
+    checks: [seal, tests, review]
+    level: light
+zones:
+  - id: ui
+    color: green
+    paths:
+      - ':(glob)src/ui/**'
+---
+"""
+BUILD_REPORT = "Fixed the typo.\n\n```gdd-report\nskill: gdd-build 0.11.0\nresult: done\ncaught: none\n```\n"
+
+
+def build_layer():
+    """Build the layer from engine/ and return its path, or None when there's no Rust toolchain."""
+    if shutil.which("cargo") is None:
+        print("scripts/check_commands.py: no Rust toolchain here, so the cases of the layer were skipped")
+        return None
+    built = subprocess.run(["sh", str(ROOT / "engine/build.sh")], capture_output=True, text=True)
+    lines = built.stdout.strip().splitlines()
+    if built.returncode != 0 or not lines or not Path(lines[-1]).is_file():
+        failures.append(f"the layer doesn't build: {(built.stderr.strip().splitlines() or ['no output'])[-1][:200]}")
+        return None
+    return lines[-1]
+
+
+def layer_cases(binary):
+    """The layer, on a small project of its own: what the skills now leave to it."""
+    def gdd(repo, *args):
+        return subprocess.run([binary, "--no-journal", *args], cwd=repo, capture_output=True, text=True)
+
+    with tempfile.TemporaryDirectory() as folder:
+        repo = Path(folder)
+        git(repo, "init", "-q", "-b", "main", ".")
+        write(repo, "src/ui/b.js", "ui\n")
+        write(repo, "gdd/blueprint.md", BLUEPRINT)
+        write(repo, "gdd/backlog.md", "# Backlog\n\n| Id | What | Color | Phase | Brief | State |\n|---|---|---|---|---|---|\n")
+        (repo / "gdd/log").mkdir(parents=True)
+        base = commit(repo, "base")
+        briefed = gdd(repo, "brief", "g1", "--paths", "src/ui/b.js", "--why", "a typo")
+        expect("the layer writes the brief step of a green change", briefed.returncode == 0 and "green" in briefed.stdout, briefed.stdout[-300:])
+
+        # A build that left nothing: the orchestrator no longer looks with git diff, the layer refuses it.
+        git(repo, "branch", "work/g1", base)
+        report = Path(folder + "-report.txt")
+        report.write_text(BUILD_REPORT, encoding="utf-8")
+        empty = gdd(repo, "report", "g1", "build", str(report))
+        expect("the layer refuses the report of a build that changed nothing",
+               empty.returncode == 1 and "nothing-built" in empty.stdout, empty.stdout[-300:])
+        builder = Path(folder + "-build")
+        git(repo, "worktree", "add", "-q", str(builder), "work/g1")
+        write(builder, "src/ui/b.js", "ui, typo fixed\n")
+        commit(builder, "a typo")
+        git(repo, "worktree", "remove", "--force", str(builder))
+        built = gdd(repo, "report", "g1", "build", str(report))
+        report.unlink()
+        expect("the layer writes the report of a build that changed something", built.returncode == 0, built.stdout[-300:])
+
+        # The counts gdd-harden reads, with and without spaces in the JSON.
+        def events(change, spaced):
+            lines = [
+                '"event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","result":"green"},"color":{"on":"planned","base":"%s","paths":["src/ui/b.js"],"zones":["ui"],"uncovered":[],"floor":"green","color":"green","why":""},"files":{},"seal":null' % base,
+                '"event":"ask","of":"decision","what":"a rounding"',
+                '"event":"step","step":"build","report":{"skill":"gdd-build","result":"done"}',
+                '"event":"step","step":"gates","start":"%s","gates":[{"check":"tests","seconds":4,"command":"x","exit":0,"tail":"a } b","result":"pass"},{"check":"lint","seconds":12,"command":"y","exit":0,"result":"pass"},{"check":"fast","seconds":0.4,"command":"z","exit":0,"result":"pass"},{"check":"ci","seconds":null,"command":"w","exit":0,"result":"pass"}]' % base,
+                '"event":"step","step":"review","report":{"skill":"gdd-review","result":"fix"},"verdict":"fix","findings":[{"id":"f1","where":"src/ui/b.js:1","what":"a typo left"}],"closed":[]',
+            ]
+            out = []
+            for minute, rest in enumerate(lines):
+                line = '{"contract":"gdd/1","ts":"2026-11-10T10:%02d:00Z","brief":"%s",%s}' % (minute, change, rest)
+                out.append(line.replace('":"', '": "').replace('","', '", "').replace(',"', ', "') if spaced else line)
+            return "\n".join(out) + "\n"
+        write(repo, "gdd/log/a.jsonl", events("a", False))
+        write(repo, "gdd/log/b.jsonl", events("b", True))
+        shown = gdd(repo, "metrics", "a", "b", "--format", "json")
+        try:
+            tables = json.loads(shown.stdout.split("\ngdd {")[0])["tables"]
+        except (ValueError, KeyError) as error:
+            failures.append(f"the layer's metrics aren't JSON: {error}: {shown.stdout[:200]}")
+            return
+        took = {c: sorted((r["check"], r["seconds"]) for r in tables["checks"] if r["change"] == c) for c in ("a", "b")}
+        expect("what each check took is read with and without spaces, and only where it was measured",
+               took["a"] == took["b"] == [("ci", None), ("fast", 0.4), ("lint", 12), ("tests", 4)], str(took))
+        asks = {c: sum(1 for r in tables["asks"] if r["change"] == c) for c in ("a", "b")}
+        expect("the count of asks doesn't depend on spaces", asks == {"a": 1, "b": 1}, str(asks))
+        back = {r["change"]: r["sent_back_review_used"] for r in tables["changes"]}
+        expect("the changes sent back by a reviewer don't depend on spaces", back == {"a": 1, "b": 1}, str(back))
+        found = {c: [r["finding"] for r in tables["findings"] if r["change"] == c] for c in ("a", "b")}
+        expect("the findings of a review don't depend on spaces", found == {"a": ["f1"], "b": ["f1"]}, str(found))
+
+    # Every command the orchestrator's table gives parses, with its flags.
+    text = (SKILLS / "gdd/SKILL.md").read_text(encoding="utf-8")
+    table = text[text.index("| When | Run |"):].split("\n\n")[0]
+    spans = re.findall(r"`gdd ([^`]+)`", table)
+    expect("the orchestrator's table gives the layer's commands", len(spans) >= 10, str(len(spans)))
+    for span in spans:
+        filled = re.sub(r'"?<n>"?', "1", span)
+        filled = re.sub(r'"?<[^>]*>"?(\.\.\.)?', "x", filled).replace("'x'", "x")
+        if filled.split()[0] in ("seal", "brief") and len(filled.split()) == 1:
+            continue  # named alone, as gdd-brief's last steps: gdd-brief gives them whole
+        parsed = subprocess.run([binary, "--no-journal", *shlex.split(filled), "--help"], capture_output=True, text=True)
+        expect(f"`gdd {span}` from the orchestrator's table parses", parsed.returncode == 0, (parsed.stderr or parsed.stdout)[-200:])
+    for row in table.splitlines()[2:]:
+        named = re.search(r"`gdd ([a-z]+)", row)
+        flags = re.findall(r"`(--[a-z][a-z-]*)", row)
+        if named and flags:
+            shown = subprocess.run([binary, named.group(1), "--help"], capture_output=True, text=True).stdout
+            for flag in flags:
+                expect(f"the flag {flag} the orchestrator's table gives `gdd {named.group(1)}` is in its help", flag in shown)
+
+
 def main():
     if "--help" in sys.argv or "-h" in sys.argv:
         print(__doc__.strip())
@@ -264,13 +392,8 @@ def main():
     bookkeeping = command("gdd-review/SKILL.md", r"git diff --name-only <start> HEAD -- gdd/log gdd/backlog\.md")
     exclude = command("gdd-review/SKILL.md", r"':\(exclude,glob\)<pattern>'")
     seal = command("gdd-prepare/assets/blueprint.md", r"git diff --exit-code <start> HEAD -- [^\"\n]+")
-    nothing = command("gdd/SKILL.md", r"git diff --stat <start>")
     decisions = command("gdd-brief/SKILL.md", r"git grep --untracked -n \"\\\[DECISION:\" -- gdd/briefs features")
     cited = command("CONTRACT.md", r"git grep -nE \"gdd:<id>\(\[\^a-z0-9-\]\|\$\)\"")
-    counts = re.findall(r"^- `(grep [^`]+)`", (SKILLS / "gdd-harden/SKILL.md").read_text(encoding="utf-8"), re.M)
-    if len(counts) != 4:
-        print(f"skills/gdd-harden/SKILL.md: expected four grep commands, found {len(counts)}", file=sys.stderr)
-        return 2
     excluded = " ".join(exclude.replace("<pattern>", zone.strip("'").replace(":(glob)", "")) for zone in ZONES)
     uncovered = f". {excluded}"
 
@@ -358,9 +481,6 @@ def main():
         # A green change: nothing is sealed, so <start> is the base.
         repo, base = new_repository(folder)
         git(repo, "checkout", "-q", "-b", "work/g1")
-        result = run(repo, nothing, start=base)
-        status = git(repo, "status", "--porcelain").stdout
-        expect("a build that changed nothing shows nothing", result.stdout == "" and status == "", result.stdout[:200])
         write(repo, "src/ui/b.js", "ui, typo fixed\n")
         built = commit(repo, "a typo")
         result = run(repo, seal, start=base, sealed_paths="")
@@ -392,17 +512,6 @@ def main():
         git(repo, "add", "tests/ids.test")
         found = run(repo, cited, id="pay-1").stdout.strip().splitlines()
         expect("the search for a scenario's tests finds only its own", len(found) == 1 and "one" in found[0], f"got {found}")
-
-        # The counts of the logs, with and without spaces in the JSON.
-        write(repo, "gdd/log/a.jsonl", '{"event":"ask"}\n{"verdict":"fix","closed":[{"outcome":"false"}]}\n')
-        write(repo, "gdd/log/b.jsonl", '{"event": "ask"}\n{"verdict": "fix", "closed": [{"outcome": "minor"}]}\n')
-        write(repo, "gdd/log/c.jsonl", '{"step":"gates","gates":[{"check":"tests","seconds":4,"command":"x","exit":0,"tail":"a } b","result":"pass"},{"check": "lint", "seconds": 12, "command": "y"},{"check":"fast","seconds":0.4},{"check":"old","command":"z"},{"check":"ci","seconds":null}]}\n')
-        asks, fixes, outcomes, took = (run_in_shell(repo, line).stdout for line in counts)
-        expect("what each check took is read with and without spaces, and only where it was measured",
-               sorted(re.findall(r"[0-9.]+", took)) == ["0.4", "12", "4"] and "old" not in took and "ci" not in took, took)
-        expect("the count of asks doesn't depend on spaces", asks.count(":1") == 2, asks)
-        expect("the list of changes sent back doesn't depend on spaces", len(fixes.split()) == 2, fixes)
-        expect("the count of outcomes doesn't depend on spaces", len(outcomes.strip().splitlines()) == 2, outcomes)
 
     # The zones, tried on the history: gdd-prepare runs these before the person approves.
     history = "gdd-prepare/references/existing-project.md"
@@ -469,6 +578,10 @@ def main():
            carried is not None and carried.group(1) == runner.read_text(encoding="utf-8"))
 
     counter_cases(shop)
+
+    binary = build_layer()
+    if binary:
+        layer_cases(binary)
 
     for failure in failures:
         print(f"scripts/check_commands.py: {failure}")

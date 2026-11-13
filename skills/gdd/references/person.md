@@ -10,14 +10,15 @@ Write to them as you'd tell a colleague, across a table, what happened and what 
 
 | Instead of | Say |
 |---|---|
-| a branch, a commit, merged | "written but not in yet", "it's in" |
+| a branch, a commit, committed, merged | "written but not in yet", "it's in": in one run, "Footer fix: committed" told the person nothing |
+| main, the main branch | "in the shop", "what your customers see", in the words of their product |
 | a test by its function name, a file path | what it protects: "a test of the cart's text" |
 | red, yellow, green, a zone | "the delicate parts", "the part that takes payments" |
 | the brief, its scenarios | "what the change has to do" |
 | debt, a quarantine, a waiver | "leave that failure noted for later", "switch that test off for now" |
 | a mutation score | "how many planted bugs the tests catch" |
 
-A file, a command or a word of the method goes in only when they have to open it, run it or decide about it, and then with what it is for, in a line.
+A file, a command or a word of the method goes in only when they have to open it, run it or decide about it, and then with what it is for, in a line. The layer's bookkeeping, its log files, its journals and what git says about them, and the warnings of your environment are never news for the person: leave them out.
 
 ## Examples
 
@@ -59,7 +60,7 @@ After:
 
 ## When they leave it to you
 
-"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, write it down in the brief or in the log, tell them in a line, and don't ask that kind of thing again.
+"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, write it down in the brief, tell them in a line, and don't ask that kind of thing again.
 
 It doesn't cover what the method keeps for a person, because nobody else can give it:
 

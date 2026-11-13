@@ -1,6 +1,6 @@
 # Adapters
 
-They're optional. Each one maps a role that runs as its own agent to its skill, its tools and its level, for an agent that supports it. They hold no code, and the method doesn't depend on them: without them, the orchestrator names the skill when it launches each agent.
+They're optional. Each one maps a role that runs as its own agent to its skill, its tools and its level, for an agent that supports it. They hold no code, and the method doesn't depend on them: without them, the prompt that `gdd launch` gives names the skill of each agent.
 
 ## Claude Code
 
@@ -18,8 +18,8 @@ The blueprint's `levels` name, for each agent the project is worked from, the mo
 
 | Agent | Lists its models | A role as a new session, on a model |
 |---|---|---|
-| Claude Code | No command: `--model` takes an alias or a full name | `claude -p --model <model> < /dev/null` |
-| Codex | `codex debug models` | `codex exec -m <model> < /dev/null` |
-| Antigravity | `agy models` | `agy -p --model <model> < /dev/null` |
+| Claude Code | No command: `--model` takes an alias or a full name | `claude -p --model <model> --output-format json` |
+| Codex | `codex debug models` | `codex exec --json -m <model>` |
+| Antigravity | `agy models` | `agy -p --model <model>` |
 
-Each launch closes its standard input with `< /dev/null`, so a role that runs in the background can't sit waiting for a keyboard nobody is at, and whoever launches it checks within a minute that it started: that its process is alive and has written something. In one run, a reviewer launched in the background from another agent's command line waited for input until the person asked what was happening.
+Written that way in the blueprint's `launch`, `gdd launch <id> <role> --run` puts the model and the prompt in, runs it with its standard input closed, checks within a minute that it wrote something, stops it past the minutes the change has left, and writes the role's step with the tokens the output reports: the flags for JSON output are what let it read them on Claude Code and Codex. Launched by hand, close its standard input yourself, `< /dev/null`, and check the same, so a role that runs in the background can't sit waiting for a keyboard nobody is at. In one run, a reviewer launched in the background from another agent's command line waited for input until the person asked what was happening.

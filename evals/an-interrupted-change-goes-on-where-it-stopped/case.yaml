@@ -1,0 +1,124 @@
+schema_version: "1.1"
+name: an-interrupted-change-goes-on-where-it-stopped
+description: "The message for an empty cart was sealed, built and through its gates when the session that ran it was cut. The person asks to go on. The orchestrator asks the layer where the change stands and takes it from its review: it doesn't brief it again, write its tests again, build it again or run its gates again before the review, and it ships it."
+tags: [orchestrator, layer]
+runs: 3
+execution:
+  max_turns: 100
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Se me cortó la sesión a mitad del mensaje del carrito vacío. Sigue desde donde se quedó.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: asks-the-layer-where-it-stands
+    type: regex
+    target: trace
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}next[\\"]{1,8}'
+    weight: 2
+  - name: launches-a-reviewer
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-review'
+    min: 1
+    max: 2
+    weight: 3
+  - name: launches-no-checks-agent
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-checks'
+    min: 0
+    max: 0
+    weight: 2
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 2
+  - name: keeps-its-one-brief
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"brief"'
+    match: count:1
+    weight: 2
+  - name: keeps-its-sealed-checks
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"checks"'
+    match: count:1
+    weight: 2
+  - name: keeps-its-one-build
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"build"'
+    match: count:1
+    weight: 2
+  - name: runs-no-gates-again-before-the-review
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"gates"(?:(?!"step"\s*:\s*"review")[\s\S])*?"step"\s*:\s*"gates"'
+    match: not_contains
+    weight: 2
+  - name: logs-a-review-that-passed
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"review"[^\n]*"verdict"\s*:\s*"pass"'
+    weight: 2
+  - name: logs-the-ship
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"ship"'
+    weight: 2
+  - name: the-shop-has-it
+    type: regex
+    target: { source: file, path: src/cart.py }
+    pattern: 'def summary'
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: says-it-in-about-a-hundred-words
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.){800,}"'
+    match: not_contains
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
+  - name: tells-the-person-it-is-in
+    type: llm
+    criteria: The answer tells the person that the message for the empty cart is in their shop now and that its review passed. It does not say that it was built again or that its tests were written again, and it does not ask the person to approve the change.
+    weight: 2
+  - name: the-layer-wrote-the-review-and-the-ship
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.engine.jsonl }
+    pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"review"[\s\S]*"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"ship"'
+    weight: 2

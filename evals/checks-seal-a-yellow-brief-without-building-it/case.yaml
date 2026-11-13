@@ -75,5 +75,5 @@ graders:
     weight: 2
   - name: tests-only-what-the-scenarios-ask
     type: llm
-    criteria: The answer reports the tests of the empty-cart change as sealed, each seen failing on the code as it is, with the commit of the seal and a hash for each test file. It does not say it wrote a version of the summary to see the tests pass or broke one on purpose, and it reports no test for anything the two scenarios don't ask for, such as other amounts, currencies or repeated runs. Anything that looked missing, if any, it lists under MISSING:.
+    criteria: The answer reports the tests of the empty-cart change as sealed, each seen failing on the code as it is, with the commit of the seal. It does not say it wrote a version of the summary to see the tests pass or broke one on purpose. It reports no test for anything the two scenarios don't ask for, such as currencies, rounding rules or repeated runs; a second example of what a scenario says, such as another cart with items and its total, is part of that scenario and counts as asked. Anything that looked missing, if any, it lists under MISSING:.
     weight: 3

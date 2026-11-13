@@ -33,16 +33,26 @@ What it checks:
     step of the log is named in some SKILL.md, the orchestrator knows the
     markers the roles answer with, and no skill names a gdd/ path the
     contract doesn't have;
-  - every file a SKILL.md points to exists, shared references are identical,
-    the reviewer asks a brief the same seven questions gdd-brief answers, and
-    no file has a long or medium dash.
+  - every file a SKILL.md points to exists, in its own folder or in another
+    skill's, shared references are identical, the reviewer asks a brief the
+    same seven questions gdd-brief answers, and no file has a long or medium
+    dash;
+  - no skill tells an agent to append to gdd/log/ by hand, because only the
+    layer writes it;
+  - every `gdd <command>` a skill or a reference names in backticks is a
+    command the layer has, with flags its help lists. This builds the layer
+    from engine/ with engine/build.sh, and is skipped, saying so, where there
+    is no Rust toolchain.
 
 Exit codes: 0 when everything passes, 1 when a check fails, 2 when the
 repository can't be read. Each failure names the file and, when it can, the
-line. It reads only skills/ and writes only with --write, into skills/*/assets.
+line. It reads skills/ and evals/, builds the layer outside the repository,
+and writes only with --write, into skills/*/assets.
 """
 
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -50,6 +60,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
 EVALS = ROOT / "evals"
 CONTRACT = SKILLS / "CONTRACT.md"
+ENGINE = ROOT / "engine"
 ROLES = ["gdd-prepare", "gdd-brief", "gdd-checks", "gdd-build", "gdd-review", "gdd-harden"]
 ALL = ["gdd"] + ROLES
 LAUNCHED = ["gdd-checks", "gdd-build", "gdd-review"]
@@ -124,6 +135,45 @@ def report_block(body):
 
 def words(text):
     return len(re.findall(r"[\w'`./<>@-]+", text))
+
+
+def layer():
+    """Build the layer and return its path, or None, saying why, when it can't be built here."""
+    if shutil.which("cargo") is None or shutil.which("sh") is None:
+        print("scripts/check_skills.py: no Rust toolchain here, so the layer's commands the skills name weren't checked")
+        return None
+    built = subprocess.run(["sh", str(ENGINE / "build.sh")], capture_output=True, text=True)
+    lines = built.stdout.strip().splitlines()
+    if built.returncode != 0 or not lines or not Path(lines[-1]).is_file():
+        problem(ENGINE / "build.sh", f"the layer doesn't build: {(built.stderr.strip().splitlines() or ['no output'])[-1][:200]}")
+        return None
+    return lines[-1]
+
+
+def layer_help(binary, *words):
+    """The commands and the flags the help of `gdd <words>` lists, or None when it doesn't parse."""
+    shown = subprocess.run([binary, *words, "--help"], capture_output=True, text=True)
+    if shown.returncode != 0:
+        return None
+    commands, inside = set(), False
+    for line in shown.stdout.splitlines():
+        if line.startswith("Commands:"):
+            inside = True
+            continue
+        if inside and not line.startswith("  "):
+            inside = False
+        if inside and line.strip():
+            commands.add(line.split()[0])
+    flags = set(re.findall(r"(?<![\w-])--[a-z][a-z-]*", shown.stdout))
+    return commands - {"help"}, flags
+
+
+BY_HAND = [
+    re.compile(r"\bappend\w*\b[^.\n]*\b(?:gdd/log|the log|its log)", re.I),
+    re.compile(r"\bwrite\w*\b[^.\n]*\bto (?:`gdd/log[^`]*`|the log\b|its log\b)", re.I),
+    re.compile(r">>\s*gdd/log"),
+    re.compile(r"date -u \+"),
+]
 
 
 def main():
@@ -274,6 +324,51 @@ def main():
         for path in sorted(set(re.findall(r"`(gdd/[a-z]+(?:\.md)?)[/`]", installed[name]))):
             if path not in contract:
                 problem(SKILLS / name / "SKILL.md", f"names `{path}`, which the contract doesn't have")
+
+    for name in ALL:
+        for path in sorted((SKILLS / name).rglob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            for other in re.findall(r"`((?:gdd(?:-[a-z]+)?)/(?:references|assets)/[^`\s]+)`", text):
+                if not (SKILLS / other).exists():
+                    problem(path, f"points to {other}, which doesn't exist")
+            for sentence in re.split(r"(?<=[.:;])\s+|\n", text):
+                if re.search(r"\bnever\b|the layer|`(?:\.gdd/)?gdd [a-z]", sentence, re.I):
+                    continue
+                if any(pattern.search(sentence) for pattern in BY_HAND):
+                    problem(path, f"tells an agent to write the log by hand, which only the layer writes: {sentence.strip()[:80]!r}")
+
+    binary = layer()
+    if binary:
+        top = layer_help(binary)
+        if top is None:
+            problem(ENGINE, "the layer's --help doesn't parse")
+        else:
+            helps = {(): top}
+            for name in ALL:
+                for path in sorted((SKILLS / name).rglob("*.md")):
+                    for span in re.findall(r"`(?:\.gdd/)?gdd ([^`]+)`", path.read_text(encoding="utf-8")):
+                        parts = span.split()
+                        if not parts or not re.fullmatch(r"[a-z]+|--[a-z-]+", parts[0]):
+                            continue  # `gdd {`, the start of the layer's JSON line, names no command
+                        key = ()
+                        if not parts[0].startswith("--"):
+                            if parts[0] not in top[0]:
+                                problem(path, f"names `gdd {parts[0]}`, which the layer doesn't have")
+                                continue
+                            key = (parts[0],)
+                            if key not in helps:
+                                helps[key] = layer_help(binary, *key)
+                            if len(parts) > 1 and helps[key] and helps[key][0] and re.fullmatch(r"[a-z]+", parts[1]):
+                                if parts[1] not in helps[key][0]:
+                                    problem(path, f"names `gdd {parts[0]} {parts[1]}`, which the layer doesn't have")
+                                    continue
+                                key = (parts[0], parts[1])
+                                if key not in helps:
+                                    helps[key] = layer_help(binary, *key)
+                        known = helps.get(key)
+                        for flag in re.findall(r"(?<![\w-])--[a-z][a-z-]*", span):
+                            if known is None or (flag not in known[1] and flag not in top[1]):
+                                problem(path, f"gives `gdd {' '.join(key)}` the flag {flag}, which its help doesn't list")
 
     for first, second in SHARED:
         a, b = SKILLS / first, SKILLS / second

@@ -65,5 +65,17 @@ graders:
     weight: 3
   - name: tells-what-it-wont-do-as-a-consequence
     type: llm
-    criteria: The answer tells the person something the card payment won't do yet, put as a consequence they can weigh for their shop (for example that until orders exist the shop could sell what it no longer has), and not only as what stays as it was (such as "it doesn't touch the stock"). Saying instead that the change will take paid products out of stock also counts.
+    criteria: The answer does one of two things. Either it says that paying will take what was paid out of stock, or it tells the person something the card payment won't do yet, put as a consequence they can weigh for their shop (for example that until orders exist the shop could sell what it no longer has, or that a payment is recorded to no one), and not only as what stays as it was (such as "it doesn't touch the stock").
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
     weight: 2

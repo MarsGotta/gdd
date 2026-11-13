@@ -3,7 +3,7 @@ name: gdd-checks
 description: Writes and seals the cases of a change in Gate-Driven Development (GDD), a test for each scenario of its brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.10.1"
+  version: "0.11.0"
   contract: gdd/1
 ---
 
@@ -50,11 +50,11 @@ When you run a command, send its output to a file and read only its end.
 
 ## Sealing
 
-Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, without any throwaway code. That commit is where the builder starts, and it never writes to it. Then report, so the orchestrator writes the seal to the log:
+Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, without any throwaway code. That commit is where the builder starts, and it never writes to it. Then report, for the layer, which reads the seal and its hashes from git:
 
-- the ref and its commit, and each check file with its blob hash (`git hash-object <file>`);
+- the ref and its commit;
 - the commit of the hidden examples, when the blueprint has them;
-- for each check, the proof its color asks for: the command, its exit code and its last lines, five at most, once rejecting and, where you ran it, once passing, or the line "seen rejecting, not seen passing";
+- for each check, the proof its color asks for, once rejecting and, where you ran it, once passing: a JSON list in a `json` block before your report block, `[{"check":"tests","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`, and for a check not seen passing the line "seen rejecting, not seen passing";
 - under `MISSING:`, what the scenarios seem to leave out, if anything.
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
@@ -92,7 +92,7 @@ Checks found already green, and hollow, in real runs:
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
 ```gdd-report
-skill: gdd-checks 0.10.1
+skill: gdd-checks 0.11.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

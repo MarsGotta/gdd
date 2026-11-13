@@ -34,8 +34,8 @@ graders:
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
   - name: logs-it-as-yellow
     type: regex
-    target: trace
-    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"step"\s*:\s*"brief"[^\n]*"result"\s*:\s*"yellow"'
     weight: 2
   - name: a-scenario-has-twenty-a-page
     type: regex
@@ -61,8 +61,8 @@ graders:
     weight: 3
   - name: logs-that-it-waits-for-the-person
     type: regex
-    target: trace
-    pattern: 'event[\\"]{1,8}\s?:\s?[\\"]{1,8}ask[\\"]{1,8}\s?,\s?[\\"]{1,8}of[\\"]{1,8}\s?:\s?[\\"]{1,8}brief'
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"event"\s*:\s*"ask"\s*,\s*"of"\s*:\s*"brief"'
     weight: 2
   - name: asks-in-under-150-words
     type: regex
@@ -84,3 +84,38 @@ graders:
     type: llm
     criteria: The answer asks the person to approve what the change for the catalog in pages has to do before anything is built. It gives each case in a line, in plain words, twenty products a page among them, says which decisions it took itself, and ends on one question a yes answers. It does not say that anything was built or shipped.
     weight: 3
+  - name: records-no-approval-it-was-not-given
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"event"\s*:\s*"approval"'
+    match: not_contains
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2
+  - name: the-log-gets-no-role-before-the-yes
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"step"\s*:\s*"(?:checks|build)"'
+    match: not_contains
+    weight: 2
+  - name: no-role-worked-before-the-yes
+    type: regex
+    target: trace
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}report[\\"]{1,8}[^}]*?needs-approval'
+    match: not_contains
+    weight: 2
+  - name: the-layer-wrote-the-brief-and-the-ask
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.engine.jsonl }
+    pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"brief"[\s\S]*"wrote"\s*:\s*\{[^}]*"event"\s*:\s*"ask"'
+    weight: 2

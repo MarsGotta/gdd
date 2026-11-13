@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-finished-build-still-gets-its-gates
-description: "A yellow change has used up its rounds and its minutes, and its fourth build is finished but nobody ran its gates yet. The person says to go on and leaves it to the orchestrator. It runs the project's counter, which says the build waits for its gates, runs them itself, launches no new builder and records no waiver, so a cap that ran out stops the next round and not the judging of work already done."
+description: "A yellow change has used up its rounds and its minutes, and its fourth build is finished but nobody ran its gates yet. The person says to go on and leaves it to the orchestrator. It asks the layer, which says the build waits for its gates, has the layer run them on that build, launches no new builder and records no waiver, so a cap that ran out stops the next round and not the judging of work already done."
 tags: [orchestrator, limits, person]
 runs: 3
 execution:
@@ -33,22 +33,19 @@ graders:
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
   - name: runs-the-counter
-    type: tool_used
-    tool: Bash
-    input_match: 'limits\.sh'
-    min: 1
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.engine.jsonl }
+    pattern: '"command"\s*:\s*"(?:next|limits|gates|launch)"'
     weight: 2
   - name: runs-the-tests-of-the-last-build
-    type: tool_used
-    tool: Bash
-    input_match: 'unittest'
-    min: 1
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: 'round\W{1,4}4\b[\s\S]*?step\W{1,6}gates[^\n]*?check\W{1,6}tests'
     weight: 3
   - name: runs-the-seal
-    type: tool_used
-    tool: Bash
-    input_match: 'git diff --exit-code'
-    min: 1
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: 'round\W{1,4}4\b[\s\S]*?step\W{1,6}gates[^\n]*?"head"\s*:\s*"[0-9a-f]{40}"[^\n]*?check\W{1,6}seal'
     weight: 2
   - name: logs-the-gates-of-the-last-build
     type: regex
@@ -64,8 +61,8 @@ graders:
     weight: 3
   - name: records-no-waiver
     type: regex
-    target: trace
-    pattern: 'event[\\"]{1,8}\s?:\s?[\\"]{1,8}waiver[\\"]{1,8}\s?,\s?[\\"]{1,8}who[\\"]{1,8}\s?:\s?[\\"]{1,8}(?![\\"]*<)'
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"event"\s*:\s*"waiver"'
     match: not_contains
     weight: 2
   - name: says-it-in-about-a-hundred-words
@@ -82,3 +79,20 @@ graders:
     type: llm
     criteria: The answer tells the person what came of the last build of the message for the empty cart once its checks ran on it. Either they passed and it went on, to its review or into the shop, or they failed and the change stopped there, left for later or to be split, because it has no rounds left. It does not say the change stopped before its checks ran, and it does not ask the person to allow more rounds or more time.
     weight: 3
+  - name: starts-no-new-round
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"build"'
+    match: count:4
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: the-layer-wrote-the-gates
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.engine.jsonl }
+    pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"gates"'
+    weight: 2

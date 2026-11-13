@@ -1,6 +1,6 @@
 {
   "name": "gdd",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it, and harden what slipped through or retire the gate that adds nothing.",
   "author": {
     "name": "Marcela Gotta",
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Gate-Driven Development",
     "shortDescription": "Gates your agent has to get through",
-    "longDescription": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it, and harden what slipped through or retire the gate that adds nothing. They install nothing and run nothing of their own: they use what your project already has.",
+    "longDescription": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it, and harden what slipped through or retire the gate that adds nothing. They use what your project already has, and one command of their own, the layer gdd, which keeps the order of every change, counts its limits and writes its log: it comes as source and is built in your project.",
     "developerName": "Marcela Gotta",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],
