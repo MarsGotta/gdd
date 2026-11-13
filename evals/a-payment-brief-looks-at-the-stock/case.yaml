@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-payment-brief-looks-at-the-stock
-description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, asks the person about a rule of their shop instead of deciding it, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends at the brief."
+description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, asks the person about a rule of their shop instead of deciding it, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends at the brief, or at the question about stock when the orchestrator asks it before writing the brief."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -40,12 +40,12 @@ graders:
   - name: a-scenario-looks-at-the-stock
     type: regex
     target: trace
-    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)'
+    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)|"result":"(?:[^"\\]|\\.)*?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)(?:[^"\\]|\\.)*?\?'
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex
     target: trace
-    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md)[\w.-]+\.md[^\n]{0,6000}?#\s?(?:What it won.t do yet|Lo que (?:a[uú]n|todav[ií]a) no (?:hace|har[aá]))'
+    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md)[\w.-]+\.md[^\n]{0,6000}?#\s?(?:What it won.t do yet|Lo que (?:a[uú]n|todav[ií]a) no (?:hace|har[aá]))|"result":"(?:[^"\\]|\\.)*?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)(?:[^"\\]|\\.)*?\?'
     weight: 2
   - name: builds-nothing-before-the-approval
     type: tool_used

@@ -45,7 +45,7 @@ After:
 **They have to approve what a change must do.**
 
 - Before: a page that retells the six scenarios, the color and how it was computed.
-- After: "Before anyone builds the discount codes, I need your yes on what they have to do. It's in `features/discount-codes.feature`, six short cases. One of them is my call and you may want it otherwise: a code never takes the total below zero. Do you approve them as they are?"
+- After: "Discount codes at checkout. A valid code takes its percentage off the total. An unknown code changes nothing and says so. I decided: a code never takes the total below zero. The cases are in `features/discount-codes.feature`. Do you approve them?"
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 

@@ -1,0 +1,79 @@
+schema_version: "1.1"
+name: checks-seal-a-yellow-brief-without-building-it
+description: "A yellow change briefed, approved and sealed with its two scenarios, before any test exists. The agent that writes the checks writes a test for each scenario, sees each one fail on the code as it is and seals them, without writing any version of the change to see them pass and without breaking one on purpose. Its report says, for each check, that it was seen rejecting and not seen passing."
+tags: [role, checks]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator to write the checks of one change. Load the `gdd-checks` skill and follow it.
+
+    The change is `empty-cart`, and it is yellow. Its brief is `gdd/briefs/empty-cart.md` and its scenarios are in `features/empty-cart.feature`, approved by the person and committed on `gdd-seal/empty-cart`. The base is the tip of `main`. Nobody has built anything.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-checks"'
+  - name: sees-them-fail
+    type: tool_used
+    tool: Bash
+    input_match: 'unittest'
+    min: 1
+  - name: writes-no-version-of-the-change
+    type: regex
+    target: trace
+    pattern: '>>?\s*[^\s"\\]*cart\.py|"file_path":"[^"]*cart\.py"|sed -i[^"\n]*cart\.py'
+    match: not_contains
+    weight: 3
+  - name: edits-no-code-of-the-shop
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{"file_path":"[^"]*/src/'
+    match: not_contains
+    weight: 2
+  - name: cites-each-scenario
+    type: regex
+    target: trace
+    pattern: 'gdd:empty-cart-1[\s\S]*?gdd:empty-cart-2|gdd:empty-cart-2[\s\S]*?gdd:empty-cart-1'
+  - name: seals-them
+    type: tool_used
+    tool: Bash
+    input_match: 'git[^\n]*commit'
+    weight: 2
+  - name: says-not-seen-passing
+    type: regex
+    pattern: 'not seen passing'
+    flags: i
+    weight: 3
+  - name: does-not-stop
+    type: regex
+    pattern: 'CANNOT:'
+    match: not_contains
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report\s*\nskill: gdd-checks[^\n]*\nresult: sealed'
+    weight: 2
+  - name: tests-only-what-the-scenarios-ask
+    type: llm
+    criteria: The answer reports the tests of the empty-cart change as sealed, each seen failing on the code as it is, with the commit of the seal and a hash for each test file. It does not say it wrote a version of the summary to see the tests pass or broke one on purpose, and it reports no test for anything the two scenarios don't ask for, such as other amounts, currencies or repeated runs. Anything that looked missing, if any, it lists under MISSING:.
+    weight: 3

@@ -30,8 +30,10 @@ something that slipped through once:
   - the project's counter reads the caps of the change's color from the
     blueprint's template, falls back to the caps of every color, leaves out
     the waits for a person, reads JSON with and without spaces, stops a change
-    whose rounds or runs before the review ran out, never stops one for a
-    slow tier, and refuses a missing log or a wrong id.
+    whose rounds or runs before the review ran out, still has a build that is
+    already finished judged, through its gates, its review and its shipping,
+    never stops one for a slow tier, takes the cap a waiver of a limit gives,
+    and refuses a missing log or a wrong id.
 
 It needs git and grep and nothing else, uses no network and writes only in a
 temporary folder. Exit codes: 0 when every case passes, 1 when one fails, 2
@@ -179,24 +181,62 @@ def counter_cases(shop):
     waited = [ev(0, brief), ev(5, ask), ev(65, approval), ev(70, checks), ev(75, build), ev(80, ask)]
     result, last = count(blueprint, waited)
     expect("the counter reads the caps of the change's color from the blueprint's template",
-           "color yellow" in result.stdout and "rounds 0 of 2" in result.stdout and "minutes 20 of 30" in result.stdout, result.stdout)
+           "color yellow" in result.stdout and "rounds 0 of 3" in result.stdout and "minutes 20 of 45" in result.stdout, result.stdout)
     expect("the counter lets a change with room go on", result.returncode == 0 and last.startswith('gdd-limits {"color":"yellow","stop":[]'), last)
     result, _ = count(blueprint, [ev(0, brief, True), ev(5, ask, True), ev(65, approval, True), ev(70, checks, True), ev(75, build, True), ev(80, ask, True)])
-    expect("the counter reads JSON with spaces the same", "minutes 20 of 30" in result.stdout and "rounds 0 of 2" in result.stdout, result.stdout)
+    expect("the counter reads JSON with spaces the same", "minutes 20 of 45" in result.stdout and "rounds 0 of 3" in result.stdout, result.stdout)
 
-    # Two fix rounds of a yellow change use up its rounds, and the checks sent it back past its cap.
-    rounds = [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_ok.replace('"pass"}]', '"fail"}]')),
-              ev(4, build), ev(5, gates_ok.replace('"pass"}]', '"fail"}]')), ev(6, build), ev(7, ask)]
-    result, last = count(blueprint, rounds)
-    expect("the counter stops a change whose rounds ran out", result.returncode == 1 and '"rounds"' in last and '"sent back by the checks"' in last, result.stdout)
+    # Three fix rounds of a yellow change use up its rounds. Its last build is still judged: in one
+    # run, a change stayed built and never went in because its rounds ran out before its gates.
+    fail = gates_ok.replace('"pass"}]', '"fail"}]')
+    rounds = [ev(0, brief), ev(1, checks)]
+    for minute in (2, 4, 6, 8):
+        rounds += [ev(minute, build), ev(minute + 1, fail)]
+    result, last = count(blueprint, rounds[:-1] + [ev(9, ask)])
+    expect("a finished build waits for its gates, even when its rounds ran out",
+           result.returncode == 0 and '"stop":[]' in last and '"judge":"gates"' in last
+           and "rounds 3 of 3, no room left" in result.stdout and "waiting for its gates: run them" in result.stdout, result.stdout)
+    result, last = count(blueprint, rounds + [ev(10, ask)])
+    expect("the same change stops once those gates failed", result.returncode == 1 and '"rounds"' in last
+           and '"sent back by the checks"' in last and '"judge":""' in last, result.stdout)
+    passed = rounds[:-1] + [ev(9, gates_ok)]
+    result, last = count(blueprint, passed)
+    expect("a build that passed its gates waits for its review", result.returncode == 0 and '"judge":"review"' in last, result.stdout)
+    result, last = count(blueprint, passed + [ev(10, '"event":"step","step":"review","report":{"result":"pass"},"verdict":"pass"')])
+    expect("a build that passed its review waits to ship", result.returncode == 0 and '"judge":"ship"' in last, result.stdout)
+    result, last = count(blueprint, passed + [ev(10, '"event":"step","step":"review","report":{"result":"fix"},"verdict":"fix"')])
+    expect("a review that sends the change back stops it once its rounds ran out", result.returncode == 1 and '"rounds"' in last, result.stdout)
+    result, last = count(blueprint, rounds[:-2] + [ev(8, '"event":"step","step":"build","report":{"result":"stopped"},"stop":{"reason":"x"}')])
+    expect("a build that stopped waits for no gates", result.returncode == 1 and '"judge":""' in last, result.stdout)
 
     # A tier past its seconds stops nothing; the runs before the review do, once used up.
     result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_slow), ev(4, ask)])
     expect("a slow tier goes to the backlog and stops nothing",
            result.returncode == 0 and '"slow":["seconds of the checks of a round"]' in last and "130 of 120" in result.stdout, result.stdout)
-    result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_late), ev(4, gates_late), ev(5, ask)])
-    expect("the counter stops a change whose runs before the review ran out",
-           result.returncode == 1 and '"runs before the review"' in last and "runs before the review 2 of 2" in result.stdout, result.stdout)
+    late_fail = gates_late.replace('"seconds":40,"result":"pass"', '"seconds":40,"result":"fail"')
+    result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, late_fail), ev(4, build), ev(5, late_fail), ev(6, build), ev(7, ask)])
+    expect("the runs before the review, used up, still stop a build that waits for its gates",
+           result.returncode == 1 and '"stop":["runs before the review"]' in last and "runs before the review 2 of 2" in result.stdout, result.stdout)
+    result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, late_fail), ev(4, build), ev(5, gates_late), ev(6, ask)])
+    expect("runs before the review that passed on the last build stop no review", result.returncode == 0 and '"judge":"review"' in last, result.stdout)
+
+    # A waiver of a limit sets that cap for this change, the last one winning; one of another cap changes nothing.
+    def waiver(limit, to):
+        return '"event":"waiver","who":"Mar","check":"%s","why":"a clash with an old test","backlog":"b1","limit":"%s","to":%s' % (limit, limit, to)
+    late = [ev(0, brief), ev(1, checks), ev(2, build), ev(50, fail)]
+    result, last = count(blueprint, late + [ev(51, ask)])
+    expect("control: fifty minutes of a yellow change stop it", result.returncode == 1 and '"minutes"' in last, result.stdout)
+    result, last = count(blueprint, late + [ev(51, waiver("minutes_per_change", 40)), ev(52, waiver("minutes_per_change", 60)), ev(53, ask)])
+    expect("a waiver that raises the minutes gives the change room again", result.returncode == 0 and '"stop":[]' in last
+           and "minutes 53 of 60, raised by a waiver" in result.stdout, result.stdout)
+    result, _ = count(blueprint, late + [ev(51, waiver("minutes_per_change", 60), True), ev(53, ask, True)])
+    expect("the counter reads a waiver with spaces the same", result.returncode == 0 and "of 60, raised by a waiver" in result.stdout, result.stdout)
+    result, last = count(blueprint, late + [ev(51, waiver("minutes_per_change", 60)), ev(70, fail), ev(71, ask)])
+    expect("the change stops again once it goes past what the waiver gave", result.returncode == 1 and '"minutes"' in last
+           and "minutes 71 of 60, raised by a waiver, no room left" in result.stdout, result.stdout)
+    result, last = count(blueprint, late + [ev(51, waiver("rounds_per_change", 9)), ev(53, ask)])
+    expect("a waiver of another cap leaves the minutes as they were", result.returncode == 1 and '"minutes"' in last
+           and "minutes 53 of 45, no room left" in result.stdout and "rounds 0 of 9, raised by a waiver" in result.stdout, result.stdout)
 
     # A blueprint from before 0.10: the caps right under limits hold for every color.
     result, last = count(old, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, build), ev(4, ask)])

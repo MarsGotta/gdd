@@ -1,0 +1,86 @@
+schema_version: "1.1"
+name: a-yellow-brief-waits-for-a-yes
+description: "A shop prepared with the template's defaults, where yellow asks for the person's approval of its brief. Asked to show the catalog in pages, the orchestrator briefs a yellow change with a scenario for twenty products a page, launches nobody to write checks or build, and asks for the approval in under 150 words, with each scenario in a line and one question a yes answers. The brief and its scenarios are in the copy the person has open when it asks."
+tags: [orchestrator, brief, person]
+runs: 3
+execution:
+  max_turns: 60
+  timeout_seconds: 1200
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Que el catálogo se vea por páginas: veinte productos en cada una, en el orden en que están ahora. Si alguien pide una página que no existe, que vea la primera. Lo demás decídelo tú.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: logs-it-as-yellow
+    type: regex
+    target: trace
+    pattern: 'step\W{1,24}brief[\s\S]{0,1500}?result\W{1,24}yellow'
+    weight: 2
+  - name: a-scenario-has-twenty-a-page
+    type: regex
+    target: trace
+    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:(?<![\d:])20(?![\d:])|[Vv]einte|[Tt]wenty)'
+    weight: 2
+  - name: the-brief-is-in-their-copy
+    type: regex
+    target: { source: file, path: gdd/briefs/catalog-pages.md }
+    pattern: '(?:[Ss]cenario|[Ee]scenario)'
+    weight: 2
+  - name: the-scenarios-are-in-their-copy
+    type: regex
+    target: trace
+    pattern: '"file_path":"[^"]*/cwd/features/[\w.-]+\.feature"|"command":"(?:(?!worktree|cd )(?:[^"\\]|\\.))*?(?:>>?|\bcp\b(?:[^"\\]|\\.)*?)\s?features/[\w.-]+\.feature'
+    weight: 2
+  - name: builds-nothing-before-the-approval
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-(?:build|checks)'
+    min: 0
+    max: 0
+    weight: 3
+  - name: logs-that-it-waits-for-the-person
+    type: regex
+    target: trace
+    pattern: 'event[\\"]{1,8}\s?:\s?[\\"]{1,8}ask[\\"]{1,8}\s?,\s?[\\"]{1,8}of[\\"]{1,8}\s?:\s?[\\"]{1,8}brief'
+    weight: 2
+  - name: asks-in-under-150-words
+    type: regex
+    target: trace
+    pattern: '"result":"(?:(?:[^"\\\s]|\\[^ntr])+(?:\s|\\[ntr])+){149}'
+    match: not_contains
+    weight: 2
+  - name: the-message-says-twenty-a-page
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:(?<![\d:])20(?![\d:])|[Vv]einte|[Tt]wenty)'
+    weight: 2
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
+  - name: asks-for-a-yes
+    type: llm
+    criteria: The answer asks the person to approve what the change for the catalog in pages has to do before anything is built. It gives each case in a line, in plain words, twenty products a page among them, says which decisions it took itself, and ends on one question a yes answers. It does not say that anything was built or shipped.
+    weight: 3

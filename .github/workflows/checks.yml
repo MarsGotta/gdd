@@ -25,7 +25,7 @@ jobs:
       - run: python3 scripts/check_commands.py
       - name: The project the evals run in still builds
         run: |
-          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked catalog draft slow redreview style spent stopped; do
+          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked catalog draft slow redreview style spent finished briefed stopped; do
             bash evals/fixtures/shop.sh "$variant" "$RUNNER_TEMP/shop-$variant"
           done
 

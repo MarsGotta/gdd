@@ -71,12 +71,12 @@ colors:
       fix_rounds_per_gate: 1
       runs_before_review: 1
   yellow:
-    checks: [seal, tests, lint, secrets, review]
+    checks: [brief-approval, seal, tests, lint, secrets, review]
     level: standard
     limits:
-      minutes_per_change: 30
-      rounds_per_change: 2
-      fix_rounds_per_gate: 1
+      minutes_per_change: 45
+      rounds_per_change: 3
+      fix_rounds_per_gate: 2
       runs_before_review: 2
   red:
     checks: [brief-approval, seal, tests, lint, secrets, review, person-review]
@@ -108,8 +108,8 @@ context:
 flowchart LR
   change([A change]) --> color{Its color}
   color -->|green| green[seal, tests, lint, secrets]
-  color -->|yellow| yellow[+ reviewer]
-  color -->|red| red[+ brief approval, a person's review]
+  color -->|yellow| yellow[+ brief approval, reviewer]
+  color -->|red| red[+ a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
@@ -120,7 +120,7 @@ flowchart LR
 |---|---|---|---|
 | <check> | <in the person's words> | <every round, or once before the review> | <colors> |
 
-Where a person approves is this project's decision. `brief-approval` and `person-review` on red are a proposal: on yellow the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. Add or remove them in `colors`, on any color: the person, or their team, can ask for `brief-approval` on yellow too. Removing one later loosens a gate, so the person approves it. A change goes through its checks in two tiers: each round, the seal, the tests of the change, lint and types and the secret scan, under two minutes together; then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees, under ten minutes in all. The caps of each color are a start, which the project's logs correct, and a limit that runs out stops the change. Mutation testing and a threshold of coverage are in no color at the start: hardening adds them, at their tool's own default, when the tests proved weak. A check that not every color asks judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
+Where a person approves is this project's decision. `brief-approval` on yellow and red, and `person-review` on red, are a proposal: the person, or their team, can remove `brief-approval` from yellow, and then the brief and its scenarios are still written, the person is told in a line what the change will do and nobody waits for them, or add and remove either in `colors`, on any color. Removing one later loosens a gate, so the person approves it. A change goes through its checks in two tiers: each round, the seal, the tests of the change, lint and types and the secret scan, under two minutes together; then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees, under ten minutes in all. The caps of each color are a start, which the project's logs correct, and a limit that runs out stops the next round, never the gates or the review of a build already finished. Mutation testing and a threshold of coverage are in no color at the start: hardening adds them, at their tool's own default, when the tests proved weak. A check that not every color asks judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
 
 ## Emergencies
 

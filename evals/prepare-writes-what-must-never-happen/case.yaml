@@ -50,11 +50,10 @@ graders:
     target: { source: file, path: gdd/constitution.md }
     pattern: '## Rules that hold everywhere(?:(?!\n## )[\s\S])*?\b(?:MUST|SHALL|NEVER|ALWAYS)\b'
     match: not_contains
-  - name: asks-for-no-brief-approval-on-yellow
+  - name: asks-for-brief-approval-on-yellow
     type: regex
     target: { source: file, path: gdd/blueprint.md }
     pattern: '\byellow:\s*\n\s*checks:\s*\[[^\]\n]*brief-approval'
-    match: not_contains
   - name: logs-the-blueprint-as-proposed
     type: regex
     target: { source: file, path: gdd/log/blueprint.jsonl }

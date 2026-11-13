@@ -6,7 +6,7 @@
 # It reads the caps from the front matter of gdd/blueprint.md, those of the change's color before
 # those that hold for every color, and the events of gdd/log/<id>.jsonl, and prints one line for
 # each cap: what was used and what the blueprint allows. The last line is
-#   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>]}
+#   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>],"judge":"<gates, review, ship or empty>"}
 # The color is the result of the last brief step. A round is each launch of gdd-build or of
 # gdd-checks after the first of each. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
@@ -15,9 +15,20 @@
 # gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
 # builder's lines are not counted here: git diff --shortstat gives them.
 #
+# A cap with no room left stops the next round, never the judging of a build already finished. When
+# the last of the build, gates and review steps is a build that didn't stop, its gates come next;
+# gates that passed, its review; a review that passed, shipping it. Then the caps on rounds, on the
+# times sent back, on minutes and on tokens are printed with what was used but left out of stop, a
+# line says what to run and that no new round starts after it while a cap has no room left, and
+# judge names what comes next. The runs before the review still stop a build that waits for its
+# gates, because they would run once more. A brief or checks step after them starts over.
+#
+# A waiver of a limit that names it in "limit", by its key, and its new value in "to" sets that cap
+# for this change only, the last waiver of each cap winning, and the line of that cap says so.
+#
 # It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
 # raising a cap is changing the blueprint. It reads two files and writes nothing.
-# Exit code: 0 when every cap has room, 1 when one has none, 2 when it is called wrong or a file is missing.
+# Exit code: 0 when stop is empty, 1 when it isn't, 2 when it is called wrong or a file is missing.
 if [ "$#" -ne 1 ]; then
   echo "usage: sh gdd/limits.sh <id>" >&2
   exit 2
@@ -45,21 +56,23 @@ function secs(s,   y, m, d, yy, era, yoe, mp, doy, doe) {
 function key_of(l) { sub(/^ */, "", l); sub(/:.*/, "", l); return l }
 function number_of(l) { sub(/^[^:]*: */, "", l); return l + 0 }
 function cap_of(key) {
+  if (key in raised) return raised[key]
   if (color != "" && ((color, key) in own)) return own[color, key]
   return (key in all) ? all[key] : ""
 }
-function report(name, used, key, past,   c, full) {
+function report(name, used, key, past, judged,   c, full) {
   c = cap_of(key)
   if (c == "") { printf "%s %d (no cap)\n", name, used; return }
   full = past ? used > c : used >= c
-  printf "%s %d of %d%s\n", name, used, c, full ? ", no room left" : ""
-  if (full) stop = stop (stop == "" ? "" : ",") "\"" name "\""
+  printf "%s %d of %d%s%s\n", name, used, c, (key in raised) ? ", raised by a waiver" : "", full ? ", no room left" : ""
+  if (full && judged) spent = 1
+  else if (full) stop = stop (stop == "" ? "" : ",") "\"" name "\""
 }
 function tier(name, used, key,   c, past) {
   c = cap_of(key)
   if (c == "") return
   past = used > c
-  printf "%s %d of %d%s\n", name, used, c, past ? ", past it: to the backlog for hardening" : ""
+  printf "%s %d of %d%s%s\n", name, used, c, (key in raised) ? ", raised by a waiver" : "", past ? ", past it: to the backlog for hardening" : ""
   if (past) slow = slow (slow == "" ? "" : ",") "\"" name "\""
 }
 FNR == NR {
@@ -85,13 +98,20 @@ FNR == NR {
     if (waiting) { waited += t - asked; waiting = 0 }
   }
   if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
+  if ($0 ~ /"event" *: *"waiver"/ && match($0, /"limit" *: *"[a-z_]+"/)) {
+    cap = substr($0, RSTART, RLENGTH); sub(/^"limit" *: *"/, "", cap); sub(/"$/, "", cap)
+    if (match($0, /"to" *: *"?[0-9]+/)) { v = substr($0, RSTART, RLENGTH); sub(/^"to" *: *"?/, "", v); raised[cap] = v + 0 }
+  }
   if ($0 ~ /"step" *: *"brief"/ && match($0, /"result" *: *"(green|yellow|red)"/)) {
     color = substr($0, RSTART, RLENGTH); sub(/^"result" *: *"/, "", color); sub(/"$/, "", color)
   }
-  if ($0 ~ /"step" *: *"build"/) builds++
+  if ($0 ~ /"step" *: *"(brief|checks|ship)"/) next_up = ""
+  if ($0 ~ /"step" *: *"build"/) { builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
   if ($0 ~ /"step" *: *"checks"/) checks++
+  if ($0 ~ /"step" *: *"review"/) next_up = ($0 ~ /"verdict" *: *"pass"/) ? "ship" : ""
   if ($0 ~ /"step" *: *"review"/ && $0 ~ /"verdict" *: *"fix"/) review++
   if ($0 ~ /"step" *: *"gates"/) {
+    next_up = ($0 ~ /"result" *: *"fail"/) ? "" : "review"
     if ($0 ~ /"result" *: *"fail"/) gates++
     each = 0; before = 0; late_ran = 0
     n = split($0, part, /"check" *: *"/)
@@ -116,14 +136,20 @@ END {
   end = waiting ? asked : secs(now)
   minutes = (first == "") ? 0 : int((end - first - waited) / 60)
   if (color != "") printf "color %s\n", color
-  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0)
-  report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1)
-  report("sent back by the review", review + 0, "fix_rounds_per_gate", 1)
-  report("minutes", minutes, "minutes_per_change", 0)
-  if (cap_of("runs_before_review") != "") report("runs before the review", late_runs + 0, "runs_before_review", 0)
-  if (cap_of("tokens_per_change") != "") report("tokens", tokens + 0, "tokens_per_change", 0)
+  judged = (next_up != "")
+  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0, judged)
+  report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1, judged)
+  report("sent back by the review", review + 0, "fix_rounds_per_gate", 1, judged)
+  report("minutes", minutes, "minutes_per_change", 0, judged)
+  if (cap_of("runs_before_review") != "") report("runs before the review", late_runs + 0, "runs_before_review", 0, judged && next_up != "gates")
+  if (cap_of("tokens_per_change") != "") report("tokens", tokens + 0, "tokens_per_change", 0, judged)
   tier("seconds of the checks of a round", most_each + 0, "seconds_each_round")
   tier("seconds of the checks before the review", most_before + 0, "seconds_before_review")
-  printf "gdd-limits {\"color\":\"%s\",\"stop\":[%s],\"slow\":[%s]}\n", color, stop, slow
+  if (stop != "") next_up = ""
+  after = spent ? "; a cap above has no room left, so no new round starts after it" : ""
+  if (next_up == "gates") printf "the last build is waiting for its gates: run them%s\n", after
+  if (next_up == "review") printf "the last build passed its gates and is waiting for its review: launch it%s\n", after
+  if (next_up == "ship") printf "the last build passed its review and is waiting to ship%s\n", after
+  printf "gdd-limits {\"color\":\"%s\",\"stop\":[%s],\"slow\":[%s],\"judge\":\"%s\"}\n", color, stop, slow, next_up
   exit (stop == "") ? 0 : 1
 }' gdd/blueprint.md "$log"

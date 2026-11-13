@@ -169,8 +169,8 @@ sequenceDiagram
     Note over O: Ship
 ```
 
-1. **Brief.** The paths the change will touch set the floor of its color, and the orchestrator's judgment can raise it, never lower it. On yellow and red it writes the brief and the change's use cases, as scenarios in Gherkin: what someone can observe, with the bad cases too. Before the first scenario it goes through the rules of your product, what the change leaves behind, the features it touches and what it won't do yet, because the paths say where a change lands and not what it does to the rest. A rule of your product only you can answer, such as a rounding or a maximum, it asks you, with what it would do: one question at most on yellow, two on red. What you leave to it, it takes from what is usual in your sector and tells you as an assumption. On red a reviewer reads the brief before anyone builds, and on yellow when the change changes data another part of the product owns. On red you approve it: under 150 words, with what it will do, the rules it touches and up to three things it won't do yet. On yellow you're told in a line what it will do, and nobody waits for you, unless your blueprint asks for your approval there too.
-2. **Checks.** Another agent, never the one that will build, writes the tests of the change from those scenarios, one test for each. It sees each one fail for the right reason, proves it can pass and seals them. Only then is anything built. A green change has no brief and no scenarios and skips this step: it goes on with the checks that already exist.
+1. **Brief.** The paths the change will touch set the floor of its color, and the orchestrator's judgment can raise it, never lower it. On yellow and red it writes the brief and the change's use cases, as scenarios in Gherkin: what someone can observe, with the bad cases too. Before the first scenario it goes through the rules of your product, what the change leaves behind, the features it touches and what it won't do yet, because the paths say where a change lands and not what it does to the rest. A rule of your product only you can answer, such as a rounding or a maximum, it asks you, with what it would do: one question at most on yellow, two on red. What you leave to it, it takes from what is usual in your sector and tells you as an assumption. On red a reviewer reads the brief before anyone builds, and on yellow when the change changes data another part of the product owns. On yellow and red you approve it, in a message under 150 words: what it will do, each scenario in a line and the decisions it took, and on red the rules it touches and up to three things it won't do yet. If your blueprint takes that approval off yellow, you're told in a line what it will do, and nobody waits for you.
+2. **Checks.** Another agent, never the one that will build, writes the tests of the change from those scenarios, one test for each. It sees each one fail for the right reason, and on red it also sees each one pass and breaks it once on purpose, then seals them. It writes nothing no scenario asks for, and what looks missing goes back to the brief. Only then is anything built. A green change has no brief and no scenarios and skips this step: it goes on with the checks that already exist.
 3. **Build.** The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its checks were made.
 4. **Gates.** The orchestrator runs the checks itself, away from the builder: CI on its branch, or a fresh clone. What takes longer runs once, when the rest pass. On `guarantee: rule` that clone is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A check that fails sends the change back with its command, its exit code and its last lines.
 5. **Review.** A reviewer with a clean context works the color out again on what was actually touched: it can only go up, and if it rose, the change goes back to Brief. On yellow it reads the change against its brief; on red it runs the change and tries to make it fail. Its verdict is `pass`, `fix` or `stop`, and only what breaks a scenario or a rule sends the change back: the rest goes to the backlog.
@@ -203,16 +203,16 @@ gdd/log/<id>.jsonl               everything that happened, one event per line, w
 %%{init: {"flowchart": {"rankSpacing": 30}}}%%
 flowchart LR
     accTitle: What each color asks for, in the blueprint's template
-    accDescr: Green asks for the seal, the tests, the linter and the secret scan. Yellow adds a reviewer. Red adds your approval of the brief before anyone builds, and your review of the change at the end.
+    accDescr: Green asks for the seal, the tests, the linter and the secret scan. Yellow adds your approval of the brief before anyone builds, and a reviewer. Red adds your review of the change at the end.
     G["Green<br/>the text of a button"] ~~~ g0["brief-approval"] ~~~ g1["seal"] --> g2["tests"] --> g3["lint, secrets"]
-    Y["Yellow<br/>a filter by size"] ~~~ y0["brief-approval"] ~~~ y1["seal"] --> y2["tests"] --> y3["lint, secrets"] --> y5["review"]
+    Y["Yellow<br/>a filter by size"] ~~~ y0(["brief-approval"]) --> y1["seal"] --> y2["tests"] --> y3["lint, secrets"] --> y5["review"]
     R["Red<br/>the payment gateway"] ~~~ r0(["brief-approval"]) --> r1["seal"] --> r2["tests"] --> r3["lint, secrets"] --> r5["review"] --> r6(["person-review"])
-    %% Three empty nodes: g0 and y0 line the checks up with Red's, Z keeps the right side free for GitHub's zoom buttons
+    %% Two empty nodes: g0 lines Green's checks up with the others, Z keeps the right side free for GitHub's zoom buttons
     r6 ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
     classDef room fill:none,stroke:none,color:transparent
-    class r0,r6 you
-    class g0,y0,Z room
+    class y0,r0,r6 you
+    class g0,Z room
     style G fill:none,stroke:#2da44e,stroke-width:2px
     style Y fill:none,stroke:#bf8700,stroke-width:2px
     style R fill:none,stroke:#cf222e,stroke-width:2px
@@ -220,7 +220,7 @@ flowchart LR
 
 The rounded blue steps are where a person approves. This is the proportion the blueprint's template brings, and yours decides: which checks each color asks for, and where a person approves, are for you or your team to decide. Whatever its color, a change also passes the gates of the zones it touches, where a zone has gates of its own, and it gets its reviewer, which on green only works the color out again and checks that nothing that judges was touched.
 
-Each color also sets the level of the agents that work on it, light for green and standard for yellow and red, and its own limits, and your blueprint says which model each level is in each agent you work from, by the name that agent launches it with. Approving the brief on yellow too, or a check more for a color, is for you or your team to add.
+Each color also sets the level of the agents that work on it, light for green and standard for yellow and red, and its own limits, and your blueprint says which model each level is in each agent you work from, by the name that agent launches it with. Taking the approval of the brief off yellow, or adding a check to a color, is for you or your team to decide.
 
 ## 4. Harden what slipped through
 
@@ -257,7 +257,7 @@ Hardening goes the other way too. The log keeps what each check took every time 
 
 | You see | What it means | What you do |
 |---|---|---|
-| It waits for your approval | Your blueprint asks for a person there: the brief before anyone builds, on red with the template, or the pull request at the end | Read it and approve it. No agent can do that for you |
+| It waits for your approval | Your blueprint asks for a person there: the brief before anyone builds, on yellow and red with the template, or the pull request at the end | Read it and approve it. No agent can do that for you |
 | `[DECISION: ...]` in a brief | A rule two people would build differently, or a limit with no number | Answer it. Your answer goes into the brief |
 | A check failed | A fix round. The builder gets the command, its exit code and its last lines | Nothing, unless a limit runs out |
 | `fix` from the reviewer | A fix round, with the reviewer's notes | Nothing |
@@ -265,7 +265,7 @@ Hardening goes the other way too. The log keeps what each check took every time 
 | The color rose | The change touched something more delicate than the brief expected, so it goes back to Brief | Approve the new brief, if that color asks for it |
 | `CANNOT:` and a reason | A role stopped because the change doesn't fit as it was briefed | The brief gets a new version. It comes back to you if what has to pass changes and its color asks for your approval |
 | The `seal` check failed | Something that judges the change was touched | The change stops, and the orchestrator tells you |
-| A limit ran out | Too many rounds, minutes or lines for one change of its color | The change stops, and it tells you in a line what it would do: split it, or leave it for later. If you had left the decisions to it, it does that without asking you to extend the limit |
+| A limit ran out | Too many rounds, minutes or lines for one change of its color | No new round starts, though a build already finished still goes through its gates and its review. If it doesn't pass, the change stops, and it tells you in a line what it would do: split it, or leave it for later. If you had left the decisions to it, it does that without asking you to extend the limit |
 | A check fails without the change too | Known debt, or an unstable check. Nothing gets built under it, because nothing would get through | It proposes one way out and you say yes or no: recording debt and quarantining a check are decisions for you or your team, never for an agent |
 | You need to skip a check, in an emergency | Skipping a check loosens it. Your blueprint says beforehand what an emergency may skip, and who opens that gate | That person approves it. It's logged as a waiver, with who and why, and the change goes through what it skipped afterwards |
 | Your agent can't launch other agents | It gives you one line per role | Open a new session with it, such as `/gdd:gdd-build gdd/briefs/<id>.md` |

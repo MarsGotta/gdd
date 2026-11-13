@@ -267,7 +267,7 @@ def main():
             if not re.search(rf"\b{item}\b", prose, re.I):
                 problem(CONTRACT, f"the {kind} `{item}` of the log is named in no SKILL.md")
     orchestrator = installed.get("gdd", "")
-    for marker in ("CANNOT:", "COLOR:", "gdd-report", "`pass`", "`fix`", "`stop`"):
+    for marker in ("CANNOT:", "COLOR:", "MISSING:", "gdd-report", "`pass`", "`fix`", "`stop`"):
         if marker not in orchestrator:
             problem(SKILLS / "gdd" / "SKILL.md", f"doesn't know the marker {marker}, which the roles answer with")
     for name in ALL:

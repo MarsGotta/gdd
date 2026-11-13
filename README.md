@@ -86,12 +86,12 @@ One agent writes down what it has to do, another builds the checks, a third buil
 | The change touches | For example | What you do |
 |---|---|---|
 | Something green | The text of a button | Nothing. You hear about it when it's in |
-| Something yellow | A filter in the catalog | You're told in a line what it will do, and nobody waits for you |
+| Something yellow | A filter in the catalog | You approve what it has to do, in a short message, before anyone builds |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
 ### 4. Answer when it asks
 
-- **It wants your approval of what a change has to do,** on red. That is a short text, under 150 words, and a file of cases in `features/`. Read it and say yes, or correct it.
+- **It wants your approval of what a change has to do,** on yellow and red. That is a short message, under 150 words, with each case in a line, and the file of cases in `features/`. Read it and say yes, or correct it.
 - **It found a decision nobody has made.** Answer it, or tell it to decide. It then decides how the work gets done and stops asking about that, and a rule of your product it takes from what is usual in your sector and tells you as an assumption. What loosens a check or can't be undone stays with you.
 - **Something stopped the change.** A check that fails, a limit that ran out. It tells you what happened and the one way out it would take. The guide has [every case](skills/README.md#when-it-stops).
 

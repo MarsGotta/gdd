@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.10.0"
+  version: "0.10.1"
   contract: gdd/1
 ---
 
@@ -37,6 +37,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 - Mark as delicate whatever is expensive if it fails. In software, start with payments, access and permissions, deployments and CI, the updater, customer data, and whatever judges the rest, in a zone whose color asks for `review`: the blueprint itself, the standing checks and what runs them (CI and each tool's configuration).
 - Mark behaviors, not only folders: code outside a delicate zone that configures it, feeds it data or decides what it does belongs to it too.
 - What can't be undone is never green.
+- Propose a green zone for documents that don't change how the product behaves, such as guides and notes, unless the person says otherwise: in one run, a guide no zone covered came out yellow until the person asked for one.
 - List the dependency manifests and their lock files in a zone whose color asks for `person-review`. That is all it takes for no new dependency to come in without a person seeing it: there is no check to write.
 - A zone's tests belong to it: list their paths too. Then ask about what's left: a catch-all zone with the color the person chooses, or none, and then each change that touches it is judged, and is never green.
 - Functions don't go in the blueprint. They change often and zones rarely do, so they go to the backlog, each with its expected color.
@@ -51,7 +52,7 @@ Their checks are standing checks, which hold for the whole project. List them on
 
 Each check says when it runs (`runs`): `each round`, within the two minutes the template gives those together, or `before review`, once the rest pass, for what takes longer, so a fix round doesn't pay for it. Put them in the blueprint's table of checks, in the person's words, for one yes. For every check, climb the ladder in `references/gates.md` and stop at the first step that works.
 
-What each color asks for goes in the blueprint's `colors`, and the template carries the method's proportion. Every color carries `seal`, the check that nothing that judges was touched, with the command the template gives. Where a person approves is the team's decision as well: propose `brief-approval` and `person-review` on red, so that a person approves what has to pass before anyone builds and the change at the end. On yellow the brief is still written and nobody waits for it. Say it's a proposal: they, or their team, can add or remove them on any color. Hidden examples join red only when the blueprint's `guarantee` is `platform` or `engine`, and then the blueprint's `hidden` says where they live.
+What each color asks for goes in the blueprint's `colors`, and the template carries the method's proportion. Every color carries `seal`, the check that nothing that judges was touched, with the command the template gives. Where a person approves is the team's decision as well: propose `brief-approval` on yellow and red, for what has to pass before anyone builds, and `person-review` on red, for the change at the end. Say it's a proposal: they, or their team, can add or remove them on any color; without one on yellow, the person is told in a line what the change will do. Hidden examples join red only when the blueprint's `guarantee` is `platform` or `engine`, and then the blueprint's `hidden` says where they live.
 
 ## What you leave
 

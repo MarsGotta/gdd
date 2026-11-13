@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-limit-that-runs-out-stops-the-change
-description: "A yellow change has used up its rounds and its minutes: the checks sent it back once and the reviewer twice. The person says to go on and leaves it to the orchestrator. It runs the project's counter, launches no builder, records no waiver and leaves the change for later or proposes splitting it, without asking to extend the limit."
+description: "A yellow change has used up its rounds and its minutes: the reviewer sent it back twice and the checks twice, the last time on its fourth build, so what is left is a new round. The person says to go on and leaves it to the orchestrator. It runs the project's counter, launches no builder, records no waiver and leaves the change for later or proposes splitting it, without asking to extend the limit."
 tags: [orchestrator, limits, person]
 runs: 3
 execution:

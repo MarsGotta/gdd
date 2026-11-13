@@ -89,11 +89,10 @@ graders:
     pattern: '\bred:\s*\n\s*checks:\s*\[[^\]\n]*mutation'
     match: not_contains
     weight: 2
-  - name: asks-for-no-brief-approval-on-yellow
+  - name: asks-for-brief-approval-on-yellow
     type: regex
     target: { source: file, path: gdd/blueprint.md }
     pattern: '\byellow:\s*\n\s*checks:\s*\[[^\]\n]*brief-approval'
-    match: not_contains
   - name: says-when-each-check-runs
     type: regex
     target: { source: file, path: gdd/blueprint.md }

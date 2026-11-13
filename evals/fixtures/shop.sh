@@ -19,13 +19,16 @@
 #              build     a yellow change ready to build
 #              tempt     a yellow change that passes its own test and can break a standing one
 #              stocked   the shop without GDD, with a file of products that keeps how many of each are in stock
-#              catalog   a shop prepared with 0.10 defaults, its catalog and its cart built, a constitution that
+#              catalog   a shop prepared with 0.10.1 defaults, its catalog and its cart built, a constitution that
 #                        says nothing is sold without stock, and orders a later item of the backlog
 #              draft     the catalog shop with a draft brief for paying by card that says nothing about stock
 #              slow      the prepared project with a check that drives the shop, which runs before the review
 #              redreview a red change in payments, built and through its gates, ready to review
 #              style     a yellow change that works, built with the same code written twice, ready to review
-#              spent     a yellow change whose rounds and minutes ran out, with the project's counter
+#              spent     a yellow change whose rounds and minutes ran out and whose last build failed its gates,
+#                        with the project's counter
+#              finished  the same change, whose rounds and minutes ran out and whose last build waits for its gates
+#              briefed   the same change briefed, approved and sealed with its scenarios, before any test is written
 #              stopped   the yellow change with a planted defect, which also deleted a test, and a reviewer's stop
 #   <dir>      where to build it (default: the current directory, which must be empty)
 #
@@ -37,8 +40,8 @@ variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
   base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt) ;;
-  stocked|catalog|draft|slow|redreview|style|spent|stopped) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|catalog|draft|slow|redreview|style|spent|stopped> [<dir>]" >&2; exit 1 ;;
+  stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|stopped) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|stopped> [<dir>]" >&2; exit 1 ;;
 esac
 mkdir -p "$dir"
 cd "$dir"
@@ -50,7 +53,7 @@ fi
 g() { git -c user.name="Eval" -c user.email="eval@example.com" -c commit.gpgsign=false "$@"; }
 now() { echo "2026-11-10T10:0$1:00Z"; }
 
-catalog_shop() { # a shop prepared with the defaults of 0.10, whose catalog and cart are built
+catalog_shop() { # a shop prepared with the defaults of 0.10.1, whose catalog and cart are built
   mkdir -p data tools gdd/briefs
   cat > gdd/constitution.md <<'EOF'
 # Constitution
@@ -129,12 +132,12 @@ colors:
       fix_rounds_per_gate: 1
       runs_before_review: 1
   yellow:
-    checks: [seal, tests, lint, review]
+    checks: [brief-approval, seal, tests, lint, review]
     level: standard
     limits:
-      minutes_per_change: 30
-      rounds_per_change: 2
-      fix_rounds_per_gate: 1
+      minutes_per_change: 45
+      rounds_per_change: 3
+      fix_rounds_per_gate: 2
       runs_before_review: 2
   red:
     checks: [brief-approval, seal, tests, lint, review, person-review]
@@ -205,7 +208,7 @@ A small shop for cat products, with a catalog and a cart. Payments, orders and a
 | tests | What a change says it does, and doesn't | every round | all |
 | lint | Code that doesn't compile | every round | all |
 
-Where a person approves is this project's decision: `brief-approval` and `person-review` on red. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
+Where a person approves is this project's decision: `brief-approval` on yellow and red, and `person-review` on red. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
 
 ## Emergencies
 
@@ -229,6 +232,7 @@ What to build, each item with its expected color. `State` is `todo`, `briefed` o
 | standing-checks | Set up the checks every change passes, and CI, and see each one close | red | 0 | | done |
 | catalog | The products, each with its price and how many are left | yellow | 1 | catalog | done |
 | cart | A cart that adds products and gives its total | yellow | 1 | cart | done |
+| catalog-pages | The catalog in pages | yellow | 1 | | todo |
 | card-payment | Pay for the cart by card | red | 2 | | todo |
 | orders | Orders: what each customer bought, kept once it is paid | red | 3 | | todo |
 | accounts | Customer accounts, to sign up and in | red | 3 | | todo |
@@ -876,13 +880,13 @@ if __name__ == "__main__":
     unittest.main()
 EOF
 fi
-if [ "$variant" = slow ] || [ "$variant" = spent ]; then
-  # The limits of a blueprint written with 0.10: what holds for every color, and the caps of each one.
+if [ "$variant" = slow ] || [ "$variant" = spent ] || [ "$variant" = finished ] || [ "$variant" = briefed ]; then
+  # The limits of a blueprint written with 0.10.1: what holds for every color, and the caps of each one.
   python3 - <<'EOF'
 import pathlib
 file = pathlib.Path("gdd/blueprint.md")
 text = file.read_text()
-caps = {"green": (10, 1, 1, 1), "yellow": (30, 2, 1, 2), "red": (60, 3, 2, 2)}
+caps = {"green": (10, 1, 1, 1), "yellow": (45, 3, 2, 2), "red": (60, 3, 2, 2)}
 pairs = [("limits:\n  fix_rounds_per_gate: 2\n  rounds_per_change: 6\n  minutes_per_change: 120  # without the time it waits for a person\n",
           "limits:  # what holds for every color: the caps of one change are under each color\n"),
          ("  lines_per_change: 400  # the builder's: git diff --shortstat <start> HEAD\n",
@@ -898,7 +902,7 @@ for old, new in pairs:
 file.write_text(text)
 EOF
 fi
-if [ "$variant" = spent ]; then
+if [ "$variant" = spent ] || [ "$variant" = finished ]; then
   cat > gdd/limits.sh <<'EOF'
 #!/bin/sh
 # What the blueprint's limits still allow one change, counted from its log, so nobody counts by hand.
@@ -908,7 +912,7 @@ if [ "$variant" = spent ]; then
 # It reads the caps from the front matter of gdd/blueprint.md, those of the change's color before
 # those that hold for every color, and the events of gdd/log/<id>.jsonl, and prints one line for
 # each cap: what was used and what the blueprint allows. The last line is
-#   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>]}
+#   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>],"judge":"<gates, review, ship or empty>"}
 # The color is the result of the last brief step. A round is each launch of gdd-build or of
 # gdd-checks after the first of each. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
@@ -917,9 +921,20 @@ if [ "$variant" = spent ]; then
 # gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
 # builder's lines are not counted here: git diff --shortstat gives them.
 #
+# A cap with no room left stops the next round, never the judging of a build already finished. When
+# the last of the build, gates and review steps is a build that didn't stop, its gates come next;
+# gates that passed, its review; a review that passed, shipping it. Then the caps on rounds, on the
+# times sent back, on minutes and on tokens are printed with what was used but left out of stop, a
+# line says what to run and that no new round starts after it while a cap has no room left, and
+# judge names what comes next. The runs before the review still stop a build that waits for its
+# gates, because they would run once more. A brief or checks step after them starts over.
+#
+# A waiver of a limit that names it in "limit", by its key, and its new value in "to" sets that cap
+# for this change only, the last waiver of each cap winning, and the line of that cap says so.
+#
 # It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
 # raising a cap is changing the blueprint. It reads two files and writes nothing.
-# Exit code: 0 when every cap has room, 1 when one has none, 2 when it is called wrong or a file is missing.
+# Exit code: 0 when stop is empty, 1 when it isn't, 2 when it is called wrong or a file is missing.
 if [ "$#" -ne 1 ]; then
   echo "usage: sh gdd/limits.sh <id>" >&2
   exit 2
@@ -947,21 +962,23 @@ function secs(s,   y, m, d, yy, era, yoe, mp, doy, doe) {
 function key_of(l) { sub(/^ */, "", l); sub(/:.*/, "", l); return l }
 function number_of(l) { sub(/^[^:]*: */, "", l); return l + 0 }
 function cap_of(key) {
+  if (key in raised) return raised[key]
   if (color != "" && ((color, key) in own)) return own[color, key]
   return (key in all) ? all[key] : ""
 }
-function report(name, used, key, past,   c, full) {
+function report(name, used, key, past, judged,   c, full) {
   c = cap_of(key)
   if (c == "") { printf "%s %d (no cap)\n", name, used; return }
   full = past ? used > c : used >= c
-  printf "%s %d of %d%s\n", name, used, c, full ? ", no room left" : ""
-  if (full) stop = stop (stop == "" ? "" : ",") "\"" name "\""
+  printf "%s %d of %d%s%s\n", name, used, c, (key in raised) ? ", raised by a waiver" : "", full ? ", no room left" : ""
+  if (full && judged) spent = 1
+  else if (full) stop = stop (stop == "" ? "" : ",") "\"" name "\""
 }
 function tier(name, used, key,   c, past) {
   c = cap_of(key)
   if (c == "") return
   past = used > c
-  printf "%s %d of %d%s\n", name, used, c, past ? ", past it: to the backlog for hardening" : ""
+  printf "%s %d of %d%s%s\n", name, used, c, (key in raised) ? ", raised by a waiver" : "", past ? ", past it: to the backlog for hardening" : ""
   if (past) slow = slow (slow == "" ? "" : ",") "\"" name "\""
 }
 FNR == NR {
@@ -987,13 +1004,20 @@ FNR == NR {
     if (waiting) { waited += t - asked; waiting = 0 }
   }
   if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
+  if ($0 ~ /"event" *: *"waiver"/ && match($0, /"limit" *: *"[a-z_]+"/)) {
+    cap = substr($0, RSTART, RLENGTH); sub(/^"limit" *: *"/, "", cap); sub(/"$/, "", cap)
+    if (match($0, /"to" *: *"?[0-9]+/)) { v = substr($0, RSTART, RLENGTH); sub(/^"to" *: *"?/, "", v); raised[cap] = v + 0 }
+  }
   if ($0 ~ /"step" *: *"brief"/ && match($0, /"result" *: *"(green|yellow|red)"/)) {
     color = substr($0, RSTART, RLENGTH); sub(/^"result" *: *"/, "", color); sub(/"$/, "", color)
   }
-  if ($0 ~ /"step" *: *"build"/) builds++
+  if ($0 ~ /"step" *: *"(brief|checks|ship)"/) next_up = ""
+  if ($0 ~ /"step" *: *"build"/) { builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
   if ($0 ~ /"step" *: *"checks"/) checks++
+  if ($0 ~ /"step" *: *"review"/) next_up = ($0 ~ /"verdict" *: *"pass"/) ? "ship" : ""
   if ($0 ~ /"step" *: *"review"/ && $0 ~ /"verdict" *: *"fix"/) review++
   if ($0 ~ /"step" *: *"gates"/) {
+    next_up = ($0 ~ /"result" *: *"fail"/) ? "" : "review"
     if ($0 ~ /"result" *: *"fail"/) gates++
     each = 0; before = 0; late_ran = 0
     n = split($0, part, /"check" *: *"/)
@@ -1018,15 +1042,21 @@ END {
   end = waiting ? asked : secs(now)
   minutes = (first == "") ? 0 : int((end - first - waited) / 60)
   if (color != "") printf "color %s\n", color
-  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0)
-  report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1)
-  report("sent back by the review", review + 0, "fix_rounds_per_gate", 1)
-  report("minutes", minutes, "minutes_per_change", 0)
-  if (cap_of("runs_before_review") != "") report("runs before the review", late_runs + 0, "runs_before_review", 0)
-  if (cap_of("tokens_per_change") != "") report("tokens", tokens + 0, "tokens_per_change", 0)
+  judged = (next_up != "")
+  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0, judged)
+  report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1, judged)
+  report("sent back by the review", review + 0, "fix_rounds_per_gate", 1, judged)
+  report("minutes", minutes, "minutes_per_change", 0, judged)
+  if (cap_of("runs_before_review") != "") report("runs before the review", late_runs + 0, "runs_before_review", 0, judged && next_up != "gates")
+  if (cap_of("tokens_per_change") != "") report("tokens", tokens + 0, "tokens_per_change", 0, judged)
   tier("seconds of the checks of a round", most_each + 0, "seconds_each_round")
   tier("seconds of the checks before the review", most_before + 0, "seconds_before_review")
-  printf "gdd-limits {\"color\":\"%s\",\"stop\":[%s],\"slow\":[%s]}\n", color, stop, slow
+  if (stop != "") next_up = ""
+  after = spent ? "; a cap above has no room left, so no new round starts after it" : ""
+  if (next_up == "gates") printf "the last build is waiting for its gates: run them%s\n", after
+  if (next_up == "review") printf "the last build passed its gates and is waiting for its review: launch it%s\n", after
+  if (next_up == "ship") printf "the last build passed its review and is waiting to ship%s\n", after
+  printf "gdd-limits {\"color\":\"%s\",\"stop\":[%s],\"slow\":[%s],\"judge\":\"%s\"}\n", color, stop, slow, next_up
   exit (stop == "") ? 0 : 1
 }' gdd/blueprint.md "$log"
 EOF
@@ -1440,11 +1470,11 @@ EOF
     feature_hash="$(g rev-parse "$seal:features/$id.feature")"
     test_hash="$(g rev-parse "$seal:tests/test_charge.py")"
     {
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.10.0","level":"deep","model":null,"round":1,"result":"red","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/pay/charge.py"],"zones":["payments"],"uncovered":[],"floor":"red","color":"red","why":""},"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"seal":null}\n' "$(now 1)" "$id" "$base" "$id" "$brief_hash" "$id" "$feature_hash"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.10.1","level":"deep","model":null,"round":1,"result":"red","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/pay/charge.py"],"zones":["payments"],"uncovered":[],"floor":"red","color":"red","why":""},"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"seal":null}\n' "$(now 1)" "$id" "$base" "$id" "$brief_hash" "$id" "$feature_hash"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"ask","of":"brief","what":"Approve what charging a cart has to do"}\n' "$(now 2)" "$id"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"approval","who":"Mar","of":"brief","version":1,"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"where":"conversation"}\n' "$(now 3)" "$id" "$id" "$brief_hash" "$id" "$feature_hash"
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.10.0","level":"standard","model":null,"round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/%s","commit":"%s","checks":{"tests/test_charge.py":"%s"},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (errors=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n' "$(now 4)" "$id" "$id" "$seal" "$test_hash"
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.0","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.10.1","level":"standard","model":null,"round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/%s","commit":"%s","checks":{"tests/test_charge.py":"%s"},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (errors=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n' "$(now 4)" "$id" "$id" "$seal" "$test_hash"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_charge.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
     } > "gdd/log/$id.jsonl"
     ;;
@@ -1630,7 +1660,7 @@ EOF
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_discount.py","exit":0,"tail":"","result":"pass"},{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"Ran 5 tests in 0.000s\\n\\nOK","result":"pass"},{"check":"lint","command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
     } >> "gdd/log/$id.jsonl"
     if [ "$variant" = stopped ]; then
-      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.10.0","level":"standard","model":null,"round":1,"result":"stop","caught":"a test of the cart was deleted","seconds":null,"tokens":null},"color":{"on":"touched","start":"%s","head":"%s","zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"verdict":"stop","ran":[{"command":"git diff --stat %s work/%s -- tests","exit":0,"tail":"tests/test_cart.py | 3 ---"}],"findings":[{"id":"f1","where":"tests/test_cart.py:13","what":"the test that an empty cart totals zero was deleted, and no brief asks for it"},{"id":"f2","where":"src/cart.py:4","what":"apply_code answers from a table of the tests own numbers"}],"closed":[]}\n' "$(now 7)" "$id" "$seal" "$(g rev-parse "work/$id")" "$seal" "$id" >> "gdd/log/$id.jsonl"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.10.1","level":"standard","model":null,"round":1,"result":"stop","caught":"a test of the cart was deleted","seconds":null,"tokens":null},"color":{"on":"touched","start":"%s","head":"%s","zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"verdict":"stop","ran":[{"command":"git diff --stat %s work/%s -- tests","exit":0,"tail":"tests/test_cart.py | 3 ---"}],"findings":[{"id":"f1","where":"tests/test_cart.py:13","what":"the test that an empty cart totals zero was deleted, and no brief asks for it"},{"id":"f2","where":"src/cart.py:4","what":"apply_code answers from a table of the tests own numbers"}],"closed":[]}\n' "$(now 7)" "$id" "$seal" "$(g rev-parse "work/$id")" "$seal" "$id" >> "gdd/log/$id.jsonl"
     fi
     ;;
 
@@ -1668,11 +1698,11 @@ EOF
     g checkout -q -b "work/$id"
     ;;
 
-  build|spent|style)
+  build|spent|finished|style|briefed)
     id=empty-cart
     brief "$id" "A message for an empty cart" \
       "When the cart is empty, say so instead of showing a total of zero." \
-      "Someone who opens an empty cart reads that it is empty. A cart with items shows how many and their total." \
+      "Someone who opens an empty cart reads that it is empty. A cart with items shows how many and their total. The text comes from a new function of \`src/cart.py\`, \`summary(prices)\`, which takes the prices in cents, as \`total\` does, and returns it." \
       "$id-1, $id-2" \
       "- $id-1: an empty cart says it is empty.
 - $id-2: a cart with items says how many and their total." \
@@ -1692,6 +1722,24 @@ Feature: The summary of a cart
     When the customer opens it
     Then they read "2 items, 7.50"
 EOF
+    if [ "$variant" = briefed ]; then
+      # Sealed with its brief and its scenarios only: the tests are the checks role's to write.
+      seal="$(seal_change "$id")"
+      g checkout -q main
+      brief_hash="$(g rev-parse "$seal:gdd/briefs/$id.md")"
+      feature_hash="$(g rev-parse "$seal:features/$id.feature")"
+      # The orchestrator's copy, the one the person has open, shows the brief and its scenarios too.
+      mkdir -p gdd/log gdd/briefs features
+      g show "$seal:gdd/briefs/$id.md" > "gdd/briefs/$id.md"
+      g show "$seal:features/$id.feature" > "features/$id.feature"
+      {
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.10.1","level":"standard","model":null,"round":1,"result":"yellow","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/cart.py"],"zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"seal":"%s"}\n' "$(now 1)" "$id" "$base" "$id" "$brief_hash" "$id" "$feature_hash" "$seal"
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"ask","of":"brief","what":"Approve the brief and its scenarios"}\n' "$(now 2)" "$id"
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"approval","who":"Mar","of":"brief","version":1,"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"where":"conversation"}\n' "$(now 3)" "$id" "$id" "$brief_hash" "$id" "$feature_hash"
+      } > "gdd/log/$id.jsonl"
+      echo "shop.sh: built '$variant' in $(pwd), base $base, seal $seal"
+      exit 0
+    fi
     { test_header; cat <<EOF
 class SummaryTest(unittest.TestCase):
     def test_an_empty_cart_says_it_is_empty(self):  # gdd:$id-1
@@ -1729,27 +1777,48 @@ EOF
       g checkout -q main
       log_until_checks "$id" tests/test_summary.py "$seal"
       {
-        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.0","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
+        printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
         printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_summary.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
       } >> "gdd/log/$id.jsonl"
     fi
-    if [ "$variant" = spent ]; then
-      # Three rounds were built: the checks sent the first back, the reviewer the other two.
+    if [ "$variant" = spent ] || [ "$variant" = finished ]; then
+      # Four builds: the checks sent the first back and the reviewer the next two, which used up the
+      # rounds. In finished the fourth is right and waits for its gates; in spent it failed them.
       for round in 1 2 3; do
         printf '\n\ndef summary(prices):\n    """Round %s."""\n    return "Your cart is empty" if not prices else "%%d items" %% len(prices)\n' "$round" >> src/cart.py
         g add -A
         g commit -q -m "A message for an empty cart, round $round"
       done
+      if [ "$variant" = finished ]; then amount='{cents // 100}.{cents % 100:02d}'; else amount='{cents / 100}'; fi
+      cat > src/cart.py <<'EOF'
+"""The cart of the shop. Amounts are integers, in cents."""
+
+
+def total(prices):
+    """Total of a cart."""
+    return sum(prices)
+
+
+def summary(prices):
+    """What someone reads when they open a cart."""
+    if not prices:
+        return "Your cart is empty"
+    cents = sum(prices)
+    items = "1 item" if len(prices) == 1 else f"{len(prices)} items"
+EOF
+      printf '    return f"{items}, %s"\n' "$amount" >> src/cart.py
+      g add -A
+      g commit -q -m "A message for an empty cart, round 4"
       g checkout -q main
       log_until_checks "$id" tests/test_summary.py "$seal"
       gate() { # time, result of the tests
         printf '{"contract":"gdd/1","ts":"2026-11-10T%s:00Z","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_summary.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":%s,"tail":"%s","result":"%s"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$1" "$id" "$seal" "$seal" "$([ "$2" = pass ] && echo 0 || echo 1)" "$([ "$2" = pass ] && echo OK || echo "FAILED (failures=2)")" "$2"
       }
       built() { # time, round
-        printf '{"contract":"gdd/1","ts":"2026-11-10T%s:00Z","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.0","level":"standard","model":null,"round":%s,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$1" "$id" "$2"
+        printf '{"contract":"gdd/1","ts":"2026-11-10T%s:00Z","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":null,"round":%s,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$1" "$id" "$2"
       }
       reviewed() { # time, round, what it found
-        printf '{"contract":"gdd/1","ts":"2026-11-10T%s:00Z","brief":"%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.10.0","level":"standard","model":null,"round":%s,"result":"fix","caught":"%s","seconds":null,"tokens":null},"color":{"on":"touched","start":"%s","head":"%s","zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"verdict":"fix","ran":[],"findings":[{"id":"f%s","where":"src/cart.py","what":"%s"}],"closed":[]}\n' "$1" "$id" "$2" "$3" "$seal" "$(g rev-parse "work/$id")" "$2" "$3"
+        printf '{"contract":"gdd/1","ts":"2026-11-10T%s:00Z","brief":"%s","event":"step","step":"review","report":{"skill":"gdd-review","version":"0.10.1","level":"standard","model":null,"round":%s,"result":"fix","caught":"%s","seconds":null,"tokens":null},"color":{"on":"touched","start":"%s","head":"%s","zones":["shop"],"uncovered":[],"floor":"yellow","color":"yellow","why":""},"verdict":"fix","ran":[],"findings":[{"id":"f%s","where":"src/cart.py","what":"%s"}],"closed":[]}\n' "$1" "$id" "$2" "$3" "$seal" "$(g rev-parse "work/$id")" "$2" "$3"
       }
       {
         built 10:05 1
@@ -1760,6 +1829,8 @@ EOF
         built 10:25 3
         gate 10:28 pass
         reviewed 10:33 2 "one item reads 1 items"
+        built 10:38 4
+        if [ "$variant" = spent ]; then gate 10:41 fail; fi
       } >> "gdd/log/$id.jsonl"
     fi
     ;;

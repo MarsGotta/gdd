@@ -47,16 +47,17 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 
 | | Green | Yellow | Red |
 |---|---|---|---|
-| Minutes of work, without waiting for a person | 10 | 30 | 60 |
-| Fix rounds in all | 1 | 2 | 3 |
+| Minutes of work, without waiting for a person | 10 | 45 | 60 |
+| The change's tests | none | a test per scenario, seen failing | the same, seen passing and broken once |
+| Fix rounds in all | 1 | 3 | 3 |
 | Runs of the checks before the review | 1 | 2 | 2 |
 | Questions to the person | none | one | two |
-| The person approves the brief | no | no, they are told in a line | yes |
-| The review | the seal and the color | it reads the change against its brief, one round, about five minutes | it runs the change and tries to break it, two rounds at most, about fifteen minutes |
+| The person approves the brief | no | yes, in a short message | yes |
+| The review | the seal and the color | it reads the change against its brief, about five minutes, two rounds at most | it runs the change and tries to break it, two rounds at most, about fifteen minutes |
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-What the person reads to approve a brief stays under 150 words. A request is split only when it would go over the blueprint's lines or cross two red zones, and its first part shows the person something. When a limit runs out the change stops, and if the person had left the decisions to the agents, nobody asks them to extend it: the change is split or left in the backlog.
+What the person reads to approve a brief stays under 150 words. A request is split only when it would go over the blueprint's lines or cross two red zones, and its first part shows the person something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is split or left in the backlog.
 
 ## The ladder
 

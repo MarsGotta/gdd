@@ -18,6 +18,8 @@ The blueprint's `levels` name, for each agent the project is worked from, the mo
 
 | Agent | Lists its models | A role as a new session, on a model |
 |---|---|---|
-| Claude Code | No command: `--model` takes an alias or a full name | `claude -p --model <model>` |
-| Codex | `codex debug models` | `codex exec -m <model>` |
-| Antigravity | `agy models` | `agy -p --model <model>` |
+| Claude Code | No command: `--model` takes an alias or a full name | `claude -p --model <model> < /dev/null` |
+| Codex | `codex debug models` | `codex exec -m <model> < /dev/null` |
+| Antigravity | `agy models` | `agy -p --model <model> < /dev/null` |
+
+Each launch closes its standard input with `< /dev/null`, so a role that runs in the background can't sit waiting for a keyboard nobody is at, and whoever launches it checks within a minute that it started: that its process is alive and has written something. In one run, a reviewer launched in the background from another agent's command line waited for input until the person asked what was happening.

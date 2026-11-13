@@ -1,0 +1,84 @@
+schema_version: "1.1"
+name: a-finished-build-still-gets-its-gates
+description: "A yellow change has used up its rounds and its minutes, and its fourth build is finished but nobody ran its gates yet. The person says to go on and leaves it to the orchestrator. It runs the project's counter, which says the build waits for its gates, runs them itself, launches no new builder and records no waiver, so a cap that ran out stops the next round and not the judging of work already done."
+tags: [orchestrator, limits, person]
+runs: 3
+execution:
+  max_turns: 80
+  timeout_seconds: 1500
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Sigue con el mensaje del carrito vacío. Decídelo tú.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: runs-the-counter
+    type: tool_used
+    tool: Bash
+    input_match: 'limits\.sh'
+    min: 1
+    weight: 2
+  - name: runs-the-tests-of-the-last-build
+    type: tool_used
+    tool: Bash
+    input_match: 'unittest'
+    min: 1
+    weight: 3
+  - name: runs-the-seal
+    type: tool_used
+    tool: Bash
+    input_match: 'git diff --exit-code'
+    min: 1
+    weight: 2
+  - name: logs-the-gates-of-the-last-build
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: 'round\W{1,4}4\b[\s\S]*?step\W{1,6}gates'
+    weight: 3
+  - name: launches-no-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 0
+    max: 0
+    weight: 3
+  - name: records-no-waiver
+    type: regex
+    target: trace
+    pattern: 'event[\\"]{1,8}\s?:\s?[\\"]{1,8}waiver[\\"]{1,8}\s?,\s?[\\"]{1,8}who[\\"]{1,8}\s?:\s?[\\"]{1,8}(?![\\"]*<)'
+    match: not_contains
+    weight: 2
+  - name: says-it-in-about-a-hundred-words
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.){800,}"'
+    match: not_contains
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
+  - name: judges-the-build-it-had
+    type: llm
+    criteria: The answer tells the person what came of the last build of the message for the empty cart once its checks ran on it. Either they passed and it went on, to its review or into the shop, or they failed and the change stopped there, left for later or to be split, because it has no rounds left. It does not say the change stopped before its checks ran, and it does not ask the person to allow more rounds or more time.
+    weight: 3

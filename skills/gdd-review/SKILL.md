@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.10.0"
+  version: "0.10.1"
   contract: gdd/1
 ---
 
@@ -37,7 +37,7 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
 The orchestrator already ran the color's checks at the gates, out of the builder's reach, and the log has what came out: don't run them again.
 
 - **Its checks don't include `review`** (green, with the template's defaults): steps 1 and 2 are the whole review, even if you found a higher color: the review of that color is another launch, at its level. Here `pass` means nothing that judges was touched.
-- **Yellow:** read the change against its brief, without running it, in about five minutes: the template gives yellow one round of review. For each scenario, a test cites it and goes through the real entry point, and the code does what the scenario says for any input, not only the examples: a table of the tests' own numbers, or `if (name === "Ana")`, is a `fix`. Then look for tests weakened, skipped or deleted, and for anything the brief says it won't do that the change does anyway.
+- **Yellow:** read the change against its brief, without running it, in about five minutes, two rounds at most with the template's limits. For each scenario, a test cites it and goes through the real entry point, and the code does what the scenario says for any input, not only the examples: a table of the tests' own numbers, or `if (name === "Ana")`, is a `fix`. Read each test for whether it would pass without the behavior, because on yellow nobody saw it pass or broke it on purpose: one that asserts less than its scenario says, or would pass on a stub or a constant, is a `fix` too, and you name it as a check that is wrong, which goes back to `gdd-checks` and not to the builder. Then look for tests weakened, skipped or deleted, and for anything the brief says it won't do that the change does anyway.
 - **Red:** run the change and try to break it, in about fifteen minutes, two rounds at most with the template's limits. Open `references/full-review.md`, in this skill's folder, read it whole and do all of it. If you can't open it, say so and stop: steps 1 and 2 aren't the review of that color.
 
 On any color, when a zone the change touches has a gate for the reviewer, each scenario tagged with its check is a question for you: say for each one whether the change does what its bad case describes. A script of the project's own is judged by `references/scripts.md`.
@@ -57,7 +57,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.10.0
+skill: gdd-review 0.10.1
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```
