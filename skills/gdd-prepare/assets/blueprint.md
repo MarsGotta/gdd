@@ -40,7 +40,8 @@ checks:
     runs: each round
   - id: secrets
     type: machine
-    command: <secret scan command from the constitution>
+    command: "<secret scan command from the constitution, from <start> to the head: the file, the line and the kind, never the value>"
+    breaks: <a fake key committed on a line with the scanner's mark that exempts it>
     runs: each round
   # - id: browser  # when the project has a screen: one test that drives it through what the change touches
   #   type: machine

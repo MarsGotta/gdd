@@ -54,6 +54,70 @@ pub fn quote(word: &str) -> String {
     }
 }
 
+/// What the layer fills in a check's command, as the contract names it: `<start>` and `<base>`,
+/// full commit hashes git resolved, and `<sealed paths>`, each quoted for `sh`, which runs it. A
+/// hash is all hex digits, so it comes out as it is, and stays right inside the command's own
+/// double quotes too, as in `"<start>^{commit}"` or `--log-opts="<start>..HEAD"`.
+#[derive(Debug, Clone, Copy)]
+pub struct Fill<'a> {
+    pub start: &'a str,
+    pub base: Option<&'a str>,
+    pub sealed: &'a [String],
+}
+
+/// Fill a check's command, or say which placeholder it still holds, which the layer doesn't
+/// fill: run as written, it would fail on every change, or judge nothing.
+pub fn fill(command: &str, f: &Fill) -> Result<String, String> {
+    let paths: Vec<String> = f.sealed.iter().map(|p| quote(p)).collect();
+    let paths = paths.join(" ");
+    let mut c = if paths.is_empty() {
+        command
+            .replace(" <sealed paths>", "")
+            .replace("<sealed paths>", "")
+    } else {
+        command.replace("<sealed paths>", &paths)
+    };
+    if crate::log::is_hash(f.start) {
+        c = c.replace("<start>", &quote(f.start));
+    }
+    if let Some(b) = f.base.filter(|b| crate::log::is_hash(b)) {
+        c = c.replace("<base>", &quote(b));
+    }
+    match placeholder(&c) {
+        Some(p) => Err(p),
+        None => Ok(c),
+    }
+}
+
+/// The first `<...>` in a command that reads as a placeholder: a letter after `<`, then words,
+/// spaces and the punctuation of a sentence, and no `.` or `/`, which a shell redirection to a
+/// file would have.
+pub fn placeholder(command: &str) -> Option<String> {
+    let b = command.as_bytes();
+    for (i, _) in command.match_indices('<') {
+        // `<<EOF` is a heredoc, `<(` a process substitution, `< file` a redirection.
+        if i > 0 && b[i - 1] == b'<' || !b.get(i + 1).is_some_and(u8::is_ascii_alphabetic) {
+            continue;
+        }
+        let rest = &command[i + 1..];
+        let Some(end) = rest.find(['>', '<']) else {
+            continue;
+        };
+        if rest.as_bytes()[end] != b'>' {
+            continue;
+        }
+        let inside = &rest[..end];
+        if inside.trim_end() == inside
+            && inside
+                .chars()
+                .all(|c| c.is_alphanumeric() || " ,;:'`()_-".contains(c))
+        {
+            return Some(format!("<{inside}>"));
+        }
+    }
+    None
+}
+
 /// The `seal` check's command for a change, with its `<start>` and its sealed paths from the log,
 /// each quoted for `sh`, which runs it.
 pub fn seal_command(bp: &Blueprint, start: &str, sealed: &[String]) -> String {
@@ -243,6 +307,45 @@ mod tests {
             c.starts_with("git diff --exit-code 'abc; touch pwned' HEAD --"),
             "{c}"
         );
+    }
+
+    #[test]
+    fn every_command_is_filled_and_a_placeholder_left_is_named() {
+        let h = "0123456789abcdef0123456789abcdef01234567";
+        let f = Fill {
+            start: h,
+            base: Some(h),
+            sealed: &["tests/a b.sh".into()],
+        };
+        assert_eq!(
+            fill(
+                "git rev-parse --verify --quiet \"<start>^{commit}\" > /dev/null && scan --log-opts=\"<start>..HEAD\" <base>",
+                &f
+            )
+            .unwrap(),
+            format!(
+                "git rev-parse --verify --quiet \"{h}^{{commit}}\" > /dev/null && scan --log-opts=\"{h}..HEAD\" {h}"
+            )
+        );
+        assert_eq!(
+            fill("ls <sealed paths> 2>&1 < /dev/null", &f).unwrap(),
+            "ls 'tests/a b.sh' 2>&1 < /dev/null"
+        );
+        assert_eq!(
+            fill("x <head>", &f).unwrap_err(),
+            "<head>",
+            "only what the contract names"
+        );
+        assert!(fill("<lint command from the constitution>", &f).is_err());
+        // Not a hash: <start> stays, and is named.
+        let bad = Fill {
+            start: "main; rm -rf x",
+            base: None,
+            sealed: &[],
+        };
+        assert_eq!(fill("git diff <start>", &bad).unwrap_err(), "<start>");
+        assert_eq!(fill("cat <<EOF > out", &f), Ok("cat <<EOF > out".into()));
+        assert_eq!(placeholder("sort <in.txt >out.txt"), None);
     }
 
     #[test]

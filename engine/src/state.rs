@@ -83,6 +83,27 @@ fn bookkeeping_commits(
         .collect()
 }
 
+/// Whether a bookkeeping file holds, at `commit`, content the orchestrator's bookkeeping of `id` had:
+/// the working copy's (both absent counts), or a blob a bookkeeping commit of the layer put there.
+/// For commits of the main branch a squash or a rebase made, which descend from none of the layer's.
+pub fn bookkeeping_known(root: &std::path::Path, id: &str, commit: &str, path: &str) -> bool {
+    if !is_bookkeeping(path) {
+        return false;
+    }
+    let at = crate::git::blob_at(root, commit, path);
+    let copy = root
+        .join(path)
+        .is_file()
+        .then(|| crate::git::hash_object(root, path).ok())
+        .flatten();
+    at == copy
+        || at.is_some_and(|blob| {
+            bookkeeping_commits(root, id)
+                .iter()
+                .any(|(_, files)| files.get(path) == Some(&blob))
+        })
+}
+
 /// Whether a bookkeeping file holds, at `b`, what the orchestrator's bookkeeping holds: the blob
 /// of the working copy's file (both absent counts), or the blob a bookkeeping commit of the layer
 /// put there, that commit being between `a` and `b`.
@@ -383,6 +404,8 @@ pub struct Progress {
     pub seal_moves: i64,
     /// Whether the log knows a seal: a `seal` event, a brief step with its seal, or checks sealed.
     pub sealed_any: bool,
+    /// Whether the person was told (an `ask --of stop`) that the last gates found the seal touched.
+    pub seal_told: bool,
 }
 
 fn hashes(v: &Value) -> BTreeMap<String, String> {
@@ -509,6 +532,14 @@ impl Progress {
                 {
                     self.stop_told = true;
                 }
+                if str_of(v, "of") == "stop"
+                    && self
+                        .last_gates
+                        .as_ref()
+                        .is_some_and(|g| g.failed.iter().any(|c| c == "seal"))
+                {
+                    self.seal_told = true;
+                }
                 if let Some(a) = self.asks.last_mut().filter(|a| a.ended_by.is_none()) {
                     a.ended_by = Some("ask".into());
                     a.ended_at = t;
@@ -590,6 +621,7 @@ impl Progress {
                 self.last_gates = None;
                 self.last_review = None;
                 self.stop_told = false;
+                self.seal_told = false;
             }
             "checks" => {
                 self.checks_runs += 1;
@@ -630,6 +662,7 @@ impl Progress {
                     self.build_stop = None;
                     self.last_gates = None;
                     self.last_review = None;
+                    self.seal_told = false;
                 }
             }
             "build" => {
@@ -641,9 +674,11 @@ impl Progress {
                 self.last_gates = None;
                 self.last_review = None;
                 self.stop_told = false;
+                self.seal_told = false;
             }
             "gates" => {
                 self.gates_runs += 1;
+                self.seal_told = false;
                 let mut failed = vec![];
                 let mut ran = vec![];
                 if let Some(Value::Array(items)) = v.get("gates") {
@@ -918,13 +953,67 @@ fn round_needs_room(id: &str, lim: &Limits, then: Next) -> Next {
     if lim.stop.is_empty() {
         return then;
     }
+    cap_spent(id, lim)
+}
+
+/// A spent cap: no new round, and how more room is asked for. More room is always the person's
+/// to give, by a waiver; for `standing-checks`, which every change waits for, there is no next
+/// item to go on with, so the person is asked at once.
+pub fn cap_spent(id: &str, lim: &Limits) -> Next {
+    let caps = lim.stop.join(", ");
+    let have = if lim.stop.len() == 1 { "has" } else { "have" };
+    let spent = lim
+        .lines
+        .iter()
+        .find(|l| lim.stop.iter().any(|s| s == l.name));
+    let (name, key, used, cap) = spent
+        .map(|l| {
+            (
+                l.name,
+                l.key,
+                l.used.trunc() as i64,
+                l.cap.map(|c| c.to_string()).unwrap_or("<cap>".into()),
+            )
+        })
+        .unwrap_or(("<cap>", "<key>", 0, "<cap>".into()));
+    // The cap that gives one more round: a count of rounds takes one more; a count of rounds sent
+    // back is spent past its cap, so it takes what was used.
+    let to = match key {
+        "rounds_per_change" | "runs_before_review" => (used + 1).to_string(),
+        "fix_rounds_per_gate" => used.to_string(),
+        _ => "<n>".into(),
+    };
+    let ask = format!(
+        "gdd ask {id} --of waiver \"{name}: {used} of {cap} used. One more round would <what it buys>. Yes?\""
+    );
+    let backlog = if log_kind(id) == LogKind::Change {
+        "<item>".to_string()
+    } else {
+        id.to_string()
+    };
+    let waive = format!(
+        "gdd waiver {id} --who <person> --check {key} --why \"<their words>\" --backlog {backlog} --limit {key} --to {to}"
+    );
+    if id == "standing-checks" {
+        return blocked(
+            "stopped",
+            "cap-spent",
+            format!(
+                "no new round: {caps} {have} no room left, and every change waits for the standing checks, so there is no next item to go on with. Ask the person at once for one more round: {ask}; after their yes: {waive}"
+            ),
+            ask,
+        );
+    }
+    let ends = if log_kind(id) == LogKind::Change {
+        format!(". Left in the backlog, it ends here: gdd brief {id} --stop \"<their words>\"")
+    } else {
+        String::new()
+    };
     blocked(
         "stopped",
         "cap-spent",
         format!(
-            "no new round: {} {} no room left. Tell the person in one line and propose splitting it or leaving it in the backlog, never more room; ask once",
-            lim.stop.join(", "),
-            if lim.stop.len() == 1 { "has" } else { "have" }
+            "no new round: {caps} {have} no room left. Tell the person in one line and propose splitting it or leaving it in the backlog, never more room; ask once. More room is the person's to give: {ask}, and after their yes: {waive}{ends}"
         ),
         format!("gdd ask {id} --of decision \"<split it, or leave it in the backlog?>\""),
     )
@@ -1065,11 +1154,22 @@ fn next_step(
                 }
                 ship_step(id, git)
             }
-            Some(r) if r.verdict == "stop" => blocked(
+            // A stop is never waived: once the person was told, a fix round, then a new trial,
+            // and only a trial that passes lifts it.
+            Some(r) if r.verdict == "stop" && !p.stop_told => blocked(
                 "stopped",
                 "review-stop",
-                "the trial said stop: tell the person",
-                format!("gdd ask {id} --of stop \"<why>\""),
+                "the trial said stop: the checks don't ship. Tell the person why; a stop is never waived, it gets a fix round and a new trial",
+                format!("gdd ask {id} --of stop \"<why it stopped>\""),
+            ),
+            Some(r) if r.verdict == "stop" => round_needs_room(
+                id,
+                lim,
+                n(
+                    "checks",
+                    "a fix round after the trial's stop: launch gdd-checks, which gets the trial's findings and the person's answer, then a new trial",
+                    format!("gdd launch {id} checks"),
+                ),
             ),
             Some(_) => round_needs_room(
                 id,
@@ -1096,7 +1196,9 @@ fn next_step(
         return blocked(
             "stopped",
             "cannot",
-            format!("the brief stopped: {reason}"),
+            format!(
+                "the brief stopped: {reason}. It stays dropped until a new brief takes it up again"
+            ),
             format!("gdd brief {id} ..."),
         );
     }
@@ -1136,12 +1238,28 @@ fn next_step(
         );
     }
     if p.has_brief() && !p.checks_done {
+        // The person answered after the second stop: what they decided moves it.
+        let decided = p.checks_stopped >= 2
+            && p.checks_line
+                .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
+        if decided {
+            return blocked(
+                "stopped",
+                "cannot",
+                format!(
+                    "gdd-checks stopped twice and the person answered: a new version of the brief, sealed (gdd seal) and logged (gdd brief), takes the checks up again; if they said to try once more as it is, gdd launch {id} checks --level deep; if they dropped it, gdd brief {id} --stop \"<their words>\""
+                ),
+                format!("gdd brief {id} ..."),
+            );
+        }
         if p.checks_stopped >= 2 {
             return blocked(
                 "stopped",
                 "cannot",
                 "gdd-checks stopped twice: a check it can't write goes to the person",
-                format!("gdd ask {id} --of decision \"<...>\""),
+                format!(
+                    "gdd ask {id} --of decision \"<the check it can't write, and the new version of the brief you propose>\""
+                ),
             );
         }
         let deep = if p.checks_stopped == 1 {
@@ -1200,11 +1318,25 @@ fn next_step(
     };
     if !g.passed {
         if g.failed.iter().any(|c| c == "seal") {
-            return blocked(
-                "stopped",
-                "seal-broken",
-                "what judges the change was touched: nothing else counts, the change stops, and the person is told",
-                format!("gdd ask {id} --of stop \"<what was touched>\""),
+            if !p.seal_told {
+                return blocked(
+                    "stopped",
+                    "seal-broken",
+                    "what judges the change was touched: nothing else counts, the change stops, and the person is told",
+                    format!("gdd ask {id} --of stop \"<what was touched>\""),
+                );
+            }
+            // Told: what judges it goes back as it was sealed, in a fix round, and the gates again.
+            return round_needs_room(
+                id,
+                lim,
+                n(
+                    "build",
+                    format!(
+                        "a fix round that puts back what judges the change exactly as it was sealed (the seal check's output names the files), then the gates; if the person dropped it: gdd brief {id} --stop \"<their words>\""
+                    ),
+                    format!("gdd launch {id} build"),
+                ),
             );
         }
         return round_needs_room(

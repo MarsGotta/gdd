@@ -50,8 +50,24 @@ struct Loaded {
     state: State,
 }
 
+/// `--head` names a commit and `--branch` a branch: a value that starts with `-` would reach git
+/// as one of its options, and is refused.
+fn check_refs(ctx: &Ctx) -> R<()> {
+    for (flag, v) in [("--head", &ctx.head), ("--branch", &ctx.branch)] {
+        if let Some(v) = v
+            && v.starts_with('-')
+        {
+            return Err(Fail::usage(format!(
+                "{flag} {v:?} starts with -: it names a commit or a branch, never an option of git"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
     check_id(id)?;
+    check_refs(ctx)?;
     let project = Project::open(&ctx.root);
     let bp = project.blueprint()?;
     // --head names the commit the state is derived on; one that names nothing is never the branch.
@@ -97,7 +113,7 @@ fn after(ctx: &Ctx, l: &Loaded, id: &str) -> State {
 /// Append one event the layer built, after the state allowed it. Returns its line.
 fn write(l: &Loaded, id: &str, event: &Value) -> R<usize> {
     if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), event) {
-        return Err(Fail::refuse(code, why, l.state.next.command.clone()));
+        return Err(Fail::refuse(code, why, way_on(l, id)));
     }
     log::append(&l.project.log_path(id), event).map_err(|e| Fail {
         exit: 1,
@@ -105,6 +121,30 @@ fn write(l: &Loaded, id: &str, event: &Value) -> R<usize> {
         lines: vec![format!("refused: {e}")],
         what: None,
     })
+}
+
+/// What moves the work after a refusal: the command of the next step, or, when the log is closed
+/// or its next step has no command, what to do instead. Never nothing.
+fn way_on(l: &Loaded, id: &str) -> String {
+    let n = &l.state.next;
+    if !n.command.is_empty() {
+        return n.command.clone();
+    }
+    if n.step == "done" {
+        if l.state.progress.kind == Some(LogKind::Blueprint) {
+            return "the blueprint's log has steps of its own: gdd step blueprint <prepare, harden or exam>, gdd ask blueprint, gdd approve blueprint".into();
+        }
+        return format!(
+            "{id} shipped and its log is closed: anything more is a new change, with an id of its own (gdd brief <new id> --paths <path>...)"
+        );
+    }
+    format!("gdd next {id}")
+}
+
+/// What to do when a cap is spent, as `next` says it: who gives more room, and the command.
+fn cap_way_on(id: &str, lim: &limits::Limits) -> String {
+    let n = state::cap_spent(id, lim);
+    format!("{} Run: {}", n.say, n.command)
 }
 
 /// The words of the refusal when git can't write here.
@@ -157,8 +197,10 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
         {
             l.state.next = state::Next {
                 step: "stopped".into(),
-                say: CANNOT_WRITE.into(),
-                command: String::new(),
+                say: format!(
+                    "{CANNOT_WRITE}: work where git can write (its .git folder, and its refs), then ask again"
+                ),
+                command: format!("gdd next {id}"),
                 blocked: Some("cannot".into()),
             };
         }
@@ -248,7 +290,27 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     out.say(approved.clone());
     out.fact("blueprint", approved);
     let text = std::fs::read_to_string(project.path("gdd/backlog.md")).unwrap_or_default();
-    let items = backlog::items(&text);
+    let read = backlog::read(&text);
+    if project.path("gdd/backlog.md").is_file() {
+        for p in &read.problems {
+            out.say(format!(
+                "can't read {}: fix it, then gdd backlog list",
+                p.say()
+            ));
+        }
+        if !read.problems.is_empty() {
+            out.fact(
+                "backlog_problems",
+                json!(
+                    read.problems
+                        .iter()
+                        .map(|p| json!({"line": p.line, "what": p.what}))
+                        .collect::<Vec<_>>()
+                ),
+            );
+        }
+    }
+    let items = read.items;
     let standing = items
         .iter()
         .find(|i| i.id == "standing-checks")
@@ -536,11 +598,42 @@ pub fn approve(ctx: &Ctx, id: &str, a: &Approval) -> Out {
             )));
         }
         let l = load(ctx, id)?;
+        // A change is approved as it was judged: its files as its judged head holds them, which
+        // the orchestrator's copy, on the main branch, may not have at all.
+        let judged = (a.of == "change")
+            .then(|| {
+                judged_commit(&l)
+                    .map(|(_, j)| j)
+                    .or(l.state.git.head.clone())
+            })
+            .flatten();
         let mut files = Map::new();
         for f in a.files {
-            let h = git::hash_object(&ctx.root, f).map_err(|_| {
-                Fail::missing(f.to_string(), format!("{f} is not in the working copy"))
-            })?;
+            let on_head = judged.as_ref().and_then(|j| git::blob_at(&ctx.root, j, f));
+            let h = match on_head {
+                Some(b) => {
+                    if git::hash_object(&ctx.root, f).is_ok_and(|w| w != b) {
+                        out.say(format!(
+                            "{f}: the change's version, at {}, not the working copy's",
+                            short(judged.as_deref().unwrap_or(""))
+                        ));
+                    }
+                    b
+                }
+                None => git::hash_object(&ctx.root, f).map_err(|_| {
+                    Fail::missing(
+                        f.to_string(),
+                        format!(
+                            "{f} is not in the working copy{}",
+                            if a.of == "change" {
+                                ", nor at the change's head"
+                            } else {
+                                ""
+                            }
+                        ),
+                    )
+                })?,
+            };
             if a.of == "brief"
                 && let Some(sealed) = l.state.progress.brief_files.get(f)
                 && sealed != &h
@@ -683,8 +776,13 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
             m.insert("void".into(), json!(true));
         }
         let ev = new_event(id, "correction", &time::now_string(), m);
-        let n = log::append(&l.project.log_path(id), &ev)
-            .map_err(|e| Fail::refuse("bad-shape", e, ""))?;
+        let n = log::append(&l.project.log_path(id), &ev).map_err(|e| {
+            Fail::refuse(
+                "bad-shape",
+                e,
+                format!("gdd verify {id}: it shows the log as it is, line by line"),
+            )
+        })?;
         out.say(format!(
             "wrote a correction of line {line}, line {n}{}; no line was rewritten",
             if void {
@@ -770,6 +868,15 @@ fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) 
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
     run("brief", |out| {
         let l = load(ctx, id)?;
+        if log_kind(id) == LogKind::Setup {
+            return Err(Fail::refuse(
+                "out-of-order",
+                format!(
+                    "{id} sets up checks and has no brief: its seal is made by the checks role, on gdd-seal/{id}"
+                ),
+                format!("gdd next {id}"),
+            ));
+        }
         if let Some(why) = a.stop {
             return brief_stopped(&l, id, why, a, out);
         }
@@ -1071,7 +1178,7 @@ fn write_report(
         ]),
     );
     if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
-        return Err(Fail::refuse(code, why, l.state.next.command.clone()));
+        return Err(Fail::refuse(code, why, way_on(l, id)));
     }
     let level = level_of(l, st, a.level.as_deref());
     let model = a
@@ -1118,7 +1225,7 @@ fn write_report(
             let tip = l.state.git.seal_tip.clone().ok_or(Fail::refuse(
                 "not-sealed",
                 format!("gdd-seal/{id} doesn't exist: the checks role seals its checks there"),
-                "",
+                format!("launch the checks role again, which seals on gdd-seal/{id}: gdd launch {id} checks"),
             ))?;
             // A setup log has no brief step: its seal was cut from the main branch, and that
             // commit is where it starts.
@@ -1147,7 +1254,9 @@ fn write_report(
                         "gdd-seal/{id} no longer contains {}: a seal only moves forward",
                         short(&start)
                     ),
-                    "",
+                    format!(
+                        "what was sealed was taken off the seal: tell the person, gdd ask {id} --of stop \"<what the seal lost>\""
+                    ),
                 ));
             }
             let changed = git::diff_names(&ctx.root, &start, &tip)
@@ -1354,6 +1463,7 @@ fn write_report(
 pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
     run("limits", |out| {
         check_id(id)?;
+        check_refs(ctx)?;
         let project = Project::open(&ctx.root);
         let bp = project.blueprint()?;
         if !project.has_log(id) {
@@ -1658,6 +1768,15 @@ pub fn zones_cmd(ctx: &Ctx) -> Out {
 pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out {
     run("seal", |out| {
         let l = load(ctx, id)?;
+        if log_kind(id) == LogKind::Setup && !merge_main {
+            return Err(Fail::refuse(
+                "out-of-order",
+                format!(
+                    "the seal of {id} is made by the checks role, on gdd-seal/{id}: {id} has no brief, and nothing else is sealed there"
+                ),
+                format!("gdd next {id}"),
+            ));
+        }
         if !git::is_repo(&ctx.root) {
             return Err(Fail::missing(
                 "a git repository",
@@ -1669,7 +1788,13 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
         if merge_main {
             let old = l.state.git.seal_tip.clone();
             let tip = seal::merge_main(&ctx.root, id, &main)
-                .map_err(|e| Fail::refuse("conflict", e, ""))?;
+                .map_err(|e| {
+                    Fail::refuse(
+                        "conflict",
+                        e,
+                        format!("settle it on gdd-seal/{id}: the orchestrator its brief and scenarios, the checks role its checks; then gdd seal {id} --merge-main again"),
+                    )
+                })?;
             if old.as_deref() == Some(tip.as_str()) {
                 out.say(format!("gdd-seal/{id} already holds {main}: nothing moved"));
             } else {
@@ -1699,7 +1824,7 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
         };
         let msg = format!("Seal {id}: what judges it, before anyone builds");
         let s = seal::seal(&ctx.root, id, &parent, files, &msg)
-            .map_err(|e| Fail::refuse("seal", e, ""))?;
+            .map_err(|e| Fail::refuse("seal", e, format!("gdd next {id}")))?;
         if s.unchanged {
             out.say(format!(
                 "gdd-seal/{id} already holds these files as they are, at {}",
@@ -1817,7 +1942,7 @@ fn judged_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
     let logged = p.start.clone().ok_or(Fail::refuse(
         "out-of-order",
         "no brief step: no <start>",
-        "",
+        way_on(l, id),
     ))?;
     let main = git::main_branch(&ctx.root);
     // In CI there is often no local gdd-seal/<id>: the platform's, as its remote holds it, is the one.
@@ -1905,7 +2030,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             ]),
         );
         if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
-            return Err(Fail::refuse(code, why, l.state.next.command.clone()));
+            return Err(Fail::refuse(code, why, way_on(&l, id)));
         }
         let head = l.state.git.head.clone().ok_or(Fail::missing(
             format!("the branch of {id}"),
@@ -1918,7 +2043,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                     "{} no room left, and no finished build waits to be judged",
                     l.state.limits.stop.join(", ")
                 ),
-                format!("split it or leave it in the backlog: gdd ask {id} --of decision \"...\""),
+                cap_way_on(id, &l.state.limits),
             ));
         }
         if l.state.limits.spent {
@@ -1962,6 +2087,41 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         }
         let plan = gates::plan(&l.bp, &color, &touched_by, &zone_checks);
         let sealed: Vec<String> = l.state.progress.sealed.keys().cloned().collect();
+        // Every check that runs gets what the layer knows in its command: <start> and <base>,
+        // hashes git resolved, and the sealed paths. A placeholder left over is refused before
+        // anything runs: as written, it would fail on every change, or judge nothing.
+        let base = l
+            .state
+            .progress
+            .base
+            .clone()
+            .filter(|b| log::is_hash(b) && git::commit_of(&ctx.root, b).is_some());
+        let fill = gates::Fill {
+            start: &start,
+            base: base.as_deref(),
+            sealed: &sealed,
+        };
+        let mut commands: std::collections::BTreeMap<String, String> = Default::default();
+        for p in plan.iter().filter(|p| p.skipped.is_none()) {
+            let raw = if p.check == "seal" {
+                gates::seal_command(&l.bp, &start, &sealed)
+            } else {
+                p.command.clone()
+            };
+            let filled = gates::fill(&raw, &fill).map_err(|held| {
+                Fail::refuse(
+                    "unfilled",
+                    format!(
+                        "the command of the check {} holds {held}, which the layer doesn't fill (it fills <start>, <base> and <sealed paths>): run as written, it would judge nothing",
+                        p.check
+                    ),
+                    format!(
+                        "write the check's real command in gdd/blueprint.md, from the constitution, and have the person approve the blueprint; then gdd gates {id}"
+                    ),
+                )
+            })?;
+            commands.insert(p.check.clone(), filled);
+        }
         // Where it runs: a throwaway worktree of exactly that commit, or a directory checked first.
         let tmp;
         let (dir, place) = match at {
@@ -2026,11 +2186,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 if tier == "before review" && ran.iter().any(|r| !r.passed) {
                     break;
                 }
-                let command = if p.check == "seal" {
-                    gates::seal_command(&l.bp, &start, &sealed)
-                } else {
-                    p.command.clone()
-                };
+                let command = commands.get(&p.check).cloned().unwrap_or_default();
                 let r = gates::run_check(
                     &dir,
                     &p.check,
@@ -2131,14 +2287,14 @@ fn model_for(
             format!(
                 "the blueprint's levels don't list the environment {w}: stop and ask the person"
             ),
-            "",
+            "the blueprint's levels name each environment, and gdd-prepare sets them: ask the person to add this one, or pass --env with one it names",
         ))?,
         None if envs.len() == 1 => &envs[0],
         None if envs.is_empty() => {
             return Err(Fail::refuse(
                 "no-environment",
                 "the blueprint has no levels",
-                "",
+                "gdd-prepare sets the blueprint's levels, which the person approves: ask them, and stop until then",
             ));
         }
         None => {
@@ -2161,7 +2317,7 @@ fn model_for(
             "the blueprint gives {} no model for {level}: stop and ask, never use another",
             e.name
         ),
-        "",
+        "ask the person to name the model in the blueprint's levels (gdd-prepare), or pass --level with one it names",
     ))?;
     let launch = models.launch.clone().or(e.models.launch.clone());
     Ok((e.name.clone(), model.to_string(), launch))
@@ -2194,6 +2350,53 @@ fn setup_subject(id: &str) -> (String, String) {
     }
 }
 
+/// Whether the project has code yet: a tracked file that is not one of its GDD files, its
+/// scenarios, its agents' files, its CI, its documents or its data.
+fn has_code(root: &Path) -> bool {
+    let Ok(files) = git::ls_files(root, &[]) else {
+        return true;
+    };
+    files.iter().any(|path| {
+        const NOT_CODE: [&str; 8] = [
+            "gdd/",
+            "features/",
+            "data/",
+            ".agents/",
+            ".claude/",
+            ".codex/",
+            ".gdd/",
+            ".github/",
+        ];
+        if NOT_CODE.iter().any(|d| path.starts_with(d)) {
+            return false;
+        }
+        let name = path.rsplit('/').next().unwrap_or(path);
+        match name.rsplit_once('.') {
+            // README, LICENSE, CODEOWNERS: documents, not code.
+            None => !name.chars().all(|c| c.is_ascii_uppercase() || c == '_'),
+            Some(("", _)) => false,
+            Some((_, ext)) => !matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "md" | "txt"
+                    | "json"
+                    | "csv"
+                    | "tsv"
+                    | "yaml"
+                    | "yml"
+                    | "xml"
+                    | "toml"
+                    | "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "gif"
+                    | "svg"
+                    | "webp"
+                    | "pdf"
+            ),
+        }
+    })
+}
+
 fn prompt_for(l: &Loaded, id: &str, role: &str, _env: &str, level: &str) -> String {
     let p = &l.state.progress;
     let mut s = vec![];
@@ -2212,15 +2415,58 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, _env: &str, level: &str) -> Stri
         let (what, tried) = setup_subject(id);
         let seal = l.state.git.seal_tip.clone().or(p.start.clone());
         match role {
-            "checks" => s.push(format!(
-                "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed on gdd-seal/{id}, cut from the main branch."
-            )),
+            "checks" => {
+                let on = if l.state.git.seal_tip.is_some() {
+                    format!("on gdd-seal/{id}, on top of its tip")
+                } else {
+                    format!("on gdd-seal/{id}, cut from the main branch")
+                };
+                s.push(format!(
+                    "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
+                ));
+                // A fix round after a trial that sent the checks back or said stop: what it found,
+                // and what the person answered when they were told.
+                let events = log::events(&l.entries);
+                if let Some(r) = &p.last_review
+                    && matches!(r.verdict.as_str(), "fix" | "stop")
+                    && let Some((_, v)) = events.iter().find(|(line, _)| *line == r.line)
+                {
+                    s.push(format!(
+                        "A fix round. The trial said {}:",
+                        r.verdict
+                    ));
+                    for f in v["findings"].as_array().cloned().unwrap_or_default() {
+                        s.push(format!(
+                            "- {} {}: {}",
+                            str_of(&f, "id"),
+                            str_of(&f, "where"),
+                            str_of(&f, "what")
+                        ));
+                    }
+                    if let Some((_, a)) = events
+                        .iter()
+                        .rev()
+                        .find(|(line, v)| *line > r.line && log::kind(v) == "answer")
+                    {
+                        s.push(format!(
+                            "The person's answer, word for word: \"{}\"",
+                            str_of(a, "what")
+                        ));
+                    }
+                }
+            }
             "review" => s.push(format!(
                 "Try {tried} on gdd-seal/{id}{}, in a fresh clone: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
                 seal.map(|c| format!(", at {c}")).unwrap_or_default(),
                 log_path.display()
             )),
             _ => {}
+        }
+        if id == "standing-checks" && (role == "checks" || role == "review") && !has_code(&root) {
+            s.push(
+                "The project has no code yet: only the seal and the secret scan are set up now. Every other check waits with its `when` in the blueprint, and is set up by its own item, standing-checks-<check>, once a change brings what it watches."
+                    .into(),
+            );
         }
         if let Some(b) = l.state.git.main_tip.clone() {
             s.push(format!("<base> is {b}, the tip of the main branch."));
@@ -2408,7 +2654,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                 ]),
             );
             if let Err((code, why)) = p.allows(Some(&l.bp), &probe) {
-                return Err(Fail::refuse(code, why, l.state.next.command.clone()));
+                return Err(Fail::refuse(code, why, way_on(&l, id)));
             }
             if role == "review"
                 && let Some(g) = p.last_gates.as_ref()
@@ -2429,7 +2675,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             return Err(Fail::refuse(
                 "out-of-order",
                 "a brief is read before anyone builds it",
-                "",
+                way_on(&l, id),
             ));
         }
         if (role == "checks" || role == "build") && !l.state.limits.stop.is_empty() {
@@ -2439,7 +2685,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                     "no new round: {} no room left",
                     l.state.limits.stop.join(", ")
                 ),
-                format!("split it or leave it in the backlog: gdd ask {id} --of decision \"...\""),
+                cap_way_on(id, &l.state.limits),
             ));
         }
         if role == "build" && l.state.next.step != "build" {
@@ -2449,7 +2695,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                     "the next step is {}, not a build: {}",
                     l.state.next.step, l.state.next.say
                 ),
-                l.state.next.command.clone(),
+                way_on(&l, id),
             ));
         }
         if role == "checks" || role == "build" {
@@ -2531,8 +2777,13 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             .unwrap_or(Duration::from_secs(left.unwrap_or(15 * 60) as u64));
         let output = runs.join("output.txt");
         out.say(format!("running, standard input closed, output to {}; it must show output within {} s; timeout {} s", output.display(), a.start_wait.as_secs(), timeout.as_secs()));
-        let seen = launch::run(&argv, &ctx.root, &output, a.start_wait, timeout)
-            .map_err(|e| Fail::refuse("not-started", e, ""))?;
+        let seen = launch::run(&argv, &ctx.root, &output, a.start_wait, timeout).map_err(|e| {
+            Fail::refuse(
+                "not-started",
+                e,
+                "the environment failed, not the change: retry once, or tell the person",
+            )
+        })?;
         let raw = std::fs::read_to_string(&output).unwrap_or_default();
         let said = launch::read_output(adapter, &raw, &model);
         let journal = json!({"launch": {
@@ -2599,7 +2850,7 @@ pub fn ship_describe(ctx: &Ctx, id: &str) -> Out {
             return Err(Fail::refuse(
                 "out-of-order",
                 format!("{id} isn't ready to ship: {}", l.state.next.say),
-                l.state.next.command.clone(),
+                way_on(&l, id),
             ));
         }
         let events = log::events(&l.entries);
@@ -2655,13 +2906,13 @@ fn ready_to_ship(l: &Loaded, id: &str, place: &str) -> R<()> {
         ]),
     );
     if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
-        return Err(Fail::refuse(code, why, l.state.next.command.clone()));
+        return Err(Fail::refuse(code, why, way_on(l, id)));
     }
     if l.state.next.step != "ship" {
         return Err(Fail::refuse(
             "out-of-order",
             format!("{id} isn't ready to ship: {}", l.state.next.say),
-            l.state.next.command.clone(),
+            way_on(l, id),
         ));
     }
     Ok(())
@@ -2783,7 +3034,7 @@ fn commit_bookkeeping(
     }
     let msg = format!("Bookkeeping of {id}: its log, the journals and the backlog");
     let c = seal::commit_on(&ctx.root, &reference, &tip, &files, &msg)
-        .map_err(|e| Fail::refuse("bookkeeping", e, ""))?;
+        .map_err(|e| Fail::refuse("bookkeeping", e, format!("gdd next {id}")))?;
     if !c.unchanged {
         let changed = git::diff_names(&ctx.root, &tip, &c.commit).unwrap_or_default();
         let blobs: Map<String, Value> = c
@@ -3080,7 +3331,10 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             return Err(Fail::refuse(
                 "not-merged",
                 format!("{} is not in {main} after the merge", short(&tip)),
-                "",
+                format!(
+                    "look at git log {main} and tell the person: the merge didn't take {}",
+                    short(&tip)
+                ),
             ));
         }
         out.say(format!(
@@ -3174,66 +3428,82 @@ pub fn ship_done(ctx: &Ctx, id: &str, place: &str) -> Out {
             format!("refs/heads/{main}"),
             format!("there is no {main} branch"),
         ))?;
-        // --head names the commit; the branch is still what a pull request merges. If the branch
-        // went into the main branch holding more than what was judged, that is what shipped.
-        if ctx.head.is_some()
-            && let Some(branch) = &l.state.git.branch
-            && let Some(tip) = git::commit_of(&ctx.root, &format!("refs/heads/{branch}"))
-            && tip != head
-            && git::is_ancestor(&ctx.root, &tip, &main_tip)
-            && !(tip == judged || state::only_bookkeeping(&ctx.root, id, &judged, &tip))
+        let gv = &l.state.git;
+        let stands = |c: &str| {
+            c == judged
+                || gv.stands_for(&judged, c)
+                || state::only_bookkeeping(&ctx.root, id, &judged, c)
+        };
+        // The change's branch is what a pull request merges. While it exists, whatever its tip
+        // holds is what a merge of it brought, --head or not: past what was judged, it can't ship.
+        let branch_tip = gv.branch.as_ref().and_then(|b| {
+            git::commit_of(&ctx.root, &format!("refs/heads/{b}")).map(|t| (b.clone(), t))
+        });
+        if let Some((branch, tip)) = &branch_tip
+            && !stands(tip)
         {
             return Err(Fail::refuse(
                 "unjudged",
                 format!(
-                    "{branch} is in {main} at {}, which differs from {}, the commit that was judged, in more than the layer's bookkeeping",
-                    short(&tip),
+                    "{branch} is at {}, which differs from {}, the commit that was judged, in more than the layer's bookkeeping: what a merge of it brought wasn't judged",
+                    short(tip),
                     short(&judged)
                 ),
-                format!("tell the person: what went into {main} wasn't judged"),
+                format!("gdd next {id}: it names what judges the branch as it is now"),
             ));
         }
-        let not_merged = |why: String| {
-            Fail::refuse(
-                "not-merged",
-                why,
-                format!(
+        let bound = branch_tip
+            .map(|(_, t)| t)
+            .or_else(|| ctx.head.as_ref().and(gv.head.clone()));
+        // What went in, from git: the merge that brought it, a fast-forward bounded by what comes
+        // after it, or, by squash or rebase, exactly the content that was judged and nothing else.
+        let (start, _) = judged_commit(&l).unwrap_or_default();
+        let went = crate::ship::went_in(
+            &ctx.root,
+            id,
+            &main,
+            &main_tip,
+            &start,
+            &judged,
+            bound.as_deref(),
+            &stands,
+        )
+        .map_err(|n| {
+            let instead = match n.code {
+                "which-tip" => format!(
+                    "name the tip that was merged: gdd ship {id} --done {place} --head <that commit>"
+                ),
+                "unjudged" => format!("tell the person: what went into {main} wasn't judged"),
+                _ => format!(
                     "merge it as the constitution says (gdd ship {id} --merge, or a pull request after gdd ship {id} --bookkeeping), then: gdd ship {id} --done <where>"
                 ),
-            )
-        };
-        // Its commits in the main branch, or, merged by squash or rebase, exactly the content that
-        // was judged in every file the change touched.
-        let (shipped, matched) = if git::is_ancestor(&ctx.root, &head, &main_tip) {
-            (head, None)
-        } else {
-            let (start, _) = judged_commit(&l).unwrap_or_default();
-            match state::holds_judged(&ctx.root, &start, &judged, &main_tip) {
-                Ok(n) => (judged.clone(), Some(n)),
-                Err(why) => {
-                    return Err(not_merged(format!(
-                        "{} is not in {main} yet, and {main} doesn't hold what was judged ({why}): a ship is written once the change is in",
-                        short(&head)
-                    )));
-                }
+            };
+            Fail::refuse(n.code, n.why, instead)
+        })?;
+        let (shipped, matched_in) = match went {
+            crate::ship::WentIn::Merged { tip, merge } => {
+                out.say(format!(
+                    "{main} took {} by the merge {}",
+                    short(&tip),
+                    short(&merge)
+                ));
+                (tip, None)
+            }
+            crate::ship::WentIn::FastForward { tip } => {
+                out.say(format!("{main} took {} by a fast-forward", short(&tip)));
+                (tip, None)
+            }
+            crate::ship::WentIn::Content { files, at } => {
+                out.say(format!(
+                    "matched by content: {main} took at {} exactly what was judged at {} in each of the {files} files the change touched, and nothing else, though not its commits (a merge by squash or rebase)",
+                    short(&at),
+                    short(&judged)
+                ));
+                out.fact("matched", "content");
+                (judged.clone(), Some(at))
             }
         };
-        if let Some(n) = matched {
-            out.say(format!(
-                "matched by content: {main} at {} holds exactly what was judged at {} in each of the {n} files the change touched, though not its commits (a merge by squash or rebase)",
-                short(&main_tip),
-                short(&judged)
-            ));
-            out.fact("matched", "content");
-        }
-        let line = write_ship(
-            &l,
-            id,
-            place,
-            &shipped,
-            matched.map(|_| main_tip.as_str()),
-            out,
-        )?;
+        let line = write_ship(&l, id, place, &shipped, matched_in.as_deref(), out)?;
         out.say(
             "the ship line stays in this copy and travels with the next change's bookkeeping: it is not something to report to the person",
         );
@@ -3464,17 +3734,36 @@ pub fn backlog_list(ctx: &Ctx) -> Out {
     run("backlog", |out| {
         let text = std::fs::read_to_string(ctx.root.join("gdd/backlog.md"))
             .map_err(|_| Fail::missing("gdd/backlog.md", "gdd/backlog.md is missing"))?;
-        let items = backlog::items(&text);
-        for i in &items {
+        let b = backlog::read(&text);
+        let items = &b.items;
+        for i in items {
             out.say(format!(
                 "{:<8} {:<20} {:<7} {}",
                 i.state, i.id, i.color, i.what
             ));
         }
-        if let Some(n) = backlog::next(&items) {
+        if let Some(n) = backlog::next(items) {
             out.say(format!("next: {}", n.id));
         }
         out.fact("items", json!(items.iter().map(|i| json!({"id": i.id, "color": i.color, "phase": i.phase, "brief": i.brief, "state": i.state})).collect::<Vec<_>>()));
+        // What can't be read is said, never skipped: an item missed is a change nobody builds.
+        for p in &b.problems {
+            out.say(format!("can't read {}", p.say()));
+        }
+        if !b.problems.is_empty() {
+            out.fact(
+                "problems",
+                json!(
+                    b.problems
+                        .iter()
+                        .map(|p| json!({"line": p.line, "what": p.what}))
+                        .collect::<Vec<_>>()
+                ),
+            );
+            out.say("fix those lines in gdd/backlog.md as its table asks (Id, What, Color, Phase, Brief and State), then gdd backlog list again");
+            out.code = 1;
+            out.refused = Some("unreadable".into());
+        }
         Ok(())
     })
 }
@@ -3496,7 +3785,8 @@ pub fn backlog_add(ctx: &Ctx, id: &str, what: &str, color: &str, phase: &str) ->
             state: "todo".into(),
             ..backlog::Item::default()
         };
-        let t = backlog::add(&text, &item).map_err(|e| Fail::refuse("exists", e, ""))?;
+        let t = backlog::add(&text, &item)
+            .map_err(|e| Fail::refuse("exists", e, "pick another id, or gdd backlog list"))?;
         std::fs::write(&path, t).map_err(|e| crate::out::io(&path, e))?;
         out.say(format!("added {id} to the backlog, {color}, todo"));
         Ok(())
@@ -3511,7 +3801,8 @@ pub fn backlog_set(ctx: &Ctx, id: &str, state: &str, brief: Option<&str>) -> Out
         let mut t = backlog::set(&text, id, "state", state)
             .map_err(|e| Fail::refuse("no-item", e, "gdd backlog list"))?;
         if let Some(b) = brief {
-            t = backlog::set(&t, id, "brief", b).map_err(|e| Fail::refuse("no-item", e, ""))?;
+            t = backlog::set(&t, id, "brief", b)
+                .map_err(|e| Fail::refuse("no-item", e, "gdd backlog list"))?;
         }
         std::fs::write(&path, t).map_err(|e| crate::out::io(&path, e))?;
         out.say(format!("{id} is {state} in the backlog"));

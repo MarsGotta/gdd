@@ -153,20 +153,79 @@ pub fn is_repo(root: &Path) -> bool {
     run(root, &["rev-parse", "--git-dir"]).is_ok_and(|o| o.status.success())
 }
 
-/// The commit a name points to, or `None`.
+/// The commit a name points to, or `None`. The name goes after `--end-of-options`, so one that
+/// starts with `-` is never taken for an option.
 pub fn commit_of(root: &Path, rev: &str) -> Option<String> {
     let spec = format!("{rev}^{{commit}}");
-    out(root, &["rev-parse", "--verify", "--quiet", &spec])
-        .ok()
-        .filter(|s| !s.is_empty())
+    out(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &spec,
+        ],
+    )
+    .ok()
+    .filter(|s| !s.is_empty())
 }
 
 /// The blob of a path at a commit, or `None`.
 pub fn blob_at(root: &Path, commit: &str, path: &str) -> Option<String> {
     let spec = format!("{commit}:{path}");
-    out(root, &["rev-parse", "--verify", "--quiet", &spec])
-        .ok()
-        .filter(|s| !s.is_empty())
+    out(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &spec,
+        ],
+    )
+    .ok()
+    .filter(|s| !s.is_empty())
+}
+
+/// The parents of a commit, the first one first.
+pub fn parents(root: &Path, commit: &str) -> Vec<String> {
+    out(
+        root,
+        &[
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            "--end-of-options",
+            commit,
+        ],
+    )
+    .map(|l| l.split_whitespace().skip(1).map(str::to_string).collect())
+    .unwrap_or_default()
+}
+
+/// The commits of `tip`'s first-parent line that `base` doesn't hold, the oldest first: the
+/// commits a branch such as the main one took, one by one, since `base`.
+pub fn first_parents(root: &Path, base: &str, tip: &str) -> Result<Vec<String>, String> {
+    let not_base = format!("^{base}");
+    let listed = out(
+        root,
+        &[
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            "--end-of-options",
+            tip,
+            &not_base,
+        ],
+    )?;
+    Ok(listed.lines().map(str::to_string).collect())
+}
+
+/// The paths a commit changed against its first parent.
+pub fn changed_by(root: &Path, commit: &str) -> Result<Vec<String>, String> {
+    diff_names(root, &format!("{commit}^1"), commit)
 }
 
 pub fn show(root: &Path, commit: &str, path: &str) -> Option<String> {
@@ -190,11 +249,15 @@ pub fn hash_object(root: &Path, path: &str) -> Result<String, String> {
 }
 
 pub fn is_ancestor(root: &Path, a: &str, b: &str) -> bool {
-    run(root, &["merge-base", "--is-ancestor", a, b]).is_ok_and(|o| o.status.success())
+    run(
+        root,
+        &["merge-base", "--is-ancestor", "--end-of-options", a, b],
+    )
+    .is_ok_and(|o| o.status.success())
 }
 
 pub fn merge_base(root: &Path, a: &str, b: &str) -> Option<String> {
-    out(root, &["merge-base", a, b])
+    out(root, &["merge-base", "--end-of-options", a, b])
         .ok()
         .filter(|s| !s.is_empty())
 }
@@ -203,7 +266,16 @@ pub fn merge_base(root: &Path, a: &str, b: &str) -> Option<String> {
 pub fn diff_names(root: &Path, a: &str, b: &str) -> Result<Vec<String>, String> {
     let o = run(
         root,
-        &["diff", "--name-only", "-z", "--no-renames", a, b, "--"],
+        &[
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--end-of-options",
+            a,
+            b,
+            "--",
+        ],
     )?;
     if !o.status.success() {
         return Err(String::from_utf8_lossy(&o.stderr).trim().to_string());
@@ -218,7 +290,16 @@ pub fn diff_names_in(
     b: &str,
     specs: &[String],
 ) -> Result<Vec<String>, String> {
-    let mut args = vec!["diff", "--name-only", "-z", "--no-renames", a, b, "--"];
+    let mut args = vec![
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--end-of-options",
+        a,
+        b,
+        "--",
+    ];
     args.extend(specs.iter().map(String::as_str));
     let o = run(root, &args)?;
     if !o.status.success() {

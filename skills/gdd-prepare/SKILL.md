@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.11.0"
+  version: "0.11.1"
   contract: gdd/1
 ---
 
@@ -21,7 +21,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
 - **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
 - **Research** what is usual in the project's sector before you propose, in a new project or when the person leaves it to you: `references/research.md`.
-- **Ask which models do the work.** See which agents' environments the person has and what each one offers, propose a model for each level, with the reviewer on the same family unless another was seen to work, and try each one before it counts: `references/levels.md`.
+- **Ask which models do the work:** propose one for each level, from what each of the person's environments offers, and try each before it counts, as `references/levels.md` says.
 - **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
 - **Ask what the gates may cost them:** how long they'd wait for a change, and how often they want to be stopped to approve something. The first sets the `limits`, the second which colors carry an approval. If they leave it to you, keep the template's.
 
@@ -44,7 +44,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 
 ## Gates
 
-Which gates the project needs is the person's decision, and they differ with the discipline and the project. Before you propose any, open `references/gates.md`: what a project starts with, what comes later and how to read the gates it already has. When it builds for the web, open `references/web.md` too. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
+Which gates the project needs is the person's decision, and they differ with the discipline and the project. Before you propose any, open `references/gates.md`, and `references/web.md` too when it builds for the web. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
 
 The gates are the project's, the same for every change. A zone gets none of its own when the project is prepared: it gives a change its color, and the color says how much each gate asks, so more risk means more checks, not other gates.
 
@@ -63,7 +63,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | `.gdd/gdd` | `references/layer.md` | The layer, set up before any step is logged. |
 | `gdd/check.sh`, `gdd/limits.sh` | `assets/check.sh`, `assets/limits.sh` | A runner that times each check, unless the person says no: the constitution's commands go through it, `seal` apart. And the counter of what `limits` caps. |
 | `gdd/gates/<gate>.feature` | `assets/gate.feature` | One for each gate of the project. A zone gets one (`assets/gates.feature`) only if the person asked for it. |
-| `gdd/backlog.md` | `assets/backlog.md` | Its first item, `standing-checks`, sets up what the blueprint's `checks` name, and CI where there is none. `gdd-checks` does it, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. |
+| `gdd/backlog.md` | `assets/backlog.md` | Its first item, `standing-checks`, sets up what the blueprint's `checks` name, or with no code yet what `references/new-project.md` says, and CI where there is none. `gdd-checks` does it, because the agent that builds doesn't set up what judges it, and until CI runs the blueprint's `guarantee` is `rule`. Add the rest with `gdd backlog add`, and see that `gdd backlog list` reads every item. |
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 

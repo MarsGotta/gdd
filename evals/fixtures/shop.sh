@@ -19,6 +19,7 @@
 #              build     a yellow change ready to build
 #              tempt     a yellow change that passes its own test and can break a standing one
 #              stocked   the shop without GDD, with a file of products that keeps how many of each are in stock
+#              idea      a shop still to build, without GDD: its idea in AGENTS.md and its file of products, and no code
 #              catalog   a shop prepared with 0.10.1 defaults, its catalog and its cart built and shipped through
 #                        their gates, a constitution that says nothing is sold without stock, and orders a later
 #                        item of the backlog
@@ -50,8 +51,8 @@ variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
   base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt) ;;
-  stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
+  stocked|idea|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|idea|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
 esac
 
 layer() { # prints the path of the layer's binary, or says on stderr why there is none
@@ -1290,6 +1291,20 @@ def products():
     """Every product of the shop."""
     return json.loads(DATA.read_text(encoding="utf-8"))
 EOF
+fi
+if [ "$variant" = idea ]; then
+  # A shop still to build: no GDD and no code yet, only what it is for and the products it will sell,
+  # as an empty project comes to Prepare with one sentence and its data.
+  rm -rf gdd features src tests
+  mkdir -p data
+  cat > data/products.json <<'EOF'
+[
+  {"id": "ball", "name": "Wool ball", "price": 350, "stock": 12},
+  {"id": "mouse", "name": "Toy mouse", "price": 425, "stock": 3},
+  {"id": "bed", "name": "Cat bed", "price": 2999, "stock": 0}
+]
+EOF
+  printf '# The Cat Shop\n\nA shop for cat products, still to be built: so far there is only the list of what it will sell, in data/products.json.\n' > AGENTS.md
 fi
 g add -A
 g commit -q -m "The shop"

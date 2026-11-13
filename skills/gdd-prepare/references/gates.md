@@ -29,6 +29,24 @@ Then once, before the reviewer, what takes longer, under ten minutes in all: whe
 
 And the rules of the product in the constitution, three to seven, which every brief goes through.
 
+## The scan for secrets, right the first time
+
+Whichever scanner the project takes, its command:
+
+- reports the file, the line and the kind of what it finds, never the value;
+- ignores the marks in the code that exempt a line, which any change could add;
+- judges what the change adds, from `<start>` to its head;
+- fails when its starting point doesn't exist, instead of passing with nothing scanned;
+- names its configuration and its ignore file under `gdd/`, which the seal covers, so that one a change adds elsewhere changes nothing.
+
+An example to adapt, for gitleaks 8, a scanner in wide use and not the method's choice, with `gdd/gitleaks.toml` holding `[extend]` and `useDefault = true`:
+
+```
+git rev-parse --verify --quiet "<start>^{commit}" > /dev/null && gitleaks git --log-opts="<start>..HEAD" --config gdd/gitleaks.toml --gitleaks-ignore-path gdd --ignore-gitleaks-allow --redact --no-banner --no-color --verbose .
+```
+
+Check every flag in the scanner's own help before you write it. Then try the command once, before it goes in the constitution: in a throwaway clone, commit a fake key on a line with the exemption mark and watch it fail and name the file, the line and the kind, without the value; run it again from a commit that doesn't exist and watch it fail too. So the person approves it once: in one run, the command was fixed twice after the approval, with an approval each time, first because a key with the exemption mark got through, then because it didn't say the file, the line and the kind.
+
 ## What isn't in the minimum, and why
 
 - **Mutation testing.** It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. In one run, a change passed all its tests at the first try, and four more rounds went into raising its mutation score to the highest, the number Prepare had set.
@@ -57,7 +75,7 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-What the person reads to approve a brief stays under 150 words. A request is split only when it would go over the blueprint's lines or cross two red zones, and its first part shows the person something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is split or left in the backlog.
+What the person reads to approve a brief stays under 150 words. A request is split only when it would go over the blueprint's lines or cross two red zones, and its first part shows the person something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is split or left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once for one more round.
 
 ## The ladder
 

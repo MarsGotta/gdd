@@ -374,7 +374,8 @@ checks:
     runs: each round
   - id: secrets
     type: machine
-    command: <secret scan command from the constitution>
+    command: "<secret scan command from the constitution, from <start> to the head: the file, the line and the kind, never the value>"
+    breaks: <a fake key committed on a line with the scanner's mark that exempts it>
     runs: each round
   # - id: browser  # when the project has a screen: one test that drives it through what the change touches
   #   type: machine
@@ -678,7 +679,7 @@ An `approval` says in `where` how the person approved, from the strongest to the
 
 The `proofs` of a `checks` step are what the color asks for: with the template's defaults, on yellow a case `rejects` for each check and a case `passes` only where a correct version already existed, and on red both.
 
-Setting up the standing checks has a log of its own, `gdd/log/standing-checks.jsonl`, named after its backlog item: a `checks` step, with its seal on `gdd-seal/standing-checks`, and a `review` step with the verdict. So does a check set up later for the color of a new zone, as `standing-checks-<check id>`, and a zone's own gate, as `gates-<zone>` (`gates-<zone>-2` when the zone already has one). A `harden` step goes to `gdd/log/blueprint.jsonl` and names in `change` the change that let the failure through, whose own log is closed. A removal has no such change: its `crack` says what no longer adds anything. An `exam` step goes there too, each time the exam is run: who was examined, how many questions it was asked, how many it caught and which it missed.
+Setting up the standing checks has a log of its own, `gdd/log/standing-checks.jsonl`, named after its backlog item, the only one that comes before every change. In a project with no code yet it sets up and tries only `seal` and `secrets`, and CI running them: every other check waits in the blueprint with a `when` that names what it watches, asks nothing of a change until there is something for it to reject, and has its trial as an item of its own, `standing-checks-<check id>`, right after the first item that brings it something to judge, whose checks role sets up what it needs to run, sealed with its tests. Nobody is asked to demonstrate a check on code that does not exist. The log of `standing-checks` holds a `checks` step, with its seal on `gdd-seal/standing-checks`, and a `review` step with the verdict. So does a check that waited for something to judge, or one set up later for the color of a new zone, as `standing-checks-<check id>`, and a zone's own gate, as `gates-<zone>` (`gates-<zone>-2` when the zone already has one). A `harden` step goes to `gdd/log/blueprint.jsonl` and names in `change` the change that let the failure through, whose own log is closed. A removal has no such change: its `crack` says what no longer adds anything. An `exam` step goes there too, each time the exam is run: who was examined, how many questions it was asked, how many it caught and which it missed.
 
 Each finding of a review has an `id`. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten. What a reviewer leaves under `LATER:`, the design of the code included, goes to the backlog on every color. The layer keeps, beside its findings, the reviewer's `NOTES FOR THE BUILDER:` in `notes` and what it left under `LATER:` in `later`, a line each.
 

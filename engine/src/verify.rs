@@ -379,8 +379,8 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                         && first.chars().all(|c| c.is_ascii_hexdigit()))
                     .then(|| first.to_string())
                 });
-                // A change merged by squash or rebase: the commit of the main branch it names holds
-                // exactly what was judged, in every file the change touched.
+                // A change merged by squash or rebase: up to the commit of the main branch it names,
+                // the commits that brought it hold exactly what was judged, and nothing else.
                 let by_content = |h: &str, m: &str| -> Result<(), String> {
                     let at = v["in"].as_str().unwrap_or("");
                     if git::commit_of(root, at).is_none() || !git::is_ancestor(root, at, m) {
@@ -391,7 +391,9 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                     } else {
                         p.last_gates.as_ref().map(|g| g.start.clone())
                     };
-                    crate::state::holds_judged(root, &start.unwrap_or_default(), h, at).map(|_| ())
+                    crate::ship::by_content(root, id, main, at, &start.unwrap_or_default(), h)
+                        .map(|_| ())
+                        .map_err(|n| n.why)
                 };
                 match (head, &main_tip) {
                     (Some(h), Some(m)) => match git::commit_of(root, &h) {

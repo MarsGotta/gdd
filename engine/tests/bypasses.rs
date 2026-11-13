@@ -562,3 +562,170 @@ fn what_a_builder_puts_under_gdd_log_is_judged_like_any_other_file() {
     let v = r.gdd(&["verify", "--all"]);
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
 }
+
+// ----- 5. what --done finds in the main branch is what was judged -----
+
+/// Merge a branch into main the way a platform does, while the copy's untracked logs, which the
+/// branch's bookkeeping also holds, are set aside and then put back.
+fn merge_as_the_platform(r: &Repo, branch: &str) {
+    let aside = r
+        .dir
+        .path()
+        .join(format!("aside-{}", branch.replace('/', "-")));
+    std::fs::rename(r.path("gdd/log"), &aside).unwrap();
+    r.git(&["merge", "-q", "--no-ff", "--no-edit", branch]);
+    for e in std::fs::read_dir(&aside).unwrap() {
+        let e = e.unwrap();
+        std::fs::copy(e.path(), r.path("gdd/log").join(e.file_name())).unwrap();
+    }
+}
+
+#[test]
+fn a_squash_that_brings_more_than_was_judged_is_refused() {
+    let r = Repo::new();
+    green_ready(&r, "q1");
+    // The squash holds the judged page, and a change to the core that nobody judged.
+    r.write("src/ui/page.txt", "a better page\n");
+    r.write("src/core/app.txt", "ok, and something nobody judged\n");
+    r.commit("Squash q1");
+    let s = r.gdd(&["ship", "q1", "--done", "main"]);
+    assert_eq!(s.facts["refused"], "unjudged", "{}", s.out);
+    assert!(s.has("src/core/app.txt"), "{}", s.out);
+    assert!(shipped(&r, "q1").is_empty());
+}
+
+#[test]
+fn a_squash_among_other_peoples_commits_still_ships() {
+    let r = Repo::new();
+    let judged = green_ready(&r, "q2");
+    r.write("src/pay/pay.txt", "pay, by someone else\n");
+    r.commit("Someone else's change");
+    r.write("src/ui/page.txt", "a better page\n");
+    let squash = r.commit("Squash q2");
+    r.write("src/core/other.txt", "later\n");
+    r.commit("Someone else's, later");
+    let s = r.gdd(&["ship", "q2", "--done", "main"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    assert!(s.has("matched by content"), "{}", s.out);
+    let ship = &shipped(&r, "q2")[0];
+    assert_eq!(ship["in"], squash.as_str(), "where it landed");
+    assert_eq!(ship["head"], judged.as_str());
+    let v = r.gdd(&["verify", "q2"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+#[test]
+fn a_squash_while_the_branch_holds_more_is_refused() {
+    let r = Repo::new();
+    let judged = green_ready(&r, "q3");
+    r.commit_on(
+        "work/q3",
+        None,
+        &[("src/core/app.txt", "ok, and more\n")],
+        "After the review",
+    );
+    r.write("src/ui/page.txt", "a better page\n");
+    r.commit("Squash q3");
+    let s = r.gdd(&["ship", "q3", "--done", "main", "--head", &judged]);
+    assert_eq!(s.facts["refused"], "unjudged", "{}", s.out);
+    assert!(s.has("work/q3 is at"), "{}", s.out);
+    assert!(shipped(&r, "q3").is_empty());
+}
+
+#[test]
+fn a_merged_branch_that_held_more_is_refused_once_it_is_deleted() {
+    let r = tracked_logs_repo();
+    green_ready(&r, "m1");
+    r.commit_on(
+        "work/m1",
+        None,
+        &[("src/ui/page.txt", "a page nobody judged\n")],
+        "After the review",
+    );
+    r.git(&["merge", "-q", "--no-ff", "--no-edit", "work/m1"]);
+    r.git(&["branch", "-D", "work/m1"]);
+    // With no branch left, the judged commit is in main, and so is what came on top of it.
+    let s = r.gdd(&["ship", "m1", "--done", "main"]);
+    assert_eq!(s.facts["refused"], "unjudged", "{}", s.out);
+    assert!(s.has("by the merge"), "{}", s.out);
+    assert!(shipped(&r, "m1").is_empty());
+    // The legitimate path: the bookkeeping, the platform's merge, the branch deleted.
+    green_ready(&r, "m2");
+    let bk = r.gdd(&["ship", "m2", "--bookkeeping"]);
+    assert_eq!(bk.code, 0, "{}", bk.out);
+    merge_as_the_platform(&r, "work/m2");
+    r.git(&["branch", "-D", "work/m2"]);
+    let s = r.gdd(&["ship", "m2", "--done", "main"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    assert_eq!(shipped(&r, "m2")[0]["head"], bk.facts["commit"]);
+    let v = r.gdd(&["verify", "m2"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+#[test]
+fn a_fast_forward_is_bounded_by_what_comes_after_it() {
+    let r = Repo::new();
+    green_ready(&r, "f1");
+    let unjudged = r.commit_on(
+        "work/f1",
+        None,
+        &[("src/ui/page.txt", "a page nobody judged\n")],
+        "After the review",
+    );
+    r.git(&["merge", "-q", "--ff-only", "work/f1"]);
+    r.git(&["branch", "-D", "work/f1"]);
+    let s = r.gdd(&["ship", "f1", "--done", "main"]);
+    assert_eq!(s.facts["refused"], "which-tip", "{}", s.out);
+    assert!(s.has("--head"), "{}", s.out);
+    // Naming the commit nobody judged as the tip: the state on it isn't ready to ship.
+    let s = r.gdd(&["ship", "f1", "--done", "main", "--head", &unjudged]);
+    assert_eq!(s.facts["refused"], "out-of-order", "{}", s.out);
+    assert!(shipped(&r, "f1").is_empty());
+    // A fast-forward whose branch says where it ended, with someone else's commit after it.
+    let judged = green_ready(&r, "f2");
+    r.git(&["merge", "-q", "--ff-only", "work/f2"]);
+    r.write("src/pay/pay.txt", "someone else\n");
+    r.commit("Someone else's change");
+    let s = r.gdd(&["ship", "f2", "--done", "main"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    assert_eq!(shipped(&r, "f2")[0]["head"], judged.as_str());
+    // After the review the builder merges the main branch into its own, the main branch takes
+    // it by a fast-forward, and the branch is deleted: that merge is the change's, unjudged.
+    r.write("src/ui/page.txt", "the page again\n");
+    r.commit("The page again");
+    green_ready(&r, "f3");
+    r.write("src/pay/pay.txt", "someone else, again\n");
+    r.commit("Someone else's other change");
+    let wt = r.dir.path().join("wt-f3");
+    let w = wt.to_string_lossy().to_string();
+    r.git(&["worktree", "add", "-q", &w, "work/f3"]);
+    git(&wt, &["merge", "-q", "--no-edit", "main"]);
+    r.git(&["worktree", "remove", "--force", &w]);
+    r.git(&["merge", "-q", "--ff-only", "work/f3"]);
+    r.git(&["branch", "-D", "work/f3"]);
+    let s = r.gdd(&["ship", "f3", "--done", "main"]);
+    assert_eq!(s.facts["refused"], "which-tip", "{}", s.out);
+    assert!(shipped(&r, "f3").is_empty());
+}
+
+// ----- 6. a ref is never taken for an option of git -----
+
+#[test]
+fn a_head_or_branch_that_starts_with_a_dash_is_refused() {
+    let r = Repo::new();
+    assert_eq!(
+        r.gdd(&["brief", "d2", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    for args in [
+        ["next", "d2", "--head=-x"],
+        ["next", "d2", "--branch=--output=pwned"],
+        ["limits", "d2", "--head=--all"],
+        ["gates", "d2", "--branch=-b"],
+    ] {
+        let o = r.gdd(&args);
+        assert_eq!(o.code, 2, "{args:?}: {}", o.out);
+        assert_eq!(o.facts["reason"], "usage", "{args:?}: {}", o.out);
+    }
+    assert!(!r.path("pwned").exists());
+}

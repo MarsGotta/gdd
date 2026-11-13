@@ -1,0 +1,123 @@
+schema_version: "1.1"
+name: prepare-starts-an-empty-project-with-what-it-can-judge
+description: A shop still to build, with only its idea and its file of products, and a person who comes with most of it decided. Prepare keeps every check in the blueprint, but leaves `standing-checks` to set up and try only the seal and the secret scan, gives each other check a `when` that names what it watches, leaves a `standing-checks-<check>` item for each after the first item that brings it something to judge, writes the backlog through the layer and stops for the person's approval.
+tags: [orchestrator, prepare]
+runs: 3
+execution:
+  max_turns: 150
+  timeout_seconds: 3000
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  prompt: |
+    I want to build this shop with GDD from the start. There's no code yet: only the list of products in data/products.json, with how many of each are in stock. It will be written in Python, with the standard library only, and customers will use it in a browser.
+
+    - Payments will be the delicate part, when they come. The texts are harmless.
+    - On every change I want the tests to pass, the code to compile, no secret to get into the repository and, once there is a screen, one test that drives it.
+    - I work only from Claude Code. Use haiku for the light level, sonnet for the standard one and opus for the deep one, and the same three for the reviewer.
+    - There's no platform and no CI, and I don't want them yet: a change ships when its branch is merged into main.
+    - There's no history to take a baseline from. Keep the usual limits, and nothing may be skipped in an emergency.
+
+    Propose whatever is left yourself, write the files and show me the blueprint to approve. Don't stop to ask me before that.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: opens-the-reference-on-new-projects
+    type: regex
+    target: trace
+    pattern: 'Nobody is asked to demonstrate a check on code that does not exist'
+    weight: 2
+  - name: opens-what-the-scan-must-do
+    type: regex
+    target: trace
+    pattern: 'The scan for secrets, right the first time'
+  - name: lists-the-scan-among-the-checks
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '-\s*id:\s*secrets\b'
+    weight: 2
+  - name: keeps-the-tests-in-the-blueprint
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '-\s*id:\s*tests\b'
+    weight: 2
+  - name: the-tests-wait-for-what-they-watch
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\n\s*- id:\s*tests\b[^\n]*(?:\n {4,}[^\n]*)*?\n {4,}when:\s*\S'
+    weight: 3
+  - name: the-compile-check-waits-for-what-it-watches
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\n\s*- id:\s*(?:lint|compile|types|build)\b[^\n]*(?:\n {4,}[^\n]*)*?\n {4,}when:\s*\S'
+    weight: 2
+  - name: gives-the-scan-the-start-of-the-change
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '[Ss]ecret[^|\n]*\|\s*`[^`\n]*<start>[^`\n]*`'
+    weight: 2
+  - name: opens-the-backlog-with-the-standing-checks
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: '\|\s*standing-checks\s*\|[^\n]*\|\s*todo\s*\|'
+    weight: 2
+  - name: the-standing-checks-are-the-seal-and-the-scan
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: '\|\s*standing-checks\s*\|[^|\n]*(?:[Ss]eal[^|\n]*[Ss]ecret|[Ss]ecret[^|\n]*[Ss]eal)'
+    weight: 2
+  - name: leaves-a-trial-for-the-tests
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: '\|\s*standing-checks-tests\s*\|'
+    weight: 3
+  - name: the-trial-comes-after-what-brings-code
+    type: regex
+    target: { source: file, path: gdd/backlog.md }
+    pattern: '\|\s*standing-checks\s*\|[^\n]*\n\|\s*(?!standing-checks)[a-z0-9-]+\s*\|[\s\S]*?\n\|\s*standing-checks-tests\s*\|'
+    weight: 2
+  - name: adds-the-items-through-the-layer
+    type: regex
+    target: trace
+    pattern: 'backlog add '
+  - name: sees-that-the-layer-reads-the-backlog
+    type: regex
+    target: trace
+    pattern: 'backlog list'
+    weight: 2
+  - name: writes-no-code-of-the-product
+    type: regex
+    target: files
+    pattern: '(?:^|\n)(?:src|tests)/[^\n]*\.py(?=\n|$)'
+    match: not_contains
+    weight: 2
+  - name: sets-up-no-check-before-the-approval
+    type: regex
+    target: files
+    pattern: 'gdd/log/standing-checks'
+    match: not_contains
+    weight: 2
+  - name: logs-the-blueprint-as-proposed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
+    weight: 2
+  - name: asks-the-person-to-approve
+    type: llm
+    criteria: The answer points the person to the files it wrote, the blueprint among them, and asks them to approve them. It says, in plain words, that at first only the scan for secrets and the check that nothing that judges was touched get set up and tried, and that the other checks start judging once the first changes bring them code. It does not say the project is ready for changes now, and it does not ask the person to demonstrate or try a check on code that does not exist yet.
+    weight: 3
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
+  - name: every-log-it-starts-has-the-layers-journal
+    type: regex
+    target: files
+    pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
+    match: not_contains
+    weight: 2

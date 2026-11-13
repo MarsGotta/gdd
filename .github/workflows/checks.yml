@@ -55,7 +55,7 @@ jobs:
       - run: python3 scripts/check_commands.py
       - name: The project the evals run in still builds, and the layer reads its logs
         run: |
-          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked catalog draft slow redreview style spent finished briefed asked halfway stopped; do
+          for variant in base plain history gated prepared redrule timed logged broken review rises pressure missing build tempt stocked idea catalog draft slow redreview style spent finished briefed asked halfway stopped; do
             bash evals/fixtures/shop.sh "$variant" "$RUNNER_TEMP/shop-$variant"
             test -z "$(git -C "$RUNNER_TEMP/shop-$variant" status --porcelain -- .gdd)"
             "$RUNNER_TEMP/shop-$variant/.gdd/gdd" --root "$RUNNER_TEMP/shop-$variant" --no-journal verify --all

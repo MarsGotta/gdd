@@ -2,6 +2,8 @@
 
 When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, the features of the project's gates in `gdd/gates/`, when the blueprint names any, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone.
 
+In a project with no code yet, only `seal` and `secrets` are set up. Every other check waits with a `when` that names what it watches, and its trial comes later, as `standing-checks-<check id>`, on the code the first change brought: one with nothing to judge yet isn't a finding, because nobody is asked to demonstrate a check on code that does not exist. Read only that each `when` names what its check watches.
+
 Try each machine check three ways, and no more:
 
 1. **It rejects.** Plant its bad case and watch the check fail and name the file and the line. The bad case is the one the blueprint gives it in `breaks` and its gate's feature describes under `Rule: It closes` or, for a check with neither, the plainest thing it exists to catch.

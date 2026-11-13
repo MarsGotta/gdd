@@ -75,7 +75,7 @@ Your agent looks at what's there and proposes what is delicate in your project (
 
 ### 2. Let it set up the checks
 
-You don't ask for this one. Before your first change, your agent sets up the checks your blueprint names, usually your tests, your linter and a scan that keeps secrets out of the repository. Then it tries each one on purpose, to see it reject something done wrong. No change starts until they hold.
+You don't ask for this one. Before your first change, your agent sets up the checks your blueprint names, usually your tests, your linter and a scan that keeps secrets out of the repository. Then it tries each one on purpose, to see it reject something done wrong. No change starts until they hold. If your project has no code yet, that is only the scan for secrets and the check that nothing that judges was touched: the others start with the first change that brings them something to judge.
 
 ### 3. Ask for a change
 
