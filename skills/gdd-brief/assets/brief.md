@@ -18,7 +18,11 @@ backlog: <item id>
 
 ## What changes
 
-<A few sentences: what someone will be able to do, and what stays as it was.>
+<A few sentences: what someone will be able to do, and the rules of the product it touches.>
+
+## What it won't do yet
+
+<Up to three things the person might expect from the request and won't get, each as a consequence they can weigh, with the backlog item that will do it, or none.>
 
 ## Scenarios
 

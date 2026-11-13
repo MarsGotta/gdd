@@ -1,0 +1,70 @@
+schema_version: "1.1"
+name: slow-checks-wait-for-the-rest
+description: "The footer typo, in a shop whose blueprint has a check that drives the shop and takes a few seconds, set to run before the review and only when a text changes. The orchestrator runs the checks of each round first and that one once they pass, and logs it after them."
+tags: [orchestrator, green]
+runs: 3
+execution:
+  max_turns: 100
+  timeout_seconds: 2400
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    The footer says "Copyrigth". Fix the typo.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: fixes-the-typo
+    type: regex
+    target: { source: file, path: src/texts/footer.txt }
+    pattern: 'Copyright 2026'
+    weight: 2
+  - name: runs-the-slow-check-at-the-gates
+    type: regex
+    target: trace
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"]'
+    weight: 2
+  - name: logs-it-after-the-rest
+    type: regex
+    target: trace
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"][^\n]{0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"]'
+    weight: 2
+  - name: never-logs-it-before-the-rest
+    type: regex
+    target: trace
+    pattern: 'check[\\"]{1,8}\s?:\s?[\\"]{1,8}e2e[\\"](?:(?!step[\\"]{1,8}\s?:\s?[\\"]{1,8}gates)[^\n]){0,4000}?check[\\"]{1,8}\s?:\s?[\\"]{1,8}(?:tests|lint)[\\"]'
+    match: not_contains
+    weight: 3
+  - name: launches-a-builder
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-build'
+    min: 1
+    max: 2
+  - name: launches-a-reviewer
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-review'
+    min: 1
+    max: 2
+  - name: tells-the-person-briefly
+    type: llm
+    criteria: The answer tells the person that the typo is fixed and shipped and that its gates passed, the check that drives the shop among them, and it does not ask the person to approve the change.

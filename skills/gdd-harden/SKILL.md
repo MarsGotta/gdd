@@ -3,13 +3,13 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project in both directions, adding a check after something slipped through its gates or keeps repeating, and relaxing or retiring a gate that adds nothing. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when the logs show it coming back, or when a gate costs more than it catches. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.9.1"
+  version: "0.10.0"
   contract: gdd/1
 ---
 
 # Hardening
 
-Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level.
+Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask. In one run, hardening started inside a request, and three more red changes opened on protecting the database's files.
 
 ## What counts
 
@@ -34,6 +34,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 
 - **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it. This is where a zone gets gates of its own: when preparing, only if the person asks for one.
 - **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
+- **Mutation testing, or a threshold of coverage,** when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. Propose it for the color where that happened, before the review, at its tool's own default, looked up on the tool's own page and never from memory, and never the highest.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
 - **A removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, plant its bad case and see it still rejected, and then propose retiring it: how often it ran, what it caught, what it cost and what it would let through from then on.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.

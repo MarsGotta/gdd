@@ -26,4 +26,8 @@ With the project's runner, a command reads `sh gdd/check.sh <check id> -- <comma
 
 ## Rules that hold everywhere
 
-- <for example: prices are stored in cents>
+What must never happen in this product, whichever part a change touches, in the person's words, and then the few rules of how it is built that hold in every part. Three to seven: this file goes into every call, and every brief is checked against each one.
+
+- <for example: nothing is sold that isn't in stock>
+- <for example: a paid order never changes>
+- <for example: prices are stored in whole cents>

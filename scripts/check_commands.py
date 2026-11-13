@@ -25,7 +25,13 @@ something that slipped through once:
     and the counts of the logs don't depend on spaces in the JSON;
   - the zones tried on the history look at the window they say, find the
     commits of a zone, the ones no zone covers and the ones that fixed
-    something, whatever the case of the word.
+    something, whatever the case of the word;
+  - the project's runner passes the exit code on and says what a check took;
+  - the project's counter reads the caps of the change's color from the
+    blueprint's template, falls back to the caps of every color, leaves out
+    the waits for a person, reads JSON with and without spaces, stops a change
+    whose rounds or runs before the review ran out, never stops one for a
+    slow tier, and refuses a missing log or a wrong id.
 
 It needs git and grep and nothing else, uses no network and writes only in a
 temporary folder. Exit codes: 0 when every case passes, 1 when one fails, 2
@@ -133,6 +139,79 @@ def sealed_change(repo, name, source):
     write(repo, source, f"{name}, changed\n")
     commit(repo, f"build {name}")
     return start
+
+
+def counter_cases(shop):
+    """The project's counter, on the blueprint's own template and sample logs."""
+    counter = SKILLS / "gdd-prepare/assets/limits.sh"
+    template = (SKILLS / "gdd-prepare/assets/blueprint.md").read_text(encoding="utf-8")
+    late = "  - id: e2e\n    type: machine\n    command: sh e2e.sh\n    runs: before review\n  - id: review\n"
+    if template.count("  - id: review\n") != 1:
+        failures.append("the blueprint's template no longer has one review check to put a slow check before")
+        return
+    blueprint = template.replace("  - id: review\n", late)
+    old = ("---\ncontract: gdd/1\nlimits:\n  fix_rounds_per_gate: 2\n  rounds_per_change: 6\n"
+           "  minutes_per_change: 120  # without the time it waits for a person\n---\n")
+
+    def ev(minute, rest, spaced=False):
+        line = '{"contract":"gdd/1","ts":"2026-11-10T%02d:%02d:00Z","brief":"x",%s}' % (10 + minute // 60, minute % 60, rest)
+        return line.replace('":"', '": "').replace('","', '", "').replace(',"', ', "') if spaced else line
+
+    brief = '"event":"step","step":"brief","report":{"skill":"gdd-brief","result":"yellow","tokens":10}'
+    ask = '"event":"ask","of":"decision","what":"a rounding"'
+    approval = '"event":"approval","who":"Mar","of":"brief"'
+    checks = '"event":"step","step":"checks","report":{"result":"sealed"}'
+    build = '"event":"step","step":"build","report":{"result":"done"}'
+    gates_ok = '"event":"step","step":"gates","gates":[{"check":"seal","seconds":1,"result":"pass"},{"check":"tests","seconds":20,"result":"pass"}]'
+    gates_slow = '"event":"step","step":"gates","gates":[{"check":"tests","seconds":130,"tail":"the \\"check\\":\\"x\\" text","result":"pass"},{"check":"e2e","seconds":30,"result":"pass"}]'
+    gates_late = '"event":"step","step":"gates","gates":[{"check":"tests","seconds":5,"result":"pass"},{"check":"e2e","seconds":40,"result":"pass"}]'
+
+    def count(plan, lines, *args):
+        with tempfile.TemporaryDirectory() as folder:
+            write(Path(folder), "gdd/blueprint.md", plan)
+            if lines is not None:
+                write(Path(folder), "gdd/log/x.jsonl", "\n".join(lines) + "\n")
+            result = subprocess.run(["sh", str(counter), *(args or ("x",))], cwd=folder, capture_output=True, text=True)
+            last = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+            return result, last
+
+    # Waiting for a person doesn't count: 80 minutes from the first event to the open ask, 60 of them waiting.
+    waited = [ev(0, brief), ev(5, ask), ev(65, approval), ev(70, checks), ev(75, build), ev(80, ask)]
+    result, last = count(blueprint, waited)
+    expect("the counter reads the caps of the change's color from the blueprint's template",
+           "color yellow" in result.stdout and "rounds 0 of 2" in result.stdout and "minutes 20 of 30" in result.stdout, result.stdout)
+    expect("the counter lets a change with room go on", result.returncode == 0 and last.startswith('gdd-limits {"color":"yellow","stop":[]'), last)
+    result, _ = count(blueprint, [ev(0, brief, True), ev(5, ask, True), ev(65, approval, True), ev(70, checks, True), ev(75, build, True), ev(80, ask, True)])
+    expect("the counter reads JSON with spaces the same", "minutes 20 of 30" in result.stdout and "rounds 0 of 2" in result.stdout, result.stdout)
+
+    # Two fix rounds of a yellow change use up its rounds, and the checks sent it back past its cap.
+    rounds = [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_ok.replace('"pass"}]', '"fail"}]')),
+              ev(4, build), ev(5, gates_ok.replace('"pass"}]', '"fail"}]')), ev(6, build), ev(7, ask)]
+    result, last = count(blueprint, rounds)
+    expect("the counter stops a change whose rounds ran out", result.returncode == 1 and '"rounds"' in last and '"sent back by the checks"' in last, result.stdout)
+
+    # A tier past its seconds stops nothing; the runs before the review do, once used up.
+    result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_slow), ev(4, ask)])
+    expect("a slow tier goes to the backlog and stops nothing",
+           result.returncode == 0 and '"slow":["seconds of the checks of a round"]' in last and "130 of 120" in result.stdout, result.stdout)
+    result, last = count(blueprint, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, gates_late), ev(4, gates_late), ev(5, ask)])
+    expect("the counter stops a change whose runs before the review ran out",
+           result.returncode == 1 and '"runs before the review"' in last and "runs before the review 2 of 2" in result.stdout, result.stdout)
+
+    # A blueprint from before 0.10: the caps right under limits hold for every color.
+    result, last = count(old, [ev(0, brief), ev(1, checks), ev(2, build), ev(3, build), ev(4, ask)])
+    expect("an old blueprint's caps hold for every color", result.returncode == 0 and "rounds 1 of 6" in result.stdout and "minutes 4 of 120" in result.stdout, result.stdout)
+
+    result, _ = count(blueprint, None)
+    expect("the counter refuses a missing log", result.returncode == 2 and "missing" in result.stderr, result.stderr)
+    result, _ = count(blueprint, waited, "X y")
+    expect("the counter refuses a wrong id", result.returncode == 2, result.stderr)
+    result, _ = count(blueprint, waited, "x", "tests")
+    expect("the counter says how it is called when it is called wrong", result.returncode == 2 and "usage" in result.stderr, result.stderr)
+
+    carried = re.search(r"cat > gdd/limits\.sh <<'EOF'\n(.*?)EOF\n", shop, re.S)
+    expect("the shop of the eval cases carries the counter as the template gives it",
+           carried is not None and carried.group(1) == counter.read_text(encoding="utf-8"))
 
 
 def main():
@@ -325,11 +404,6 @@ def main():
         fixed = run(repo, fixes_cmd, since=since, main_branch="main").stdout.split()
         expect("the fixes are the window's", fixed == [c4], f"got {fixed}")
 
-    for failure in failures:
-        print(f"scripts/check_commands.py: {failure}")
-    if failures:
-        print(f"{len(failures)} case(s) failed", file=sys.stderr)
-        return 1
     # The project's runner: it passes the exit code on and ends with what the check took.
     runner = SKILLS / "gdd-prepare/assets/check.sh"
     with tempfile.TemporaryDirectory() as folder:
@@ -354,6 +428,13 @@ def main():
     expect("the shop of the eval cases carries the runner as the template gives it",
            carried is not None and carried.group(1) == runner.read_text(encoding="utf-8"))
 
+    counter_cases(shop)
+
+    for failure in failures:
+        print(f"scripts/check_commands.py: {failure}")
+    if failures:
+        print(f"{len(failures)} case(s) failed", file=sys.stderr)
+        return 1
     print("commands: every command the skills give does what they say")
     return 0
 

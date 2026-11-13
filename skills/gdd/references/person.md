@@ -59,12 +59,15 @@ After:
 
 ## When they leave it to you
 
-"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where their answer wouldn't change it. Decide it, write it down in the brief or in the log, tell them in a line, and don't ask that kind of thing again.
+"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, write it down in the brief or in the log, tell them in a line, and don't ask that kind of thing again.
 
 It doesn't cover what the method keeps for a person, because nobody else can give it:
 
 - approving the blueprint, and what has to pass for a change when its color asks for it;
-- loosening anything: recording debt, quarantining or removing a check, lowering a limit or a color;
+- a rule of their product they'd have an answer for: a rounding, a maximum, an order, a case that is free or empty;
+- loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
 - what can't be undone.
 
-For those, come back once, with the one thing you propose and a yes to give. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+For those, come back once, with the one thing you propose and a yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". In one run, every limit that ran out was lifted on words like those. When a limit runs out and they had left decisions to you, don't ask at all: split the change or leave it in the backlog, say so in a line and go on. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+
+A rule of their product is asked within what its color allows: no question on green, one on yellow, two on red, in one message. When they leave it to you, or no question is left for it, take what is usual in their sector, write it into the scenario and say it in your last message as an assumption, so they can still correct it: "I assumed a refund goes back to the card it was paid with; tell me if not."

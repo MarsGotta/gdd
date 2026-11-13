@@ -83,6 +83,35 @@ graders:
     pattern: '(?:[Ss]ecret|[Ss]can|[Ll]eak)[^/\n]*\.(?:py|sh|js|ts)\b'
     match: not_contains
     weight: 2
+  - name: leaves-mutation-out-of-red
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\bred:\s*\n\s*checks:\s*\[[^\]\n]*mutation'
+    match: not_contains
+    weight: 2
+  - name: asks-for-no-brief-approval-on-yellow
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\byellow:\s*\n\s*checks:\s*\[[^\]\n]*brief-approval'
+    match: not_contains
+  - name: says-when-each-check-runs
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\n\s+runs:\s*(?:each round|before review)\b'
+    weight: 2
+  - name: gives-each-color-its-limits
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\ncolors:[\s\S]*?\n\s{4}limits:\s*\n\s{6}[a-z_]+:\s*\d'
+    weight: 2
+  - name: shows-the-table-of-checks
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\|\s*Check\s*\|\s*What it catches\s*\|\s*When it runs'
+  - name: leaves-the-counter
+    type: regex
+    target: files
+    pattern: 'gdd/limits\.sh'
   - name: marks-payments-red
     type: regex
     target: { source: file, path: gdd/blueprint.md }

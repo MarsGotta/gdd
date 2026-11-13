@@ -9,16 +9,17 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | File | What it holds | Who writes it | How it changes |
 |---|---|---|---|
 | `AGENTS.md`, GDD block | The cross-cutting core, under 100 words, and the map. It imports the constitution | `gdd-prepare` | With the person's approval |
-| `gdd/constitution.md` | The stack, the commands and the rules that hold everywhere | `gdd-prepare` | With the person's approval |
+| `gdd/constitution.md` | The stack, the commands, and three to seven rules of the product that hold everywhere | `gdd-prepare` | With the person's approval |
 | `gdd/blueprint.md` | Levels, limits, checks, colors, zones and the context of each gate, in YAML front matter, plus a Mermaid diagram | `gdd-prepare`, `gdd-harden` | Protected by CODEOWNERS; the person approves |
 | `gdd/check.sh` | The project's runner, when it has one: it runs a check, times it and says what it took | `gdd-prepare`, with the person | Like the blueprint |
+| `gdd/limits.sh` | The project's counter, when it has one: what the blueprint's `limits` still allow a change, counted from its log | `gdd-prepare`, with the person | Like the blueprint |
 | `gdd/gates/<gate>.feature` | A gate of the project, in Gherkin: which checks it asks of each color, and the bad case each of them rejects | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/gates/<zone>.feature` | A zone's own standing gates, in Gherkin, when the person asked for one or hardening gave it one | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/exam.md` | The reviewer's exam: the changes that got past a reviewer, as commits of the main branch | `gdd-harden`, with the person | Like the blueprint |
 | `gdd/backlog.md` | What to build, each item with its expected color | `gdd-prepare`, `gdd-brief`, `gdd`, `gdd-harden` | Freely |
 | `gdd/debt.md` | Known debt, with the baseline of each check | `gdd-prepare`, and `gdd` when a person waives a check | Down freely; up only with the person's approval |
 | `gdd/briefs/<id>.md` | What has to pass for one change, which the person approves when its color asks for `brief-approval` | `gdd-brief` | Never once its hashes are in the log: a change makes a new version (the same file, with `version` raised by one), which goes back to the person only if its color asks for `brief-approval` and what has to pass changes |
-| `features/<capability>.feature` | The scenarios of changes, grouped by capability | `gdd-brief`, with the person | Only through a brief |
+| `features/<capability>.feature` | The use cases of changes, as scenarios in Gherkin, grouped by capability | `gdd-brief`, with the person | Only through a brief |
 | `gdd/log/<id>.jsonl` | Everything that happens to a brief, one event per line | `gdd`, from what each role reports | Only appended |
 | `gdd/context/` | Copies of external references and research | `gdd-prepare` | Refreshed with a new date |
 
@@ -101,7 +102,11 @@ With the project's runner, a command reads `sh gdd/check.sh <check id> -- <comma
 
 ## Rules that hold everywhere
 
-- <for example: prices are stored in cents>
+What must never happen in this product, whichever part a change touches, in the person's words, and then the few rules of how it is built that hold in every part. Three to seven: this file goes into every call, and every brief is checked against each one.
+
+- <for example: nothing is sold that isn't in stock>
+- <for example: a paid order never changes>
+- <for example: prices are stored in whole cents>
 ```
 
 ## The runner
@@ -137,16 +142,153 @@ printf 'gdd-check {"check":"%s","seconds":%s,"exit":%s}\n' "$id" "$((end - start
 exit "$code"
 ```
 
+## The counter
+
+A project may also have `gdd/limits.sh`, which counts from a change's log what the blueprint's `limits` cap for the change's color: its rounds, how many times its checks and its review sent it back, its minutes without the waits for a person, how many times the checks that run before the review ran, and its tokens. It also says when the checks of one run of the gates took longer than their tier's seconds, which stops nothing and goes to the backlog for hardening. The orchestrator runs it before each round and each run of the gates, and the change stops when it exits 1. Like the runner, it is the project's file: the person approves it with the blueprint, it lives under `gdd/`, and raising a cap is changing the blueprint. A project without it counts the same by hand.
+
+<!-- template: gdd-prepare/assets/limits.sh -->
+```sh
+#!/bin/sh
+# What the blueprint's limits still allow one change, counted from its log, so nobody counts by hand.
+#
+# Usage: sh gdd/limits.sh <id>
+#
+# It reads the caps from the front matter of gdd/blueprint.md, those of the change's color before
+# those that hold for every color, and the events of gdd/log/<id>.jsonl, and prints one line for
+# each cap: what was used and what the blueprint allows. The last line is
+#   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>]}
+# The color is the result of the last brief step. A round is each launch of gdd-build or of
+# gdd-checks after the first of each. Rounds, minutes, tokens and the runs of the checks that run
+# before the review have no room left when what was used reaches the cap; the checks and the review,
+# when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait
+# for a person, from an ask to the event after it. A tier of checks past its seconds in a run of the
+# gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
+# builder's lines are not counted here: git diff --shortstat gives them.
+#
+# It belongs to the project, like gdd/check.sh: the person approves it with the blueprint, and
+# raising a cap is changing the blueprint. It reads two files and writes nothing.
+# Exit code: 0 when every cap has room, 1 when one has none, 2 when it is called wrong or a file is missing.
+if [ "$#" -ne 1 ]; then
+  echo "usage: sh gdd/limits.sh <id>" >&2
+  exit 2
+fi
+case "$1" in
+  *[!a-z0-9-]*|'') echo "limits.sh: an id is lowercase letters, digits and hyphens" >&2; exit 2 ;;
+esac
+log="gdd/log/$1.jsonl"
+for file in gdd/blueprint.md "$log"; do
+  if [ ! -f "$file" ]; then
+    echo "limits.sh: $file is missing" >&2
+    exit 2
+  fi
+done
+awk -v now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+function secs(s,   y, m, d, yy, era, yoe, mp, doy, doe) {
+  y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
+  yy = (m <= 2) ? y - 1 : y
+  era = int(yy / 400); yoe = yy - era * 400
+  mp = (m > 2) ? m - 3 : m + 9
+  doy = int((153 * mp + 2) / 5) + d - 1
+  doe = yoe * 365 + int(yoe / 4) - int(yoe / 100) + doy
+  return (era * 146097 + doe - 719468) * 86400 + substr(s, 12, 2) * 3600 + substr(s, 15, 2) * 60 + substr(s, 18, 2)
+}
+function key_of(l) { sub(/^ */, "", l); sub(/:.*/, "", l); return l }
+function number_of(l) { sub(/^[^:]*: */, "", l); return l + 0 }
+function cap_of(key) {
+  if (color != "" && ((color, key) in own)) return own[color, key]
+  return (key in all) ? all[key] : ""
+}
+function report(name, used, key, past,   c, full) {
+  c = cap_of(key)
+  if (c == "") { printf "%s %d (no cap)\n", name, used; return }
+  full = past ? used > c : used >= c
+  printf "%s %d of %d%s\n", name, used, c, full ? ", no room left" : ""
+  if (full) stop = stop (stop == "" ? "" : ",") "\"" name "\""
+}
+function tier(name, used, key,   c, past) {
+  c = cap_of(key)
+  if (c == "") return
+  past = used > c
+  printf "%s %d of %d%s\n", name, used, c, past ? ", past it: to the backlog for hardening" : ""
+  if (past) slow = slow (slow == "" ? "" : ",") "\"" name "\""
+}
+FNR == NR {
+  if ($0 ~ /^---[ \t]*$/) { fence++; next }
+  if (fence != 1) next
+  line = $0
+  sub(/[ \t]+#.*$/, "", line)
+  if (line ~ /^[ \t]*(#|$)/) next
+  if (line ~ /^[a-z_]+:/) { section = line; sub(/:.*/, "", section); next }
+  if (section == "limits" && line ~ /^  [a-z_]+: *[0-9]+ *$/) all[key_of(line)] = number_of(line)
+  if (section == "colors" && line ~ /^  [a-z]+: *$/) { hue = key_of(line); inside = 0 }
+  if (section == "colors" && line ~ /^    [a-z_]+:/) inside = (line ~ /^    limits: *$/)
+  if (section == "colors" && inside && line ~ /^      [a-z_]+: *[0-9]+ *$/) own[hue, key_of(line)] = number_of(line)
+  if (section == "checks" && line ~ /^  - id: */) { id = line; sub(/^  - id: */, "", id); gsub(/[ "\047]/, "", id) }
+  if (section == "checks" && line ~ /^    runs: *before review *$/) late[id] = 1
+  next
+}
+{
+  t = -1
+  if (match($0, /"ts" *: *"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
+    t = secs(substr($0, RSTART + RLENGTH - 19, 19))
+    if (first == "") first = t
+    if (waiting) { waited += t - asked; waiting = 0 }
+  }
+  if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
+  if ($0 ~ /"step" *: *"brief"/ && match($0, /"result" *: *"(green|yellow|red)"/)) {
+    color = substr($0, RSTART, RLENGTH); sub(/^"result" *: *"/, "", color); sub(/"$/, "", color)
+  }
+  if ($0 ~ /"step" *: *"build"/) builds++
+  if ($0 ~ /"step" *: *"checks"/) checks++
+  if ($0 ~ /"step" *: *"review"/ && $0 ~ /"verdict" *: *"fix"/) review++
+  if ($0 ~ /"step" *: *"gates"/) {
+    if ($0 ~ /"result" *: *"fail"/) gates++
+    each = 0; before = 0; late_ran = 0
+    n = split($0, part, /"check" *: *"/)
+    for (i = 2; i <= n; i++) {
+      c = part[i]; sub(/".*/, "", c)
+      s = 0
+      if (match(part[i], /"seconds" *: *[0-9.]+/)) { s = substr(part[i], RSTART, RLENGTH); sub(/^[^:]*: */, "", s) }
+      if (c in late) { late_ran = 1; before += s } else each += s
+    }
+    if (late_ran) late_runs++
+    if (each > most_each) most_each = each
+    if (before > most_before) most_before = before
+  }
+  rest = $0
+  while (match(rest, /"tokens" *: *[0-9]+/)) {
+    v = substr(rest, RSTART, RLENGTH); sub(/^[^:]*: */, "", v)
+    tokens += v
+    rest = substr(rest, RSTART + RLENGTH)
+  }
+}
+END {
+  end = waiting ? asked : secs(now)
+  minutes = (first == "") ? 0 : int((end - first - waited) / 60)
+  if (color != "") printf "color %s\n", color
+  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0)
+  report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1)
+  report("sent back by the review", review + 0, "fix_rounds_per_gate", 1)
+  report("minutes", minutes, "minutes_per_change", 0)
+  if (cap_of("runs_before_review") != "") report("runs before the review", late_runs + 0, "runs_before_review", 0)
+  if (cap_of("tokens_per_change") != "") report("tokens", tokens + 0, "tokens_per_change", 0)
+  tier("seconds of the checks of a round", most_each + 0, "seconds_each_round")
+  tier("seconds of the checks before the review", most_before + 0, "seconds_before_review")
+  printf "gdd-limits {\"color\":\"%s\",\"stop\":[%s],\"slow\":[%s]}\n", color, stop, slow
+  exit (stop == "") ? 0 : 1
+}' gdd/blueprint.md "$log"
+```
+
 ## The blueprint
 
 The front matter is what agents read; the diagram and the table are for the person. Its fields:
 
 - `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
-- `levels`: for each agents' environment the project is worked from, named by its command, the model it uses for each level, by the name that environment launches it with, and in `launch` how a role gets its model there. `reviewer` holds the reviewer's models when they are others. The person decides them when preparing, from what each environment offers, and a level counts once it has been seen to launch. The skills never name one. A blueprint with the three levels directly under `levels` was written before version 0.4: they belong to the environment it was prepared in.
-- `limits`: fix rounds per gate, and the caps of a whole change. `fix_rounds_per_gate` is how many times the machine checks, and how many times the review, may send a change back to the builder, and `rounds_per_change` how many times it may be sent back in all, a `CANNOT:` and a color that rose included. Minutes count from the first event of its log, without the time it waits for a person (from an `ask` to the event that answers it). Lines are the builder's, `git diff --shortstat <start> HEAD`. The template's values are provisional, a place to start from: the team sets its own when preparing, and corrects them with what its logs show. The cap on tokens has no default, and applies only where the agents' environment reports them.
+- `levels`: for each agents' environment the project is worked from, named by its command, the model it uses for each level, by the name that environment launches it with, and in `launch` how a role gets its model there. The reviewer runs at the level of the change, on the same family of models: `reviewer` holds its models only when they are of another family, once one was seen to work when preparing. The person decides them when preparing, from what each environment offers, and a level counts once it has been seen to launch. The skills never name one. A blueprint with the three levels directly under `levels` was written before version 0.4: they belong to the environment it was prepared in.
+- `limits`: what holds for a change of any color, which the project's `gdd/limits.sh` counts from the log when it has one. Lines are the builder's, `git diff --shortstat <start> HEAD`. `seconds_each_round` is how long the checks that run each round may take together, and `seconds_before_review` the ones that run before the review: a check that takes longer than its tier allows moves to the one before the review, and a run past it counts as it came out and goes to the backlog for hardening, never cut off. The cap on tokens has no default, and applies only where the agents' environment reports them. The caps of one change are in each color's own `limits`, and a cap written directly here, as in blueprints from before 0.10, holds for every color that doesn't set its own. The template's values are a start: the team sets its own when preparing, and corrects them with what its logs show.
 - `gates`: the gates of the project, the same for every change: each one's id, the feature that specifies it (`spec`) and the checks that demonstrate it. A gate is passed when every check of it that applies has passed. A blueprint without `gates` was written before version 0.6 and reads as before: its checks are its gates.
-- `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
-- `colors`: what each color asks for. `checks` lists the ones that must pass and `level` is the level of the agents that work on it. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
+- `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. It may say when it runs (`runs`): `each round`, or `before review`, once the rest pass, for what takes too long to pay for in every fix round. A check without `runs` runs each round, as before 0.10, so a blueprint without it reads as it did. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
+- `colors`: what each color asks for. `checks` lists the ones that must pass, `level` is the level of the agents that work on it and `limits` holds the caps of one change of that color: `fix_rounds_per_gate`, how many times the machine checks, and how many times the review, may send it back to the builder; `rounds_per_change`, how many times it may be sent back in all, a `CANNOT:` and a color that rose included; `minutes_per_change`, counted from the first event of its log without the time it waits for a person (from an `ask` to the event that answers it); and `runs_before_review`, how many times the checks that run before the review may run. When one runs out, the change stops. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. The template carries both on red only: on yellow the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. A change whose color rises goes back to Brief, and to the person if its new color asks for `brief-approval`.
 - `zones`: each zone's id, color and pathspecs. A zone gets no gates of its own when the project is prepared: `gates` names their file once the person asks for one or hardening gives it one, and from then on a change also passes the standing gates of every zone it touches, whatever its color.
 - `context`: each external reference or MCP server, and the zones or gates that get it (`<zone>`, or `<zone>/<Rule>` for one gate). MCP servers carry the least access their gate needs.
 - `hidden`: where the hidden examples live, only when a color asks for the `hidden` check: a place the builder's credentials can't read.
@@ -164,16 +306,15 @@ levels:  # one block for each agents' environment the project is worked from
     light: <model for little reasoning, cheap and fast, by the name that environment launches it with>
     standard: <model for normal reasoning>
     deep: <model for the most reasoning>
-    # reviewer:            # the reviewer's models, when they are others, from another model family where there is one
+    # reviewer:            # only for a reviewer on another family of models, once it was seen to work when preparing
     #   launch: <how, when it runs in another environment>
     #   light: <model>
     #   standard: <model>
     #   deep: <model>
-limits:
-  fix_rounds_per_gate: 2
-  rounds_per_change: 6
-  minutes_per_change: 120  # without the time it waits for a person
+limits:  # what holds for every color: the caps of one change are under each color
   lines_per_change: 400  # the builder's: git diff --shortstat <start> HEAD
+  seconds_each_round: 120  # the checks that run each round, all together: one that takes longer runs before review
+  seconds_before_review: 600  # the checks that run before the review, all together
   tokens_per_change: <n, where the environment reports them>
 gates:  # the gates of the project, the same for every change, each one specified in its feature
   - id: <gate>
@@ -183,23 +324,33 @@ checks:
   - id: seal
     type: machine
     command: "git diff --exit-code <start> HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude <sealed paths> ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"
+    runs: each round
   - id: tests
     type: machine
     command: <test command from the constitution>
     breaks: <the bad case to plant to see it fail>
-    cases: each change  # its cases are written for every change with a brief
+    cases: each change  # a test for each scenario of the change's brief, seen failing and sealed before anyone builds
+    runs: each round
     # passes: <what counts as passing, when exit 0 isn't all of it>
     # when: [':(glob)<pattern>']  # it applies only to a change that touches these paths
   - id: lint
     type: machine
-    command: <lint command from the constitution>
+    command: <lint and type check command from the constitution>
+    runs: each round
   - id: secrets
     type: machine
     command: <secret scan command from the constitution>
-  - id: mutation
-    type: machine
-    command: <mutation command, on what `git diff <start> HEAD` gives and nothing else, where the stack has a tool for it>
-    # passes: <the score it closes at: the tool's default or what the code reaches, never the highest>
+    runs: each round
+  # - id: browser  # when the project has a screen: one test that drives it through what the change touches
+  #   type: machine
+  #   command: <browser test command from the constitution>
+  #   runs: before review
+  #   when: [':(glob)<the paths of what a person sees>']  # and add it to the checks of every color
+  # - id: mutation  # not at the start: hardening adds it, or a threshold of coverage, when the tests proved weak
+  #   type: machine
+  #   command: <mutation command, on what `git diff <start> HEAD` gives and nothing else>
+  #   passes: <the tool's own default, looked up on its page: never one from memory, never the highest>
+  #   runs: before review
   - id: review
     type: reviewer
   # - id: hidden          # only from platform up, when a color asks for it
@@ -213,12 +364,27 @@ colors:
   green:
     checks: [seal, tests, lint, secrets]
     level: light
+    limits:
+      minutes_per_change: 10  # of work: without the time it waits for a person
+      rounds_per_change: 1
+      fix_rounds_per_gate: 1
+      runs_before_review: 1
   yellow:
-    checks: [brief-approval, seal, tests, lint, secrets, review]
+    checks: [seal, tests, lint, secrets, review]
     level: standard
+    limits:
+      minutes_per_change: 30
+      rounds_per_change: 2
+      fix_rounds_per_gate: 1
+      runs_before_review: 2
   red:
-    checks: [brief-approval, seal, tests, lint, secrets, mutation, review, person-review]
-    level: deep
+    checks: [brief-approval, seal, tests, lint, secrets, review, person-review]
+    level: standard  # its brief, like preparing and hardening, takes the deep level
+    limits:
+      minutes_per_change: 60
+      rounds_per_change: 3
+      fix_rounds_per_gate: 2
+      runs_before_review: 2
 zones:
   - id: <zone>
     color: <green, yellow or red>
@@ -241,15 +407,19 @@ context:
 flowchart LR
   change([A change]) --> color{Its color}
   color -->|green| green[seal, tests, lint, secrets]
-  color -->|yellow| yellow[+ brief approval, reviewer]
-  color -->|red| red[+ mutation, a person's review]
+  color -->|yellow| yellow[+ reviewer]
+  color -->|red| red[+ brief approval, a person's review]
 ```
 
 | Zone | Color | Paths | What can go wrong |
 |---|---|---|---|
 | <zone> | <color> | `<pathspec>` | <in one line> |
 
-Where a person approves is this project's decision. `brief-approval` on yellow and red and `person-review` on red are a proposal: add or remove them in `colors`, on any color. Removing one later loosens a gate, so the person approves it. Take `mutation` out of red if the stack has no mature tool for it, and add it to yellow if it has one and the team wants it. A check that not every color asks, like `mutation`, judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
+| Check | What it catches | When it runs | Colors |
+|---|---|---|---|
+| <check> | <in the person's words> | <every round, or once before the review> | <colors> |
+
+Where a person approves is this project's decision. `brief-approval` and `person-review` on red are a proposal: on yellow the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. Add or remove them in `colors`, on any color: the person, or their team, can ask for `brief-approval` on yellow too. Removing one later loosens a gate, so the person approves it. A change goes through its checks in two tiers: each round, the seal, the tests of the change, lint and types and the secret scan, under two minutes together; then once, before the reviewer, what takes longer, such as one browser test of what the change touches when it touches what a person sees, under ten minutes in all. The caps of each color are a start, which the project's logs correct, and a limit that runs out stops the change. Mutation testing and a threshold of coverage are in no color at the start: hardening adds them, at their tool's own default, when the tests proved weak. A check that not every color asks judges only what the change adds or changes: if it judged the whole code, the first change of that color would answer for what the lighter ones shipped. From `platform` up, red can ask for a `hidden` check too: more examples of the same scenarios, kept where the builder's credentials can't read them, a place the front matter names in `hidden`. Anything no zone covers is never green, and it stops no change: when the orchestrator briefs the change, it judges the path against what this blueprint marks as delicate, yellow unless it does what a red zone does, and it asks only when it can't tell.
 
 ## Emergencies
 
@@ -360,7 +530,7 @@ What already failed a check when GDD arrived, or a check a person waived. A base
 
 ## A brief
 
-The front matter is what the other roles read; the body is what the person reads when the color asks for their approval. No status and no seals: those go to the log. On yellow the body may keep to four sections (Request, Scenarios, What it touches and Undoing it), and red fills them all.
+The front matter is what the other roles read; the body is what the person reads when the color asks for their approval. No status and no seals: those go to the log. What the person reads to approve, from the request to what it won't do yet, stays under 150 words. On yellow the body may keep to five sections (Request, What it won't do yet, Scenarios, What it touches and Undoing it), and red fills them all. The scenarios are the change's use cases, in Gherkin: the tests of the change are written from them, one for each, before anyone builds.
 
 <!-- template: gdd-brief/assets/brief.md -->
 ```markdown
@@ -384,7 +554,11 @@ backlog: <item id>
 
 ## What changes
 
-<A few sentences: what someone will be able to do, and what stays as it was.>
+<A few sentences: what someone will be able to do, and the rules of the product it touches.>
+
+## What it won't do yet
+
+<Up to three things the person might expect from the request and won't get, each as a consequence they can weigh, with the backlog item that will do it, or none.>
 
 ## Scenarios
 
@@ -463,7 +637,9 @@ An `approval` says in `where` how the person approved, from the strongest to the
 
 Setting up the standing checks has a log of its own, `gdd/log/standing-checks.jsonl`, named after its backlog item: a `checks` step, with its seal on `gdd-seal/standing-checks`, and a `review` step with the verdict. So does a check set up later for the color of a new zone, as `standing-checks-<check id>`, and a zone's own gate, as `gates-<zone>` (`gates-<zone>-2` when the zone already has one). A `harden` step goes to `gdd/log/blueprint.jsonl` and names in `change` the change that let the failure through, whose own log is closed. A removal has no such change: its `crack` says what no longer adds anything. An `exam` step goes there too, each time the exam is run: who was examined, how many questions it was asked, how many it caught and which it missed.
 
-Each finding of a review has an `id`. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten.
+Each finding of a review has an `id`. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten. What a reviewer leaves under `LATER:`, the design of the code included, goes to the backlog on every color.
+
+A `reading` step is a reviewer reading a brief before anyone builds it: on red, and on yellow when the change changes data another zone owns. It is optional, so a log without it reads as before. Each of its findings names the question of the brief it comes from and where it went: into the brief, to the person with the approval, to the log, or dropped.
 
 <!-- template: gdd/assets/log-events.jsonl -->
 ```json
@@ -471,6 +647,7 @@ Each finding of a review has an `id`. A later round, or the last one before the 
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"waiver","who":"<person>","check":"<check id>","why":"<reason>","backlog":"<item id>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"ask","of":"<brief, change, blueprint, gates, debt, waiver, decision or stop>","what":"<one line>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"blueprint","event":"step","step":"prepare","report":{"skill":"gdd-prepare","version":"<version>","level":"<level>","model":null,"round":1,"result":"<result>","caught":"<what, or none>","seconds":null,"tokens":null},"files":["<path>"],"probe":[{"try":"<what the builder's environment tried>","command":"<command>","exit":1,"tail":"<last lines>"}],"levels":[{"environment":"<environment>","level":"<level, or reviewer and its level>","launch":"<how it was launched>","model":"<the model the environment reported, or the role's own word, marked as such>"}]}
+{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"reading","report":{"skill":"gdd-review","version":"<version>","level":"<level>","model":null,"round":1,"result":"<pass or fix>","caught":"<what, or none>","seconds":null,"tokens":null},"findings":[{"id":"<f1>","question":1,"what":"<one line>","went":"<brief, person, log or dropped>"}]}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"<version>","level":"standard","model":null,"round":1,"result":"<color>","caught":"<what, or none>","seconds":null,"tokens":null},"color":{"on":"planned","base":"<commit>","paths":["<path>"],"zones":["<zone>"],"uncovered":[],"floor":"<color>","color":"<color>","why":"<what raised it, or empty>"},"files":{"<path>":"<git blob hash>"},"seal":"<tip of the seal after this brief, or null>"}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"<version>","level":"<level>","model":null,"round":1,"result":"sealed","caught":"<what, or none>","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/<id>","commit":"<commit>","checks":{"<path>":"<git blob hash>"},"hidden":"<commit of the hidden examples, or null>","proofs":[{"check":"<check id>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines>"},{"check":"<check id>","case":"passes","command":"<command>","exit":0,"tail":"<last lines>"}]}}
 {"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"step","step":"build","report":{"skill":"gdd-build","version":"<version>","level":"<level>","model":null,"round":1,"result":"<done or stopped>","caught":"<what, or none>","seconds":null,"tokens":null},"claims":[{"check":"<check id>","command":"<command>","exit":0,"tail":"<last lines>"}]}

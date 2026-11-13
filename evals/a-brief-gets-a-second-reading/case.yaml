@@ -1,0 +1,73 @@
+schema_version: "1.1"
+name: a-brief-gets-a-second-reading
+description: A draft brief for paying by card, in a shop whose constitution says nothing is sold without stock, says it won't touch the stock because orders come later. A reviewer launched to read it before anyone builds runs nothing, answers fix and names the stock.
+tags: [role, review, brief]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator to read a brief before anyone builds it. Load the `gdd-review` skill and follow it.
+
+    The draft is `gdd/briefs/card-payment.md`, with its scenarios in `features/card-payment.feature`, here in my copy and not sealed yet. The base is the tip of `main`. Nobody has built anything.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-review"'
+  - name: opens-how-a-brief-is-read
+    type: regex
+    target: trace
+    pattern: 'Reading a brief before anyone builds it'
+    weight: 2
+  - name: answers-fix
+    type: regex
+    pattern: '^\s*fix\b'
+    weight: 3
+  - name: names-the-stock
+    type: regex
+    pattern: '\b(?:stock|existencias|inventory)\b'
+    flags: i
+    weight: 3
+  - name: gives-the-color
+    type: regex
+    pattern: '^COLOR:\s*red'
+    flags: mi
+  - name: runs-nothing
+    type: tool_used
+    tool: Bash
+    input_match: 'unittest|python3 -m|\bnode\b'
+    min: 0
+    max: 0
+    weight: 2
+  - name: builds-nothing
+    type: regex
+    target: files
+    pattern: 'src/pay/'
+    match: not_contains
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report\s*\nskill: gdd-review'
+  - name: finds-what-paying-does-to-the-stock
+    type: llm
+    criteria: The answer finds that the brief leaves out what paying does to the stock, for example that no scenario says what happens to the stock after a payment, that the shop could sell what it no longer has, or that "it doesn't touch the stock" is written as what stays as it was instead of as a consequence. It ties it to the rule of the constitution that nothing is sold without stock, or to orders being a later item.
+    weight: 2

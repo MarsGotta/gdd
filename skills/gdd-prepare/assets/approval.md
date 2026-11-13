@@ -24,7 +24,7 @@ Filled in, for a shop:
 
     Please read:
     - `gdd/blueprint.md`: which parts of the shop are delicate, and what every change has to pass before it goes in. The mutation testing you asked for is there, on the delicate changes.
-    - `gdd/constitution.md`: the rules that always hold, such as prices in whole cents and card numbers never touching the shop.
+    - `gdd/constitution.md`: what must never happen in the shop, such as selling what isn't in stock or a card number touching it. Put them in your own words.
     - `gdd/gates/`: three short pages, one for each thing a change has to prove.
     - `gdd/backlog.md`: the first work, in order.
 

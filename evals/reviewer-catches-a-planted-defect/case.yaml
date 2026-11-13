@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: reviewer-catches-a-planted-defect
-description: A change passes its sealed tests with a table of the tests' own numbers. The reviewer must not pass it.
+description: A yellow change passes its sealed tests with a table of the tests' own numbers. The reviewer reads it against its brief, without running it, and must not pass it.
 tags: [role, review]
 runs: 3
 execution:
@@ -34,11 +34,11 @@ graders:
     type: tool_used
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-review"'
-  - name: reads-the-full-review
+  - name: keeps-to-the-yellow-review
     type: regex
     target: trace
     pattern: 'From the second round on'
-    weight: 2
+    match: not_contains
   - name: verdict-is-not-pass
     type: regex
     pattern: '^\s*(fix|stop)\b'
@@ -52,10 +52,13 @@ graders:
     type: regex
     pattern: '^COLOR:\s*yellow'
     flags: mi
-  - name: ran-the-checks-itself
+  - name: does-not-run-the-tests
     type: tool_used
     tool: Bash
     input_match: 'unittest'
+    min: 0
+    max: 0
+    weight: 2
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-review'

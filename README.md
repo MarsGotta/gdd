@@ -86,13 +86,13 @@ One agent writes down what it has to do, another builds the checks, a third buil
 | The change touches | For example | What you do |
 |---|---|---|
 | Something green | The text of a button | Nothing. You hear about it when it's in |
-| Something yellow | A filter in the catalog | You approve what it has to do, before anyone builds |
+| Something yellow | A filter in the catalog | You're told in a line what it will do, and nobody waits for you |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
 ### 4. Answer when it asks
 
-- **It wants your approval of what a change has to do.** That is a short file of cases in `features/`. Read it and say yes, or correct it.
-- **It found a decision nobody has made.** Answer it, or tell it to decide. It then decides how the work gets done and stops asking about that. What loosens a check or can't be undone stays with you.
+- **It wants your approval of what a change has to do,** on red. That is a short text, under 150 words, and a file of cases in `features/`. Read it and say yes, or correct it.
+- **It found a decision nobody has made.** Answer it, or tell it to decide. It then decides how the work gets done and stops asking about that, and a rule of your product it takes from what is usual in your sector and tells you as an assumption. What loosens a check or can't be undone stays with you.
 - **Something stopped the change.** A check that fails, a limit that ran out. It tells you what happened and the one way out it would take. The guide has [every case](skills/README.md#when-it-stops).
 
 ### 5. Read what happened
@@ -115,7 +115,7 @@ The [guide to the skills](skills/README.md) goes through each step in full, with
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.10, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.9. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.10. They install as a plugin on Claude Code, Codex and Antigravity.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 
 The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.

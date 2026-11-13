@@ -44,6 +44,11 @@ graders:
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:\b[Bb]ranch|\b[Cc]ommit|\bworktree|gdd/debt)'
     match: not_contains
     weight: 2
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
   - name: launches-no-build-under-it
     type: tool_used
     tool: Agent

@@ -1,0 +1,71 @@
+schema_version: "1.1"
+name: reviewer-runs-a-red-change
+description: A red change in payments, built and through its gates. The reviewer opens the full review, runs the change and tries to break it, tries the way back, and says what it ran and what came out, a line each.
+tags: [role, review]
+runs: 3
+execution:
+  max_turns: 80
+  timeout_seconds: 1500
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator as the reviewer of one change. Load the `gdd-review` skill and follow it.
+
+    The change is `charge-once`, on the branch `work/charge-once` of this repository. It was briefed as red. Its log is `gdd/log/charge-once.jsonl`, here in my copy: `<base>` is the base in its `brief` step, and `<start>` is the commit of its seal, in its `checks` step. Its gates already ran, and their result is in the log.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-review"'
+  - name: reads-the-full-review
+    type: regex
+    target: trace
+    pattern: 'From the second round on'
+    weight: 2
+  - name: runs-the-change
+    type: tool_used
+    tool: Bash
+    input_match: 'python3'
+    min: 1
+    weight: 2
+  - name: gives-a-verdict
+    type: regex
+    pattern: '^\s*(pass|fix|stop)\b'
+    weight: 2
+  - name: gives-the-color
+    type: regex
+    pattern: '^COLOR:\s*red'
+    flags: mi
+  - name: says-what-it-ran
+    type: regex
+    pattern: '(?:^|\n)[^\n]*\b(?:python3|git (?:revert|diff|checkout|stash))\b[^\n]*\b(?:exit|code|OK|FAIL|passe?[sd]?|fail(?:s|ed)?|ran)\b'
+    flags: i
+    weight: 2
+  - name: tries-the-way-back
+    type: regex
+    pattern: '\b(?:revert(?:ed|s|ing)?|way back|undo(?:ne|ing)?)\b'
+    flags: i
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report\s*\nskill: gdd-review'
+  - name: tries-to-break-it
+    type: llm
+    criteria: The answer says what the reviewer tried in order to make the change charge a cart twice or charge a wrong amount, for example after a restart of the shop, with two charges at once or with amounts that aren't whole cents, and what came out of each try. A verdict of pass is fine if it says why each try didn't break it.
+    weight: 2

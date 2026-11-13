@@ -3,13 +3,13 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.9.1"
+  version: "0.10.0"
   contract: gdd/1
 ---
 
 # Briefing a change
 
-Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person.
+Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level: if you aren't on it, say so to the person first.
 
 ## The color: git sets the floor, and judgment can only raise it
 
@@ -23,9 +23,23 @@ The color is an estimate. `gdd-review` recomputes it on what was actually touche
 
 On green there's no brief file, unless the blueprint's green asks for `brief-approval`: write the `brief` step to the log, with the color, its paths and its reason, and the change goes on with the existing checks. On yellow or red, write the brief.
 
+## Before any scenario
+
+On yellow and red, answer these seven questions before you write the change's use cases as scenarios, from the request, the constitution, the blueprint, the backlog and the code. The paths say where a change lands, not what it does to the rest of the product: in one run, paying for a cart took nothing out of stock, because its brief started from the payment's paths and the stock was another item's.
+
+1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case, whatever paths the change touches.
+2. **What it leaves behind.** For each thing it creates, uses up or ends (an order, a unit of stock, a booking, a session), its state right after, in a scenario that looks at it from another part of the product: the stock after a payment, the free places after a booking.
+3. **What came before.** Which features already built it reads or changes. Open their briefs and what they left for later, and say which of that this change is: a brief that said another item would complete it may mean this one.
+4. **Twice, or from two places.** What happens if it happens twice in a row, or from two places at once: two tabs, two people, a retry after a timeout.
+5. **What the person would answer.** Which rule here the person would have an answer for: a rounding, a maximum, an order, a case that is free or empty. Mark it as a decision and ask it, with what you'd propose, even if they left earlier decisions to you: "you decide" covers how it gets built, not a rule of their product. If they leave this one to you too, or the color has no question left, your proposal is the rule: what is usual in their sector, said in your last message as an assumption, "I assumed this; tell me if not."
+6. **What waits for later.** If a part is left for another item of the backlog, whether the product still tells the truth meanwhile: nothing shown as paid that wasn't, nothing offered that can't be had. If it doesn't, that part goes in this change.
+7. **What it won't do.** Tell the person under "What it won't do yet", three at most, each as a consequence they can weigh: "paying won't take products out of stock yet, so the shop can sell what it no longer has." Never as what stays as it was.
+
+Each answer ends up in a scenario, a decision, a path or a line of the brief, never as a paragraph of its own.
+
 ## The brief
 
-Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scenarios, which go in `features/<capability>.feature`, each tagged with this brief and an id of its own. On yellow, four sections of the brief are enough: the request, the scenarios, what it touches and how it's undone. Red fills them all.
+Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scenarios, which go in `features/<capability>.feature`, each tagged with this brief and an id of its own. They are the change's use cases, in Gherkin, and they come first: `gdd-checks` writes a test from each one, sees it fail and seals it, and only then is the change built. On yellow, five sections of the brief are enough: the request, what it won't do yet, the scenarios, what it touches and how it's undone. Red fills them all.
 
 - **Scenarios** describe what someone can observe, not how it's coded: "the function returns null" ties the builder's hands and proves little. A few on yellow, every one that matters on red, and the bad cases too: what must not happen.
 - **What it touches.** In the T-minus pilot, builders stopped 72 times, and in more than half of them a file they needed was missing from this list. Include:
@@ -37,17 +51,19 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
 - **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a scenario already in `features/` says the opposite, the brief changes that scenario too and says so, because that changes what has to pass. In the pilot, an agent was asked to remove every old URL and forbidden to touch the scenario that still required one.
 - **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use, and set that item to `briefed`, with this brief's id, in your copy of the backlog. In the pilot, some 28 changes were merged in six hours and not one item of the roadmap got finished: they were all parts and preparations.
-- **Too big.** Propose a series of changes that the person approves in one go, each with its own brief and its own approval in the log. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning the switch on is another change, at the level of what it turns on. Splitting doesn't lower the risk.
+- **Too big.** Split a request only when it would go over the blueprint's `lines_per_change` or cross two red zones, and propose the split to the person before you brief any part: a line for each part, with what it gives them and about how long it takes, from earlier logs or said to be a guess, and one question a yes answers. "I'd do accounts in two: first signing up and in, about 30 minutes, so customers can open one; then their past orders, about 20. Yes?" Every part pays its whole way through the gates, so the first one has to show them something: in one run, the first third of a request took 84 minutes and left the person nothing new to see. Once they say yes, each part gets its own brief and its own approval in the log. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning the switch on is another change, at the level of what it turns on. Splitting doesn't lower the risk.
 
 ## Decisions nobody has made
 
-While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person, with what you'd propose, and write their answer into the scenario. What they leave to you, decide and write down the same way: the `gdd` skill, which you have loaded, says what that covers in its reference on writing to the person. A brief isn't done while `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds anything.
+While you draft, mark each one where it comes up, in the brief or in a scenario, with `[DECISION: <the question>]`. They hide in rules two people would build differently, in limits with no number, and at the edges: empty, the maximum, twice in a row, at midnight. Ask the person, with what you'd propose, in one message and within what the color allows: no question on green, one on yellow, two on red, the one that weighs most first. Write their answer into the scenario. What they leave to you, and what no question was left for, decide with what is usual in their sector, write down the same way and say in your last message as an assumption: the `gdd` skill, which you have loaded, says what "you decide" covers in its reference on writing to the person. A brief isn't done while `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds anything.
 
 A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief. In one run, rules for a later feature got built into the current one, before anyone had asked for that feature.
 
 ## Sealing and approval
 
-Commit the brief and its scenarios on `gdd-seal/<id>`, a branch cut from the base, and write to the log that commit and the blob hash of each file (`git hash-object <file>`), so it records exactly what has to pass. Then look in the blueprint whether this color's checks include `brief-approval`. If they don't, the change goes on. If they do, show the person the brief and its scenarios themselves, not a summary of them, because an approval is only worth what was seen, and nothing is built until they approve. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Where there's no platform, their own commit or their yes in this conversation is what there is.
+On red, and on yellow when the change changes data another zone owns, before you seal it, have it read. Launch `gdd-review` with a clean context, the way the `gdd` skill launches a role, at the change's level, with the base and, in its prompt, the draft brief and its scenarios, saying it is to read a brief. It runs nothing and takes a few minutes. Take into the brief what you agree with. What you don't reaches the person with the approval, a line for each, at most three, with why you'd leave it; where the color asks for no `brief-approval`, it goes to the log. Write its `reading` step when it answers.
+
+Commit the brief and its scenarios on `gdd-seal/<id>`, a branch cut from the base, and write to the log that commit and the blob hash of each file (`git hash-object <file>`), so it records exactly what has to pass. Then look in the blueprint whether this color's checks include `brief-approval`. If they don't, tell the person in one line what the change will do, and go on without waiting for them: they, or their team, can ask for the approval on yellow too, in the blueprint. If they do, show the person the brief itself, not a summary of it: what they read to approve stays under 150 words (what it will do, the rules of the product it touches and up to three consequences of what it won't do yet), with its scenarios beside it as they are, because an approval is only worth what was seen. Nothing is built until they approve. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Where there's no platform, their own commit or their yes in this conversation is what there is.
 
 Once its hashes are in the log, a brief changes only as a new version: the same file with `version` raised by one, in a new commit on `gdd-seal/<id>`, with that commit and its new hashes in the log. It goes back to the person only if its color asks for `brief-approval` and what has to pass changes.
 

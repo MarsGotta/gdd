@@ -52,6 +52,11 @@ graders:
     target: { source: file, path: gdd/blueprint.md }
     pattern: '-\s*id:\s*mutation\b[\s\S]{0,600}?command:[^\n]*<start>'
     weight: 3
+  - name: runs-it-before-the-review
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '-\s*id:\s*mutation\b(?:(?!\n\s*- id:)[\s\S]){0,800}?\n\s+runs:\s*before review'
+    weight: 2
   - name: does-not-close-it-at-the-highest
     type: regex
     target: { source: file, path: gdd/blueprint.md }
@@ -82,6 +87,11 @@ graders:
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:\b[Cc]ommit|\b[Bb]ranch)'
     match: not_contains
     weight: 2
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
   - name: asks-for-one-approval-in-plain-words
     type: llm
     criteria: The answer is short and in words a shop owner who isn't technical can follow. It names the files to approve, each with what it is for, and asks one thing, to approve them. It tells apart what it took from a source it looked up and what is its own default, or says that it couldn't look anything up. It doesn't quote the skills or their files to justify what it asks.

@@ -1,0 +1,69 @@
+schema_version: "1.1"
+name: a-payment-brief-looks-at-the-stock
+description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, asks the person about a rule of their shop instead of deciding it, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends at the brief."
+tags: [orchestrator, brief, person]
+runs: 3
+execution:
+  max_turns: 80
+  timeout_seconds: 1800
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Que se pueda pagar con tarjeta, de momento con el proveedor de pruebas de tools/fakepay.mjs.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: asks-the-seven-questions
+    type: regex
+    target: trace
+    pattern: 'The paths say where a change lands'
+    weight: 2
+  - name: a-scenario-looks-at-the-stock
+    type: regex
+    target: trace
+    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)'
+    weight: 3
+  - name: writes-what-it-wont-do-yet
+    type: regex
+    target: trace
+    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md)[\w.-]+\.md[^\n]{0,6000}?#\s?(?:What it won.t do yet|Lo que (?:a[uú]n|todav[ií]a) no (?:hace|har[aá]))'
+    weight: 2
+  - name: builds-nothing-before-the-approval
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-(?:build|checks)'
+    min: 0
+    max: 0
+    weight: 3
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
+  - name: asks-a-rule-of-the-shop
+    type: llm
+    criteria: The answer asks the person at least one question about a rule of their shop that they would have an answer for, such as what happens to the stock when someone pays, whether two customers can pay for the last unit, a rounding, a maximum or what an empty cart does, and it says what it would do. It does not present that rule as already decided without asking.
+    weight: 3
+  - name: tells-what-it-wont-do-as-a-consequence
+    type: llm
+    criteria: The answer tells the person something the card payment won't do yet, put as a consequence they can weigh for their shop (for example that until orders exist the shop could sell what it no longer has), and not only as what stays as it was (such as "it doesn't touch the stock"). Saying instead that the change will take paid products out of stock also counts.
+    weight: 2

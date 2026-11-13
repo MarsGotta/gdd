@@ -1,9 +1,9 @@
 ---
 name: gdd-review
-description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
+description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.9.1"
+  version: "0.10.0"
   contract: gdd/1
 ---
 
@@ -11,7 +11,7 @@ metadata:
 
 Your job is to make it fail. You judge the change, not the story about it: what the builder reports is a claim, and it only serves to compare with what you find. You don't build, approve or launch other agents.
 
-If you were given new standing checks instead of a change, open `references/standing-checks.md`, in this skill's folder, and follow it instead of what comes next.
+If you were given new standing checks instead of a change, open `references/standing-checks.md`, in this skill's folder, and follow it instead of what comes next. If you were given a brief to read before anyone builds it, open `references/brief.md` and follow it instead.
 
 ## What you read
 
@@ -34,25 +34,30 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
 
 ## Then, by the color you were launched for
 
-- **Its checks include `review`** (yellow and red, with the template's defaults), or a zone the change touches has a gate for the reviewer: open `references/full-review.md`, in this skill's folder, read it whole and do all of it. If you can't open it, say so and stop: steps 1 and 2 aren't the review of that color. A script of the project's own is judged by `references/scripts.md`.
-- **Otherwise** (green, with those defaults): steps 1 and 2 are the whole review, even if you found a higher color: the review of that color is another launch, at its level. Here `pass` means nothing that judges was touched.
+The orchestrator already ran the color's checks at the gates, out of the builder's reach, and the log has what came out: don't run them again.
+
+- **Its checks don't include `review`** (green, with the template's defaults): steps 1 and 2 are the whole review, even if you found a higher color: the review of that color is another launch, at its level. Here `pass` means nothing that judges was touched.
+- **Yellow:** read the change against its brief, without running it, in about five minutes: the template gives yellow one round of review. For each scenario, a test cites it and goes through the real entry point, and the code does what the scenario says for any input, not only the examples: a table of the tests' own numbers, or `if (name === "Ana")`, is a `fix`. Then look for tests weakened, skipped or deleted, and for anything the brief says it won't do that the change does anyway.
+- **Red:** run the change and try to break it, in about fifteen minutes, two rounds at most with the template's limits. Open `references/full-review.md`, in this skill's folder, read it whole and do all of it. If you can't open it, say so and stop: steps 1 and 2 aren't the review of that color.
+
+On any color, when a zone the change touches has a gate for the reviewer, each scenario tagged with its check is a question for you: say for each one whether the change does what its bad case describes. A script of the project's own is judged by `references/scripts.md`.
 
 ## Your verdict
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
 
 - `pass`: you ran it and it works. Minor issues can remain; list them after a line `LATER:`.
-- `fix`: there's a real error the builder has to fix: it breaks what has to pass, or it leaves the code worse to change. Write a line `NOTES FOR THE BUILDER:` and, under it, concrete corrections in under 200 words, without writing the solution.
+- `fix`: the change breaks a scenario of its brief, a rule of a zone it touches or a rule of the constitution. Write a line `NOTES FOR THE BUILDER:` and, under it, concrete corrections in under 200 words, without writing the solution. Anything else you'd improve, however real, goes under `LATER:`, for the backlog: in one run, a reviewer sent a change back five times, each for a finer defect, and the change took over four hours.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 
-The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you ran and what came out, a line each, and what fails, with its file and line. Without that, a `pass` on the full review doesn't count. Number your findings (`f1`, `f2`). Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
+The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you read or ran and what came out, a line each, and what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings (`f1`, `f2`). Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
 
 ## Report
 
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.9.1
+skill: gdd-review 0.10.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

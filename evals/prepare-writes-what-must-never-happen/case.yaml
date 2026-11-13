@@ -1,0 +1,71 @@
+schema_version: "1.1"
+name: prepare-writes-what-must-never-happen
+description: A small shop without GDD whose products file keeps how many of each are in stock. Prepare leaves a constitution whose rules that hold everywhere say, in plain words, that nothing is sold without stock, with three to seven rules, and stops for the approval.
+tags: [orchestrator, prepare]
+runs: 3
+execution:
+  max_turns: 150
+  timeout_seconds: 3000
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  prompt: |
+    I want to work on this shop with GDD from now on. Prepare it. I've already decided most of it:
+
+    - Payments (src/pay) are the delicate part. The texts are harmless. The catalog, the cart and their tests are in between.
+    - On every change I want the tests to pass, the code to compile and no secret to get into the repository. Nothing else for now.
+    - I work only from Claude Code. Use haiku for the light level, sonnet for the standard one and opus for the deep one.
+    - There's no platform and no CI, and I don't want them yet: a change ships when its branch is merged into main.
+    - We have no history to take a baseline from. Keep the usual limits, and nothing may be skipped in an emergency.
+
+    Propose whatever is left yourself, write the files and show me the blueprint to approve. Don't stop to ask me before that.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: opens-gdd-prepare
+    type: regex
+    target: trace
+    pattern: 'Propose first, ask afterwards'
+  - name: names-the-stock-among-the-rules
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '## Rules that hold everywhere\n(?:(?!\n## )[\s\S])*?\n[ \t]*[-*] [^\n]*\b(?:[Ss]tock|[Ii]nventory)\b'
+    weight: 3
+  - name: writes-at-least-three-rules
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '## Rules that hold everywhere(?:(?:(?!\n## )[\s\S])*?\n[ \t]*[-*] ){3}'
+    weight: 2
+  - name: writes-no-more-than-seven
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '## Rules that hold everywhere(?:(?:(?!\n## )[\s\S])*?\n[ \t]*[-*] ){8}'
+    match: not_contains
+    weight: 2
+  - name: in-plain-words
+    type: regex
+    target: { source: file, path: gdd/constitution.md }
+    pattern: '## Rules that hold everywhere(?:(?!\n## )[\s\S])*?\b(?:MUST|SHALL|NEVER|ALWAYS)\b'
+    match: not_contains
+  - name: asks-for-no-brief-approval-on-yellow
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '\byellow:\s*\n\s*checks:\s*\[[^\]\n]*brief-approval'
+    match: not_contains
+  - name: logs-the-blueprint-as-proposed
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
+    weight: 2
+  - name: names-no-file-of-the-method
+    type: regex
+    target: trace
+    pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
+    match: not_contains
+  - name: asks-the-person-to-put-the-rules-in-their-words
+    type: llm
+    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and that they can correct those rules or put them in their own words. It does not say the project is ready for changes now.
+    weight: 2

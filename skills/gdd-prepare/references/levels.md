@@ -12,13 +12,13 @@ A level is a model, by the name the agents' environment launches it with, never 
 
 For each environment, one model for each level, with a line on what it's for and what it costs:
 
-- light: the cheapest that does mechanical work well;
-- standard: the provider's everyday model;
-- deep: its most capable, for red changes, preparing and hardening.
+- light: the cheapest that does mechanical work well, for green changes;
+- standard: the provider's everyday model, for yellow changes and for building red ones;
+- deep: its most capable, for preparing, hardening and the brief of a red change.
 
 Leave previews and experimental models out, unless the person asks for one.
 
-Propose the reviewer's models apart. Another model family catches what the builder's own misses, so where the person has one within reach, in the same environment or in another, propose it, and say what it takes: when it runs in another environment, the skills installed there too, that environment's own sandbox and its own account. Where there's only one family, the reviewer runs on the model of the change's level, and you say so.
+The reviewer runs at the level of the change, on the same family of models. Another family may catch what the builder's own misses, so where the person has one within reach, in the same environment or in another, you may propose it, and say what it takes: when it runs in another environment, the skills installed there too, that environment's own sandbox and its own account. It goes under `reviewer` only once it was seen to work here, in the try below: until then, the reviewer stays on the change's level.
 
 Ask for a yes to the whole proposal, so that a person who can't choose a model can still decide. If you can't tell which model is which, say what you found and ask.
 

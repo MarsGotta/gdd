@@ -24,8 +24,9 @@ What it checks:
     the GDD block of AGENTS.md under 100, every SKILL.md under 500 lines and
     14,500 bytes, and under 400 characters of description for every skill
     but gdd, the only one that is found by its description;
-  - no skill ships scripts, but the template of the project's runner in the
-    assets of gdd-prepare, and only gdd can be invoked implicitly in Codex;
+  - no skill ships scripts, but the templates of the project's runner and
+    counter in the assets of gdd-prepare, and only gdd can be invoked
+    implicitly in Codex;
   - the GDD block the eval cases give their agents is the one of the contract;
   - what the contract names reaches the skills, and the other way round: every
     file of the contract, every check of the blueprint and every event and
@@ -33,7 +34,8 @@ What it checks:
     markers the roles answer with, and no skill names a gdd/ path the
     contract doesn't have;
   - every file a SKILL.md points to exists, shared references are identical,
-    and no file has a long or medium dash.
+    the reviewer asks a brief the same seven questions gdd-brief answers, and
+    no file has a long or medium dash.
 
 Exit codes: 0 when everything passes, 1 when a check fails, 2 when the
 repository can't be read. Each failure names the file and, when it can, the
@@ -51,8 +53,11 @@ CONTRACT = SKILLS / "CONTRACT.md"
 ROLES = ["gdd-prepare", "gdd-brief", "gdd-checks", "gdd-build", "gdd-review", "gdd-harden"]
 ALL = ["gdd"] + ROLES
 LAUNCHED = ["gdd-checks", "gdd-build", "gdd-review"]
-SHARED = [("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md")]
-RUNNER = "gdd-prepare/assets/check.sh"  # a template the project copies and owns: the skills never run it
+SHARED = [
+    ("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md"),
+    ("gdd-prepare/references/web.md", "gdd-checks/references/web.md"),
+]
+PROJECT_SCRIPTS = {"gdd-prepare/assets/check.sh", "gdd-prepare/assets/limits.sh"}  # templates the project copies and owns: the skills never run them
 SCRIPTS = {".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".ps1"}
 BUILD_WORDS = 230
 BLOCK_WORDS = 100
@@ -200,8 +205,8 @@ def main():
         if (folder / "scripts").exists():
             problem(folder / "scripts", "skills ship no scripts")
         for script in sorted(folder.rglob("*")):
-            if script.is_file() and script.suffix in SCRIPTS and script.relative_to(SKILLS).as_posix() != RUNNER:
-                problem(script, "skills ship no scripts: the only one is the template of the project's runner")
+            if script.is_file() and script.suffix in SCRIPTS and script.relative_to(SKILLS).as_posix() not in PROJECT_SCRIPTS:
+                problem(script, "skills ship no scripts: the only ones are the templates of the project's runner and counter")
         policy = folder / "agents" / "openai.yaml"
         wanted = "true" if name == "gdd" else "false"
         if not policy.is_file():
@@ -274,6 +279,16 @@ def main():
         a, b = SKILLS / first, SKILLS / second
         if a.is_file() and b.is_file() and a.read_bytes() != b.read_bytes():
             problem(b, f"differs from skills/{first}")
+
+    questions = re.compile(r"^1\. \*\*The product's rules\.\*\*.*?^7\. [^\n]*$", re.S | re.M)
+    asked, reading = SKILLS / "gdd-brief/SKILL.md", SKILLS / "gdd-review/references/brief.md"
+    if asked.is_file() and reading.is_file():
+        mine = questions.search(asked.read_text(encoding="utf-8"))
+        theirs = questions.search(reading.read_text(encoding="utf-8"))
+        if not mine or not theirs:
+            problem(reading if mine else asked, "has no list of seven questions")
+        elif mine.group(0) != theirs.group(0):
+            problem(reading, "its seven questions differ from the ones of skills/gdd-brief/SKILL.md")
 
     for path in sorted(SKILLS.rglob("*")):
         if path.is_file() and path.suffix in {".md", ".feature", ".yaml", ".jsonl", ".json"}:
