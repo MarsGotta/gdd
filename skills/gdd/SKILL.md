@@ -17,7 +17,7 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 
 - **Before each step, run `gdd next <id>`** (`gdd next` alone for the whole project) and do the one step it names, with the command it gives. You don't choose the order, and you don't skip a step it names.
 - **Only the layer writes `gdd/log/`.** Never append or edit a line there yourself, and never work out a time, a hash or a count for it: each command below writes its own line, and its journal, `gdd/log/<id>.engine.jsonl`, keeps every call.
-- **When it refuses, it says why and what to run instead.** Do that. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch or replace the layer, even with a yes.
+- **When it refuses, it says why and what to run instead.** Do that. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch it or build your own, even with a yes.
 - Its last line is JSON for programs: read the lines above it.
 
 | When | Run |

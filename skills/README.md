@@ -43,7 +43,7 @@ Prepare happens once, in a conversation with you. From then on every change goes
 - **An agent that loads skills.** Claude Code, Codex or Antigravity.
 - **[Rust](https://rustup.rs) 1.89 or later,** to build the layer, once in each copy of your project and in your CI. Without it nothing gets built, and your agent tells you so in one line.
 - **You, or your team.** GDD works on your own or with a team. With a team, the team approves the blueprint and anything that loosens it, as its `CODEOWNERS` say, and the author of a change approves what has to pass for it. On your own, you are both.
-- **Your agent's deepest model, for Prepare, Harden and the brief of a red change.** If you aren't on it, the orchestrator tells you before it starts.
+- **Your agent's deepest model, for Prepare, Harden and the brief of a red change.** If it can't tell it is on it, the orchestrator says so once and goes on with your yes.
 - **Protected branches, if your platform has them.** The skills work without them, but then nothing stops the agent from touching what judges it ([what they don't guarantee](#what-they-dont-guarantee)).
 
 ## 1. Install the skills

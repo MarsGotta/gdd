@@ -347,23 +347,33 @@ The website tells a change in six steps, the ones of its delicate case. They are
 62. **The layer is reviewed by someone else, and stays light.** Another agent, with none of the author's conclusions in front of it, read the whole layer against one question: could this be shorter, flatter or easier to follow without losing behavior? Its verdict was that the layer wasn't over-engineered and wasn't light either: the weight was long functions and copies, with two files holding two fifths of the source. What came of it, with every test passing after each step:
     - Three real faults it found on the way are fixed. The worst: a check whose `runs` was misspelled in the blueprint was planned, never run and never named, and the gates could pass without it. The gates now refuse a blueprint written that way.
     - What nobody read or called is gone, and what was written twice is written once: one fold of a log, one count of its limits, one way of asking whether a step is allowed, with no event made up for the question.
-    - The commands are a file each, by what they do, and the state is three: where a log stands, what git says about a change, and the next step. No file passes 830 lines, where one had 4,300.
+    - The commands are a file each, by what they do, and the state is three: where a log stands, what git says about a change, and the next step. No file passed 830 lines, where one had 4,300.
     - The two longest functions are split at the seams they already had: a role's report by its kind, and the gates into their plan, their place, the install and the run.
 
-    What it advised against is left alone on purpose: enums for the contract's own words, a struct per event, a trait for commands, a cache for git. Each would add more than it removes. Five functions still pass 180 lines, the tables of the metrics first among them.
+    What it advised against is left alone on purpose: enums for the contract's own words, a struct per event, a trait for commands, a cache for git. Each would add more than it removes. The functions that still passed 180 lines are in decision 65.
 
 63. **What the method benchmark showed of the layer.** It ran the same shop with the layer and without it. With the layer every log passed its verification, and the layer cost more than it saved: more requests ended unfinished, and the one request every run finished took longer with it. Each loss had a cause:
     - Two were faults of the layer that decision 57 had already fixed while the runs were going.
     - One was the layer against its own skill. A change already built turned red when a new zone came to cover a file of its own, and its new brief had more scenarios. The skill asks for a red brief to be read before the person approves it, and the layer asked for the approval and refused the reading, because there was a build. A build of an earlier version no longer counts: a new version is a brief nobody built.
-    - To get out of that, an orchestrator asked the person for a yes to fix the tool, cloned the layer's source, patched it and copied its own build over the project's. On `rule` the layer is within the reach of the agents it orders, which `references/layer.md` already said. The skill now says it is never theirs to patch or replace, with the person's yes either, and what to say instead.
+    - To get out of that, an orchestrator asked the person for a yes to fix the tool, cloned the layer's source, patched it and copied its own build over the project's. On `rule` the layer is within the reach of the agents it orders, which `references/layer.md` already said. The skill now says it is never theirs to patch, nor to build one of their own, not even with the person's yes, and what to say instead.
     - The cap on rounds, kept to the letter, ended changes that the same cap only advised against before. Decision 64 changes what a round is.
 
 64. **A round is a build, and a level nobody can tell doesn't stop the work.** Two decisions the person took after the benchmark of decision 63.
     - A round was each launch of `gdd-checks` and of `gdd-build` after the first of each. A fix that needed a new test took two of a change's three, and a waiver for one more round went on the test before the fix could start. Once the layer kept the cap to the letter, in one run seven of nine changes needed more room, and one took six waivers to get in. A round is now each launch of `gdd-build` after the first, and the checks sealed again for it go with it. Where the checks are what is built, in a log of standing checks, it is each launch of `gdd-checks` after the first, as it was. The layer and `gdd/limits.sh` count the same way, and a project that keeps an older `gdd/limits.sh` counts the old way until it takes the new one.
     - Preparing, hardening and a red brief ask for the deep level, and the skills told the orchestrator to say so to the person when it wasn't on it. An orchestrator that can't see its own model read that as a reason to ask for another session, turn after turn: in one run a request ended that way with nothing built. Unless it knows it is on that level, it now says so once and goes on with the person's yes. The rule is written in `gdd` alone, and the other skills point to it.
+    - With checks that cost no round, one way around a stop cost nothing. New checks, like a new brief, take a review and its gates out of a change's state, and neither waited for the person to be told of a reviewer's `stop` or of gates that found what judges the change touched: only a build did. All three now wait.
+
+65. **The long functions are split where they already had a seam.** Decision 62 left the longest functions for later and counted five of them over 180 lines. Measured again there were twelve, and ten are split, with every test passing after each one and no behavior changed:
+    - A pass over a log is now its passes: the shape of each line, the voids, the order and the caps, the questions left open. The pass with git is one small struct that holds where the repository is and what it finds, with a method for each kind of step.
+    - The next step is three: setting up the standing checks, what comes before anyone builds a change, and what comes after.
+    - The count of the limits is the sum of the events, which a struct keeps, and then the reading of the caps.
+    - The tables of the metrics are a function for each table, and their summary one for each subject. A role's prompt is one for the standing checks, one for a change and one for a fix round. A launch is what the state lets start, what to say when the layer can't run it, and running it. A merge is the branch, the bookkeeping, what is set aside and the merge itself. The order of the steps keeps apart what sent a change back and what lets it ship.
+
+    Two stay whole on purpose: the table of commands in `main`, a line for each command, and `brief`, which builds one event from top to bottom.
 
 ## Still open
 
+- Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.
 
 ## Sources

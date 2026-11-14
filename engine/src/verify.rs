@@ -37,32 +37,53 @@ pub fn check_log(
     entries: &[Entry],
     layer: &std::collections::BTreeSet<usize>,
 ) -> Vec<Finding> {
-    let mut f = vec![];
-    let mut push = |line: usize, level: &'static str, code: &'static str, what: String| {
-        f.push(Finding {
-            log: id.into(),
+    let mut f = Findings {
+        log: id,
+        list: vec![],
+    };
+    shapes(&mut f, id, entries);
+    voids(&mut f, entries);
+    let p = order_and_caps(&mut f, id, bp, entries, layer);
+    open_asks(&mut f, &p, entries);
+    f.list
+}
+
+/// What a pass over one log finds.
+struct Findings<'a> {
+    log: &'a str,
+    list: Vec<Finding>,
+}
+
+impl Findings<'_> {
+    fn push(&mut self, line: usize, level: &'static str, code: &'static str, what: String) {
+        self.list.push(Finding {
+            log: self.log.into(),
             line,
             level,
             code,
             what,
         })
-    };
+    }
+}
+
+/// Every line is an event of the contract, whole and in its shape.
+fn shapes(f: &mut Findings, id: &str, entries: &[Entry]) {
     for e in entries {
         if e.blank {
-            push(e.line, "warning", "blank", "an empty line".into());
+            f.push(e.line, "warning", "blank", "an empty line".into());
         } else if let Some(err) = &e.error {
-            push(e.line, "error", "json", err.clone());
+            f.push(e.line, "error", "json", err.clone());
         } else if let Some(v) = e.event() {
             let (errors, warnings) = log::shape(v, false);
             for x in errors {
-                push(e.line, "error", "shape", x);
+                f.push(e.line, "error", "shape", x);
             }
             for x in warnings {
-                push(e.line, "warning", "shape", x);
+                f.push(e.line, "warning", "shape", x);
             }
             let b = str_of(v, "brief");
             if !b.is_empty() && b != id {
-                push(
+                f.push(
                     e.line,
                     "error",
                     "wrong-log",
@@ -71,9 +92,12 @@ pub fn check_log(
             }
         }
     }
-    // A void takes a line out of the change's state. One of a line that judged the change is
-    // said, for whoever reads the log. One of a line that sent the change back is the way around
-    // that `gdd correct` refuses: in a log, it was written around the layer.
+}
+
+/// A void takes a line out of the change's state. One of a line that judged the change is
+/// said, for whoever reads the log. One of a line that sent the change back is the way around
+/// that `gdd correct` refuses: in a log, it was written around the layer.
+fn voids(f: &mut Findings, entries: &[Entry]) {
     for e in entries {
         let Some(c) = e.event() else { continue };
         if kind(c) != "correction" || c["void"] != json!(true) {
@@ -86,9 +110,9 @@ pub fn check_log(
             continue;
         };
         if let Some(why) = log::never_voided(target) {
-            push(e.line, "error", "void", format!("it voids line {n}, {why}"));
+            f.push(e.line, "error", "void", format!("it voids line {n}, {why}"));
         } else if matches!(step(target), "gates" | "review") {
-            push(
+            f.push(
                 e.line,
                 "warning",
                 "void",
@@ -100,6 +124,17 @@ pub fn check_log(
             );
         }
     }
+}
+
+/// The events in the order the log gives them: their times, each step after the one it needs,
+/// no round past a cap, the gates from the seal, and each approval and waiver with what it names.
+fn order_and_caps(
+    f: &mut Findings,
+    id: &str,
+    bp: Option<&Blueprint>,
+    entries: &[Entry],
+    layer: &std::collections::BTreeSet<usize>,
+) -> Progress {
     let events = log::events(entries);
     let voided = log::voided_events(entries);
     let mut p = Progress::new(id);
@@ -112,7 +147,7 @@ pub fn check_log(
         if let (Some(t), Some((pl, pt))) = (t, prev_ts)
             && t < pt
         {
-            push(
+            f.push(
                 line,
                 "warning",
                 "time-backwards",
@@ -128,7 +163,7 @@ pub fn check_log(
             && t == Some(*pt)
             && !(layer.contains(&line) && layer.contains(pl))
         {
-            push(
+            f.push(
                 line,
                 "warning",
                 "same-second",
@@ -141,7 +176,7 @@ pub fn check_log(
             prev_step = Some((line, st.to_string(), t));
         }
         if let Err((code, why)) = p.allows(bp, v) {
-            push(
+            f.push(
                 line,
                 "error",
                 if code == "needs-approval" {
@@ -169,12 +204,12 @@ pub fn check_log(
                 let lim = limits::count_with(bp, id, &before, &void, at);
                 let full = lim.no_room();
                 if !full.is_empty() {
-                    push(
+                    f.push(
                         line,
                         "warning",
                         "cap-exceeded",
                         format!(
-                            "a new {st} round started with {} spent, and no waiver raised it",
+                            "a new {st} step started with {} spent, and no waiver raised it",
                             full.join(", ")
                         ),
                     );
@@ -188,7 +223,7 @@ pub fn check_log(
                 && start != expected
                 && !layer.contains(&line)
             {
-                push(
+                f.push(
                     line,
                     "warning",
                     "start",
@@ -200,7 +235,7 @@ pub fn check_log(
             "approval" => {
                 let key = format!("{}|{}|{}", str_of(v, "of"), v["version"], v["files"]);
                 if let Some((first, _)) = approvals.iter().find(|(_, k)| *k == key) {
-                    push(
+                    f.push(
                         line,
                         "warning",
                         "approval-twice",
@@ -219,7 +254,7 @@ pub fn check_log(
                         .iter()
                         .any(|w| words.contains(w));
                 match limit {
-                    None if !is_check && about_a_limit => push(
+                    None if !is_check && about_a_limit => f.push(
                         line,
                         "warning",
                         "waiver-unseen",
@@ -227,7 +262,7 @@ pub fn check_log(
                             "a waiver of {check:?} without \"limit\" and \"to\": the counter can't see what it raised"
                         ),
                     ),
-                    Some(l) if v.get("to").and_then(log::number_like).is_none() => push(
+                    Some(l) if v.get("to").and_then(log::number_like).is_none() => f.push(
                         line,
                         "warning",
                         "waiver-unseen",
@@ -238,7 +273,7 @@ pub fn check_log(
                     Some(l)
                         if !crate::blueprint::CAP_KEYS.contains(&l) && l != "lines_per_change" =>
                     {
-                        push(
+                        f.push(
                             line,
                             "warning",
                             "waiver-unseen",
@@ -252,7 +287,12 @@ pub fn check_log(
         }
         p.apply(line, v);
     }
-    // Questions that never got what they asked for.
+    p
+}
+
+/// Questions that never got what they asked for.
+fn open_asks(f: &mut Findings, p: &Progress, entries: &[Entry]) {
+    let events = log::events(entries);
     for a in &p.asks {
         let wanted = match a.of.as_str() {
             "brief" | "change" | "blueprint" | "gates" | "debt" => Some("approval"),
@@ -260,7 +300,7 @@ pub fn check_log(
             _ => None,
         };
         match (&a.ended_by, wanted) {
-            (None, _) => push(
+            (None, _) => f.push(
                 a.line,
                 "warning",
                 "ask-open",
@@ -271,7 +311,7 @@ pub fn check_log(
                     *l > a.line && kind(v) == w && (w == "waiver" || str_of(v, "of") == a.of)
                 });
                 if !got {
-                    push(
+                    f.push(
                         a.line,
                         "warning",
                         "ask-unanswered",
@@ -282,79 +322,31 @@ pub fn check_log(
             _ => {}
         }
     }
-    f
 }
 
 /// What git says against a log: sealed blobs, the commit that shipped, the commits gates judged.
 pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Finding> {
-    use crate::git;
-    let mut f = vec![];
-    let mut push = |line: usize, level: &'static str, code: &'static str, what: String| {
-        f.push(Finding {
-            log: id.into(),
-            line,
-            level,
-            code,
-            what,
-        })
+    let mut c = GitCheck {
+        root,
+        id,
+        main,
+        found: Findings {
+            log: id,
+            list: vec![],
+        },
     };
-    let main_tip = git::commit_of(root, main);
+    let main_tip = crate::git::commit_of(root, main);
     let mut p = Progress::new(id);
     for (line, v) in log::events(entries) {
-        let st = step(v);
-        let sealed =
-            |commit: &str,
-             files: &Value,
-             push: &mut dyn FnMut(usize, &'static str, &'static str, String)| {
-                if git::commit_of(root, commit).is_none() {
-                    push(
-                        line,
-                        "error",
-                        "seal-missing",
-                        format!("the seal's commit {commit} isn't in this repository"),
-                    );
-                    return;
-                }
-                if let Some(m) = files.as_object() {
-                    for (path, h) in m {
-                        let Some(h) = h.as_str() else { continue };
-                        match git::blob_at(root, commit, path) {
-                            Some(b) if b == h => {}
-                            Some(b) if h.len() >= 7 && b.starts_with(h) => push(
-                                line,
-                                "warning",
-                                "short-hash",
-                                format!(
-                                    "{path} is logged with the abbreviated hash {h}; git hash-object gives {b}"
-                                ),
-                            ),
-                            Some(b) => push(
-                                line,
-                                "error",
-                                "seal-hash",
-                                format!("{path} at {commit} is {b}, not the logged {h}"),
-                            ),
-                            None => push(
-                                line,
-                                "error",
-                                "seal-hash",
-                                format!(
-                                    "{path} isn't at {commit}, where the log says it was sealed"
-                                ),
-                            ),
-                        }
-                    }
-                }
-            };
-        match st {
+        match step(v) {
             "brief" => {
                 if let Some(s) = v["seal"].as_str() {
-                    sealed(s, &v["files"], &mut push);
+                    c.sealed(line, s, &v["files"]);
                 }
                 if let Some(b) = v["color"]["base"].as_str()
-                    && git::commit_of(root, b).is_none()
+                    && crate::git::commit_of(root, b).is_none()
                 {
-                    push(
+                    c.found.push(
                         line,
                         "error",
                         "base-missing",
@@ -363,159 +355,225 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                 }
             }
             "checks" => {
-                if let Some(c) = v["seal"]["commit"].as_str() {
-                    sealed(c, &v["seal"]["checks"], &mut push);
+                if let Some(commit) = v["seal"]["commit"].as_str() {
+                    c.sealed(line, commit, &v["seal"]["checks"]);
                 }
             }
-            "gates" => {
-                let start = str_of(v, "start");
-                if !start.is_empty() && git::commit_of(root, start).is_none() {
-                    push(
-                        line,
-                        "error",
-                        "start-missing",
-                        format!("its start {start} isn't in this repository"),
-                    );
-                } else if let Some(expected) = &p.start
-                    && !start.is_empty()
-                    && start != expected
-                    && !git::is_ancestor(root, expected, start)
-                {
-                    push(
-                        line,
-                        "error",
-                        "start",
-                        format!(
-                            "its start {start} is not the seal's tip at that time, {expected}, nor a later one"
-                        ),
-                    );
-                }
-                if let Some(h) = v["head"].as_str()
-                    && !start.is_empty()
-                    && git::commit_of(root, h).is_some()
-                    && !git::is_ancestor(root, start, h)
-                {
-                    push(
-                        line,
-                        "error",
-                        "start",
-                        format!("the head it judged, {h}, doesn't start from {start}"),
-                    );
-                }
-            }
+            "gates" => c.gates(line, v, &p),
             "ship" => {
-                let w = str_of(v, "where");
-                let first = w
-                    .split(|c: char| c.is_whitespace() || c == ',' || c == '(')
-                    .next()
-                    .unwrap_or("");
-                let head = v["head"].as_str().map(str::to_string).or_else(|| {
-                    (first.len() >= 7
-                        && first.len() <= 64
-                        && first.chars().all(|c| c.is_ascii_hexdigit()))
-                    .then(|| first.to_string())
-                });
-                // A change merged by squash or rebase: up to the commit of the main branch it names,
-                // the commits that brought it hold exactly what was judged, and nothing else.
-                let by_content = |h: &str, m: &str| -> Result<(), String> {
-                    let at = v["in"].as_str().unwrap_or("");
-                    if git::commit_of(root, at).is_none() || !git::is_ancestor(root, at, m) {
-                        return Err(format!("{at:?} is not a commit of {main}"));
-                    }
-                    let start = if p.kind == Some(crate::state::LogKind::Setup) {
-                        p.last_review.as_ref().and_then(|r| r.start.clone())
-                    } else {
-                        p.last_gates.as_ref().map(|g| g.start.clone())
-                    };
-                    crate::ship::by_content(root, id, main, at, &start.unwrap_or_default(), h)
-                        .map(|_| ())
-                        .map_err(|n| n.why)
-                };
-                match (head, &main_tip) {
-                    (Some(h), Some(m)) => match git::commit_of(root, &h) {
-                        None => push(
-                            line,
-                            "error",
-                            "not-merged",
-                            format!("the commit it shipped, {h}, isn't in this repository"),
-                        ),
-                        Some(c) if v["matched"] == "content" => {
-                            if let Err(why) = by_content(&c, m) {
-                                push(
-                                    line,
-                                    "error",
-                                    "not-merged",
-                                    format!(
-                                        "it shipped {h} matched by content, and {main} doesn't hold it: {why}"
-                                    ),
-                                );
-                            }
-                        }
-                        Some(c) if !git::is_ancestor(root, &c, m) => push(
-                            line,
-                            "error",
-                            "not-merged",
-                            format!("the commit it shipped, {h}, is not in {main}"),
-                        ),
-                        _ => {}
-                    },
-                    (None, _) => push(
-                        line,
-                        "warning",
-                        "ship-unknown",
-                        format!("it shipped at {w:?}, which names no commit git can check"),
-                    ),
-                    (_, None) => push(
-                        line,
-                        "warning",
-                        "ship-unknown",
-                        format!("there is no {main} branch to check the ship against"),
-                    ),
-                }
-                // What shipped is what was judged, or differs from it only in the bookkeeping;
-                // a review before the last gates holds only when nothing after it touched the
-                // change's files.
-                let g = p.last_gates.as_ref().and_then(|g| g.head.clone());
-                if let (Some(h), Some(g)) = (v["head"].as_str(), &g)
-                    && h != g
-                    && !crate::judged::only_bookkeeping(root, id, g, h)
-                {
-                    push(
-                        line,
-                        "error",
-                        "unjudged",
-                        format!(
-                            "it shipped {h}, which differs from {g}, the commit its gates judged, in more than the bookkeeping"
-                        ),
-                    );
-                }
-                if let (Some(r), Some(g)) = (p.last_review.as_ref(), &g)
-                    && let Some(rh) = &r.head
-                    && rh != g
-                    && !crate::judged::only_bookkeeping(root, id, rh, g)
-                    && !crate::judged::review_carries(
-                        root,
-                        rh,
-                        g,
-                        r.start.as_deref(),
-                        &crate::judged::GitView::of(root, id, None, None),
-                    )
-                {
-                    push(
-                        line,
-                        "error",
-                        "unjudged",
-                        format!(
-                            "its review judged {rh}, and what came after it, up to {g}, touched the files the change touches: it needs a review of its own"
-                        ),
-                    );
-                }
+                c.shipped_in_main(line, v, &p, main_tip.as_deref());
+                c.shipped_what_was_judged(line, v, &p);
             }
             _ => {}
         }
         p.apply(line, v);
     }
-    f
+    c.found.list
+}
+
+/// One pass over a log with git: where the repository is, whose log it is, and what it finds.
+struct GitCheck<'a> {
+    root: &'a Path,
+    id: &'a str,
+    main: &'a str,
+    found: Findings<'a>,
+}
+
+impl GitCheck<'_> {
+    /// A seal's commit is in the repository, and holds each file with the hash the log gives.
+    fn sealed(&mut self, line: usize, commit: &str, files: &Value) {
+        use crate::git;
+        if git::commit_of(self.root, commit).is_none() {
+            self.found.push(
+                line,
+                "error",
+                "seal-missing",
+                format!("the seal's commit {commit} isn't in this repository"),
+            );
+            return;
+        }
+        let Some(m) = files.as_object() else { return };
+        for (path, h) in m {
+            let Some(h) = h.as_str() else { continue };
+            match git::blob_at(self.root, commit, path) {
+                Some(b) if b == h => {}
+                Some(b) if h.len() >= 7 && b.starts_with(h) => self.found.push(
+                    line,
+                    "warning",
+                    "short-hash",
+                    format!(
+                        "{path} is logged with the abbreviated hash {h}; git hash-object gives {b}"
+                    ),
+                ),
+                Some(b) => self.found.push(
+                    line,
+                    "error",
+                    "seal-hash",
+                    format!("{path} at {commit} is {b}, not the logged {h}"),
+                ),
+                None => self.found.push(
+                    line,
+                    "error",
+                    "seal-hash",
+                    format!("{path} isn't at {commit}, where the log says it was sealed"),
+                ),
+            }
+        }
+    }
+
+    /// The gates started from the seal's tip of that time, and the head they judged starts there.
+    fn gates(&mut self, line: usize, v: &Value, p: &Progress) {
+        use crate::git;
+        let root = self.root;
+        let start = str_of(v, "start");
+        if !start.is_empty() && git::commit_of(root, start).is_none() {
+            self.found.push(
+                line,
+                "error",
+                "start-missing",
+                format!("its start {start} isn't in this repository"),
+            );
+        } else if let Some(expected) = &p.start
+            && !start.is_empty()
+            && start != expected
+            && !git::is_ancestor(root, expected, start)
+        {
+            self.found.push(
+                line,
+                "error",
+                "start",
+                format!(
+                    "its start {start} is not the seal's tip at that time, {expected}, nor a later one"
+                ),
+            );
+        }
+        if let Some(h) = v["head"].as_str()
+            && !start.is_empty()
+            && git::commit_of(root, h).is_some()
+            && !git::is_ancestor(root, start, h)
+        {
+            self.found.push(
+                line,
+                "error",
+                "start",
+                format!("the head it judged, {h}, doesn't start from {start}"),
+            );
+        }
+    }
+
+    /// The commit a `ship` step names is in the main branch, or the main branch holds what it held.
+    fn shipped_in_main(&mut self, line: usize, v: &Value, p: &Progress, main_tip: Option<&str>) {
+        use crate::git;
+        let (root, id, main) = (self.root, self.id, self.main);
+        let w = str_of(v, "where");
+        let first = w
+            .split(|c: char| c.is_whitespace() || c == ',' || c == '(')
+            .next()
+            .unwrap_or("");
+        let head = v["head"].as_str().map(str::to_string).or_else(|| {
+            (first.len() >= 7 && first.len() <= 64 && first.chars().all(|c| c.is_ascii_hexdigit()))
+                .then(|| first.to_string())
+        });
+        // A change merged by squash or rebase: up to the commit of the main branch it names,
+        // the commits that brought it hold exactly what was judged, and nothing else.
+        let by_content = |h: &str, m: &str| -> Result<(), String> {
+            let at = v["in"].as_str().unwrap_or("");
+            if git::commit_of(root, at).is_none() || !git::is_ancestor(root, at, m) {
+                return Err(format!("{at:?} is not a commit of {main}"));
+            }
+            let start = if p.kind == Some(LogKind::Setup) {
+                p.last_review.as_ref().and_then(|r| r.start.clone())
+            } else {
+                p.last_gates.as_ref().map(|g| g.start.clone())
+            };
+            crate::ship::by_content(root, id, main, at, &start.unwrap_or_default(), h)
+                .map(|_| ())
+                .map_err(|n| n.why)
+        };
+        match (head, main_tip) {
+            (Some(h), Some(m)) => match git::commit_of(root, &h) {
+                None => self.found.push(
+                    line,
+                    "error",
+                    "not-merged",
+                    format!("the commit it shipped, {h}, isn't in this repository"),
+                ),
+                Some(c) if v["matched"] == "content" => {
+                    if let Err(why) = by_content(&c, m) {
+                        self.found.push(
+                            line,
+                            "error",
+                            "not-merged",
+                            format!(
+                                "it shipped {h} matched by content, and {main} doesn't hold it: {why}"
+                            ),
+                        );
+                    }
+                }
+                Some(c) if !git::is_ancestor(root, &c, m) => self.found.push(
+                    line,
+                    "error",
+                    "not-merged",
+                    format!("the commit it shipped, {h}, is not in {main}"),
+                ),
+                _ => {}
+            },
+            (None, _) => self.found.push(
+                line,
+                "warning",
+                "ship-unknown",
+                format!("it shipped at {w:?}, which names no commit git can check"),
+            ),
+            (_, None) => self.found.push(
+                line,
+                "warning",
+                "ship-unknown",
+                format!("there is no {main} branch to check the ship against"),
+            ),
+        }
+    }
+
+    /// What shipped is what was judged, or differs from it only in the bookkeeping; a review
+    /// before the last gates holds only when nothing after it touched the change's files.
+    fn shipped_what_was_judged(&mut self, line: usize, v: &Value, p: &Progress) {
+        use crate::judged;
+        let (root, id) = (self.root, self.id);
+        let g = p.last_gates.as_ref().and_then(|g| g.head.clone());
+        if let (Some(h), Some(g)) = (v["head"].as_str(), &g)
+            && h != g
+            && !judged::only_bookkeeping(root, id, g, h)
+        {
+            self.found.push(
+                line,
+                "error",
+                "unjudged",
+                format!(
+                    "it shipped {h}, which differs from {g}, the commit its gates judged, in more than the bookkeeping"
+                ),
+            );
+        }
+        if let (Some(r), Some(g)) = (p.last_review.as_ref(), &g)
+            && let Some(rh) = &r.head
+            && rh != g
+            && !judged::only_bookkeeping(root, id, rh, g)
+            && !judged::review_carries(
+                root,
+                rh,
+                g,
+                r.start.as_deref(),
+                &judged::GitView::of(root, id, None, None),
+            )
+        {
+            self.found.push(
+                line,
+                "error",
+                "unjudged",
+                format!(
+                    "its review judged {rh}, and what came after it, up to {g}, touched the files the change touches: it needs a review of its own"
+                ),
+            );
+        }
+    }
 }
 
 #[cfg(test)]

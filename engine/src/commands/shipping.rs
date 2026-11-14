@@ -275,60 +275,74 @@ fn status_entries(root: &Path) -> R<Vec<(char, char, String)>> {
     Ok(out)
 }
 
-pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
-    run("ship", |out| {
-        let l = load(ctx, id)?;
-        need_repo(ctx, "a merge needs git")?;
-        git_writes(ctx)?;
-        git_commits(ctx)?;
-        let main = git::main_branch(&ctx.root);
-        ready_to_ship(&l, id)?;
-        let head = ship_head(&l, id)?;
-        let judged = judged_for(ctx, &l, id, &head)?;
-        let on = git::out(&ctx.root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
-            .unwrap_or_default();
-        if on != main {
+/// The checkout is on the main branch, and the change has a branch to merge.
+fn branch_on_main(ctx: &Ctx, l: &Loaded, id: &str, main: &str) -> R<String> {
+    let on =
+        git::out(&ctx.root, &["symbolic-ref", "--quiet", "--short", "HEAD"]).unwrap_or_default();
+    if on != main {
+        return Err(Fail::refuse(
+            "not-on-main",
+            format!(
+                "the checkout is on {}, not on {main}",
+                if on.is_empty() {
+                    "a detached head".into()
+                } else {
+                    on
+                }
+            ),
+            format!("check out {main} in the orchestrator's copy, then: gdd ship {id} --merge"),
+        ));
+    }
+    l.state.git.branch.clone().ok_or(Fail::missing(
+        format!("the branch of {id}"),
+        format!("no branch for {id}: pass --branch"),
+    ))
+}
+
+/// The bookkeeping first, so the branch holds the copy's logs and backlog as they are. The
+/// branch must still be at the head that stands judged, and what merges is that commit, with
+/// the bookkeeping on top, by its hash.
+fn bookkeeping_on_branch(
+    ctx: &Ctx,
+    l: &Loaded,
+    id: &str,
+    head: &str,
+    judged: &str,
+    branch: &str,
+    out: &mut Out,
+) -> R<String> {
+    let (tip, moved) = commit_bookkeeping(ctx, l, id, head, out)?;
+    if moved {
+        out.say(format!(
+            "committed the bookkeeping on {branch} as {}",
+            git::short(&tip)
+        ));
+        if !crate::judged::only_bookkeeping(&ctx.root, id, judged, &tip) {
             return Err(Fail::refuse(
-                "not-on-main",
+                "unjudged",
                 format!(
-                    "the checkout is on {}, not on {main}",
-                    if on.is_empty() {
-                        "a detached head".into()
-                    } else {
-                        on
-                    }
+                    "{} differs from {}, the commit that was judged, in more than the layer's bookkeeping",
+                    git::short(&tip),
+                    git::short(judged)
                 ),
-                format!("check out {main} in the orchestrator's copy, then: gdd ship {id} --merge"),
+                format!("gdd next {id}"),
             ));
         }
-        let branch = l.state.git.branch.clone().ok_or(Fail::missing(
-            format!("the branch of {id}"),
-            format!("no branch for {id}: pass --branch"),
-        ))?;
-        // The bookkeeping first, so the branch holds the copy's logs and backlog as they are. The
-        // branch must still be at the head that stands judged, and what merges is that commit,
-        // with the bookkeeping on top, by its hash.
-        let (tip, moved) = commit_bookkeeping(ctx, &l, id, &head, out)?;
-        if moved {
-            out.say(format!(
-                "committed the bookkeeping on {branch} as {}",
-                git::short(&tip)
-            ));
-            if !crate::judged::only_bookkeeping(&ctx.root, id, &judged, &tip) {
-                return Err(Fail::refuse(
-                    "unjudged",
-                    format!(
-                        "{} differs from {}, the commit that was judged, in more than the layer's bookkeeping",
-                        git::short(&tip),
-                        git::short(&judged)
-                    ),
-                    format!("gdd next {id}"),
-                ));
-            }
-        }
-        // Nothing else may be pending: what the copy changed is either bookkeeping, or a file the
-        // branch holds as it is (such as the brief and its scenarios), or nothing the merge touches.
-        let mut aside: Vec<String> = vec![];
+    }
+    Ok(tip)
+}
+
+/// What the checkout holds that the merge brings as it is, moved out of the merge's way.
+struct Aside {
+    files: Vec<String>,
+    keep: PathBuf,
+}
+
+impl Aside {
+    /// Nothing else may be pending: what the copy changed is either bookkeeping, or a file the
+    /// branch holds as it is (such as the brief and its scenarios), or nothing the merge touches.
+    fn take(ctx: &Ctx, id: &str, tip: &str, out: &mut Out) -> R<Aside> {
+        let mut files: Vec<String> = vec![];
         let mut pending: Vec<String> = vec![];
         for (x, y, path) in status_entries(&ctx.root)? {
             let untracked = x == '?' && y == '?';
@@ -338,17 +352,17 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             }
             if crate::judged::is_bookkeeping(&path) {
                 if ctx.root.join(&path).is_file() {
-                    aside.push(path);
+                    files.push(path);
                 }
                 continue;
             }
             if untracked {
-                match git::blob_at(&ctx.root, &tip, &path) {
+                match git::blob_at(&ctx.root, tip, &path) {
                     Some(b)
                         if git::hash_object(&ctx.root, &path).ok().as_deref()
                             == Some(b.as_str()) =>
                     {
-                        aside.push(path)
+                        files.push(path)
                     }
                     Some(_) => {
                         pending.push(format!("{path} (your copy differs from the change's)"))
@@ -369,9 +383,8 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
                 "commit or set it aside yourself; a correction of the brief is a new version",
             ));
         }
-        // Move aside what the merge will bring, as it is.
         let keep = runs_dir(&ctx.root, id, "merge", out)?.join("aside");
-        for p in &aside {
+        for p in &files {
             let from = ctx.root.join(p);
             let to = keep.join(p);
             if let Some(d) = to.parent() {
@@ -386,88 +399,121 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
                 std::fs::remove_file(&from).map_err(|e| crate::out::io(&from, e))?;
             }
         }
-        let put_back = |all: bool| -> Vec<String> {
-            let mut back = vec![];
-            let head = git::commit_of(&ctx.root, "HEAD");
-            for p in &aside {
-                let saved = keep.join(p);
-                let brought = head
-                    .as_ref()
-                    .and_then(|h| git::blob_bytes(&ctx.root, h, p))
-                    .zip(std::fs::read(&saved).ok())
-                    .is_some_and(|(a, b)| a == b);
-                if all || !brought {
-                    let to = ctx.root.join(p);
-                    if let Some(d) = to.parent() {
-                        let _ = std::fs::create_dir_all(d);
-                    }
-                    let _ = std::fs::copy(&saved, &to);
-                    back.push(p.clone());
+        Ok(Aside { files, keep })
+    }
+
+    /// Put back what the merge didn't bring, or all of it when nothing merged.
+    fn put_back(&self, ctx: &Ctx, all: bool) -> Vec<String> {
+        let mut back = vec![];
+        let head = git::commit_of(&ctx.root, "HEAD");
+        for p in &self.files {
+            let saved = self.keep.join(p);
+            let brought = head
+                .as_ref()
+                .and_then(|h| git::blob_bytes(&ctx.root, h, p))
+                .zip(std::fs::read(&saved).ok())
+                .is_some_and(|(a, b)| a == b);
+            if all || !brought {
+                let to = ctx.root.join(p);
+                if let Some(d) = to.parent() {
+                    let _ = std::fs::create_dir_all(d);
                 }
+                let _ = std::fs::copy(&saved, &to);
+                back.push(p.clone());
             }
-            back
-        };
-        // What merges is the commit that stands judged, by its hash, never the branch by its name:
-        // if the branch moved meanwhile, nothing merges.
-        let now = git::commit_of(&ctx.root, &format!("refs/heads/{branch}"));
-        if now.as_deref() != Some(tip.as_str()) {
-            put_back(true);
-            return Err(branch_moved(
-                &branch,
-                now.as_deref().unwrap_or("nothing"),
-                &tip,
-                id,
+        }
+        back
+    }
+}
+
+/// What merges is the commit that stands judged, by its hash, never the branch by its name: if
+/// the branch moved meanwhile, nothing merges. A conflict in the bookkeeping alone takes the
+/// copy's version, which is what the branch holds.
+fn merge_judged(
+    ctx: &Ctx,
+    id: &str,
+    branch: &str,
+    main: &str,
+    tip: &str,
+    aside: &Aside,
+    out: &mut Out,
+) -> R<()> {
+    let now = git::commit_of(&ctx.root, &format!("refs/heads/{branch}"));
+    if now.as_deref() != Some(tip) {
+        aside.put_back(ctx, true);
+        return Err(branch_moved(
+            branch,
+            now.as_deref().unwrap_or("nothing"),
+            tip,
+            id,
+        ));
+    }
+    let msg = format!("Merge {branch}: {id}");
+    let merged = git::run_env(
+        &ctx.root,
+        &["merge", "--no-ff", "--no-edit", "-m", &msg, tip],
+        &[("GIT_MERGE_AUTOEDIT", "no")],
+    )
+    .map_err(|e| Fail::missing("git merge", e))?;
+    if !merged.status.success() {
+        let conflicts =
+            git::out(&ctx.root, &["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
+        let conflicts: Vec<&str> = conflicts.lines().filter(|l| !l.is_empty()).collect();
+        if !conflicts.is_empty() && conflicts.iter().all(|p| crate::judged::is_bookkeeping(p)) {
+            // The copy's bookkeeping is what reaches the main branch: the branch holds it.
+            for p in &conflicts {
+                git::out(&ctx.root, &["checkout", "--theirs", "--", p])
+                    .map_err(|e| Fail::missing(p.to_string(), e))?;
+                git::out(&ctx.root, &["add", "--", p])
+                    .map_err(|e| Fail::missing(p.to_string(), e))?;
+            }
+            git::out_env(
+                &ctx.root,
+                &["commit", "--no-edit", "-m", &msg],
+                &[("GIT_MERGE_AUTOEDIT", "no")],
+            )
+            .map_err(|e| Fail::missing("the merge commit", e))?;
+            out.say(format!(
+                "the bookkeeping conflicted in {}: the copy's version went in",
+                conflicts.join(", ")
+            ));
+        } else {
+            let _ = git::out(&ctx.root, &["merge", "--abort"]);
+            aside.put_back(ctx, true);
+            return Err(Fail::refuse(
+                "conflict",
+                format!(
+                    "merging {branch} into {main} conflicts{}",
+                    if conflicts.is_empty() {
+                        format!(": {}", String::from_utf8_lossy(&merged.stderr).trim())
+                    } else {
+                        format!(" in {}", conflicts.join(", "))
+                    }
+                ),
+                format!(
+                    "bring the change up to date first: gdd seal {id} --merge-main, merge it into {branch}, gdd gates {id}"
+                ),
             ));
         }
-        let msg = format!("Merge {branch}: {id}");
-        let merged = git::run_env(
-            &ctx.root,
-            &["merge", "--no-ff", "--no-edit", "-m", &msg, &tip],
-            &[("GIT_MERGE_AUTOEDIT", "no")],
-        )
-        .map_err(|e| Fail::missing("git merge", e))?;
-        if !merged.status.success() {
-            let conflicts = git::out(&ctx.root, &["diff", "--name-only", "--diff-filter=U"])
-                .unwrap_or_default();
-            let conflicts: Vec<&str> = conflicts.lines().filter(|l| !l.is_empty()).collect();
-            if !conflicts.is_empty() && conflicts.iter().all(|p| crate::judged::is_bookkeeping(p)) {
-                // The copy's bookkeeping is what reaches the main branch: the branch holds it.
-                for p in &conflicts {
-                    git::out(&ctx.root, &["checkout", "--theirs", "--", p])
-                        .map_err(|e| Fail::missing(p.to_string(), e))?;
-                    git::out(&ctx.root, &["add", "--", p])
-                        .map_err(|e| Fail::missing(p.to_string(), e))?;
-                }
-                git::out_env(
-                    &ctx.root,
-                    &["commit", "--no-edit", "-m", &msg],
-                    &[("GIT_MERGE_AUTOEDIT", "no")],
-                )
-                .map_err(|e| Fail::missing("the merge commit", e))?;
-                out.say(format!(
-                    "the bookkeeping conflicted in {}: the copy's version went in",
-                    conflicts.join(", ")
-                ));
-            } else {
-                let _ = git::out(&ctx.root, &["merge", "--abort"]);
-                put_back(true);
-                return Err(Fail::refuse(
-                    "conflict",
-                    format!(
-                        "merging {branch} into {main} conflicts{}",
-                        if conflicts.is_empty() {
-                            format!(": {}", String::from_utf8_lossy(&merged.stderr).trim())
-                        } else {
-                            format!(" in {}", conflicts.join(", "))
-                        }
-                    ),
-                    format!(
-                        "bring the change up to date first: gdd seal {id} --merge-main, merge it into {branch}, gdd gates {id}"
-                    ),
-                ));
-            }
-        }
-        let back = put_back(false);
+    }
+    Ok(())
+}
+
+pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
+    run("ship", |out| {
+        let l = load(ctx, id)?;
+        need_repo(ctx, "a merge needs git")?;
+        git_writes(ctx)?;
+        git_commits(ctx)?;
+        let main = git::main_branch(&ctx.root);
+        ready_to_ship(&l, id)?;
+        let head = ship_head(&l, id)?;
+        let judged = judged_for(ctx, &l, id, &head)?;
+        let branch = branch_on_main(ctx, &l, id, &main)?;
+        let tip = bookkeeping_on_branch(ctx, &l, id, &head, &judged, &branch, out)?;
+        let aside = Aside::take(ctx, id, &tip, out)?;
+        merge_judged(ctx, id, &branch, &main, &tip, &aside, out)?;
+        let back = aside.put_back(ctx, false);
         if !back.is_empty() {
             out.say(format!(
                 "put back what the merge didn't bring: {}",

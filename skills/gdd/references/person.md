@@ -57,7 +57,7 @@ After:
 - **The way that loosens nothing, first.** When one way out keeps every check as it is and another lowers one, propose the first.
 - **What they approve, they see.** Name each file in a line, with what it is for, and wait. A summary isn't what they approve.
 - **Say what you need,** not which skill or rule makes you ask.
-- **You aren't on the level a step asks for, or can't tell.** Say so once, with what you'd do: "This part is delicate, and I can't tell I'm on my most careful setting. I'd go on as I am. Yes?" With their yes, go on. Never ask them twice to open another session: in one run, an orchestrator asked for one in twelve turns running, and the request ended with nothing built.
+- **You aren't on the level a step asks for, or can't tell.** Say so once, with what you'd do: "This part is delicate, and I can't tell I'm on my most careful setting. I'd go on as I am. Yes?" With their yes, go on, and give the step you write `--level standard`, so the log says the level it was done at. Never ask them twice to open another session: in one run, an orchestrator asked for one in twelve turns running, and the request ended with nothing built.
 
 ## When they leave it to you
 

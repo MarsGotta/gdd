@@ -1045,7 +1045,7 @@ if [ "$variant" = spent ] || [ "$variant" = finished ]; then
 #   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>],"judge":"<gates, review, ship or empty>"}
 # The color is the result of the last brief step. A round is each launch of gdd-build after the
 # first, and the checks sealed again for it go with it. Where the checks are what is built, in a
-# log of standing checks (standing-checks, standing-checks-<check>, gates-<id>), it is each launch
+# log of standing checks (standing-checks, standing-checks-<check>, gates-<zone>), it is each launch
 # of gdd-checks after the first. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
 # when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait

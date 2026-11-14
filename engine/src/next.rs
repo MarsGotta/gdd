@@ -264,81 +264,103 @@ pub(crate) fn next_step(
     }
     let color = p.color.clone().unwrap_or_default();
     let asks = |c: &str| !color.is_empty() && bp.color_asks(&color, c);
-    let head_short = git
-        .head
-        .as_deref()
-        .map(crate::git::short)
-        .unwrap_or("its head");
-
     if kind == LogKind::Setup {
-        if !p.checks_done {
-            return setup_checks(
-                id,
-                p,
-                lim,
-                "launch gdd-checks to set the checks up and seal them",
-            );
-        }
-        return match &p.last_review {
-            None => n(
-                "review",
-                "launch gdd-review to try each check",
-                format!("gdd launch {id} review"),
-            ),
-            Some(r) if r.verdict == "pass" => {
-                if asks("person-review") && !p.person_reviewed() {
-                    return waiting_or_ask(
-                        id,
-                        p,
-                        "change",
-                        "the person reviews the checks before they ship",
-                        "",
-                        now,
-                    );
-                }
-                ship_step(id, git)
-            }
-            // A stop is never waived: once the person was told, a fix round, then a new trial,
-            // and only a trial that passes lifts it.
-            Some(r) if r.verdict == "stop" && !p.stop_told => blocked(
-                "stopped",
-                "review-stop",
-                "the trial said stop: the checks don't ship. Tell the person why; a stop is never waived, it gets a fix round and a new trial",
-                format!("gdd ask {id} --of stop \"<why it stopped>\""),
-            ),
-            Some(r) if r.verdict == "stop" => setup_checks(
-                id,
-                p,
-                lim,
-                "a fix round after the trial's stop: launch gdd-checks, which gets the trial's findings and the person's answer, then a new trial",
-            ),
-            Some(_) => setup_checks(
-                id,
-                p,
-                lim,
-                "the trial sent the checks back: launch gdd-checks again",
-            ),
-        };
+        return next_in_setup(id, p, lim, git, asks("person-review"), now);
     }
+    if let Some(step) = before_the_build(id, p, lim, &color, asks("brief-approval"), now) {
+        return step;
+    }
+    from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
+}
 
+/// Setting up the standing checks: the checks, their trial, the person's review where the color
+/// asks for one, and shipping them.
+fn next_in_setup(
+    id: &str,
+    p: &Progress,
+    lim: &Limits,
+    git: &GitView,
+    person_reviews: bool,
+    now: i64,
+) -> Next {
+    if !p.checks_done {
+        return setup_checks(
+            id,
+            p,
+            lim,
+            "launch gdd-checks to set the checks up and seal them",
+        );
+    }
+    match &p.last_review {
+        None => n(
+            "review",
+            "launch gdd-review to try each check",
+            format!("gdd launch {id} review"),
+        ),
+        Some(r) if r.verdict == "pass" => {
+            if person_reviews && !p.person_reviewed() {
+                return waiting_or_ask(
+                    id,
+                    p,
+                    "change",
+                    "the person reviews the checks before they ship",
+                    "",
+                    now,
+                );
+            }
+            ship_step(id, git)
+        }
+        // A stop is never waived: once the person was told, a fix round, then a new trial,
+        // and only a trial that passes lifts it.
+        Some(r) if r.verdict == "stop" && !p.stop_told => blocked(
+            "stopped",
+            "review-stop",
+            "the trial said stop: the checks don't ship. Tell the person why; a stop is never waived, it gets a fix round and a new trial",
+            format!("gdd ask {id} --of stop \"<why it stopped>\""),
+        ),
+        Some(r) if r.verdict == "stop" => setup_checks(
+            id,
+            p,
+            lim,
+            "a fix round after the trial's stop: launch gdd-checks, which gets the trial's findings and the person's answer, then a new trial",
+        ),
+        Some(_) => setup_checks(
+            id,
+            p,
+            lim,
+            "the trial sent the checks back: launch gdd-checks again",
+        ),
+    }
+}
+
+/// What comes before anyone builds a change: its brief, its reading on red, the person's approval
+/// and its checks. None when all of it is done.
+fn before_the_build(
+    id: &str,
+    p: &Progress,
+    lim: &Limits,
+    color: &str,
+    asks_approval: bool,
+    now: i64,
+) -> Option<Next> {
     if p.brief_line.is_none() {
-        return n(
+        return Some(n(
             "brief",
             "load gdd-brief: its color goes to the log before anyone builds",
             format!(
                 "gdd brief {id} --paths <path>... [--color <color> --why \"<reason>\"] [--request \"<their words>\" or --request-file <a file with them>, when there is no brief file] [<brief and scenario files>]"
             ),
-        );
+        ));
     }
     if let Some(reason) = &p.brief_stopped {
-        return blocked(
+        return Some(blocked(
             "stopped",
             "cannot",
             format!(
                 "the brief stopped: {reason}. It stays dropped until a new brief takes it up again"
             ),
             format!("gdd brief {id} ..."),
-        );
+        ));
     }
     if color == "red"
         && p.has_brief()
@@ -347,74 +369,101 @@ pub(crate) fn next_step(
         && !p.built_since_brief()
         && p.open_ask().is_none()
     {
-        return n(
+        return Some(n(
             "reading",
             "a red brief is read before the person approves it: launch gdd-review to read it, then take into a new version what you agree with",
             format!("gdd launch {id} reading"),
-        );
+        ));
     }
-    if asks("brief-approval") && !p.approved() {
-        let read = if color == "yellow" {
-            format!(
-                " (if it changes data another zone owns, have it read first: gdd launch {id} reading)"
-            )
-        } else {
-            String::new()
-        };
-        return waiting_or_ask(
-            id,
-            p,
-            "brief",
-            &format!(
-                "approve what has to pass, which {color} asks for, before anyone builds{read}"
-            ),
-            &format!(
-                "gdd approve {id} --of brief --version {} --who <person> --where conversation <files>",
-                p.version.unwrap_or(1)
-            ),
-            now,
-        );
+    if asks_approval && !p.approved() {
+        return Some(approval_step(id, p, color, now));
     }
     if p.has_brief() && !p.checks_done {
-        // The person answered after the second stop: what they decided moves it.
-        let decided = p.checks_stopped >= 2
-            && p.checks_line
-                .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
-        if decided {
-            return blocked(
-                "stopped",
-                "cannot",
-                format!(
-                    "gdd-checks stopped twice and the person answered: a new version of the brief, sealed (gdd seal) and logged (gdd brief), takes the checks up again; if they said to try once more as it is, gdd launch {id} checks --level deep; if they dropped it, gdd brief {id} --stop \"<their words>\""
-                ),
-                format!("gdd brief {id} ..."),
-            );
-        }
-        if p.checks_stopped >= 2 {
-            return blocked(
-                "stopped",
-                "cannot",
-                "gdd-checks stopped twice: a check it can't write goes to the person",
-                format!(
-                    "gdd ask {id} --of decision \"<the check it can't write, and the new version of the brief you propose>\""
-                ),
-            );
-        }
-        let deep = if p.checks_stopped == 1 {
-            " --level deep"
-        } else {
-            ""
-        };
-        return round_needs_room(
-            id,
-            lim,
-            n(
-                "checks",
-                "launch gdd-checks: a test for each scenario, seen failing and sealed",
-                format!("gdd launch {id} checks{deep}"),
+        return Some(checks_step(id, p, lim));
+    }
+    None
+}
+
+/// The person approves what has to pass, before anyone builds.
+fn approval_step(id: &str, p: &Progress, color: &str, now: i64) -> Next {
+    let read = if color == "yellow" {
+        format!(
+            " (if it changes data another zone owns, have it read first: gdd launch {id} reading)"
+        )
+    } else {
+        String::new()
+    };
+    waiting_or_ask(
+        id,
+        p,
+        "brief",
+        &format!("approve what has to pass, which {color} asks for, before anyone builds{read}"),
+        &format!(
+            "gdd approve {id} --of brief --version {} --who <person> --where conversation <files>",
+            p.version.unwrap_or(1)
+        ),
+        now,
+    )
+}
+
+/// The checks of a change: launched, launched deeper after a stop, or with the person after two.
+fn checks_step(id: &str, p: &Progress, lim: &Limits) -> Next {
+    // The person answered after the second stop: what they decided moves it.
+    let decided = p.checks_stopped >= 2
+        && p.checks_line
+            .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
+    if decided {
+        return blocked(
+            "stopped",
+            "cannot",
+            format!(
+                "gdd-checks stopped twice and the person answered: a new version of the brief, sealed (gdd seal) and logged (gdd brief), takes the checks up again; if they said to try once more as it is, gdd launch {id} checks --level deep; if they dropped it, gdd brief {id} --stop \"<their words>\""
+            ),
+            format!("gdd brief {id} ..."),
+        );
+    }
+    if p.checks_stopped >= 2 {
+        return blocked(
+            "stopped",
+            "cannot",
+            "gdd-checks stopped twice: a check it can't write goes to the person",
+            format!(
+                "gdd ask {id} --of decision \"<the check it can't write, and the new version of the brief you propose>\""
             ),
         );
     }
+    let deep = if p.checks_stopped == 1 {
+        " --level deep"
+    } else {
+        ""
+    };
+    round_needs_room(
+        id,
+        lim,
+        n(
+            "checks",
+            "launch gdd-checks: a test for each scenario, seen failing and sealed",
+            format!("gdd launch {id} checks{deep}"),
+        ),
+    )
+}
+
+/// From the first build on: its gates, its review, what sent it back, and shipping it.
+fn from_the_build_on(
+    id: &str,
+    p: &Progress,
+    lim: &Limits,
+    git: &GitView,
+    color: &str,
+    person_reviews: bool,
+    now: i64,
+) -> Next {
+    let head_short = git
+        .head
+        .as_deref()
+        .map(crate::git::short)
+        .unwrap_or("its head");
+
     let Some((_, build_stopped)) = p.last_build.filter(|_| p.built_since_seal) else {
         return round_needs_room(
             id,
@@ -509,7 +558,7 @@ pub(crate) fn next_step(
         v @ ("stop" | "fix") => review_sent_back(id, p, lim, v),
         _ => {
             if let Some(rc) = &r.color
-                && crate::color_rank(rc) > crate::color_rank(&color)
+                && crate::color_rank(rc) > crate::color_rank(color)
             {
                 return n(
                     "brief",
@@ -519,7 +568,7 @@ pub(crate) fn next_step(
                     format!("gdd brief {id} --color {rc} --why \"<what raised it>\" <files>"),
                 );
             }
-            if asks("person-review") && !p.person_reviewed() {
+            if person_reviews && !p.person_reviewed() {
                 return waiting_or_ask(
                     id,
                     p,

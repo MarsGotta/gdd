@@ -1,6 +1,6 @@
 # Reading a brief before anyone builds it
 
-You were given a brief and its scenarios, still a draft, and the base, and no change: nobody has built anything. Your job is to find what the brief leaves out, before it costs a round. Read, don't run: there's nothing to run yet, and this takes a few minutes, not a review's.
+You were given a brief and its scenarios, still a draft, and the base, and no change: nobody has built this version. Your job is to find what the brief leaves out, before it costs a round. Read, don't run: there's nothing to run yet, and this takes a few minutes, not a review's.
 
 Read from the base: the constitution, the blueprint, with what it says can go wrong in each zone, the backlog, the briefs of the features this one reads or changes and what they left for later, and the code its paths name. Then ask the brief these seven questions, the ones its author answered, and see whether the answers hold:
 

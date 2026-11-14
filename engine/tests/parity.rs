@@ -381,8 +381,15 @@ fn synthetic_logs_count_the_same() {
         if !text.is_empty() {
             text.push('\n');
         }
-        // The same events as a change and as the log of the standing checks.
-        for (id, rounds) in [("x", "rounds 1 of 6"), ("standing-checks", "rounds 2 of 6")] {
+        // The same events as a change and as a log of standing checks, by its id and by nothing
+        // that only looks like one.
+        for (id, rounds) in [
+            ("x", "rounds 1 of 6"),
+            ("standing-checksx", "rounds 1 of 6"),
+            ("standing-checks", "rounds 2 of 6"),
+            ("standing-checks-tests", "rounds 2 of 6"),
+            ("gates-payments", "rounds 2 of 6"),
+        ] {
             std::fs::write(dir.join(format!("gdd/log/{id}.jsonl")), &text).unwrap();
             let a = counter(&dir, id, &path);
             let b = ours(&dir, id);

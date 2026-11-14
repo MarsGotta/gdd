@@ -7,7 +7,7 @@ use crate::limits;
 use crate::log::{self, Entry, kind, step, str_of, ts};
 use crate::state::{LogKind, log_kind};
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const SCHEMA: &str = "gdd-metrics/1";
 pub const TABLES: [&str; 6] = ["changes", "steps", "checks", "asks", "findings", "engine"];
@@ -107,398 +107,441 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         let id = input.id;
         let events = log::events(input.entries);
         let layer = crate::journal::lines_written(input.journal, input.entries);
-        let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
-        let last_ts = values.iter().rev().find_map(|v| ts(v));
-        let first_ts = values.iter().find_map(|v| ts(v));
-        let lim = limits::count_entries(bp, id, input.entries, last_ts.unwrap_or(now));
         let state = crate::state::derive(id, bp, input.entries, GitView::default(), now);
-        let p = &state.progress;
-
-        // steps
-        let mut prev_t: Option<i64> = None;
-        let mut prev_step_t: Option<i64> = None;
-        let mut prev_step_line: Option<usize> = None;
-        let mut suspect = 0;
-        let mut role_seconds = 0f64;
-        let mut tokens_total = 0i64;
-        let mut steps = 0;
-        for (line, v) in &events {
-            let t_ = ts(v);
-            let st = step(v);
-            if !st.is_empty() {
-                steps += 1;
-                let r = &v["report"];
-                let since = match (t_, prev_t) {
-                    (Some(a), Some(b)) => json!(a - b),
-                    _ => Value::Null,
-                };
-                let sus = TIMED.contains(&st)
-                    && t_.is_some()
-                    && t_ == prev_step_t
-                    && !(layer.contains(line)
-                        && prev_step_line.is_some_and(|l| layer.contains(&l)));
-                // Written by the layer, by its journal.
-                let by_layer = layer.contains(line);
-                if sus {
-                    suspect += 1;
-                }
-                if let Some(s) = r["seconds"].as_f64() {
-                    role_seconds += s;
-                }
-                if let Some(k) = r["tokens"].as_i64() {
-                    tokens_total += k;
-                }
-                t.steps.push(row(vec![
-                    ("change", json!(id)),
-                    ("line", json!(line)),
-                    ("ts", v["ts"].clone()),
-                    ("step", json!(st)),
-                    ("role", r["skill"].clone()),
-                    ("skill_version", r["version"].clone()),
-                    ("level", r["level"].clone()),
-                    ("model", r["model"].clone()),
-                    ("round", r["round"].clone()),
-                    (
-                        "result",
-                        if st == "gates" {
-                            json!(if log::any_kv(v, "result", "fail") {
-                                "fail"
-                            } else {
-                                "pass"
-                            })
-                        } else if st == "review" {
-                            v["verdict"].clone()
-                        } else {
-                            r["result"].clone()
-                        },
-                    ),
-                    ("caught", r["caught"].clone()),
-                    ("seconds", r["seconds"].clone()),
-                    ("tokens", r["tokens"].clone()),
-                    ("seconds_since_previous", since),
-                    ("suspect_time", json!(sus)),
-                    ("by_layer", json!(by_layer)),
-                ]));
-                prev_step_t = t_;
-                prev_step_line = Some(*line);
-            }
-            if t_.is_some() {
-                prev_t = t_;
-            }
+        let mut n = Totals::default();
+        step_rows(&mut t.steps, &mut n, id, &events, &layer);
+        check_rows(&mut t.checks, &mut n, id, &events, &late);
+        ask_rows(&mut t.asks, &mut n, id, &state.progress.asks, now);
+        finding_rows(&mut t.findings, id, &events);
+        engine_rows(&mut t.engine, &mut n, input.journal);
+        if log_kind(id) != LogKind::Blueprint {
+            t.changes
+                .push(change_row(bp, input, &events, &layer, &state, &n, now));
         }
+    }
+    t
+}
 
-        // checks
-        let mut run = 0;
-        let mut first_gates: Option<bool> = None;
-        for (line, v) in &events {
-            if step(v) != "gates" {
-                continue;
-            }
-            run += 1;
-            let failed = log::any_kv(v, "result", "fail");
-            if first_gates.is_none() {
-                first_gates = Some(!failed);
-            }
-            for g in v["gates"].as_array().cloned().unwrap_or_default() {
-                let c = str_of(&g, "check").to_string();
-                t.checks.push(row(vec![
-                    ("change", json!(id)),
-                    ("run", json!(run)),
-                    ("line", json!(line)),
-                    ("head", v["head"].clone()),
-                    ("start", v["start"].clone()),
-                    ("check", json!(c)),
-                    (
-                        "tier",
-                        json!(if late.contains(&c) {
-                            "before review"
-                        } else {
-                            "each round"
-                        }),
-                    ),
-                    ("command", g["command"].clone()),
-                    ("exit", g["exit"].clone()),
-                    ("seconds", g["seconds"].clone()),
-                    ("result", g["result"].clone()),
-                ]));
-            }
-        }
+/// What the rows of one log add up to, for its own row in `changes`.
+#[derive(Default)]
+struct Totals {
+    steps: usize,
+    suspect: usize,
+    role_seconds: f64,
+    tokens: i64,
+    gates_runs: usize,
+    gates_first_try: Option<bool>,
+    asks: usize,
+    asks_answered: usize,
+    invocations: usize,
+    refusals: usize,
+    launches: usize,
+    not_started: usize,
+    timed_out: usize,
+}
 
-        // asks
-        let mut asked = 0;
-        let mut answered = 0;
-        for a in &p.asks {
-            asked += 1;
-            if a.ended_by.is_some() {
-                answered += 1;
-            }
-            let wait = match (a.ts, a.ended_at) {
-                (Some(x), Some(y)) => minutes(y - x),
+type Events<'a> = [(usize, &'a Value)];
+
+/// One row for each step, with the seconds since the event before it and whether the layer wrote it.
+fn step_rows(
+    rows: &mut Vec<Row>,
+    n: &mut Totals,
+    id: &str,
+    events: &Events,
+    layer: &BTreeSet<usize>,
+) {
+    let mut prev_t: Option<i64> = None;
+    let mut prev_step_t: Option<i64> = None;
+    let mut prev_step_line: Option<usize> = None;
+    for (line, v) in events {
+        let t_ = ts(v);
+        let st = step(v);
+        if !st.is_empty() {
+            n.steps += 1;
+            let r = &v["report"];
+            let since = match (t_, prev_t) {
+                (Some(a), Some(b)) => json!(a - b),
                 _ => Value::Null,
             };
-            t.asks.push(row(vec![
+            let sus = TIMED.contains(&st)
+                && t_.is_some()
+                && t_ == prev_step_t
+                && !(layer.contains(line) && prev_step_line.is_some_and(|l| layer.contains(&l)));
+            // Written by the layer, by its journal.
+            let by_layer = layer.contains(line);
+            if sus {
+                n.suspect += 1;
+            }
+            if let Some(s) = r["seconds"].as_f64() {
+                n.role_seconds += s;
+            }
+            if let Some(k) = r["tokens"].as_i64() {
+                n.tokens += k;
+            }
+            rows.push(row(vec![
                 ("change", json!(id)),
-                ("line", json!(a.line)),
+                ("line", json!(line)),
+                ("ts", v["ts"].clone()),
+                ("step", json!(st)),
+                ("role", r["skill"].clone()),
+                ("skill_version", r["version"].clone()),
+                ("level", r["level"].clone()),
+                ("model", r["model"].clone()),
+                ("round", r["round"].clone()),
                 (
-                    "ts",
-                    a.ts.map(crate::time::format)
-                        .map(Value::from)
-                        .unwrap_or(Value::Null),
-                ),
-                ("kind", json!(a.of)),
-                ("what", json!(a.what)),
-                ("answered", json!(a.ended_by.is_some())),
-                ("answered_by", json!(a.ended_by)),
-                ("got_what_it_asked", json!(a.answered)),
-                ("minutes_until_answered", wait),
-                (
-                    "minutes_open",
-                    match (a.ended_by.is_none(), a.ts) {
-                        (true, Some(x)) => minutes(now - x),
-                        _ => Value::Null,
+                    "result",
+                    if st == "gates" {
+                        json!(if log::any_kv(v, "result", "fail") {
+                            "fail"
+                        } else {
+                            "pass"
+                        })
+                    } else if st == "review" {
+                        v["verdict"].clone()
+                    } else {
+                        r["result"].clone()
                     },
                 ),
+                ("caught", r["caught"].clone()),
+                ("seconds", r["seconds"].clone()),
+                ("tokens", r["tokens"].clone()),
+                ("seconds_since_previous", since),
+                ("suspect_time", json!(sus)),
+                ("by_layer", json!(by_layer)),
             ]));
+            prev_step_t = t_;
+            prev_step_line = Some(*line);
         }
+        if t_.is_some() {
+            prev_t = t_;
+        }
+    }
+}
 
-        // findings
-        let mut outcome: BTreeMap<String, String> = BTreeMap::new();
-        for (_, v) in &events {
-            if step(v) == "review" {
-                for c in v["closed"].as_array().cloned().unwrap_or_default() {
-                    outcome.insert(str_of(&c, "id").into(), str_of(&c, "outcome").into());
-                }
-            }
-        }
-        for (line, v) in &events {
-            let st = step(v);
-            if st != "review" && st != "reading" {
-                continue;
-            }
-            let round = v["report"]["round"].clone();
-            for f in v["findings"].as_array().cloned().unwrap_or_default() {
-                let fid = str_of(&f, "id").to_string();
-                let went = if st == "reading" {
-                    f["went"].as_str().unwrap_or("").to_string()
-                } else {
-                    outcome.get(&fid).cloned().unwrap_or_else(|| "open".into())
-                };
-                t.findings.push(row(vec![
-                    ("change", json!(id)),
-                    ("line", json!(line)),
-                    ("source", json!(st)),
-                    ("round", round.clone()),
-                    ("finding", json!(fid)),
-                    (
-                        "kind",
-                        json!(if st == "reading" {
-                            "reading"
-                        } else {
-                            "finding"
-                        }),
-                    ),
-                    ("what", f["what"].clone()),
-                    ("where", f.get("where").cloned().unwrap_or(Value::Null)),
-                    ("went", json!(went)),
-                ]));
-            }
-            for l in v["later"].as_array().cloned().unwrap_or_default() {
-                t.findings.push(row(vec![
-                    ("change", json!(id)),
-                    ("line", json!(line)),
-                    ("source", json!(st)),
-                    ("round", round.clone()),
-                    ("finding", Value::Null),
-                    ("kind", json!("later")),
-                    ("what", l.clone()),
-                    ("where", Value::Null),
-                    ("went", json!("backlog")),
-                ]));
-            }
-        }
-
-        // engine
-        let (mut inv, mut refusals, mut launches, mut not_started, mut timed_out) = (0, 0, 0, 0, 0);
-        for j in input.journal {
-            inv += 1;
-            if !j["refused"].is_null() {
-                refusals += 1;
-            }
-            let l = &j["launch"];
-            if l.is_object() && l["ran"] == json!(true) {
-                launches += 1;
-                if l["started"] == json!(false) {
-                    not_started += 1;
-                }
-                if l["timed_out"] == json!(true) {
-                    timed_out += 1;
-                }
-            }
-            t.engine.push(row(vec![
-                ("change", j["brief"].clone()),
-                ("ts", j["ts"].clone()),
-                ("command", j["command"].clone()),
-                (
-                    "args",
-                    json!(
-                        j["args"]
-                            .as_array()
-                            .map(|a| a
-                                .iter()
-                                .filter_map(Value::as_str)
-                                .collect::<Vec<_>>()
-                                .join(" "))
-                            .unwrap_or_default()
-                    ),
-                ),
-                ("exit", j["exit"].clone()),
-                ("ms", j["ms"].clone()),
-                ("refused", j["refused"].clone()),
-                ("wrote_line", j["wrote"]["line"].clone()),
-                ("role", l["role"].clone()),
-                ("model", l["model"].clone()),
-                ("adapter", l["adapter"].clone()),
-                ("started", l["started"].clone()),
-                ("seconds_to_first_output", l["first_output"].clone()),
-                ("seconds", l["seconds"].clone()),
-                ("timed_out", l["timed_out"].clone()),
-                ("tokens", l["tokens"].clone()),
-                ("input_tokens", usage_sum(&l["usage"], "input")),
-                ("output_tokens", usage_sum(&l["usage"], "output")),
-                ("cache_read_tokens", usage_sum(&l["usage"], "cache_read")),
-                ("cache_write_tokens", usage_sum(&l["usage"], "cache_write")),
-            ]));
-        }
-
-        // the change
-        if log_kind(id) == LogKind::Blueprint {
+/// One row for each check of each run of the gates.
+fn check_rows(rows: &mut Vec<Row>, n: &mut Totals, id: &str, events: &Events, late: &[String]) {
+    for (line, v) in events {
+        if step(v) != "gates" {
             continue;
         }
-        let review_first = events
-            .iter()
-            .find(|(_, v)| step(v) == "review")
-            .map(|(_, v)| str_of(v, "verdict") == "pass");
-        let shipped = events.iter().find(|(_, v)| step(v) == "ship");
-        let ended = if shipped.is_some() {
-            "shipped"
-        } else if state
-            .next
-            .blocked
-            .as_deref()
-            .is_some_and(|b| b != "needs-person")
-        {
-            "stopped"
-        } else {
-            "open"
-        };
-        let touched = p.last_review.as_ref().and_then(|r| r.color.clone());
-        let rose = match (&p.planned, &touched) {
-            (Some(a), Some(b)) => json!(crate::color_rank(b) > crate::color_rank(a)),
+        n.gates_runs += 1;
+        let failed = log::any_kv(v, "result", "fail");
+        if n.gates_first_try.is_none() {
+            n.gates_first_try = Some(!failed);
+        }
+        for g in v["gates"].as_array().cloned().unwrap_or_default() {
+            let c = str_of(&g, "check").to_string();
+            rows.push(row(vec![
+                ("change", json!(id)),
+                ("run", json!(n.gates_runs)),
+                ("line", json!(line)),
+                ("head", v["head"].clone()),
+                ("start", v["start"].clone()),
+                ("check", json!(c)),
+                (
+                    "tier",
+                    json!(if late.contains(&c) {
+                        "before review"
+                    } else {
+                        "each round"
+                    }),
+                ),
+                ("command", g["command"].clone()),
+                ("exit", g["exit"].clone()),
+                ("seconds", g["seconds"].clone()),
+                ("result", g["result"].clone()),
+            ]));
+        }
+    }
+}
+
+/// One row for each question to the person, with how long it waited.
+fn ask_rows(rows: &mut Vec<Row>, n: &mut Totals, id: &str, asks: &[crate::state::Ask], now: i64) {
+    for a in asks {
+        n.asks += 1;
+        if a.ended_by.is_some() {
+            n.asks_answered += 1;
+        }
+        let wait = match (a.ts, a.ended_at) {
+            (Some(x), Some(y)) => minutes(y - x),
             _ => Value::Null,
         };
-        let verify = crate::verify::check_log(id, Some(bp), input.entries, &layer);
-        let mut r = row(vec![
+        rows.push(row(vec![
             ("change", json!(id)),
+            ("line", json!(a.line)),
             (
-                "kind",
-                json!(match log_kind(id) {
-                    LogKind::Setup => "setup",
-                    _ => "change",
-                }),
+                "ts",
+                a.ts.map(crate::time::format)
+                    .map(Value::from)
+                    .unwrap_or(Value::Null),
             ),
-            ("color_planned", json!(p.planned)),
-            ("color", json!(p.color)),
-            ("color_touched", json!(touched)),
-            ("rose", rose),
-            ("zones", json!(p.zones)),
-            ("uncovered", json!(p.uncovered)),
-            ("scenarios", json!(input.scenarios)),
-            ("files_changed", json!(input.git.files)),
-            ("lines_added", json!(input.git.added)),
-            ("lines_deleted", json!(input.git.deleted)),
-            ("events", json!(events.len())),
-            ("steps", json!(steps)),
-            ("minutes_work", json!(lim.minutes)),
-            ("minutes_waiting", minutes(lim.waited)),
-            ("minutes_parked", Value::Null),
+            ("kind", json!(a.of)),
+            ("what", json!(a.what)),
+            ("answered", json!(a.ended_by.is_some())),
+            ("answered_by", json!(a.ended_by)),
+            ("got_what_it_asked", json!(a.answered)),
+            ("minutes_until_answered", wait),
             (
-                "minutes_to_ship",
-                match (shipped.and_then(|(_, v)| ts(v)), first_ts) {
-                    (Some(s), Some(f)) => minutes(s - f),
+                "minutes_open",
+                match (a.ended_by.is_none(), a.ts) {
+                    (true, Some(x)) => minutes(now - x),
                     _ => Value::Null,
                 },
             ),
-            ("builds", json!(lim.builds)),
-            ("checks_launches", json!(lim.checks)),
-        ]);
-        for (col, key, name) in cap_keys() {
-            let line = lim.lines.iter().find(|l| l.name == name);
-            r.insert(format!("{col}_used"), json!(line.map(|l| l.used)));
-            r.insert(
-                format!("{col}_allowed"),
-                json!(line.and_then(|l| l.cap).or(bp.cap(&lim.color, key))),
-            );
-            r.insert(
-                format!("{col}_raised"),
-                json!(line.is_some_and(|l| l.raised)),
-            );
-        }
-        for (col, name) in [
-            ("seconds_each_round", "seconds of the checks of a round"),
-            (
-                "seconds_before_review",
-                "seconds of the checks before the review",
-            ),
-        ] {
-            let line = lim.lines.iter().find(|l| l.name == name);
-            r.insert(format!("{col}_most"), json!(line.map(|l| l.used)));
-            r.insert(format!("{col}_allowed"), json!(line.and_then(|l| l.cap)));
-        }
-        let waivers = values.iter().filter(|v| kind(v) == "waiver").count();
-        let extra = vec![
-            ("waivers", json!(waivers)),
-            ("asks", json!(asked)),
-            ("asks_answered", json!(answered)),
-            ("gates_runs", json!(run)),
-            ("gates_first_try", json!(first_gates)),
-            ("reviews", json!(p.reviews)),
-            ("review_first_try", json!(review_first)),
-            ("ended", json!(ended)),
-            (
-                "stop_reason",
-                json!(if ended == "stopped" {
-                    state.next.blocked.clone()
-                } else {
-                    None
-                }),
-            ),
-            ("next", json!(state.next.step)),
-            ("tokens", json!(tokens_total)),
-            (
-                "role_seconds",
-                json!((role_seconds * 100.0).round() / 100.0),
-            ),
-            ("suspect_times", json!(suspect)),
-            (
-                "verify_errors",
-                json!(verify.iter().filter(|f| f.level == "error").count()),
-            ),
-            (
-                "verify_warnings",
-                json!(verify.iter().filter(|f| f.level == "warning").count()),
-            ),
-            ("invocations", json!(inv)),
-            ("refusals", json!(refusals)),
-            ("launches", json!(launches)),
-            ("launches_not_started", json!(not_started)),
-            ("launches_timed_out", json!(timed_out)),
-        ];
-        for (k, v) in extra {
-            r.insert(k.into(), v);
-        }
-        t.changes.push(r);
+        ]));
     }
-    t
+}
+
+/// One row for each finding of a review or a reading, with where it went, and for each `LATER:`.
+fn finding_rows(rows: &mut Vec<Row>, id: &str, events: &Events) {
+    let mut outcome: BTreeMap<String, String> = BTreeMap::new();
+    for (_, v) in events {
+        if step(v) == "review" {
+            for c in v["closed"].as_array().cloned().unwrap_or_default() {
+                outcome.insert(str_of(&c, "id").into(), str_of(&c, "outcome").into());
+            }
+        }
+    }
+    for (line, v) in events {
+        let st = step(v);
+        if st != "review" && st != "reading" {
+            continue;
+        }
+        let round = v["report"]["round"].clone();
+        for f in v["findings"].as_array().cloned().unwrap_or_default() {
+            let fid = str_of(&f, "id").to_string();
+            let went = if st == "reading" {
+                f["went"].as_str().unwrap_or("").to_string()
+            } else {
+                outcome.get(&fid).cloned().unwrap_or_else(|| "open".into())
+            };
+            rows.push(row(vec![
+                ("change", json!(id)),
+                ("line", json!(line)),
+                ("source", json!(st)),
+                ("round", round.clone()),
+                ("finding", json!(fid)),
+                (
+                    "kind",
+                    json!(if st == "reading" {
+                        "reading"
+                    } else {
+                        "finding"
+                    }),
+                ),
+                ("what", f["what"].clone()),
+                ("where", f.get("where").cloned().unwrap_or(Value::Null)),
+                ("went", json!(went)),
+            ]));
+        }
+        for l in v["later"].as_array().cloned().unwrap_or_default() {
+            rows.push(row(vec![
+                ("change", json!(id)),
+                ("line", json!(line)),
+                ("source", json!(st)),
+                ("round", round.clone()),
+                ("finding", Value::Null),
+                ("kind", json!("later")),
+                ("what", l.clone()),
+                ("where", Value::Null),
+                ("went", json!("backlog")),
+            ]));
+        }
+    }
+}
+
+/// One row for each call of the layer its journal kept.
+fn engine_rows(rows: &mut Vec<Row>, n: &mut Totals, journal: &[Value]) {
+    for j in journal {
+        n.invocations += 1;
+        if !j["refused"].is_null() {
+            n.refusals += 1;
+        }
+        let l = &j["launch"];
+        if l.is_object() && l["ran"] == json!(true) {
+            n.launches += 1;
+            if l["started"] == json!(false) {
+                n.not_started += 1;
+            }
+            if l["timed_out"] == json!(true) {
+                n.timed_out += 1;
+            }
+        }
+        rows.push(row(vec![
+            ("change", j["brief"].clone()),
+            ("ts", j["ts"].clone()),
+            ("command", j["command"].clone()),
+            (
+                "args",
+                json!(
+                    j["args"]
+                        .as_array()
+                        .map(|a| a
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(" "))
+                        .unwrap_or_default()
+                ),
+            ),
+            ("exit", j["exit"].clone()),
+            ("ms", j["ms"].clone()),
+            ("refused", j["refused"].clone()),
+            ("wrote_line", j["wrote"]["line"].clone()),
+            ("role", l["role"].clone()),
+            ("model", l["model"].clone()),
+            ("adapter", l["adapter"].clone()),
+            ("started", l["started"].clone()),
+            ("seconds_to_first_output", l["first_output"].clone()),
+            ("seconds", l["seconds"].clone()),
+            ("timed_out", l["timed_out"].clone()),
+            ("tokens", l["tokens"].clone()),
+            ("input_tokens", usage_sum(&l["usage"], "input")),
+            ("output_tokens", usage_sum(&l["usage"], "output")),
+            ("cache_read_tokens", usage_sum(&l["usage"], "cache_read")),
+            ("cache_write_tokens", usage_sum(&l["usage"], "cache_write")),
+        ]));
+    }
+}
+
+/// The row of a change: its color, its size, its caps and what its other rows add up to.
+fn change_row(
+    bp: &Blueprint,
+    input: &Input,
+    events: &Events,
+    layer: &BTreeSet<usize>,
+    state: &crate::state::State,
+    n: &Totals,
+    now: i64,
+) -> Row {
+    let id = input.id;
+    let p = &state.progress;
+    let last_ts = events.iter().rev().find_map(|(_, v)| ts(v));
+    let first_ts = events.iter().find_map(|(_, v)| ts(v));
+    let lim = limits::count_entries(bp, id, input.entries, last_ts.unwrap_or(now));
+    let review_first = events
+        .iter()
+        .find(|(_, v)| step(v) == "review")
+        .map(|(_, v)| str_of(v, "verdict") == "pass");
+    let shipped = events.iter().find(|(_, v)| step(v) == "ship");
+    let ended = if shipped.is_some() {
+        "shipped"
+    } else if state
+        .next
+        .blocked
+        .as_deref()
+        .is_some_and(|b| b != "needs-person")
+    {
+        "stopped"
+    } else {
+        "open"
+    };
+    let touched = p.last_review.as_ref().and_then(|r| r.color.clone());
+    let rose = match (&p.planned, &touched) {
+        (Some(a), Some(b)) => json!(crate::color_rank(b) > crate::color_rank(a)),
+        _ => Value::Null,
+    };
+    let verify = crate::verify::check_log(id, Some(bp), input.entries, layer);
+    let mut r = row(vec![
+        ("change", json!(id)),
+        (
+            "kind",
+            json!(match log_kind(id) {
+                LogKind::Setup => "setup",
+                _ => "change",
+            }),
+        ),
+        ("color_planned", json!(p.planned)),
+        ("color", json!(p.color)),
+        ("color_touched", json!(touched)),
+        ("rose", rose),
+        ("zones", json!(p.zones)),
+        ("uncovered", json!(p.uncovered)),
+        ("scenarios", json!(input.scenarios)),
+        ("files_changed", json!(input.git.files)),
+        ("lines_added", json!(input.git.added)),
+        ("lines_deleted", json!(input.git.deleted)),
+        ("events", json!(events.len())),
+        ("steps", json!(n.steps)),
+        ("minutes_work", json!(lim.minutes)),
+        ("minutes_waiting", minutes(lim.waited)),
+        ("minutes_parked", Value::Null),
+        (
+            "minutes_to_ship",
+            match (shipped.and_then(|(_, v)| ts(v)), first_ts) {
+                (Some(s), Some(f)) => minutes(s - f),
+                _ => Value::Null,
+            },
+        ),
+        ("builds", json!(lim.builds)),
+        ("checks_launches", json!(lim.checks)),
+    ]);
+    for (col, key, name) in cap_keys() {
+        let line = lim.lines.iter().find(|l| l.name == name);
+        r.insert(format!("{col}_used"), json!(line.map(|l| l.used)));
+        r.insert(
+            format!("{col}_allowed"),
+            json!(line.and_then(|l| l.cap).or(bp.cap(&lim.color, key))),
+        );
+        r.insert(
+            format!("{col}_raised"),
+            json!(line.is_some_and(|l| l.raised)),
+        );
+    }
+    for (col, name) in [
+        ("seconds_each_round", "seconds of the checks of a round"),
+        (
+            "seconds_before_review",
+            "seconds of the checks before the review",
+        ),
+    ] {
+        let line = lim.lines.iter().find(|l| l.name == name);
+        r.insert(format!("{col}_most"), json!(line.map(|l| l.used)));
+        r.insert(format!("{col}_allowed"), json!(line.and_then(|l| l.cap)));
+    }
+    let waivers = events.iter().filter(|(_, v)| kind(v) == "waiver").count();
+    let extra = vec![
+        ("waivers", json!(waivers)),
+        ("asks", json!(n.asks)),
+        ("asks_answered", json!(n.asks_answered)),
+        ("gates_runs", json!(n.gates_runs)),
+        ("gates_first_try", json!(n.gates_first_try)),
+        ("reviews", json!(p.reviews)),
+        ("review_first_try", json!(review_first)),
+        ("ended", json!(ended)),
+        (
+            "stop_reason",
+            json!(if ended == "stopped" {
+                state.next.blocked.clone()
+            } else {
+                None
+            }),
+        ),
+        ("next", json!(state.next.step)),
+        ("tokens", json!(n.tokens)),
+        (
+            "role_seconds",
+            json!((n.role_seconds * 100.0).round() / 100.0),
+        ),
+        ("suspect_times", json!(n.suspect)),
+        (
+            "verify_errors",
+            json!(verify.iter().filter(|f| f.level == "error").count()),
+        ),
+        (
+            "verify_warnings",
+            json!(verify.iter().filter(|f| f.level == "warning").count()),
+        ),
+        ("invocations", json!(n.invocations)),
+        ("refusals", json!(n.refusals)),
+        ("launches", json!(n.launches)),
+        ("launches_not_started", json!(n.not_started)),
+        ("launches_timed_out", json!(n.timed_out)),
+    ];
+    for (k, v) in extra {
+        r.insert(k.into(), v);
+    }
+    r
 }
 
 fn cell(v: &Value) -> String {
@@ -620,6 +663,16 @@ pub fn summary(t: &Tables) -> Vec<String> {
             .count(),
         t.changes.len() - changes.len()
     ));
+    work_lines(&mut out, t, &changes);
+    gates_lines(&mut out, t, &changes);
+    ask_lines(&mut out, t);
+    trust_lines(&mut out, t);
+    cost_lines(&mut out, t);
+    out
+}
+
+/// Where the time went: the share of each step, and the minutes of work by color.
+fn work_lines(out: &mut Vec<String>, t: &Tables, changes: &[&Row]) {
     // Share of the work by step: the time from the event before each step to the step.
     let mut by_step: BTreeMap<String, f64> = BTreeMap::new();
     for s in &t.steps {
@@ -659,6 +712,10 @@ pub fn summary(t: &Tables) -> Vec<String> {
             ));
         }
     }
+}
+
+/// How the gates and the reviews went at the first try, and what each check takes.
+fn gates_lines(out: &mut Vec<String>, t: &Tables, changes: &[&Row]) {
     let g: Vec<&Row> = changes
         .iter()
         .copied()
@@ -711,6 +768,10 @@ pub fn summary(t: &Tables) -> Vec<String> {
     if untimed > 0 {
         out.push(format!("{untimed} check runs without seconds"));
     }
+}
+
+/// What the person was asked, and how long each kind of question waited.
+fn ask_lines(out: &mut Vec<String>, t: &Tables) {
     let mut asks: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     for a in &t.asks {
         asks.entry(a["kind"].as_str().unwrap_or("").to_string())
@@ -734,6 +795,10 @@ pub fn summary(t: &Tables) -> Vec<String> {
             ));
         }
     }
+}
+
+/// How far the logs can be trusted: times that look written afterwards, and what verify finds.
+fn trust_lines(out: &mut Vec<String>, t: &Tables) {
     let suspect = t
         .steps
         .iter()
@@ -761,6 +826,10 @@ pub fn summary(t: &Tables) -> Vec<String> {
             .count(),
         t.changes.len()
     ));
+}
+
+/// What it cost: tokens by role, what the layer refused, and how its launches went.
+fn cost_lines(out: &mut Vec<String>, t: &Tables) {
     let mut tokens: BTreeMap<String, i64> = BTreeMap::new();
     for s in &t.steps {
         if let Some(k) = s["tokens"].as_i64() {
@@ -821,5 +890,4 @@ pub fn summary(t: &Tables) -> Vec<String> {
                 .count()
         ));
     }
-    out
 }

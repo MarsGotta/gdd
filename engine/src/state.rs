@@ -83,6 +83,9 @@ pub struct Next {
     pub blocked: Option<String>,
 }
 
+/// Whether a step may be written: nothing, or the reason of the refusal and what is wrong.
+pub type Allowed = Result<(), (&'static str, String)>;
+
 /// Where a change stands, as the log keeps it, step by step. [`Progress::apply`] takes one event;
 /// [`Progress::allows`] says whether an event may come next, which is how the layer refuses a step
 /// out of order and how `verify` finds one in a log.
@@ -468,7 +471,7 @@ impl Progress {
     }
 
     /// Whether this event may come next, and if not, the code and the reason.
-    pub fn allows(&self, bp: Option<&Blueprint>, v: &Value) -> Result<(), (&'static str, String)> {
+    pub fn allows(&self, bp: Option<&Blueprint>, v: &Value) -> Allowed {
         if log::kind(v) != "step" {
             return Ok(());
         }
@@ -476,93 +479,12 @@ impl Progress {
     }
 
     /// Whether a step may be written next. `head` is the commit a gates step would judge.
-    pub fn allows_step(
-        &self,
-        bp: Option<&Blueprint>,
-        st: &str,
-        head: Option<&str>,
-    ) -> Result<(), (&'static str, String)> {
+    pub fn allows_step(&self, bp: Option<&Blueprint>, st: &str, head: Option<&str>) -> Allowed {
         let kind = self.kind.unwrap_or(LogKind::Change);
         if kind == LogKind::Blueprint {
             return Ok(());
         }
-        // A review that sent the work back stands until a new round answers it: a build, or new
-        // checks in a setup log, takes it out. Until then nothing judges the same work again, and
-        // what stopped goes to the person before the round starts. These rules were only in what
-        // `next` names, and a step written without asking `next` went around them.
-        let sent_back = self.last_review.as_ref().filter(|r| r.verdict != "pass");
-        let stop_untold = sent_back.is_some_and(|r| r.verdict == "stop") && !self.stop_told;
-        let seal_untold =
-            self.last_gates.as_ref().is_some_and(GatesRun::seal_failed) && !self.seal_told;
-        let unanswered = self.open_ask().is_some_and(|a| a.of == "stop");
-        let round = if kind == LogKind::Setup {
-            "checks"
-        } else {
-            "build"
-        };
-        if st == round {
-            if stop_untold {
-                return Err((
-                    "out-of-order",
-                    "a new round after a stop, before the person was told: a stop is never waived"
-                        .into(),
-                ));
-            }
-            if seal_untold {
-                return Err((
-                    "out-of-order",
-                    "a new round after the gates found what judges the change touched, before the person was told".into(),
-                ));
-            }
-            if unanswered {
-                return Err((
-                    "needs-person",
-                    "a new round while the person hasn't answered what stopped the change".into(),
-                ));
-            }
-        }
-        // Gates that failed are answered by a round, and a round has a build step. On the same
-        // commit they may run again; on another one, something moved the branch, and only the seal
-        // taking the main branch in does that without a builder.
-        if st == "gates"
-            && kind == LogKind::Change
-            && !self.seal_since_gates
-            && let Some(g) = self.last_gates.as_ref().filter(|g| !g.passed)
-            && let (Some(was), Some(now)) = (g.head.as_deref(), head)
-            && was != now
-        {
-            return Err((
-                "out-of-order",
-                format!(
-                    "gates on {}, after gates that failed on {}, with no build step since: the round that moved the branch is reported before it is judged",
-                    crate::git::short(now),
-                    crate::git::short(was)
-                ),
-            ));
-        }
-        if st == "gates" && kind == LogKind::Change && seal_untold {
-            return Err((
-                "out-of-order",
-                "gates again after they found what judges the change touched, before the person was told".into(),
-            ));
-        }
-        if let Some(r) = sent_back
-            && (st == "review" || st == "gates" && kind == LogKind::Change)
-        {
-            let needs = if r.verdict == "stop" {
-                "the person is told, then a fix round"
-            } else {
-                "a fix round comes first"
-            };
-            return Err((
-                "out-of-order",
-                format!(
-                    "{} after a review that said {}, with nothing built or sealed since: {needs}",
-                    if st == "review" { "a review" } else { "gates" },
-                    r.verdict
-                ),
-            ));
-        }
+        self.held_by_what_sent_it_back(kind, st, head)?;
         let color = self.color.clone().unwrap_or_default();
         let asks =
             |check: &str| bp.is_some_and(|b| !color.is_empty() && b.color_asks(&color, check));
@@ -642,51 +564,132 @@ impl Progress {
                     }
                 }
             }
-            "ship" => {
-                if kind == LogKind::Change {
-                    let Some(g) = &self.last_gates else {
-                        return Err(("out-of-order", "a ship before its gates passed".into()));
-                    };
-                    if !g.passed {
-                        return Err(("out-of-order", "a ship after gates that failed".into()));
-                    }
-                    let Some(r) = &self.last_review else {
-                        return Err(("out-of-order", "a ship before its review passed".into()));
-                    };
-                    if r.verdict != "pass" {
-                        return Err((
-                            "out-of-order",
-                            format!("a ship after a review that said {}", r.verdict),
-                        ));
-                    }
-                    // A review before the last gates may hold for a later head that only brought
-                    // bookkeeping or the main branch: git says so, in `verify`.
-                    if let (Some(gh), Some(rh)) = (&g.head, &r.head)
-                        && gh != rh
-                        && r.line > g.line
-                    {
-                        return Err((
-                            "out-of-order",
-                            "a ship whose gates and review judged different heads".into(),
-                        ));
-                    }
-                } else if self
-                    .last_review
-                    .as_ref()
-                    .is_none_or(|r| r.verdict != "pass")
-                {
-                    return Err(("out-of-order", "a ship before its review passed".into()));
-                }
-                if asks("person-review") && !self.person_reviewed() {
-                    return Err((
-                        "needs-approval",
-                        format!(
-                            "a ship before the person reviewed the change, which {color} asks for"
-                        ),
-                    ));
-                }
-            }
+            "ship" => self.may_ship(kind, asks("person-review"), &color)?,
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// A review that sent the work back stands until a new round answers it, and so do gates that
+    /// failed: until then nothing judges the same work again, and what stopped goes to the person
+    /// before the round starts. These rules were only in what `next` names, and a step written
+    /// without asking `next` went around them.
+    fn held_by_what_sent_it_back(&self, kind: LogKind, st: &str, head: Option<&str>) -> Allowed {
+        let sent_back = self.last_review.as_ref().filter(|r| r.verdict != "pass");
+        let stop_untold = sent_back.is_some_and(|r| r.verdict == "stop") && !self.stop_told;
+        let seal_untold =
+            self.last_gates.as_ref().is_some_and(GatesRun::seal_failed) && !self.seal_told;
+        let unanswered = self.open_ask().is_some_and(|a| a.of == "stop");
+        // A new brief and new checks take a review and its gates out of the state, as a build
+        // does: none of them is written before the person hears what stopped.
+        if matches!(st, "brief" | "checks" | "build") {
+            if stop_untold {
+                return Err((
+                    "out-of-order",
+                    "a new round after a stop, before the person was told: a stop is never waived"
+                        .into(),
+                ));
+            }
+            if seal_untold {
+                return Err((
+                    "out-of-order",
+                    "a new round after the gates found what judges the change touched, before the person was told".into(),
+                ));
+            }
+            if unanswered {
+                return Err((
+                    "needs-person",
+                    "a new round while the person hasn't answered what stopped the change".into(),
+                ));
+            }
+        }
+        // Gates that failed are answered by a round, and a round has a build step. On the same
+        // commit they may run again; on another one, something moved the branch, and only the seal
+        // taking the main branch in does that without a builder.
+        if st == "gates"
+            && kind == LogKind::Change
+            && !self.seal_since_gates
+            && let Some(g) = self.last_gates.as_ref().filter(|g| !g.passed)
+            && let (Some(was), Some(now)) = (g.head.as_deref(), head)
+            && was != now
+        {
+            return Err((
+                "out-of-order",
+                format!(
+                    "gates on {}, after gates that failed on {}, with no build step since: the round that moved the branch is reported before it is judged",
+                    crate::git::short(now),
+                    crate::git::short(was)
+                ),
+            ));
+        }
+        if st == "gates" && kind == LogKind::Change && seal_untold {
+            return Err((
+                "out-of-order",
+                "gates again after they found what judges the change touched, before the person was told".into(),
+            ));
+        }
+        if let Some(r) = sent_back
+            && (st == "review" || st == "gates" && kind == LogKind::Change)
+        {
+            let needs = if r.verdict == "stop" {
+                "the person is told, then a fix round"
+            } else {
+                "a fix round comes first"
+            };
+            return Err((
+                "out-of-order",
+                format!(
+                    "{} after a review that said {}, with nothing built or sealed since: {needs}",
+                    if st == "review" { "a review" } else { "gates" },
+                    r.verdict
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// A change ships when its gates and its review passed on the same work, and after the
+    /// person's review where its color asks for one; a setup log, when its trial passed.
+    fn may_ship(&self, kind: LogKind, person_reviews: bool, color: &str) -> Allowed {
+        if kind == LogKind::Change {
+            let Some(g) = &self.last_gates else {
+                return Err(("out-of-order", "a ship before its gates passed".into()));
+            };
+            if !g.passed {
+                return Err(("out-of-order", "a ship after gates that failed".into()));
+            }
+            let Some(r) = &self.last_review else {
+                return Err(("out-of-order", "a ship before its review passed".into()));
+            };
+            if r.verdict != "pass" {
+                return Err((
+                    "out-of-order",
+                    format!("a ship after a review that said {}", r.verdict),
+                ));
+            }
+            // A review before the last gates may hold for a later head that only brought
+            // bookkeeping or the main branch: git says so, in `verify`.
+            if let (Some(gh), Some(rh)) = (&g.head, &r.head)
+                && gh != rh
+                && r.line > g.line
+            {
+                return Err((
+                    "out-of-order",
+                    "a ship whose gates and review judged different heads".into(),
+                ));
+            }
+        } else if self
+            .last_review
+            .as_ref()
+            .is_none_or(|r| r.verdict != "pass")
+        {
+            return Err(("out-of-order", "a ship before its review passed".into()));
+        }
+        if person_reviews && !self.person_reviewed() {
+            return Err((
+                "needs-approval",
+                format!("a ship before the person reviewed the change, which {color} asks for"),
+            ));
         }
         Ok(())
     }

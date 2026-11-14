@@ -127,6 +127,230 @@ fn has_code(root: &Path) -> bool {
     })
 }
 
+/// What every part of a role's prompt names: the change, the role and where things are.
+struct PromptFor<'a> {
+    l: &'a Loaded,
+    id: &'a str,
+    role: &'a str,
+    level: &'a str,
+    at: &'a str,
+    root: &'a Path,
+    log_path: &'a Path,
+}
+
+/// What a role gets when the standing checks are set up or tried.
+fn setup_prompt(s: &mut Vec<String>, x: &PromptFor) {
+    let PromptFor {
+        l,
+        id,
+        role,
+        level,
+        at,
+        root,
+        log_path,
+    } = *x;
+    let p = &l.state.progress;
+    s.push(format!(
+        "Load {} and do its work for the project's {id} of this GDD project (contract gdd/1), and nothing else.",
+        launch::skill_ref(role)
+    ));
+    s.push(at.to_string());
+    let (what, tried) = setup_subject(id);
+    let seal = l.state.git.seal_tip.clone().or(p.start.clone());
+    match role {
+        "checks" => {
+            let on = if l.state.git.seal_tip.is_some() {
+                format!("on gdd-seal/{id}, on top of its tip")
+            } else {
+                format!("on gdd-seal/{id}, cut from the main branch")
+            };
+            s.push(format!(
+                "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
+            ));
+            // A fix round after a trial that sent the checks back or said stop: what it found,
+            // and what the person answered when they were told.
+            let events = log::events(&l.entries);
+            if let Some(r) = &p.last_review
+                && matches!(r.verdict.as_str(), "fix" | "stop")
+                && let Some((_, v)) = events.iter().find(|(line, _)| *line == r.line)
+            {
+                s.push(format!(
+                    "A fix round. The trial said {}:",
+                    r.verdict
+                ));
+                for f in v["findings"].as_array().cloned().unwrap_or_default() {
+                    s.push(format!(
+                        "- {} {}: {}",
+                        str_of(&f, "id"),
+                        str_of(&f, "where"),
+                        str_of(&f, "what")
+                    ));
+                }
+                if let Some((_, a)) = events
+                    .iter()
+                    .rev()
+                    .find(|(line, v)| *line > r.line && log::kind(v) == "answer")
+                {
+                    s.push(format!(
+                        "The person's answer, word for word: \"{}\"",
+                        str_of(a, "what")
+                    ));
+                }
+            }
+        }
+        "review" => s.push(format!(
+            "Try {tried} on gdd-seal/{id}{}, in a fresh clone: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
+            seal.map(|c| format!(", at {c}")).unwrap_or_default(),
+            log_path.display()
+        )),
+        _ => {}
+    }
+    if id == "standing-checks" && (role == "checks" || role == "review") && !has_code(root) {
+        s.push(
+            "The project has no code yet: only the seal and the secret scan are set up now. Every other check waits with its `when` in the blueprint, and is set up by its own item, standing-checks-<check>, once a change brings what it watches."
+                .into(),
+        );
+    }
+    if let Some(b) = l.state.git.main_tip.clone() {
+        s.push(format!("<base> is {b}, the tip of the main branch."));
+    }
+    s.push(
+        "It has no brief, and its color is the one its paths give: the files of the checks, of CI and of each tool's configuration."
+            .into(),
+    );
+    s.push(format!("Work at the {level} level."));
+}
+
+/// What a role gets for a change: its brief, its seal, and what its own role needs.
+fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
+    let PromptFor {
+        l,
+        id,
+        role,
+        level,
+        at,
+        log_path,
+        ..
+    } = *x;
+    let p = &l.state.progress;
+    s.push(format!(
+        "Load {} and do its work for the change {id} of this GDD project (contract gdd/1), and nothing else.",
+        launch::skill_ref(role)
+    ));
+    s.push(at.to_string());
+    if role == "reading" {
+        s.push("You are to read a brief before anyone builds it: follow references/brief.md of the skill.".into());
+    }
+    let brief = format!("gdd/briefs/{id}.md");
+    if l.project.path(&brief).is_file() || !p.brief_files.is_empty() {
+        let scen: Vec<&String> = p
+            .brief_files
+            .keys()
+            .filter(|f| f.starts_with("features/"))
+            .collect();
+        s.push(format!(
+            "The brief: {brief}{}{}.",
+            p.version
+                .map(|v| format!(", version {v}"))
+                .unwrap_or_default(),
+            if scen.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", with its scenarios in {}",
+                    scen.iter()
+                        .map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        ));
+        if let Some(r) = &p.request
+            && (role == "build" || role == "review")
+        {
+            s.push(format!("The person's request, word for word: \"{r}\""));
+        }
+    } else {
+        match &p.request {
+            Some(r) => s.push(format!("There is no brief. The person's request, word for word: \"{r}\"")),
+            None => s.push("There is no brief, and the log keeps no request: ask the orchestrator for it, word for word, before you start.".into()),
+        }
+        if !p.paths.is_empty() {
+            s.push(format!("The paths it touches: {}.", p.paths.join(", ")));
+        }
+    }
+    if let Some(b) = &p.base {
+        s.push(format!("<base> is {b}."));
+    }
+    if let Some(st) = &p.start {
+        s.push(format!("<start> is {st}."));
+    }
+    match &p.color {
+        Some(c) => s.push(format!("The color is {c}, at the {level} level.")),
+        None => s.push(format!("Work at the {level} level.")),
+    }
+    let branch = l
+        .state
+        .git
+        .branch
+        .clone()
+        .unwrap_or_else(|| format!("work/{id}"));
+    match role {
+        "checks" => s.push(format!("Seal what you write on gdd-seal/{id}, on top of its tip.")),
+        "build" => s.push(format!(
+            "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."
+        )),
+        "review" => s.push(format!(
+            "Review the change at {}, in a fresh clone. Its log is {}.",
+            l.state.git.head.clone().unwrap_or_else(|| format!("the tip of {branch}")),
+            log_path.display()
+        )),
+        _ => {}
+    }
+}
+
+/// What a builder gets in a fix round: what sent the change back, and what the seal now holds.
+fn fix_round_notes(s: &mut Vec<String>, l: &Loaded) {
+    let p = &l.state.progress;
+    let entries = log::events(&l.entries);
+    if let Some(g) = entries.iter().rev().find(|(_, v)| step(v) == "gates")
+        && log::any_kv(g.1, "result", "fail")
+    {
+        s.push("A fix round. What failed at the gates:".into());
+        for e in g.1["gates"].as_array().cloned().unwrap_or_default() {
+            if str_of(&e, "result") == "fail" {
+                s.push(format!(
+                    "- {}: `{}` exit {}; last lines:\n{}",
+                    str_of(&e, "check"),
+                    str_of(&e, "command"),
+                    e["exit"],
+                    str_of(&e, "tail")
+                ));
+            }
+        }
+    }
+    if let Some(r) = entries.iter().rev().find(|(_, v)| step(v) == "review")
+        && matches!(str_of(r.1, "verdict"), "fix" | "stop")
+        && p.last_gates.as_ref().is_none_or(|g| g.line < r.0)
+    {
+        s.push(format!(
+            "A fix round. The reviewer said {}:",
+            str_of(r.1, "verdict")
+        ));
+        for f in r.1["findings"].as_array().cloned().unwrap_or_default() {
+            s.push(format!(
+                "- {} {}: {}",
+                str_of(&f, "id"),
+                str_of(&f, "where"),
+                str_of(&f, "what")
+            ));
+        }
+        if let Some(n) = r.1["notes"].as_str() {
+            s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
+        }
+    }
+}
+
 fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     let p = &l.state.progress;
     let mut s = vec![];
@@ -136,151 +360,19 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     // A role loads its skill from another folder, and one was seen starting its work there instead
     // of in the project: say where the project is.
     let at = format!("The project is the folder {}.", root.display());
+    let x = PromptFor {
+        l,
+        id,
+        role,
+        level,
+        at: &at,
+        root: &root,
+        log_path: &log_path,
+    };
     if setup {
-        s.push(format!(
-            "Load {} and do its work for the project's {id} of this GDD project (contract gdd/1), and nothing else.",
-            launch::skill_ref(role)
-        ));
-        s.push(at);
-        let (what, tried) = setup_subject(id);
-        let seal = l.state.git.seal_tip.clone().or(p.start.clone());
-        match role {
-            "checks" => {
-                let on = if l.state.git.seal_tip.is_some() {
-                    format!("on gdd-seal/{id}, on top of its tip")
-                } else {
-                    format!("on gdd-seal/{id}, cut from the main branch")
-                };
-                s.push(format!(
-                    "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
-                ));
-                // A fix round after a trial that sent the checks back or said stop: what it found,
-                // and what the person answered when they were told.
-                let events = log::events(&l.entries);
-                if let Some(r) = &p.last_review
-                    && matches!(r.verdict.as_str(), "fix" | "stop")
-                    && let Some((_, v)) = events.iter().find(|(line, _)| *line == r.line)
-                {
-                    s.push(format!(
-                        "A fix round. The trial said {}:",
-                        r.verdict
-                    ));
-                    for f in v["findings"].as_array().cloned().unwrap_or_default() {
-                        s.push(format!(
-                            "- {} {}: {}",
-                            str_of(&f, "id"),
-                            str_of(&f, "where"),
-                            str_of(&f, "what")
-                        ));
-                    }
-                    if let Some((_, a)) = events
-                        .iter()
-                        .rev()
-                        .find(|(line, v)| *line > r.line && log::kind(v) == "answer")
-                    {
-                        s.push(format!(
-                            "The person's answer, word for word: \"{}\"",
-                            str_of(a, "what")
-                        ));
-                    }
-                }
-            }
-            "review" => s.push(format!(
-                "Try {tried} on gdd-seal/{id}{}, in a fresh clone: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
-                seal.map(|c| format!(", at {c}")).unwrap_or_default(),
-                log_path.display()
-            )),
-            _ => {}
-        }
-        if id == "standing-checks" && (role == "checks" || role == "review") && !has_code(&root) {
-            s.push(
-                "The project has no code yet: only the seal and the secret scan are set up now. Every other check waits with its `when` in the blueprint, and is set up by its own item, standing-checks-<check>, once a change brings what it watches."
-                    .into(),
-            );
-        }
-        if let Some(b) = l.state.git.main_tip.clone() {
-            s.push(format!("<base> is {b}, the tip of the main branch."));
-        }
-        s.push(
-            "It has no brief, and its color is the one its paths give: the files of the checks, of CI and of each tool's configuration."
-                .into(),
-        );
-        s.push(format!("Work at the {level} level."));
+        setup_prompt(&mut s, &x);
     } else {
-        s.push(format!(
-            "Load {} and do its work for the change {id} of this GDD project (contract gdd/1), and nothing else.",
-            launch::skill_ref(role)
-        ));
-        s.push(at);
-        if role == "reading" {
-            s.push("You are to read a brief before anyone builds it: follow references/brief.md of the skill.".into());
-        }
-        let brief = format!("gdd/briefs/{id}.md");
-        if l.project.path(&brief).is_file() || !p.brief_files.is_empty() {
-            let scen: Vec<&String> = p
-                .brief_files
-                .keys()
-                .filter(|f| f.starts_with("features/"))
-                .collect();
-            s.push(format!(
-                "The brief: {brief}{}{}.",
-                p.version
-                    .map(|v| format!(", version {v}"))
-                    .unwrap_or_default(),
-                if scen.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        ", with its scenarios in {}",
-                        scen.iter()
-                            .map(|x| x.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                }
-            ));
-            if let Some(r) = &p.request
-                && (role == "build" || role == "review")
-            {
-                s.push(format!("The person's request, word for word: \"{r}\""));
-            }
-        } else {
-            match &p.request {
-                Some(r) => s.push(format!("There is no brief. The person's request, word for word: \"{r}\"")),
-                None => s.push("There is no brief, and the log keeps no request: ask the orchestrator for it, word for word, before you start.".into()),
-            }
-            if !p.paths.is_empty() {
-                s.push(format!("The paths it touches: {}.", p.paths.join(", ")));
-            }
-        }
-        if let Some(b) = &p.base {
-            s.push(format!("<base> is {b}."));
-        }
-        if let Some(st) = &p.start {
-            s.push(format!("<start> is {st}."));
-        }
-        match &p.color {
-            Some(c) => s.push(format!("The color is {c}, at the {level} level.")),
-            None => s.push(format!("Work at the {level} level.")),
-        }
-        let branch = l
-            .state
-            .git
-            .branch
-            .clone()
-            .unwrap_or_else(|| format!("work/{id}"));
-        match role {
-            "checks" => s.push(format!("Seal what you write on gdd-seal/{id}, on top of its tip.")),
-            "build" => s.push(format!(
-                "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."
-            )),
-            "review" => s.push(format!(
-                "Review the change at {}, in a fresh clone. Its log is {}.",
-                l.state.git.head.clone().unwrap_or_else(|| format!("the tip of {branch}")),
-                log_path.display()
-            )),
-            _ => {}
-        }
+        change_prompt(&mut s, &x);
     }
     let zones: Vec<String> = p.zones.clone();
     let ctx_files: Vec<String> =
@@ -313,43 +405,7 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
         format!("This is round {round} of {role} for this change.")
     });
     if role == "build" && round > 1 {
-        let entries = log::events(&l.entries);
-        if let Some(g) = entries.iter().rev().find(|(_, v)| step(v) == "gates")
-            && log::any_kv(g.1, "result", "fail")
-        {
-            s.push("A fix round. What failed at the gates:".into());
-            for e in g.1["gates"].as_array().cloned().unwrap_or_default() {
-                if str_of(&e, "result") == "fail" {
-                    s.push(format!(
-                        "- {}: `{}` exit {}; last lines:\n{}",
-                        str_of(&e, "check"),
-                        str_of(&e, "command"),
-                        e["exit"],
-                        str_of(&e, "tail")
-                    ));
-                }
-            }
-        }
-        if let Some(r) = entries.iter().rev().find(|(_, v)| step(v) == "review")
-            && matches!(str_of(r.1, "verdict"), "fix" | "stop")
-            && p.last_gates.as_ref().is_none_or(|g| g.line < r.0)
-        {
-            s.push(format!(
-                "A fix round. The reviewer said {}:",
-                str_of(r.1, "verdict")
-            ));
-            for f in r.1["findings"].as_array().cloned().unwrap_or_default() {
-                s.push(format!(
-                    "- {} {}: {}",
-                    str_of(&f, "id"),
-                    str_of(&f, "where"),
-                    str_of(&f, "what")
-                ));
-            }
-            if let Some(n) = r.1["notes"].as_str() {
-                s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
-            }
-        }
+        fix_round_notes(&mut s, l);
     }
     // What the log can show of a role's own runs comes from a json block, like the checks
     // role's proofs: without it, a claim or a trial is only prose.
@@ -378,62 +434,201 @@ pub struct LaunchArgs {
     pub adapter: Option<String>,
 }
 
+/// What the state lets start: the same rules as the step this launch will write.
+fn may_launch(ctx: &Ctx, l: &Loaded, id: &str, role: &str) -> R<()> {
+    let p = &l.state.progress;
+    if role != "reading" {
+        allowed(l, id, role, None)?;
+        if role == "review"
+            && let Some(g) = p.last_gates.as_ref()
+            && let (Some(gh), Some(h)) = (&g.head, &l.state.git.head)
+            && gh != h
+        {
+            return Err(Fail::refuse(
+                "out-of-order",
+                format!(
+                    "the gates passed on {}, and the head is now {}",
+                    git::short(gh),
+                    git::short(h)
+                ),
+                format!("gdd gates {id}"),
+            ));
+        }
+    } else if p.built_since_brief() {
+        return Err(Fail::refuse(
+            "out-of-order",
+            "a brief is read before anyone builds it",
+            way_on(l, id),
+        ));
+    }
+    if (role == "checks" || role == "build") && !l.state.limits.stop.is_empty() {
+        return Err(Fail::refuse(
+            "cap-spent",
+            format!(
+                "no new round: {} no room left",
+                l.state.limits.stop.join(", ")
+            ),
+            cap_way_on(id, &l.state.limits),
+        ));
+    }
+    if role == "build" && l.state.next.step != "build" {
+        return Err(Fail::refuse(
+            "out-of-order",
+            format!(
+                "the next step is {}, not a build: {}",
+                l.state.next.step, l.state.next.say
+            ),
+            way_on(l, id),
+        ));
+    }
+    if role == "checks" || role == "build" {
+        git_writes(ctx)?;
+        git_commits(ctx)?;
+    }
+    Ok(())
+}
+
+/// Without one command to run, the layer says how to launch the role by hand.
+fn say_by_hand(
+    out: &mut Out,
+    id: &str,
+    role: &str,
+    model: &str,
+    prompt: &str,
+    launch_text: Option<&str>,
+    run: bool,
+) -> R<()> {
+    out.say(format!(
+        "launch it the way the blueprint says: {}",
+        launch_text.unwrap_or("(no launch)")
+    ));
+    out.say(format!("with the model {model}, and this prompt:"));
+    for line in prompt.lines() {
+        out.say(format!("  {line}"));
+    }
+    out.say(format!(
+        "then: gdd report {id} {role} <its last message, a file or ->"
+    ));
+    if run {
+        return Err(Fail::refuse(
+            "not-a-command",
+            "the blueprint's launch is not one command with <model>: the layer can't run it",
+            "launch it yourself as printed, or pass --command \"<program> ... <model> ... <prompt>\"",
+        ));
+    }
+    Ok(())
+}
+
+/// Who is launched, and how the blueprint named it.
+struct Launched<'a> {
+    id: &'a str,
+    role: &'a str,
+    env: &'a str,
+    level: &'a str,
+    model: &'a str,
+}
+
+/// Run the role's command, journal what was seen of it and write its step from its last message.
+fn run_role(
+    ctx: &Ctx,
+    l: &Loaded,
+    who: &Launched,
+    a: &LaunchArgs,
+    argv: &[String],
+    runs: &Path,
+    out: &mut Out,
+) -> R<()> {
+    let Launched {
+        id,
+        role,
+        env,
+        level,
+        model,
+    } = *who;
+    let adapter = match &a.adapter {
+        Some(n) => Adapter::by_name(n).ok_or(Fail::usage("--adapter is claude, codex or plain"))?,
+        None => Adapter::of_program(&argv[0]),
+    };
+    let left = l
+        .state
+        .limits
+        .line("minutes_per_change", "minutes")
+        .and_then(|m| m.cap.map(|c| (c - m.used as i64) * 60))
+        .filter(|s| *s > 0);
+    let timeout = a
+        .timeout
+        .unwrap_or(Duration::from_secs(left.unwrap_or(15 * 60) as u64));
+    let output = runs.join("output.txt");
+    out.say(format!("running, standard input closed, output to {}; it must show output within {} s; timeout {} s", output.display(), a.start_wait.as_secs(), timeout.as_secs()));
+    let seen = launch::run(argv, &ctx.root, &output, a.start_wait, timeout).map_err(|e| {
+        Fail::refuse(
+            "not-started",
+            e,
+            "the environment failed, not the change: retry once, or tell the person",
+        )
+    })?;
+    let raw = std::fs::read_to_string(&output).unwrap_or_default();
+    let said = launch::read_output(adapter, &raw, model);
+    let journal = json!({"launch": {
+        "ran": true, "role": role, "environment": env, "level": level, "model": model, "adapter": adapter.name(),
+        "started": seen.started, "first_output": seen.first_output, "seconds": seen.seconds, "timed_out": seen.timed_out,
+        "exit": seen.exit, "tokens": said.tokens(), "usage": if said.usage.is_empty() { Value::Null } else { said.usage_json() },
+    }});
+    out.journal = Some(journal);
+    out.fact("started", seen.started);
+    out.fact("seconds", seen.seconds);
+    out.fact("timed_out", seen.timed_out);
+    out.fact("tokens", json!(said.tokens()));
+    if !seen.started {
+        return Err(Fail::refuse(
+            "not-started",
+            format!(
+                "the {role} wrote nothing within {} s{}: it didn't start, and it was stopped",
+                a.start_wait.as_secs(),
+                seen.exit
+                    .map(|e| format!(" (exit {e})"))
+                    .unwrap_or_default()
+            ),
+            "the environment failed, not the change: retry once, or tell the person",
+        ));
+    }
+    if seen.timed_out {
+        return Err(Fail::refuse(
+            "timeout",
+            format!(
+                "the {role} ran past {} s and was stopped",
+                timeout.as_secs()
+            ),
+            "the environment failed, not the change: retry once, or tell the person",
+        ));
+    }
+    out.say(format!(
+        "it ran {} s, first output after {} s, exit {}",
+        seen.seconds,
+        seen.first_output.unwrap_or(0.0),
+        seen.exit
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "none".into())
+    ));
+    let ra = ReportArgs {
+        model: Some(model.to_string()),
+        level: Some(level.to_string()),
+        seconds: Some(seen.seconds),
+        tokens: said.tokens(),
+        ..ReportArgs::default()
+    };
+    let (line, _) = write_report(ctx, l, id, role, &said.text, &ra, out)?;
+    out.fact("line", line);
+    Ok(())
+}
+
 pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
     run("launch", |out| {
         if !["checks", "build", "review", "reading"].contains(&role) {
             return Err(Fail::usage("the role is checks, build, review or reading"));
         }
         let l = load(ctx, id)?;
-        let p = &l.state.progress;
-        // What the state allows: the same rules as the step this launch will write.
-        if role != "reading" {
-            allowed(&l, id, role, None)?;
-            if role == "review"
-                && let Some(g) = p.last_gates.as_ref()
-                && let (Some(gh), Some(h)) = (&g.head, &l.state.git.head)
-                && gh != h
-            {
-                return Err(Fail::refuse(
-                    "out-of-order",
-                    format!(
-                        "the gates passed on {}, and the head is now {}",
-                        git::short(gh),
-                        git::short(h)
-                    ),
-                    format!("gdd gates {id}"),
-                ));
-            }
-        } else if p.built_since_brief() {
-            return Err(Fail::refuse(
-                "out-of-order",
-                "a brief is read before anyone builds it",
-                way_on(&l, id),
-            ));
-        }
-        if (role == "checks" || role == "build") && !l.state.limits.stop.is_empty() {
-            return Err(Fail::refuse(
-                "cap-spent",
-                format!(
-                    "no new round: {} no room left",
-                    l.state.limits.stop.join(", ")
-                ),
-                cap_way_on(id, &l.state.limits),
-            ));
-        }
-        if role == "build" && l.state.next.step != "build" {
-            return Err(Fail::refuse(
-                "out-of-order",
-                format!(
-                    "the next step is {}, not a build: {}",
-                    l.state.next.step, l.state.next.say
-                ),
-                way_on(&l, id),
-            ));
-        }
-        if role == "checks" || role == "build" {
-            git_writes(ctx)?;
-            git_commits(ctx)?;
-        }
+        may_launch(ctx, &l, id, role)?;
         let level = level_of(&l, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l, &ctx.env, role, &level)?;
         let prompt = prompt_for(&l, id, role, &level);
@@ -448,25 +643,15 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         out.fact("model", json!(model));
         out.fact("prompt", json!(prompt));
         let Some(template) = template else {
-            out.say(format!(
-                "launch it the way the blueprint says: {}",
-                launch_text.clone().unwrap_or_else(|| "(no launch)".into())
-            ));
-            out.say(format!("with the model {model}, and this prompt:"));
-            for line in prompt.lines() {
-                out.say(format!("  {line}"));
-            }
-            out.say(format!(
-                "then: gdd report {id} {role} <its last message, a file or ->"
-            ));
-            if a.run {
-                return Err(Fail::refuse(
-                    "not-a-command",
-                    "the blueprint's launch is not one command with <model>: the layer can't run it",
-                    "launch it yourself as printed, or pass --command \"<program> ... <model> ... <prompt>\"",
-                ));
-            }
-            return Ok(());
+            return say_by_hand(
+                out,
+                id,
+                role,
+                &model,
+                &prompt,
+                launch_text.as_deref(),
+                a.run,
+            );
         };
         let runs = runs_dir(&ctx.root, id, role, out)?;
         let prompt_file = runs.join("prompt.txt");
@@ -493,82 +678,13 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             ));
             return Ok(());
         }
-        let adapter = match &a.adapter {
-            Some(n) => {
-                Adapter::by_name(n).ok_or(Fail::usage("--adapter is claude, codex or plain"))?
-            }
-            None => Adapter::of_program(&argv[0]),
+        let who = Launched {
+            id,
+            role,
+            env: &env,
+            level: &level,
+            model: &model,
         };
-        let left = l
-            .state
-            .limits
-            .line("minutes_per_change", "minutes")
-            .and_then(|m| m.cap.map(|c| (c - m.used as i64) * 60))
-            .filter(|s| *s > 0);
-        let timeout = a
-            .timeout
-            .unwrap_or(Duration::from_secs(left.unwrap_or(15 * 60) as u64));
-        let output = runs.join("output.txt");
-        out.say(format!("running, standard input closed, output to {}; it must show output within {} s; timeout {} s", output.display(), a.start_wait.as_secs(), timeout.as_secs()));
-        let seen = launch::run(&argv, &ctx.root, &output, a.start_wait, timeout).map_err(|e| {
-            Fail::refuse(
-                "not-started",
-                e,
-                "the environment failed, not the change: retry once, or tell the person",
-            )
-        })?;
-        let raw = std::fs::read_to_string(&output).unwrap_or_default();
-        let said = launch::read_output(adapter, &raw, &model);
-        let journal = json!({"launch": {
-            "ran": true, "role": role, "environment": env, "level": level, "model": model, "adapter": adapter.name(),
-            "started": seen.started, "first_output": seen.first_output, "seconds": seen.seconds, "timed_out": seen.timed_out,
-            "exit": seen.exit, "tokens": said.tokens(), "usage": if said.usage.is_empty() { Value::Null } else { said.usage_json() },
-        }});
-        out.journal = Some(journal);
-        out.fact("started", seen.started);
-        out.fact("seconds", seen.seconds);
-        out.fact("timed_out", seen.timed_out);
-        out.fact("tokens", json!(said.tokens()));
-        if !seen.started {
-            return Err(Fail::refuse(
-                "not-started",
-                format!(
-                    "the {role} wrote nothing within {} s{}: it didn't start, and it was stopped",
-                    a.start_wait.as_secs(),
-                    seen.exit
-                        .map(|e| format!(" (exit {e})"))
-                        .unwrap_or_default()
-                ),
-                "the environment failed, not the change: retry once, or tell the person",
-            ));
-        }
-        if seen.timed_out {
-            return Err(Fail::refuse(
-                "timeout",
-                format!(
-                    "the {role} ran past {} s and was stopped",
-                    timeout.as_secs()
-                ),
-                "the environment failed, not the change: retry once, or tell the person",
-            ));
-        }
-        out.say(format!(
-            "it ran {} s, first output after {} s, exit {}",
-            seen.seconds,
-            seen.first_output.unwrap_or(0.0),
-            seen.exit
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "none".into())
-        ));
-        let ra = ReportArgs {
-            model: Some(model.clone()),
-            level: Some(level.clone()),
-            seconds: Some(seen.seconds),
-            tokens: said.tokens(),
-            ..ReportArgs::default()
-        };
-        let (line, _) = write_report(ctx, &l, id, role, &said.text, &ra, out)?;
-        out.fact("line", line);
-        Ok(())
+        run_role(ctx, &l, &who, a, &argv, &runs, out)
     })
 }

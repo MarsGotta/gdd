@@ -832,6 +832,32 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
         "out-of-order",
         way,
     );
+    // New checks or a new brief would take the stop out of the state: they wait for the person too.
+    refused(
+        "new checks",
+        &r.gdd(&["launch", "y7", "checks"]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "checks reported",
+        &r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "a new brief",
+        &r.gdd(&[
+            "brief",
+            "y7",
+            "gdd/briefs/y7.md",
+            "features/y7.feature",
+            "--paths",
+            "src/core/app.txt",
+        ]),
+        "out-of-order",
+        way,
+    );
     assert_eq!(r.log_lines("y7").len(), lines, "nothing was written");
 
     // What it asks for still works: the person is told and answers, then a fix round and a review.

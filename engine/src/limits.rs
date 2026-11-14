@@ -1,11 +1,11 @@
 //! What the blueprint's limits still allow one change, counted from its log.
 //!
 //! It counts exactly as the contract's counter, `gdd/limits.sh`, does: the same caps, the same
-//! used values, the same `stop`, `slow` and `judge`, and the same lines. It is pure: the events and
-//! the time it counts to are given.
+//! used values, the same `stop`, `slow` and `judge`, and the same lines. It is pure: the events, the
+//! time it counts to and the log's id, which says whether the checks are what is built, are given.
 
 use crate::blueprint::Blueprint;
-use crate::log::{any_kv, is_step, kind, number_like, result, step, tokens_in, ts};
+use crate::log::{any_kv, kind, number_like, result, step, tokens_in, ts};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -137,6 +137,122 @@ fn gates_cost(v: &Value, late: &[String]) -> (f64, f64, bool) {
     (each, before, late_ran)
 }
 
+/// What a log's events add up to, before any cap is read.
+#[derive(Default)]
+struct Tally {
+    first: Option<i64>,
+    asked: i64,
+    waiting: bool,
+    waited: i64,
+    // A change that shipped is over: its minutes stop there, not at the clock.
+    shipped: Option<i64>,
+    builds: i64,
+    checks: i64,
+    review: i64,
+    gates: i64,
+    late_runs: i64,
+    tokens: i64,
+    most_each: f64,
+    most_before: f64,
+    next_up: String,
+    color: String,
+    raised: BTreeMap<String, i64>,
+}
+
+impl Tally {
+    /// An event that counts: it moves the clock, the color, the caps a waiver raised and what
+    /// waits to be judged, and it uses what it uses.
+    fn take(&mut self, v: &Value, late: &[String]) {
+        let t = ts(v);
+        if let Some(t) = t {
+            if self.first.is_none() {
+                self.first = Some(t);
+            }
+            if self.waiting {
+                self.waited += t - self.asked;
+                self.waiting = false;
+            }
+        }
+        if kind(v) == "ask"
+            && let Some(t) = t
+        {
+            self.asked = t;
+            self.waiting = true;
+        }
+        if kind(v) == "waiver"
+            && let Some(cap) = v.get("limit").and_then(Value::as_str)
+            && !cap.is_empty()
+            && cap.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            && let Some(to) = v.get("to").and_then(number_like)
+        {
+            self.raised.insert(cap.to_string(), to);
+        }
+        let st = step(v);
+        if st == "ship"
+            && let Some(t) = t
+        {
+            self.shipped = Some(t);
+        }
+        if st == "brief" && crate::color_rank(result(v)).is_some() {
+            self.color = result(v).to_string();
+        }
+        // What the last of these steps leaves waiting to be judged.
+        let waits = |yes: bool, what: &str| if yes { what.into() } else { String::new() };
+        match st {
+            "brief" | "checks" | "ship" => self.next_up.clear(),
+            "build" => self.next_up = waits(!any_kv(v, "result", "stopped"), "gates"),
+            "gates" => self.next_up = waits(!any_kv(v, "result", "fail"), "review"),
+            "review" => self.next_up = waits(any_kv(v, "verdict", "pass"), "ship"),
+            _ => {}
+        }
+        self.used(v, late);
+    }
+
+    /// An event a correction voided decides nothing, but what it used was used.
+    fn take_void(&mut self, v: &Value, late: &[String]) {
+        if let Some(t) = ts(v) {
+            self.first = Some(self.first.map_or(t, |f| f.min(t)));
+        }
+        self.used(v, late);
+    }
+
+    /// What an event used, voided or not: a launch, a time sent back, the seconds of its checks
+    /// and its tokens.
+    fn used(&mut self, v: &Value, late: &[String]) {
+        match step(v) {
+            "build" => self.builds += 1,
+            "checks" => self.checks += 1,
+            "review" if any_kv(v, "verdict", "fix") => self.review += 1,
+            "gates" => {
+                if any_kv(v, "result", "fail") {
+                    self.gates += 1;
+                }
+                let (each, before, late_ran) = gates_cost(v, late);
+                if late_ran {
+                    self.late_runs += 1;
+                }
+                self.most_each = self.most_each.max(each);
+                self.most_before = self.most_before.max(before);
+            }
+            _ => {}
+        }
+        self.tokens += tokens_in(v);
+    }
+
+    /// The minutes of work up to `now`, or to the ship, without the waits for a person.
+    fn minutes(&self, now: i64) -> i64 {
+        let end = match self.shipped {
+            Some(s) => s,
+            None if self.waiting => self.asked,
+            None => now,
+        };
+        match self.first {
+            None => 0,
+            Some(f) => ((end - f - self.waited) as f64 / 60.0).trunc() as i64,
+        }
+    }
+}
+
 /// Count a change's events up to `now` (the time of the count, or of the end of a closed log).
 #[cfg(test)]
 pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
@@ -170,126 +286,29 @@ pub fn count_with(
         .map(|c| c.id)
         .collect();
     let mut l = Limits::default();
-    let (mut first, mut asked, mut waiting, mut waited) = (None::<i64>, 0i64, false, 0i64);
-    // A change that shipped is over: its minutes stop there, not at the clock.
-    let mut shipped = None::<i64>;
-    let (mut builds, mut checks, mut review, mut gates, mut late_runs, mut tokens) =
-        (0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
-    let (mut most_each, mut most_before) = (0f64, 0f64);
-    let mut next_up = String::new();
-    let mut color = String::new();
-    let mut raised: BTreeMap<String, i64> = BTreeMap::new();
-
+    let mut t = Tally::default();
     for v in events {
-        let t = ts(v);
-        if let Some(t) = t {
-            if first.is_none() {
-                first = Some(t);
-            }
-            if waiting {
-                waited += t - asked;
-                waiting = false;
-            }
-        }
-        if kind(v) == "ask"
-            && let Some(t) = t
-        {
-            asked = t;
-            waiting = true;
-        }
-        if kind(v) == "waiver"
-            && let Some(cap) = v.get("limit").and_then(Value::as_str)
-            && !cap.is_empty()
-            && cap.chars().all(|c| c.is_ascii_lowercase() || c == '_')
-            && let Some(to) = v.get("to").and_then(number_like)
-        {
-            raised.insert(cap.to_string(), to);
-        }
-        let st = step(v);
-        if st == "ship"
-            && let Some(t) = t
-        {
-            shipped = Some(t);
-        }
-        if st == "brief" && crate::color_rank(result(v)).is_some() {
-            color = result(v).to_string();
-        }
-        if matches!(st, "brief" | "checks" | "ship") {
-            next_up.clear();
-        }
-        if st == "build" {
-            builds += 1;
-            next_up = if any_kv(v, "result", "stopped") {
-                String::new()
-            } else {
-                "gates".into()
-            };
-        }
-        if st == "checks" {
-            checks += 1;
-        }
-        if st == "review" {
-            next_up = if any_kv(v, "verdict", "pass") {
-                "ship".into()
-            } else {
-                String::new()
-            };
-            if any_kv(v, "verdict", "fix") {
-                review += 1;
-            }
-        }
-        if is_step(v, "gates") {
-            let failed = any_kv(v, "result", "fail");
-            next_up = if failed {
-                String::new()
-            } else {
-                "review".into()
-            };
-            if failed {
-                gates += 1;
-            }
-            let (each, before, late_ran) = gates_cost(v, &late);
-            if late_ran {
-                late_runs += 1;
-            }
-            most_each = most_each.max(each);
-            most_before = most_before.max(before);
-        }
-        tokens += tokens_in(v);
+        t.take(v, &late);
     }
     for v in void {
-        if let Some(t) = ts(v) {
-            first = Some(first.map_or(t, |f| f.min(t)));
-        }
-        match step(v) {
-            "build" => builds += 1,
-            "checks" => checks += 1,
-            "review" if any_kv(v, "verdict", "fix") => review += 1,
-            _ => {}
-        }
-        if is_step(v, "gates") {
-            if any_kv(v, "result", "fail") {
-                gates += 1;
-            }
-            let (each, before, late_ran) = gates_cost(v, &late);
-            if late_ran {
-                late_runs += 1;
-            }
-            most_each = most_each.max(each);
-            most_before = most_before.max(before);
-        }
-        tokens += tokens_in(v);
+        t.take_void(v, &late);
     }
-
-    let end = match shipped {
-        Some(s) => s,
-        None if waiting => asked,
-        None => now,
-    };
-    let minutes = match first {
-        None => 0,
-        Some(f) => ((end - f - waited) as f64 / 60.0).trunc() as i64,
-    };
+    let minutes = t.minutes(now);
+    let Tally {
+        waited,
+        builds,
+        checks,
+        review,
+        gates,
+        late_runs,
+        tokens,
+        most_each,
+        most_before,
+        mut next_up,
+        color,
+        raised,
+        ..
+    } = t;
     let cap_of = |key: &str| -> (Option<i64>, bool) {
         if let Some(r) = raised.get(key) {
             return (Some(*r), true);
@@ -330,7 +349,8 @@ pub fn count_with(
     // gdd-checks in a log of standing checks, where the checks are what is built. The checks
     // sealed again for a build go with it.
     let setup = crate::state::log_kind(id) == crate::state::LogKind::Setup;
-    let rounds = (if setup { checks } else { builds } - 1).max(0);
+    let launches = if setup { checks } else { builds };
+    let rounds = (launches - 1).max(0);
     report("rounds", rounds as f64, "rounds_per_change", false, judged);
     report(
         "sent back by the checks",
