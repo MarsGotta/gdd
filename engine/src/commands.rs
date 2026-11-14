@@ -347,11 +347,11 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
                 now,
             );
-            under_way.push(json!({"id": lid, "next": s.next.step, "command": s.next.command}));
-            out.say(format!(
-                "under way: {lid}, next {}: {}",
-                s.next.step, s.next.command
-            ));
+            under_way.push(json!({"id": lid, "next": s.next.step, "command": s.next.command, "blocked": s.next.blocked}));
+            out.say(match &s.next.blocked {
+                Some(b) => format!("under way: {lid}, stopped ({b}): {}", s.next.command),
+                None => format!("under way: {lid}, next {}: {}", s.next.step, s.next.command),
+            });
         }
     }
     open.sort();
@@ -1240,7 +1240,16 @@ fn write_report(
                     ),
                 ))?,
             };
-            if tip == start {
+            // After a trial that sent a setup's checks back, what counts is what the seal holds
+            // that the trial didn't judge. A merge of the main branch moves <start>: the fix can
+            // be below it, sealed before the merge, or have come through main itself.
+            let judged = p
+                .last_review
+                .as_ref()
+                .and_then(|r| r.head.clone())
+                .filter(|h| log_kind(id) == LogKind::Setup && git::is_ancestor(&ctx.root, h, &tip));
+            let from = judged.unwrap_or_else(|| start.clone());
+            if tip == from {
                 return Err(Fail::refuse(
                     "not-sealed",
                     format!("gdd-seal/{id} didn't move: the checks role sealed nothing"),
@@ -1259,8 +1268,8 @@ fn write_report(
                     ),
                 ));
             }
-            let changed = git::diff_names(&ctx.root, &start, &tip)
-                .map_err(|e| Fail::missing(format!("the changes from {start} to {tip}"), e))?;
+            let changed = git::diff_names(&ctx.root, &from, &tip)
+                .map_err(|e| Fail::missing(format!("the changes from {from} to {tip}"), e))?;
             let mut checks = Map::new();
             for f in changed.iter().filter(|f| !p.brief_files.contains_key(*f)) {
                 if let Some(h) = git::blob_at(&ctx.root, &tip, f) {

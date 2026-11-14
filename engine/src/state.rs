@@ -949,6 +949,34 @@ fn blocked(step: &str, code: &str, say: impl Into<String>, command: impl Into<St
     }
 }
 
+/// The checks role's turn in a setup log. A spent cap comes first. One that stopped is launched
+/// once more. One that stopped twice goes to the person, and so does every stop after their
+/// answer: the same launch is never named again and again.
+fn setup_checks(id: &str, p: &Progress, lim: &Limits, say: &str) -> Next {
+    if !lim.stop.is_empty() {
+        return cap_spent(id, lim);
+    }
+    if p.checks_stopped >= 2 {
+        let answered = p
+            .checks_line
+            .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
+        if !answered {
+            return blocked(
+                "stopped",
+                "cannot",
+                "gdd-checks stopped twice: what it can't set up goes to the person, with what you'd do. If they leave it for later, it stays in the backlog and the next request doesn't wait for it",
+                format!("gdd ask {id} --of decision \"<what it can't set up, and what you'd do>\""),
+            );
+        }
+        return n(
+            "checks",
+            "the person answered: launch gdd-checks once more, with their answer, unless they left it for later",
+            format!("gdd launch {id} checks"),
+        );
+    }
+    n("checks", say, format!("gdd launch {id} checks"))
+}
+
 fn round_needs_room(id: &str, lim: &Limits, then: Next) -> Next {
     if lim.stop.is_empty() {
         return then;
@@ -1125,14 +1153,11 @@ fn next_step(
 
     if kind == LogKind::Setup {
         if !p.checks_done {
-            return round_needs_room(
+            return setup_checks(
                 id,
+                p,
                 lim,
-                n(
-                    "checks",
-                    "launch gdd-checks to set the checks up and seal them",
-                    format!("gdd launch {id} checks"),
-                ),
+                "launch gdd-checks to set the checks up and seal them",
             );
         }
         return match &p.last_review {
@@ -1162,23 +1187,17 @@ fn next_step(
                 "the trial said stop: the checks don't ship. Tell the person why; a stop is never waived, it gets a fix round and a new trial",
                 format!("gdd ask {id} --of stop \"<why it stopped>\""),
             ),
-            Some(r) if r.verdict == "stop" => round_needs_room(
+            Some(r) if r.verdict == "stop" => setup_checks(
                 id,
+                p,
                 lim,
-                n(
-                    "checks",
-                    "a fix round after the trial's stop: launch gdd-checks, which gets the trial's findings and the person's answer, then a new trial",
-                    format!("gdd launch {id} checks"),
-                ),
+                "a fix round after the trial's stop: launch gdd-checks, which gets the trial's findings and the person's answer, then a new trial",
             ),
-            Some(_) => round_needs_room(
+            Some(_) => setup_checks(
                 id,
+                p,
                 lim,
-                n(
-                    "checks",
-                    "the trial sent the checks back: launch gdd-checks again",
-                    format!("gdd launch {id} checks"),
-                ),
+                "the trial sent the checks back: launch gdd-checks again",
             ),
         };
     }

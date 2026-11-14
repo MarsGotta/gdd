@@ -735,3 +735,163 @@ fn a_change_is_approved_with_the_files_of_its_branch() {
     let blob = r.git(&["rev-parse", "work/a7:src/pay/new.txt"]);
     assert_eq!(a.facts["files"]["src/pay/new.txt"], blob.as_str());
 }
+
+// ----- 8. a setup log's fix round never loops -----
+
+fn sent_back(r: &Repo, id: &str) {
+    let rv = r.report(
+        id,
+        "review",
+        &text(
+            "gdd-review",
+            "fix",
+            "fix\nCOLOR: yellow\nf1 tests/run.sh:1 it doesn't run when only the browser tests change",
+        ),
+        &[],
+    );
+    assert_eq!(rv.code, 0, "{}", rv.out);
+    assert_eq!(step_of(&next_of(r, id)), "checks");
+}
+
+/// In one run, the role sealed its fix, its step was voided because the fix changed what only the
+/// person approves, they approved it, it reached the main branch and the seal took main in. The
+/// fix was on the seal, and the layer refused the report forever: "the seal didn't move".
+#[test]
+fn a_fix_already_on_the_seal_after_a_merge_gets_its_new_trial() {
+    let r = Repo::new();
+    let id = "standing-checks-catalog";
+    set_up(&r, id, "tests/standing.sh", "true\n");
+    sent_back(&r, id);
+    let fix = "grep -q ok src/core/app.txt && echo browser too\n";
+    set_up(&r, id, "tests/run.sh", fix);
+    let line = r.log_lines(id).len().to_string();
+    let v = r.gdd(&[
+        "correct",
+        id,
+        "--line",
+        &line,
+        "--void",
+        "the role changed what only the person approves",
+    ]);
+    assert_eq!(v.code, 0, "{}", v.out);
+    // The person approves it: the same change lands on the main branch, and the seal takes it in.
+    r.write("tests/run.sh", fix);
+    r.commit("Run the tests when the browser tests change");
+    let m = r.gdd(&["seal", id, "--merge-main"]);
+    assert_eq!(m.code, 0, "{}", m.out);
+    // The role has nothing left to seal: what the trial asked for is there, and it says so.
+    let c = r.report(
+        id,
+        "checks",
+        &text("gdd-checks", "sealed", "The fix is on the seal."),
+        &[],
+    );
+    assert_eq!(c.code, 0, "{}", c.out);
+    let lines = r.log_lines(id);
+    let sealed = &lines.last().unwrap()["seal"];
+    assert_eq!(
+        sealed["commit"],
+        r.git(&["rev-parse", &format!("gdd-seal/{id}")]).as_str()
+    );
+    assert!(sealed["checks"]["tests/run.sh"].is_string(), "{sealed}");
+    assert_eq!(step_of(&next_of(&r, id)), "review");
+}
+
+/// The fix the trial asked for can come through the main branch alone, with the person's
+/// approval: the seal holds it once main is merged in, and the role seals nothing of its own.
+#[test]
+fn a_fix_that_came_through_the_main_branch_gets_its_new_trial() {
+    let r = Repo::new();
+    let id = "standing-checks-catalog";
+    set_up(&r, id, "tests/standing.sh", "true\n");
+    sent_back(&r, id);
+    r.write(
+        "tests/run.sh",
+        "grep -q ok src/core/app.txt && echo browser too\n",
+    );
+    r.commit("Run the tests when the browser tests change");
+    assert_eq!(r.gdd(&["seal", id, "--merge-main"]).code, 0);
+    let c = r.report(
+        id,
+        "checks",
+        &text("gdd-checks", "sealed", "The fix came through main."),
+        &[],
+    );
+    assert_eq!(c.code, 0, "{}", c.out);
+    assert_eq!(step_of(&next_of(&r, id)), "review");
+}
+
+/// A seal the trial already judged, with nothing new on it, is still nothing sealed.
+#[test]
+fn a_seal_the_trial_already_judged_is_not_a_fix() {
+    let r = Repo::new();
+    let id = "standing-checks-catalog";
+    set_up(&r, id, "tests/standing.sh", "true\n");
+    sent_back(&r, id);
+    let c = r.report(
+        id,
+        "checks",
+        &text("gdd-checks", "sealed", "Nothing to change."),
+        &[],
+    );
+    assert_eq!(c.facts["refused"], "not-sealed", "{}", c.out);
+}
+
+/// A checks role that stops in a setup log is launched once more, and then the person decides:
+/// the layer never names the same launch again and again.
+#[test]
+fn a_setup_logs_checks_that_stop_twice_go_to_the_person() {
+    let r = Repo::new();
+    let id = "standing-checks-catalog";
+    set_up(&r, id, "tests/standing.sh", "true\n");
+    sent_back(&r, id);
+    assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    let n = next_of(&r, id);
+    assert_eq!(step_of(&n), "checks", "{}", n.out);
+    assert_eq!(command_of(&n), format!("gdd launch {id} checks"));
+    assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    let n = next_of(&r, id);
+    assert_eq!(blocked_of(&n), "cannot", "{}", n.out);
+    assert!(
+        command_of(&n).starts_with(&format!("gdd ask {id} --of decision")),
+        "{}",
+        n.out
+    );
+    // The project's own view says it waits for the person, not that a launch is next.
+    let all = r.gdd(&["next"]);
+    assert_eq!(
+        all.facts["under_way"][0]["blocked"], "cannot",
+        "{}",
+        all.out
+    );
+    // Told, and answered: their answer is the way on, and a third stop goes to them again.
+    r.gdd(&[
+        "ask",
+        id,
+        "--of",
+        "decision",
+        "The checks role can't fix it: try once more?",
+    ]);
+    r.gdd(&["answer", id, "yes, once more"]);
+    let n = next_of(&r, id);
+    assert_eq!(step_of(&n), "checks", "{}", n.out);
+    assert!(n.has("the person answered"), "{}", n.out);
+    assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    assert_eq!(blocked_of(&next_of(&r, id)), "cannot");
+}
+
+/// The same holds before the first trial: a setup that can't be made isn't launched forever.
+#[test]
+fn a_setup_that_stops_twice_before_its_first_seal_goes_to_the_person() {
+    let r = Repo::new();
+    let id = "standing-checks-catalog";
+    assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    let n = next_of(&r, id);
+    assert_eq!(blocked_of(&n), "cannot", "{}", n.out);
+    assert!(
+        command_of(&n).starts_with(&format!("gdd ask {id} --of decision")),
+        "{}",
+        n.out
+    );
+}
