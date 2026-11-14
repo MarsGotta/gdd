@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.11.3"
+  version: "0.11.4"
   contract: gdd/1
 ---
 
@@ -38,7 +38,7 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 2. Read the request, in the person's words.
 3. Run `gdd next`. If it says the standing checks aren't set up, they come before the request: do it now, as `references/standing-checks.md` says, in this skill's folder. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint. Nothing else under way comes before a request: what is stopped waits for the person, said in one line.
 4. For a change already under way, after a compaction too, `gdd next <id>` says where it stands: the brief has no status. Trust it and git, not your memory.
-5. If the layer says git can't write a ref, stop and tell the person in one line: nothing can be sealed or built.
+5. If the layer says git can't write a ref, stop and tell the person in one line, and no more: "I can't start: git can't write in this copy, so nothing was built. Open me where it can and I'll go on."
 
 ## The four moments
 

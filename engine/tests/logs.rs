@@ -353,3 +353,46 @@ fn next_for_the_project() {
             .contains("| p2 | Another | green | | | done |")
     );
 }
+
+/// The backlog's order is the order of the work. In one run of the eval cases, the trials of the
+/// checks that wait for code were added before the first item that brings any: the next thing to
+/// do was to try the tests of a project that had none.
+#[test]
+fn a_checks_trial_is_added_after_an_item_of_the_product() {
+    let r = Repo::new();
+    let head =
+        "# Backlog\n\n| Id | What | Color | Phase | Brief | State |\n|---|---|---|---|---|---|\n";
+    r.write("gdd/backlog.md", head);
+    let add = |id: &str| {
+        r.gdd(&[
+            "backlog",
+            "add",
+            id,
+            "--what",
+            "Something",
+            "--color",
+            "red",
+        ])
+    };
+    assert_eq!(add("standing-checks").code, 0);
+    let early = add("standing-checks-tests");
+    assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
+    assert!(early.has("add first the item"), "{}", early.out);
+    assert!(!r.read("gdd/backlog.md").contains("standing-checks-tests"));
+    assert_eq!(add("catalog-page").code, 0);
+    let after = add("standing-checks-tests");
+    assert_eq!(after.code, 0, "{}", after.out);
+    let listed = r.gdd(&["backlog", "list"]);
+    let ids: Vec<&str> = listed.facts["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|i| i["id"].as_str())
+        .collect();
+    assert_eq!(
+        ids,
+        ["standing-checks", "catalog-page", "standing-checks-tests"],
+        "{}",
+        listed.out
+    );
+}

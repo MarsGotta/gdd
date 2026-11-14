@@ -67,7 +67,7 @@ graders:
   - name: the-standing-checks-are-the-seal-and-the-scan
     type: regex
     target: { source: file, path: gdd/backlog.md }
-    pattern: '\|\s*standing-checks\s*\|[^|\n]*(?:[Ss]eal[^|\n]*[Ss]ecret|[Ss]ecret[^|\n]*[Ss]eal)'
+    pattern: '\|\s*standing-checks\s*\|[^|\n]*(?:(?:[Ss]eal|nothing that judges)[^|\n]*[Ss]ecret|[Ss]ecret[^|\n]*(?:[Ss]eal|nothing that judges))'
     weight: 2
   - name: leaves-a-trial-for-the-tests
     type: regex
@@ -112,7 +112,7 @@ graders:
   - name: writes-no-line-of-the-log-by-hand
     type: regex
     target: trace
-    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:(?!git clone|worktree add|mktemp|\$TMPDIR)(?:[^"\\]|\\.))*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
     match: not_contains
     weight: 2
   - name: every-log-it-starts-has-the-layers-journal

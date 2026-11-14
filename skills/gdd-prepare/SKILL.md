@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.11.3"
+  version: "0.11.4"
   contract: gdd/1
 ---
 
@@ -88,7 +88,7 @@ Set the caps of a change of each color, in its `limits`, from how long the perso
 
 ## Approval
 
-The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Ask with the message in `assets/approval.md`: copy it, fill it in and send nothing else, because what you decided is in the files. Recording known debt loosens a check, so it's part of that same approval. Tell the person what the trial of the standing checks leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
+The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Ask with the message in `assets/approval.md`: copy it, fill it in and send nothing else, under 200 words, because what you decided is in the files. Recording known debt loosens a check, so it's part of that same approval. Tell the person what the trial of the standing checks leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
 
 ## Gotchas
 

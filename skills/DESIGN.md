@@ -332,7 +332,18 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     So the order is checked where every step is written, and where `launch` and `verify` read it too. After a `fix` or a `stop`, nothing judges the same work again until a build, or new checks in a setup log, answers it, and after a `stop` or a touched seal that round waits for the person to be told and to answer. The line that sent the change back is never voided, nor any line of a closed log. A voided line decides nothing, but what it used still counts. A round that began with a cap spent isn't written: the caps are read as they stood at the log's last line, so a build that ended after its time ran out is still judged, as decision 50 asks. And `verify` says which lines that judged a change were voided.
 
-    Not closed: after gates that failed, a fix committed with no build step and the gates run again counts as one more time the checks sent the change back, not as a round. The contract stays `gdd/1`: no event changed shape.
+    One way was left open that day, and decision 60 closes it. The contract stays `gdd/1`: no event changed shape.
+60. **Gates that failed don't run again on a commit nobody reported.** After gates that failed, a fix committed with no build step and the gates again was a round the cap on rounds never counted, with no record of who built it or on which model. Now the gates run again on the same commit, where a check can fail for reasons of its own, and on another one only after the build step of the round that moved the branch. `next` names that report instead of the gates. A branch that only took the main branch in, through its seal, has a `seal` event in its log and no round to report. No log of the method benchmark held that sequence, so nothing real changes with it.
+
+    The grader of the eval cases that looks for a line of the log written by hand took a reviewer for one: it had cloned the project into a throwaway copy to try the seal check, and written to that copy's log. A command that works in a copy it cloned, added as a worktree or made with `mktemp` is no longer counted. Tried without a model on every kept trace of the cases that carry it: one result changes, that one, and the logs written by hand before the layer existed are all still found.
+61. **What the cases with a model showed of the version that closed those ways.** Run again, the case of a project with no code failed twice, and each failure had a cause in the skills:
+    - The trials of the checks that wait for code were added to the backlog before the first item that brings any, so the next thing to do was to try the tests of a project with none. The reference on new projects now gives the order with an example, and the layer refuses a `standing-checks-<check>` item added while the backlog holds no item of the product.
+    - The message that asks for the approval copied the template's line, "the checks are written but not set up", and the person wasn't told that most checks would wait. The reference gives the sentence for a project with no code.
+    - That message ran well past its 200 words. The one run that counted them with a command stayed under, so the template now asks for the command, and the skill's body carries the number. It came down, and not yet under the cap every time.
+    - Trying the secret scan, a clone failed without a word, the trial's commits landed in the project itself, and the hard reset that took them out also took files written a moment before. The trial now stops when its copy can't be made or entered.
+    - Where git can't write, the orchestrator's one line to the person had become four paragraphs about the sandbox. The skill gives the line.
+
+    A grader of that case asked for the word "seal" in the first line of the backlog and failed a run that said it in the person's words: it takes both now.
 
 ## Still open
 

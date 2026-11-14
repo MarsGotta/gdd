@@ -406,6 +406,9 @@ pub struct Progress {
     pub sealed_any: bool,
     /// Whether the person was told (an `ask --of stop`) that the last gates found the seal touched.
     pub seal_told: bool,
+    /// Whether the seal moved since the last gates: a merge of the main branch into it, which the
+    /// change's branch then takes in, is a new head no build step has to explain.
+    pub seal_since_gates: bool,
     /// Spans of the seal, from a commit to a later one, that held work no step had recorded
     /// when a `seal` event moved `<start>` past them: a role's report still counts them.
     pub unrecorded: Vec<(String, String)>,
@@ -563,6 +566,7 @@ impl Progress {
             "seal" => {
                 self.seal_moves += 1;
                 self.sealed_any = true;
+                self.seal_since_gates = true;
                 if let Some(to) = v["to"].as_str() {
                     if let (Some(from), Some(start)) = (v["from"].as_str(), self.start.as_deref())
                         && from != start
@@ -688,6 +692,7 @@ impl Progress {
             "gates" => {
                 self.gates_runs += 1;
                 self.seal_told = false;
+                self.seal_since_gates = false;
                 let mut failed = vec![];
                 let mut ran = vec![];
                 if let Some(Value::Array(items)) = v.get("gates") {
@@ -779,6 +784,25 @@ impl Progress {
                     "a new round while the person hasn't answered what stopped the change".into(),
                 ));
             }
+        }
+        // Gates that failed are answered by a round, and a round has a build step. On the same
+        // commit they may run again; on another one, something moved the branch, and only the seal
+        // taking the main branch in does that without a builder.
+        if st == "gates"
+            && kind == LogKind::Change
+            && !self.seal_since_gates
+            && let Some(g) = self.last_gates.as_ref().filter(|g| !g.passed)
+            && let (Some(was), Some(now)) = (g.head.as_deref(), v["head"].as_str())
+            && was != now
+        {
+            return Err((
+                "out-of-order",
+                format!(
+                    "gates on {}, after gates that failed on {}, with no build step since: the round that moved the branch is reported before it is judged",
+                    &now[..now.len().min(12)],
+                    &was[..was.len().min(12)]
+                ),
+            ));
         }
         if st == "gates" && kind == LogKind::Change && seal_untold {
             return Err((
@@ -1468,6 +1492,26 @@ fn next_step(
             _ => true,
         });
     let Some(g) = gates_on_head else {
+        // The branch moved past gates that failed and no step says so: that round is reported
+        // before its gates run, or it would never count as one.
+        if let Some(failed) = p.last_gates.as_ref().filter(|g| !g.passed)
+            && failed.head.is_some()
+            && git.head.is_some()
+            && !p.seal_since_gates
+        {
+            return round_needs_room(
+                id,
+                lim,
+                n(
+                    "build",
+                    format!(
+                        "the branch moved past the gates that failed ({}) and no build step says so: report that round, then its gates run",
+                        failed.failed.join(", ")
+                    ),
+                    format!("gdd report {id} build <the builder's last message, a file or ->"),
+                ),
+            );
+        }
         if !lim.stop.is_empty() && lim.judge != "gates" {
             return round_needs_room(id, lim, Next::default());
         }

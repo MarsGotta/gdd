@@ -989,3 +989,104 @@ fn a_voided_round_is_still_a_round() {
         v.out
     );
 }
+
+/// Gates that failed are answered by a round, and a round has a build step. A fix committed with
+/// none, and the gates again, was a round the cap on rounds never counted.
+#[test]
+fn gates_that_failed_dont_run_again_on_a_fix_nobody_reported() {
+    let r = Repo::new();
+    let seal = yellow_sealed(&r, "y6");
+    let built = report_block("gdd-build", "done");
+    r.commit_on(
+        "work/y6",
+        Some(&seal),
+        &[("src/core/app.txt", "bad\n")],
+        "Round 1",
+    );
+    assert_eq!(r.report("y6", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y6"]).code, 1);
+    // On the same commit they may run again: a check can fail for reasons of its own.
+    let again = r.gdd(&["gates", "y6"]);
+    assert!(again.facts["refused"].is_null(), "{}", again.out);
+    // A fix lands on the branch, and nobody reports the round.
+    r.commit_on("work/y6", None, &[("src/core/app.txt", "ok\n")], "A fix");
+    let n = r.gdd(&["next", "y6"]);
+    let command = n.facts["state"]["next"]["command"].as_str().unwrap_or("");
+    assert!(command.starts_with("gdd report y6 build"), "{}", n.out);
+    let lines = r.log_lines("y6").len();
+    let g = r.gdd(&["gates", "y6"]);
+    assert_eq!(g.facts["refused"], "out-of-order", "{}", g.out);
+    assert!(g.has("gdd report y6 build"), "{}", g.out);
+    assert_eq!(r.log_lines("y6").len(), lines, "nothing was written");
+    // Reported, it is a round, and its gates run.
+    assert_eq!(r.report("y6", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y6"]).code, 0);
+    let lim = r.gdd(&["limits", "y6"]);
+    assert!(lim.has("rounds 1 of 3"), "{}", lim.out);
+
+    // A branch that only took the main branch in, through its seal, has no round to report.
+    let seal = yellow_sealed(&r, "y5");
+    r.commit_on(
+        "work/y5",
+        Some(&seal),
+        &[("src/core/app.txt", "bad\n")],
+        "Round 1",
+    );
+    assert_eq!(r.report("y5", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y5"]).code, 1);
+    r.write("src/ui/page.txt", "another page\n");
+    r.commit("Something else shipped");
+    assert_eq!(r.gdd(&["seal", "y5", "--merge-main"]).code, 0);
+    let tree = r.git(&["merge-tree", "--write-tree", "work/y5", "gdd-seal/y5"]);
+    let merge = r.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        "work/y5",
+        "-p",
+        "gdd-seal/y5",
+        "-m",
+        "Take the seal in",
+    ]);
+    r.git(&["branch", "-f", "work/y5", &merge]);
+    let g = r.gdd(&["gates", "y5"]);
+    assert!(g.facts["refused"].is_null(), "{}", g.out);
+    assert_eq!(g.code, 1, "judged, and it still fails: {}", g.out);
+    let v = r.gdd(&["verify", "--all"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+/// A slip of the pen in the blueprint is no way to drop a check: one whose `runs` was neither
+/// tier was planned, never run and never named, and the gates passed without it.
+#[test]
+fn a_check_whose_tier_is_misspelled_is_never_left_out_without_a_word() {
+    let slip = BLUEPRINT.replace(
+        "    command: sh tests/run.sh\n    runs: each round\n",
+        "    command: sh tests/run.sh\n    runs: each-round\n",
+    );
+    assert_ne!(slip, BLUEPRINT, "the blueprint of the tests changed shape");
+    let r = Repo::with(&slip);
+    let base = r.git(&["rev-parse", "main"]);
+    assert_eq!(
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    // A build the tests would reject: with the check left out, the gates passed.
+    r.commit_on(
+        "work/g1",
+        Some(&base),
+        &[
+            ("src/ui/page.txt", "a page\n"),
+            ("src/core/app.txt", "broken\n"),
+        ],
+        "Build",
+    );
+    r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["refused"], "bad-blueprint", "{}", g.out);
+    assert!(g.has("tests") && g.has("each-round"), "{}", g.out);
+    assert!(
+        r.log_lines("g1").iter().all(|e| e["step"] != "gates"),
+        "no gates step was written"
+    );
+}

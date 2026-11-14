@@ -65,12 +65,8 @@ fn check_refs(ctx: &Ctx) -> R<()> {
     Ok(())
 }
 
-fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
-    check_id(id)?;
-    check_refs(ctx)?;
-    let project = Project::open(&ctx.root);
-    let bp = project.blueprint()?;
-    // --head names the commit the state is derived on; one that names nothing is never the branch.
+/// `--head` names the commit the state is derived on: one that names nothing is never the branch.
+fn check_head(ctx: &Ctx) -> R<()> {
     if let Some(h) = &ctx.head
         && git::is_repo(&ctx.root)
         && git::commit_of(&ctx.root, h).is_none()
@@ -80,6 +76,15 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
             format!("--head {h} names no commit here"),
         ));
     }
+    Ok(())
+}
+
+fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
+    check_id(id)?;
+    check_refs(ctx)?;
+    let project = Project::open(&ctx.root);
+    let bp = project.blueprint()?;
+    check_head(ctx)?;
     let entries = project.read_log(id);
     let gv = GitView::for_log(
         &ctx.root,
@@ -1638,6 +1643,7 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
     run("limits", |out| {
         check_id(id)?;
         check_refs(ctx)?;
+        check_head(ctx)?;
         let project = Project::open(&ctx.root);
         let bp = project.blueprint()?;
         if !project.has_log(id) {
@@ -2197,17 +2203,18 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         if at.is_none() {
             git_writes(ctx)?;
         }
-        let probe = new_event(
-            id,
-            "step",
-            &time::now_string(),
-            obj(vec![
-                ("step", json!("gates")),
-                ("start", json!("x")),
-                ("where", json!("x")),
-                ("gates", json!([])),
-            ]),
-        );
+        // The commit it would judge goes into what the state is asked: gates that failed don't
+        // run again on another commit before the round that moved the branch is reported.
+        let mut asked = obj(vec![
+            ("step", json!("gates")),
+            ("start", json!("x")),
+            ("where", json!("x")),
+            ("gates", json!([])),
+        ]);
+        if let Some(h) = &l.state.git.head {
+            asked.insert("head".into(), json!(h));
+        }
+        let probe = new_event(id, "step", &time::now_string(), asked);
         if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
             return Err(Fail::refuse(code, why, way_on(&l, id)));
         }
@@ -2265,6 +2272,23 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             }
         }
         let plan = gates::plan(&l.bp, &color, &touched_by, &zone_checks);
+        // A check whose `runs` is neither tier would be left out without a word, and the gates
+        // could pass without it: a slip of the pen in the blueprint is no way to drop a check.
+        if let Some(p) = plan
+            .iter()
+            .find(|p| p.check != "seal" && p.tier != "each round" && p.tier != "before review")
+        {
+            return Err(Fail::refuse(
+                "bad-blueprint",
+                format!(
+                    "the check {} runs {:?} in the blueprint, which is neither `each round` nor `before review`: as written it would never run",
+                    p.check, p.tier
+                ),
+                format!(
+                    "write it right in gdd/blueprint.md, which the person approves; then gdd gates {id}"
+                ),
+            ));
+        }
         let sealed: Vec<String> = l.state.progress.sealed.keys().cloned().collect();
         // Every check that runs gets what the layer knows in its command: <start> and <base>,
         // hashes git resolved, and the sealed paths. A placeholder left over is refused before
@@ -4070,6 +4094,22 @@ pub fn backlog_add(ctx: &Ctx, id: &str, what: &str, color: &str, phase: &str) ->
         let path = ctx.root.join("gdd/backlog.md");
         let text = std::fs::read_to_string(&path)
             .map_err(|_| Fail::missing("gdd/backlog.md", "gdd/backlog.md is missing"))?;
+        // The trial of a check that waits for what it watches comes after the first item that
+        // brings it something to judge. The backlog's order is the order of the work: added before
+        // any item of the product, the trial would be next, with nothing to try the check on.
+        if id.starts_with("standing-checks-")
+            && !backlog::items(&text)
+                .iter()
+                .any(|i| log_kind(&i.id) == LogKind::Change)
+        {
+            return Err(Fail::refuse(
+                "out-of-order",
+                format!(
+                    "{id} is the trial of a check that waits for what it watches, and the backlog holds no item of the product yet: it would come next, with nothing to try the check on"
+                ),
+                "add first the item that brings it something to judge, then this one: gdd backlog add <that item> --what \"<what the person gets>\" --color <color>",
+            ));
+        }
         let item = backlog::Item {
             id: id.into(),
             what: what.into(),

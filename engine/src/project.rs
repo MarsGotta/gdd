@@ -67,8 +67,8 @@ impl Project {
             .map(|d| {
                 d.filter_map(|e| e.ok())
                     .filter_map(|e| e.file_name().into_string().ok())
-                    .filter(|n| n.ends_with(".jsonl") && !n.ends_with(".engine.jsonl"))
-                    .map(|n| n.trim_end_matches(".jsonl").to_string())
+                    .filter(|n| !n.ends_with(".engine.jsonl"))
+                    .filter_map(|n| n.strip_suffix(".jsonl").map(str::to_string))
                     .collect()
             })
             .unwrap_or_default();
