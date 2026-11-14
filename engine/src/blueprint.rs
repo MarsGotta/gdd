@@ -163,6 +163,12 @@ impl Blueprint {
         s(&self.front["guarantee"])
     }
 
+    /// The command that gives a fresh copy of the repository what the checks need, such as the
+    /// project's dependencies. The gates run it in their throwaway worktree before any check.
+    pub fn install(&self) -> Option<String> {
+        s(&self.front["install"]).filter(|c| !c.trim().is_empty())
+    }
+
     pub fn color_names(&self) -> Vec<String> {
         match &self.front["colors"] {
             Value::Object(m) => m.keys().cloned().collect(),

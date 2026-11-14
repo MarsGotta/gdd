@@ -1,7 +1,7 @@
 {
   "name": "gdd",
   "displayName": "Gate-Driven Development",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "The seven skills of Gate-Driven Development (GDD): prepare a project, brief a change, build it through its gates, review it, and harden what slipped through or retire the gate that adds nothing.",
   "suggestedPrompts": [
     "Set GDD up in this project",

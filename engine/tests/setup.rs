@@ -260,24 +260,16 @@ fn nothing_is_sealed_or_built_where_git_cant_write() {
     r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
     r.write("gdd/briefs/y1.md", "---\nversion: 1\n---\n# Y1\n");
     let git_dir = r.path(".git");
-    let lock = |mode: &str| {
-        assert!(
-            Command::new("chmod")
-                .args(["-R", mode])
-                .arg(&git_dir)
-                .status()
-                .unwrap()
-                .success()
-        );
-    };
-    lock("a-w");
+    if !lock(&git_dir, "a-w") {
+        return;
+    }
     let words = "git can't write a ref here: nothing can be sealed or built";
     let b = r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt"]);
     let s = r.gdd(&["seal", "y1", "gdd/briefs/y1.md"]);
     let n = r.gdd(&["next", "g1"]);
     let l = r.gdd(&["launch", "g1", "build"]);
     let fresh = r.gdd(&["next", "g3"]);
-    lock("u+w");
+    lock(&git_dir, "u+w");
     for (what, run) in [("brief", &b), ("seal", &s), ("launch", &l)] {
         assert_eq!(run.code, 1, "{what}: {}", run.out);
         assert_eq!(run.facts["refused"], "cannot", "{what}: {}", run.out);

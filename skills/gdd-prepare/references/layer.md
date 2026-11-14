@@ -21,4 +21,8 @@ On `rule`, the layer is within the reach of the agents that run it, like any fil
 - `gdd verify --all` on every change: it exits 1 when a log is broken, a hash doesn't match or a step came out of order.
 - `gdd gates <id> --at .` where the platform builds the change's branch, with its dependencies installed and its seal fetched (`gdd-seal/<id>`, which a full fetch brings): it runs the checks the change's color asks for on exactly that commit, from the seal git holds.
 
+The gates run in a fresh copy of the repository, which holds only what git holds. When the checks need more, such as the project's dependencies, the blueprint names the command that installs them (`install: npm ci`): the layer runs it in that copy before any check. Without it, a check that ends with "command not found" there is the environment and not the change, and the layer says so and names `--at`.
+
+A job that runs in a container often checks the repository out as another user, and git then refuses to read it. The layer refuses every command there, `verify` included, instead of going on without git, and names the line that marks the folder as safe: put it in the job, before the layer runs (`git config --global --add safe.directory "$PWD"`). Neither command writes a commit, so CI needs no name and email in git. A copy that seals or ships does, and where git has none the layer stops and asks whose they are: never make them up.
+
 CI builds the layer from the same source, with `cargo install --locked --git https://github.com/MarsGotta/gdd gdd`. Both go in the protections you give the person to apply, as required checks of the main branch, because setting them up takes their credentials.

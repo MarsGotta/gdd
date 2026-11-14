@@ -1133,6 +1133,7 @@ FNR == NR {
     if (first == "") first = t
     if (waiting) { waited += t - asked; waiting = 0 }
   }
+  if ($0 ~ /"step" *: *"ship"/ && t >= 0) shipped = t
   if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
   if ($0 ~ /"event" *: *"waiver"/ && match($0, /"limit" *: *"[a-z_]+"/)) {
     cap = substr($0, RSTART, RLENGTH); sub(/^"limit" *: *"/, "", cap); sub(/"$/, "", cap)
@@ -1169,7 +1170,7 @@ FNR == NR {
   }
 }
 END {
-  end = waiting ? asked : secs(now)
+  end = (shipped != "") ? shipped : (waiting ? asked : secs(now))
   minutes = (first == "") ? 0 : int((end - first - waited) / 60)
   if (color != "") printf "color %s\n", color
   judged = (next_up != "")

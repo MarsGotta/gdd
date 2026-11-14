@@ -1,0 +1,5 @@
+# The layer (engine/) builds outside the repository, wherever cargo is run from in here. Cargo
+# hard-links what it builds, and a plugin's files can't have two names: a target/ folder inside
+# makes the eval harness refuse every case. `sh engine/build.sh` names its own folder.
+[build]
+target-dir = "../.gdd-engine-target"

@@ -26,9 +26,17 @@ impl Run {
     }
 }
 
+/// Keep a command's git to the repository's own configuration: no test passes or fails because
+/// of what the machine it runs on has set for its user, starting with a name and an email.
+pub fn own_config(c: &mut Command) -> &mut Command {
+    c.env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+}
+
 pub fn run_gdd(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
     let mut c = Command::new(BIN);
     c.arg("--root").arg(root).args(args).stdin(Stdio::null());
+    own_config(&mut c);
     c.env_remove("GDD_NOW")
         .env_remove("GDD_ENV")
         .env_remove("GDD_MAIN")
@@ -51,8 +59,8 @@ pub fn run_gdd(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
 }
 
 pub fn git(dir: &Path, args: &[&str]) -> String {
-    let o = Command::new("git")
-        .arg("-C")
+    let mut c = Command::new("git");
+    c.arg("-C")
         .arg(dir)
         .args([
             "-c",
@@ -63,9 +71,8 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
             "commit.gpgsign=false",
         ])
         .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+        .stdin(Stdio::null());
+    let o = own_config(&mut c).output().unwrap();
     assert!(
         o.status.success(),
         "git {args:?}: {}",
@@ -74,16 +81,31 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
 
+/// Take away (`a-w`) or give back (`u+w`) the right to write under a folder. Says whether taking
+/// it away holds: for a user that writes whatever the permissions say, such as root in a container,
+/// it doesn't, and a test of what happens where git can't write has nothing to try there.
+pub fn lock(dir: &Path, mode: &str) -> bool {
+    assert!(
+        Command::new("chmod")
+            .args(["-R", mode])
+            .arg(dir)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let probe = dir.join("gdd-test-probe");
+    if mode == "a-w" && std::fs::write(&probe, "").is_ok() {
+        let _ = std::fs::remove_file(&probe);
+        eprintln!("skipped: this user writes whatever the permissions say");
+        return false;
+    }
+    true
+}
+
 pub fn git_ok(dir: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap()
-        .status
-        .success()
+    let mut c = Command::new("git");
+    c.arg("-C").arg(dir).args(args).stdin(Stdio::null());
+    own_config(&mut c).output().unwrap().status.success()
 }
 
 pub const BLUEPRINT: &str = r#"---
@@ -194,6 +216,9 @@ impl Repo {
             runs: tempfile::tempdir().unwrap(),
         };
         git(&r.root, &["init", "-q", "-b", "main", "."]);
+        // The name and the email of a project somebody set up, in the repository itself.
+        git(&r.root, &["config", "user.name", "Test"]);
+        git(&r.root, &["config", "user.email", "test@example.com"]);
         r.write("gdd/blueprint.md", blueprint);
         r.write("gdd/backlog.md", BACKLOG);
         r.write("AGENTS.md", "# A project\n");

@@ -523,3 +523,57 @@ fn a_new_version_of_a_brief_needs_new_checks_and_keeps_its_base() {
     assert_eq!(last["color"]["base"], base);
     assert_eq!(b.facts["next"], "checks", "{}", b.out);
 }
+
+/// A checks step voided by a correction, and then the main branch merged into the seal: the
+/// test the role sealed is still what it sealed, and nothing main brought counts as its checks.
+#[test]
+fn checks_sealed_before_a_merge_of_main_still_count_once_their_step_is_voided() {
+    let r = Repo::new();
+    yellow_brief(&r, "y5", "src/core/app.txt");
+    r.gdd(&["ask", "y5", "--of", "brief", "Approve it?"]);
+    let ap = r.gdd(&[
+        "approve",
+        "y5",
+        "--of",
+        "brief",
+        "--who",
+        "Person",
+        "--where",
+        "conversation",
+        "gdd/briefs/y5.md",
+        "features/y5.feature",
+    ]);
+    assert_eq!(ap.code, 0, "{}", ap.out);
+    r.commit_on(
+        "gdd-seal/y5",
+        None,
+        &[("tests/y5.sh", "grep -q ok src/core/app.txt # gdd:y5-1\n")],
+        "Seal the test of y5",
+    );
+    let sealed = format!("Sealed.\n{}", report_block("gdd-checks", "sealed"));
+    assert_eq!(r.report("y5", "checks", &sealed, &[]).code, 0);
+    let line = r.log_lines("y5").len().to_string();
+    let v = r.gdd(&[
+        "correct",
+        "y5",
+        "--line",
+        &line,
+        "--void",
+        "logged too early",
+    ]);
+    assert_eq!(v.code, 0, "{}", v.out);
+    // Something else ships meanwhile, and the seal takes the main branch in.
+    r.write("src/ui/page.txt", "another page\n");
+    r.commit("Something else shipped");
+    assert_eq!(r.gdd(&["seal", "y5", "--merge-main"]).code, 0);
+    let c = r.report("y5", "checks", &sealed, &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    let lines = r.log_lines("y5");
+    let checks = &lines.last().unwrap()["seal"]["checks"];
+    assert!(checks["tests/y5.sh"].is_string(), "{checks}");
+    assert!(checks["src/ui/page.txt"].is_null(), "{checks}");
+    assert_eq!(
+        r.gdd(&["next", "y5"]).facts["state"]["next"]["step"],
+        "build"
+    );
+}

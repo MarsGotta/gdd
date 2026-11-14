@@ -125,6 +125,8 @@ pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
         .collect();
     let mut l = Limits::default();
     let (mut first, mut asked, mut waiting, mut waited) = (None::<i64>, 0i64, false, 0i64);
+    // A change that shipped is over: its minutes stop there, not at the clock.
+    let mut shipped = None::<i64>;
     let (mut builds, mut checks, mut review, mut gates, mut late_runs, mut tokens) =
         (0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
     let (mut most_each, mut most_before) = (0f64, 0f64);
@@ -158,6 +160,11 @@ pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
             raised.insert(cap.to_string(), to);
         }
         let st = step(v);
+        if st == "ship"
+            && let Some(t) = t
+        {
+            shipped = Some(t);
+        }
         if st == "brief" && crate::color_rank(result(v)).is_some() {
             color = result(v).to_string();
         }
@@ -223,7 +230,11 @@ pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
         tokens += tokens_in(v);
     }
 
-    let end = if waiting { asked } else { now };
+    let end = match shipped {
+        Some(s) => s,
+        None if waiting => asked,
+        None => now,
+    };
     let minutes = match first {
         None => 0,
         Some(f) => ((end - f - waited) as f64 / 60.0).trunc() as i64,

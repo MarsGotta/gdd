@@ -1,6 +1,6 @@
 //! `gdd`: parses the arguments, runs a command of the library, prints what it says and journals it.
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use gdd::commands::{self as c, Ctx};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -104,6 +104,9 @@ enum Cmd {
         /// The person's request, word for word, kept in the brief step.
         #[arg(long)]
         request: Option<String>,
+        /// The same, read from a file: a shell eats no quote of it.
+        #[arg(long, conflicts_with = "request")]
+        request_file: Option<String>,
         /// The brief and its scenarios, as sealed.
         #[arg(last = false)]
         files: Vec<String>,
@@ -313,7 +316,8 @@ fn pairs(v: &[String]) -> Vec<(String, String)> {
 fn main() {
     let started = std::time::Instant::now();
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let cli = Cli::parse();
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     if cli.no_journal {
         // SAFETY: set before any thread starts; the journal reads it once at the end.
         unsafe { std::env::set_var("GDD_NO_JOURNAL", "1") };
@@ -324,6 +328,14 @@ fn main() {
         branch: cli.branch.clone(),
         head: cli.head.clone(),
     };
+    // A repository git refuses to read is said at once, whatever the command: only a verify that
+    // asked for no git goes on without it.
+    let without_git = matches!(&cli.command, Cmd::Verify { no_git: true, .. });
+    if !without_git && let Some(fail) = c::git_reads(&ctx) {
+        let out = gdd::out::Out::new(matches.subcommand_name().unwrap_or("gdd")).with_fail(fail);
+        print!("{}", out.render());
+        std::process::exit(out.code);
+    }
     let (name, id, out) = match &cli.command {
         Cmd::Next { id } => ("next", id.clone(), c::next(&ctx, id.as_deref())),
         Cmd::Log { id, event } => ("log", Some(id.clone()), c::log_event(&ctx, id, event)),
@@ -394,6 +406,7 @@ fn main() {
             level,
             skill_version,
             request,
+            request_file,
             files,
         } => (
             "brief",
@@ -409,6 +422,7 @@ fn main() {
                     level: level.as_deref(),
                     skill_version: skill_version.as_deref(),
                     request: request.as_deref(),
+                    request_file: request_file.as_deref(),
                     stop: stop.as_deref(),
                 },
             ),

@@ -153,6 +153,34 @@ pub fn is_repo(root: &Path) -> bool {
     run(root, &["rev-parse", "--git-dir"]).is_ok_and(|o| o.status.success())
 }
 
+/// What git says where there is a repository and it won't read it, with the folder to mark as
+/// safe when its reason is that another user owns it, as with a checkout in a CI container.
+/// `None` where git reads the repository, and where there is none: `is_repo` can't tell this from
+/// no repository at all, and a command that took it for one would go on without git.
+pub fn refuses(root: &Path) -> Option<(String, Option<std::path::PathBuf>)> {
+    // git's own words, untranslated: the reason is read from them.
+    let o = base(root)
+        .ok()?
+        .args(["rev-parse", "--git-dir"])
+        .env("LC_ALL", "C")
+        .output()
+        .ok()?;
+    if o.status.success() {
+        return None;
+    }
+    let here = std::fs::canonicalize(root).ok()?;
+    let top = here.ancestors().find(|d| d.join(".git").exists())?;
+    let said = String::from_utf8_lossy(&o.stderr);
+    let first = said
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string();
+    let owned = said.contains("dubious ownership");
+    Some((first, owned.then(|| top.to_path_buf())))
+}
+
 /// The commit a name points to, or `None`. The name goes after `--end-of-options`, so one that
 /// starts with `-` is never taken for an option.
 pub fn commit_of(root: &Path, rev: &str) -> Option<String> {
@@ -435,6 +463,16 @@ pub fn can_write_ref(root: &Path) -> Result<(), String> {
     let name = format!("refs/gdd-probe/{}-{nanos}", std::process::id());
     out(root, &["update-ref", &name, &commit])?;
     out(root, &["update-ref", "-d", &name, &commit])?;
+    Ok(())
+}
+
+/// Whether git has a name and an email to write a commit with here, by its own verdict. A machine
+/// nobody set up, such as a CI runner or a fresh container, has none, and there a seal, the
+/// bookkeeping and a merge all fail at their commit. Where the host has a full name, git makes one
+/// up from the user and the host, and that passes: only git's refusal counts.
+pub fn identity(root: &Path) -> Result<(), String> {
+    out(root, &["var", "GIT_AUTHOR_IDENT"])?;
+    out(root, &["var", "GIT_COMMITTER_IDENT"])?;
     Ok(())
 }
 

@@ -406,6 +406,9 @@ pub struct Progress {
     pub sealed_any: bool,
     /// Whether the person was told (an `ask --of stop`) that the last gates found the seal touched.
     pub seal_told: bool,
+    /// Spans of the seal, from a commit to a later one, that held work no step had recorded
+    /// when a `seal` event moved `<start>` past them: a role's report still counts them.
+    pub unrecorded: Vec<(String, String)>,
 }
 
 fn hashes(v: &Value) -> BTreeMap<String, String> {
@@ -561,6 +564,11 @@ impl Progress {
                 self.seal_moves += 1;
                 self.sealed_any = true;
                 if let Some(to) = v["to"].as_str() {
+                    if let (Some(from), Some(start)) = (v["from"].as_str(), self.start.as_deref())
+                        && from != start
+                    {
+                        self.unrecorded.push((start.to_string(), from.to_string()));
+                    }
                     self.start = Some(to.into());
                 }
             }
@@ -631,6 +639,7 @@ impl Progress {
                 } else {
                     self.checks_done = true;
                     self.checks_stopped = 0;
+                    self.unrecorded.clear();
                     if let Some(c) = v["seal"]["commit"].as_str() {
                         self.start = Some(c.into());
                         self.sealed_any = true;
@@ -1207,7 +1216,7 @@ fn next_step(
             "brief",
             "load gdd-brief: its color goes to the log before anyone builds",
             format!(
-                "gdd brief {id} --paths <path>... [--color <color> --why \"<reason>\"] [--request \"<their words>\", when there is no brief file] [<brief and scenario files>]"
+                "gdd brief {id} --paths <path>... [--color <color> --why \"<reason>\"] [--request \"<their words>\" or --request-file <a file with them>, when there is no brief file] [<brief and scenario files>]"
             ),
         );
     }

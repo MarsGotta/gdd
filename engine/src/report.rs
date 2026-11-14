@@ -28,6 +28,9 @@ pub struct RoleReport {
     pub proofs: Option<serde_json::Value>,
     /// Why that block couldn't be read, when it was there.
     pub proofs_error: Option<String>,
+    /// The same block as the role gave it, when it is a JSON list of objects: what a builder
+    /// says each check gave, or the commands a reviewer ran.
+    pub list: Option<serde_json::Value>,
 }
 
 fn plain(line: &str) -> String {
@@ -73,21 +76,23 @@ fn json_block(text: &str) -> Option<Result<serde_json::Value, String>> {
     let body = found?;
     Some(
         serde_json::from_str::<serde_json::Value>(&body)
-            .map_err(|e| format!("its json block isn't JSON: {e}"))
-            .and_then(|v| {
-                let ok = v.as_array().is_some_and(|a| {
-                    a.iter().all(|p| {
-                        p.get("check").is_some_and(|c| c.is_string())
-                            && p.get("case").is_some_and(|c| c.is_string())
-                    })
-                });
-                if ok {
-                    Ok(v)
-                } else {
-                    Err("its json block isn't a list of proofs, each with check and case".into())
-                }
-            }),
+            .map_err(|e| format!("its json block isn't JSON: {e}")),
     )
+}
+
+/// That block as the checks role's proofs: a list, each with `check` and `case`.
+fn proofs_of(v: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let ok = v.as_array().is_some_and(|a| {
+        a.iter().all(|p| {
+            p.get("check").is_some_and(|c| c.is_string())
+                && p.get("case").is_some_and(|c| c.is_string())
+        })
+    });
+    if ok {
+        Ok(v.clone())
+    } else {
+        Err("its json block isn't a list of proofs, each with check and case".into())
+    }
 }
 
 fn block(text: &str) -> Option<Vec<(String, String)>> {
@@ -264,7 +269,17 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
     r.notes = section(text, "NOTES FOR THE BUILDER:", &["LATER:", "MISSING:"]).join("\n");
     r.missing = section(text, "MISSING:", &["LATER:", "NOTES FOR THE BUILDER:"]);
     match json_block(text) {
-        Some(Ok(v)) => r.proofs = Some(v),
+        Some(Ok(v)) => {
+            if v.as_array()
+                .is_some_and(|a| !a.is_empty() && a.iter().all(|x| x.is_object()))
+            {
+                r.list = Some(v.clone());
+            }
+            match proofs_of(&v) {
+                Ok(p) => r.proofs = Some(p),
+                Err(e) => r.proofs_error = Some(e),
+            }
+        }
         Some(Err(e)) => r.proofs_error = Some(e),
         None => {}
     }
@@ -302,6 +317,15 @@ mod tests {
         let none =
             parse("```gdd-report\nskill: gdd-checks 1\nresult: sealed\ncaught: none\n```").unwrap();
         assert!(none.proofs.is_none() && none.proofs_error.is_none());
+    }
+
+    #[test]
+    fn what_a_builder_or_a_reviewer_ran_in_a_json_block() {
+        let t = "pass\nCOLOR: green\n```json\n[{\"command\":\"npm test\",\"exit\":0,\"tail\":\"22 passed\"}]\n```\n```gdd-report\nskill: gdd-review 0.11.2\nresult: pass\ncaught: none\n```\n";
+        let r = parse(t).unwrap();
+        assert_eq!(r.list.unwrap()[0]["command"], "npm test");
+        // It isn't a list of proofs, and for a role that owes none that is no error to act on.
+        assert!(r.proofs.is_none());
     }
 
     #[test]

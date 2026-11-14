@@ -281,6 +281,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("where", Str, Writes),
             ("gates", Arr, Must),
             ("head", Str, May),
+            ("install", Obj, May),
         ],
         ("step", "review") => vec![
             ("verdict", OneOf(&["pass", "fix", "stop"]), Must),

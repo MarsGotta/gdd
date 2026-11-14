@@ -50,6 +50,7 @@ line. It reads skills/ and evals/, builds the layer outside the repository,
 and writes only with --write, into skills/*/assets.
 """
 
+import json
 import re
 import shutil
 import subprocess
@@ -369,6 +370,37 @@ def main():
                         for flag in re.findall(r"(?<![\w-])--[a-z][a-z-]*", span):
                             if known is None or (flag not in known[1] and flag not in top[1]):
                                 problem(path, f"gives `gdd {' '.join(key)}` the flag {flag}, which its help doesn't list")
+
+    # One version for the skills, the plugins that install them and the layer they run with: the
+    # layer writes its own version in the log when a role gives none.
+    versions = {}
+    for name in ALL:
+        skill = SKILLS / name / "SKILL.md"
+        if skill.is_file():
+            versions[skill] = front_matter(skill)[0].get("version")
+    for manifest in sorted(ROOT.glob(".*-plugin/plugin.json")):
+        try:
+            versions[manifest] = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+        except ValueError:
+            problem(manifest, "isn't JSON")
+    cargo = ROOT / "engine" / "Cargo.toml"
+    if cargo.is_file():
+        found_version = re.search(r'^version\s*=\s*"([^"]+)"', cargo.read_text(encoding="utf-8"), re.M)
+        versions[cargo] = found_version.group(1) if found_version else None
+    lock = ROOT / "engine" / "Cargo.lock"
+    if lock.is_file():
+        locked = re.search(r'name = "gdd"\nversion = "([^"]+)"', lock.read_text(encoding="utf-8"))
+        versions[lock] = locked.group(1) if locked else None
+    if len(set(versions.values())) > 1:
+        wanted = versions.get(SKILLS / "gdd" / "SKILL.md")
+        for path, version in versions.items():
+            if version != wanted:
+                problem(path, f"its version is {version}, and the skills are {wanted}")
+
+    # Cargo hard-links what it builds, and a plugin's files can't have two names: a target/ folder
+    # in the layer's source makes the eval harness refuse every case.
+    if (ROOT / "engine" / "target").exists():
+        problem(ROOT / "engine" / "target", "delete it and build the layer with sh engine/build.sh, which builds outside the repository")
 
     for first, second in SHARED:
         a, b = SKILLS / first, SKILLS / second

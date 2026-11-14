@@ -167,6 +167,49 @@ fn git_writes(ctx: &Ctx) -> R<()> {
     })
 }
 
+/// The words of the refusal when git won't read the repository that is here.
+pub const WONT_READ: &str = "git won't read the repository here: nothing can be checked against it";
+
+/// Refuse, before any command runs, where there is a repository and git won't read it, as it won't
+/// one another user owns: a checkout in a CI container, most often. Taken for no repository at
+/// all, `verify` would check the logs alone, without git, and pass.
+pub fn git_reads(ctx: &Ctx) -> Option<Fail> {
+    let (said, safe) = git::refuses(&ctx.root)?;
+    let instead = match safe {
+        Some(top) => format!(
+            "if this copy is the one to trust, tell git so (git config --global --add safe.directory {}), then run it again",
+            top.display()
+        ),
+        None => format!(
+            "git -C {} status says why: settle it, then run it again",
+            ctx.root.display()
+        ),
+    };
+    let mut f = Fail::refuse("cannot", WONT_READ, instead);
+    f.lines.push(format!("git said: {said}"));
+    Some(f)
+}
+
+/// The words of the refusal when git has nobody to write a commit as.
+pub const NO_AUTHOR: &str = "git has no name and email to write a commit with here: nothing can be sealed, built or shipped";
+
+/// What moves it: the name and the email are the person's to give, never made up.
+const SET_AUTHOR: &str = "ask the person whose name and email the commits of this copy carry, set them in this repository (git config user.name \"<name>\", git config user.email \"<email>\"), then run it again";
+
+/// Refuse, before a commit is written or a role that commits is launched, when git has no author
+/// here. A machine nobody set up, such as a CI runner or a fresh container, has none.
+fn git_commits(ctx: &Ctx) -> R<()> {
+    if !git::is_repo(&ctx.root) {
+        return Ok(());
+    }
+    git::identity(&ctx.root).map_err(|e| {
+        let mut f = Fail::refuse("cannot", NO_AUTHOR, SET_AUTHOR);
+        f.lines
+            .push(format!("git said: {}", e.lines().last().unwrap_or("")));
+        f
+    })
+}
+
 fn obj(pairs: Vec<(&str, Value)>) -> Map<String, Value> {
     pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
@@ -200,6 +243,16 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
                 say: format!(
                     "{CANNOT_WRITE}: work where git can write (its .git folder, and its refs), then ask again"
                 ),
+                command: format!("gdd next {id}"),
+                blocked: Some("cannot".into()),
+            };
+        } else if ["brief", "checks", "build", "ship"].contains(&l.state.next.step.as_str())
+            && git_commits(ctx).is_err()
+        {
+            // The same for a step that ends in a commit: of the layer's, or of the role it launches.
+            l.state.next = state::Next {
+                step: "stopped".into(),
+                say: format!("{NO_AUTHOR}: {SET_AUTHOR}"),
                 command: format!("gdd next {id}"),
                 blocked: Some("cannot".into()),
             };
@@ -517,7 +570,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
                 "out-of-order",
                 format!("no brief is logged for {id}: run gdd brief first"),
                 format!(
-                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\"]"
+                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]"
                 ),
             ));
         }
@@ -807,6 +860,8 @@ pub struct BriefArgs<'a> {
     pub skill_version: Option<&'a str>,
     /// The person's request, word for word.
     pub request: Option<&'a str>,
+    /// A file that holds it, for words a shell would change.
+    pub request_file: Option<&'a str>,
     /// Why the change is dropped: the brief step then ends it, with its `result` `stopped`.
     pub stop: Option<&'a str>,
 }
@@ -1018,7 +1073,19 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             ]),
         );
         let mut ev = ev;
-        if let Some(r) = a.request.map(str::trim).filter(|r| !r.is_empty()) {
+        let from_file = match a.request_file {
+            Some(f) => Some(
+                std::fs::read_to_string(f)
+                    .map_err(|_| Fail::missing(f.to_string(), format!("{f} is missing")))?,
+            ),
+            None => None,
+        };
+        if let Some(r) = a
+            .request
+            .or(from_file.as_deref())
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+        {
             ev["request"] = json!(r);
         }
         let line = write(&l, id, &ev)?;
@@ -1249,7 +1316,16 @@ fn write_report(
                 .and_then(|r| r.head.clone())
                 .filter(|h| log_kind(id) == LogKind::Setup && git::is_ancestor(&ctx.root, h, &tip));
             let from = judged.unwrap_or_else(|| start.clone());
-            if tip == from {
+            // And what the seal held, unrecorded, when a `seal` event moved <start> past it: a
+            // checks step voided by a correction and then a merge of the main branch, say.
+            let pending: Vec<&(String, String)> = p
+                .unrecorded
+                .iter()
+                .filter(|(a, b)| {
+                    git::is_ancestor(&ctx.root, a, b) && git::is_ancestor(&ctx.root, b, &tip)
+                })
+                .collect();
+            if tip == from && pending.is_empty() {
                 return Err(Fail::refuse(
                     "not-sealed",
                     format!("gdd-seal/{id} didn't move: the checks role sealed nothing"),
@@ -1268,8 +1344,17 @@ fn write_report(
                     ),
                 ));
             }
-            let changed = git::diff_names(&ctx.root, &from, &tip)
+            let mut changed = git::diff_names(&ctx.root, &from, &tip)
                 .map_err(|e| Fail::missing(format!("the changes from {from} to {tip}"), e))?;
+            for (a, b) in pending {
+                for f in git::diff_names(&ctx.root, a, b)
+                    .map_err(|e| Fail::missing(format!("the changes from {a} to {b}"), e))?
+                {
+                    if !changed.contains(&f) {
+                        changed.push(f);
+                    }
+                }
+            }
             let mut checks = Map::new();
             for f in changed.iter().filter(|f| !p.brief_files.contains_key(*f)) {
                 if let Some(h) = git::blob_at(&ctx.root, &tip, f) {
@@ -1346,7 +1431,24 @@ fn write_report(
                     ),
                 ));
             }
-            m.insert("claims".into(), json_file(&a.claims)?);
+            // What it says each check gave: --claims, or the json block of its last message.
+            let claims = if a.claims.is_some() {
+                json_file(&a.claims)?
+            } else {
+                let c: Vec<Value> = r
+                    .list
+                    .as_ref()
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter(|x| x.get("command").is_some_and(|c| c.is_string()))
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                json!(c)
+            };
+            m.insert("claims".into(), claims);
         }
         "review" => {
             let Some(verdict) = r.verdict.clone().or(stopped.then(|| "stop".to_string())) else {
@@ -1387,7 +1489,22 @@ fn write_report(
             };
             m.insert("color".into(), colorobj);
             m.insert("verdict".into(), json!(verdict));
-            m.insert("ran".into(), json!([]));
+            // What it ran, from the json block of its last message: its commands, as it gave them.
+            let ran: Vec<Value> = r
+                .list
+                .as_ref()
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter(|x| x.get("command").is_some_and(|c| c.is_string()))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            if ran.is_empty() {
+                out.say("its last message has no json block of what it ran: the log can't show it");
+            }
+            m.insert("ran".into(), json!(ran));
             m.insert(
                 "findings".into(),
                 json!(
@@ -1783,7 +1900,9 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
                 format!(
                     "the seal of {id} is made by the checks role, on gdd-seal/{id}: {id} has no brief, and nothing else is sealed there"
                 ),
-                format!("gdd next {id}"),
+                format!(
+                    "gdd next {id}. What the person approves outside the role's work, such as a change to the blueprint, lands on the main branch as the constitution says, and reaches this seal with: gdd seal {id} --merge-main"
+                ),
             ));
         }
         if !git::is_repo(&ctx.root) {
@@ -1793,6 +1912,7 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
             ));
         }
         git_writes(ctx)?;
+        git_commits(ctx)?;
         let main = git::main_branch(&ctx.root);
         if merge_main {
             let old = l.state.git.seal_tip.clone();
@@ -2173,6 +2293,49 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 return Err(e);
             }
         };
+        // A fresh copy has only what git holds: the blueprint's `install` gives it what the
+        // checks need. If it fails, the copy can't judge anything, and that isn't the change
+        // failing: nothing is written and no round is counted.
+        let fresh = at.is_none();
+        let install = l.bp.install().filter(|_| fresh);
+        let mut installed = None;
+        if let Some(cmd) = &install {
+            let r = gates::run_check(
+                &dir,
+                "install",
+                cmd,
+                "install",
+                &outputs.join("install.out"),
+            );
+            out.say(format!(
+                "{:<10} {} exit {} in {} s",
+                "install",
+                if r.passed { "done" } else { "FAILED" },
+                r.exit
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "none".into()),
+                r.seconds.unwrap_or(0.0),
+            ));
+            if !r.passed {
+                let _ = git::worktree_remove(&ctx.root, &dir);
+                return Err(Fail::refuse(
+                    "environment",
+                    format!(
+                        "the fresh copy couldn't be prepared: the blueprint's install, `{cmd}`, ended with exit {}: {}. No check ran and nothing was written: its output is in {}",
+                        r.exit
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| "none".into()),
+                        r.tail.lines().last().unwrap_or(""),
+                        outputs.join("install.out").display()
+                    ),
+                    format!(
+                        "if it is the environment (no network, a registry that is down), try once more, or run the gates where the dependencies are installed: gdd gates {id} --at <a directory with {} checked out, and clean>. If the change broke it, it is the builder's to fix: tell the person",
+                        short(&head)
+                    ),
+                ));
+            }
+            installed = Some(json!({"command": cmd, "seconds": r.seconds, "exit": r.exit}));
+        }
         let mut ran: Vec<gates::Ran> = vec![];
         let mut skipped = vec![];
         let mut stop_rest = false;
@@ -2232,6 +2395,26 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         if at.is_none() {
             let _ = git::worktree_remove(&ctx.root, &dir);
         }
+        // "Command not found" in a fresh copy nobody prepared is the copy lacking what the check
+        // needs, not the change failing: nothing is written, and no round is counted.
+        if fresh
+            && install.is_none()
+            && let Some(r) = ran
+                .iter()
+                .find(|r| r.check != "seal" && r.exit == Some(127))
+        {
+            return Err(Fail::refuse(
+                "environment",
+                format!(
+                    "the check {} ended with exit 127, command not found: the fresh copy lacks what it needs, such as the project's dependencies. It judged nothing, and nothing was written",
+                    r.check
+                ),
+                format!(
+                    "run the gates where the dependencies are installed: gdd gates {id} --at <a directory with {} checked out, and clean>. For good, the blueprint names the command that installs them (install: <command>), a change to the blueprint the person approves",
+                    short(&head)
+                ),
+            ));
+        }
         let passed = ran.iter().all(|r| r.passed);
         let mut m = obj(vec![
             ("step", json!("gates")),
@@ -2245,6 +2428,9 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         ]);
         if !skipped.is_empty() {
             m.insert("skipped".into(), json!(skipped));
+        }
+        if let Some(i) = installed {
+            m.insert("install".into(), i);
         }
         let ev = new_event(id, "step", &time::now_string(), m);
         let line = write(&l, id, &ev)?;
@@ -2630,6 +2816,19 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, _env: &str, level: &str) -> Stri
             }
         }
     }
+    // What the log can show of a role's own runs comes from a json block, like the checks
+    // role's proofs: without it, a claim or a trial is only prose.
+    match role {
+        "build" => s.push(
+            "Before the gdd-report block, give a json block with what each check gave when you ran it: [{\"check\":\"<check id>\",\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
+                .into(),
+        ),
+        "review" => s.push(
+            "Before the gdd-report block, give a json block with each command you ran: [{\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
+                .into(),
+        ),
+        _ => {}
+    }
     s.push("End your last message with its gdd-report block, filled in.".into());
     s.join("\n")
 }
@@ -2709,6 +2908,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         if role == "checks" || role == "build" {
             git_writes(ctx)?;
+            git_commits(ctx)?;
         }
         let level = level_of(&l, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l, &ctx.env, role, &level)?;
@@ -2964,15 +3164,30 @@ fn judged_for(ctx: &Ctx, l: &Loaded, id: &str, head: &str) -> R<String> {
     Ok(judged)
 }
 
-/// The orchestrator's bookkeeping in the working copy: the logs and journals directly in
-/// `gdd/log/` named for a valid id, and the backlog ([`state::is_bookkeeping`]).
-fn bookkeeping_files(root: &Path) -> Vec<String> {
+/// The orchestrator's bookkeeping in the working copy that travels with a change: the backlog,
+/// and of the logs and journals directly in `gdd/log/` named for a valid id
+/// ([`state::is_bookkeeping`]), the change's own, the blueprint's, and those of every change that
+/// is over, shipped or dropped. A change still under way ships its log with itself.
+fn bookkeeping_files(l: &Loaded, root: &Path, id: &str) -> Vec<String> {
+    let travels = |x: &str| {
+        if x == id || x == "blueprint" {
+            return true;
+        }
+        let mut p = state::Progress::new(x);
+        for (line, v) in log::events(&l.project.read_log(x)) {
+            p.apply(line, v);
+        }
+        p.shipped.is_some() || p.brief_stopped.is_some()
+    };
     let mut out = vec![];
     if let Ok(d) = std::fs::read_dir(root.join("gdd/log")) {
         for e in d.flatten() {
             if e.file_type().is_ok_and(|t| t.is_file())
                 && let Ok(n) = e.file_name().into_string()
                 && state::is_bookkeeping(&format!("gdd/log/{n}"))
+                && n.strip_suffix(".engine.jsonl")
+                    .or_else(|| n.strip_suffix(".jsonl"))
+                    .is_some_and(travels)
             {
                 out.push(format!("gdd/log/{n}"));
             }
@@ -3028,7 +3243,7 @@ fn commit_bookkeeping(
 ) -> R<(String, bool)> {
     let (branch, tip) = branch_at(ctx, l, id, head)?;
     let reference = format!("refs/heads/{branch}");
-    let files = bookkeeping_files(&ctx.root);
+    let files = bookkeeping_files(l, &ctx.root, id);
     if files.is_empty() {
         return Ok((tip, false));
     }
@@ -3075,6 +3290,7 @@ pub fn ship_bookkeeping(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         git_writes(ctx)?;
+        git_commits(ctx)?;
         ready_to_ship(&l, id, "bookkeeping")?;
         let head = ship_head(&l, id)?;
         judged_for(ctx, &l, id, &head)?;
@@ -3139,6 +3355,7 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         git_writes(ctx)?;
+        git_commits(ctx)?;
         let main = git::main_branch(&ctx.root);
         ready_to_ship(&l, id, "merge")?;
         let head = ship_head(&l, id)?;
@@ -3416,6 +3633,23 @@ fn write_ship(
             Some(i) => out.say(format!("{} was already done in the backlog", i.id)),
             None => out.say(format!("no backlog item names {id}")),
         }
+    }
+    // A zone drawn before its code existed can name a path nobody wrote, and what was built
+    // for it lands in another zone, or in none. What ships is when it shows.
+    if let Ok(z) = color::zones(&l.project.root, &l.bp)
+        && !z.empty.is_empty()
+    {
+        let mut names: Vec<String> = vec![];
+        for (zone, _) in &z.empty {
+            if !names.contains(zone) {
+                names.push(zone.clone());
+            }
+        }
+        out.say(format!(
+            "note: pathspecs of these zones match no tracked file: {}. What was built for them may be judged in another zone, or in none: gdd zones shows it, and correcting a path is a change to the blueprint, for the person",
+            names.join(", ")
+        ));
+        out.fact("empty_zones", json!(names));
     }
     Ok(line)
 }

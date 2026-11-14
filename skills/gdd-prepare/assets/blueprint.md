@@ -21,6 +21,7 @@ gates:  # the gates of the project, the same for every change, each one specifie
   - id: <gate>
     spec: gdd/gates/<gate>.feature
     checks: [<check id>]
+# install: <the command that gives a fresh copy of the repository what the checks need, such as its dependencies>
 checks:
   - id: seal
     type: machine

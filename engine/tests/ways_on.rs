@@ -5,6 +5,7 @@
 
 mod common;
 use common::*;
+use serde_json::json;
 use std::process::Command;
 
 fn text(skill: &str, result: &str, body: &str) -> String {
@@ -550,19 +551,11 @@ fn every_stopped_state_names_a_way_out() {
 
     // Where git can't write, the way on is said, and once it can, it goes on.
     let git_dir = r.path(".git");
-    let lock = |mode: &str| {
-        assert!(
-            Command::new("chmod")
-                .args(["-R", mode])
-                .arg(&git_dir)
-                .status()
-                .unwrap()
-                .success()
-        );
-    };
-    lock("a-w");
+    if !lock(&git_dir, "a-w") {
+        return;
+    }
     let n = next_of(&r, "w1");
-    lock("u+w");
+    lock(&git_dir, "u+w");
     assert_eq!(blocked_of(&n), "cannot", "{}", n.out);
     assert_eq!(command_of(&n), "gdd next w1", "{}", n.out);
     assert!(n.has("where git can write"), "{}", n.out);
@@ -696,6 +689,8 @@ fn the_standing_checks_of_a_project_with_no_code_are_the_seal_and_the_secret_sca
     std::fs::write(root.join("AGENTS.md"), "# A shop\n").unwrap();
     std::fs::write(root.join("data/products.json"), "[]\n").unwrap();
     git(&root, &["init", "-q", "-b", "main", "."]);
+    git(&root, &["config", "user.name", "Test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "The shop, before its code"]);
     let l = run_gdd(&root, &["launch", "standing-checks", "checks"], &[]);
@@ -894,4 +889,194 @@ fn a_setup_that_stops_twice_before_its_first_seal_goes_to_the_person() {
         "{}",
         n.out
     );
+}
+
+// ----- 9. a fresh copy that lacks what the checks need -----
+
+/// In one run, the gates' fresh worktree had no dependencies, the tests ended with "command not
+/// found", the layer logged failed gates and the orchestrator never shipped a finished change.
+#[test]
+fn a_fresh_copy_without_dependencies_is_the_environment_not_the_change() {
+    let needs = BLUEPRINT.replace(
+        "command: sh tests/run.sh",
+        "command: ./node_modules/.bin/thing",
+    );
+    let r = Repo::with(&needs);
+    r.write(
+        "tools/install.sh",
+        "mkdir -p node_modules/.bin\nprintf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/thing\nchmod +x node_modules/.bin/thing\n",
+    );
+    let base = r.commit("How the dependencies are installed");
+    r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    r.commit_on(
+        "work/g1",
+        Some(&base),
+        &[("src/ui/page.txt", "a new page\n")],
+        "Build",
+    );
+    r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+    // Nobody prepared the copy: it judged nothing, nothing is written and no round is spent.
+    let before = r.log_lines("g1").len();
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["refused"], "environment", "{}", g.out);
+    assert!(g.has("gdd gates g1 --at"), "{}", g.out);
+    assert!(g.has("install: <command>"), "{}", g.out);
+    assert_eq!(r.log_lines("g1").len(), before);
+    assert_eq!(step_of(&next_of(&r, "g1")), "gates");
+    // The blueprint names the command that installs them: the layer runs it, and the gates judge.
+    r.write(
+        "gdd/blueprint.md",
+        &needs.replace(
+            "limits:\n  lines_per_change",
+            "install: sh tools/install.sh\nlimits:\n  lines_per_change",
+        ),
+    );
+    r.commit("The blueprint says how a fresh copy gets its dependencies");
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.code, 0, "{}", g.out);
+    let lines = r.log_lines("g1");
+    assert_eq!(lines.last().unwrap()["install"]["exit"], 0, "{}", g.out);
+    // An install that fails is the environment too.
+    r.write("tools/install.sh", "echo no network >&2\nexit 7\n");
+    let base2 = r.commit("An install that fails");
+    r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt"]);
+    r.commit_on(
+        "work/g2",
+        Some(&base2),
+        &[("src/ui/page.txt", "another page\n")],
+        "Build",
+    );
+    r.report("g2", "build", &report_block("gdd-build", "done"), &[]);
+    let before = r.log_lines("g2").len();
+    let g = r.gdd(&["gates", "g2"]);
+    assert_eq!(g.facts["refused"], "environment", "{}", g.out);
+    assert!(g.has("no network"), "{}", g.out);
+    assert_eq!(r.log_lines("g2").len(), before);
+    assert_eq!(r.gdd(&["verify", "--all"]).facts["errors"], 0);
+}
+
+// ----- 10. a change ships its own log -----
+
+#[test]
+fn a_change_ships_its_own_log_and_not_one_still_under_way() {
+    let r = Repo::new();
+    let base = r.git(&["rev-parse", "main"]);
+    r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    r.gdd(&["brief", "g9", "--paths", "src/ui/page.txt"]);
+    r.commit_on(
+        "work/g1",
+        Some(&base),
+        &[("src/ui/page.txt", "a new page\n")],
+        "Build",
+    );
+    r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(r.gdd(&["gates", "g1"]).code, 0);
+    let rv = r.report(
+        "g1",
+        "review",
+        &text(
+            "gdd-review",
+            "pass",
+            "pass\nCOLOR: green\nIt shows the page.",
+        ),
+        &[],
+    );
+    assert_eq!(rv.code, 0, "{}", rv.out);
+    let bk = r.gdd(&["ship", "g1", "--bookkeeping"]);
+    assert_eq!(bk.code, 0, "{}", bk.out);
+    let holds = |f: &str| {
+        git_ok(
+            &r.root,
+            &["cat-file", "-e", &format!("work/g1:gdd/log/{f}")],
+        )
+    };
+    assert!(holds("g1.jsonl") && holds("g1.engine.jsonl"), "{}", bk.out);
+    assert!(
+        !holds("g9.jsonl") && !holds("g9.engine.jsonl"),
+        "{}",
+        bk.out
+    );
+}
+
+// ----- 11. a machine nobody set up, as in CI -----
+
+/// A CI runner or a fresh container has no name and email in git, and there every commit fails.
+/// The layer says so before it writes anything or launches a role, and goes on once they're set.
+#[test]
+fn a_copy_with_no_name_in_git_is_told_before_anything_is_written() {
+    let r = Repo::new();
+    // The same on every machine: git makes no author up from the user and the host.
+    r.git(&["config", "user.useConfigOnly", "true"]);
+    r.git(&["config", "--unset", "user.email"]);
+    r.write(
+        "gdd/briefs/y1.md",
+        "---\ncontract: gdd/1\nid: y1\nversion: 1\n---\n\n# Ok\n",
+    );
+    let s = r.gdd(&["seal", "y1", "gdd/briefs/y1.md"]);
+    assert_eq!(s.code, 1, "{}", s.out);
+    assert_eq!(s.facts["refused"], "cannot", "{}", s.out);
+    assert!(
+        s.has("no name and email") && s.has("git config user.email"),
+        "{}",
+        s.out
+    );
+    assert!(!git_ok(
+        &r.root,
+        &["rev-parse", "--verify", "-q", "refs/heads/gdd-seal/y1"]
+    ));
+    assert!(r.log_lines("y1").is_empty(), "{}", s.out);
+    // A change already briefed stops in `next`, and no role is launched to fail at its commit.
+    r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    let n = next_of(&r, "g1");
+    assert_eq!(step_of(&n), "stopped", "{}", n.out);
+    assert_eq!(blocked_of(&n), "cannot", "{}", n.out);
+    assert!(n.has("no name and email"), "{}", n.out);
+    let l = r.gdd(&["launch", "g1", "build"]);
+    assert_eq!(l.facts["refused"], "cannot", "{}", l.out);
+    // With the person's name and email, the same commands go through.
+    r.git(&["config", "user.email", "test@example.com"]);
+    let s = r.gdd(&["seal", "y1", "gdd/briefs/y1.md"]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    assert_eq!(step_of(&next_of(&r, "g1")), "build");
+}
+
+/// A checkout another user owns, as in a CI container: git won't read it. Taken for a folder with
+/// no git, `verify` checked the logs alone and passed. The layer says so at once, whatever the
+/// command, and the way on it names is the one that works.
+#[test]
+fn a_copy_git_wont_read_is_never_taken_for_no_repository() {
+    let r = Repo::new();
+    r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    let other = [("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")];
+    let mut way_on = String::new();
+    for args in [vec!["verify", "--all"], vec!["next"], vec!["gates", "g1"]] {
+        let o = r.gdd_env(&args, &other);
+        assert_eq!(o.code, 1, "{args:?}: {}", o.out);
+        assert_eq!(o.facts["refused"], "cannot", "{args:?}: {}", o.out);
+        assert!(o.has("git won't read the repository"), "{}", o.out);
+        way_on = o
+            .out
+            .split_once("(git config --global --add safe.directory ")
+            .and_then(|(_, rest)| rest.split_once(')'))
+            .map(|(path, _)| path.to_string())
+            .unwrap_or_else(|| panic!("{args:?} names no way on: {}", o.out));
+    }
+    // Asked for no git, verify reads the logs alone, as it does where there is no repository.
+    let v = r.gdd_env(&["verify", "--all", "--no-git"], &other);
+    assert_eq!((v.code, &v.facts["git"]), (0, &json!(false)), "{}", v.out);
+    // What the refusal says to run, run: the same commands go on, with git.
+    let config = r.dir.path().join("gitconfig");
+    let config = config.to_string_lossy().to_string();
+    assert!(
+        Command::new("git")
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .args(["config", "--global", "--add", "safe.directory", &way_on])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let told = [other[0], ("GIT_CONFIG_GLOBAL", config.as_str())];
+    let v = r.gdd_env(&["verify", "--all"], &told);
+    assert_eq!((v.code, &v.facts["git"]), (0, &json!(true)), "{}", v.out);
+    assert_eq!(step_of(&r.gdd_env(&["next", "g1"], &told)), "build");
 }
