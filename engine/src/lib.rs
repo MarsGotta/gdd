@@ -2,9 +2,10 @@
 //!
 //! The library reads the files the GDD skills leave in a project (the blueprint, the logs, the
 //! briefs, the backlog) and keeps the order, the accounting and the evidence of each change. The
-//! pure parts (reading the blueprint, deriving a change's state from its events, counting limits,
-//! computing metrics) take data and return data. Git and process launching sit behind the small
-//! functions of [`git`] and [`launch`].
+//! pure parts (reading the blueprint, deriving a change's state from its events, naming its next
+//! step, counting limits, computing metrics) take data and return data. Git and process launching
+//! sit behind the small functions of [`git`] and [`launch`], and what git says about one change
+//! is gathered in [`judged`]. Each command lives in its own file under [`commands`].
 
 pub mod backlog;
 pub mod blueprint;
@@ -13,10 +14,12 @@ pub mod commands;
 pub mod gates;
 pub mod git;
 pub mod journal;
+pub mod judged;
 pub mod launch;
 pub mod limits;
 pub mod log;
 pub mod metrics;
+pub mod next;
 pub mod out;
 pub mod project;
 pub mod report;

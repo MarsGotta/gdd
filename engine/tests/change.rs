@@ -4,13 +4,6 @@
 mod common;
 use common::*;
 
-fn review_text(verdict: &str, color: &str, extra: &str) -> String {
-    format!(
-        "{verdict}\nCOLOR: {color}\nI read the change.\n{extra}\n{}",
-        report_block("gdd-review", verdict)
-    )
-}
-
 #[test]
 fn a_green_change_from_brief_to_ship() {
     let r = Repo::new();

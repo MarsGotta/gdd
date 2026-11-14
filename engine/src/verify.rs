@@ -478,7 +478,7 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                 let g = p.last_gates.as_ref().and_then(|g| g.head.clone());
                 if let (Some(h), Some(g)) = (v["head"].as_str(), &g)
                     && h != g
-                    && !crate::state::only_bookkeeping(root, id, g, h)
+                    && !crate::judged::only_bookkeeping(root, id, g, h)
                 {
                     push(
                         line,
@@ -492,13 +492,13 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
                 if let (Some(r), Some(g)) = (p.last_review.as_ref(), &g)
                     && let Some(rh) = &r.head
                     && rh != g
-                    && !crate::state::only_bookkeeping(root, id, rh, g)
-                    && !crate::state::review_carries(
+                    && !crate::judged::only_bookkeeping(root, id, rh, g)
+                    && !crate::judged::review_carries(
                         root,
                         rh,
                         g,
                         r.start.as_deref(),
-                        &crate::state::GitView::of(root, id, None, None),
+                        &crate::judged::GitView::of(root, id, None, None),
                     )
                 {
                     push(

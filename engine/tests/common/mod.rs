@@ -321,6 +321,19 @@ impl Repo {
     }
 }
 
+/// A role's last message: what it says, then its report.
+pub fn report_text(skill: &str, result: &str, body: &str) -> String {
+    format!("{body}\n{}", report_block(skill, result))
+}
+
+/// A reviewer's last message: its verdict first, the color it found, and its report.
+pub fn review_text(verdict: &str, color: &str, extra: &str) -> String {
+    format!(
+        "{verdict}\nCOLOR: {color}\nI read the change.\n{extra}\n{}",
+        report_block("gdd-review", verdict)
+    )
+}
+
 pub fn report_block(skill: &str, result: &str) -> String {
     format!("```gdd-report\nskill: {skill} 0.10.1\nresult: {result}\ncaught: none\n```\n")
 }

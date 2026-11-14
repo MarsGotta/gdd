@@ -375,7 +375,7 @@ pub fn run(
         use std::os::unix::process::CommandExt;
         c.process_group(0);
     }
-    let started_at = crate::time::instant();
+    let started_at = std::time::Instant::now();
     let mut child = c
         .spawn()
         .map_err(|e| format!("{} could not start: {e}", argv[0]))?;

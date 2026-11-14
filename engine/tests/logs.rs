@@ -50,7 +50,6 @@ fn every_fixture_blueprint_reads() {
         assert!(b.environments()[0].models.of("standard").is_some());
         match v {
             "gated" => {
-                assert_eq!(b.gates().len(), 2);
                 assert_eq!(b.check("prices").unwrap().when, vec![":(glob)src/pay/**"]);
             }
             "slow" => assert!(b.check("e2e").unwrap().before_review()),

@@ -2,9 +2,10 @@
 //! recomputed. Six tidy tables, each a list of rows with the same columns, under one `schema`.
 
 use crate::blueprint::Blueprint;
+use crate::judged::GitView;
 use crate::limits;
 use crate::log::{self, Entry, kind, step, str_of, ts};
-use crate::state::{GitView, LogKind, log_kind};
+use crate::state::{LogKind, log_kind};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
@@ -109,9 +110,7 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
         let last_ts = values.iter().rev().find_map(|v| ts(v));
         let first_ts = values.iter().find_map(|v| ts(v));
-        let void = log::voided_events(input.entries);
-        let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
-        let lim = limits::count_with(bp, &values, &void, last_ts.unwrap_or(now));
+        let lim = limits::count_entries(bp, input.entries, last_ts.unwrap_or(now));
         let state = crate::state::derive(id, bp, input.entries, GitView::default(), now);
         let p = &state.progress;
 

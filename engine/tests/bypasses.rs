@@ -7,13 +7,6 @@ use serde_json::Value;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-fn review_text(verdict: &str, color: &str) -> String {
-    format!(
-        "{verdict}\nCOLOR: {color}\nI read the change.\n{}",
-        report_block("gdd-review", verdict)
-    )
-}
-
 /// A project whose logs are tracked, as a real one's are.
 fn tracked_logs_repo() -> Repo {
     let r = Repo::new();
@@ -36,7 +29,7 @@ fn green_ready(r: &Repo, id: &str) -> String {
     assert_eq!(b.code, 0, "{}", b.out);
     let g = r.gdd(&["gates", id]);
     assert_eq!(g.code, 0, "{}", g.out);
-    let rv = r.report(id, "review", &review_text("pass", "green"), &[]);
+    let rv = r.report(id, "review", &review_text("pass", "green", ""), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     assert_eq!(r.gdd(&["next", id]).facts["state"]["next"]["step"], "ship");
     built
@@ -768,7 +761,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     };
 
     // A fix: no second opinion, and its line stays.
-    let fix = r.report("y7", "review", &review_text("fix", "yellow"), &[]);
+    let fix = r.report("y7", "review", &review_text("fix", "yellow", ""), &[]);
     assert_eq!(fix.code, 0, "{}", fix.out);
     let line = r.log_lines("y7").len().to_string();
     let way = "gdd launch y7 build";
@@ -780,7 +773,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     );
     refused(
         "a second verdict",
-        &r.report("y7", "review", &review_text("pass", "yellow"), &[]),
+        &r.report("y7", "review", &review_text("pass", "yellow", ""), &[]),
         "out-of-order",
         way,
     );
@@ -795,7 +788,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
 
     // A stop: the same, and the person is told before anyone builds again.
-    let stop = r.report("y7", "review", &review_text("stop", "yellow"), &[]);
+    let stop = r.report("y7", "review", &review_text("stop", "yellow", ""), &[]);
     assert_eq!(stop.code, 0, "{}", stop.out);
     let lines = r.log_lines("y7").len();
     let way = "gdd ask y7 --of stop";
@@ -807,7 +800,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     );
     refused(
         "a second verdict",
-        &r.report("y7", "review", &review_text("pass", "yellow"), &[]),
+        &r.report("y7", "review", &review_text("pass", "yellow", ""), &[]),
         "out-of-order",
         way,
     );
@@ -852,7 +845,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     assert_eq!(r.gdd(&["answer", "y7", "yes"]).code, 0);
     assert_eq!(r.report("y7", "build", &built, &[]).code, 0);
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
-    let pass = r.report("y7", "review", &review_text("pass", "yellow"), &[]);
+    let pass = r.report("y7", "review", &review_text("pass", "yellow", ""), &[]);
     assert_eq!(pass.code, 0, "{}", pass.out);
     assert_eq!(
         r.gdd(&["next", "y7"]).facts["state"]["next"]["step"],

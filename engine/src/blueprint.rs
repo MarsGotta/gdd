@@ -17,9 +17,6 @@ pub struct Check {
     /// `each round` or `before review`; a check without `runs` runs each round.
     pub runs: String,
     pub when: Vec<String>,
-    pub cases: Option<String>,
-    pub passes: Option<String>,
-    pub breaks: Option<String>,
 }
 
 impl Check {
@@ -34,13 +31,6 @@ pub struct Zone {
     pub color: String,
     pub paths: Vec<String>,
     pub gates: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Gate {
-    pub id: String,
-    pub spec: Option<String>,
-    pub checks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,10 +149,6 @@ impl Blueprint {
         s(&self.front["contract"])
     }
 
-    pub fn guarantee(&self) -> Option<String> {
-        s(&self.front["guarantee"])
-    }
-
     /// The command that gives a fresh copy of the repository what the checks need, such as the
     /// project's dependencies. The gates run it in their throwaway worktree before any check.
     pub fn install(&self) -> Option<String> {
@@ -223,9 +209,6 @@ impl Blueprint {
                         .map(|r| r.trim().to_string())
                         .unwrap_or_else(|| "each round".into()),
                     when: list(&c["when"]),
-                    cases: s(&c["cases"]),
-                    passes: s(&c["passes"]),
-                    breaks: s(&c["breaks"]),
                 })
             })
             .collect()
@@ -247,22 +230,6 @@ impl Blueprint {
                     color: s(&z["color"]).unwrap_or_default(),
                     paths: list(&z["paths"]),
                     gates: s(&z["gates"]),
-                })
-            })
-            .collect()
-    }
-
-    pub fn gates(&self) -> Vec<Gate> {
-        let Value::Array(items) = &self.front["gates"] else {
-            return vec![];
-        };
-        items
-            .iter()
-            .filter_map(|g| {
-                Some(Gate {
-                    id: s(&g["id"])?,
-                    spec: s(&g["spec"]),
-                    checks: list(&g["checks"]),
                 })
             })
             .collect()

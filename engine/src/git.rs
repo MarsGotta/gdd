@@ -93,12 +93,7 @@ fn trace(args: &[&str], o: &Output) {
 }
 
 pub fn run(root: &Path, args: &[&str]) -> Result<Output, String> {
-    let o = base(root)?
-        .args(args)
-        .output()
-        .map_err(|e| format!("git could not run: {e}"))?;
-    trace(args, &o);
-    Ok(o)
+    run_env(root, args, &[])
 }
 
 pub fn run_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<Output, String> {
@@ -116,16 +111,7 @@ pub fn run_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<Outpu
 
 /// Run git and return its output, trimmed, or what it said on failure.
 pub fn out(root: &Path, args: &[&str]) -> Result<String, String> {
-    let o = run(root, args)?;
-    if o.status.success() {
-        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
-    } else {
-        Err(format!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&o.stderr).trim()
-        ))
-    }
+    out_env(root, args, &[])
 }
 
 pub fn out_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<String, String> {
@@ -184,36 +170,17 @@ pub fn refuses(root: &Path) -> Option<(String, Option<std::path::PathBuf>)> {
 /// The commit a name points to, or `None`. The name goes after `--end-of-options`, so one that
 /// starts with `-` is never taken for an option.
 pub fn commit_of(root: &Path, rev: &str) -> Option<String> {
-    let spec = format!("{rev}^{{commit}}");
-    out(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &spec,
-        ],
-    )
-    .ok()
-    .filter(|s| !s.is_empty())
+    rev_parse(root, &format!("{rev}^{{commit}}"))
+}
+
+fn rev_parse(root: &Path, spec: &str) -> Option<String> {
+    let args = ["rev-parse", "--verify", "--quiet", "--end-of-options", spec];
+    out(root, &args).ok().filter(|s| !s.is_empty())
 }
 
 /// The blob of a path at a commit, or `None`.
 pub fn blob_at(root: &Path, commit: &str, path: &str) -> Option<String> {
-    let spec = format!("{commit}:{path}");
-    out(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &spec,
-        ],
-    )
-    .ok()
-    .filter(|s| !s.is_empty())
+    rev_parse(root, &format!("{commit}:{path}"))
 }
 
 /// The parents of a commit, the first one first.
@@ -292,23 +259,7 @@ pub fn merge_base(root: &Path, a: &str, b: &str) -> Option<String> {
 
 /// The paths that differ between two commits, `git diff --name-only a b`.
 pub fn diff_names(root: &Path, a: &str, b: &str) -> Result<Vec<String>, String> {
-    let o = run(
-        root,
-        &[
-            "diff",
-            "--name-only",
-            "-z",
-            "--no-renames",
-            "--end-of-options",
-            a,
-            b,
-            "--",
-        ],
-    )?;
-    if !o.status.success() {
-        return Err(String::from_utf8_lossy(&o.stderr).trim().to_string());
-    }
-    Ok(z_list(&o.stdout))
+    diff_names_in(root, a, b, &[])
 }
 
 /// The paths that differ between two commits within some pathspecs.
@@ -336,9 +287,11 @@ pub fn diff_names_in(
     Ok(z_list(&o.stdout))
 }
 
-/// Files changed, lines added and lines taken out between two commits.
-pub fn shortstat(root: &Path, a: &str, b: &str) -> Option<(i64, i64, i64)> {
-    let o = out(root, &["diff", "--numstat", "--no-renames", a, b]).ok()?;
+/// Files changed, lines added and lines taken out between two commits, within some pathspecs.
+fn numstat(root: &Path, a: &str, b: &str, specs: &[&str]) -> Option<(i64, i64, i64)> {
+    let mut args = vec!["diff", "--numstat", "--no-renames", a, b, "--"];
+    args.extend(specs);
+    let o = out(root, &args).ok()?;
     let (mut files, mut add, mut del) = (0, 0, 0);
     for line in o.lines() {
         let mut parts = line.split('\t');
@@ -350,32 +303,21 @@ pub fn shortstat(root: &Path, a: &str, b: &str) -> Option<(i64, i64, i64)> {
     Some((files, add, del))
 }
 
+/// Files changed, lines added and lines taken out between two commits.
+pub fn shortstat(root: &Path, a: &str, b: &str) -> Option<(i64, i64, i64)> {
+    numstat(root, a, b, &[])
+}
+
 /// The lines added and taken out between two commits, without the orchestrator's bookkeeping
 /// (the `.jsonl` files directly in `gdd/log/` and the backlog), as `git diff --shortstat` counts
 /// them: anything else a builder puts under `gdd/log/` counts.
 pub fn changed_lines(root: &Path, a: &str, b: &str) -> Option<i64> {
-    let o = out(
-        root,
-        &[
-            "diff",
-            "--numstat",
-            "--no-renames",
-            a,
-            b,
-            "--",
-            ".",
-            ":(exclude,glob)gdd/log/*.jsonl",
-            ":(exclude)gdd/backlog.md",
-        ],
-    )
-    .ok()?;
-    let mut n = 0;
-    for line in o.lines() {
-        let mut parts = line.split('\t');
-        n += parts.next()?.parse::<i64>().unwrap_or(0);
-        n += parts.next()?.parse::<i64>().unwrap_or(0);
-    }
-    Some(n)
+    let ours = [
+        ".",
+        ":(exclude,glob)gdd/log/*.jsonl",
+        ":(exclude)gdd/backlog.md",
+    ];
+    numstat(root, a, b, &ours).map(|(_, add, del)| add + del)
 }
 
 /// The tracked files of the index that match some pathspecs, `git ls-files -- <pathspec>...`.
@@ -464,6 +406,11 @@ pub fn can_write_ref(root: &Path) -> Result<(), String> {
     out(root, &["update-ref", &name, &commit])?;
     out(root, &["update-ref", "-d", &name, &commit])?;
     Ok(())
+}
+
+/// A commit's hash cut to what a person reads.
+pub fn short(h: &str) -> &str {
+    &h[..h.len().min(12)]
 }
 
 /// Whether git has a name and an email to write a commit with here, by its own verdict. A machine

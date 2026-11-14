@@ -19,8 +19,6 @@ pub struct Line {
     pub raised: bool,
     /// No room left: for a tier of seconds, past it.
     pub full: bool,
-    /// No room left, but kept out of `stop` because a finished build waits to be judged.
-    pub held: bool,
     /// A tier of seconds, which stops nothing.
     pub tier: bool,
 }
@@ -38,7 +36,6 @@ pub struct Limits {
     pub minutes: i64,
     /// Seconds spent waiting for a person, from each ask to the event after it.
     pub waited: i64,
-    pub waiting: bool,
     pub builds: i64,
     pub checks: i64,
     pub raised: BTreeMap<String, i64>,
@@ -141,8 +138,18 @@ fn gates_cost(v: &Value, late: &[String]) -> (f64, f64, bool) {
 }
 
 /// Count a change's events up to `now` (the time of the count, or of the end of a closed log).
+#[cfg(test)]
 pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
     count_with(bp, events, &[], now)
+}
+
+/// Count a log's entries up to `now`: the events that count, and what the voided ones used.
+pub fn count_entries(bp: &Blueprint, entries: &[crate::log::Entry], now: i64) -> Limits {
+    let events = crate::log::events(entries);
+    let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
+    let void = crate::log::voided_events(entries);
+    let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
+    count_with(bp, &values, &void, now)
 }
 
 /// The same, with the events a correction voided. They decide nothing: no color, no cap raised, no
@@ -310,7 +317,6 @@ pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) 
                 cap,
                 raised,
                 full,
-                held,
                 tier: false,
             });
         };
@@ -376,7 +382,6 @@ pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) 
             cap,
             raised,
             full: past,
-            held: false,
             tier: true,
         });
     }
@@ -391,7 +396,6 @@ pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) 
     l.spent = spent;
     l.minutes = minutes;
     l.waited = waited;
-    l.waiting = waiting;
     l.builds = builds;
     l.checks = checks;
     l.raised = raised;

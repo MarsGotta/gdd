@@ -6,8 +6,6 @@ use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Colored {
-    /// `planned` from the paths a brief lists, `touched` from what a change did.
-    pub on: String,
     pub paths: Vec<String>,
     /// Each zone hit, with the paths that fall in it.
     pub zones: BTreeMap<String, Vec<String>>,
@@ -117,7 +115,6 @@ pub fn sort_paths(root: &Path, bp: &Blueprint, paths: &[String]) -> Result<Sorte
 pub fn color_of(
     root: &Path,
     bp: &Blueprint,
-    on: &str,
     paths: &[String],
     raise: Option<&str>,
     logged: Option<&str>,
@@ -158,7 +155,6 @@ pub fn color_of(
         reasons.push(format!("it was logged as {l}, and a color only rises"));
     }
     Ok(Colored {
-        on: on.into(),
         paths: paths.to_vec(),
         zones,
         uncovered,

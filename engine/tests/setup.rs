@@ -5,10 +5,6 @@ mod common;
 use common::*;
 use std::process::{Command, Stdio};
 
-fn report_text(skill: &str, result: &str, body: &str) -> String {
-    format!("{body}\n{}", report_block(skill, result))
-}
-
 /// Seal files on `gdd-seal/<id>`, cut from the main branch, as the checks role does.
 fn seal_as_the_checks_role(
     dir: &std::path::Path,

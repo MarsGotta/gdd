@@ -108,7 +108,6 @@ enum Cmd {
         #[arg(long, conflicts_with = "request")]
         request_file: Option<String>,
         /// The brief and its scenarios, as sealed.
-        #[arg(last = false)]
         files: Vec<String>,
     },
     /// Write a launched role's step from the report its last message ends with.

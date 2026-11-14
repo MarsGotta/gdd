@@ -5,13 +5,6 @@ mod common;
 use common::*;
 use serde_json::Value;
 
-fn review_text(verdict: &str, color: &str, extra: &str) -> String {
-    format!(
-        "{verdict}\nCOLOR: {color}\nI read the change.\n{extra}\n{}",
-        report_block("gdd-review", verdict)
-    )
-}
-
 /// A project whose logs are tracked, as a real one's are, not ignored as in the other tests.
 fn tracked_logs_repo() -> Repo {
     let r = Repo::new();

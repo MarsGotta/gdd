@@ -8,10 +8,6 @@ use common::*;
 use serde_json::json;
 use std::process::Command;
 
-fn text(skill: &str, result: &str, body: &str) -> String {
-    format!("{body}\n{}", report_block(skill, result))
-}
-
 fn next_of(r: &Repo, id: &str) -> Run {
     r.gdd(&["next", id])
 }
@@ -49,7 +45,12 @@ fn set_up(r: &Repo, id: &str, file: &str, body: &str) {
         let main = r.git(&["rev-parse", "main"]);
         r.commit_on(&seal, Some(&main), &[(file, body)], "Set them up");
     }
-    let c = r.report(id, "checks", &text("gdd-checks", "sealed", "Set up."), &[]);
+    let c = r.report(
+        id,
+        "checks",
+        &report_text("gdd-checks", "sealed", "Set up."),
+        &[],
+    );
     assert_eq!(c.code, 0, "{}", c.out);
 }
 
@@ -57,7 +58,7 @@ fn cannot(r: &Repo, id: &str, step: &str, skill: &str) -> Run {
     r.report(
         id,
         step,
-        &text(
+        &report_text(
             skill,
             "stopped",
             "CANNOT: what it needs isn't there\nThe person decides.",
@@ -77,7 +78,7 @@ fn a_setup_log_gets_a_fix_round_after_its_trials_stop() {
     let rv = r.report(
         id,
         "review",
-        &text(
+        &report_text(
             "gdd-review",
             "stop",
             "stop\nCOLOR: yellow\nf1 tests/standing.sh:1 it passes whatever the code does",
@@ -139,7 +140,7 @@ fn a_setup_log_gets_a_fix_round_after_its_trials_stop() {
     let rv = r.report(
         id,
         "review",
-        &text(
+        &report_text(
             "gdd-review",
             "pass",
             "pass\nCOLOR: yellow\nIt rejects a broken app and passes the real one.",
@@ -737,7 +738,7 @@ fn sent_back(r: &Repo, id: &str) {
     let rv = r.report(
         id,
         "review",
-        &text(
+        &report_text(
             "gdd-review",
             "fix",
             "fix\nCOLOR: yellow\nf1 tests/run.sh:1 it doesn't run when only the browser tests change",
@@ -778,7 +779,7 @@ fn a_fix_already_on_the_seal_after_a_merge_gets_its_new_trial() {
     let c = r.report(
         id,
         "checks",
-        &text("gdd-checks", "sealed", "The fix is on the seal."),
+        &report_text("gdd-checks", "sealed", "The fix is on the seal."),
         &[],
     );
     assert_eq!(c.code, 0, "{}", c.out);
@@ -809,7 +810,7 @@ fn a_fix_that_came_through_the_main_branch_gets_its_new_trial() {
     let c = r.report(
         id,
         "checks",
-        &text("gdd-checks", "sealed", "The fix came through main."),
+        &report_text("gdd-checks", "sealed", "The fix came through main."),
         &[],
     );
     assert_eq!(c.code, 0, "{}", c.out);
@@ -826,7 +827,7 @@ fn a_seal_the_trial_already_judged_is_not_a_fix() {
     let c = r.report(
         id,
         "checks",
-        &text("gdd-checks", "sealed", "Nothing to change."),
+        &report_text("gdd-checks", "sealed", "Nothing to change."),
         &[],
     );
     assert_eq!(c.facts["refused"], "not-sealed", "{}", c.out);
@@ -974,7 +975,7 @@ fn a_change_ships_its_own_log_and_not_one_still_under_way() {
     let rv = r.report(
         "g1",
         "review",
-        &text(
+        &report_text(
             "gdd-review",
             "pass",
             "pass\nCOLOR: green\nIt shows the page.",

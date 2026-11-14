@@ -344,6 +344,13 @@ The website tells a change in six steps, the ones of its delicate case. They are
     - Where git can't write, the orchestrator's one line to the person had become four paragraphs about the sandbox. The skill gives the line.
 
     A grader of that case asked for the word "seal" in the first line of the backlog and failed a run that said it in the person's words: it takes both now.
+62. **The layer is reviewed by someone else, and stays light.** Another agent, with none of the author's conclusions in front of it, read the whole layer against one question: could this be shorter, flatter or easier to follow without losing behavior? Its verdict was that the layer wasn't over-engineered and wasn't light either: the weight was long functions and copies, with two files holding two fifths of the source. What came of it, with every test passing after each step:
+    - Three real faults it found on the way are fixed. The worst: a check whose `runs` was misspelled in the blueprint was planned, never run and never named, and the gates could pass without it. The gates now refuse a blueprint written that way.
+    - What nobody read or called is gone, and what was written twice is written once: one fold of a log, one count of its limits, one way of asking whether a step is allowed, with no event made up for the question.
+    - The commands are a file each, by what they do, and the state is three: where a log stands, what git says about a change, and the next step. No file passes 830 lines, where one had 4,300.
+    - The two longest functions are split at the seams they already had: a role's report by its kind, and the gates into their plan, their place, the install and the run.
+
+    What it advised against is left alone on purpose: enums for the contract's own words, a struct per event, a trait for commands, a cache for git. Each would add more than it removes. Five functions still pass 180 lines, the tables of the metrics first among them.
 
 ## Still open
 

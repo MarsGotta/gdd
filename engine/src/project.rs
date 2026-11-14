@@ -61,33 +61,42 @@ impl Project {
             .unwrap_or_default()
     }
 
-    /// Every log of the project, without the layer's journals, by id.
-    pub fn log_ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = std::fs::read_dir(self.path("gdd/log"))
+    pub fn journal_rel(id: &str) -> String {
+        format!("gdd/log/{id}.engine.jsonl")
+    }
+
+    pub fn journal_path(&self, id: &str) -> PathBuf {
+        self.path(&Self::journal_rel(id))
+    }
+
+    /// The names of the files directly in `gdd/log/`, sorted.
+    fn log_files(&self) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.path("gdd/log"))
             .map(|d| {
                 d.filter_map(|e| e.ok())
                     .filter_map(|e| e.file_name().into_string().ok())
-                    .filter(|n| !n.ends_with(".engine.jsonl"))
-                    .filter_map(|n| n.strip_suffix(".jsonl").map(str::to_string))
                     .collect()
             })
             .unwrap_or_default();
-        ids.sort();
-        ids
+        names.sort();
+        names
+    }
+
+    /// Every log of the project, without the layer's journals, by id.
+    pub fn log_ids(&self) -> Vec<String> {
+        self.log_files()
+            .iter()
+            .filter(|n| !n.ends_with(".engine.jsonl"))
+            .filter_map(|n| n.strip_suffix(".jsonl").map(str::to_string))
+            .collect()
     }
 
     /// Every journal of the layer, `gdd/log/<id>.engine.jsonl`, by id.
     pub fn journal_ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = std::fs::read_dir(self.path("gdd/log"))
-            .map(|d| {
-                d.filter_map(|e| e.ok())
-                    .filter_map(|e| e.file_name().into_string().ok())
-                    .filter_map(|n| n.strip_suffix(".engine.jsonl").map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        ids.sort();
-        ids
+        self.log_files()
+            .iter()
+            .filter_map(|n| n.strip_suffix(".engine.jsonl").map(str::to_string))
+            .collect()
     }
 
     /// The front matter of a change's brief in the working copy, and its body.
@@ -95,10 +104,6 @@ impl Project {
         let text = std::fs::read_to_string(self.path(&format!("gdd/briefs/{id}.md"))).ok()?;
         let (front, body) = crate::blueprint::split_front_matter(&text)?;
         Some((crate::blueprint::read_yaml(front).ok()?, body.to_string()))
-    }
-
-    pub fn git(&self) -> bool {
-        crate::git::is_repo(&self.root)
     }
 }
 
@@ -121,10 +126,7 @@ pub fn section(body: &str, title: &str) -> Option<String> {
             out.push(line);
         }
     }
-    let text = out.join("\n").trim().to_string();
-    (inside || !text.is_empty())
-        .then_some(text)
-        .filter(|t| !t.is_empty())
+    Some(out.join("\n").trim().to_string()).filter(|t| !t.is_empty())
 }
 
 /// The first `# ` heading of a Markdown body.

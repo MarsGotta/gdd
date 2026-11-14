@@ -82,12 +82,6 @@ pub fn now() -> i64 {
 pub fn now_string() -> String {
     format(now())
 }
-
-/// A wall clock for measuring how long something took, in seconds with fractions.
-pub fn instant() -> std::time::Instant {
-    std::time::Instant::now()
-}
-
 /// How long ago, in words a person reads: "3 minutes", "2 hours 5 minutes", "1 day 4 hours".
 pub fn waited(secs: i64) -> String {
     let secs = secs.max(0);

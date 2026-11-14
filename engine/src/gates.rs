@@ -21,7 +21,6 @@ pub struct Planned {
 pub struct Ran {
     pub check: String,
     pub command: String,
-    pub tier: String,
     pub exit: Option<i32>,
     pub seconds: Option<f64>,
     pub tail: String,
@@ -224,8 +223,8 @@ pub fn zone_gate_checks(feature: &str) -> Vec<String> {
 
 /// Run one check's command with `sh -c` in a directory, standard input closed, its output to a
 /// file, and say what came out.
-pub fn run_check(dir: &Path, check: &str, command: &str, tier: &str, output: &Path) -> Ran {
-    let started = crate::time::instant();
+pub fn run_check(dir: &Path, check: &str, command: &str, output: &Path) -> Ran {
+    let started = std::time::Instant::now();
     let file = crate::runs::create_new(output);
     let status = match file {
         Ok(f) => {
@@ -262,7 +261,6 @@ pub fn run_check(dir: &Path, check: &str, command: &str, tier: &str, output: &Pa
     Ran {
         check: check.into(),
         command: command.into(),
-        tier: tier.into(),
         exit,
         seconds: Some(seconds),
         tail: t,
@@ -367,13 +365,7 @@ mod tests {
     fn runs_a_command() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("o.txt");
-        let r = run_check(
-            dir.path(),
-            "x",
-            "echo one; echo two >&2; exit 3",
-            "each round",
-            &out,
-        );
+        let r = run_check(dir.path(), "x", "echo one; echo two >&2; exit 3", &out);
         assert_eq!(r.exit, Some(3));
         assert!(!r.passed);
         assert!(r.tail.contains("one") && r.tail.contains("two"));

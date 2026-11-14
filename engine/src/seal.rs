@@ -6,7 +6,6 @@ use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sealed {
-    pub reference: String,
     pub parent: String,
     pub commit: String,
     /// Each file with its blob hash, as sealed.
@@ -80,7 +79,6 @@ pub fn commit_on(
     let parent_tree = git::out(root, &["rev-parse", &format!("{parent}^{{tree}}")])?;
     if tree == parent_tree {
         return Ok(Sealed {
-            reference,
             parent: parent.into(),
             commit: parent.into(),
             files: sealed,
@@ -98,7 +96,6 @@ pub fn commit_on(
         }
     }
     Ok(Sealed {
-        reference,
         parent: parent.into(),
         commit,
         files: sealed,

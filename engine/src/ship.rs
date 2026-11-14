@@ -86,8 +86,8 @@ pub fn describe(
             if let Some(h) = g["head"].as_str() {
                 out.push(format!(
                     "On {}, from {}:",
-                    &h[..h.len().min(12)],
-                    &str_of(g, "start")[..str_of(g, "start").len().min(12)]
+                    git::short(h),
+                    git::short(str_of(g, "start"))
                 ));
             }
             for e in g["gates"].as_array().cloned().unwrap_or_default() {
@@ -210,10 +210,6 @@ fn not_in(code: &'static str, why: String) -> NotIn {
     NotIn { code, why }
 }
 
-fn short(h: &str) -> &str {
-    &h[..h.len().min(12)]
-}
-
 /// What went into `main`, at `main_tip`, of a change judged at `judged` from `start`. `stands(c)`
 /// says whether a commit is the judged one or stands for it by the layer's own rule (it differs
 /// only in the layer's bookkeeping). `bound` is the tip that was merged, as the change's branch or
@@ -270,8 +266,8 @@ pub fn went_in(
                 "which-tip",
                 format!(
                     "{} went into {main} by a fast-forward, and the commit after it, {}, isn't the layer's bookkeeping: whether it is the change's or the next one's can't be told",
-                    short(&line[end]),
-                    short(next)
+                    git::short(&line[end]),
+                    git::short(next)
                 ),
             ));
         }
@@ -285,7 +281,10 @@ pub fn went_in(
     let Some(merge) = line.get(e) else {
         return Err(not_in(
             "not-merged",
-            format!("{} is in {main}, but not on its own line", short(judged)),
+            format!(
+                "{} is in {main}, but not on its own line",
+                git::short(judged)
+            ),
         ));
     };
     let Some(tip) = git::parents(root, merge)
@@ -297,8 +296,8 @@ pub fn went_in(
             "unjudged",
             format!(
                 "{} brought {} into {main}, and it is not a merge of it: what came with it can't be told",
-                short(merge),
-                short(judged)
+                git::short(merge),
+                git::short(judged)
             ),
         ));
     };
@@ -307,9 +306,9 @@ pub fn went_in(
             "unjudged",
             format!(
                 "{main} took {} by the merge {}, and it differs from {}, the commit that was judged, in more than the layer's bookkeeping",
-                short(&tip),
-                short(merge),
-                short(judged)
+                git::short(&tip),
+                git::short(merge),
+                git::short(judged)
             ),
         ));
     }
@@ -321,9 +320,9 @@ pub fn went_in(
                     "unjudged",
                     format!(
                         "{main} took {} by the merge {}, which carries on from {} with what nobody judged",
-                        short(q),
-                        short(later),
-                        short(judged)
+                        git::short(q),
+                        git::short(later),
+                        git::short(judged)
                     ),
                 ));
             }
@@ -355,7 +354,7 @@ pub fn by_content(
             "not-merged",
             format!(
                 "{} is not in {main} yet, and {main} doesn't hold what was judged ({why}): a ship is written once the change is in",
-                short(judged)
+                git::short(judged)
             ),
         )
     };
@@ -379,15 +378,15 @@ pub fn by_content(
     let (Some(&first), Some(&last)) = (brought.first(), brought.last()) else {
         return Err(missing(format!(
             "no commit of {main} since {} touched its files",
-            short(&base)
+            git::short(&base)
         )));
     };
-    let files = crate::state::holds_judged(root, start, judged, &line[last]).map_err(&missing)?;
+    let files = crate::judged::holds_judged(root, start, judged, &line[last]).map_err(&missing)?;
     for k in first..=last {
         let extra: Vec<&str> = changed[k]
             .iter()
             .filter(|p| {
-                !touched.contains(p) && !crate::state::bookkeeping_known(root, id, &line[k], p)
+                !touched.contains(p) && !crate::judged::bookkeeping_known(root, id, &line[k], p)
             })
             .map(String::as_str)
             .collect();
@@ -399,13 +398,13 @@ pub fn by_content(
             if brought.contains(&k) {
                 format!(
                     "{} brought {} into {main} along with the change's files, and nobody judged them",
-                    short(&line[k]),
+                    git::short(&line[k]),
                     extra.join(", ")
                 )
             } else {
                 format!(
                     "{} changed {} between the commits that brought the change into {main}: it can't be told from the change, and nobody judged it",
-                    short(&line[k]),
+                    git::short(&line[k]),
                     extra.join(", ")
                 )
             },
