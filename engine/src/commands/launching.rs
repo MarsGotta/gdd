@@ -403,7 +403,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                     format!("gdd gates {id}"),
                 ));
             }
-        } else if p.brief_line.is_some() && p.last_build.is_some() {
+        } else if p.built_since_brief() {
             return Err(Fail::refuse(
                 "out-of-order",
                 "a brief is read before anyone builds it",

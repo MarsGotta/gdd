@@ -33,7 +33,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 | minutes_parked | minutes | always null: no event says a change was set aside |
 | minutes_to_ship | minutes | the first event to the `ship`, waits included |
 | builds, checks_launches | count | `build` and `checks` steps |
-| rounds_used, rounds_allowed, rounds_raised | count, count, bool | the counter: launches of gdd-build and gdd-checks after the first of each, against `rounds_per_change`, and whether a waiver raised it |
+| rounds_used, rounds_allowed, rounds_raised | count, count, bool | the counter: launches of gdd-build after the first, or of gdd-checks in a log of standing checks, against `rounds_per_change`, and whether a waiver raised it |
 | sent_back_checks_*, sent_back_review_* | count | gates that failed, reviews that said `fix`, against `fix_rounds_per_gate` |
 | minutes_used, minutes_allowed, minutes_raised | minutes | against `minutes_per_change` |
 | runs_before_review_* | count | gates runs that ran a check whose `runs` is `before review` |

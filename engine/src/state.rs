@@ -222,6 +222,15 @@ impl Progress {
             .any(|a| a.1 == "change" && a.0 > after)
     }
 
+    /// Whether anyone built the brief as it now is: a build written after its last brief step.
+    /// A build of an earlier version doesn't count, because a new version is a brief nobody built.
+    pub fn built_since_brief(&self) -> bool {
+        matches!(
+            (self.last_build, self.brief_line),
+            (Some((built, _)), Some(brief)) if built > brief
+        )
+    }
+
     pub fn open_ask(&self) -> Option<&Ask> {
         self.asks.last().filter(|a| a.ended_by.is_none())
     }
@@ -728,7 +737,7 @@ pub fn derive(id: &str, bp: &Blueprint, entries: &[Entry], git: GitView, now: i6
     } else {
         now
     };
-    let lim = limits::count_entries(bp, entries, until);
+    let lim = limits::count_entries(bp, id, entries, until);
     let passed_on_head = match (&p.last_gates, &git.head) {
         (Some(g), Some(h)) if g.passed && g.head.as_ref().is_none_or(|x| git.stands_for(x, h)) => {
             g.ran.clone()

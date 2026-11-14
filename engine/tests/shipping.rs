@@ -392,6 +392,44 @@ fn a_red_brief_is_read_before_the_person_is_asked() {
 }
 
 #[test]
+fn a_change_that_turns_red_after_a_build_gets_its_new_brief_read() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "t1");
+    // The version that was built is past its reading.
+    let l = r.gdd(&["launch", "t1", "reading"]);
+    assert_eq!(l.facts["refused"], "out-of-order", "{}", l.out);
+    assert!(
+        l.has("a brief is read before anyone builds it"),
+        "{}",
+        l.out
+    );
+    // A new version, with a scenario more, reaches a red zone: nobody read it as red, nobody
+    // approved it and nobody built it.
+    let brief = r
+        .read("gdd/briefs/t1.md")
+        .replace("version: 1", "version: 2");
+    r.write("gdd/briefs/t1.md", &brief);
+    let scenarios = r.read("features/t1.feature") + "\n  Scenario: It takes the payment\n";
+    r.write("features/t1.feature", &scenarios);
+    let files = ["gdd/briefs/t1.md", "features/t1.feature"];
+    assert_eq!(r.gdd(&["seal", "t1", files[0], files[1]]).code, 0);
+    let b = r.gdd(&[
+        "brief",
+        "t1",
+        files[0],
+        files[1],
+        "--paths",
+        "src/core/app.txt",
+        "src/pay/pay.txt",
+    ]);
+    assert!(b.has("t1 is red"), "{}", b.out);
+    let n = r.gdd(&["next", "t1"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "reading", "{}", n.out);
+    let l = r.gdd(&["launch", "t1", "reading"]);
+    assert_eq!(l.code, 0, "{}", l.out);
+}
+
+#[test]
 fn ask_names_the_command_its_answer_takes() {
     let r = Repo::new();
     r.gdd(&["brief", "a1", "--paths", "src/ui/page.txt"]);

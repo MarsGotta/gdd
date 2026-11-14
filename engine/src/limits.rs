@@ -140,23 +140,29 @@ fn gates_cost(v: &Value, late: &[String]) -> (f64, f64, bool) {
 /// Count a change's events up to `now` (the time of the count, or of the end of a closed log).
 #[cfg(test)]
 pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
-    count_with(bp, events, &[], now)
+    count_with(bp, "a-change", events, &[], now)
 }
 
 /// Count a log's entries up to `now`: the events that count, and what the voided ones used.
-pub fn count_entries(bp: &Blueprint, entries: &[crate::log::Entry], now: i64) -> Limits {
+pub fn count_entries(bp: &Blueprint, id: &str, entries: &[crate::log::Entry], now: i64) -> Limits {
     let events = crate::log::events(entries);
     let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
     let void = crate::log::voided_events(entries);
     let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
-    count_with(bp, &values, &void, now)
+    count_with(bp, id, &values, &void, now)
 }
 
 /// The same, with the events a correction voided. They decide nothing: no color, no cap raised, no
 /// build waiting to be judged, no wait for a person. But what they used was used, and it still
 /// counts: a round, a build sent back, a run before the review, its seconds and its tokens.
 /// Otherwise voiding a round would give it back, and a cap would hold nothing.
-pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) -> Limits {
+pub fn count_with(
+    bp: &Blueprint,
+    id: &str,
+    events: &[&Value],
+    void: &[&Value],
+    now: i64,
+) -> Limits {
     let late: Vec<String> = bp
         .checks()
         .into_iter()
@@ -320,8 +326,11 @@ pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) 
                 tier: false,
             });
         };
-    let rounds =
-        (if builds > 1 { builds - 1 } else { 0 }) + (if checks > 1 { checks - 1 } else { 0 });
+    // A round is a launch of whoever builds, after the first: gdd-build in a change, and
+    // gdd-checks in a log of standing checks, where the checks are what is built. The checks
+    // sealed again for a build go with it.
+    let setup = crate::state::log_kind(id) == crate::state::LogKind::Setup;
+    let rounds = (if setup { checks } else { builds } - 1).max(0);
     report("rounds", rounds as f64, "rounds_per_change", false, judged);
     report(
         "sent back by the checks",

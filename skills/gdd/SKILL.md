@@ -3,7 +3,7 @@ name: gdd
 description: Orchestrates Gate-Driven Development (GDD) in a repository. Applies when the repository has a GDD block in AGENTS.md or a gdd/ folder and someone asks for any change, however small (a fix, a feature, a refactor, a dependency bump, a typo), and when someone asks how a change stands, to set up GDD, to add gates to a project, or to harden it after something slipped through. Not for questions about the code that change nothing, not for an agent launched with one of the role skills (gdd-checks, gdd-build, gdd-review), which follows its own, and not for repositories without GDD unless the person asks for it.
 license: MIT
 metadata:
-  version: "0.11.4"
+  version: "0.12.0"
   contract: gdd/1
 ---
 
@@ -13,11 +13,11 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 
 ## The layer keeps the order
 
-A GDD project has a layer, `gdd`, a command that keeps the order, the accounting and the evidence of every change, so that you don't. It is the file `.gdd/gdd` in the project, which its `.gitignore` leaves out, or a `gdd` on the path whose `--version` names the layer, never GNU's `dd`: below, `gdd` means that one. If neither runs, set it up as `gdd-prepare/references/layer.md` says, in the folder next to this skill's, and if you can't, tell the person in one line what it needs and stop. You keep the judgment.
+A GDD project has a layer, `gdd`, a command that keeps the order, the accounting and the evidence of every change, so that you don't. It is the file `.gdd/gdd` in the project, or a `gdd` on the path whose `--version` names the layer, never GNU's `dd`: below, `gdd` means that one. If neither runs, set it up as `gdd-prepare/references/layer.md` says, in the folder next to this skill's, and if you can't, tell the person in one line what it needs and stop. You keep the judgment.
 
 - **Before each step, run `gdd next <id>`** (`gdd next` alone for the whole project) and do the one step it names, with the command it gives. You don't choose the order, and you don't skip a step it names.
 - **Only the layer writes `gdd/log/`.** Never append or edit a line there yourself, and never work out a time, a hash or a count for it: each command below writes its own line, and its journal, `gdd/log/<id>.engine.jsonl`, keeps every call.
-- **When it refuses, it says why and what to run instead.** Do that. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself.
+- **When it refuses, it says why and what to run instead.** Do that. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch or replace the layer, even with a yes.
 - Its last line is JSON for programs: read the lines above it.
 
 | When | Run |
@@ -49,11 +49,11 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 | Execute | Every change | `gdd-build` and `gdd-review`, each in an agent of its own |
 | Harden | Something slipped through or repeats, or a gate adds nothing. Never by itself: one proposal per change, to the backlog | `gdd-harden` |
 
-Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation. You run at the standard level, and preparing, hardening and a red brief need the deep one: if you aren't on it, say so to the person first.
+Prepare, Brief and Harden are yours: load the skill, whose folder is next to this one, and do it in this conversation. You run at the standard level, and preparing, hardening and a red brief need the deep one: unless you know you're on it, say so once and go on with the person's yes.
 
 ## A change, step by step
 
-The layer names each step. This is what you still decide in it.
+The layer names each step. This is what you still decide.
 
 1. **Brief.** As `gdd-brief` says, for every change, a typo or a path no zone covers too. Pick an id for the change (lowercase, digits, hyphens), judge its paths and, on yellow and red, write the brief and its scenarios. When the layer says the change waits for the person's approval, nothing is built before it.
 2. **Checks.** A role of its own, never the builder. Its `MISSING:` lines go to the brief. A change with no brief has no such step.
@@ -84,7 +84,7 @@ Unless they asked for more, every message to the person is under 100 words, in t
     <One line per gate that ran.>
     <If you need something: what you'd do, and one question a yes answers.>
 
-"Your footer fix is written but not in yet: a test of the cart's text already failed before I touched it. I'd fix that first, on its own, then ship both. Yes?" Say "written but not in yet" or "it's in", never a branch, a commit, "main" or what the layer logged, and name a file only when they have to open it. Before sending, count its words, take out any file of the method named to justify a question, reread it as someone who never saw the method and, if it asks them something, run `gdd ask` first and send it at once: in the pilot, one waited seven hours unseen. If they say "you decide", or a way out would loosen a check, read `references/person.md` first.
+"Your footer fix is written but not in yet: a test of the cart's text already failed before I touched it. I'd fix that first, on its own, then ship both. Yes?" Say "written but not in yet" or "it's in", never a branch, a commit, "main" or what the layer logged, and name a file only when they have to open it. Before sending, count its words, take out any file of the method named to justify a question, reread it as someone who never saw the method and, if it asks them something, run `gdd ask` first and send it at once: in the pilot, one waited seven hours. If they say "you decide", or a way out would loosen a check, read `references/person.md` first.
 
 ## Stopping
 

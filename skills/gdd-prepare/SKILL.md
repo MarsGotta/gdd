@@ -3,13 +3,13 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.11.4"
+  version: "0.12.0"
   contract: gdd/1
 ---
 
 # Preparing a project
 
-You decide with the person what the project is about, what is delicate in it, which gates it needs, its constitution and what context each gate carries. You build no checks: `gdd-checks` sets them up, and `gdd-review` tries them. You do it yourself, as the orchestrator, with the person and the `gdd` skill loaded. It needs the deep level, because a wrong blueprint makes every change after it wrong.
+You decide with the person what the project is about, what is delicate in it, which gates it needs, its constitution and what context each gate carries. You build no checks: `gdd-checks` sets them up, and `gdd-review` tries them. You do it yourself, as the orchestrator, with the person and the `gdd` skill loaded. It needs the deep level, as `gdd` says, because a wrong blueprint makes every change after it wrong.
 
 ## When the project is already prepared
 

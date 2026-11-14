@@ -352,6 +352,16 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     What it advised against is left alone on purpose: enums for the contract's own words, a struct per event, a trait for commands, a cache for git. Each would add more than it removes. Five functions still pass 180 lines, the tables of the metrics first among them.
 
+63. **What the method benchmark showed of the layer.** It ran the same shop with the layer and without it. With the layer every log passed its verification, and the layer cost more than it saved: more requests ended unfinished, and the one request every run finished took longer with it. Each loss had a cause:
+    - Two were faults of the layer that decision 57 had already fixed while the runs were going.
+    - One was the layer against its own skill. A change already built turned red when a new zone came to cover a file of its own, and its new brief had more scenarios. The skill asks for a red brief to be read before the person approves it, and the layer asked for the approval and refused the reading, because there was a build. A build of an earlier version no longer counts: a new version is a brief nobody built.
+    - To get out of that, an orchestrator asked the person for a yes to fix the tool, cloned the layer's source, patched it and copied its own build over the project's. On `rule` the layer is within the reach of the agents it orders, which `references/layer.md` already said. The skill now says it is never theirs to patch or replace, with the person's yes either, and what to say instead.
+    - The cap on rounds, kept to the letter, ended changes that the same cap only advised against before. Decision 64 changes what a round is.
+
+64. **A round is a build, and a level nobody can tell doesn't stop the work.** Two decisions the person took after the benchmark of decision 63.
+    - A round was each launch of `gdd-checks` and of `gdd-build` after the first of each. A fix that needed a new test took two of a change's three, and a waiver for one more round went on the test before the fix could start. Once the layer kept the cap to the letter, in one run seven of nine changes needed more room, and one took six waivers to get in. A round is now each launch of `gdd-build` after the first, and the checks sealed again for it go with it. Where the checks are what is built, in a log of standing checks, it is each launch of `gdd-checks` after the first, as it was. The layer and `gdd/limits.sh` count the same way, and a project that keeps an older `gdd/limits.sh` counts the old way until it takes the new one.
+    - Preparing, hardening and a red brief ask for the deep level, and the skills told the orchestrator to say so to the person when it wasn't on it. An orchestrator that can't see its own model read that as a reason to ask for another session, turn after turn: in one run a request ended that way with nothing built. Unless it knows it is on that level, it now says so once and goes on with the person's yes. The rule is written in `gdd` alone, and the other skills point to it.
+
 ## Still open
 
 - Which agents beyond Claude Code and Codex, which already read the Agent Skills format.

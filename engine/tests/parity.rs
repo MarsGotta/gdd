@@ -359,6 +359,19 @@ fn synthetic_logs_count_the_same() {
         ],
     ));
     cases.push(("empty".into(), tpl.clone(), vec![]));
+    // Checks sealed again for a build go with it; where the checks are what is built, they count.
+    cases.push((
+        "resealed".into(),
+        old.clone(),
+        vec![
+            ev(0, brief, false),
+            ev(1, checks, false),
+            ev(2, build, false),
+            ev(3, checks, false),
+            ev(4, build, false),
+            ev(5, checks, false),
+        ],
+    ));
     let mut failures = vec![];
     for (name, bp, lines) in &cases {
         let dir = tmp.path().join(format!("s-{name}"));
@@ -368,11 +381,20 @@ fn synthetic_logs_count_the_same() {
         if !text.is_empty() {
             text.push('\n');
         }
-        std::fs::write(dir.join("gdd/log/x.jsonl"), text).unwrap();
-        let a = counter(&dir, "x", &path);
-        let b = ours(&dir, "x");
-        if let Err(e) = same(name, &a, &b) {
-            failures.push(e);
+        // The same events as a change and as the log of the standing checks.
+        for (id, rounds) in [("x", "rounds 1 of 6"), ("standing-checks", "rounds 2 of 6")] {
+            std::fs::write(dir.join(format!("gdd/log/{id}.jsonl")), &text).unwrap();
+            let a = counter(&dir, id, &path);
+            let b = ours(&dir, id);
+            if let Err(e) = same(&format!("{name} as {id}"), &a, &b) {
+                failures.push(e);
+            }
+            if name == "resealed" && !a.lines.iter().any(|l| l == rounds) {
+                failures.push(format!(
+                    "{name} as {id}: no line {rounds:?} in {:?}",
+                    a.lines
+                ));
+            }
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));

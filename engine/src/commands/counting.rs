@@ -16,7 +16,7 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
             ));
         }
         let entries = project.read_log(id);
-        let lim = limits::count_entries(&bp, &entries, time::now());
+        let lim = limits::count_entries(&bp, id, &entries, time::now());
         for t in lim.text() {
             out.say(t);
         }

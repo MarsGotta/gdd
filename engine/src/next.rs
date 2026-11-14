@@ -344,7 +344,7 @@ pub(crate) fn next_step(
         && p.has_brief()
         && !p.read_since_red
         && !p.approved()
-        && p.last_build.is_none()
+        && !p.built_since_brief()
         && p.open_ask().is_none()
     {
         return n(

@@ -3,13 +3,13 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.11.4"
+  version: "0.12.0"
   contract: gdd/1
 ---
 
 # Briefing a change
 
-Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level: if you aren't on it, say so to the person first.
+Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level, as `gdd` says.
 
 ## The color: git sets the floor, and judgment can only raise it
 

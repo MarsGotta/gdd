@@ -95,7 +95,7 @@ pub(super) fn write_report(
     if (st == "checks" || st == "build")
         && let Some(then) = l.state.progress.last_ts
     {
-        let lim = limits::count_entries(&l.bp, &l.entries, then);
+        let lim = limits::count_entries(&l.bp, id, &l.entries, then);
         let full = lim.no_room();
         if !full.is_empty() {
             return Err(Fail::refuse(

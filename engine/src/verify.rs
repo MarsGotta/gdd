@@ -166,7 +166,7 @@ pub fn check_log(
                 .map(|(_, v)| *v)
                 .collect();
             if let Some(at) = at {
-                let lim = limits::count_with(bp, &before, &void, at);
+                let lim = limits::count_with(bp, id, &before, &void, at);
                 let full = lim.no_room();
                 if !full.is_empty() {
                     push(

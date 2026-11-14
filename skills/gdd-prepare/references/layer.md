@@ -10,6 +10,10 @@ From the `engine/` folder of the plugin the skills were loaded from: two folders
 2. Copy that binary to `.gdd/gdd` in the project, and add a line `.gdd/` to the project's `.gitignore` if it isn't there.
 3. Check it: `.gdd/gdd --version` names the layer and its version, and `.gdd/gdd next` ends with a line that starts with `gdd {`. Where a `gdd` on the path gives the same, that one does as well; GNU coreutils installs its `dd` under the same name, and that one is not the layer.
 
+## It is never yours to change
+
+Set it up from that `engine/` folder as it is, and from nowhere else: never from a clone you fetched, and never from source you changed. If the layer looks wrong, or it and a skill say different things, tell the person in one line with the step you'd take, for a yes: "The tool asks for your approval now, and its guide for another agent to read this first. I'd go on as the tool says. Yes?" Never ask them for a yes to fix the layer: in one run, an orchestrator got one, cloned the layer's source, patched it and copied its own build over `.gdd/gdd`, and from there on nothing but itself kept its order.
+
 ## When it can't be built
 
 Without a Rust toolchain nothing builds, and the skills don't work by hand: tell the person in one line what it takes, and stop. "GDD needs a small tool built with Rust, which this computer doesn't have yet: install it from rustup.rs and I'll go on. Shall I wait?" Never write the log yourself meanwhile.

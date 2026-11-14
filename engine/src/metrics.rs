@@ -110,7 +110,7 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
         let last_ts = values.iter().rev().find_map(|v| ts(v));
         let first_ts = values.iter().find_map(|v| ts(v));
-        let lim = limits::count_entries(bp, input.entries, last_ts.unwrap_or(now));
+        let lim = limits::count_entries(bp, id, input.entries, last_ts.unwrap_or(now));
         let state = crate::state::derive(id, bp, input.entries, GitView::default(), now);
         let p = &state.progress;
 

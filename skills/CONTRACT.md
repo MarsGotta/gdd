@@ -166,8 +166,10 @@ A project may also have `gdd/limits.sh`, which counts from a change's log what t
 # those that hold for every color, and the events of gdd/log/<id>.jsonl, and prints one line for
 # each cap: what was used and what the blueprint allows. The last line is
 #   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>],"judge":"<gates, review, ship or empty>"}
-# The color is the result of the last brief step. A round is each launch of gdd-build or of
-# gdd-checks after the first of each. Rounds, minutes, tokens and the runs of the checks that run
+# The color is the result of the last brief step. A round is each launch of gdd-build after the
+# first, and the checks sealed again for it go with it. Where the checks are what is built, in a
+# log of standing checks (standing-checks, standing-checks-<check>, gates-<id>), it is each launch
+# of gdd-checks after the first. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
 # when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait
 # for a person, from an ask to the event after it. A tier of checks past its seconds in a run of the
@@ -202,7 +204,11 @@ for file in gdd/blueprint.md "$log"; do
     exit 2
   fi
 done
-awk -v now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+case "$1" in
+  standing-checks|standing-checks-*|gates-*) setup=1 ;;
+  *) setup=0 ;;
+esac
+awk -v now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -v setup="$setup" '
 function secs(s,   y, m, d, yy, era, yoe, mp, doy, doe) {
   y = substr(s, 1, 4) + 0; m = substr(s, 6, 2) + 0; d = substr(s, 9, 2) + 0
   yy = (m <= 2) ? y - 1 : y
@@ -297,7 +303,8 @@ END {
   minutes = (first == "") ? 0 : int((end - first - waited) / 60)
   if (color != "") printf "color %s\n", color
   judged = (next_up != "")
-  report("rounds", (builds > 1 ? builds - 1 : 0) + (checks > 1 ? checks - 1 : 0), "rounds_per_change", 0, judged)
+  launches = (setup + 0) ? checks : builds
+  report("rounds", launches > 1 ? launches - 1 : 0, "rounds_per_change", 0, judged)
   report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1, judged)
   report("sent back by the review", review + 0, "fix_rounds_per_gate", 1, judged)
   report("minutes", minutes, "minutes_per_change", 0, judged)
@@ -690,7 +697,7 @@ Setting up the standing checks has a log of its own, `gdd/log/standing-checks.js
 
 Each finding of a review has an `id`. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten. What a reviewer leaves under `LATER:`, the design of the code included, goes to the backlog on every color. The layer keeps, beside its findings, the reviewer's `NOTES FOR THE BUILDER:` in `notes` and what it left under `LATER:` in `later`, a line each.
 
-A `reading` step is a reviewer reading a brief before anyone builds it: on red, and on yellow when the change changes data another zone owns. It is optional, so a log without it reads as before. Each of its findings names the question of the brief it comes from and where it went: into the brief, to the person with the approval, to the log, or dropped.
+A `reading` step is a reviewer reading a brief before anyone builds it: on red, and on yellow when the change changes data another zone owns. A new version of a brief is one nobody built: a change that turns red after a build gets that version read before the person approves it. It is optional, so a log without it reads as before. Each of its findings names the question of the brief it comes from and where it went: into the brief, to the person with the approval, to the log, or dropped.
 
 <!-- template: gdd/assets/log-events.jsonl -->
 ```json

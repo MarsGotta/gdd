@@ -3,13 +3,13 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project in both directions, adding a check after something slipped through its gates or keeps repeating, and relaxing or retiring a gate that adds nothing. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when the logs show it coming back, or when a gate costs more than it catches. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.11.4"
+  version: "0.12.0"
   contract: gdd/1
 ---
 
 # Hardening
 
-Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask. In one run, hardening started inside a request, and three more red changes opened on protecting the database's files.
+Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level, as `gdd` says. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask. In one run, hardening started inside a request, and three more red changes opened on protecting the database's files.
 
 ## What counts
 
