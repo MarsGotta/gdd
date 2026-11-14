@@ -77,6 +77,16 @@ fn a_green_change_from_brief_to_ship() {
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
     let n = r.gdd(&["next", "g1"]);
     assert_eq!(n.facts["state"]["next"]["step"], "done");
+    // A closed log is closed: a correction can still say what was wrong, and voids nothing.
+    let line = r.log_lines("g1").len().to_string();
+    let void = r.gdd(&["correct", "g1", "--line", &line, "--void", "reopen it"]);
+    assert_eq!(void.facts["refused"], "out-of-order", "{}", void.out);
+    let note = r.gdd(&["correct", "g1", "--line", &line, "a typo in its place"]);
+    assert_eq!(note.code, 0, "{}", note.out);
+    assert_eq!(
+        r.gdd(&["next", "g1"]).facts["state"]["next"]["step"],
+        "done"
+    );
     // Every invocation went to the change's journal.
     let journal = r.read("gdd/log/g1.engine.jsonl");
     assert!(journal.lines().count() >= 10);

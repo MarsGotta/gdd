@@ -40,7 +40,7 @@ Run them from a project's root, or point at one with `--root <project>`. `--bran
 | `answer <id> "<their words>"` | Ends the open question with an `answer` event. | `gdd answer empty-cart "yes, two decimals"` |
 | `approve <id> --of <kind> --version N --who <p> --where <w> <file>...` | The person's approval, with each file's blob hash as they saw it; refuses a file that isn't the sealed version. `--of change` takes each file as the change's judged head holds it, which the orchestrator's copy may not have at all. | `gdd approve empty-cart --of brief --who Person --where conversation features/empty-cart.feature` |
 | `waiver <id> --who --check --why --backlog [--limit <cap> --to N]` | A waived check or limit, and its backlog item. | `gdd waiver empty-cart --who Person --check rounds_per_change --why "one more try" --backlog empty-cart-rounds --limit rounds_per_change --to 4` |
-| `correct <id> --line N [--void] "<what>"` | A `correction` of a line; `--void` takes the line out of the change's state. | `gdd correct empty-cart --line 7 --void "approval written twice"` |
+| `correct <id> --line N [--void] "<what>"` | A `correction` of a line; `--void` takes the line out of the change's state: it decides nothing more, and what it used still counts against the caps. Refused for a line that sent the change back, and in a closed log. | `gdd correct empty-cart --line 7 --void "approval written twice"` |
 | `report <id> <step> <file or ->` | Writes a launched role's step from its `gdd-report` block, its round counted by the tool. The checks role's proofs come from the `json` block before its report block (`--proofs <file>` overrides it), and so do what a builder says each check gave (`claims`; `--claims <file>` overrides it) and the commands a reviewer ran (`ran`): their prompts ask for that block, and without it the log says so and keeps the list empty. A missing block, a review without a verdict, a build that left nothing or has no branch, and checks before the approval their color asks for are refused. | `gdd report empty-cart review last-message.txt` |
 | `limits <id>` | What the limits still allow, counted exactly as `gdd/limits.sh` counts, and one more line, `lines N of C`, with the builder's lines from `<start>` to the change's head, without the bookkeeping, when there is a head. That one goes in the last line as `lines` and never in `stop`. | `gdd limits empty-cart` |
 | `verify [<id>... \| --all] [--no-git]` | Integrity for CI: errors exit 1, warnings don't. | `gdd verify --all` |
@@ -82,6 +82,8 @@ No state of a log answers the same refusal whatever the orchestrator does: each 
 
 Every refusal of a command names what to run instead, or what to do; one that leaves nothing else names `gdd next <id>`, and a closed log says that anything more is a new change with an id of its own.
 
+What sent a change back holds whatever command comes next, and not only in what `next` names. After a review that said `fix` or `stop`, no other review and no gates are written until a build step, or new checks in a setup log, answers it. After a `stop`, or gates that found what judges the change touched, that round waits for the person to be told and to answer. Commits on the branch that nobody logged change none of it. The line that sent the change back is never voided, and neither is any line of a log that is closed. And a round that began with a cap already spent isn't written, whether `gdd launch` started it or not: what counts is how the caps stood at the log's last line, so a build that ended after its time ran out is still written and judged. `gdd verify` gives an error for a void of a line that sent the change back, and a warning for one of any other gates or review step.
+
 One refusal comes before every command, `verify` included: a repository git won't read, as it won't one another user owns, which is what a checkout in a CI container often is. Taken for a folder with no git, the logs would be checked alone and pass. The layer says what git said and names the line that marks the folder as safe (`git config --global --add safe.directory <folder>`), for whoever decides that copy is the one to trust. Only `gdd verify --no-git`, which asks for no git, goes on without it.
 
 ## What stays with the agents
@@ -93,12 +95,12 @@ A program that uses the library calls `commands::finish` after it journals a cal
 ## Events it may write beyond the contract's template
 
 - `answer`: the person's words, the kind of question and the line of the `ask` it answers.
-- `correction`: the line it corrects, what was wrong and, with `void`, that the line no longer counts.
+- `correction`: the line it corrects, what was wrong and, with `void`, that the line decides nothing more for the change.
 - `seal`: the seal moved, with its ref, the commit it was at (or was cut from), the new one, why, and for files the hashes it sealed:
   `{"contract":"gdd/1","ts":"<UTC time>","brief":"<id>","event":"seal","ref":"gdd-seal/<id>","from":"<commit, or null>","to":"<commit>","why":"<sealed <files>, or merged <main branch>>","files":{"<path>":"<git blob hash>"}}`
 - Extra fields: `head` in `gates` and `ship` (the commit judged and shipped), `skipped` in `gates`, `notes` and `later` in `review`, `request` in `brief` (the person's words), and in a `ship` matched by content, `"matched":"content"` and `in`, the commit of the main branch that holds what was judged (`gdd verify` checks it the same way).
 
-Readers that don't know them can skip them: `gdd/limits.sh` counts the same with or without them, except a voided line, which it still counts.
+Readers that don't know them can skip them: `gdd/limits.sh` counts the same with or without them. What a voided line used counts in both. What it decided, such as the room a waiver gave, counts only in the script, which reads no correction.
 
 The journal, beyond the call: a `ship` that committed bookkeeping keeps `"bookkeeping":{"commit":"<commit>","parent":"<commit>","files":{"<path>":"<git blob hash>"}}`, the files that commit changed. That is how the layer knows later that a head carries its own bookkeeping and nothing else. With the journal turned off, only the working copy's own content counts.
 
@@ -112,6 +114,7 @@ The layer refuses what is out of order and offers no shortcut of its own: no eve
 - get past `--done` with a rebase merge that added a commit touching none of the change's files before or after the rebased ones, or with a merge commit whose own resolution added content: the first looks like another change's commit, and the layer doesn't redo the merge to compare. A squash, and what a merge's other parent brought, are checked whole.
 
 The platform's required check, `gdd gates` and `gdd verify` run in CI on what the pull request merges, closes both.
+- commit a fix after gates that failed and run the gates again with no build step between them. That round isn't counted as a build: it counts only as one more time the checks sent the change back, which has a cap of its own.
 - run the checks' commands, or anything else, outside the layer.
 
 What closes these is the platform, out of every agent's reach: required checks in CI, protected branches and approvals only a person can give.

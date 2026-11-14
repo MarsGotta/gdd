@@ -115,8 +115,41 @@ impl Limits {
     }
 }
 
+/// What one `gates` step took: the seconds of its checks of each round, those of its checks before
+/// the review, and whether one of the latter ran.
+fn gates_cost(v: &Value, late: &[String]) -> (f64, f64, bool) {
+    let (mut each, mut before, mut late_ran) = (0f64, 0f64, false);
+    if let Some(Value::Array(items)) = v.get("gates") {
+        for g in items {
+            let Some(c) = g.get("check").and_then(Value::as_str) else {
+                continue;
+            };
+            let s = g
+                .get("seconds")
+                .and_then(Value::as_f64)
+                .filter(|s| *s >= 0.0)
+                .unwrap_or(0.0);
+            if late.iter().any(|x| x == c) {
+                late_ran = true;
+                before += s;
+            } else {
+                each += s;
+            }
+        }
+    }
+    (each, before, late_ran)
+}
+
 /// Count a change's events up to `now` (the time of the count, or of the end of a closed log).
 pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
+    count_with(bp, events, &[], now)
+}
+
+/// The same, with the events a correction voided. They decide nothing: no color, no cap raised, no
+/// build waiting to be judged, no wait for a person. But what they used was used, and it still
+/// counts: a round, a build sent back, a run before the review, its seconds and its tokens.
+/// Otherwise voiding a round would give it back, and a cap would hold nothing.
+pub fn count_with(bp: &Blueprint, events: &[&Value], void: &[&Value], now: i64) -> Limits {
     let late: Vec<String> = bp
         .checks()
         .into_iter()
@@ -202,25 +235,30 @@ pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
             if failed {
                 gates += 1;
             }
-            let (mut each, mut before, mut late_ran) = (0f64, 0f64, false);
-            if let Some(Value::Array(items)) = v.get("gates") {
-                for g in items {
-                    let Some(c) = g.get("check").and_then(Value::as_str) else {
-                        continue;
-                    };
-                    let s = g
-                        .get("seconds")
-                        .and_then(Value::as_f64)
-                        .filter(|s| *s >= 0.0)
-                        .unwrap_or(0.0);
-                    if late.iter().any(|x| x == c) {
-                        late_ran = true;
-                        before += s;
-                    } else {
-                        each += s;
-                    }
-                }
+            let (each, before, late_ran) = gates_cost(v, &late);
+            if late_ran {
+                late_runs += 1;
             }
+            most_each = most_each.max(each);
+            most_before = most_before.max(before);
+        }
+        tokens += tokens_in(v);
+    }
+    for v in void {
+        if let Some(t) = ts(v) {
+            first = Some(first.map_or(t, |f| f.min(t)));
+        }
+        match step(v) {
+            "build" => builds += 1,
+            "checks" => checks += 1,
+            "review" if any_kv(v, "verdict", "fix") => review += 1,
+            _ => {}
+        }
+        if is_step(v, "gates") {
+            if any_kv(v, "result", "fail") {
+                gates += 1;
+            }
+            let (each, before, late_ran) = gates_cost(v, &late);
             if late_ran {
                 late_runs += 1;
             }

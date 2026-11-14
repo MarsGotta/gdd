@@ -824,6 +824,31 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
                 "gdd/log/{id}.jsonl has no line {line}"
             )));
         }
+        if void {
+            // A closed log is closed: no line of it stops counting once the change shipped.
+            if l.state.progress.shipped.is_some() {
+                return Err(Fail::refuse(
+                    "out-of-order",
+                    format!("{id} shipped and its log is closed: no line of it is voided now"),
+                    format!(
+                        "say what was wrong without --void, which changes nothing of what counted: gdd correct {id} --line {line} \"<what was wrong>\""
+                    ),
+                ));
+            }
+            // A line that sent the change back is never voided: that would waive it.
+            let target = l
+                .entries
+                .iter()
+                .find(|e| e.line == line)
+                .and_then(|e| e.event());
+            if let Some(why) = target.and_then(log::never_voided) {
+                return Err(Fail::refuse(
+                    "never-voided",
+                    format!("line {line} is {why}. Voiding it would waive it"),
+                    way_on(&l, id),
+                ));
+            }
+        }
         let mut m = obj(vec![("line", json!(line)), ("what", json!(what))]);
         if void {
             m.insert("void".into(), json!(true));
@@ -839,7 +864,7 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
         out.say(format!(
             "wrote a correction of line {line}, line {n}{}; no line was rewritten",
             if void {
-                ", which takes it out of the change's state"
+                ", which takes it out of the change's state. What it used still counts against the caps"
             } else {
                 ""
             }
@@ -1247,6 +1272,29 @@ fn write_report(
     if let Err((code, why)) = l.state.progress.allows(Some(&l.bp), &probe) {
         return Err(Fail::refuse(code, why, way_on(l, id)));
     }
+    // A round `gdd launch` would not have started isn't written either: a role run without it, with
+    // a cap already spent. What counts is how the caps stood at the log's last line, which is when
+    // the round began, so a build that ended after its time ran out is still written and judged.
+    if (st == "checks" || st == "build")
+        && let Some(then) = l.state.progress.last_ts
+    {
+        let events = log::events(&l.entries);
+        let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
+        let void = log::voided_events(&l.entries);
+        let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
+        let lim = limits::count_with(&l.bp, &values, &void, then);
+        let full = lim.no_room();
+        if !full.is_empty() {
+            return Err(Fail::refuse(
+                "cap-spent",
+                format!(
+                    "no new round: {} had no room left when this one began",
+                    full.join(", ")
+                ),
+                cap_way_on(id, &l.state.limits),
+            ));
+        }
+    }
     let level = level_of(l, st, a.level.as_deref());
     let model = a
         .model
@@ -1601,7 +1649,9 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
         let entries = project.read_log(id);
         let events = log::events(&entries);
         let values: Vec<&Value> = events.iter().map(|(_, v)| *v).collect();
-        let lim = limits::count(&bp, &values, time::now());
+        let void = log::voided_events(&entries);
+        let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
+        let lim = limits::count_with(&bp, &values, &void, time::now());
         for t in lim.text() {
             out.say(t);
         }
@@ -1614,8 +1664,8 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
                 "{skipped} lines aren't events and weren't counted: gdd verify {id}"
             ));
         }
-        if !log::voided(&entries).is_empty() {
-            out.say("lines voided by a correction aren't counted, as gdd/limits.sh would");
+        if !void.is_empty() {
+            out.say("lines voided by a correction decide nothing, but what they used still counts: a voided round is a round");
         }
         if let Value::Object(m) = lim.facts() {
             for (k, v) in m {

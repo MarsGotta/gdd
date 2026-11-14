@@ -742,6 +742,67 @@ impl Progress {
             return Ok(());
         }
         let st = step(v);
+        // A review that sent the work back stands until a new round answers it: a build, or new
+        // checks in a setup log, takes it out. Until then nothing judges the same work again, and
+        // what stopped goes to the person before the round starts. These rules were only in what
+        // `next` names, and a step written without asking `next` went around them.
+        let sent_back = self.last_review.as_ref().filter(|r| r.verdict != "pass");
+        let stop_untold = sent_back.is_some_and(|r| r.verdict == "stop") && !self.stop_told;
+        let seal_untold = self
+            .last_gates
+            .as_ref()
+            .is_some_and(|g| g.failed.iter().any(|c| c == "seal"))
+            && !self.seal_told;
+        let unanswered = self.open_ask().is_some_and(|a| a.of == "stop");
+        let round = if kind == LogKind::Setup {
+            "checks"
+        } else {
+            "build"
+        };
+        if st == round && log::kind(v) == "step" {
+            if stop_untold {
+                return Err((
+                    "out-of-order",
+                    "a new round after a stop, before the person was told: a stop is never waived"
+                        .into(),
+                ));
+            }
+            if seal_untold {
+                return Err((
+                    "out-of-order",
+                    "a new round after the gates found what judges the change touched, before the person was told".into(),
+                ));
+            }
+            if unanswered {
+                return Err((
+                    "needs-person",
+                    "a new round while the person hasn't answered what stopped the change".into(),
+                ));
+            }
+        }
+        if st == "gates" && kind == LogKind::Change && seal_untold {
+            return Err((
+                "out-of-order",
+                "gates again after they found what judges the change touched, before the person was told".into(),
+            ));
+        }
+        if let Some(r) = sent_back
+            && (st == "review" || st == "gates" && kind == LogKind::Change)
+        {
+            let needs = if r.verdict == "stop" {
+                "the person is told, then a fix round"
+            } else {
+                "a fix round comes first"
+            };
+            return Err((
+                "out-of-order",
+                format!(
+                    "{} after a review that said {}, with nothing built or sealed since: {needs}",
+                    if st == "review" { "a review" } else { "gates" },
+                    r.verdict
+                ),
+            ));
+        }
         let color = self.color.clone().unwrap_or_default();
         let asks =
             |check: &str| bp.is_some_and(|b| !color.is_empty() && b.color_asks(&color, check));
@@ -921,7 +982,9 @@ pub fn derive(id: &str, bp: &Blueprint, entries: &[Entry], git: GitView, now: i6
     } else {
         now
     };
-    let lim = limits::count(bp, &values, until);
+    let void = log::voided_events(entries);
+    let void: Vec<&Value> = void.iter().map(|(_, v)| *v).collect();
+    let lim = limits::count_with(bp, &values, &void, until);
     let passed_on_head = match (&p.last_gates, &git.head) {
         (Some(g), Some(h)) if g.passed && g.head.as_ref().is_none_or(|x| git.stands_for(x, h)) => {
             g.ran.clone()
@@ -984,6 +1047,64 @@ fn setup_checks(id: &str, p: &Progress, lim: &Limits, say: &str) -> Next {
         );
     }
     n("checks", say, format!("gdd launch {id} checks"))
+}
+
+/// What comes after the reviewer sent a change back: a stop goes to the person first, and then,
+/// as after a `fix`, a fix round.
+fn review_sent_back(id: &str, p: &Progress, lim: &Limits, verdict: &str) -> Next {
+    if verdict == "stop" {
+        if !p.stop_told {
+            return blocked(
+                "stopped",
+                "review-stop",
+                "the reviewer said stop: the change doesn't go in. Tell the person why; a stop is never waived, it gets a fix and a new review",
+                format!("gdd ask {id} --of stop \"<why it stopped>\""),
+            );
+        }
+        return round_needs_room(
+            id,
+            lim,
+            n(
+                "build",
+                "a fix round after the reviewer's stop",
+                format!("gdd launch {id} build"),
+            ),
+        );
+    }
+    round_needs_room(
+        id,
+        lim,
+        n(
+            "build",
+            "a fix round with the reviewer's notes",
+            format!("gdd launch {id} build"),
+        ),
+    )
+}
+
+/// What comes after the gates found what judges the change touched: the person is told, and then
+/// a fix round puts it back as it was sealed.
+fn seal_broken(id: &str, p: &Progress, lim: &Limits) -> Next {
+    if !p.seal_told {
+        return blocked(
+            "stopped",
+            "seal-broken",
+            "what judges the change was touched: nothing else counts, the change stops, and the person is told",
+            format!("gdd ask {id} --of stop \"<what was touched>\""),
+        );
+    }
+    // Told: what judges it goes back as it was sealed, in a fix round, and the gates again.
+    round_needs_room(
+        id,
+        lim,
+        n(
+            "build",
+            format!(
+                "a fix round that puts back what judges the change exactly as it was sealed (the seal check's output names the files), then the gates; if the person dropped it: gdd brief {id} --stop \"<their words>\""
+            ),
+            format!("gdd launch {id} build"),
+        ),
+    )
 }
 
 fn round_needs_room(id: &str, lim: &Limits, then: Next) -> Next {
@@ -1327,6 +1448,18 @@ fn next_step(
             format!("gdd brief {id} ..."),
         );
     }
+    // What sent the change back stands whatever the branch holds now. A build step answers it;
+    // commits nobody logged don't, and before this the gates were named for them and the stop was
+    // forgotten.
+    if let Some(r) = p.last_review.as_ref().filter(|r| r.verdict != "pass") {
+        return review_sent_back(id, p, lim, &r.verdict);
+    }
+    if p.last_gates
+        .as_ref()
+        .is_some_and(|g| g.failed.iter().any(|c| c == "seal"))
+    {
+        return seal_broken(id, p, lim);
+    }
     let gates_on_head = p
         .last_gates
         .as_ref()
@@ -1345,28 +1478,6 @@ fn next_step(
         );
     };
     if !g.passed {
-        if g.failed.iter().any(|c| c == "seal") {
-            if !p.seal_told {
-                return blocked(
-                    "stopped",
-                    "seal-broken",
-                    "what judges the change was touched: nothing else counts, the change stops, and the person is told",
-                    format!("gdd ask {id} --of stop \"<what was touched>\""),
-                );
-            }
-            // Told: what judges it goes back as it was sealed, in a fix round, and the gates again.
-            return round_needs_room(
-                id,
-                lim,
-                n(
-                    "build",
-                    format!(
-                        "a fix round that puts back what judges the change exactly as it was sealed (the seal check's output names the files), then the gates; if the person dropped it: gdd brief {id} --stop \"<their words>\""
-                    ),
-                    format!("gdd launch {id} build"),
-                ),
-            );
-        }
         return round_needs_room(
             id,
             lim,
@@ -1389,34 +1500,7 @@ fn next_step(
         );
     };
     match r.verdict.as_str() {
-        "stop" => {
-            if !p.stop_told {
-                return blocked(
-                    "stopped",
-                    "review-stop",
-                    "the reviewer said stop: the change doesn't go in. Tell the person why; a stop is never waived, it gets a fix and a new review",
-                    format!("gdd ask {id} --of stop \"<why it stopped>\""),
-                );
-            }
-            round_needs_room(
-                id,
-                lim,
-                n(
-                    "build",
-                    "a fix round after the reviewer's stop",
-                    format!("gdd launch {id} build"),
-                ),
-            )
-        }
-        "fix" => round_needs_room(
-            id,
-            lim,
-            n(
-                "build",
-                "a fix round with the reviewer's notes",
-                format!("gdd launch {id} build"),
-            ),
-        ),
+        v @ ("stop" | "fix") => review_sent_back(id, p, lim, v),
         _ => {
             if let Some(rc) = &r.color
                 && crate::color_rank(rc) > crate::color_rank(&color)

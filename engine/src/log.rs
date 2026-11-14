@@ -76,6 +76,42 @@ pub fn voided(entries: &[Entry]) -> Vec<usize> {
         .collect()
 }
 
+/// The events a correction voided. They are out of the change's state, but what they used was
+/// used: the caps still count them, or voiding a round would give it back.
+pub fn voided_events(entries: &[Entry]) -> Vec<(usize, &Value)> {
+    let void = voided(entries);
+    entries
+        .iter()
+        .filter(|e| void.contains(&e.line))
+        .filter_map(|e| e.event().map(|v| (e.line, v)))
+        .collect()
+}
+
+/// Why a line is never voided, when it isn't: it sent the change back, and with it out of the
+/// change's state the change would go on without what the line asked for. A reviewer's `fix` gets a
+/// fix round and a new review, its `stop` goes to the person, and so does a seal the builder
+/// touched. Voiding one would waive it by another name.
+pub fn never_voided(v: &Value) -> Option<&'static str> {
+    if is_step(v, "review") {
+        return match str_of(v, "verdict") {
+            "fix" => Some("a review that said fix: it gets a fix round and a new review"),
+            "stop" => Some("a review that said stop: a stop is never waived"),
+            _ => None,
+        };
+    }
+    let seal_failed = |g: &Value| str_of(g, "check") == "seal" && str_of(g, "result") == "fail";
+    if is_step(v, "gates")
+        && v.get("gates")
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.iter().any(seal_failed))
+    {
+        return Some(
+            "gates that found what judges the change touched: the person is told, and a fix round puts it back",
+        );
+    }
+    None
+}
+
 /// The events of a log that count: readable, and not voided by a correction.
 pub fn events(entries: &[Entry]) -> Vec<(usize, &Value)> {
     let void = voided(entries);

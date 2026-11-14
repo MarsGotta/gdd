@@ -674,7 +674,9 @@ One JSON object per line, appended by the layer when each step closes and never 
 
 `ask` is the orchestrator starting to wait for a person, written at that moment. Its `of` uses the word of the `approval` that will answer it, or `waiver`, `decision` or `stop`. Counting them says how often a change stops a person, and the time to the next event says how long each wait lasted. When the next event is the person's own words and no approval or waiver, it is an `answer`: what they said, the `of` of the question and, in `ask`, the line of the `ask` it answers.
 
-A line is never edited. A `correction` names the `line` it corrects and `what` was wrong, and with `void` set to `true` that line no longer counts for the change, though `gdd/limits.sh` still counts it.
+A line is never edited. A `correction` names the `line` it corrects and `what` was wrong, and with `void` set to `true` that line decides nothing more for the change. What it used still counts against the caps: a voided round is a round, in the layer and in `gdd/limits.sh`, which reads no correction and counts the whole line. A line that sent the change back is never voided, because that would waive it: a review that said `fix` or `stop`, and gates that found what judges the change touched. Neither is any line of a change that shipped.
+
+What sent a change back stands until a new round answers it. After a review that said `fix` or `stop`, the next step written is the fix round, a `build`, or `checks` in a setup log: no other review and no gates come before it. After a `stop`, or gates that found what judges the change touched, that round waits for an `ask` of `stop` and its answer. And no round begins with a cap already spent: its step isn't written, however the role was launched.
 
 A `seal` event is the seal moving: its `ref`, the commit it was at in `from` (or the base it was cut from), its new tip in `to`, `why` (`sealed` and the files, or `merged` and the main branch) and, when files were sealed, their blob hashes in `files`. A reader sets `<start>` to `to`. A `brief` step may carry `request`, the person's words, for a change with no brief file.
 

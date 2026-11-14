@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.11.2"
+  version: "0.11.3"
   contract: gdd/1
 ---
 
@@ -57,7 +57,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 End your last message with this block, filled in. `result` is your verdict.
 
 ```gdd-report
-skill: gdd-review 0.11.2
+skill: gdd-review 0.11.3
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

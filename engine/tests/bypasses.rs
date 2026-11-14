@@ -729,3 +729,263 @@ fn a_head_or_branch_that_starts_with_a_dash_is_refused() {
     }
     assert!(!r.path("pwned").exists());
 }
+
+// ----- 7. what sent a change back, and a spent cap, hold whatever command comes next -----
+
+fn report_at(r: &Repo, id: &str, step: &str, text: &str, now: &str) -> Run {
+    let f = r.dir.path().join(format!("report-{id}-{step}-at.txt"));
+    std::fs::write(&f, text).unwrap();
+    r.gdd_env(
+        &["report", id, step, &f.to_string_lossy()],
+        &[("GDD_NOW", now)],
+    )
+}
+
+/// The reviewer sent the change back, and the orchestrator tried everything but what that asks
+/// for: another review, the gates again, a void of the line, a fix nobody told the person about.
+/// These rules were only in what `gdd next` names, so a step written without asking it went
+/// around them: a second review that said pass made a stopped change ready to ship.
+#[test]
+fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
+    let r = Repo::new();
+    let seal = yellow_sealed(&r, "y7");
+    let built = report_block("gdd-build", "done");
+    let page = |text: &str, msg: &str| {
+        r.commit_on("work/y7", None, &[("src/core/app.txt", text)], msg);
+    };
+    r.commit_on(
+        "work/y7",
+        Some(&seal),
+        &[("src/core/app.txt", "ok, built\n")],
+        "Build",
+    );
+    assert_eq!(r.report("y7", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
+    let refused = |what: &str, run: &Run, code: &str, way: &str| {
+        assert_eq!(run.code, 1, "{what}: {}", run.out);
+        assert_eq!(run.facts["refused"], code, "{what}: {}", run.out);
+        assert!(run.has(way), "{what} names no way on: {}", run.out);
+    };
+
+    // A fix: no second opinion, and its line stays.
+    let fix = r.report("y7", "review", &review_text("fix", "yellow"), &[]);
+    assert_eq!(fix.code, 0, "{}", fix.out);
+    let line = r.log_lines("y7").len().to_string();
+    let way = "gdd launch y7 build";
+    refused(
+        "another review",
+        &r.gdd(&["launch", "y7", "review"]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "a second verdict",
+        &r.report("y7", "review", &review_text("pass", "yellow"), &[]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "a void of the fix",
+        &r.gdd(&["correct", "y7", "--line", &line, "--void", "it was wrong"]),
+        "never-voided",
+        way,
+    );
+    page("ok, built better\n", "The fix round");
+    assert_eq!(r.report("y7", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
+
+    // A stop: the same, and the person is told before anyone builds again.
+    let stop = r.report("y7", "review", &review_text("stop", "yellow"), &[]);
+    assert_eq!(stop.code, 0, "{}", stop.out);
+    let lines = r.log_lines("y7").len();
+    let way = "gdd ask y7 --of stop";
+    refused(
+        "another review",
+        &r.gdd(&["launch", "y7", "review"]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "a second verdict",
+        &r.report("y7", "review", &review_text("pass", "yellow"), &[]),
+        "out-of-order",
+        way,
+    );
+    refused(
+        "a void of the stop",
+        &r.gdd(&[
+            "correct",
+            "y7",
+            "--line",
+            &lines.to_string(),
+            "--void",
+            "the reviewer was wrong",
+        ]),
+        "never-voided",
+        way,
+    );
+    // Commits on the branch change nothing: the stop isn't forgotten for the gates of a new head.
+    page("ok, built again\n", "A fix nobody told the person about");
+    let n = r.gdd(&["next", "y7"]);
+    assert_eq!(
+        n.facts["state"]["next"]["blocked"], "review-stop",
+        "{}",
+        n.out
+    );
+    refused("the gates", &r.gdd(&["gates", "y7"]), "out-of-order", way);
+    refused(
+        "a build",
+        &r.report("y7", "build", &built, &[]),
+        "out-of-order",
+        way,
+    );
+    assert_eq!(r.log_lines("y7").len(), lines, "nothing was written");
+
+    // What it asks for still works: the person is told and answers, then a fix round and a review.
+    assert_eq!(
+        r.gdd(&["ask", "y7", "--of", "stop", "It stopped: fix it?"])
+            .code,
+        0
+    );
+    let early = r.report("y7", "build", &built, &[]);
+    assert_eq!(early.facts["refused"], "needs-person", "{}", early.out);
+    assert_eq!(r.gdd(&["answer", "y7", "yes"]).code, 0);
+    assert_eq!(r.report("y7", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
+    let pass = r.report("y7", "review", &review_text("pass", "yellow"), &[]);
+    assert_eq!(pass.code, 0, "{}", pass.out);
+    assert_eq!(
+        r.gdd(&["next", "y7"]).facts["state"]["next"]["step"],
+        "ship"
+    );
+    let v = r.gdd(&["verify", "y7"]);
+    assert_eq!(v.facts["errors"], 0, "{}", v.out);
+}
+
+/// A cap stops the next round, launched through the layer or not. What counts is how the caps
+/// stood when the round began, at the log's last line, so a build that ended after its time ran
+/// out is still written and judged.
+#[test]
+fn a_round_nobody_launched_is_not_written_past_a_spent_cap() {
+    let r = Repo::new();
+    let seal = yellow_sealed(&r, "y8");
+    let built = report_block("gdd-build", "done");
+    r.commit_on(
+        "work/y8",
+        Some(&seal),
+        &[("src/core/app.txt", "bad\n")],
+        "Round 1",
+    );
+    assert_eq!(r.report("y8", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y8"]).code, 1);
+    // Its fix round ends long after the change's minutes ran out. It began with room.
+    r.commit_on(
+        "work/y8",
+        None,
+        &[("src/core/app.txt", "still bad\n")],
+        "Round 2",
+    );
+    let late = report_at(&r, "y8", "build", &built, "2099-01-01T00:00:00Z");
+    assert_eq!(late.code, 0, "{}", late.out);
+    let g = r.gdd_env(&["gates", "y8"], &[("GDD_NOW", "2099-01-01T00:01:00Z")]);
+    assert_eq!(g.code, 1, "it fails, but it was judged: {}", g.out);
+    // The next one began with no room: launched or not, it isn't written.
+    r.commit_on("work/y8", None, &[("src/core/app.txt", "ok\n")], "Round 3");
+    let lines = r.log_lines("y8").len();
+    let now = [("GDD_NOW", "2099-01-01T00:02:00Z")];
+    let l = r.gdd_env(&["launch", "y8", "build"], &now);
+    assert_eq!(l.facts["refused"], "cap-spent", "{}", l.out);
+    let past = report_at(&r, "y8", "build", &built, "2099-01-01T00:02:00Z");
+    assert_eq!(past.facts["refused"], "cap-spent", "{}", past.out);
+    assert!(past.has("gdd ask y8 --of"), "{}", past.out);
+    assert_eq!(r.log_lines("y8").len(), lines, "nothing was written");
+    // With the room only the person gives, it is.
+    let w = r.gdd_env(
+        &[
+            "waiver",
+            "y8",
+            "--who",
+            "Person",
+            "--check",
+            "minutes_per_change",
+            "--why",
+            "one more try",
+            "--backlog",
+            "y8-minutes",
+            "--limit",
+            "minutes_per_change",
+            "--to",
+            "99999999",
+        ],
+        &now,
+    );
+    assert_eq!(w.code, 0, "{}", w.out);
+    let given = report_at(&r, "y8", "build", &built, "2099-01-01T00:03:00Z");
+    assert_eq!(given.code, 0, "{}", given.out);
+}
+
+/// Voiding a round doesn't give it back. A voided line decides nothing, but what it used was used:
+/// before this, voiding the failed gates and the second build brought the counter back to zero.
+#[test]
+fn a_voided_round_is_still_a_round() {
+    let one = BLUEPRINT.replace(
+        "      rounds_per_change: 3\n      fix_rounds_per_gate: 2\n      runs_before_review: 2\n  red:",
+        "      rounds_per_change: 1\n      fix_rounds_per_gate: 2\n      runs_before_review: 2\n  red:",
+    );
+    let r = Repo::with(&one);
+    let seal = yellow_sealed(&r, "y9");
+    let built = report_block("gdd-build", "done");
+    r.commit_on(
+        "work/y9",
+        Some(&seal),
+        &[("src/core/app.txt", "bad\n")],
+        "Round 1",
+    );
+    assert_eq!(r.report("y9", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y9"]).code, 1);
+    r.commit_on(
+        "work/y9",
+        None,
+        &[("src/core/app.txt", "still bad\n")],
+        "Round 2",
+    );
+    assert_eq!(r.report("y9", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y9"]).code, 1);
+    assert_eq!(
+        r.gdd(&["launch", "y9", "build"]).facts["refused"],
+        "cap-spent"
+    );
+    // The failed gates and the second build, voided: lines a correction may take out.
+    let mut builds = 0;
+    for (n, e) in r.log_lines("y9").iter().enumerate() {
+        builds += usize::from(e["step"] == "build");
+        if e["step"] == "gates" || e["step"] == "build" && builds > 1 {
+            let line = (n + 1).to_string();
+            let c = r.gdd(&["correct", "y9", "--line", &line, "--void", "noise"]);
+            assert_eq!(c.code, 0, "{}", c.out);
+        }
+    }
+    let lim = r.gdd(&["limits", "y9"]);
+    assert!(lim.has("rounds 1 of 1, no room left"), "{}", lim.out);
+    // The first build waits for its gates again; after them, there is still no room.
+    assert_eq!(r.gdd(&["gates", "y9"]).code, 1);
+    let l = r.gdd(&["launch", "y9", "build"]);
+    assert_eq!(l.facts["refused"], "cap-spent", "{}", l.out);
+    r.commit_on("work/y9", None, &[("src/core/app.txt", "ok\n")], "Round 3");
+    let past = r.report("y9", "build", &built, &[]);
+    assert_eq!(past.facts["refused"], "cap-spent", "{}", past.out);
+    // And whoever reads the log is told which lines that judged the change were voided.
+    let v = r.gdd(&["verify", "y9"]);
+    let voids = v.facts["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["code"] == "void" && f["level"] == "warning")
+        .count();
+    assert_eq!(
+        (v.facts["errors"].as_i64(), voids),
+        (Some(0), 2),
+        "{}",
+        v.out
+    );
+}

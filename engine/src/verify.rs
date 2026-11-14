@@ -14,7 +14,7 @@ pub struct Finding {
     pub line: usize,
     /// `error` or `warning`.
     pub level: &'static str,
-    /// A short code: `shape`, `order`, `needs-approval`, `time-backwards`, `same-second`, `cap-exceeded`...
+    /// A short code: `shape`, `order`, `needs-approval`, `time-backwards`, `same-second`, `cap-exceeded`, `void`...
     pub code: &'static str,
     pub what: String,
 }
@@ -71,7 +71,37 @@ pub fn check_log(
             }
         }
     }
+    // A void takes a line out of the change's state. One of a line that judged the change is
+    // said, for whoever reads the log. One of a line that sent the change back is the way around
+    // that `gdd correct` refuses: in a log, it was written around the layer.
+    for e in entries {
+        let Some(c) = e.event() else { continue };
+        if kind(c) != "correction" || c["void"] != json!(true) {
+            continue;
+        }
+        let Some(n) = c["line"].as_u64().map(|n| n as usize) else {
+            continue;
+        };
+        let Some(target) = entries.iter().find(|x| x.line == n).and_then(|x| x.event()) else {
+            continue;
+        };
+        if let Some(why) = log::never_voided(target) {
+            push(e.line, "error", "void", format!("it voids line {n}, {why}"));
+        } else if matches!(step(target), "gates" | "review") {
+            push(
+                e.line,
+                "warning",
+                "void",
+                format!(
+                    "it voids line {n}, a {} step that judged the change: {}",
+                    step(target),
+                    str_of(c, "what")
+                ),
+            );
+        }
+    }
     let events = log::events(entries);
+    let voided = log::voided_events(entries);
     let mut p = Progress::new(id);
     let mut prev_ts: Option<(usize, i64)> = None;
     let mut prev_step: Option<(usize, String, Option<i64>)> = None;
@@ -129,8 +159,14 @@ pub fn check_log(
         {
             let before: Vec<&Value> = events[..i].iter().map(|(_, v)| *v).collect();
             let at = events[..i].iter().rev().find_map(|(_, v)| ts(v)).or(t);
+            // What a voided line used before this one still counts.
+            let void: Vec<&Value> = voided
+                .iter()
+                .filter(|(n, _)| *n < line)
+                .map(|(_, v)| *v)
+                .collect();
             if let Some(at) = at {
-                let lim = limits::count(bp, &before, at);
+                let lim = limits::count_with(bp, &before, &void, at);
                 let full = lim.no_room();
                 if !full.is_empty() {
                     push(

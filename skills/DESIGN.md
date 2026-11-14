@@ -325,6 +325,14 @@ The website tells a change in six steps, the ones of its delicate case. They are
     - a checkout another user owns is one git refuses to read. The layer took that for a folder with no git: `verify` checked the logs alone and passed, and the other commands said there was no repository or no main branch. A required check that passes without looking is the one failure CI is there to prevent, so every command now refuses, `verify` included, and names the line that marks the folder as safe. Only `verify --no-git` goes on without git.
 
     The tests keep git to each repository's own configuration, so none passes because of what the machine has set, and the two that take the right to write away say so and skip where the user writes anyway, as root does.
+59. **What sent a change back holds whatever command comes next.** A review of the layer's code, the day it was published, found that the rules about a reviewer's verdict and about the caps lived only in what `gdd next` names and in `gdd launch`. A step written without asking either went around them, through the layer's own commands, and `gdd verify` saw nothing:
+    - after a review that said `stop`, another review was launched and its `pass` made the change ready to ship, with no word to the person and no fix round. A void of the `stop` did the same, and so did the gates run on a commit nobody logged, which made `next` forget the stop.
+    - voiding the failed gates and a build brought the count of rounds back to zero. The script counter had always counted a voided line; the layer, which replaced it, did not.
+    - with a cap spent, `launch` refused a new round and `report` wrote it, if the role had been launched by other means. Where the blueprint's `launch` is a sentence, that is how every role is launched.
+
+    So the order is checked where every step is written, and where `launch` and `verify` read it too. After a `fix` or a `stop`, nothing judges the same work again until a build, or new checks in a setup log, answers it, and after a `stop` or a touched seal that round waits for the person to be told and to answer. The line that sent the change back is never voided, nor any line of a closed log. A voided line decides nothing, but what it used still counts. A round that began with a cap spent isn't written: the caps are read as they stood at the log's last line, so a build that ended after its time ran out is still judged, as decision 50 asks. And `verify` says which lines that judged a change were voided.
+
+    Not closed: after gates that failed, a fix committed with no build step and the gates run again counts as one more time the checks sent the change back, not as a round. The contract stays `gdd/1`: no event changed shape.
 
 ## Still open
 
