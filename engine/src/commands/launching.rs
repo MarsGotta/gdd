@@ -297,8 +297,12 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         .unwrap_or_else(|| format!("work/{id}"));
     match role {
         "checks" => s.push(format!("Seal what you write on gdd-seal/{id}, on top of its tip.")),
-        "build" => s.push(format!(
+        "build" if p.builds == 0 => s.push(format!(
             "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."
+        )),
+        // A later round goes on where the earlier ones left it, and the seal may have moved since.
+        "build" => s.push(format!(
+            "Work on the branch {branch}, where the earlier rounds are, in a worktree of your own inside the project folder, and commit there. It has to hold <start>: merge <start> into it when it doesn't."
         )),
         "review" => s.push(format!(
             "Review the change at {}, in a fresh clone. Its log is {}.",
@@ -309,11 +313,14 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     }
 }
 
-/// What a builder gets in a fix round: what sent the change back, and what the seal now holds.
-fn fix_round_notes(s: &mut Vec<String>, l: &Loaded) {
+/// What a role gets in a fix round: what sent the change back. A reviewer's finding can ask for a
+/// better check, so the checks role gets them too, and a builder is told when the checks were
+/// sealed again after them: what a finding asked of a check is no longer its to answer.
+fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str) {
     let p = &l.state.progress;
     let entries = log::events(&l.entries);
-    if let Some(g) = entries.iter().rev().find(|(_, v)| step(v) == "gates")
+    if role == "build"
+        && let Some(g) = entries.iter().rev().find(|(_, v)| step(v) == "gates")
         && log::any_kv(g.1, "result", "fail")
     {
         s.push("A fix round. What failed at the gates:".into());
@@ -329,25 +336,39 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded) {
             }
         }
     }
-    if let Some(r) = entries.iter().rev().find(|(_, v)| step(v) == "review")
-        && matches!(str_of(r.1, "verdict"), "fix" | "stop")
-        && p.last_gates.as_ref().is_none_or(|g| g.line < r.0)
-    {
+    let Some(r) = entries
+        .iter()
+        .rev()
+        .find(|(_, v)| step(v) == "review")
+        .filter(|r| matches!(str_of(r.1, "verdict"), "fix" | "stop"))
+        .filter(|r| p.last_gates.as_ref().is_none_or(|g| g.line < r.0))
+    else {
+        return;
+    };
+    s.push(format!(
+        "A fix round. The reviewer said {}:",
+        str_of(r.1, "verdict")
+    ));
+    for f in r.1["findings"].as_array().cloned().unwrap_or_default() {
         s.push(format!(
-            "A fix round. The reviewer said {}:",
-            str_of(r.1, "verdict")
+            "- {} {}: {}",
+            str_of(&f, "id"),
+            str_of(&f, "where"),
+            str_of(&f, "what")
         ));
-        for f in r.1["findings"].as_array().cloned().unwrap_or_default() {
-            s.push(format!(
-                "- {} {}: {}",
-                str_of(&f, "id"),
-                str_of(&f, "where"),
-                str_of(&f, "what")
-            ));
-        }
-        if let Some(n) = r.1["notes"].as_str() {
-            s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
-        }
+    }
+    if role == "checks" {
+        s.push("What a finding asks of a check is yours to answer, with a new seal; the rest is the builder's.".into());
+        return;
+    }
+    if let Some(n) = r.1["notes"].as_str() {
+        s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
+    }
+    let resealed = entries
+        .iter()
+        .any(|(line, v)| *line > r.0 && step(v) == "checks" && v["seal"]["commit"].is_string());
+    if resealed {
+        s.push("The checks were sealed again after that review, and <start> is their new tip: what a finding asked of a check was answered there. Make the checks pass as they are now.".into());
     }
 }
 
@@ -404,8 +425,8 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     } else {
         format!("This is round {round} of {role} for this change.")
     });
-    if role == "build" && round > 1 {
-        fix_round_notes(&mut s, l);
+    if round > 1 && matches!(role, "build" | "checks") {
+        fix_round_notes(&mut s, l, role);
     }
     // What the log can show of a role's own runs comes from a json block, like the checks
     // role's proofs: without it, a claim or a trial is only prose.
@@ -559,15 +580,21 @@ fn run_role(
         .timeout
         .unwrap_or(Duration::from_secs(left.unwrap_or(15 * 60) as u64));
     let output = runs.join("output.txt");
-    out.say(format!("running, standard input closed, output to {}; it must show output within {} s; timeout {} s", output.display(), a.start_wait.as_secs(), timeout.as_secs()));
-    let seen = launch::run(argv, &ctx.root, &output, a.start_wait, timeout).map_err(|e| {
-        Fail::refuse(
-            "not-started",
-            e,
-            "the environment failed, not the change: retry once, or tell the person",
-        )
-    })?;
-    let raw = std::fs::read_to_string(&output).unwrap_or_default();
+    let errors = runs.join("errors.txt");
+    out.say(format!("running, standard input closed, output to {} and errors to {}; it must write to one within {} s; timeout {} s", output.display(), errors.display(), a.start_wait.as_secs(), timeout.as_secs()));
+    let seen =
+        launch::run(argv, &ctx.root, &output, &errors, a.start_wait, timeout).map_err(|e| {
+            Fail::refuse(
+                "not-started",
+                e,
+                "the environment failed, not the change: retry once, or tell the person",
+            )
+        })?;
+    // A role answers on its standard output. One that wrote only to the other still said something.
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
+    let raw = Some(read(&output))
+        .filter(|o| !o.trim().is_empty())
+        .unwrap_or_else(|| read(&errors));
     let said = launch::read_output(adapter, &raw, model);
     let journal = json!({"launch": {
         "ran": true, "role": role, "environment": env, "level": level, "model": model, "adapter": adapter.name(),
@@ -617,6 +644,9 @@ fn run_role(
         tokens: said.tokens(),
         ..ReportArgs::default()
     };
+    // The role sealed or committed while it ran: its report is judged against the project as it
+    // left it, not as it was when it was launched.
+    let l = &load(ctx, id)?;
     let (line, _) = write_report(ctx, l, id, role, &said.text, &ra, out)?;
     out.fact("line", line);
     Ok(())

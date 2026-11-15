@@ -349,27 +349,31 @@ fn kill_group(pid: u32) {
         .status();
 }
 
-/// Run a role's command in `cwd`, standard input closed, its output to `out`. After `start_wait` it
-/// must be alive or done, and have written something, or it didn't start and is stopped. It is
-/// stopped too when it runs past `timeout`.
+/// Run a role's command in `cwd`, standard input closed, its standard output to `out` and its
+/// standard error to `err`: what a role answers is what it writes to its output, and an environment
+/// that frames no events puts its progress in the other. After `start_wait` it must be alive or
+/// done, and have written something to either, or it didn't start and is stopped. It is stopped too
+/// when it runs past `timeout`.
 pub fn run(
     argv: &[String],
     cwd: &Path,
     out: &Path,
+    err: &Path,
     start_wait: Duration,
     timeout: Duration,
 ) -> Result<Seen, String> {
     if argv.is_empty() {
         return Err("an empty command".into());
     }
-    let file = crate::runs::create_new(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let err = file.try_clone().map_err(|e| e.to_string())?;
+    let new = |p: &Path| crate::runs::create_new(p).map_err(|e| format!("{}: {e}", p.display()));
+    let file = new(out)?;
+    let errors = new(err)?;
     let mut c = Command::new(&argv[0]);
     c.args(&argv[1..])
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(file)
-        .stderr(err);
+        .stderr(errors);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -382,15 +386,16 @@ pub fn run(
     let pid = child.id();
     let mut seen = Seen::default();
     let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let wrote = || size(out) + size(err) > 0;
     loop {
         let elapsed = started_at.elapsed();
-        if seen.first_output.is_none() && size(out) > 0 {
+        if seen.first_output.is_none() && wrote() {
             seen.first_output = Some(elapsed.as_secs_f64());
             seen.started = true;
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                if seen.first_output.is_none() && size(out) > 0 {
+                if seen.first_output.is_none() && wrote() {
                     seen.first_output = Some(elapsed.as_secs_f64());
                     seen.started = true;
                 }

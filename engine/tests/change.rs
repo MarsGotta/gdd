@@ -86,27 +86,6 @@ fn a_green_change_from_brief_to_ship() {
     assert!(journal.contains("\"refused\":\"not-merged\""));
 }
 
-fn yellow_brief(r: &Repo, id: &str, path: &str) {
-    r.write(&format!("gdd/briefs/{id}.md"), &format!("---\ncontract: gdd/1\nid: {id}\nversion: 1\ncolor: yellow\nzones: [core]\ntouches:\n  - '{path}'\nscenarios: [{id}-1]\nbacklog: {id}\n---\n\n# A yellow change\n\n## Request\n\n\"Make it ok.\"\n\n## What changes\n\nThe app says ok.\n\n## What it won't do yet\n\nNothing else.\n\n## Undoing it\n\nRevert the merge.\n"));
-    r.write(&format!("features/{id}.feature"), &format!("Feature: Ok\n\n  @brief:{id} @id:{id}-1\n  Scenario: It says ok\n    Given the app\n    Then it says ok\n"));
-    let s = r.gdd(&[
-        "seal",
-        id,
-        &format!("gdd/briefs/{id}.md"),
-        &format!("features/{id}.feature"),
-    ]);
-    assert_eq!(s.code, 0, "{}", s.out);
-    let b = r.gdd(&[
-        "brief",
-        id,
-        &format!("gdd/briefs/{id}.md"),
-        &format!("features/{id}.feature"),
-        "--paths",
-        path,
-    ]);
-    assert_eq!(b.code, 0, "{}", b.out);
-}
-
 #[test]
 fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let r = Repo::new();
@@ -579,4 +558,65 @@ fn checks_sealed_before_a_merge_of_main_still_count_once_their_step_is_voided() 
         r.gdd(&["next", "y5"]).facts["state"]["next"]["step"],
         "build"
     );
+}
+
+#[test]
+fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_the_new_seal() {
+    let r = Repo::new();
+    yellow_brief(&r, "y7", "src/core/app.txt");
+    r.gdd(&[
+        "approve",
+        "y7",
+        "--of",
+        "brief",
+        "--who",
+        "Person",
+        "--where",
+        "conversation",
+        "gdd/briefs/y7.md",
+        "features/y7.feature",
+    ]);
+    r.commit_on(
+        "gdd-seal/y7",
+        None,
+        &[("tests/y7.sh", "true # gdd:y7-1\n")],
+        "Seal",
+    );
+    r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let start = r.git(&["rev-parse", "gdd-seal/y7"]);
+    r.commit_on(
+        "work/y7",
+        Some(&start),
+        &[("src/core/app.txt", "it says ok\n")],
+        "Round 1",
+    );
+    r.report("y7", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
+    let found = "f1 tests/y7.sh:1 the test passes whatever the app says\n";
+    let rv = r.report("y7", "review", &review_text("fix", "yellow", found), &[]);
+    assert_eq!(rv.code, 0, "{}", rv.out);
+    // The checks role is told what the reviewer found: a better check is its to write.
+    let c = r.gdd(&["launch", "y7", "checks"]);
+    let prompt = c.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("The reviewer said fix"), "{prompt}");
+    assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
+    assert!(prompt.contains("yours to answer"), "{prompt}");
+    r.commit_on(
+        "gdd-seal/y7",
+        None,
+        &[("tests/y7.sh", "grep -q ok src/core/app.txt # gdd:y7-1\n")],
+        "Seal a test that looks",
+    );
+    let again = r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(again.code, 0, "{}", again.out);
+    // The builder gets the same finding, and is told the seal already answered it.
+    let b = r.gdd(&["launch", "y7", "build"]);
+    let prompt = b.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
+    assert!(
+        prompt.contains("sealed again after that review"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("merge <start> into it"), "{prompt}");
+    assert!(!prompt.contains("which starts at <start>"), "{prompt}");
 }

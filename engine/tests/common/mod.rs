@@ -337,3 +337,25 @@ pub fn review_text(verdict: &str, color: &str, extra: &str) -> String {
 pub fn report_block(skill: &str, result: &str) -> String {
     format!("```gdd-report\nskill: {skill} 0.10.1\nresult: {result}\ncaught: none\n```\n")
 }
+
+/// A yellow change with its brief and its scenario, sealed and logged: it waits for the person's yes.
+pub fn yellow_brief(r: &Repo, id: &str, path: &str) {
+    r.write(&format!("gdd/briefs/{id}.md"), &format!("---\ncontract: gdd/1\nid: {id}\nversion: 1\ncolor: yellow\nzones: [core]\ntouches:\n  - '{path}'\nscenarios: [{id}-1]\nbacklog: {id}\n---\n\n# A yellow change\n\n## Request\n\n\"Make it ok.\"\n\n## What changes\n\nThe app says ok.\n\n## What it won't do yet\n\nNothing else.\n\n## Undoing it\n\nRevert the merge.\n"));
+    r.write(&format!("features/{id}.feature"), &format!("Feature: Ok\n\n  @brief:{id} @id:{id}-1\n  Scenario: It says ok\n    Given the app\n    Then it says ok\n"));
+    let s = r.gdd(&[
+        "seal",
+        id,
+        &format!("gdd/briefs/{id}.md"),
+        &format!("features/{id}.feature"),
+    ]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    let b = r.gdd(&[
+        "brief",
+        id,
+        &format!("gdd/briefs/{id}.md"),
+        &format!("features/{id}.feature"),
+        "--paths",
+        path,
+    ]);
+    assert_eq!(b.code, 0, "{}", b.out);
+}

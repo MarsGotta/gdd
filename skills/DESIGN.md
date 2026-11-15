@@ -371,6 +371,13 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     Two stay whole on purpose: the table of commands in `main`, a line for each command, and `brief`, which builds one event from top to bottom.
 
+66. **A launch the layer runs is judged as the role left the project.** Another pass of the benchmark, with decision 64 in, showed three faults of the layer in the launches it runs itself, and each one stopped requests that nothing else was stopping:
+    - `gdd launch --run` read the project before it started the role, and judged the role's report against that. A checks role that had just sealed was told the seal hadn't moved, and a builder that had just made its branch that there was none. The second launch went through, on what the first one had left, so a step cost two launches, and a checks role launched again over tests it hadn't written stopped because it couldn't vouch for their proofs. The report is now read against the project as the role left it.
+    - A role's standard output and its standard error went to one file. An environment's command without its flag for JSON output puts its whole session on standard error and only its last message on standard output, so the layer read the session as the message: a reviewer's `pass` was never its first word, and the "launch it again" the layer answered could not help. In one run every review from the third request on ended there. The two go to two files now, and a role's answer is its standard output.
+    - A reviewer's finding can ask for a better check. The layer gave the findings to the builder only, and went on giving them after the checks role had sealed the answer. A builder told to fix a sealed test stops, as it should, and in one run it did so round after round. The checks role now gets the findings too, and the builder is told when the checks were sealed again after them. A builder's later round is also told to take the seal's new tip into its branch, which the gates already asked for.
+
+    No test launched a checks role or a builder through `--run`: the ones there were launched a reviewer, which changes nothing in the project. There is one now for each fault. Where the orchestrator launched every role itself and reported it with `gdd report`, none of the three showed.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

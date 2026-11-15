@@ -249,3 +249,133 @@ fn launch_refuses_what_the_state_does_not_allow_yet() {
     assert!(prompt.contains("round 1 of build"), "{prompt}");
     assert!(prompt.contains("gdd-report"), "{prompt}");
 }
+
+/// A yellow change the person approved, waiting for its checks.
+fn approved(r: &Repo, id: &str) {
+    yellow_brief(r, id, "src/core/app.txt");
+    let a = r.gdd(&[
+        "approve",
+        id,
+        "--of",
+        "brief",
+        "--who",
+        "Person",
+        "--where",
+        "conversation",
+        &format!("gdd/briefs/{id}.md"),
+        &format!("features/{id}.feature"),
+    ]);
+    assert_eq!(a.code, 0, "{}", a.out);
+}
+
+/// A fake role that commits one file on a branch, in a worktree of its own, and ends with its report.
+fn committing(r: &Repo, name: &str, add: &str, file: &str, skill: &str, result: &str) -> String {
+    let wt = r.dir.path().join(format!("{name}-wt"));
+    let wt = wt.display();
+    script(
+        r,
+        &format!("{name}.sh"),
+        &format!(
+            "git worktree add -q {add} || exit 8\nmkdir -p $(dirname {wt}/{file})\necho 'by {name}' > {wt}/{file}\ngit -C {wt} add -A && git -C {wt} commit -q -m Work || exit 7\ngit worktree remove --force {wt}\nprintf 'Worked.\\n```gdd-report\\nskill: {skill} 0.10.1\\nresult: {result}\\ncaught: none\\n```\\n'"
+        ),
+    )
+}
+
+#[test]
+fn what_a_role_sealed_or_built_while_it_ran_is_what_its_report_is_judged_against() {
+    let r = Repo::new();
+    approved(&r, "c1");
+    let wt = |n: &str| r.dir.path().join(format!("{n}-wt")).display().to_string();
+    // The checks role seals during the launch: its step is written the first time.
+    let s = committing(
+        &r,
+        "checks",
+        &format!("{} gdd-seal/c1", wt("checks")),
+        "tests/c1.sh",
+        "gdd-checks",
+        "sealed",
+    );
+    let cmd = format!("sh {s} <model>");
+    let c = r.gdd(&[
+        "launch",
+        "c1",
+        "checks",
+        "--run",
+        "--command",
+        &cmd,
+        "--start-wait",
+        "5",
+    ]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    assert_eq!(c.facts["result"], "sealed", "{}", c.out);
+    assert_eq!(c.facts["next"], "build", "{}", c.out);
+    // And the builder makes its branch during the launch.
+    let s = committing(
+        &r,
+        "build",
+        &format!("-b work/c1 {} gdd-seal/c1", wt("build")),
+        "src/core/app.txt",
+        "gdd-build",
+        "done",
+    );
+    let cmd = format!("sh {s} <model>");
+    let b = r.gdd(&[
+        "launch",
+        "c1",
+        "build",
+        "--run",
+        "--command",
+        &cmd,
+        "--start-wait",
+        "5",
+    ]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert_eq!(b.facts["next"], "gates", "{}", b.out);
+}
+
+#[test]
+fn a_role_answers_on_its_standard_output_whatever_it_says_on_the_other() {
+    let r = ready_for_review();
+    // An environment that frames no events: its progress on standard error, its answer on the other.
+    let s = script(
+        &r,
+        "noisy.sh",
+        &format!("echo 'a banner, then all it did' >&2\n{PASS}\necho 'tokens used' >&2"),
+    );
+    let cmd = format!("sh {s} <model>");
+    let l = r.gdd(&[
+        "launch",
+        "l1",
+        "review",
+        "--run",
+        "--command",
+        &cmd,
+        "--start-wait",
+        "5",
+    ]);
+    assert_eq!(l.code, 0, "{}", l.out);
+    let review = r
+        .log_lines("l1")
+        .into_iter()
+        .find(|e| e["step"] == "review")
+        .unwrap();
+    assert_eq!(review["verdict"], "pass");
+}
+
+#[test]
+fn a_role_that_wrote_only_to_standard_error_still_said_it() {
+    let r = ready_for_review();
+    let s = script(&r, "errors.sh", &format!("( {PASS} ) >&2"));
+    let cmd = format!("sh {s} <model>");
+    let l = r.gdd(&[
+        "launch",
+        "l1",
+        "review",
+        "--run",
+        "--command",
+        &cmd,
+        "--start-wait",
+        "5",
+    ]);
+    assert_eq!(l.code, 0, "{}", l.out);
+}
