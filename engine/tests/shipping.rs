@@ -467,6 +467,22 @@ fn ask_names_the_command_its_answer_takes() {
 }
 
 #[test]
+fn a_split_is_asked_before_the_brief() {
+    // In a run of the benchmark the agent asked to split a request with --of change, was
+    // refused because nothing was briefed yet, and stopped: the refusal must name the way.
+    let r = Repo::new();
+    let c = r.gdd(&["ask", "s1", "--of", "change", "Split it in two?"]);
+    assert_eq!(c.facts["refused"], "out-of-order", "{}", c.out);
+    assert!(c.has("gdd ask s1 --of decision"), "{}", c.out);
+    let d = r.gdd(&["ask", "s1", "--of", "decision", "Split it in two?"]);
+    assert_eq!(d.code, 0, "{}", d.out);
+    let a = r.gdd(&["answer", "s1", "yes"]);
+    assert_eq!(a.code, 0, "{}", a.out);
+    let n = r.gdd(&["next", "s1"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "brief", "{}", n.out);
+}
+
+#[test]
 fn a_change_with_no_brief_keeps_the_request_word_for_word() {
     let r = Repo::new();
     let words = "Fix the page: it says \"Copyrigth\", please";

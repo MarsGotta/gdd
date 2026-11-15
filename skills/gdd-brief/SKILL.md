@@ -3,7 +3,7 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.12.1"
+  version: "0.12.2"
   contract: gdd/1
 ---
 
@@ -49,7 +49,7 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
 - **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a scenario already in `features/` says the opposite, the brief changes that scenario too and says so, because that changes what has to pass. In the pilot, an agent was asked to remove every old URL and forbidden to touch the scenario that still required one.
 - **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use, and set that item to `briefed` with `gdd backlog briefed <item> --brief <id>`. In the pilot, some 28 changes were merged in six hours and not one item of the roadmap got finished: they were all parts and preparations.
-- **Too big.** Split a request only when it would go over the blueprint's `lines_per_change` or cross two red zones, and propose the split to the person before you brief any part: a line for each part, with what it gives them and about how long it takes, from earlier logs or said to be a guess, and one question a yes answers. "I'd do accounts in two: first signing up and in, about 30 minutes, so customers can open one; then their past orders, about 20. Yes?" Every part pays its whole way through the gates, so the first one has to show them something: in one run, the first third of a request took 84 minutes and left the person nothing new to see. Once they say yes, each part gets its own brief and its own approval. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning the switch on is another change, at the level of what it turns on. Splitting doesn't lower the risk.
+- **Too big.** Split a request only when it would go over the blueprint's `lines_per_change` or cross two red zones, and propose the split to the person before you brief any part (`--of decision`): a line for each part, with what it gives them and about how long it takes, from earlier logs or said to be a guess, and one question a yes answers. "I'd do accounts in two: first signing up and in, about 30 minutes, so customers can open one; then their past orders, about 20. Yes?" Every part pays its whole way through the gates, so the first one has to show them something: in one run, the first third of a request took 84 minutes and left the person nothing new to see. Once they say yes, each part gets its own brief and its own approval. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning the switch on is another change, at the level of what it turns on. Splitting doesn't lower the risk.
 
 ## Decisions nobody has made
 

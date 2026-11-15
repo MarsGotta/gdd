@@ -378,6 +378,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     No test launched a checks role or a builder through `--run`: the ones there were launched a reviewer, which changes nothing in the project. There is one now for each fault. Where the orchestrator launched every role itself and reported it with `gdd report`, none of the three showed.
 
+67. **A split is asked before the brief, and the refusal says how.** `gdd-brief` says to propose a split to the person before briefing any part, and the layer refuses a question about a change that has no brief yet. In one run of the benchmark the orchestrator asked about a split with `--of change`, was refused, read that it may not go around a refusal even with the person's leave, and asked three times for someone to fix GDD, until the run counted the request as stuck. A question before a brief already went with `--of decision`, and nothing said so. `gdd-brief` names it next to the split, and the refusal names it as the way out.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

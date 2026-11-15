@@ -121,7 +121,8 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
         }
         let l = load(ctx, id)?;
         // A question about a brief, or about the change, waits for a brief to be logged; one about
-        // a rule of the product is how a brief starts, and goes any time.
+        // a rule of the product, or about how to split the request, is how a brief starts, and
+        // goes any time.
         let kind = log_kind(id);
         if (of == "brief" || of == "change")
             && kind == LogKind::Change
@@ -131,7 +132,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
                 "out-of-order",
                 format!("no brief is logged for {id}: run gdd brief first"),
                 format!(
-                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]"
+                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]; a question before its brief, such as how to split it, goes with gdd ask {id} --of decision"
                 ),
             ));
         }
