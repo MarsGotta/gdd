@@ -141,6 +141,10 @@ pub struct Progress {
     /// Spans of the seal, from a commit to a later one, that held work no step had recorded
     /// when a `seal` event moved `<start>` past them: a role's report still counts them.
     pub unrecorded: Vec<(String, String)>,
+    /// The last checks step that sealed: its commit and the change's color then.
+    pub checked: Option<(String, Option<String>)>,
+    /// Every check a checks step sealed, with its hash.
+    pub checks_sealed: BTreeMap<String, String>,
 }
 
 pub(crate) fn hashes(v: &Value) -> BTreeMap<String, String> {
@@ -378,9 +382,11 @@ impl Progress {
                     if let Some(c) = v["seal"]["commit"].as_str() {
                         self.start = Some(c.into());
                         self.sealed_any = true;
+                        self.checked = Some((c.into(), self.color.clone()));
                     }
                     for (p, h) in hashes(&v["seal"]["checks"]) {
-                        self.sealed.insert(p, h);
+                        self.sealed.insert(p.clone(), h.clone());
+                        self.checks_sealed.insert(p, h);
                     }
                     // A setup log has no brief: its color is the one its sealed paths give.
                     if let Some(c) = v["color"]["color"]

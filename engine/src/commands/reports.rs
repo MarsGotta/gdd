@@ -235,13 +235,22 @@ fn report_checks(
         .iter()
         .filter(|(a, b)| git::is_ancestor(&ctx.root, a, b) && git::is_ancestor(&ctx.root, b, &tip))
         .collect();
-    if tip == from && pending.is_empty() {
-        return Err(Fail::refuse(
-            "not-sealed",
-            format!("gdd-seal/{id} didn't move: the checks role sealed nothing"),
-            format!("gdd launch {id} checks"),
-        ));
-    }
+    // A new version of the brief sends its checks back to the role, which may find that what it
+    // sealed before still covers it: in one run the brief only gained a port, and the layer refused
+    // the role's word that nothing had to change, round after round.
+    let standing = if tip == from && pending.is_empty() {
+        let s = (!p.checks_done).then(|| standing_checks(ctx, p, id, &tip));
+        let Some(s) = s.flatten() else {
+            return Err(Fail::refuse(
+                "not-sealed",
+                format!("gdd-seal/{id} didn't move: the checks role sealed nothing"),
+                format!("gdd launch {id} checks"),
+            ));
+        };
+        Some(s)
+    } else {
+        None
+    };
     if !start.is_empty() && !git::is_ancestor(&ctx.root, &start, &tip) {
         return Err(Fail::refuse(
             "not-sealed",
@@ -267,6 +276,12 @@ fn report_checks(
         if let Some(h) = git::blob_at(&ctx.root, &tip, f) {
             checks.insert(f.clone(), json!(h));
         }
+    }
+    if let Some(s) = standing {
+        out.say(
+            "nothing new on the seal: the checks sealed before stand for this version of the brief",
+        );
+        checks = s;
     }
     // Its proofs: --proofs overrides the json block of its last message.
     let proofs = if a.proofs.is_some() {
@@ -306,6 +321,32 @@ fn report_checks(
         out.say("its last message has no json block of proofs: they aren't in the log (or pass --proofs <file>)");
     }
     Ok(())
+}
+
+/// The checks sealed before, when they still stand for a new version of the brief: since the last
+/// checks step, the seal changed nothing but the brief's prose, and the change's color didn't rise.
+/// A new scenario, a check that changed or a higher color need the role to seal again.
+fn standing_checks(
+    ctx: &Ctx,
+    p: &crate::state::Progress,
+    id: &str,
+    tip: &str,
+) -> Option<Map<String, Value>> {
+    let (at, then) = p.checked.as_ref()?;
+    let rank = |c: &Option<String>| c.as_deref().and_then(crate::color_rank);
+    let prose = format!("gdd/briefs/{id}.md");
+    if rank(&p.color) > rank(then)
+        || !git::is_ancestor(&ctx.root, at, tip)
+        || changes(ctx, at, tip).ok()?.iter().any(|f| *f != prose)
+    {
+        return None;
+    }
+    let s: Map<String, Value> = p
+        .checks_sealed
+        .keys()
+        .filter_map(|f| git::blob_at(&ctx.root, tip, f).map(|h| (f.clone(), json!(h))))
+        .collect();
+    (!s.is_empty()).then_some(s)
 }
 
 /// What a build step adds: what the builder says each check gave. A build that left nothing to

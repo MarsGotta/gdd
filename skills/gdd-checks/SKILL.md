@@ -3,7 +3,7 @@ name: gdd-checks
 description: Writes and seals the cases of a change in Gate-Driven Development (GDD), a test for each scenario of its brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.12.2"
+  version: "0.12.3"
   contract: gdd/1
 ---
 
@@ -60,6 +60,8 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
 
+When you're launched for a new version of the brief that changed only its prose, the checks you sealed before may still cover it. Run them against it, and if they hold, commit nothing: report `sealed` with their proofs, and the layer records them as they stand. A new scenario, a changed check or a higher color always takes a new seal.
+
 ## The standing checks
 
 After preparing, you set up the machine checks the blueprint's `checks` name, once for the whole project and never once for each zone, and CI where there is none, running the constitution's commands as they are. Each one goes at the lowest step of the ladder that works. A mature tool is taken as it is: you configure it, and you write no detector of your own beside it for what it might miss. When the project builds for the web, open `references/web.md` before you set up its tests: the traps met setting them up, and what works. Set the secret scan to report the file, the line and the kind of what it finds, never the secret itself, and to ignore the marks in the code that exempt a line from it, which any change could add.
@@ -95,7 +97,7 @@ Checks found already green, and hollow, in real runs:
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
 ```gdd-report
-skill: gdd-checks 0.12.2
+skill: gdd-checks 0.12.3
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```

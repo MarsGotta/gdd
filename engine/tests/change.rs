@@ -504,6 +504,127 @@ fn a_new_version_of_a_brief_needs_new_checks_and_keeps_its_base() {
     assert_eq!(last["version"], 2);
     assert_eq!(last["color"]["base"], base);
     assert_eq!(b.facts["next"], "checks", "{}", b.out);
+    // The role finds that what it sealed still covers the new version, and seals nothing new: its
+    // checks stand, as they were sealed, and the change goes on to its build.
+    let c = r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    let lines = r.log_lines("y4");
+    let checks = &lines.last().unwrap()["seal"]["checks"];
+    assert!(checks["tests/y4.sh"].is_string(), "{checks}");
+    assert_eq!(c.facts["next"], "build", "{}", c.out);
+    // Once they stand, the same word again is nothing sealed.
+    let again = r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(again.facts["refused"], "not-sealed", "{}", again.out);
+}
+
+fn approved(r: &Repo, id: &str) {
+    let f = format!("features/{id}.feature");
+    let a = r.gdd(&[
+        "approve",
+        id,
+        "--of",
+        "brief",
+        "--who",
+        "P",
+        "--where",
+        "conversation",
+        &f,
+    ]);
+    assert_eq!(a.code, 0, "{}", a.out);
+}
+
+/// A yellow change whose checks role sealed `tests/<id>.sh`.
+fn checked(r: &Repo, id: &str) {
+    yellow_brief(r, id, "src/core/app.txt");
+    approved(r, id);
+    let test = format!("tests/{id}.sh");
+    r.commit_on(
+        &format!("gdd-seal/{id}"),
+        None,
+        &[(test.as_str(), "true\n")],
+        "Seal",
+    );
+    let c = r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+}
+
+/// A new version of the brief, sealed with `files` and briefed with them.
+fn new_version(r: &Repo, id: &str, files: &[&str], extra: &[&str]) {
+    let brief = format!("gdd/briefs/{id}.md");
+    let text = r.read(&brief).replace("version: 1", "version: 2");
+    r.write(&brief, &text);
+    let mut seal = vec!["seal", id];
+    seal.extend(files);
+    assert_eq!(r.gdd(&seal).code, 0);
+    let mut b = vec!["brief", id];
+    b.extend(files);
+    b.extend(["--paths", "src/core/app.txt"]);
+    b.extend(extra);
+    let b = r.gdd(&b);
+    assert_eq!(b.code, 0, "{}", b.out);
+}
+
+fn sealed_nothing(r: &Repo, id: &str) -> Run {
+    r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[])
+}
+
+/// With no checks sealed yet, the role's word that nothing had to change is still nothing sealed.
+#[test]
+fn a_first_checks_round_that_seals_nothing_is_refused() {
+    let r = Repo::new();
+    yellow_brief(&r, "y6", "src/core/app.txt");
+    approved(&r, "y6");
+    assert_eq!(sealed_nothing(&r, "y6").facts["refused"], "not-sealed");
+}
+
+/// A new scenario needs its checks: the ones sealed before don't stand for it.
+#[test]
+fn a_new_scenario_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "y7");
+    let f = r.read("features/y7.feature")
+        + "\n  @brief:y7 @id:y7-2\n  Scenario: It refuses a bad value\n    Given the app\n    Then it refuses\n";
+    r.write("features/y7.feature", &f);
+    new_version(&r, "y7", &["gdd/briefs/y7.md", "features/y7.feature"], &[]);
+    approved(&r, "y7");
+    assert_eq!(sealed_nothing(&r, "y7").facts["refused"], "not-sealed");
+}
+
+/// A color that rose asks more of the checks: the ones sealed for yellow don't stand for red.
+#[test]
+fn a_higher_color_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "y8");
+    let b = r.gdd(&[
+        "brief",
+        "y8",
+        "gdd/briefs/y8.md",
+        "features/y8.feature",
+        "--paths",
+        "src/core/app.txt",
+        "--color",
+        "red",
+        "--why",
+        "the reviewer found red",
+    ]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert_eq!(sealed_nothing(&r, "y8").facts["refused"], "not-sealed");
+}
+
+/// A check changed on the seal and passed off as a file of the brief doesn't stand either.
+#[test]
+fn a_check_changed_as_a_brief_file_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "y9");
+    r.write("tests/y9.sh", "exit 0 # weakened\n");
+    new_version(
+        &r,
+        "y9",
+        &["gdd/briefs/y9.md", "features/y9.feature", "tests/y9.sh"],
+        &[],
+    );
+    approved(&r, "y9");
+    assert_eq!(sealed_nothing(&r, "y9").facts["refused"], "not-sealed");
 }
 
 /// A checks step voided by a correction, and then the main branch merged into the seal: the
