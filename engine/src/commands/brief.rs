@@ -96,14 +96,18 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
         let seal_tip = l.state.git.seal_tip.clone();
         let base = match (&l.state.progress.base, &seal_tip) {
             (Some(b), _) => b.clone(),
-            (None, Some(t)) => git::merge_base(&ctx.root, t, &main).ok_or(Fail::missing(
-                format!("a commit both gdd-seal/{id} and {main} hold"),
-                format!("the seal and {main} share no commit"),
-            ))?,
-            (None, None) => git::commit_of(&ctx.root, &main).ok_or(Fail::missing(
-                format!("refs/heads/{main}"),
-                format!("there is no {main} branch"),
-            ))?,
+            (None, Some(t)) => {
+                git::merge_base(&ctx.root, t, &git::branch_ref(&main)).ok_or(Fail::missing(
+                    format!("a commit both gdd-seal/{id} and {main} hold"),
+                    format!("the seal and {main} share no commit"),
+                ))?
+            }
+            (None, None) => {
+                git::commit_of(&ctx.root, &git::branch_ref(&main)).ok_or(Fail::missing(
+                    format!("refs/heads/{main}"),
+                    format!("there is no {main} branch"),
+                ))?
+            }
         };
         let logged = l.state.progress.color.clone();
         let c = color::color_of(&ctx.root, &l.bp, a.paths, a.color, logged.as_deref(), a.why)

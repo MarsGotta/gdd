@@ -51,7 +51,7 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
             Some(t) => t.clone(),
             None => match &l.state.progress.base {
                 Some(b) => b.clone(),
-                None => git::commit_of(&ctx.root, &main).ok_or(Fail::missing(
+                None => git::commit_of(&ctx.root, &git::branch_ref(&main)).ok_or(Fail::missing(
                     format!("refs/heads/{main}"),
                     format!("there is no {main} branch"),
                 ))?,

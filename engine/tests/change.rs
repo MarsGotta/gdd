@@ -704,39 +704,70 @@ fn a_merge_of_something_else_does_not_pass_for_main() {
         &[("tests/helper.sh", "exit 0\n")],
         "Not main",
     );
-    let seal = r.git(&["rev-parse", "gdd-seal/yr"]);
-    let tree = r.git(&["merge-tree", "--write-tree", &seal, &side]);
-    let merge = r.git(&[
-        "commit-tree",
-        &tree,
-        "-p",
-        &seal,
-        "-p",
-        &side,
-        "-m",
-        "Merge",
-    ]);
-    r.git(&["update-ref", "refs/heads/gdd-seal/yr", &merge, &seal]);
-    let brief = r
-        .read("gdd/briefs/yr.md")
-        .replace("version: 1", "version: 2");
-    r.write("gdd/briefs/yr.md", &brief);
+    let tree = r.git(&["merge-tree", "--write-tree", "gdd-seal/yr", &side]);
+    merged_by_hand_then_prose(&r, "yr", &side, &tree);
+    refused_as_nothing_sealed(&r, "yr");
+}
+
+/// Nor does a tag named like the main branch stand in for it.
+#[test]
+fn a_tag_named_main_does_not_pass_for_the_main_branch() {
+    let r = Repo::new();
+    checked(&r, "yt");
+    let side = r.commit_on(
+        "side",
+        Some("HEAD"),
+        &[("tests/helper.sh", "exit 0\n")],
+        "Not main",
+    );
+    r.git(&["tag", "main", &side]);
+    let tree = r.git(&["merge-tree", "--write-tree", "gdd-seal/yt", &side]);
+    merged_by_hand_then_prose(&r, "yt", &side, &tree);
+    refused_as_nothing_sealed(&r, "yt");
+}
+
+/// Nor a merge by hand of a main the seal already held: it brings nothing new, so an older version
+/// of a file main has since changed doesn't pass for main's.
+#[test]
+fn a_merge_of_a_main_the_seal_already_held_does_not_pass_for_main() {
+    let r = Repo::new();
+    checked(&r, "yu");
+    r.write("src/ui/page.txt", "first page\n");
+    let first = r.commit("Something else shipped");
+    assert_eq!(r.gdd(&["seal", "yu", "--merge-main"]).code, 0);
+    r.write("src/ui/page.txt", "second page\n");
+    r.commit("It changed again");
+    assert_eq!(r.gdd(&["seal", "yu", "--merge-main"]).code, 0);
+    let old = r.commit_on(
+        "old",
+        Some("gdd-seal/yu"),
+        &[("src/ui/page.txt", "first page\n")],
+        "The page main had first",
+    );
+    let tree = r.git(&["rev-parse", &format!("{old}^{{tree}}")]);
+    merged_by_hand_then_prose(&r, "yu", &first, &tree);
+    refused_as_nothing_sealed(&r, "yu");
+}
+
+/// A merge of the seal with `other`, made by hand to hold `tree`, then a new version of the brief
+/// in prose.
+fn merged_by_hand_then_prose(r: &Repo, id: &str, other: &str, tree: &str) {
+    let branch = format!("refs/heads/gdd-seal/{id}");
+    let seal = r.git(&["rev-parse", &branch]);
+    let merge = r.git(&["commit-tree", tree, "-p", &seal, "-p", other, "-m", "Merge"]);
+    r.git(&["update-ref", &branch, &merge, &seal]);
+    let path = format!("gdd/briefs/{id}.md");
+    let brief = r.read(&path).replace("version: 1", "version: 2");
+    r.write(&path, &brief);
     r.commit_on(
-        "gdd-seal/yr",
+        &format!("gdd-seal/{id}"),
         None,
-        &[("gdd/briefs/yr.md", &brief)],
+        &[(&path, &brief)],
         "Brief v2",
     );
-    let b = r.gdd(&[
-        "brief",
-        "yr",
-        "gdd/briefs/yr.md",
-        "features/yr.feature",
-        "--paths",
-        "src/core/app.txt",
-    ]);
+    let feature = format!("features/{id}.feature");
+    let b = r.gdd(&["brief", id, &path, &feature, "--paths", "src/core/app.txt"]);
     assert_eq!(b.code, 0, "{}", b.out);
-    refused_as_nothing_sealed(&r, "yr");
 }
 
 /// Nor does a scenario of the change that main changed: it is a brief file, and needs the role.

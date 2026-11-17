@@ -274,7 +274,7 @@ impl GitView {
             has_remote: crate::git::out(root, &["remote"]).is_ok_and(|r| !r.trim().is_empty()),
             same: vec![],
             seal_tip: crate::git::commit_of(root, &format!("refs/heads/gdd-seal/{id}")),
-            main_tip: crate::git::commit_of(root, &main),
+            main_tip: crate::git::commit_of(root, &crate::git::branch_ref(&main)),
             branch,
             head,
         }

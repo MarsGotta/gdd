@@ -520,7 +520,7 @@ pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
                 back.join(", ")
             ));
         }
-        let main_tip = git::commit_of(&ctx.root, &main).ok_or(Fail::missing(
+        let main_tip = git::commit_of(&ctx.root, &git::branch_ref(&main)).ok_or(Fail::missing(
             format!("refs/heads/{main}"),
             format!("there is no {main} branch"),
         ))?;
@@ -633,7 +633,7 @@ pub fn ship_done(ctx: &Ctx, id: &str, place: &str) -> Out {
         ready_to_ship(&l, id)?;
         let head = ship_head(&l, id)?;
         let judged = judged_for(ctx, &l, id, &head)?;
-        let main_tip = git::commit_of(&ctx.root, &main).ok_or(Fail::missing(
+        let main_tip = git::commit_of(&ctx.root, &git::branch_ref(&main)).ok_or(Fail::missing(
             format!("refs/heads/{main}"),
             format!("there is no {main} branch"),
         ))?;

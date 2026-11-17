@@ -335,7 +335,7 @@ pub fn check_git(root: &Path, id: &str, entries: &[Entry], main: &str) -> Vec<Fi
             list: vec![],
         },
     };
-    let main_tip = crate::git::commit_of(root, main);
+    let main_tip = crate::git::commit_of(root, &crate::git::branch_ref(main));
     let mut p = Progress::new(id);
     for (line, v) in log::events(entries) {
         match step(v) {

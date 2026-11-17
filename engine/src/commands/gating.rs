@@ -89,7 +89,7 @@ fn judged_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
             ),
         ));
     }
-    let mb = git::merge_base(&ctx.root, head, &main).ok_or(Fail::missing(
+    let mb = git::merge_base(&ctx.root, head, &git::branch_ref(&main)).ok_or(Fail::missing(
         format!("a commit both {} and {main} hold", git::short(head)),
         format!("{} shares no commit with {main}", git::short(head)),
     ))?;

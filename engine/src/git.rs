@@ -396,7 +396,7 @@ pub fn match_paths(root: &Path, paths: &[String], specs: &[String]) -> Result<Ve
 /// anything is sealed or built.
 pub fn can_write_ref(root: &Path) -> Result<(), String> {
     let commit = commit_of(root, "HEAD")
-        .or_else(|| commit_of(root, &main_branch(root)))
+        .or_else(|| commit_of(root, &branch_ref(&main_branch(root))))
         .ok_or("the repository has no commit yet")?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -423,7 +423,18 @@ pub fn identity(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The main branch: `GDD_MAIN` when set, else `main`, else `master`.
+/// A branch as a full ref, `refs/heads/<name>`, so that a tag or another ref of the same name
+/// can't stand in for it. A name that is already a full ref stays as it is.
+pub fn branch_ref(name: &str) -> String {
+    if name.starts_with("refs/") {
+        name.to_string()
+    } else {
+        format!("refs/heads/{name}")
+    }
+}
+
+/// The main branch: `GDD_MAIN` when set (a branch's name, or a full ref such as
+/// `refs/remotes/origin/main`), else `main`, else `master`.
 pub fn main_branch(root: &Path) -> String {
     if let Ok(m) = std::env::var("GDD_MAIN")
         && !m.is_empty()

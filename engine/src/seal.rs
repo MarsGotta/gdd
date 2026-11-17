@@ -122,7 +122,8 @@ fn mode_of(_: &Path) -> &'static str {
 pub fn merge_main(root: &Path, id: &str, main: &str) -> Result<String, String> {
     let reference = seal_ref(id);
     let tip = git::commit_of(root, &reference).ok_or(format!("{reference} doesn't exist"))?;
-    let main_tip = git::commit_of(root, main).ok_or(format!("{main} doesn't exist"))?;
+    let main_tip =
+        git::commit_of(root, &git::branch_ref(main)).ok_or(format!("{main} doesn't exist"))?;
     if git::is_ancestor(root, &main_tip, &tip) {
         return Ok(tip);
     }

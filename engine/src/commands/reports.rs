@@ -211,7 +211,7 @@ fn report_checks(
     // A setup log has no brief step: its seal was cut from the main branch, and that
     // commit is where it starts.
     let main = git::main_branch(&ctx.root);
-    let cut = || git::merge_base(&ctx.root, &tip, &main);
+    let cut = || git::merge_base(&ctx.root, &tip, &git::branch_ref(&main));
     let start = match p.start.clone() {
         Some(s) => s,
         None => cut().ok_or(Fail::missing(
@@ -341,14 +341,21 @@ fn standing_checks(
     let prose = format!("gdd/briefs/{id}.md");
     // The main branch as the seal last took it in: the second parent of its newest merge since
     // then, not the main ref, which may have moved or come to hold the seal. A merge made by hand
-    // with a parent main never held brings nothing from main.
-    let main_ref = git::main_branch(&ctx.root);
+    // brings nothing from main when main never held its parent, or when the seal already held it.
+    let main_ref = git::branch_ref(&git::main_branch(&ctx.root));
     let main = git::first_parents(&ctx.root, at, tip)
         .ok()?
         .iter()
         .rev()
-        .find_map(|c| git::parents(&ctx.root, c).get(1).cloned())
-        .filter(|m| git::is_ancestor(&ctx.root, m, &main_ref));
+        .find_map(|c| match git::parents(&ctx.root, c).as_slice() {
+            [before, taken, ..] => Some((before.clone(), taken.clone())),
+            _ => None,
+        })
+        .filter(|(before, taken)| {
+            !git::is_ancestor(&ctx.root, taken, before)
+                && git::is_ancestor(&ctx.root, taken, &main_ref)
+        })
+        .map(|(_, taken)| taken);
     // A file the seal no longer holds is always a change.
     let from_main = |f: &str| {
         !p.checks_sealed.contains_key(f)
