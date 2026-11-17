@@ -1,6 +1,6 @@
 schema_version: "1.1"
-name: splitting-is-asked-first
-description: "The same shop, and a request that crosses two red zones: customer accounts and paying by card. The orchestrator proposes doing it in parts before it briefs any of them, a line for each part with what it gives and about how long it takes, the first one showing the person something, and one question a yes answers, in under a hundred words. It writes no brief and launches no one."
+name: a-request-is-not-split
+description: "The same shop, and a request that crosses two red zones: customer accounts and paying by card. The orchestrator briefs it as one change, without proposing parts or asking whether to split it, and nobody writes checks or builds before the person approves that brief."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -32,36 +32,30 @@ graders:
     type: tool_used
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
-  - name: writes-no-brief-before-the-yes
+  - name: writes-a-brief
     type: regex
     target: files
     pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md$)[\w.-]+\.md$'
     flags: m
-    match: not_contains
-    weight: 3
-  - name: writes-no-scenario-before-the-yes
+    match: contains
+    weight: 2
+  - name: writes-only-one-brief
     type: regex
     target: files
-    pattern: 'features/(?!(?:catalog|cart)\.feature$)[\w.-]+\.feature$'
-    flags: m
+    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md\n)[\w.-]+\.md\n(?:[^\n]*\n)*?gdd/briefs/(?!(?:catalog|cart)\.md(?:\n|$))[\w.-]+\.md'
     match: not_contains
-    weight: 2
-  - name: launches-no-one
+    weight: 3
+  - name: builds-nothing-before-the-yes
     type: tool_used
     tool: Agent
-    input_match: 'gdd-'
+    input_match: 'gdd-(?:build|checks)'
     min: 0
     max: 0
     weight: 2
-  - name: says-about-how-long-each-part-takes
-    type: regex
-    pattern: '\d+\s*(?:min|minutos|minutes)\b'
-    flags: i
-    weight: 2
-  - name: asks-in-under-a-hundred-words
+  - name: asks-in-under-a-hundred-and-fifty-words
     type: regex
     target: trace
-    pattern: '"result":"(?:[^"\\]|\\.){800,}"'
+    pattern: '"result":"(?:[^"\\]|\\.){1100,}"'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method
@@ -69,9 +63,9 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: proposes-the-parts-for-a-yes
+  - name: proposes-no-parts
     type: llm
-    criteria: The answer proposes doing the request in parts, before writing any of them, with a line for each part that says what it gives the customers and about how long it takes. The first part gives the person something they can see or use. It ends with one question that a yes answers, and it does not offer a menu of options without saying which one it would take.
+    criteria: The answer treats the request as one change. It does not propose doing it in parts, list parts with how long each takes, or ask whether to split it. It asks the person to approve one brief that covers both the accounts and the payment.
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex

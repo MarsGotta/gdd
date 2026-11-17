@@ -132,7 +132,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
                 "out-of-order",
                 format!("no brief is logged for {id}: run gdd brief first"),
                 format!(
-                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]; a question before its brief, such as how to split it, goes with gdd ask {id} --of decision"
+                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]; a question before its brief, such as how to split it when the person asked for parts, goes with gdd ask {id} --of decision"
                 ),
             ));
         }

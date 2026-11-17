@@ -262,7 +262,7 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
     assert!(
-        n.has("splitting it or leaving it in the backlog"),
+        n.has("propose leaving it in the backlog, never more room"),
         "{}",
         n.out
     );

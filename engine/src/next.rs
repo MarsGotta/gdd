@@ -64,9 +64,9 @@ fn review_sent_back(id: &str, p: &Progress, lim: &Limits, verdict: &str) -> Next
         );
     }
     let say = if verdict == "stop" {
-        "a fix round after the reviewer's stop"
+        "a fix round after the reviewer's stop, for the agent that built it"
     } else {
-        "a fix round with the reviewer's notes"
+        "a fix round with the reviewer's notes, for the agent that built it"
     };
     round_needs_room(id, lim, n("build", say, format!("gdd launch {id} build")))
 }
@@ -160,9 +160,9 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
         "stopped",
         "cap-spent",
         format!(
-            "no new round: {caps} {have} no room left. Tell the person in one line and propose splitting it or leaving it in the backlog, never more room; ask once. More room is the person's to give: {ask}, and after their yes: {waive}{ends}"
+            "no new round: {caps} {have} no room left. Tell the person in one line and propose leaving it in the backlog, never more room; ask once. More room is the person's to give: {ask}, and after their yes: {waive}{ends}"
         ),
-        format!("gdd ask {id} --of decision \"<split it, or leave it in the backlog?>\""),
+        format!("gdd ask {id} --of decision \"<leave it in the backlog?>\""),
     )
 }
 
@@ -538,7 +538,10 @@ fn from_the_build_on(
             lim,
             n(
                 "build",
-                format!("a fix round: {} failed", g.failed.join(", ")),
+                format!(
+                    "a fix round for the agent that built it: {} failed",
+                    g.failed.join(", ")
+                ),
                 format!("gdd launch {id} build"),
             ),
         );

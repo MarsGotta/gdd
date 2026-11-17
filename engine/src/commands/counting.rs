@@ -53,11 +53,7 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
                 Some(c) => format!(
                     "lines {used} of {c}{}{}",
                     if raised { ", raised by a waiver" } else { "" },
-                    if past {
-                        ", past it: a change this big is split"
-                    } else {
-                        ""
-                    }
+                    if past { ", past it" } else { "" }
                 ),
                 None => format!("lines {used} (no cap)"),
             });
