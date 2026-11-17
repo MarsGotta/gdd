@@ -693,6 +693,52 @@ fn a_file_sealed_after_the_checks_does_not_pass_for_main_once_main_holds_the_sea
     refused_as_nothing_sealed(&r, "yq");
 }
 
+/// A merge made by hand on the seal, with a parent main never held, brings nothing from main.
+#[test]
+fn a_merge_of_something_else_does_not_pass_for_main() {
+    let r = Repo::new();
+    checked(&r, "yr");
+    let side = r.commit_on(
+        "side",
+        Some("HEAD"),
+        &[("tests/helper.sh", "exit 0\n")],
+        "Not main",
+    );
+    let seal = r.git(&["rev-parse", "gdd-seal/yr"]);
+    let tree = r.git(&["merge-tree", "--write-tree", &seal, &side]);
+    let merge = r.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        &seal,
+        "-p",
+        &side,
+        "-m",
+        "Merge",
+    ]);
+    r.git(&["update-ref", "refs/heads/gdd-seal/yr", &merge, &seal]);
+    let brief = r
+        .read("gdd/briefs/yr.md")
+        .replace("version: 1", "version: 2");
+    r.write("gdd/briefs/yr.md", &brief);
+    r.commit_on(
+        "gdd-seal/yr",
+        None,
+        &[("gdd/briefs/yr.md", &brief)],
+        "Brief v2",
+    );
+    let b = r.gdd(&[
+        "brief",
+        "yr",
+        "gdd/briefs/yr.md",
+        "features/yr.feature",
+        "--paths",
+        "src/core/app.txt",
+    ]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    refused_as_nothing_sealed(&r, "yr");
+}
+
 /// Nor does a scenario of the change that main changed: it is a brief file, and needs the role.
 #[test]
 fn a_scenario_changed_on_main_needs_the_role_to_seal_again() {

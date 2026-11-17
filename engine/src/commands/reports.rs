@@ -340,18 +340,23 @@ fn standing_checks(
     let rank = |c: &Option<String>| c.as_deref().and_then(crate::color_rank);
     let prose = format!("gdd/briefs/{id}.md");
     // The main branch as the seal last took it in: the second parent of its newest merge since
-    // then, not the main ref, which may have moved or come to hold the seal.
+    // then, not the main ref, which may have moved or come to hold the seal. A merge made by hand
+    // with a parent main never held brings nothing from main.
+    let main_ref = git::main_branch(&ctx.root);
     let main = git::first_parents(&ctx.root, at, tip)
         .ok()?
         .iter()
         .rev()
-        .find_map(|c| git::parents(&ctx.root, c).get(1).cloned());
+        .find_map(|c| git::parents(&ctx.root, c).get(1).cloned())
+        .filter(|m| git::is_ancestor(&ctx.root, m, &main_ref));
+    // A file the seal no longer holds is always a change.
     let from_main = |f: &str| {
         !p.checks_sealed.contains_key(f)
             && !p.brief_files.contains_key(f)
-            && main
-                .as_deref()
-                .is_some_and(|m| git::blob_at(&ctx.root, tip, f) == git::blob_at(&ctx.root, m, f))
+            && main.as_deref().is_some_and(|m| {
+                let held = git::blob_at(&ctx.root, tip, f);
+                held.is_some() && held == git::blob_at(&ctx.root, m, f)
+            })
     };
     if rank(&p.color) > rank(then)
         || !git::is_ancestor(&ctx.root, at, tip)
