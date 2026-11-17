@@ -325,6 +325,10 @@ fn report_checks(
 
 /// The checks sealed before, when they still stand for a new version of the brief: since the last
 /// checks step, the seal changed nothing but the brief's prose, and the change's color didn't rise.
+/// What a merge of the main branch brought counts as no change: a file the seal holds as main had
+/// it when the seal last took main in, unless it is one of this change's checks or brief files.
+/// A scenario file another change shares still needs the role: telling its scenarios apart would
+/// mean reading them one by one.
 /// A new scenario, a check that changed or a higher color need the role to seal again.
 fn standing_checks(
     ctx: &Ctx,
@@ -335,9 +339,26 @@ fn standing_checks(
     let (at, then) = p.checked.as_ref()?;
     let rank = |c: &Option<String>| c.as_deref().and_then(crate::color_rank);
     let prose = format!("gdd/briefs/{id}.md");
+    // The main branch as the seal last took it in: the second parent of its newest merge since
+    // then, not the main ref, which may have moved or come to hold the seal.
+    let main = git::first_parents(&ctx.root, at, tip)
+        .ok()?
+        .iter()
+        .rev()
+        .find_map(|c| git::parents(&ctx.root, c).get(1).cloned());
+    let from_main = |f: &str| {
+        !p.checks_sealed.contains_key(f)
+            && !p.brief_files.contains_key(f)
+            && main
+                .as_deref()
+                .is_some_and(|m| git::blob_at(&ctx.root, tip, f) == git::blob_at(&ctx.root, m, f))
+    };
     if rank(&p.color) > rank(then)
         || !git::is_ancestor(&ctx.root, at, tip)
-        || changes(ctx, at, tip).ok()?.iter().any(|f| *f != prose)
+        || changes(ctx, at, tip)
+            .ok()?
+            .iter()
+            .any(|f| *f != prose && !from_main(f))
     {
         return None;
     }

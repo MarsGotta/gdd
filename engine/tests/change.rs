@@ -627,6 +627,106 @@ fn a_check_changed_as_a_brief_file_needs_the_role_to_seal_again() {
     assert_eq!(sealed_nothing(&r, "y9").facts["refused"], "not-sealed");
 }
 
+/// What a merge of the main branch brought to the seal is no change of its checks: after it, a
+/// new version of the brief in prose only still finds its checks standing. In one run the merge
+/// brought another change's test and logs, and the layer refused the role's word, round after round.
+#[test]
+fn checks_still_stand_for_a_new_version_after_a_merge_of_main() {
+    let r = Repo::new();
+    checked(&r, "ym");
+    r.write("src/ui/page.txt", "another page\n");
+    r.commit("Something else shipped");
+    assert_eq!(r.gdd(&["seal", "ym", "--merge-main"]).code, 0);
+    new_version(&r, "ym", &["gdd/briefs/ym.md", "features/ym.feature"], &[]);
+    let c = sealed_nothing(&r, "ym");
+    assert_eq!(c.code, 0, "{}", c.out);
+    let lines = r.log_lines("ym");
+    let checks = &lines.last().unwrap()["seal"]["checks"];
+    assert!(checks["tests/ym.sh"].is_string(), "{checks}");
+    assert!(checks["src/ui/page.txt"].is_null(), "{checks}");
+}
+
+/// But a file main brought and the seal then changed is the seal's own change: the role seals again.
+#[test]
+fn a_file_from_main_changed_on_the_seal_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "yn");
+    r.write("src/ui/page.txt", "another page\n");
+    r.commit("Something else shipped");
+    assert_eq!(r.gdd(&["seal", "yn", "--merge-main"]).code, 0);
+    r.write("src/ui/page.txt", "a page changed on the seal\n");
+    prose_version_sealing(&r, "yn", "src/ui/page.txt");
+    refused_as_nothing_sealed(&r, "yn");
+}
+
+/// A new version of the brief in prose, sealed with `other`, a file the brief doesn't list.
+fn prose_version_sealing(r: &Repo, id: &str, other: &str) {
+    let brief = format!("gdd/briefs/{id}.md");
+    r.write(&brief, &r.read(&brief).replace("version: 1", "version: 2"));
+    assert_eq!(r.gdd(&["seal", id, &brief, other]).code, 0);
+    let feature = format!("features/{id}.feature");
+    let b = r.gdd(&["brief", id, &brief, &feature, "--paths", "src/core/app.txt"]);
+    assert_eq!(b.code, 0, "{}", b.out);
+}
+
+/// What the role's word is refused with when the checks don't stand.
+fn refused_as_nothing_sealed(r: &Repo, id: &str) {
+    let c = sealed_nothing(r, id);
+    assert_eq!(c.facts["refused"], "not-sealed", "{}", c.out);
+    assert!(
+        c.out.contains("the checks role sealed nothing"),
+        "{}",
+        c.out
+    );
+}
+
+/// What main holds is not what the seal took in: if main comes to hold the seal itself, what the
+/// seal changed doesn't pass for something main brought.
+#[test]
+fn a_file_sealed_after_the_checks_does_not_pass_for_main_once_main_holds_the_seal() {
+    let r = Repo::new();
+    checked(&r, "yq");
+    r.write("tests/helper.sh", "exit 0\n");
+    prose_version_sealing(&r, "yq", "tests/helper.sh");
+    r.commit("Main before it takes the seal in");
+    r.git(&["merge", "-q", "--no-edit", "gdd-seal/yq"]);
+    refused_as_nothing_sealed(&r, "yq");
+}
+
+/// Nor does a scenario of the change that main changed: it is a brief file, and needs the role.
+#[test]
+fn a_scenario_changed_on_main_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "yp");
+    r.commit("The brief lands on main as it is");
+    assert_eq!(r.gdd(&["seal", "yp", "--merge-main"]).code, 0);
+    let f = r.read("features/yp.feature")
+        + "\n  @brief:yp @id:yp-2\n  Scenario: It refuses a bad value\n    Given the app\n    Then it refuses\n";
+    r.write("features/yp.feature", &f);
+    r.commit("A scenario changed on main");
+    assert_eq!(r.gdd(&["seal", "yp", "--merge-main"]).code, 0);
+    new_version(&r, "yp", &["gdd/briefs/yp.md", "features/yp.feature"], &[]);
+    approved(&r, "yp");
+    refused_as_nothing_sealed(&r, "yp");
+}
+
+/// And one of the change's own checks that main changed is still a check that changed.
+#[test]
+fn a_check_changed_on_main_needs_the_role_to_seal_again() {
+    let r = Repo::new();
+    checked(&r, "yo");
+    // Main comes to hold the same check, takes it to the seal, and then changes it.
+    r.write("tests/yo.sh", "true\n");
+    r.commit("The same check lands on main");
+    assert_eq!(r.gdd(&["seal", "yo", "--merge-main"]).code, 0);
+    r.write("tests/yo.sh", "exit 0 # weakened on main\n");
+    r.commit("Something else shipped");
+    let m = r.gdd(&["seal", "yo", "--merge-main"]);
+    assert_eq!(m.code, 0, "{}", m.out);
+    new_version(&r, "yo", &["gdd/briefs/yo.md", "features/yo.feature"], &[]);
+    refused_as_nothing_sealed(&r, "yo");
+}
+
 /// A checks step voided by a correction, and then the main branch merged into the seal: the
 /// test the role sealed is still what it sealed, and nothing main brought counts as its checks.
 #[test]
