@@ -1772,6 +1772,39 @@ fn mixed_findings_go_to_checks_before_the_builder() {
 }
 
 #[test]
+fn mixed_findings_cost_a_round_and_get_a_full_review_after_a_seal_merge() {
+    let r = Repo::new();
+    gated_change(&r, "mixed", "");
+    let findings = "f1 tests/mixed.sh:1 weak test | @id:mixed-1\nf2 src/core/app.txt:1 wrong value | @id:mixed-1";
+    let fix = r.report(
+        "mixed",
+        "review",
+        &review_text("fix", "yellow", findings),
+        &[],
+    );
+    assert_eq!(fix.facts["next"], "checks", "{}", fix.out);
+
+    // The builder merges the corrected seal and leaves the product finding open.
+    correct_test(&r, "mixed", &[]);
+    let build = r.report("mixed", "build", &build_report(""), &[]);
+    assert_eq!(build.facts["next"], "gates", "{}", build.out);
+    let log = r.log_lines("mixed");
+    let step = log.last().unwrap();
+    assert_eq!(step["step"], "build");
+    assert!(step.get("seal_only").is_none(), "{step}");
+    assert_eq!(
+        r.gdd(&["limits", "mixed"]).facts["caps"]["rounds"]["used"],
+        1.0
+    );
+
+    assert_eq!(r.gdd(&["gates", "mixed"]).facts["next"], "review");
+    let review = r.gdd(&["launch", "mixed", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("wrong value"), "{prompt}");
+    assert!(!prompt.contains("Review only those tests"), "{prompt}");
+}
+
+#[test]
 fn a_seal_merge_at_the_round_limit_leaves_the_product_unchanged() {
     let r = Repo::with(&BLUEPRINT.replace("rounds_per_change: 3", "rounds_per_change: 1"));
     gated_change(&r, "budget", "");
