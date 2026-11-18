@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-tries-the-zones-on-the-history
-description: "A shop without GDD and with twenty-five commits of history. Before it asks the person to approve the blueprint, Prepare tries its zones on those commits with git and tells them what comes out of each color, what no zone covers and where the fixes fell."
+description: "A shop without GDD and with twenty-five commits of history. Before it asks the person to approve the blueprint, Prepare tries the colors and checks on those commits. Two lines give the color counts, where fixes fell and any gaps in the draft."
 tags: [orchestrator, prepare, history]
 runs: 3
 execution:
@@ -50,10 +50,9 @@ graders:
     type: llm
     criteria: The answer has a part about the repository's past commits. That part gives numbers of commits by color. It says that most of the commits that fixed or undid something were in payments. The answer asks the person to approve the blueprint.
     weight: 1
-  - name: gives-the-numbers-under-their-own-heading
-    type: regex
-    target: trace
-    pattern: 'The zones on your history[\s\S]{0,700}?\d+[^\n]{0,60}\b(?:red|yellow|green)\b'
+  - name: previews-the-checks-on-real-changes
+    type: llm
+    criteria: The tool calls try gdd color --paths on the files of recent commits, grouped by change, and gdd zones on the draft. The approval message uses two lines for the results, one with counts by color and one naming what the checks or zones miss or saying the sample revealed no gaps.
     weight: 3
   - name: says-what-no-zone-covers
     type: llm

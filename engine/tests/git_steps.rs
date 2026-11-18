@@ -108,6 +108,75 @@ fn zones_find_a_pathspec_that_matches_nothing_and_what_no_zone_covers() {
 }
 
 #[test]
+fn blueprint_preview_finds_a_server_zone_its_checks_never_reach() {
+    let bp = BLUEPRINT
+        .replace("src/pay/**", "server/**")
+        .replace("    command: sh tests/run.sh", "    when: [':(glob)src/ui/**']\n    command: sh tests/run.sh")
+        .replace("    color: red\n    paths:\n      - ':(glob)server/**'", "    color: red\n    gates: gdd/gates/server.feature\n    paths:\n      - ':(glob)server/**'");
+    let r = Repo::with(&bp);
+    r.write("gdd/gates/server.feature", "@check:slow\nFeature: Pay\n");
+    // A new project can try an item before the server or its tests exist.
+    let preview = r.gdd(&["color", "--paths", "server/new.rs"]);
+    assert_eq!(preview.code, 0, "{}", preview.out);
+    assert_eq!(preview.facts["color"], "red");
+    assert_eq!(preview.facts["checks"], serde_json::json!(["seal"]));
+    assert_eq!(
+        preview.facts["other_checks"],
+        serde_json::json!(["review", "brief-approval", "person-review"])
+    );
+    let skipped = &preview.facts["skipped"];
+    assert_eq!(skipped[0]["check"], "tests");
+    assert_eq!(skipped[1]["check"], "slow");
+    assert!(preview.out.lines().any(|l| l.contains("tests")
+        && l.contains("skipped")
+        && l.contains("src/ui/**")
+        && !l.starts_with("gdd ")));
+
+    // The UI makes tests apply to the mixed change. The server alone still has a gap.
+    let mixed = r.gdd(&[
+        "color",
+        "--paths",
+        "server/new.rs",
+        "./src/ui/",
+        "src/ui/page.txt",
+    ]);
+    assert_eq!(
+        mixed.facts["checks"],
+        serde_json::json!(["seal", "tests", "slow"])
+    );
+    assert_eq!(mixed.facts["skipped"], serde_json::json!([]));
+    let gap = serde_json::json!({"zone": "pay", "color": "red", "check": "tests", "when": [":(glob)src/ui/**"]});
+    assert_eq!(mixed.facts["gaps"], serde_json::json!([gap]));
+    assert!(mixed.out.lines().any(|l| l.contains("pay")
+        && l.contains("tests")
+        && l.contains("red")
+        && !l.starts_with("gdd ")));
+
+    r.write("server/pay.rs", "pay\n");
+    r.write("server/private/keys.rs", "private\n");
+    r.commit("Add the server");
+    let zones = r.gdd(&["zones"]);
+    assert_eq!(zones.code, 0, "{}", zones.out);
+    assert!(zones.facts["gaps"].as_array().unwrap().contains(&gap));
+    // One of several when pathspecs reaches the zone. Git exclusions still apply.
+    let watched = bp.replace(
+        "when: [':(glob)src/ui/**']",
+        "when: [':(glob)src/ui/**', ':(glob)server/**', ':(exclude,glob)server/private/**']",
+    );
+    r.write("gdd/blueprint.md", &watched);
+    let zones = r.gdd(&["zones"]);
+    assert!(
+        !zones.facts["gaps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g["zone"] == "pay")
+    );
+    let excluded = r.gdd(&["color", "--paths", "server/private/keys.rs"]);
+    assert_eq!(excluded.facts["checks"], serde_json::json!(["seal"]));
+}
+
+#[test]
 fn the_seal_leaves_the_checkout_and_its_index_untouched() {
     let r = Repo::new();
     r.write("src/core/app.txt", "ok, edited and staged\n");

@@ -9,7 +9,7 @@ metadata:
 
 # Preparing a project
 
-You decide with the person what the project is about, what is delicate in it, which gates it needs, its constitution and what context each gate carries. You build no checks: `gdd-checks` sets them up, and `gdd-review` tries them. You do it yourself, as the orchestrator, with the person and the `gdd` skill loaded. It needs the deep level, as `gdd` says, because a wrong blueprint makes every change after it wrong.
+As orchestrator, prepare the project with the person and the `gdd` skill loaded. Agree on its purpose, delicate areas, gates, constitution and context for each gate. Use the deep level because a wrong blueprint affects every change. The checks belong to `gdd-checks`, and `gdd-review` tries them.
 
 ## When the project is already prepared
 
@@ -27,8 +27,10 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## What's already there
 
-- An existing repository starts with a complete analysis, a baseline of what already fails, and code mapped to zones, which you try on its history and report, before the person approves: `references/existing-project.md`.
-- An empty one, or one with no code yet (only data or documents), starts from the idea: `references/new-project.md`.
+- Open `references/existing-project.md` when there is code. Cover the whole project, record what already fails and map its code to zones.
+- Open `references/new-project.md` when there is only an idea, data or documents.
+
+Before asking for approval, run `gdd zones` on the draft and `gdd color --paths <path>...` on each recent change, or on each backlog item's planned files in a new project. In one run the server was red and its tests never applied. Give the color counts on one line and what the checks miss on the next. Give the reason for every zone change and try it again. Never lower a color to improve the figures.
 
 ## Zones
 
@@ -39,7 +41,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 - What can't be undone is never green.
 - Propose a green zone for documents that don't change how the product behaves, such as guides and notes, unless the person says otherwise: in one run, a guide no zone covered came out yellow until the person asked for one.
 - List the dependency manifests and their lock files in a zone whose color asks for `person-review`. That is all it takes for no new dependency to come in without a person seeing it: there is no check to write.
-- A zone's tests belong to it: list their paths too. Then run `gdd zones` on the draft, fix each pathspec that matches nothing and ask about the files no zone covers: a catch-all zone with the color the person chooses, or none, and then each change that touches it is judged, and is never green.
+- A zone's tests belong to it. Include their paths. Check each empty pathspec for a typo and try planned filenames where the folder does not exist yet. For files no zone covers, propose a catch-all zone with the person's choice of color, or leave each change to be judged, never green.
 - Functions don't go in the blueprint. They change often and zones rarely do, so they go to the backlog, each with its expected color.
 
 ## Gates

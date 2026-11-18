@@ -203,6 +203,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                 json!(ran.iter().map(|r| r.to_json()).collect::<Vec<_>>()),
             ),
         ]);
+        out.fact("skipped", json!(&skipped));
         if !skipped.is_empty() {
             m.insert("skipped".into(), json!(skipped));
         }
@@ -410,24 +411,18 @@ fn run_checks(
     out: &mut Out,
 ) -> (Vec<gates::Ran>, Vec<Value>) {
     let mut ran: Vec<gates::Ran> = vec![];
-    let mut skipped = vec![];
     let mut stop_rest = false;
     for tier in ["seal", "each round", "before review"] {
         if stop_rest {
             break;
         }
-        for p in plan.iter().filter(|p| {
+        for p in plan.iter().filter(|p| p.skipped.is_none()).filter(|p| {
             if tier == "seal" {
                 p.check == "seal"
             } else {
                 p.check != "seal" && p.tier == tier
             }
         }) {
-            if let Some(why) = &p.skipped {
-                skipped.push(json!({"check": p.check, "why": why}));
-                out.say(format!("{:<10} skipped: {why}", p.check));
-                continue;
-            }
             if tier == "before review" && ran.iter().any(|r| !r.passed) {
                 break;
             }
@@ -466,5 +461,17 @@ fn run_checks(
             break;
         }
     }
-    (ran, skipped)
+    // A failed earlier tier cannot hide a path filter in a later one.
+    (ran, show_skipped(plan, out))
+}
+
+pub(super) fn show_skipped(plan: &[gates::Planned], out: &mut Out) -> Vec<Value> {
+    let mut skipped = vec![];
+    for p in plan {
+        if let Some(why) = &p.skipped {
+            out.say(format!("{:<10} skipped: {why}", p.check));
+            skipped.push(json!({"check": p.check, "why": why}));
+        }
+    }
+    skipped
 }

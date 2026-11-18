@@ -43,6 +43,11 @@ graders:
     pattern: 'check[\\"]{1,8}\s*:\s*[\\"]{1,8}prices[\\"]{1,8}\s*,\s*[\\"]{1,8}command'
     match: not_contains
     weight: 3
+  - name: gates-names-the-check-its-path-filter-excluded
+    type: regex
+    target: trace
+    pattern: 'prices\s+skipped: the change touched none of'
+    weight: 2
   - name: logs-the-checks-that-apply
     type: regex
     target: trace

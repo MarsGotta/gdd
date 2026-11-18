@@ -417,6 +417,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     Decision 72 was one sentence inside the paragraph on launching roles. It gave no timeout example and said nothing about a command still running. In 0.29 two runs made 300 and 175 waits of one minute. The instruction now sits beside the command table and gives a number. Wait once for the longest interval the environment allows, for a role or a long command. The estimate of 5 to 13 percent of total cost concerns waits. The savings from fewer layer calls have yet to be measured.
 
+80. **Try the blueprint on changes before asking for approval.** In repetition 3 of benchmark 0.28, eleven of twelve changes were red. Tests, lint, build and browser checks all left `server/**` out of their `when`. The builder and reviewer ran them on server-only changes, but the gate skipped all four. Decision 37 counted colors on recent commits. Prepare now also previews the checks on each change's paths, using the planned files of backlog items in a new project. It shows the person the color counts and what would go unwatched in two lines. A zone changes for a reason grounded in the risk. A high red count prompts a closer look and never justifies lowering a color by itself.
+
+    The layer warns when a check the zone's color asks for matches none of its tracked or sampled files. It judges each zone on its own files even if another zone triggers the same check in a mixed change. At execution, each check excluded by its path condition gets a line saying why, even when an earlier tier fails.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

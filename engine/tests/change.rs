@@ -194,6 +194,17 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let g = r.gdd(&["gates", "y1"]);
     assert_eq!(g.code, 1, "{}", g.out);
     assert_eq!(g.facts["next"], "build");
+    // The each-round test failed. The slow tier still says its when ruled it out.
+    let skipped = serde_json::json!([{"check": "slow", "why": "the change touched none of :(glob)src/ui/**"}]);
+    assert_eq!(g.facts["skipped"], skipped);
+    assert_eq!(r.log_lines("y1").last().unwrap()["skipped"], skipped);
+    assert_eq!(
+        g.out
+            .lines()
+            .filter(|line| line.starts_with("slow") && line.contains("skipped:"))
+            .count(),
+        1
+    );
     // A review now is out of order.
     let early = r.report("y1", "review", &review_text("pass", "yellow", ""), &[]);
     assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);

@@ -18,25 +18,25 @@ Then map the existing code to zones: which folders, and which behaviors, are del
 
 ## The zones, tried on the history
 
-Before the person approves the blueprint, show them what its zones would have given the changes this repository already had. It's git and nothing else: it costs no tokens, it builds no gate and it decides nothing. It gives the person facts to decide with.
+Before the person approves the blueprint, show them what its zones would have given the changes this repository already had. Git supplies the paths. The layer matches them against the draft without running any checks.
 
-Look at about the last two hundred commits of the main branch, without merges. `<since>` is the commit just before them, `git rev-list --no-merges --skip=200 -n 1 <main branch>`; when that prints nothing the history is shorter, and you leave `<since>..` out of the commands below. With fewer than twenty commits, say so and skip this: there is nothing to learn from.
+Look at about the last two hundred commits of the main branch, without merges. `<since>` is the commit just before them, `git rev-list --no-merges --skip=200 -n 1 <main branch>`; when that prints nothing the history is shorter, and you leave `<since>..` out of the commands below. With fewer than twenty commits, try those available and say the sample is small. With no changes to try, use the planned files of the backlog items.
 
 - How many there are: `git rev-list --no-merges --count <since>..<main branch>`.
 - The ones that touched a zone, with every pathspec of the zone: `git rev-list --no-merges <since>..<main branch> -- <pathspec>`.
 - The ones that touched something no zone covers: `git rev-list --no-merges <since>..<main branch> -- . ':(exclude,glob)<pattern>'`, excluding every pathspec of every zone. A pathspec written without `:(glob)` is excluded as `':(exclude)<path>'`.
 - The ones that fixed or undid something, by the words this project uses for it: `git rev-list --no-merges -i --grep=fix --grep=revert <since>..<main branch>`.
 
-A commit takes the highest color among the zones it touched. Count with the shell, not by eye, and tell the person in a few lines, always with the numbers: how many commits come out green, yellow and red, how many touched something no zone covers and which paths, and what color the fixes would have had.
+For each commit with changed files, get its paths with `git diff-tree --root --no-commit-id --no-renames --name-only -r -z <commit>`. Pass those filenames together to `gdd color --paths <path>...`, one argument per file. A mixed change counts once, at the color the layer gives it. Count by color in the shell. Keep the uncovered paths, the colors of fixes and the checks whose `when` misses a zone. Compare with `gdd zones` on the tracked files: a mixed change can run the tests because it touched the screen even though a change to the server alone would skip them.
 
 Then read it with them, and let them decide:
 
-- Almost everything comes out red: the blueprint marks too much, and a person asked about everything ends up approving without reading.
+- If almost everything comes out red, look for ordinary changes that the draft treats like payments. Check what damage they could actually do.
 - Much comes out uncovered: propose its pathspecs, or a catch-all zone.
 - The fixes pile up in a zone that comes out green: it is marked too low.
-- A zone no commit touched: check its pathspec with `git ls-files -- <pathspec>`. A typo in it covers nothing, and nothing warns.
+- A zone no commit touched: check its pathspec with `git ls-files -- <pathspec>`. A typo can leave a whole area outside its intended zone.
 
-Correct the proposal and run it again before you ask for the approval, and say what you changed because of it. When you show the person the blueprint, give this a heading of its own, `The zones on your history`, with the numbers under it: among the files it gets lost, and it is what lets them judge the zones.
+If a check should cover the missed files, correct its condition in the draft and try the same changes again. A screen check may deliberately skip a server change. Explain each zone edit by the damage a change there could do. Put the counts by color and where the fixes fell on the first line of the approval message. On the second give the number of changes that touched paths no zone covers and name the affected areas and any checks that miss them. Say when the draft now covers a gap you found.
 
 ## The baseline
 

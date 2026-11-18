@@ -148,13 +148,13 @@ enum Cmd {
         #[arg(long)]
         no_git: bool,
     },
-    /// The planned color of some paths, or the color of what a change touched.
+    /// Preview the color and checks for planned paths, or show the color of what a change touched.
     Color {
         id: Option<String>,
         #[arg(long, num_args = 1..)]
         paths: Vec<String>,
     },
-    /// Each zone's pathspec that matches no tracked file, and the tracked files no zone covers.
+    /// Find empty zones, uncovered tracked files and checks whose path filters miss a zone.
     Zones,
     /// Commit files of the working copy on gdd-seal/<id>, without touching the checkout or its index.
     Seal {

@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-starts-an-empty-project-with-what-it-can-judge
-description: A shop still to build, with only its idea and its file of products, and a person who comes with most of it decided. Prepare keeps every check in the blueprint, but leaves `standing-checks` to set up and try only the seal and the secret scan, gives each other check a `when` that names what it watches, leaves a `standing-checks-<check>` item for each after the first item that brings it something to judge, writes the backlog through the layer and stops for the person's approval.
+description: A shop still to build, with only its idea and its file of products, and a person who comes with most of it decided. Prepare keeps every check in the blueprint, but leaves `standing-checks` to set up and try only the seal and the secret scan, gives each other check a `when` that names what it watches, leaves a `standing-checks-<check>` item for each after the first item that brings it something to judge, tries the planned paths of backlog items before asking for approval and writes the backlog through the layer.
 tags: [orchestrator, prepare]
 runs: 3
 execution:
@@ -105,6 +105,10 @@ graders:
     target: { source: file, path: gdd/log/blueprint.jsonl }
     pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
     weight: 2
+  - name: tries-the-planned-work-before-approval
+    type: llm
+    criteria: Prepare actually calls gdd color --paths with the anticipated files of individual backlog items, keeping each item together even if the files do not exist. Its approval message gives counts by color on one line and on another says what the checks would miss or that the sample revealed no gaps. Counts of tracked files alone do not satisfy this.
+    weight: 3
   - name: asks-the-person-to-approve
     type: llm
     criteria: The answer points the person to the files it wrote, the blueprint among them, and asks them to approve them. It says, in plain words, that at first only the scan for secrets and the check that nothing that judges was touched get set up and tried, and that the other checks start judging once the first changes bring them code. It does not say the project is ready for changes now, and it does not ask the person to demonstrate or try a check on code that does not exist yet.
