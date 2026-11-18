@@ -68,6 +68,19 @@ fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) 
     Ok(())
 }
 
+/// Every product brief waits for the project-wide setup.
+pub(super) fn pending_standing_checks(ctx: &Ctx) -> R<Option<state::Next>> {
+    let (_, text) = read_backlog(ctx)?;
+    Ok(
+        (backlog::standing_checks(&backlog::items(&text)) != Some("done")).then(|| state::Next {
+            step: "stopped".into(),
+            blocked: Some("standing-checks".into()),
+            say: "The standing checks come before any change.".into(),
+            command: "gdd next standing-checks".into(),
+        }),
+    )
+}
+
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
 /// the seal's tip, which must hold those same files.
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
@@ -89,6 +102,11 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             return Err(Fail::usage(
                 "--paths lists every path the change will touch",
             ));
+        }
+        if log_kind(id) == LogKind::Change
+            && let Some(wait) = pending_standing_checks(ctx)?
+        {
+            return Err(Fail::refuse("standing-checks", wait.say, wait.command));
         }
         git_writes(ctx)?;
         let main = git::main_branch(&ctx.root);

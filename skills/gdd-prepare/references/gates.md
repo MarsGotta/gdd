@@ -80,7 +80,7 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-For how many product decisions to propose, follow `gdd-brief`. What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once whether to leave it pending, with what one more attempt would buy.
+For how many product decisions to propose, follow `gdd-brief`. What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless the next item needs the work that stopped. Every change needs the standing checks. When other work must wait, explain what one more attempt would buy and propose it now.
 
 ## The ladder
 

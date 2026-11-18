@@ -46,7 +46,7 @@ On every change that touches a zone, answer each of its reviewer rules, includin
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
 
-- `pass`: you ran it and it works. List minor issues under `LATER:`. A blank line ends the list.
+- `pass`: you ran it and it works. List minor issues under `LATER:`. A blank line after an item ends the list.
 - `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:cart-5`), `zone <name>: <rule>`, `constitution: <rule>`, `request: <the person's words>` or `check <id>`. For example, `f1 tests/cart:42 swapping the price and subtotal still passes | @id:cart-5`. Your fix holds the change. The layer logs any missing citations so Harden can count them. Put anything you can't tie to one of those sources under `LATER:` for the backlog. In one run, a reviewer sent a change back five times, each for a finer defect. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 

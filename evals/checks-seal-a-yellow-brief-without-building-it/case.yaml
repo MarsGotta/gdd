@@ -73,16 +73,16 @@ graders:
     type: llm
     criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Read the test that was sealed. Its inputs and assertions would actually reject the solution named for it. A generic statement that tests failed on the base is insufficient.
     weight: 3
-  # Match the redirected test log and the same filename passed to tail, in one Bash call or two.
+  # Follow the same saved log into tail, either by filename or through tee.
   - name: reads-the-end-of-saved-output
     type: regex
     target: trace
-    pattern: '"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\bunittest\b[^;|&>"\\]*?\s+(?:&?>|2>)\s*(?:\\"|'')?([\w.$/{}-]+)(?=[\s"''\\;&|]|$)(?:\\"|'')?(?:(?:[^"\\]|\\.)*?|(?:[^"\\]|\\.)*?"[\s\S]*?"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?)\btail\s+(?:(?:-n\s*|-)[1-9]\d*\s+)?(?:--\s+)?(?:\\"|'')?\1(?=[\s"''\\;&|]|$)'
+    pattern: '"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\bunittest\b(?:[^;|&>"\\]|\\")*?(?:\s+(?:2>&1\s*)?\|\s*tee\s+(?:-a\s+)?[^\s|;&"]+\s*\|\s*tail\b|\s*(?:&?>|2>)\s*(?:\\"|'')?([\w.$/{}-]+)(?=[\s"''\\;&|]|$)(?:\\"|'')?(?:(?:[^"\\]|\\.)*?|(?:[^"\\]|\\.)*?"[\s\S]*?"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?)\btail\s+(?:(?:-n\s*|-)[1-9]\d*\s+)?(?:--\s+)?(?:\\"|'')?\1(?=[\s"''\\;&|]|$))'
   # Bash returns the test's exit directly when it runs alone. A compound command has to capture it.
   - name: keeps-the-test-exit-status
     type: tool_used
     tool: Bash
-    input_match: '\bunittest\b[^;|&"\\]*?(?:&?>|2>)\s*(?:\\"[^"\\]+\\"|''[^'']+''|[^\s;"\\&|]+)(?:\s+2>&1)?\s*(?:"|(?:;\s*|\\n\s*)[^;&|"\\]*(?:\\")?\$\?|\|\|\s*\w+=\$\?)'
+    input_match: '\bunittest\b(?:[^;|&"\\]|\\")*?(?:(?:2>&1\s*)?\|\s*tee\s+[^;&|"\\]+(?:\|\s*tail\b[^;&|"\\]*)?;\s*(?:[^;&|"\\]|\\")*?\$\{PIPESTATUS\[0\]\}|(?:&?>|2>)\s*(?:\\"[^"\\]+\\"|''[^'']+''|[^\s;"\\&|]+)(?:\s+2>&1)?\s*(?:"|(?:;\s*|\\n\s*)(?:[^;&|"\\]|\\")*?\$\?|\|\|\s*\w+=\$\?))'
   - name: avoids-repeating-a-full-file-read
     type: regex
     target: trace

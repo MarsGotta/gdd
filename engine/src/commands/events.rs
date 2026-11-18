@@ -245,6 +245,19 @@ pub fn answer(ctx: &Ctx, id: &str, words: &str) -> Out {
                 "gdd waiting",
             ));
         };
+        if a.spent_limit
+            && matches!(
+                words
+                    .trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+                    .as_str(),
+                "yes" | "sí" | "si"
+            )
+        {
+            return Err(Fail::usage(format!(
+                "For an extra attempt, use gdd waiver {id}. To defer, record the person's choice to wait."
+            )));
+        }
         let ev = new_event(
             id,
             "answer",

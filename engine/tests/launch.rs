@@ -602,11 +602,17 @@ printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_toke
     let before = r.log_lines("l1");
     let launches = r.read("launches");
     assert!(!launches.is_empty());
-    let fresh = r.gdd(&["launch", "l1", "build", "--run"]);
+    let bare = ["launch", "l1", "build", "--run"];
+    assert_eq!(r.gdd(&bare).facts["refused"], "resume-required");
+    let fresh = r.gdd(&bare);
     assert_eq!(fresh.code, 1, "{}", fresh.out);
     assert!(fresh.has("--run --command") && fresh.has("gdd report l1 build"));
     assert_eq!(r.log_lines("l1"), before);
     assert_eq!(r.read("launches"), launches);
+    assert_eq!(
+        r.gdd(&["next", "l1"]).facts["state"]["next"]["step"],
+        "build"
+    );
     let codex = script(
         &r,
         "codex",
@@ -723,15 +729,18 @@ fn a_codex_fix_uses_the_last_reading_from_its_own_session() {
     let r = repo_for_codex_rounds();
     codex_round(&r, 1, "first", 1);
     let changed = codex_round(&r, 2, "other", 2);
-    assert!(changed.facts["tokens"].is_null(), "{}", changed.out);
-    assert!(changed.has("unknown"), "{}", changed.out);
-    assert!(r.log_lines("l1").last().unwrap()["report"]["tokens_read"].is_null());
-    let next = codex_round(&r, 3, "other", 3);
+    assert_eq!(changed.facts["tokens"], 22000, "{}", changed.out);
+    assert_eq!(
+        r.log_lines("l1").last().unwrap()["report"]["tokens_read"],
+        24000
+    );
+    let next = codex_round(&r, 3, "first", 2);
     assert_eq!(next.facts["tokens"], 11000);
     assert_eq!(
         r.log_lines("l1").last().unwrap()["report"]["tokens_read"],
         12000
     );
+    assert!(r.gdd(&["limits", "l1"]).has("tokens 44000 of 100000"));
     let reset = codex_round(&r, 4, "other", 0);
     assert!(reset.facts["tokens"].is_null(), "{}", reset.out);
     assert!(reset.facts.get("reported_input").is_none());

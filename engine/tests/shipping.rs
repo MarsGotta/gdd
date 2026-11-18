@@ -457,6 +457,27 @@ fn a_launched_fix_without_numbered_findings_still_holds() {
 }
 
 #[test]
+fn check_citations_use_blueprint_ids_and_count_each_number_once() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "p1");
+    let body = concat!(
+        "f1 no such check | check zzz\n",
+        "f5 missing citation\n",
+        "f5 still no citation\n",
+        "f6 one citation | check tests\n",
+        "f6 missing source\n",
+        "f2 skipped | check tests.\n",
+        "f3 missing run | check `slow`\n",
+        "f4 skipped | check tests: never ran",
+    );
+    let result = r.report("p1", "review", &review_text("fix", "yellow", body), &[]);
+    assert_eq!(result.facts["next"], "build", "{}", result.out);
+    let review = r.log_lines("p1").pop().unwrap();
+    assert_eq!(review["uncited"], serde_json::json!(["f1", "f5", "f6"]));
+    assert_eq!(review["findings"].as_array().unwrap().len(), 6);
+}
+
+#[test]
 fn a_fix_can_cite_the_check_that_failed_or_was_skipped() {
     let r = Repo::new();
     yellow_through_gates(&r, "p1");
@@ -467,6 +488,29 @@ fn a_fix_can_cite_the_check_that_failed_or_was_skipped() {
     let review = lines.last().unwrap();
     assert_eq!(review["findings"].as_array().unwrap().len(), 5);
     assert!(review.get("uncited").is_none());
+}
+
+#[test]
+fn later_allows_a_blank_line_before_its_first_item() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "p1");
+    let body = "f1 cart:1 charges twice | @id:p1-1\nLATER:\n\n- f2 shorten the footer\n- the helper is duplicated";
+    let result = r.report("p1", "review", &review_text("fix", "yellow", body), &[]);
+    assert_eq!(result.code, 0, "{}", result.out);
+    let review = r.log_lines("p1").pop().unwrap();
+    assert_eq!(
+        review["later"],
+        serde_json::json!(["f2 shorten the footer", "the helper is duplicated"])
+    );
+    assert_eq!(review["findings"].as_array().unwrap().len(), 1);
+    assert!(review.get("uncited").is_none());
+    let prompt = r.gdd(&["launch", "p1", "build"]);
+    assert!(
+        !prompt.facts["prompt"]
+            .as_str()
+            .unwrap()
+            .contains("shorten the footer")
+    );
 }
 
 #[test]
@@ -487,6 +531,24 @@ fn a_blank_line_ends_later_before_a_blocking_finding() {
         serde_json::json!(["shorten the footer", "shorten the title"])
     );
     assert_eq!(review["findings"][0]["id"], "f1");
+}
+
+#[test]
+fn a_reading_records_the_gaps_in_existing_scenarios() {
+    let r = Repo::new();
+    yellow_brief(&r, "rd");
+    let body = "MISSING:\n- @id:rd-1 needs the starting stock\n- the order has no quantity";
+    let result = r.report("rd", "reading", &review_text("pass", "yellow", body), &[]);
+    assert_eq!(result.code, 0, "{}", result.out);
+    let reading = r.log_lines("rd").pop().unwrap();
+    assert_eq!(
+        reading["missing"],
+        serde_json::json!([
+            "@id:rd-1 needs the starting stock",
+            "the order has no quantity"
+        ])
+    );
+    assert_eq!(reading["findings"], serde_json::json!([]));
 }
 
 #[test]
@@ -778,6 +840,38 @@ fn hardening_without_attribution_records_unknown() {
         r.gdd(&["metrics", "--all", "--summary"])
             .has("unknown | unknown | 1")
     );
+}
+
+#[test]
+fn a_reduction_names_the_check_it_changes() {
+    let r = Repo::new();
+    for action in ["relax", "retire"] {
+        let base = [
+            "step",
+            "blueprint",
+            "harden",
+            "--action",
+            action,
+            "--crack",
+            "lint duplicates the compiler",
+            "--proposal",
+            "run lint less often",
+            "--catches",
+            "nothing in 14 runs",
+            "--cost",
+            "28 seconds",
+        ];
+        for check in [None, Some("unknown"), Some("none")] {
+            let mut args = base.to_vec();
+            if let Some(check) = check {
+                args.extend(["--expected-check", check]);
+            }
+            let result = r.gdd(&args);
+            assert_eq!(result.code, 2, "{}", result.out);
+            assert!(result.has("--expected-check"));
+        }
+    }
+    assert!(r.log_lines("blueprint").is_empty());
 }
 
 #[test]

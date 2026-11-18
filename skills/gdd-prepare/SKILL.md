@@ -32,7 +32,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## Zones
 
-A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do. Try the draft before approval: in one run, a red server got no tests. Change a zone only for a reason grounded in risk, and try it again.
+A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do. Try the draft before approval: in one run, a red server got no tests. Change a zone only for a reason grounded in risk, and try it again. Never lower a color to improve the figures.
 
 - Mark as delicate whatever is expensive if it fails. In software, start with payments, access and permissions, deployments and CI, the updater, customer data, and whatever judges the rest, in a zone whose color asks for `review`: the blueprint itself, the standing checks and what runs them (CI and each tool's configuration).
 - Mark behaviors, not only folders: code outside a delicate zone that configures it, feeds it data or decides what it does belongs to it too.
@@ -44,7 +44,7 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 
 ## Gates
 
-The gates are the project's, the same for every change. The person chooses them and what each color asks: more risk means more checks, not other gates. Before you propose any, open `references/gates.md`, and `references/web.md` too when it builds for the web. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
+The person or their team chooses the gates, since they differ with the discipline and the project. The same gates apply to every change. The person also decides what each color asks. More risk means more checks at those gates. Before you propose any, open `references/gates.md`, and `references/web.md` too when it builds for the web. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
 
 For each red zone, propose three to five things that must never happen, in the person's words. Open `references/research.md` when choosing them from the project's data and what is usual in its sector. The person can approve or correct them with the blueprint. Yellow and green get their own gates only on request or through hardening.
 

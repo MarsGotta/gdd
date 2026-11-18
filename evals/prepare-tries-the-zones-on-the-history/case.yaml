@@ -53,7 +53,7 @@ graders:
   - name: gets-the-files-of-a-change
     type: tool_used
     tool: Bash
-    input_match: '\bgit\s+(?:diff-tree|show|diff|log)\s+[^;&|"]*--name-(?:only|status)\b'
+    input_match: '\bgit\s+(?:(?:-C\s+(?:\\"[^"\\]+\\"|[^\s;"|&]+)|--no-pager)\s+)*(?:diff-tree|show|diff|log)\s+(?:[^;&|"\\]|\\")*--name-(?:only|status)\b'
   - name: previews-the-checks-on-real-changes
     type: tool_used
     tool: Bash
@@ -64,7 +64,7 @@ graders:
     input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+zones\b'
   - name: gives-the-counts-and-coverage-in-two-lines
     type: regex
-    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|check|test|unprotected)'
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})(?=[^\n]*\b(?:wording|texts?|copy|labels?|light|routine)\b)(?=[^\n]*\b(?:cart|basket|standard)\b)(?=[^\n]*\b(?:pay\w*|checkout|deep)\b)[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|unprotected|uncheck|untest|blind spot)'
     flags: i
     weight: 3
   - name: says-what-no-zone-covers

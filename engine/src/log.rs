@@ -336,7 +336,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("closed", Arr, Writes),
             ("uncited", Arr, May),
         ],
-        ("step", "reading") => vec![("findings", Arr, Writes)],
+        ("step", "reading") => vec![("findings", Arr, Writes), ("missing", Arr, May)],
         ("step", "ship") => vec![
             ("where", Str, Must),
             ("color", Str, Writes),
@@ -483,7 +483,13 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
     }
     if is_step(v, "harden") {
         let reduction = matches!(v["action"].as_str(), Some("relax" | "retire"));
-        if writing && reduction && v["expected_check"] == "none" {
+        if writing
+            && reduction
+            && matches!(
+                v["expected_check"].as_str().map(str::trim),
+                None | Some("none" | "unknown")
+            )
+        {
             a.errors
                 .push("--expected-check names the check to relax or retire".into());
         }

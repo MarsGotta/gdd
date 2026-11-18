@@ -307,7 +307,7 @@ def layer_cases(binary):
         git(repo, "init", "-q", "-b", "main", ".")
         write(repo, "src/ui/b.js", "ui\n")
         write(repo, "gdd/blueprint.md", BLUEPRINT)
-        write(repo, "gdd/backlog.md", "# Backlog\n\n| Id | What | Color | Phase | Brief | State |\n|---|---|---|---|---|---|\n")
+        write(repo, "gdd/backlog.md", "# Backlog\n\n| Id | What | Color | Phase | Brief | State |\n|---|---|---|---|---|---|\n| standing-checks | Set up the checks | red | 0 | | done |\n")
         (repo / "gdd/log").mkdir(parents=True)
         base = commit(repo, "base")
         briefed = gdd(repo, "brief", "g1", "--paths", "src/ui/b.js", "--why", "a typo")

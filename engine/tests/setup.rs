@@ -375,6 +375,21 @@ fn a_refusal_names_what_is_missing() {
 }
 
 #[test]
+fn an_extra_passing_run_does_not_hold_a_single_check_setup() {
+    let r = Repo::new();
+    let id = "standing-checks-tests";
+    seal_as_the_checks_role(&r.root, r.dir.path(), id, &[("tests/stock.sh", "true\n")]);
+    let proof = r#"{"check":"slow","case":"passes","command":"slow","exit":0,"tail":"ok"}"#;
+    let text = sealed_report(&["tests"]).replace("]\n", &format!(",{proof}]\n"));
+    let result = r.report(id, "checks", &text, &[]);
+    assert_eq!(result.code, 0, "{}", result.out);
+    assert_eq!(
+        r.log_lines(id).pop().unwrap()["seal"]["proofs"][2]["check"],
+        "slow"
+    );
+}
+
+#[test]
 fn standing_checks_only_demonstrate_checks_with_files_to_judge() {
     let bp = BLUEPRINT.replace("when: [':(glob)src/ui/**']", "when: [':(glob)web/**']");
     for has_page in [false, true] {

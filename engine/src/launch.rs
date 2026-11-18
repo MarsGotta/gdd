@@ -245,15 +245,15 @@ fn session_id(value: &Value) -> Option<String> {
 
 /// Read a launched role's output with the adapter of its program.
 pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
-    read_round(adapter, raw, model, None)
+    read_round(adapter, raw, model, std::iter::empty())
 }
 
 /// A returned role has a previous step, even when it has no recorded Codex counters.
-pub(crate) fn read_round(
+pub(crate) fn read_round<'a>(
     adapter: Adapter,
     raw: &str,
     model: &str,
-    previous: Option<&Value>,
+    mut previous: impl Iterator<Item = &'a Value>,
 ) -> Said {
     let mut said = Said::default();
     let events: Vec<Value> = raw
@@ -345,9 +345,14 @@ pub(crate) fn read_round(
                 "cached": usage["cached_input_tokens"].as_u64(),
                 "output": usage["output_tokens"].as_u64(),
             });
+            // An unmeasured role step could have used this thread. Stop there rather than
+            // charging its tokens again. A thread with no earlier step starts at zero.
+            let baseline = previous.find(|p| {
+                said.session_id.is_none() || !p["id"].is_string() || p["id"] == thread["id"]
+            });
             let delta = |key: &str| {
                 let now = thread[key].as_u64()?;
-                let before = match previous {
+                let before = match baseline {
                     None => 0,
                     Some(p) if said.session_id.is_some() && p["id"] == thread["id"] => {
                         p[key].as_u64()?

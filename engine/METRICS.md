@@ -56,7 +56,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 
 change, line, ts; step; role (the report's skill) and skill_version; level; model; round; result (the report's result, the verdict of a review, pass or fail for gates); caught; seconds, tokens and tokens_read, as the report gives them; seconds_since_previous, from the event before with a time, which is how long that step took if it was written when it closed; suspect_time, true when a step that takes time (checks, build, gates, review, reading) has the same second as the step before it, the sign of a log written afterwards, unless the journal shows that each of the two was written by its own call of the layer; by_layer, true when the journal shows a call of the layer wrote that line.
 
-For a fix flagged for missing citations, `uncited` counts the numbered findings without a citation. Zero means the flagged fix gave no numbered finding at all. Other steps, including older logs without the flag, leave this column null. The summary counts flagged reviews and adds their uncited findings.
+For a fix flagged for missing citations, `uncited` counts distinct finding numbers without a citation, including in older logs that repeat a number. Zero means the flagged fix gave no numbered finding at all. Other steps, including older logs without the flag, leave this column null. The summary counts flagged reviews and adds their uncited findings.
 
 ## checks: one row per executed or skipped check of each gates run
 
@@ -76,15 +76,15 @@ change, line, ts; kind (its `of`); what; answered (an event followed it); answer
 
 ## findings: one row per finding of a review or a reading, and per item left for later
 
-change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; for a reading’s numbered addition, the destination from `--went` (`brief`, `person`, `log`, `dropped`, default `log`); `backlog` for what was left under `LATER:`.
+change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; for a reading’s numbered addition, the destination from `--went` (`brief`, `person`, `log`, `dropped`, default `log`); for `LATER:`, `log` in a brief reading and `backlog` in a review.
 
-Unnumbered clarifications under `MISSING:` are printed for the orchestrator and have no finding row.
+The reading step keeps unnumbered clarifications under `missing`. Only numbered additions and `LATER:` observations get finding rows.
 
 ## engine: one row per invocation of the tool, from the journals
 
 change; ts; command; args (as journaled, free text as `<text>`); exit; ms; wrote_line (the log line the call wrote, if any); refused (a short code: `needs-approval`, `cap-spent`, `not-merged`, `out-of-order`, `no-report`, `no-verdict`, `not-started`, `timeout`, `hash-mismatch`, `seal-mismatch`, `wrong-commit`...); and for `launch --run`: role, model, adapter, started, seconds_to_first_output, seconds, timed_out, tokens, and input_tokens, output_tokens, cache_read_tokens, cache_write_tokens for the launch.
 
-A launch records tokens only when its environment reports them, read by an adapter chosen by the launched program (`--adapter` overrides it). A step's `tokens` is fresh input plus cache writes plus output; cache reads are kept apart in the journal, because a long session repeats them on every turn. The steps table also gives `tokens_read`, the round’s input including cache reads and writes. Codex already includes cached input in its input total. Claude reports fresh input, cache reads and cache writes separately. A Codex build or checks step keeps the thread id and cumulative readings. On a fix, the layer subtracts the readings on the previous step for that role in the same thread. The steps and engine tables give the resulting round counts. A missing baseline, a different thread or a counter that went backwards leaves the affected count null. Older steps can lack these measurements.
+A launch records tokens only when its environment reports them, read by an adapter chosen by the launched program (`--adapter` overrides it). A step's `tokens` is fresh input plus cache writes plus output; cache reads are kept apart in the journal, because a long session repeats them on every turn. The steps table also gives `tokens_read`, the round’s input including cache reads and writes. Codex already includes cached input in its input total. Claude reports fresh input, cache reads and cache writes separately. A Codex build or checks step keeps the thread id and cumulative readings. The first reading in a new thread counts in full. Later rounds subtract the previous reading for that role in the same thread. The steps and engine tables give the resulting round counts. An intervening step with no thread record or a counter that went backwards leaves the affected count null. Older steps can lack these measurements.
 
 ## The summary
 

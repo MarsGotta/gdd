@@ -132,19 +132,19 @@ graders:
     tool: Bash
     input_match: '(?:\b(?:command\s+-v|which|type(?:\s+-[a-zA-Z]+)?)\s+claude\b|\bclaude\s+(?:-p\b|--(?:print|model|help|version|output-format)\b))'
   # A probe can be a Claude CLI call or a model-selected Agent call when the CLI is unavailable.
-  # When a shell loop supplies the model at runtime, the CLI result identifies it in modelUsage.
+  # When a shell loop supplies the model at runtime, accept a usage result only when it names a single model.
   - name: tries-the-light-level
     type: regex
     target: trace
-    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*haiku[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*haiku\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*haiku[\w.-]*\\"\s*:\s*\{'
+    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*haiku[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\||\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:timeout\s+\d+[smh]?\s+)?(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*haiku\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*haiku[\w.-]*\\"\s*:\s*\{[^{}]*\}\s*\}'
   - name: tries-the-standard-level
     type: regex
     target: trace
-    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*sonnet[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*sonnet\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*sonnet[\w.-]*\\"\s*:\s*\{'
+    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*sonnet[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\||\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:timeout\s+\d+[smh]?\s+)?(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*sonnet\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*sonnet[\w.-]*\\"\s*:\s*\{[^{}]*\}\s*\}'
   - name: tries-the-deep-level
     type: regex
     target: trace
-    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*opus[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*opus\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*opus[\w.-]*\\"\s*:\s*\{'
+    pattern: '"name":"Agent","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"model":"[\w.-]*opus[\w.-]*"|"name":"Bash","input":\{"command":"(?:(?:[^"\\]|\\.)*?(?:&&|;|\||\\n)\s*)?(?:env\s+(?:-u\s+\w+\s+)?|\w+=\S*\s+)*(?:timeout\s+\d+[smh]?\s+)?(?:[\w./-]+/)?claude\s+(?![^;&|\\"]*--(?:help|version)\b)(?=(?:[^;&|"\\]|\\")*?(?:-p|--print)\b)(?:[^;&|"\\]|\\")*?--model[=\s]+(?:\\"|'')?[\w.-]*opus\b|\\"modelUsage\\"\s*:\s*\{\s*\\"[\w.-]*opus[\w.-]*\\"\s*:\s*\{[^{}]*\}\s*\}'
   - name: logs-the-light-probe
     type: regex
     target: { source: file, path: gdd/log/blueprint.jsonl }

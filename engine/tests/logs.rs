@@ -293,6 +293,28 @@ fn metrics_tables_on_a_logged_project() {
 }
 
 #[test]
+fn metrics_keep_a_readings_later_observation_in_the_log() {
+    let r = Repo::new();
+    yellow_brief(&r, "rd", "src/core/app.txt");
+    let result = r.report(
+        "rd",
+        "reading",
+        &review_text("pass", "yellow", "LATER:\n- shorten the wording"),
+        &[],
+    );
+    assert_eq!(result.code, 0, "{}", result.out);
+    let rows = r.gdd(&["metrics", "rd", "--format", "jsonl"]);
+    let later = rows
+        .out
+        .lines()
+        .filter_map(|s| serde_json::from_str::<Value>(s).ok())
+        .find(|v| v["table"] == "findings" && v["kind"] == "later")
+        .unwrap();
+    assert_eq!(later["what"], "shorten the wording");
+    assert_eq!(later["went"], "log");
+}
+
+#[test]
 fn metrics_count_only_complete_brief_tags() {
     let r = Repo::new();
     r.write(
@@ -375,7 +397,7 @@ fn metrics_keep_claims_skips_and_missing_measurements_apart() {
         ),
         ev(
             5,
-            r#""event":"step","step":"review","verdict":"fix","report":{"skill":"gdd-review"}"#,
+            r#""event":"step","step":"review","verdict":"fix","uncited":["f1","f1"],"report":{"skill":"gdd-review"}"#,
         ),
         ev(
             6,
@@ -436,6 +458,7 @@ fn metrics_keep_claims_skips_and_missing_measurements_apart() {
         "build steps without claims: 1",
         "gdd-build | 0.0 | 2 | 12 | 2",
         "gdd-review | unknown | 2 | unknown | 2",
+        "fix reviews missing citations: 1, uncited findings: 1",
         "review 0% (0 of 1)",
         "decision  1,",
         "x | 1",

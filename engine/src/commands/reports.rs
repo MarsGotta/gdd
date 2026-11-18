@@ -68,7 +68,7 @@ pub(super) fn write_report(
         "review" | "reading" => "gdd-review",
         _ => return Err(Fail::usage("the step is checks, build, review or reading")),
     };
-    let r = report::parse(text).map_err(|e| {
+    let r = report::parse_with_blueprint(text, Some(&l.bp)).map_err(|e| {
         Fail::refuse(
             "no-report",
             format!("the role's last message: {e}"),
@@ -346,17 +346,23 @@ fn report_checks(
             checks.insert(f.clone(), json!(h));
         }
     }
-    let proofs = if let Some((previous_checks, previous_proofs)) = standing {
+    let reused = standing.is_some();
+    let mut proofs = reported_proofs(id, a, r)?;
+    if let Some((previous_checks, mut previous_proofs)) = standing {
         checks = previous_checks;
+        for proof in proofs {
+            if !previous_proofs.contains(&proof) {
+                previous_proofs.push(proof);
+            }
+        }
+        proofs = previous_proofs;
+    }
+    check_proofs(l, id, &proofs)?;
+    if reused {
         out.say(
             "nothing new on the seal: the checks sealed before stand for this version of the brief",
         );
-        previous_proofs
-    } else {
-        let proofs = reported_proofs(id, a, r)?;
-        check_proofs(l, id, &proofs)?;
-        proofs
-    };
+    }
     let n = proofs.len();
     m.insert(
         "seal".into(),
@@ -526,7 +532,8 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
     let setup = log_kind(id) == LogKind::Setup;
     let required = required_proofs(l, id)?;
     let runs = proof_runs(id, &required, proofs)?;
-    if setup && id != "standing-checks" && runs.is_empty() {
+    let zone_trial = id.starts_with("gates-");
+    if zone_trial && runs.is_empty() {
         return Err(missing_proof(
             id,
             "setting up a check needs both a rejects proof and a passes proof",
@@ -534,7 +541,7 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
     }
     let mut scenario_tests = 0;
     for (check, runs) in runs {
-        if (!setup || id == "standing-checks") && !required.contains(check) {
+        if !zone_trial && !required.contains(check) {
             continue;
         }
         if runs.rejects.is_empty() {
@@ -818,6 +825,9 @@ fn report_reading(a: &ReportArgs, r: &RoleReport, m: &mut Map<String, Value>) ->
             "the reading proposes more than three additions",
             "number up to three blocking additions and put the remaining observations under LATER: for the log, then report the reading again",
         ));
+    }
+    if !r.missing.is_empty() {
+        m.insert("missing".into(), json!(r.missing));
     }
     let mut findings = vec![];
     for (i, f) in r.findings.iter().enumerate() {

@@ -36,10 +36,17 @@ fn setup_checks(id: &str, p: &Progress, lim: &Limits, say: &str) -> Next {
             .checks_line
             .is_some_and(|c| p.asks.iter().any(|a| a.line > c && a.answered));
         if !answered {
+            let order = if id == "standing-checks" {
+                "The standing checks come before any change."
+            } else {
+                "If they leave it for later, it stays in the backlog and the next request doesn't wait for it."
+            };
             return blocked(
                 "stopped",
                 "cannot",
-                "gdd-checks stopped twice: what it can't set up goes to the person, with what you'd do. If they leave it for later, it stays in the backlog and the next request doesn't wait for it",
+                format!(
+                    "gdd-checks stopped twice: what it can't set up goes to the person, with what you'd do. {order}"
+                ),
                 format!("gdd ask {id} --of decision \"<what it can't set up, and what you'd do>\""),
             );
         }

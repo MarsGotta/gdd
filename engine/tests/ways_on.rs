@@ -229,6 +229,10 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
             .unwrap()
             .starts_with("If they agree to the extra attempt: gdd waiver")
     );
+    let yes = r.gdd(&["answer", id, "Yes"]);
+    assert_ne!(yes.code, 0, "{}", yes.out);
+    assert!(yes.has("gdd waiver standing-checks"));
+    assert_eq!(step_of(&next_of(&r, id)), "wait");
     let w = r.gdd(&[
         "waiver",
         id,
@@ -371,6 +375,36 @@ fn agreeing_to_leave_a_spent_change_for_later_closes_the_question() {
 }
 
 // ----- 3. only standing-checks comes before every change -----
+
+#[test]
+fn unfinished_standing_checks_hold_the_next_brief() {
+    let r = Repo::new();
+    let id = "standing-checks";
+    r.write("gdd/backlog.md", &BACKLOG.replace("| done |", "| todo |"));
+    for _ in 0..2 {
+        assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    }
+    let n = next_of(&r, id);
+    assert_eq!(blocked_of(&n), "cannot");
+    assert!(n.has("before any change"), "{}", n.out);
+    assert!(r.gdd(&["next"]).has("before any change"));
+    let b = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
+    assert_ne!(b.code, 0, "{}", b.out);
+    assert!(b.has("gdd next standing-checks"));
+    assert!(r.log_lines("g1").is_empty());
+    assert_ne!(
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    assert_eq!(command_of(&next_of(&r, "g1")), "gdd next standing-checks");
+    assert!(!r.gdd(&["next"]).has("gdd ask g1"));
+    r.write("gdd/backlog.md", BACKLOG);
+    assert_eq!(step_of(&next_of(&r, "g1")), "brief");
+    assert_eq!(
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+}
 
 #[test]
 fn only_the_standing_checks_come_before_every_change() {

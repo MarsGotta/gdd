@@ -65,11 +65,11 @@ Write the brief and its scenarios in your own copy, the one the person has open,
 
 Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions tied to a constitution or zone rule or loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
-If this color omits `brief-approval`, tell the person in one line what the change will do and go on. Otherwise follow the step the layer printed. Ask only when approval is due. Send one message, under 150 words, in their language, in this shape:
+If this color omits `brief-approval`, tell the person in one line what the change will do and go on. Otherwise follow the step the layer printed. Ask only when approval is due. Use one message under 150 words in their language:
 
     <What the change will do, in words of their product.>
     <Each scenario in one line, in their words.>
-    <Your technical decisions and the product proposals selected above.>
+    <Technical decisions marked as yours, and the selected product proposals.>
     <On red: the rules of the product it touches, and up to three things it won't do yet, each as a consequence.>
     <Any disputed addition that needs their decision, and why.>
     <One question a yes answers.>

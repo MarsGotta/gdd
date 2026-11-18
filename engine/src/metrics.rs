@@ -184,6 +184,12 @@ fn step_rows(
                 && !(layer.contains(line) && prev_step_line.is_some_and(|l| layer.contains(&l)));
             // Written by the layer, by its journal.
             let by_layer = layer.contains(line);
+            let uncited = v["uncited"].as_array().map(|ids| {
+                ids.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<BTreeSet<_>>()
+                    .len()
+            });
             if sus {
                 n.suspect += 1;
             }
@@ -218,7 +224,7 @@ fn step_rows(
                     },
                 ),
                 ("caught", r["caught"].clone()),
-                ("uncited", json!(v["uncited"].as_array().map(Vec::len))),
+                ("uncited", json!(uncited)),
                 ("seconds", r["seconds"].clone()),
                 ("tokens", r["tokens"].clone()),
                 ("tokens_read", r["tokens_read"].clone()),
@@ -418,7 +424,10 @@ fn finding_rows(rows: &mut Vec<Row>, id: &str, events: &Events) {
                 ("kind", json!("later")),
                 ("what", l.clone()),
                 ("where", Value::Null),
-                ("went", json!("backlog")),
+                (
+                    "went",
+                    json!(if st == "reading" { "log" } else { "backlog" }),
+                ),
             ]));
         }
     }

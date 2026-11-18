@@ -150,6 +150,10 @@ pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
             j["wrote"].is_object()
                 || (j["exit"].as_i64() == Some(1)
                     && !matches!(
+                        j["refused"].as_str(),
+                        Some("resume-required" | "standing-checks")
+                    )
+                    && !matches!(
                         j["command"].as_str(),
                         Some("next" | "limits" | "verify" | "metrics" | "color")
                     ))

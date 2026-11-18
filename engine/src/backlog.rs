@@ -442,6 +442,14 @@ pub fn items(text: &str) -> Vec<Item> {
     read(text).items
 }
 
+/// The project-wide setup is the one backlog item every change waits for.
+pub fn standing_checks(items: &[Item]) -> Option<&str> {
+    items
+        .iter()
+        .find(|i| i.id == "standing-checks")
+        .map(|i| i.state.as_str())
+}
+
 /// The next item to build: the first `todo`, by phase and then by order.
 pub fn next(items: &[Item]) -> Option<&Item> {
     let mut todo: Vec<&Item> = items.iter().filter(|i| i.state == "todo").collect();

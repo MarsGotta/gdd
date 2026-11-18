@@ -1,6 +1,8 @@
 //! What a launched role says at the end: its `gdd-report` block, a `CANNOT:`, and for a reviewer
 //! its verdict, its color, its findings and what it leaves for later.
 
+use crate::blueprint::Blueprint;
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Finding {
     pub id: String,
@@ -10,12 +12,16 @@ pub struct Finding {
 
 /// The reviewer judges whether the cited requirement is broken. The layer checks that the
 /// finding itself gives a source and some words from it.
-fn has_citation(what: &str) -> bool {
+fn has_citation(what: &str, blueprint: Option<&Blueprint>) -> bool {
     if let Some((_, source)) = what.rsplit_once('|')
         && source
             .trim()
             .strip_prefix("check ")
-            .is_some_and(|id| crate::valid_id(id.trim()))
+            .and_then(|rest| rest.split_whitespace().next())
+            .map(|word| word.trim_matches(['`', '"', '(', ')', '[', ']', ',', '.', ':']))
+            .is_some_and(|id| {
+                crate::valid_id(id) && blueprint.is_none_or(|bp| bp.check(id).is_some())
+            })
     {
         return true;
     }
@@ -55,7 +61,7 @@ pub struct RoleReport {
     /// The color of the `COLOR:` line, and the rest of that line.
     pub color: Option<(String, String)>,
     pub findings: Vec<Finding>,
-    /// Numbers used for uncited findings in a fix, including reused numbers.
+    /// Distinct finding numbers without a citation in a fix.
     pub uncited: Vec<String>,
     pub later: Vec<String>,
     pub notes: String,
@@ -216,13 +222,13 @@ fn finding(line: &str) -> Option<Finding> {
 }
 
 /// A numbered line inside LATER belongs to the log. After a blank line it can bind the change.
-fn read_findings(lines: &[&str], r: &mut RoleReport) {
+fn read_findings(lines: &[&str], r: &mut RoleReport, blueprint: Option<&Blueprint>) {
     let mut in_block = false;
-    let mut in_later = false;
+    let mut later_start = None;
     for l in lines {
         if l.trim().starts_with("```") {
             in_block = !in_block;
-            in_later = false;
+            later_start = None;
             continue;
         }
         if in_block {
@@ -230,19 +236,19 @@ fn read_findings(lines: &[&str], r: &mut RoleReport) {
         }
         let p = plain(l);
         if let Some(rest) = p.strip_prefix("LATER:") {
-            in_later = true;
+            later_start = Some(r.later.len());
             if !rest.trim().is_empty() {
                 r.later.push(rest.trim().to_string());
             }
             continue;
         }
-        if in_later {
-            if l.trim().is_empty()
+        if let Some(start) = later_start {
+            if (l.trim().is_empty() && r.later.len() > start)
                 || ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
                     .iter()
                     .any(|h| p.starts_with(h))
             {
-                in_later = false;
+                later_start = None;
             } else {
                 if !p.is_empty() {
                     r.later
@@ -252,7 +258,10 @@ fn read_findings(lines: &[&str], r: &mut RoleReport) {
             }
         }
         if let Some(f) = finding(l) {
-            if r.verdict.as_deref() == Some("fix") && !has_citation(&f.what) {
+            if r.verdict.as_deref() == Some("fix")
+                && !r.uncited.contains(&f.id)
+                && !has_citation(&f.what, blueprint)
+            {
                 r.uncited.push(f.id.clone());
             }
             if !r.findings.iter().any(|x| x.id == f.id) {
@@ -264,6 +273,13 @@ fn read_findings(lines: &[&str], r: &mut RoleReport) {
 
 /// Read what a role said. Without its `gdd-report` block the step didn't happen.
 pub fn parse(text: &str) -> Result<RoleReport, String> {
+    parse_with_blueprint(text, None)
+}
+
+pub(crate) fn parse_with_blueprint(
+    text: &str,
+    blueprint: Option<&Blueprint>,
+) -> Result<RoleReport, String> {
     let Some(fields) = block(text) else {
         return Err("it has no gdd-report block: the step didn't happen".into());
     };
@@ -329,7 +345,7 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
             ));
         }
     }
-    read_findings(&lines, &mut r);
+    read_findings(&lines, &mut r, blueprint);
     r.notes = section(text, "NOTES FOR THE BUILDER:", &["LATER:", "MISSING:"]).join("\n");
     r.missing = section(text, "MISSING:", &["LATER:", "NOTES FOR THE BUILDER:"]);
     match json_block(text) {

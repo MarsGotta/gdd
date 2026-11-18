@@ -670,19 +670,16 @@ fn run_role(
         .filter(|o| !o.trim().is_empty())
         .unwrap_or_else(|| read(&errors));
     // A voided step still counts against the cap and still took the thread to its recorded reading.
-    let previous = if matches!(role, "build" | "checks") {
-        l.entries
-            .iter()
-            .rev()
-            .filter_map(|e| e.event())
-            .find(|v| step(v) == role)
-    } else {
-        None
-    }
-    .map(|v| &v["report"]["codex_thread"]);
+    let previous = l
+        .entries
+        .iter()
+        .rev()
+        .filter_map(|e| e.event())
+        .filter(|v| matches!(role, "build" | "checks") && step(v) == role)
+        .map(|v| &v["report"]["codex_thread"]);
     let said = launch::read_round(adapter, &raw, model, previous);
     let tokens = said.tokens();
-    if adapter == Adapter::Codex && previous.is_some() && tokens.is_none() {
+    if adapter == Adapter::Codex && tokens.is_none() {
         out.say("The token cost of this Codex round is unknown. The thread has no comparable reading for the cap, so tokens is null.");
     }
     if matches!(role, "build" | "checks")

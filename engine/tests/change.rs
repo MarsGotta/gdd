@@ -639,6 +639,38 @@ fn a_first_checks_round_that_seals_nothing_is_refused() {
     assert_eq!(sealed_nothing(&r, "y6").facts["refused"], "not-sealed");
 }
 
+#[test]
+fn reused_proofs_must_cover_the_revised_paths() {
+    let r = Repo::with(&BLUEPRINT.replace("id: slow", "id: slow\n    cases: each change"));
+    checked(&r, "pv");
+    let brief = "gdd/briefs/pv.md";
+    r.write(
+        brief,
+        &r.read(brief).replace(
+            "  - 'src/core/app.txt'",
+            "  - 'src/core/app.txt'\n  - 'src/ui/page.txt'",
+        ),
+    );
+    new_version(
+        &r,
+        "pv",
+        &[brief, "features/pv.feature"],
+        &["src/ui/page.txt"],
+    );
+    let result = sealed_nothing(&r, "pv");
+    assert_eq!(result.facts["refused"], "missing-proofs", "{}", result.out);
+    assert!(result.has("rejects proof for slow"));
+    let completed = r.report("pv", "checks", &sealed_report(&["slow"]), &[]);
+    assert_eq!(completed.code, 0, "{}", completed.out);
+    assert_eq!(
+        r.log_lines("pv").pop().unwrap()["seal"]["proofs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
+}
+
 /// A new scenario needs its checks: the ones sealed before don't stand for it.
 #[test]
 fn a_new_scenario_needs_the_role_to_seal_again() {

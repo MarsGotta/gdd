@@ -30,6 +30,12 @@ fn stop_repeating(state: &mut State, entries: &[Entry], repeated: Option<(Value,
 
 pub(super) fn load_next(ctx: &Ctx, id: &str) -> R<Loaded> {
     let mut l = load(ctx, id)?;
+    if l.state.next.step == "brief"
+        && let Some(wait) = brief::pending_standing_checks(ctx)?
+    {
+        l.state.next = wait;
+        return Ok(l);
+    }
     // A step that seals, builds, judges or ships needs a git that can write.
     if ["brief", "checks", "build", "gates", "ship"].contains(&l.state.next.step.as_str())
         && git_writes(ctx).is_err()
@@ -143,10 +149,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
         out.fact("backlog_problems", json!(problems));
     }
     let items = read.items;
-    let standing = items
-        .iter()
-        .find(|i| i.id == "standing-checks")
-        .map(|i| i.state.as_str());
+    let standing = backlog::standing_checks(&items);
     out.say(match standing {
         Some("done") => "the standing checks are set up".to_string(),
         Some(s) => format!("the standing checks are {s}: they come before any change"),
