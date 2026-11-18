@@ -425,6 +425,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     The role step records measured input for the round, including cached input, apart from the tokens counted against the cap. The estimated reduction of 10 to 25 percent in resumed roles' reading has yet to be tested.
 
+82. **Record where each check caught a failure.** Benchmark 0.29 recorded one to three minutes of machine time per benchmark run. All 30 gates steps passed. The final results hid failures the builder had already fixed. In two of three runs the role steps lacked seconds and tokens. Each build claim now counts the failed runs of that check in that round. The summary gives those counts alongside failures in the independent gates run, skips and their reasons, and measured cost. Older claims leave their count unknown. Each role shows how many steps lack each measurement. First reviews, questions by kind and recorded calls per change use the existing counts.
+
+    Harden records the check that should have caught each defect and who or what found it. A proposal to relax or retire a check names what it caught and what it cost over the period examined. The person can weigh that evidence, including its gaps, when deciding whether to change the blueprint.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

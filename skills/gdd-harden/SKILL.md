@@ -21,7 +21,7 @@ For a failure, before anything else, ask someone who knows that part of the prod
 
 ## Finding the crack
 
-Read the brief and the log of the change that let it through (`gdd/log/<id>.jsonl`), and find which gate should have caught it and what that gate was missing:
+Read the brief and the log of the change that let it through (`gdd/log/<id>.jsonl`), and name the check that should have caught it. Record the check that found it, or who found it and where. Use the blueprint’s check ids so later changes can be counted against the same gate. Look for what the gate was missing:
 
 - no gate covered that behavior;
 - a check passed without the behavior, because it was hollow;
@@ -36,7 +36,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 - **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **Mutation testing, or a threshold of coverage,** when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. Propose it for the color where that happened, before the review, at its tool's own default, looked up on the tool's own page and never from memory, and never the highest.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
-- **A removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, plant its bad case and see it still rejected, and then propose retiring it: how often it ran, what it caught, what it cost and what it would let through from then on.
+- **A reduction or removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, plant its bad case and see it still rejected, and then propose relaxing or retiring it: how often it ran, what it caught, what it cost and what it would let through from then on. Open `references/reduction.md` when proposing either change so the evidence goes into its record.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.
 
 You write the proposal as a change to `gdd/blueprint.md` and `gdd/gates/`, and the person approves it: a pull request, or a commit of theirs, never one you make or offer to make for them. Until then it is a proposal, and you say so: nothing is added or retired yet. Then the check gets built and tried before it counts, as the backlog item `gates-<zone>`, the way the standing checks were: the `gdd` skill's reference `standing-checks.md` says how. Tell the person what that trial leaves under `LATER:` and put it in the backlog, without waiting: the gate stays as they approved it unless they change it. Fixing the failure itself is a normal change, through `gdd-brief`, and so is anything this leaves in the backlog.
@@ -49,11 +49,11 @@ Run the exam when the reviewer's model, its instructions or its tools change, an
 
 ## Reading the logs
 
-When asked, or now and then, compare the project with itself. Count before you read: `gdd metrics --all --summary` gives the counts, and `gdd metrics --all --format csv --out <folder>` the tables behind them, one row per change, step, check run, question to the person, finding and call of the layer. Open only the logs that stand out.
+When asked, or now and then, compare the project with itself. Count before you read: `gdd metrics --all --summary` gives the counts, and `gdd metrics --all --format csv --out <folder>` the tables behind them, including separate rows for gate checks, builder claims and hardening proposals. Open only the logs that stand out.
 
 What to look for:
 
-- **Per gate:** how often it fires, how many of those were real failures, what slipped past it and what it costs: the seconds of its checks in `checks`, the seconds and the tokens of the reviewer's reports in `steps`, and the wait after each `ask` in `asks`. If it always fires for the same thing, that thing can be caught earlier.
+- **Per gate:** how often it failed in the gates and how often the builder saw it fail. Read the reasons for skips, the confirmed defects and the measurements behind the cost: the seconds of its checks in `checks`, the seconds and the tokens of the reviewer's reports in `steps`, and the wait after each `ask` in `asks`. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
 - **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
 - **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
@@ -72,4 +72,4 @@ Retiring a gate, or a question of the reviewer's, that no longer adds anything, 
 
 - In the T-minus pilot, the same tests failed now and then without anything changing, and the gate rejected good changes for it. A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
-When you close, write the `harden` step: `gdd step blueprint harden --result <proposed or approved> --change <the change that let it through, or none for a removal> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<the blueprint change>"`.
+When you close, write the `harden` step: `gdd step blueprint harden --result <proposed or approved> --change <the change that let it through, or none for a removal> --action <strengthen, relax or retire> --expected-check <check id or none> --caught-by "<check, person, place or none>" --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<the blueprint change>"`.

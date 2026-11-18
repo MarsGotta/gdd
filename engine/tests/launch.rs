@@ -340,6 +340,7 @@ fn launch_refuses_what_the_state_does_not_allow_yet() {
     let prompt = p.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("<base> is"), "{prompt}");
     assert!(prompt.contains("round 1 of build"), "{prompt}");
+    assert!(prompt.contains(r#""failures":0"#), "{prompt}");
     assert!(prompt.contains("gdd-report"), "{prompt}");
 }
 

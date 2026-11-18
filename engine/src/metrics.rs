@@ -1,5 +1,5 @@
 //! Metrics, derived only from the logs, the journals, the blueprint and git, so they can always be
-//! recomputed. Six tidy tables, each a list of rows with the same columns, under one `schema`.
+//! recomputed. Tidy tables, each a list of rows with the same columns, under one `schema`.
 
 use crate::blueprint::Blueprint;
 use crate::judged::GitView;
@@ -10,7 +10,16 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const SCHEMA: &str = "gdd-metrics/1";
-pub const TABLES: [&str; 6] = ["changes", "steps", "checks", "asks", "findings", "engine"];
+pub const TABLES: [&str; 8] = [
+    "changes",
+    "steps",
+    "checks",
+    "asks",
+    "findings",
+    "engine",
+    "claims",
+    "hardening",
+];
 
 pub type Row = Map<String, Value>;
 
@@ -35,6 +44,8 @@ pub struct Tables {
     pub changes: Vec<Row>,
     pub steps: Vec<Row>,
     pub checks: Vec<Row>,
+    pub claims: Vec<Row>,
+    pub hardening: Vec<Row>,
     pub asks: Vec<Row>,
     pub findings: Vec<Row>,
     pub engine: Vec<Row>,
@@ -46,6 +57,8 @@ impl Tables {
             "changes" => &self.changes,
             "steps" => &self.steps,
             "checks" => &self.checks,
+            "claims" => &self.claims,
+            "hardening" => &self.hardening,
             "asks" => &self.asks,
             "findings" => &self.findings,
             _ => &self.engine,
@@ -111,6 +124,8 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         let mut n = Totals::default();
         step_rows(&mut t.steps, &mut n, id, &events, &layer);
         check_rows(&mut t.checks, &mut n, id, &events, &late);
+        claim_rows(&mut t.claims, id, &events);
+        hardening_rows(&mut t.hardening, &events);
         ask_rows(&mut t.asks, &mut n, id, &state.progress.asks, now);
         finding_rows(&mut t.findings, id, &events);
         engine_rows(&mut t.engine, &mut n, input.journal);
@@ -230,8 +245,18 @@ fn check_rows(rows: &mut Vec<Row>, n: &mut Totals, id: &str, events: &Events, la
         if n.gates_first_try.is_none() {
             n.gates_first_try = Some(!failed);
         }
-        for g in v["gates"].as_array().cloned().unwrap_or_default() {
-            let c = str_of(&g, "check").to_string();
+        let ran = v["gates"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|g| (g, false));
+        let skipped = v["skipped"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|g| (g, true));
+        for (g, skipped) in ran.chain(skipped) {
+            let c = str_of(g, "check").to_string();
             rows.push(row(vec![
                 ("change", json!(id)),
                 ("run", json!(n.gates_runs)),
@@ -250,9 +275,56 @@ fn check_rows(rows: &mut Vec<Row>, n: &mut Totals, id: &str, events: &Events, la
                 ("command", g["command"].clone()),
                 ("exit", g["exit"].clone()),
                 ("seconds", g["seconds"].clone()),
-                ("result", g["result"].clone()),
+                (
+                    "result",
+                    if skipped {
+                        json!("skipped")
+                    } else {
+                        g["result"].clone()
+                    },
+                ),
+                ("why", g["why"].clone()),
             ]));
         }
+    }
+}
+
+fn claim_rows(rows: &mut Vec<Row>, id: &str, events: &Events) {
+    for (line, v) in events.iter().filter(|(_, v)| step(v) == "build") {
+        for claim in v["claims"].as_array().into_iter().flatten() {
+            rows.push(row(vec![
+                ("change", json!(id)),
+                ("line", json!(line)),
+                ("round", v["report"]["round"].clone()),
+                ("check", claim["check"].clone()),
+                ("failures", json!(claim["failures"].as_u64())),
+                ("command", claim["command"].clone()),
+                ("exit", claim["exit"].clone()),
+                ("tail", claim["tail"].clone()),
+            ]));
+        }
+    }
+}
+
+fn hardening_rows(rows: &mut Vec<Row>, events: &Events) {
+    for (line, v) in events.iter().filter(|(_, v)| step(v) == "harden") {
+        let mut h = row(vec![
+            ("line", json!(line)),
+            ("result", v["report"]["result"].clone()),
+        ]);
+        for field in [
+            "change",
+            "crack",
+            "expected_check",
+            "caught_by",
+            "action",
+            "proposal",
+            "catches",
+            "cost",
+        ] {
+            h.insert(field.into(), v[field].clone());
+        }
+        rows.push(h);
     }
 }
 
@@ -666,6 +738,8 @@ pub fn summary(t: &Tables) -> Vec<String> {
     ));
     work_lines(&mut out, t, &changes);
     gates_lines(&mut out, t, &changes);
+    check_evidence(&mut out, t);
+    hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
     trust_lines(&mut out, t);
     cost_lines(&mut out, t);
@@ -765,9 +839,129 @@ fn gates_lines(out: &mut Vec<String>, t: &Tables, changes: &[&Row]) {
             out.push(format!("  {k:<14} {most:.1}, {med:.1}, {n}"));
         }
     }
-    let untimed = t.checks.iter().filter(|c| c["seconds"].is_null()).count();
+    let untimed = t
+        .checks
+        .iter()
+        .filter(|c| c["result"] != "skipped" && c["seconds"].is_null())
+        .count();
     if untimed > 0 {
         out.push(format!("{untimed} check runs without seconds"));
+    }
+}
+
+/// Count recorded gate runs and the builder's own observations independently. A build
+/// can have several gate runs, or none, so joining them by round would multiply evidence.
+fn check_evidence(out: &mut Vec<String>, t: &Tables) {
+    #[derive(Default)]
+    struct Evidence<'a> {
+        runs: usize,
+        failed: usize,
+        seconds: Option<f64>,
+        untimed: usize,
+        skipped: BTreeMap<&'a str, usize>,
+        builder_failures: Option<u128>,
+        missing_claim_counts: usize,
+    }
+    let mut checks: BTreeMap<&str, Evidence> = BTreeMap::new();
+    for c in &t.checks {
+        let e = checks
+            .entry(c["check"].as_str().unwrap_or("unknown"))
+            .or_default();
+        if c["result"] == "skipped" {
+            *e.skipped
+                .entry(c["why"].as_str().unwrap_or("unknown"))
+                .or_default() += 1;
+            continue;
+        }
+        e.runs += 1;
+        e.failed += usize::from(c["result"] == "fail");
+        if let Some(s) = c["seconds"].as_f64() {
+            *e.seconds.get_or_insert(0.0) += s;
+        } else {
+            e.untimed += 1;
+        }
+    }
+    for c in &t.claims {
+        let e = checks
+            .entry(c["check"].as_str().unwrap_or("unknown"))
+            .or_default();
+        if let Some(n) = c["failures"].as_u64() {
+            *e.builder_failures.get_or_insert(0) += u128::from(n);
+        } else {
+            e.missing_claim_counts += 1;
+        }
+    }
+    if !checks.is_empty() {
+        out.push("check | gate failures/runs | builder-reported failures | claims missing counts | skipped | measured gate seconds | untimed runs".into());
+    }
+    for (check, e) in checks {
+        let seconds = e
+            .seconds
+            .map_or_else(|| "unknown".into(), |s| format!("{s:.1}"));
+        let failures = e
+            .builder_failures
+            .map_or_else(|| "unknown".into(), |n| n.to_string());
+        out.push(format!(
+            "  {check} | {}/{} | {failures} | {} | {} | {seconds} | {}",
+            e.failed,
+            e.runs,
+            e.missing_claim_counts,
+            e.skipped.values().sum::<usize>(),
+            e.untimed
+        ));
+        for (reason, n) in e.skipped {
+            out.push(format!("  {n} skipped: {reason}"));
+        }
+    }
+    let builds = t.steps.iter().filter(|s| s["step"] == "build").count();
+    let with_claims: BTreeSet<_> = t
+        .claims
+        .iter()
+        .map(|c| (c["change"].as_str(), c["line"].as_u64()))
+        .collect();
+    if builds > with_claims.len() {
+        out.push(format!(
+            "build steps without claims: {}",
+            builds - with_claims.len()
+        ));
+    }
+}
+
+/// Keep both sides of an attribution together. Proposed and approved steps can describe
+/// the same crack, so the count is explicitly a count of records.
+fn hardening_lines(out: &mut Vec<String>, t: &Tables) {
+    let mut by_check = BTreeMap::new();
+    for h in &t.hardening {
+        let expected = h["expected_check"].as_str().unwrap_or("unknown");
+        let found = h["caught_by"].as_str().unwrap_or("unknown");
+        by_check
+            .entry((expected, found))
+            .or_insert_with(Vec::new)
+            .push(h);
+    }
+    if !by_check.is_empty() {
+        out.push("expected check | found by | Harden records".into());
+    }
+    for ((expected, found), records) in by_check {
+        out.push(format!("  {expected} | {found} | {}", records.len()));
+        for h in records {
+            let field = |k: &str| h[k].as_str().unwrap_or("unknown");
+            out.push(format!(
+                "    blueprint line {} ({}): {}. {}.",
+                h["line"],
+                field("result"),
+                field("crack"),
+                field("proposal")
+            ));
+            if matches!(h["action"].as_str(), Some("relax" | "retire")) {
+                out.push(format!(
+                    "    {} | catches: {} | cost: {}",
+                    field("action"),
+                    field("catches"),
+                    field("cost")
+                ));
+            }
+        }
     }
 }
 
@@ -779,7 +973,9 @@ fn ask_lines(out: &mut Vec<String>, t: &Tables) {
             .or_default()
             .push(a["minutes_until_answered"].as_f64().unwrap_or(f64::NAN));
     }
-    if !asks.is_empty() {
+    if asks.is_empty() {
+        out.push("questions to the person: 0".into());
+    } else {
         out.push(
             "questions to the person (asked, median and longest wait in minutes, still open):"
                 .into(),
@@ -831,28 +1027,68 @@ fn trust_lines(out: &mut Vec<String>, t: &Tables) {
 
 /// What it cost: tokens by role, what the layer refused, and how its launches went.
 fn cost_lines(out: &mut Vec<String>, t: &Tables) {
-    let mut tokens: BTreeMap<String, i64> = BTreeMap::new();
+    #[derive(Default)]
+    struct RoleCost {
+        seconds: Option<f64>,
+        tokens: Option<u128>,
+        missing_seconds: usize,
+        missing_tokens: usize,
+    }
+    let mut roles: BTreeMap<&str, RoleCost> = BTreeMap::new();
     for s in &t.steps {
-        if let Some(k) = s["tokens"].as_i64() {
-            *tokens
-                .entry(s["role"].as_str().unwrap_or("").to_string())
-                .or_default() += k;
+        let Some(role) = s["role"].as_str() else {
+            continue;
+        };
+        let cost = roles.entry(role).or_default();
+        if let Some(seconds) = s["seconds"].as_f64() {
+            *cost.seconds.get_or_insert(0.0) += seconds;
+        } else {
+            cost.missing_seconds += 1;
+        }
+        if let Some(tokens) = s["tokens"].as_u64() {
+            *cost.tokens.get_or_insert(0) += u128::from(tokens);
+        } else {
+            cost.missing_tokens += 1;
         }
     }
-    if !tokens.is_empty() {
+    if !roles.is_empty() {
+        out.push("role | measured seconds | steps missing seconds | measured tokens | steps missing tokens".into());
+    }
+    for (role, cost) in roles {
+        let seconds = cost
+            .seconds
+            .map_or_else(|| "unknown".into(), |s| format!("{s:.1}"));
+        let tokens = cost
+            .tokens
+            .map_or_else(|| "unknown".into(), |n| n.to_string());
         out.push(format!(
-            "tokens by role: {}",
-            tokens
-                .iter()
-                .map(|(k, v)| format!("{k} {v}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            "  {role} | {seconds} | {} | {tokens} | {}",
+            cost.missing_seconds, cost.missing_tokens
         ));
     }
+    let logged_calls: BTreeMap<_, _> = t
+        .changes
+        .iter()
+        .filter(|c| c["kind"] == "change")
+        .filter_map(|c| Some((c["change"].as_str()?, c["invocations"].as_u64()?)))
+        .collect();
+    let mut journal_only_calls = BTreeMap::new();
     let mut refused: BTreeMap<String, usize> = BTreeMap::new();
     for e in &t.engine {
+        if let Some(id) = e["change"].as_str()
+            && !logged_calls.contains_key(id)
+            && log_kind(id) == LogKind::Change
+        {
+            *journal_only_calls.entry(id).or_default() += 1;
+        }
         if let Some(r) = e["refused"].as_str() {
             *refused.entry(r.to_string()).or_default() += 1;
+        }
+    }
+    if !logged_calls.is_empty() || !journal_only_calls.is_empty() {
+        out.push("change | recorded layer calls".into());
+        for (id, count) in logged_calls.into_iter().chain(journal_only_calls) {
+            out.push(format!("  {id} | {count}"));
         }
     }
     out.push(format!(

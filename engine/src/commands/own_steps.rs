@@ -2,23 +2,67 @@
 
 use super::*;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, clap::Args)]
 pub struct StepArgs {
+    /// prepare: proposed or approved; harden: proposed (the default).
+    #[arg(long)]
     pub result: Option<String>,
+    /// What it caught that others missed (prepare, harden), or how many questions (exam).
+    #[arg(long)]
     pub caught: Option<String>,
+    /// The level it ran at (the reviewer's, for an exam); deep by default.
+    #[arg(long)]
     pub level: Option<String>,
+    /// The model it ran on (the reviewer's, for an exam).
+    #[arg(long)]
     pub model: Option<String>,
+    #[arg(long)]
     pub skill_version: Option<String>,
+    #[arg(long)]
     pub seconds: Option<f64>,
+    #[arg(long)]
     pub tokens: Option<i64>,
+    /// prepare: a file it wrote; repeat it for each.
+    #[arg(long = "file")]
     pub files: Vec<String>,
+    /// prepare: the probe, a JSON list of {"try","command","exit","tail"}.
+    #[arg(long)]
     pub probe: Option<String>,
+    /// prepare: the levels tried, a JSON list of {"environment","level","launch","model"}.
+    #[arg(long)]
     pub levels: Option<String>,
+    /// harden: the change that let it through, or none.
+    #[arg(long)]
     pub change: Option<String>,
+    /// harden: where it got through, or what no longer adds anything.
+    #[arg(long)]
     pub crack: Option<String>,
+    /// harden: strengthen, relax or retire a check.
+    #[arg(long, value_parser = ["strengthen", "relax", "retire"])]
+    pub action: Option<String>,
+    /// harden: the check that should catch the defect, or the check under consideration.
+    #[arg(long)]
+    pub expected_check: Option<String>,
+    /// harden: who or what found the defect (none if there was no defect).
+    #[arg(long)]
+    pub caught_by: Option<String>,
+    /// harden: what the check caught over the period reviewed.
+    #[arg(long)]
+    pub catches: Option<String>,
+    /// harden: what the check cost over that period, including missing measurements.
+    #[arg(long)]
+    pub cost: Option<String>,
+    /// harden: the file and Rule of its scenario, or none.
+    #[arg(long)]
     pub scenario: Option<String>,
+    /// harden: the blueprint change it proposes.
+    #[arg(long)]
     pub proposal: Option<String>,
+    /// exam: how many questions it was asked.
+    #[arg(long)]
     pub asked: Option<i64>,
+    /// exam: a question it missed, by its id; repeat it for each.
+    #[arg(long)]
     pub missed: Vec<String>,
 }
 
@@ -129,6 +173,29 @@ pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
                     check_id(c)?;
                 }
                 m.insert("change".into(), json!(change));
+                let required = |value: &Option<String>, flag: &str| {
+                    value
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .map(Value::from)
+                        .ok_or_else(|| Fail::usage(format!("a harden step needs --{flag}")))
+                };
+                let action = required(&a.action, "action")?;
+                let expected = required(&a.expected_check, "expected-check")?;
+                let reduction = action == "relax" || action == "retire";
+                if reduction && expected == "none" {
+                    return Err(Fail::usage(
+                        "--expected-check names the check to relax or retire",
+                    ));
+                }
+                for (field, value) in [("catches", &a.catches), ("cost", &a.cost)] {
+                    if reduction || value.is_some() {
+                        m.insert(field.into(), required(value, field)?);
+                    }
+                }
+                m.insert("action".into(), action);
+                m.insert("expected_check".into(), expected);
+                m.insert("caught_by".into(), required(&a.caught_by, "caught-by")?);
                 m.insert("crack".into(), json!(crack));
                 m.insert(
                     "scenario".into(),

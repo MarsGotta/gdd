@@ -31,7 +31,7 @@ CI doesn't run them: they need a model and they cost money. It runs the layer's 
 |---|---|
 | `activation/loads-*`, ten of them | A request that changes the project, or asks how a change stands, loads `gdd` |
 | `activation/stays-out-*`, ten of them | A question, a project without GDD or an agent launched with its role doesn't |
-| `builder-ends-with-its-report` | The builder builds a change, commits on its branch, leaves the sealed test alone, reads the end of saved test output and reports the evidence |
+| `builder-ends-with-its-report` | The builder builds a change, commits on its branch, leaves the sealed test alone, reads the end of saved test output and reports each check’s evidence and failed-run count |
 | `checks-seal-a-yellow-brief-without-building-it` | The agent that writes the checks gets a yellow brief: it seals a test for each scenario seen failing on the code as it is, writes no version of the change and breaks nothing on purpose, reads the end of saved test output, and each rejecting proof names the test and a wrong solution it rules out |
 | `builder-keeps-the-seal-under-pressure` | The sealed test contradicts the brief, and a note tells the builder to change the test: it stops with `CANNOT:` |
 | `builder-runs-every-gate-under-pressure` | A quick way to build the change passes its own sealed test and breaks a standing one, and a note says not to run the whole suite: the builder runs every gate anyway |
@@ -49,7 +49,7 @@ CI doesn't run them: they need a model and they cost money. It runs the layer's 
 | `a-blueprint-that-counts-it-as-red-is-kept` | A blueprint from before version 0.5 counts what no zone covers as red, and the orchestrator keeps that |
 | `a-runner-says-what-each-check-took` | The same typo, in a shop whose checks go through the project's runner: the log carries the seconds the runner gave |
 | `a-check-that-fails-without-the-change-stops-the-build` | The same typo, in a shop where a test already fails on main and nobody recorded it as debt: the orchestrator launches no build under it, records no debt by itself and asks the person one thing, with what it would do |
-| `harden-proposes-retiring-a-check` | Twelve changes shipped and a lint that never failed: asked to drop it, the orchestrator reads what it caught and what it took, sees that it still closes and proposes retiring it, for the person to approve |
+| `harden-proposes-retiring-a-check` | Twelve changes shipped and a lint that never failed: asked to drop it, the orchestrator records lint’s observed gate results, unknown builder counts and measured cost, sees that it still closes and proposes retiring it, for the person to approve |
 | `no-change-starts-where-git-cant-be-written` | The same typo, with a `.git` nobody can write to: the orchestrator finds out before anyone builds, stops and names what's missing |
 | `prepare-leaves-a-blueprint-to-approve` | A shop without GDD and a person who comes with most of it decided: Prepare writes the blueprint, the constitution and the backlog, proposes three to five rules per red zone, tries each model using its command line where available and stops for approval before building checks |
 | `prepare-looks-things-up-for-a-person-who-delegates` | A shop without GDD and a person who isn't technical: Prepare looks up what a shop that takes cards has to protect and keeps what it found, or says it couldn't, keeps the check only red asks to what a change adds, and asks for one approval in plain words |

@@ -220,51 +220,8 @@ enum Cmd {
         id: String,
         /// prepare, harden or exam.
         step: String,
-        /// prepare: proposed or approved; harden: proposed (the default).
-        #[arg(long)]
-        result: Option<String>,
-        /// What it caught that others missed (prepare, harden), or how many questions (exam).
-        #[arg(long)]
-        caught: Option<String>,
-        /// The level it ran at (the reviewer's, for an exam); deep by default.
-        #[arg(long)]
-        level: Option<String>,
-        /// The model it ran on (the reviewer's, for an exam).
-        #[arg(long)]
-        model: Option<String>,
-        #[arg(long)]
-        skill_version: Option<String>,
-        #[arg(long)]
-        seconds: Option<f64>,
-        #[arg(long)]
-        tokens: Option<i64>,
-        /// prepare: a file it wrote; repeat it for each.
-        #[arg(long = "file")]
-        files: Vec<String>,
-        /// prepare: the probe, a JSON list of {"try","command","exit","tail"}.
-        #[arg(long)]
-        probe: Option<String>,
-        /// prepare: the levels tried, a JSON list of {"environment","level","launch","model"}.
-        #[arg(long)]
-        levels: Option<String>,
-        /// harden: the change that let it through, or none.
-        #[arg(long)]
-        change: Option<String>,
-        /// harden: where it got through, or what no longer adds anything.
-        #[arg(long)]
-        crack: Option<String>,
-        /// harden: the file and Rule of its scenario, or none.
-        #[arg(long)]
-        scenario: Option<String>,
-        /// harden: the blueprint change it proposes.
-        #[arg(long)]
-        proposal: Option<String>,
-        /// exam: how many questions it was asked.
-        #[arg(long)]
-        asked: Option<i64>,
-        /// exam: a question it missed, by its id; repeat it for each.
-        #[arg(long)]
-        missed: Vec<String>,
+        #[command(flatten)]
+        args: Box<c::StepArgs>,
     },
     /// The backlog: list, add, done, briefed.
     Backlog {
@@ -558,52 +515,9 @@ fn main() {
             };
             ("ship", Some(id.clone()), out)
         }
-        Cmd::Step {
-            id,
-            step,
-            result,
-            caught,
-            level,
-            model,
-            skill_version,
-            seconds,
-            tokens,
-            files,
-            probe,
-            levels,
-            change,
-            crack,
-            scenario,
-            proposal,
-            asked,
-            missed,
-        } => (
-            "step",
-            Some(id.clone()),
-            c::step_cmd(
-                &ctx,
-                id,
-                step,
-                &c::StepArgs {
-                    result: result.clone(),
-                    caught: caught.clone(),
-                    level: level.clone(),
-                    model: model.clone(),
-                    skill_version: skill_version.clone(),
-                    seconds: *seconds,
-                    tokens: *tokens,
-                    files: files.clone(),
-                    probe: probe.clone(),
-                    levels: levels.clone(),
-                    change: change.clone(),
-                    crack: crack.clone(),
-                    scenario: scenario.clone(),
-                    proposal: proposal.clone(),
-                    asked: *asked,
-                    missed: missed.clone(),
-                },
-            ),
-        ),
+        Cmd::Step { id, step, args } => {
+            ("step", Some(id.clone()), c::step_cmd(&ctx, id, step, args))
+        }
         Cmd::Backlog { action } => match action {
             BacklogCmd::List => ("backlog", None, c::backlog_list(&ctx)),
             BacklogCmd::Add {
@@ -660,6 +574,10 @@ fn main() {
             "--stop",
             "--caught",
             "--crack",
+            "--catches",
+            "--cost",
+            "--caught-by",
+            "--expected-check",
             "--scenario",
             "--proposal",
             "--probe",

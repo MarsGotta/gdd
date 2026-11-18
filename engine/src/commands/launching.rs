@@ -527,7 +527,7 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     // role's proofs: without it, a claim or a trial is only prose.
     match role {
         "build" => s.push(
-            "Before the gdd-report block, give a json block with what each check gave when you ran it: [{\"check\":\"<check id>\",\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
+            "Before the gdd-report block, give a json block with one claim per check you ran this round. Count every failed run in failures, including a final failure. Use 0 when it never failed. Give the last run's evidence: [{\"check\":\"<check id>\",\"failures\":0,\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
                 .into(),
         ),
         "review" => s.push(

@@ -209,6 +209,7 @@ enum T {
     StrOrNull,
     Int,
     IntOrNull,
+    Count,
     NumOrNull,
     NumberLike,
     Bool,
@@ -348,6 +349,9 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
         ("step", "harden") => vec![
             ("change", StrOrNull, Writes),
             ("crack", Str, Writes),
+            ("expected_check", Str, Writes),
+            ("caught_by", Str, Writes),
+            ("action", OneOf(&["strengthen", "relax", "retire"]), Writes),
             ("scenario", StrOrNull, Writes),
             ("proposal", Str, Writes),
         ],
@@ -368,6 +372,7 @@ fn fits(v: &Value, t: T) -> bool {
         T::Int => v.is_i64() || v.is_u64(),
         T::IntOrNull => v.is_i64() || v.is_u64() || v.is_null(),
         T::NumOrNull => v.is_number() || v.is_null(),
+        T::Count => v.is_u64(),
         T::NumberLike => number_like(v).is_some(),
         T::Bool => v.is_boolean(),
         T::Obj => v.is_object(),
@@ -386,6 +391,7 @@ fn describe(t: T) -> String {
         T::Int | T::IntOrNull => "a whole number".into(),
         T::NumOrNull => "a number or null".into(),
         T::NumberLike => "a number".into(),
+        T::Count => "a non-negative whole number".into(),
         T::Bool => "true or false".into(),
         T::Obj => "an object".into(),
         T::Arr => "a list".into(),
@@ -475,6 +481,24 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
             need
         };
         a.check(key, t, need, obj.get(key), "");
+    }
+    if is_step(v, "harden") && matches!(v["action"].as_str(), Some("relax" | "retire")) {
+        for field in ["catches", "cost"] {
+            a.check(field, T::Str, Need::Must, obj.get(field), "");
+        }
+    }
+    if is_step(v, "build")
+        && let Some(claims) = v["claims"].as_array()
+    {
+        for (i, claim) in claims.iter().enumerate() {
+            a.check(
+                "failures",
+                T::Count,
+                Need::May,
+                claim.get("failures"),
+                &format!("claims[{i}]."),
+            );
+        }
     }
     if event == "step" && !matches!(step, "gates" | "ship" | "exam") {
         match obj.get("report") {

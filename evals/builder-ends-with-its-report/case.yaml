@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: builder-ends-with-its-report
-description: A small yellow change that can be built. The builder commits on its branch, leaves the sealed test alone and ends with its evidence and its report.
+description: A small yellow change that can be built. The builder commits on its branch, leaves the sealed test alone and reports its last run and the number of failures it saw for each check.
 tags: [role, build]
 runs: 3
 execution:
@@ -26,6 +26,7 @@ execution:
     You were launched by the GDD orchestrator as the builder of one change. Load the `gdd-build` skill and follow it.
 
     The change is `empty-cart`. Its brief is `gdd/briefs/empty-cart.md`, and you are on your branch, `work/empty-cart`, which starts at its seal.
+    Before the gdd-report block, give one JSON claim per check you ran. Include its id, command, final exit, tail and failures in this round. Use zero when it passed every time.
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -60,6 +61,9 @@ graders:
   - name: gives-its-evidence
     type: regex
     pattern: 'python3 -m unittest'
+  - name: counts-failed-runs-in-its-claims
+    type: regex
+    pattern: '```json\s*\[[\s\S]*?"failures"\s*:\s*\d+'
   - name: reads-the-end-of-saved-output
     type: llm
     criteria: Inspect the tool calls. The role saves test output to a file and reads its last lines. It keeps the exit status of the test and avoids printing entire unchanged files again.

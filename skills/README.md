@@ -191,7 +191,7 @@ review    fix: the filter is lost on page 2
 review    pass, yellow
 ```
 
-Two commands read the trail for you: `.gdd/gdd waiting` lists every question waiting for you, oldest first, and `.gdd/gdd metrics --all --summary` says how your changes went, how long they took and what each check costs.
+Two commands read the trail for you: `.gdd/gdd waiting` lists every question waiting for you, oldest first, and `.gdd/gdd metrics --all --summary` shows which checks failed in the gates, which failures builders reported, which checks were skipped and why. It also shows measured time and tokens by role, gaps in those figures, first-pass reviews, questions by kind and layer calls per change.
 
 **You end up with** the change on your main branch and its trail next to it:
 
@@ -256,7 +256,7 @@ flowchart LR
 
 Hardening never starts by itself: a change leaves one proposal at most in the backlog, and it waits for you to take it up between changes.
 
-Hardening goes the other way too. The log keeps what each check took every time it ran, so your blueprint can say what would make you simplify as a figure the logs can count. A check, or a question of the reviewer's, that reaches it gets proposed for retirement, with what it caught and what it cost, and that's for you or your team to approve as well. A new model on one of your levels is no reason to drop a check, which judges your product and not the model: after a few changes the orchestrator reads the logs and may propose a lighter level or lower limits for a color.
+For each defect, the log names the check that should have caught it and who or what found it. A proposal to relax or retire a check records what it caught and what it cost over the same changes. The log keeps what each check took every time it ran, so your blueprint can say what would make you simplify as a figure the logs can count. A check, or a question of the reviewer's, that reaches it gets proposed for retirement, with what it caught and what it cost, and that's for you or your team to approve as well. A new model on one of your levels is no reason to drop a check, which judges your product and not the model: after a few changes the orchestrator reads the logs and may propose a lighter level or lower limits for a color.
 
 ## When it stops
 

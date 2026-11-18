@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: harden-proposes-retiring-a-check
-description: Twelve changes have shipped and the person thinks the lint check has never caught anything. The orchestrator hardens the other way. It reads the logs, sees that the check still closes and proposes retiring it, with what it caught and what it cost, for the person to approve.
+description: Twelve changes have shipped and the person thinks the lint check has never caught anything. The orchestrator hardens the other way. It reads the logs, sees that the check still closes and proposes retiring it, recording the check id, what the gates caught, gaps in builder claims and measured cost for the person to weigh.
 tags: [orchestrator, harden]
 runs: 3
 execution:
@@ -52,6 +52,10 @@ graders:
     target: { source: file, path: gdd/log/blueprint.jsonl }
     pattern: 'step[\\"]{1,4}\s?:\s?[\\"]{1,4}harden'
     weight: 2
+  - name: records-the-evidence-for-retirement
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '(?:^|\n)(?=[^\n]*"action"\s*:\s*"retire")(?=[^\n]*"expected_check"\s*:\s*"lint")(?=[^\n]*"catches"\s*:\s*"[^"]+)(?=[^\n]*"cost"\s*:\s*"[^"]+)[^\n]+'
   - name: launches-no-builder
     type: tool_used
     tool: Agent

@@ -115,7 +115,7 @@ fn show_coverage(
 }
 
 fn show_plan(out: &mut Out, plan: &[gates::Planned]) {
-    let skipped = gating::show_skipped(plan, out);
+    let skipped = gating::show_skipped(plan, &[], out);
     let checks: Vec<_> = plan
         .iter()
         .filter(|p| p.skipped.is_none())

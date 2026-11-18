@@ -462,13 +462,25 @@ fn run_checks(
         }
     }
     // A failed earlier tier cannot hide a path filter in a later one.
-    (ran, show_skipped(plan, out))
+    let skipped = show_skipped(plan, &ran, out);
+    (ran, skipped)
 }
 
-pub(super) fn show_skipped(plan: &[gates::Planned], out: &mut Out) -> Vec<Value> {
+pub(super) fn show_skipped(
+    plan: &[gates::Planned],
+    ran: &[gates::Ran],
+    out: &mut Out,
+) -> Vec<Value> {
+    let blocked = ran
+        .iter()
+        .find(|r| !r.passed)
+        .map(|r| format!("{} failed first", r.check));
     let mut skipped = vec![];
     for p in plan {
-        if let Some(why) = &p.skipped {
+        if ran.iter().any(|r| r.check == p.check) {
+            continue;
+        }
+        if let Some(why) = p.skipped.as_ref().or(blocked.as_ref()) {
             out.say(format!("{:<10} skipped: {why}", p.check));
             skipped.push(json!({"check": p.check, "why": why}));
         }

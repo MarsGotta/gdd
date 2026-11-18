@@ -330,6 +330,98 @@ fn metrics_join_the_journal() {
 }
 
 #[test]
+fn metrics_keep_claims_skips_and_missing_measurements_apart() {
+    let r = Repo::new();
+    let lines = [
+        ev(
+            1,
+            r#""event":"step","step":"build","report":{"skill":"gdd-build","seconds":0,"tokens":null},"claims":[{"check":"tests","failures":2},{"check":"lint","failures":0}]"#,
+        ),
+        ev(
+            2,
+            r#""event":"step","step":"build","report":{"skill":"gdd-build","tokens":12},"claims":[{"check":"tests","exit":0}]"#,
+        ),
+        ev(
+            3,
+            r#""event":"step","step":"gates","gates":[{"check":"tests","result":"fail","seconds":2.5}],"skipped":[{"check":"browser","why":"tests failed first"}]"#,
+        ),
+        ev(
+            4,
+            r#""event":"step","step":"gates","gates":[{"check":"tests","result":"pass","seconds":null}],"skipped":[{"check":"browser","why":"no matching paths"}]"#,
+        ),
+        ev(
+            5,
+            r#""event":"step","step":"review","verdict":"fix","report":{"skill":"gdd-review"}"#,
+        ),
+        ev(
+            6,
+            r#""event":"step","step":"review","verdict":"pass","report":{"skill":"gdd-review"}"#,
+        ),
+        ev(
+            7,
+            r#""event":"ask","of":"decision","what":"Round the total?" "#,
+        ),
+        ev(
+            8,
+            r#""event":"step","step":"build","report":{"skill":"gdd-build"}"#,
+        ),
+        ev(
+            9,
+            r#""event":"step","step":"build","report":{"skill":"gdd-build"},"claims":[{"check":"tests","failures":5}]"#,
+        ),
+        ev(
+            10,
+            r#""event":"correction","line":9,"void":true,"what":"duplicate report""#,
+        ),
+    ];
+    r.write("gdd/log/x.jsonl", &lines.join("\n"));
+    r.gdd(&["next", "x"]);
+    r.gdd(&["next", "journal-only"]);
+    let output = r.gdd_env(
+        &["metrics", "--all", "--format", "jsonl"],
+        &[("GDD_NO_JOURNAL", "1")],
+    );
+    let rows: Vec<Value> = output
+        .out
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let claims: Vec<_> = rows.iter().filter(|r| r["table"] == "claims").collect();
+    assert_eq!(claims.len(), 3);
+    assert_eq!(claims[2]["failures"], Value::Null);
+    let skipped: Vec<_> = rows.iter().filter(|r| r["result"] == "skipped").collect();
+    assert_eq!(skipped.len(), 2);
+    assert_eq!(skipped[0]["why"], "tests failed first");
+    assert_eq!(skipped[1]["run"], 2);
+    assert!(
+        skipped
+            .iter()
+            .all(|r| r["seconds"].is_null() && r["exit"].is_null())
+    );
+
+    let summary = r.gdd_env(
+        &["metrics", "--all", "--summary"],
+        &[("GDD_NO_JOURNAL", "1")],
+    );
+    for line in [
+        "tests | 1/2 | 2 | 1 | 0 | 2.5 | 1",
+        "browser | 0/0 | unknown | 0 | 2 | unknown | 0",
+        "1 skipped: no matching paths",
+        "1 skipped: tests failed first",
+        "lint | 0/0 | 0 | 0 | 0 | unknown | 0",
+        "build steps without claims: 1",
+        "gdd-build | 0.0 | 2 | 12 | 2",
+        "gdd-review | unknown | 2 | unknown | 2",
+        "review 0% (0 of 1)",
+        "decision  1,",
+        "x | 1",
+        "journal-only | 1",
+    ] {
+        assert!(summary.has(line), "missing {line} in {}", summary.out);
+    }
+}
+
+#[test]
 fn next_for_the_project() {
     let r = Repo::new();
     r.gdd(&["brief", "p1", "--paths", "src/ui/page.txt"]);

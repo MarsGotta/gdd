@@ -280,7 +280,16 @@ fn a_failing_check_runs_before_review_checks_never() {
         &[("src/ui/page.txt", "p\n"), ("src/core/app.txt", "bad\n")],
         "Breaks the tests",
     );
-    r.report("g3", "build", &report_block("gdd-build", "done"), &[]);
+    let message = format!(
+        "Do the work.\n```json\n[{{\"check\":\"tests\",\"command\":\"test\",\"failures\":2,\"exit\":0,\"tail\":\"OK\"}}]\n```\n{}",
+        report_block("gdd-build", "done")
+    );
+    let report = r.report("g3", "build", &message, &[]);
+    assert_eq!(report.code, 0, "{}", report.out);
+    assert_eq!(
+        r.log_lines("g3").last().unwrap()["claims"][0]["failures"],
+        2
+    );
     let g = r.gdd(&["gates", "g3"]);
     assert_eq!(g.code, 1);
     let ran: Vec<&str> = g.facts["checks"]
@@ -293,6 +302,10 @@ fn a_failing_check_runs_before_review_checks_never() {
         ran,
         vec!["seal", "tests"],
         "the slow check waits for the rest to pass"
+    );
+    assert_eq!(
+        g.facts["skipped"],
+        serde_json::json!([{"check":"slow","why":"tests failed first"}])
     );
 }
 

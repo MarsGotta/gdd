@@ -700,6 +700,45 @@ fn a_launch_that_closes_its_own_standard_input() {
 }
 
 #[test]
+fn hardening_keeps_the_catches_and_cost_of_a_reduction() {
+    let r = Repo::new();
+    for action in ["relax", "retire"] {
+        let mut args = vec![
+            "step",
+            "blueprint",
+            "harden",
+            "--action",
+            action,
+            "--crack",
+            "lint duplicates the compiler",
+            "--proposal",
+            "run lint less often",
+            "--expected-check",
+            "lint",
+            "--caught-by",
+            "none",
+        ];
+        assert!(r.gdd(&args).has("--catches"));
+        args.extend([
+            "--catches",
+            "0 failures in 14 gate runs; builder counts unavailable",
+        ]);
+        assert!(r.gdd(&args).has("--cost"));
+        args.extend(["--cost", "28 measured seconds across 14 runs"]);
+        let wrote = r.gdd(&args);
+        assert_eq!(wrote.code, 0, "{}", wrote.out);
+    }
+    let lines = r.log_lines("blueprint");
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0]["action"], "relax");
+    assert_eq!(lines[1]["expected_check"], "lint");
+    assert_eq!(lines[1]["caught_by"], "none");
+    let summary = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(summary.has("lint | none | 2"), "{}", summary.out);
+    assert!(summary.has("retire | catches: 0 failures in 14 gate runs; builder counts unavailable | cost: 28 measured seconds across 14 runs"));
+}
+
+#[test]
 fn the_orchestrators_own_steps() {
     let r = Repo::new();
     let p = r.gdd(&[
@@ -724,6 +763,12 @@ fn the_orchestrators_own_steps() {
         "y1",
         "--crack",
         "a test asserted less than its scenario",
+        "--action",
+        "strengthen",
+        "--expected-check",
+        "tests",
+        "--caught-by",
+        "review",
         "--scenario",
         "none",
         "--proposal",
@@ -756,6 +801,12 @@ fn the_orchestrators_own_steps() {
     assert_eq!(lines[0]["probe"][0]["exit"], 1);
     assert_eq!(lines[1]["change"], "y1");
     assert_eq!(lines[1]["scenario"], Value::Null);
+    assert_eq!(lines[1]["expected_check"], "tests");
+    assert_eq!(lines[1]["caught_by"], "review");
+    assert!(
+        r.gdd(&["metrics", "--all", "--summary"])
+            .has("tests | review | 1")
+    );
     assert_eq!(lines[2]["reviewer"]["model"], "model-b");
     assert_eq!(lines[2]["caught"], 2);
     assert_eq!(lines[2]["missed"], serde_json::json!(["q2"]));
