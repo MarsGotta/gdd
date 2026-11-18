@@ -1,13 +1,13 @@
 <h1>Manifesto: Gate-Driven Development</h1>
-<p class="meta" data-fecha="2026-11-12">Marcela Gotta</p>
-<p class="meta">v0.10 · draft for review</p>
+<p class="meta" data-fecha="2026-11-18">Marcela Gotta</p>
+<p class="meta">v0.11 · draft for review</p>
 <p><strong>Add gates to your project and automate with AI agents without losing quality. Your agent says "done." The gate checks if it's true.</strong></p>
-<p>Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. You trust what they prove, not what they say: before the agent starts, you decide what it has to prove, and those are the gates. The more that can go wrong, the stricter they are. When something slips through, you harden the gate so it doesn't happen again, and when one no longer adds anything, you relax it or retire it.</p>
-<p>All of GDD fits in one rule (your agent says "done," the gate checks if it's true), seven principles and four moments.</p>
+<p>Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. You trust what they prove, not what they say: before the agent starts, you decide what it has to prove, and those are the gates. The more that can go wrong, the stricter they are. A change isn't closed when it's merged, but when you look at whether it helped. When something slips through, you harden the gate so it doesn't happen again, and when one no longer adds anything, you relax it or retire it.</p>
+<p>All of GDD fits in one rule (your agent says "done," the gate checks if it's true), seven principles and five moments.</p>
 <h2>The problem</h2>
 <p>Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself.</p>
 <p>In the end it is an untamable beast, and you don't persuade a beast like that with words: you put gates on it.</p>
-<p>That is the basis of GDD: <strong>we don't develop the specifications, or the code, or even the tests. We design the gates our agents will go through.</strong></p>
+<p>That is the basis of GDD: <strong>we don't develop code, or even tests. We write what must be true and design the gates our agents go through.</strong></p>
 <p>I explain how I got here in the <a href="doc:articulo">Article</a>.</p>
 <h2>The pieces</h2>
 <ul>
@@ -43,19 +43,20 @@
 </ol>
 <p>Every change has an author who answers for it, the person who owns it: the AI never answers for you.</p>
 <p>Each principle, with its reason and its evidence, is in <a href="doc:los-principios">The seven principles</a>.</p>
-<h2>The four moments</h2>
-<p>The principles say what makes the method work. The moments say when each thing happens: one at the start, which you come back to when the blueprint falls short, two on every change, and the last when something slips through, repeats or isn't needed.</p>
-<figure data-embed="momentos"><figcaption>the four moments · 1 at the start, 2 on every change, 1 when something slips through or isn't needed</figcaption></figure>
+<h2>The five moments</h2>
+<p>The principles say what makes the method work. The moments say when each thing happens: one at the start, which you come back to when the blueprint falls short, two on every change, one once the change is in use, and the last when something slips through, repeats or isn't needed.</p>
+<figure data-embed="momentos"><figcaption>the five moments · 1 at the start, 2 on every change, 1 once it's in use, 1 when something slips through or isn't needed</figcaption></figure>
 <table>
 <thead><tr><th>Moment</th><th>When</th><th>What happens</th></tr></thead>
 <tbody>
-<tr><td><strong>1. Prepare</strong></td><td>At the start of the project, and again when the blueprint falls short: there is something new to classify, or a gate is missing, isn't needed or is badly defined</td><td>It has two parts. First the blueprint is made: you decide what it is about, what is delicate, which gates are needed and with which checks, the constitution and what context each gate carries, and you can start from ready-made rules. Then the gates the blueprint has defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. An engine can make it easier, but it doesn't take you out of it: this is the most delicate part of the method. Until they hold, no change that has to go through them starts.</td></tr>
-<tr><td><strong>2. Brief</strong></td><td>On every change, before it starts</td><td>What has to pass is fixed, along with a first estimate of the risk, from the base in the blueprint, with your approval if needed. For the checks that ask for them, like the tests that start out red, the cases of this change are written before anyone builds. They are written by someone who won't build, they are seen to fail, and they stay out of the builder's reach.</td></tr>
-<tr><td><strong>3. Execute</strong></td><td>On every change</td><td>The agent works and gets through the gates, one by one. If it gets stuck, it stops and asks. At the end, the risk is recalculated from what was touched, and it can only go up. If it goes up, the change goes back to Brief and the checks of the new level are required.</td></tr>
-<tr><td><strong>4. Harden</strong></td><td>When something slips through or repeats, and when a gate stops adding anything</td><td>Cracks become checks, and what slipped through becomes a question on the reviewer's exam. What no longer adds anything is relaxed or retired. Both change the blueprint, so you go back to Prepare and you approve them, or your team does.</td></tr>
+<tr><td><strong>1. Prepare</strong></td><td>At the start of the project, and again when the blueprint falls short: there is something new to classify, or a gate is missing, isn't needed or is badly defined</td><td>It has two parts. First the blueprint is made: you decide what the product is for and what can never happen in it, which is its constitution, what is delicate, which gates are needed and with which checks, what context each gate carries and how work gets closed, and you can start from ready-made rules. Then the gates the blueprint has defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. An engine can make it easier, but it doesn't take you out of it: this is the most delicate part of the method. Until they hold, no change that has to go through them starts.</td></tr>
+<tr><td><strong>2. Brief</strong></td><td>On every change, before it starts</td><td>It starts by writing down what has to be true. First, the rules of what the change touches, whether that's charging, signing in or applying a discount: what always holds and what must not be possible. The ones already written are read, and only the ones that are missing or that change get written. Then, a few scenarios for this change. And if it promises something to whoever uses it, three lines: what is expected, what signal will tell and where it will be looked at. Each rule says what checks it, and one that has nothing to check it stays as a question. With that, a first estimate of the risk is made, from the base in the blueprint, with your approval if needed. For the checks that ask for them, like the tests that start out red, the cases of this change are written before anyone builds. They are written by someone who won't build, they are seen to fail, and they stay out of the builder's reach.</td></tr>
+<tr><td><strong>3. Execute</strong></td><td>On every change</td><td>The agent works and gets through the gates, one by one. If it gets stuck, it stops and asks. At the end, the risk is recalculated from what was touched, and it can only go up. If it goes up, the change goes back to Brief and the checks of the new level are required. When it gets through all of them, the change is built, but not closed yet.</td></tr>
+<tr><td><strong>4. Close</strong></td><td>Once the change is in use</td><td>You look at whether it helped, against what was written when it was briefed. The agent gathers what can be seen, from where the builder can't fake it, and the verdict is yours, or belongs to whoever answers for the product on your team: yes, not yet or no. Until someone has looked, the change waits in plain sight, with how long it has been there: it doesn't close by itself, it isn't canceled and it doesn't hold up what comes next. A no closes it too, and whatever has to be done next is a new brief. What promises nothing to whoever uses it, like a typo or a dependency update, closes when its time passes without doing harm. The blueprint says what falls there.</td></tr>
+<tr><td><strong>5. Harden</strong></td><td>When something slips through or repeats, and when a gate stops adding anything</td><td>Cracks become checks, and what slipped through becomes a question on the reviewer's exam. What slipped through because nobody had written it down becomes a rule, with what checks it. What no longer adds anything is relaxed or retired, and its rule with it. Both change the blueprint, so you go back to Prepare and you approve them, or your team does.</td></tr>
 </tbody>
 </table>
-<p>They are not four meetings or four documents. Each moment, with its example, is in <a href="doc:los-momentos">The four moments</a>.</p>
+<p>They are not five meetings or five documents. Each moment, with its example, is in <a href="doc:los-momentos">The five moments</a>.</p>
 <h2>How to know if a gate is valid</h2>
 <p>Before you accept a gate, ask yourself four questions. If any answer is no, it isn't a gate yet:</p>
 <ul>
@@ -79,8 +80,8 @@
 <li><strong>It is not an engine.</strong> It says what makes a gate valid, not which ones you need or how to build them. Meeting the whole core takes an engine, but not a specific one.</li>
 <li><strong>It is not reading everything.</strong> It isn't looking at nothing either: you look where it matters.</li>
 <li><strong>It is not ceremony.</strong> If almost everything comes out red, the blueprint is wrong, and if a gate no longer adds anything, it gets retired. If every change feels like a chore, something is unnecessary.</li>
-<li><strong>It is not a guarantee.</strong> Opening every gate doesn't mean it's right. That's why cracks get hardened and rollbacks exist.</li>
-<li><strong>It is not spec-driven development (SDD) under another name.</strong> There are scenarios, but short, readable and executable. The gate is what counts, not the document.</li>
+<li><strong>It is not a guarantee.</strong> Opening every gate doesn't mean it's right, or that it helps. That's why cracks get hardened, rollbacks exist and no change is closed without someone looking.</li>
+<li><strong>It is not spec-driven development (SDD) under another name.</strong> There is a specification, but a short one: rules and a few scenarios. And a rule doesn't count until something the builder can't touch checks it. The gate is what counts, not the document.</li>
 <li><strong>It is not TDD under another name.</strong> TDD can be part of it, but GDD also decides who writes what, how much is required depending on the risk, and what happens to whatever slips through.</li>
 <li><strong>It is not only for software.</strong> It is meant for any project, though so far it has been tested on software. Outside it there are fewer machines and more people, and production is where what you do already reaches someone.</li>
 </ul>
@@ -97,7 +98,7 @@
 <tbody>
 <tr><td>To understand the idea, in a minute</td><td><a href="doc:la-idea">The idea</a></td></tr>
 <tr><td>To walk through GDD step by step with an online shop</td><td><a href="doc:manos-a-la-obra">Hands on</a></td></tr>
-<tr><td>To understand each part: pieces, roles, principles and moments</td><td><a href="doc:las-piezas">The pieces and the roles</a>, <a href="doc:los-principios">The seven principles</a> and <a href="doc:los-momentos">The four moments</a></td></tr>
+<tr><td>To understand each part: pieces, roles, principles and moments</td><td><a href="doc:las-piezas">The pieces and the roles</a>, <a href="doc:los-principios">The seven principles</a> and <a href="doc:los-momentos">The five moments</a></td></tr>
 <tr><td>To try it today, with a first gate ready to copy</td><td><a href="doc:empieza-hoy">Start today</a></td></tr>
 <tr><td>To see the path with all the gates, and what happens when something goes wrong</td><td><a href="doc:el-recorrido-entero">The whole path</a></td></tr>
 <tr><td>To know what an engine has to guarantee, and how it is measured</td><td><a href="doc:el-nucleo">The core</a> and <a href="doc:como-se-mide">How it is measured</a></td></tr>

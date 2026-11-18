@@ -54,10 +54,11 @@ Translate from Spanish to American English. The reader is a developer or product
 | comprobaciones de serie | standing checks (never "standard checks") |
 | aprobación, aprobar (replaces "firma", "tu OK") | approval, approve |
 | núcleo | core |
-| momento (the four moments of the method) | moment |
+| momento (the five moments of the method) | moment |
 | Preparar | Prepare |
 | Encargar | Brief |
 | Ejecutar | Execute |
+| Cerrar (the moment; also cerrar un cambio, el cierre) | Close (close a change, a closing) |
 | Blindar | Harden |
 | Gherkin, CI, PR, linter, escape room | unchanged |
 | kit | kit, only in the T-minus part (chapters The engine and The kits) and in the name "Spec Kit"; elsewhere "ready-made rules" |
@@ -75,7 +76,7 @@ Translate from Spanish to American English. The reader is a developer or product
 | Manos a la obra | Hands on |
 | Las piezas y los roles | The pieces and the roles |
 | Los siete principios | The seven principles |
-| Los cuatro momentos | The four moments |
+| Los cinco momentos | The five moments |
 | Empieza hoy | Start today |
 | Un caso delicado | A delicate case |
 | El recorrido entero | The whole path |
@@ -90,6 +91,12 @@ Translate from Spanish to American English. The reader is a developer or product
 | De dónde viene | Where it comes from |
 | Anterior, Siguiente (between chapters) | Previous, Next |
 | norma, garantía | rule, guarantee |
+| regla (what always holds, or must not be possible, in what the product does) | rule |
+| veredicto (sí, todavía no, no) | verdict (yes, not yet, no) |
+| si sirvió (what Close looks at) | whether it helped |
+| en uso | in use |
+| la capa (the command `gdd` that keeps the order and the log of each change) | the layer |
+| supuesto (a rule the agent chose and the person has not stated) | assumption |
 | sellar, sellada (T-minus part) | seal, sealed |
 
 ## The running example
@@ -107,11 +114,11 @@ The site looks these up, so when they appear use exactly this English.
 | Gate-Driven Development (GDD) es una forma de crear productos de calidad con agentes de IA sin supervisarlos paso a paso. | Gate-Driven Development (GDD) is a way to build quality products with AI agents without supervising them step by step. |
 | Los agentes escriben rápido y casi bien. Si lo revisas todo, te conviertes en el paso más lento. Si no revisas nada, los errores llegan a producción. Y si el agente puede tocar lo que lo juzga, aprende a aprobarse solo. | Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself. |
 | Al final es una bestia indomable, y a una bestia así no se la convence con palabras: se le ponen puertas. | In the end it is an untamable beast, and you don't persuade a beast like that with words: you put gates on it. |
-| Esa es la base de GDD: no desarrollamos las especificaciones, ni el código, ni siquiera los tests. Diseñamos las puertas por las que pasarán nuestros agentes. | That is the basis of GDD: we don't develop the specifications, or the code, or even the tests. We design the gates our agents will go through. |
+| Esa es la base de GDD: no desarrollamos el código, ni siquiera los tests. Escribimos qué tiene que ser cierto y diseñamos las puertas por las que pasarán nuestros agentes. | That is the basis of GDD: we don't develop code, or even tests. We write what must be true and design the gates our agents go through. |
 | Lo que no se puede deshacer nunca es verde. | What can't be undone is never green. |
 | Esta versión todavía no trae datos propios. | This version doesn't bring its own data yet. |
 | Este manifiesto es la referencia. | This manifesto is the reference. |
-| v0.10 · borrador para revisión | v0.10 · draft for review |
+| v0.11 · borrador para revisión | v0.11 · draft for review |
 | Antes de que el agente empiece, decides qué tiene que demostrar. | Before the agent starts, you decide what it has to prove. |
 | Lo comprueban cosas que ya conoces, como tests, linters o una revisión, y el agente no puede tocarlas. | It is checked by things you already know, like tests, linters or a review, and the agent can't touch them. |
 | Cuanto más delicado es el cambio, más comprobaciones tiene que pasar, y solo te llama cuando hace falta tu criterio. | The more delicate the change, the more checks it has to pass, and it only calls you when your judgment is needed. |

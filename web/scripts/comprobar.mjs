@@ -200,7 +200,7 @@ for (const [ruta, html] of Object.entries(paginas)) {
   for (const re of viejo) if (re.test(visible)) fallos.push(`${ruta}: queda texto de la versión anterior (${re})`);
   for (const re of promesas) if (re.test(visible)) fallos.push(`${ruta}: promete algo con fecha (${re})`);
 }
-for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf', 'manifiesto-gdd-v0.7.pdf', 'manifesto-gdd-v0.7.pdf', 'manifiesto-gdd-v0.8.pdf', 'manifesto-gdd-v0.8.pdf', 'manifiesto-gdd-v0.9.pdf', 'manifesto-gdd-v0.9.pdf']) {
+for (const viejo of ['manifiesto-gdd-v0.3.pdf', 'manifiesto-gdd-v0.4.pdf', 'manifesto-gdd-v0.4.pdf', 'manifiesto-gdd-v0.5.pdf', 'manifesto-gdd-v0.5.pdf', 'manifiesto-gdd-v0.6.pdf', 'manifesto-gdd-v0.6.pdf', 'manifiesto-gdd-v0.7.pdf', 'manifesto-gdd-v0.7.pdf', 'manifiesto-gdd-v0.8.pdf', 'manifesto-gdd-v0.8.pdf', 'manifiesto-gdd-v0.9.pdf', 'manifesto-gdd-v0.9.pdf', 'manifiesto-gdd-v0.10.pdf', 'manifesto-gdd-v0.10.pdf']) {
   if (fs.existsSync(path.join(dist, viejo))) fallos.push(`${viejo} sigue en dist/`);
 }
 
@@ -258,8 +258,8 @@ const enlacesDelPdf = (fichero) => {
 
 // The version and the draft notice are the manifesto's own, and they appear where a reader lands.
 for (const [i, inicio, pdf, avisos] of [
-  ['es', '/index.html', 'manifiesto-gdd', [['en desarrollo', 'T-minus está en desarrollo'], ['Esta versión todavía no trae datos propios', 'GDD aún no tiene datos propios'], ['Diseñamos las puertas por las que pasarán nuestros agentes', 'la idea central']]],
-  ['en', '/en/index.html', 'manifesto-gdd', [['in development', 'T-minus is in development'], ["This version doesn't bring its own data yet", 'GDD has no data of its own yet'], ['We design the gates our agents will go through', 'the central idea']]],
+  ['es', '/index.html', 'manifiesto-gdd', [['en desarrollo', 'T-minus está en desarrollo'], ['Esta versión todavía no trae datos propios', 'GDD aún no tiene datos propios'], ['diseñamos las puertas por las que pasarán nuestros agentes', 'la idea central']]],
+  ['en', '/en/index.html', 'manifesto-gdd', [['in development', 'T-minus is in development'], ["This version doesn't bring its own data yet", 'GDD has no data of its own yet'], ['design the gates our agents go through', 'the central idea']]],
 ]) {
   const [, version, estado] = norm(fuenteDe('manifiesto', i)('p.meta').eq(1).text()).match(/^(v[\d.]+) · (.+)$/);
   for (const ruta of [inicio, DOCS[i].manifiesto]) {
@@ -289,8 +289,8 @@ for (const [i, inicio, pdf, avisos] of [
 // The number of good practices is written out in words in the map and in the chapter's description,
 // and it has to be the number the chapter really has.
 const EN_LETRAS = {
-  es: { 25: 'veinticinco', 26: 'veintiséis', 27: 'veintisiete', 28: 'veintiocho', 29: 'veintinueve', 30: 'treinta', 31: 'treinta y una', 32: 'treinta y dos', 33: 'treinta y tres', 34: 'treinta y cuatro', 35: 'treinta y cinco' },
-  en: { 25: 'twenty-five', 26: 'twenty-six', 27: 'twenty-seven', 28: 'twenty-eight', 29: 'twenty-nine', 30: 'thirty', 31: 'thirty-one', 32: 'thirty-two', 33: 'thirty-three', 34: 'thirty-four', 35: 'thirty-five' },
+  es: { 25: 'veinticinco', 26: 'veintiséis', 27: 'veintisiete', 28: 'veintiocho', 29: 'veintinueve', 30: 'treinta', 31: 'treinta y una', 32: 'treinta y dos', 33: 'treinta y tres', 34: 'treinta y cuatro', 35: 'treinta y cinco', 36: 'treinta y seis', 37: 'treinta y siete', 38: 'treinta y ocho', 39: 'treinta y nueve', 40: 'cuarenta', 41: 'cuarenta y una', 42: 'cuarenta y dos', 43: 'cuarenta y tres', 44: 'cuarenta y cuatro', 45: 'cuarenta y cinco' },
+  en: { 25: 'twenty-five', 26: 'twenty-six', 27: 'twenty-seven', 28: 'twenty-eight', 29: 'twenty-nine', 30: 'thirty', 31: 'thirty-one', 32: 'thirty-two', 33: 'thirty-three', 34: 'thirty-four', 35: 'thirty-five', 36: 'thirty-six', 37: 'thirty-seven', 38: 'thirty-eight', 39: 'thirty-nine', 40: 'forty', 41: 'forty-one', 42: 'forty-two', 43: 'forty-three', 44: 'forty-four', 45: 'forty-five' },
 };
 for (const i of IDIOMAS) {
   const capitulo = DOCS[i]['buenas-practicas'];
