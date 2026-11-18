@@ -9,7 +9,7 @@ metadata:
 
 # Hardening
 
-Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level, as `gdd` says. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask. In one run, hardening started inside a request, and three more red changes opened on protecting the database's files.
+Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level, as `gdd` says. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask.
 
 ## What counts
 
@@ -70,6 +70,6 @@ Retiring a gate, or a question of the reviewer's, that no longer adds anything, 
 
 ## Gotchas
 
-- In the T-minus pilot, the same tests failed now and then without anything changing, and the gate rejected good changes for it. A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
+- A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
 Record the proposal with `gdd step blueprint harden --result <proposed or approved> --change <id or none> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<blueprint change>"`. Give `--action` (`strengthen`, `relax` or `retire`), `--expected-check` and `--caught-by` when known. Use `none` when there was no check or no defect. Omit an unknown attribution so the log records the gap.

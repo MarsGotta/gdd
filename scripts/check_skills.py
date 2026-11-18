@@ -39,6 +39,8 @@ What it checks:
     dash;
   - no skill tells an agent to append to gdd/log/ by hand, because only the
     layer writes it;
+  - skill bodies, references and assets avoid run anecdotes and shop examples
+    (decision 83);
   - every `gdd <command>` a skill or a reference names in backticks is a
     command the layer has, with flags its help lists. This builds the layer
     from engine/ with engine/build.sh, and is skipped, saying so, where there
@@ -77,6 +79,14 @@ MAX_LINES = 500
 MAX_BYTES = 14_500  # an agent keeps the first 20,000 characters of a skill after a compaction: this leaves room
 DESCRIPTION_CHARS = 400
 SEAL = re.compile(r"git diff --exit-code <start> HEAD -- [^`\n\"]+")
+DOMAIN_EXAMPLE = re.compile(
+    r"\b(?:in\s+(?:one\s+run|benchmark)|shops?|shopping|carts?|at checkout|payments?|charges?|"
+    r"discounts?|stock|invoices?|catalog(?:ue)?s?|refunds?|coupons?|"
+    r"(?:a|the|online) store|(?:an|purchase|customer|paid|unpaid) orders?|"
+    r"order (?:total|history|processing)|"
+    r"tiendas?|carritos?|pagos?|cobros?|descuentos?|pedidos?|catálogos?|facturas?)\b",
+    re.I,
+)
 NO_YAML = (
     "scripts/check_skills.py: PyYAML is missing, so no front matter was checked as YAML. "
     "Run it as: uv run --with pyyaml python3 scripts/check_skills.py"
@@ -418,10 +428,19 @@ def main():
             problem(reading, "its seven questions differ from the ones of skills/gdd-brief/SKILL.md")
 
     for path in sorted(SKILLS.rglob("*")):
-        if path.is_file() and path.suffix in {".md", ".feature", ".yaml", ".jsonl", ".json"}:
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if "—" in line or "–" in line:
+        if not path.is_file():
+            continue
+        parts = path.relative_to(SKILLS).parts
+        agent_text = path.name == "SKILL.md" or (len(parts) > 2 and parts[1] in {"assets", "references"})
+        check_dash = path.suffix in {".md", ".feature", ".yaml", ".jsonl", ".json"}
+        if agent_text or check_dash:
+            # An asset may be binary. Keep strict decoding for the text formats we validate.
+            lines = path.read_text(encoding="utf-8", errors="strict" if check_dash else "replace").splitlines()
+            for number, line in enumerate(lines, 1):
+                if check_dash and ("—" in line or "–" in line):
                     problem(path, "has a long or medium dash", number)
+                if agent_text and (match := DOMAIN_EXAMPLE.search(line)):
+                    problem(path, f"{match[0]!r}: keep run evidence and shop examples out of skills", number)
 
     for line in problems:
         print(line)

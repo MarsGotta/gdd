@@ -4,13 +4,13 @@ Open this before you propose any gate. Which gates a project needs is the person
 
 ## What must never happen in this red zone
 
-Read the sector sources as `references/research.md` describes and follow this project's data through the zone. Propose three to five losses the person would recognize. In a shop, a buyer might pay a different amount from the order total, a discount meant for one use might pay for two orders, or a cancelled order might keep the last unit off sale. Choose what fits the zone and the product. The person can correct the rules with the blueprint.
+Read the sector sources as `references/research.md` describes and follow this project's data through the zone. Propose three to five losses the person would recognize. Choose what fits the zone and the product. The person can correct the rules with the blueprint.
 
 Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one can observe them. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Place their tests in the backlog as described under Gates in `gdd-prepare`. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
 
 ## What the project already has
 
-Before you propose anything, read what already runs: the CI workflows and the checks the main branch requires, the scripts of the package manifest, the configuration of each test runner, linter and scanner, and the hooks. Run each one on the main branch, through the runner, and write down what it took and whether it passes. A check the project already has comes into the blueprint as it is, with its own command and its own numbers: replacing it is for the person to ask. What already fails goes to the baseline. Every gate runs the constitution's commands, as CI does: in the T-minus pilot, a gate passed while the project's linter failed, because it didn't run the same lint.
+Before you propose anything, read what already runs: the CI workflows and the checks the main branch requires, the scripts of the package manifest, the configuration of each test runner, linter and scanner, and the hooks. Run each one on the main branch, through the runner, and write down what it took and whether it passes. A check the project already has comes into the blueprint as it is, with its own command and its own numbers: replacing it is for the person to ask. What already fails goes to the baseline. Every gate runs the constitution's commands, as CI does.
 
 ## How a change goes through them
 
@@ -29,7 +29,7 @@ Every project starts with these, each round and on every color, all of them toge
 - `seal`, with the template's command;
 - the tests of the change, and the ones already there;
 - what the stack has to catch a mistake before anything runs: a linter, and its types where it has them;
-- a scan that keeps secrets out of the repository, with a mature scanner taken as it is. In one run, each zone got a scan written by hand while a mature one was installed, every review found one more secret it missed, and no change started.
+- a scan that keeps secrets out of the repository, with a mature scanner taken as it is.
 
 Then once, before the reviewer, what takes longer, under ten minutes in all: when the project has a screen, one test that drives it through what the change touches, and only when the change touches what a person sees.
 
@@ -51,13 +51,13 @@ An example to adapt, for gitleaks 8, a scanner in wide use and not the method's 
 git rev-parse --verify --quiet "<start>^{commit}" > /dev/null && gitleaks git --log-opts="<start>..HEAD" --config gdd/gitleaks.toml --gitleaks-ignore-path gdd --ignore-gitleaks-allow --redact --no-banner --no-color --verbose .
 ```
 
-Check every flag in the scanner's own help before you write it. Then try the command once, before it goes in the constitution: in a throwaway clone, commit a fake key on a line with the exemption mark and watch it fail and name the file, the line and the kind, without the value; run it again from a commit that doesn't exist and watch it fail too. So the person approves it once: in one run, the command was fixed twice after the approval, with an approval each time, first because a key with the exemption mark got through, then because it didn't say the file, the line and the kind. The trial never touches the project: stop it when the copy can't be made or entered (`git clone -q . "$copy" || exit 1; cd "$copy" || exit 1`), and never hide what those two say. In one run the clone failed without a word, the trial's commits landed in the project itself, and the hard reset that took them out also took files written a moment before.
+Check every flag in the scanner's own help before you write it. Then try the command once, before it goes in the constitution: in a throwaway clone, commit a fake key on a line with the exemption mark and watch it fail and name the file, the line and the kind, without the value; run it again from a commit that doesn't exist and watch it fail too. So the person approves it once. The trial never touches the project: stop it when the copy can't be made or entered (`git clone -q . "$copy" || exit 1; cd "$copy" || exit 1`), and never hide what those two say.
 
 ## What isn't in the minimum, and why
 
-- **Mutation testing.** It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. In one run, a change passed all its tests at the first try, and four more rounds went into raising its mutation score to the highest, the number Prepare had set.
+- **Mutation testing.** It shows whether the tests catch planted bugs, and it costs minutes on every run. It comes when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines.
 - **A threshold of coverage.** How many lines ran says nothing about what was checked, and a change pays to reach the number. The tests of each change already follow its scenarios.
-- **Tests that drive a browser on every round.** They earn their place once the rest pass, before the review: in one run, a change went through gates of about seven minutes, round after round.
+- **Tests that drive a browser on every round.** They earn their place once the rest pass, before the review.
 
 When hardening brings mutation testing or a threshold of coverage in, it starts at the tool's own default, looked up on the tool's own page: never a number from memory. Anything stricter comes in when hardening, with what slipped through as its evidence, and the person approves it.
 
@@ -80,7 +80,7 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-For how many product decisions to propose, follow `gdd-brief`. What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless the next item needs the work that stopped. Every change needs the standing checks. When other work must wait, explain what one more attempt would buy and propose it now.
+For how many product decisions to propose, follow `gdd-brief`. What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless the next item needs the work that stopped. Every change needs the standing checks. When other work must wait, explain what one more attempt would buy and propose it now.
 
 ## The ladder
 

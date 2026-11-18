@@ -12,7 +12,7 @@ From the `engine/` folder of the plugin the skills were loaded from: two folders
 
 ## It is never yours to change
 
-Set it up from that `engine/` folder as it is, never from source you changed. When `.gdd/gdd --version` is older than the skills, build it again from that folder: that is how a project gets the layer its skills need. If the layer looks wrong, or it and a skill say different things, tell the person in one line with the step you'd take, for a yes: "The tool asks for your approval now, and its guide for another agent to read this first. I'd go on as the tool says. Yes?" Never ask them for a yes to fix the layer: in one run, an orchestrator got one, cloned the layer's source, patched it and copied its own build over `.gdd/gdd`, and from there on nothing but itself kept its order.
+Set it up from that `engine/` folder as it is, never from source you changed. When `.gdd/gdd --version` is older than the skills, build it again from that folder: that is how a project gets the layer its skills need. If the layer looks wrong, or it and a skill say different things, tell the person in one line with the step you'd take, for a yes: "The tool asks for your approval now, and its guide for another agent to read this first. I'd go on as the tool says. Yes?" Never ask them for a yes to fix the layer.
 
 ## When it can't be built
 

@@ -32,12 +32,12 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## Zones
 
-A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do. Try the draft before approval: in one run, a red server got no tests. Change a zone only for a reason grounded in risk, and try it again. Never lower a color to improve the figures.
+A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do. Try the draft before approval. Change a zone only for a reason grounded in risk, and try it again. Never lower a color to improve the figures.
 
-- Mark as delicate whatever is expensive if it fails. In software, start with payments, access and permissions, deployments and CI, the updater, customer data, and whatever judges the rest, in a zone whose color asks for `review`: the blueprint itself, the standing checks and what runs them (CI and each tool's configuration).
+- Mark as delicate whatever is expensive if it fails. In software, start with handling money, access and permissions, deployments and CI, the updater, personal data, and whatever judges the rest, in a zone whose color asks for `review`: the blueprint itself, the standing checks and what runs them (CI and each tool's configuration).
 - Mark behaviors, not only folders: code outside a delicate zone that configures it, feeds it data or decides what it does belongs to it too.
 - What can't be undone is never green.
-- Propose a green zone for documents that don't change how the product behaves, such as guides and notes, unless the person says otherwise: in one run, a guide no zone covered came out yellow until the person asked for one.
+- Propose a green zone for documents that don't change how the product behaves, such as guides and notes, unless the person says otherwise.
 - List the dependency manifests and their lock files in a zone whose color asks for `person-review`. That is all it takes for no new dependency to come in without a person seeing it: there is no check to write.
 - A zone's tests belong to it. Include their paths. Check each empty pathspec for a typo and try planned filenames where the folder does not exist yet. For files no zone covers, propose a catch-all zone with the person's choice of color, or leave each change to be judged, never green.
 - Functions don't go in the blueprint. They change often and zones rarely do, so they go to the backlog, each with its expected color.
@@ -58,7 +58,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 
 | File | From | Notes |
 |---|---|---|
-| `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Then what must never happen in the product, whichever part a change touches (in a shop: nothing sold without stock, a paid order never changes), from its data and what you looked up, in the person's words, three to seven, for them to correct: every brief is checked against them, and a rule left in a zone's context is never seen by a change outside it. How one zone's code is written goes to its context. |
+| `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Then what must never happen in the product, whichever part a change touches, from its data and what you looked up, in the person's words, three to seven, for them to correct: every brief is checked against them, and a rule left in a zone's context is never seen by a change outside it. How one zone's code is written goes to its context. |
 | `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
 | `.gdd/gdd` | `references/layer.md` | The layer, set up before any step is logged. |
 | `gdd/check.sh`, `gdd/limits.sh` | `assets/check.sh`, `assets/limits.sh` | A runner that times each check, unless the person says no: the constitution's commands go through it, `seal` apart. And the counter of what `limits` caps. |
@@ -92,8 +92,8 @@ The person approves the first blueprint, and the approval stays written: a commi
 
 ## Gotchas
 
-- Eighteen checks already failed on the main branch before anyone touched anything. Without a baseline, every change gets blamed for them, or they quietly disappear.
-- Some checks can't run inside the agent's box (the pilot's self-test couldn't open a file there). Say which checks run outside it, and who runs them.
-- In one run, an agent published the project on the person's own account through a plugin of its environment; in another, it used the person's git credentials to create repositories. Confine the environment, not only the project.
+- Record existing failures in the baseline so they stay visible and later changes answer only for new failures.
+- Some checks can't run inside the agent's box. Say which checks run outside it, and who runs them.
+- Confine the agent's environment as well as the project, including plugins and credentials that can act on the person's accounts.
 
 When you close, run `gdd step blueprint prepare --result <proposed or approved>` with a `--file` for each file, and `--probe` and `--levels` once tried.

@@ -19,26 +19,24 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
 Everything this skill tells you to say to the person before the approval goes under "Before you say yes". Keep it to four lines at most. Use two for the trial of the blueprint. Combine other caveats that belong together, including anything that comes from memory because you couldn't look it up. What they asked for by name gets its answer in the line of the file that holds it. No other headings and no other lists.
 
-Filled in, for a shop:
+Example:
 
-    Your shop's plan is ready to read. Work starts after your approval.
+    Your plan is ready to read. Work starts after your approval.
 
     Please read:
-    - `gdd/blueprint.md`: what each change must pass. It includes the mutation testing you requested for delicate changes.
-    - `gdd/constitution.md`: what must never happen, like selling out-of-stock goods or storing a card number. Put them in your own words.
-    - `gdd/gates/`: what each check must prove. Please correct any payment rule that doesn't fit.
-    - `gdd/backlog.md`: the first jobs, in order.
+    - <plan>: how each change is checked, including the extra review you requested.
+    - <rules>: what must never go wrong. Please correct anything that doesn't fit.
 
     Before you say yes:
-    - Of your last 25 changes, 10 only changed wording, 9 changed the cart and 6 touched the part that takes payments, including both payment fixes.
-    - The tests would have missed changes to order processing alone. The revised plan covers them.
-    - The card rules come from the card schemes' standard. The rest are my proposals. None of it is legal advice.
-    - The rules depend on agents following them until the platform enforces them. Setting up and trying the checks comes first after your approval.
+    - Of <n> changes, <n> needed a quick check, <n> a closer look and <n> your review. The fixes were in <part of the product>.
+    - Changes to who could see an entry would have missed the tests. The revised plan covers them.
+    - The privacy rule comes from the guidance you supplied. The other rules are my proposals.
+    - For now the agents can change the checks. Setting up and trying them comes first after approval.
 
     Do you approve these files as they are?
 
-What stays out, because it is in the files: the full list of zones and their colors, the models, the tools, the limits, what an emergency may skip and how you got here. If they ask about any of it, answer then. That holds when the person left the rest to you: in one run the message added a list headed "What I decided for you", with the levels of risk, the models and the checks, and came to 310 words.
+What stays out, because it is in the files: the full list of zones and their colors, the models, the tools, the limits, what an emergency may skip and how you got here. If they ask about any of it, answer then. That holds when the person left the rest to you.
 
-For a person who isn't technical, say what a file is for and give its name only where they have to open it, and use no word of a tool, a model or git: "the checks every change passes" for a linter or mutation testing, "who has to approve a change" for the file of owners, "ready" for committed. In one run, the message named the file of owners, a linter, a mutation tool, the models and "committed".
+For a person who isn't technical, say what a file is for and give its name only where they have to open it, and use no word of a tool, a model or git: "the checks every change passes" for a linter or mutation testing, "who has to approve a change" for the file of owners, "ready" for committed.
 
-Before you send it, count its words with a command, such as `wc -w` on a here-document that holds it: over 200, cut it and count again, and send it only once it is under. In one run that counted this way it came to 195 words, and in one that didn't, to 428. Then reread it as someone who never saw the method.
+Before you send it, count its words with a command, such as `wc -w` on a here-document that holds it: over 200, cut it and count again, and send it only once it is under. Then reread it as someone who never saw the method.

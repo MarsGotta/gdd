@@ -1,6 +1,6 @@
 # Returning a fix to its agent
 
-Send the prompt from `gdd launch <id> <role>` to the last builder or checks agent for this change and role. It gives the seal tip, what sent the change back and what the last builder tried. When the reviewer returns the change, the prompt keeps that review’s findings and citations in full, along with its notes for the builder. A command’s output may show only its end. The agent can run it again if it needs more. In three runs, a fresh agent for every fix read the brief and code all over again.
+Send the prompt from `gdd launch <id> <role>` to the last builder or checks agent for this change and role. It gives the seal tip, what sent the change back and what the last builder tried. When the reviewer returns the change, the prompt keeps that review’s findings and citations in full, along with its notes for the builder. A command’s output may show only its end. The agent can run it again if it needs more.
 
 When the role first ran with `--run`, use the `session_id` that Codex or Claude printed for it. A shortcut that picks the latest session could send the fix to the reviewer. A returned role needs an explicit resume command because a plain `--run` would start a new session and the layer refuses it. Keep the original launch settings. For a builder started with `codex exec --json -m <model>`, put its exact id in place of `SESSION_ID`.
 

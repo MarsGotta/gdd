@@ -27,16 +27,16 @@ Look at about the last two hundred commits of the main branch, without merges. `
 - The ones that touched something no zone covers: `git rev-list --no-merges <since>..<main branch> -- . ':(exclude,glob)<pattern>'`, excluding every pathspec of every zone. A pathspec written without `:(glob)` is excluded as `':(exclude)<path>'`.
 - The ones that fixed or undid something, by the words this project uses for it: `git rev-list --no-merges -i --grep=fix --grep=revert <since>..<main branch>`.
 
-For each commit with changed files, get its paths with `git diff-tree --root --no-commit-id --no-renames --name-only -r -z <commit>`. Pass those filenames together to `gdd color --paths <path>...`, one argument per file. A mixed change counts once, at the color the layer gives it. Count by color in the shell. Keep the uncovered paths, the colors of fixes and the checks whose `when` misses a zone. Compare with `gdd zones` on the tracked files: a mixed change can run the tests because it touched the screen even though a change to the server alone would skip them.
+For each commit with changed files, get its paths with `git diff-tree --root --no-commit-id --no-renames --name-only -r -z <commit>`. Pass those filenames together to `gdd color --paths <path>...`, one argument per file. A mixed change counts once, at the color the layer gives it. Count by color in the shell. Keep the uncovered paths, the colors of fixes and the checks whose `when` misses a zone. Compare with `gdd zones` on the tracked files: a mixed change can trigger a check that misses one zone on its own.
 
 Then read it with them, and let them decide:
 
-- If almost everything comes out red, look for ordinary changes that the draft treats like payments. Check what damage they could actually do.
+- If almost everything comes out red, look for ordinary changes the draft marks as delicate. Check what damage they could actually do.
 - Much comes out uncovered: propose its pathspecs, or a catch-all zone.
 - The fixes pile up in a zone that comes out green: it is marked too low.
 - A zone no commit touched: check its pathspec with `git ls-files -- <pathspec>`. A typo can leave a whole area outside its intended zone.
 
-If a check should cover the missed files, correct its condition in the draft and try the same changes again. A screen check may deliberately skip a server change. Explain each zone edit by the damage a change there could do. On the first line under "Before you say yes", give the counts in the product’s words and say where the fixes fell. On the second give the number of changes that touched paths no zone covers and name the affected areas and any checks that miss them. Say when the draft now covers a gap you found.
+If a check should cover the missed files, correct its condition in the draft and try the same changes again. Keep exclusions that match the check's purpose. Explain each zone edit by the damage a change there could do. On the first line under "Before you say yes", give the counts in the product’s words and say where the fixes fell. On the second give the number of changes that touched paths no zone covers and name the affected areas and any checks that miss them. Say when the draft now covers a gap you found.
 
 ## The baseline
 
