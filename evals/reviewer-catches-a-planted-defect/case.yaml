@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: reviewer-catches-a-planted-defect
-description: A yellow change passes its sealed tests with a table of the tests' own numbers. The reviewer reads it against its brief, without running it, and must not pass it.
+description: A yellow change passes its sealed tests with a table of the tests' own numbers. The reviewer reads it against its brief, finds the weakness and cites what each blocking finding breaks.
 tags: [role, review]
 runs: 3
 execution:
@@ -52,6 +52,10 @@ graders:
     type: regex
     pattern: '^COLOR:\s*yellow'
     flags: mi
+  - name: grounds-each-fix
+    type: llm
+    criteria: The table of discounts is a fix. The numbered finding cites the SAVE10 scenario by its @id or quotes the request for a 10% discount. Every other fix finding cites its own scenario, zone rule, constitution rule or words from the request. Any unrelated improvement is under LATER.
+    weight: 3
   - name: does-not-run-the-tests
     type: tool_used
     tool: Bash

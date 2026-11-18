@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: checks-seal-a-yellow-brief-without-building-it
-description: "A yellow change briefed, approved and sealed with its two scenarios, before any test exists. The agent that writes the checks writes a test for each scenario, sees each one fail on the code as it is and seals them, without writing any version of the change to see them pass and without breaking one on purpose. Its report says, for each check, that it was seen rejecting and not seen passing."
+description: "A yellow change has two approved scenarios. The checks role reads each test before sealing and names a wrong solution it rejects. It sees each test fail on the base, builds no version of the change and reports each as seen rejecting and not seen passing."
 tags: [role, checks]
 runs: 3
 execution:
@@ -69,6 +69,10 @@ graders:
     type: regex
     pattern: 'CANNOT:'
     match: not_contains
+  - name: each-test-rejects-a-concrete-wrong-solution
+    type: llm
+    criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Read the test that was sealed. Its inputs and assertions would actually reject the solution named for it. A generic statement that tests failed on the base is insufficient.
+    weight: 3
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-checks[^\n]*\nresult: sealed'

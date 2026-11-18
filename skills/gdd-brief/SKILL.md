@@ -63,7 +63,7 @@ Always in this order: write, `gdd seal`, `gdd brief`, the reading where the colo
 
 Write the brief and its scenarios in your own copy, the one the person has open, at the paths they will have in the project, and seal them from there with `gdd seal <id> <files>`, which commits them on `gdd-seal/<id>` without touching your copy. A file the person handed over that git doesn't track goes in the seal too: in one run, the roles lacked a test provider for two rounds. Then `gdd brief <id> <files> --paths <path>...` writes the `brief` step with that commit and each file's hash: exactly what has to pass. The seal is what judges, and their copy is what they read: in one run, the scenarios lived only on the seal, and the person saw them only by asking to have them pasted in.
 
-On red, and on yellow when the change changes data another zone owns, have it read once it is sealed, before you ask for any approval: `gdd launch <id> reading`, and when it answers, `gdd report <id> reading <file>` with where each finding went, `--went f1=brief,f2=person`, `log` or `dropped`. Take into the brief what you agree with, as a new version. What you don't, three at most, goes to the person with the approval, or stays in the log where the color asks for no `brief-approval`.
+On red, and on yellow when it changes data another zone owns, have the sealed brief read before approval: `gdd launch <id> reading`. Accept `pass` when nothing blocks. Take up to three additions tied to a constitution or zone rule or a loss of money or data. Fold those you accept into a new version. Raise a disputed one with the person only where the color asks for approval. Run `gdd report <id> reading <file>` with `--went f1=brief,f2=person`. The rest stay in the log.
 
 Then look in the blueprint whether this color's checks include `brief-approval`. If they don't, tell the person in one line what the change will do, and go on without waiting for them. If they do, follow `gdd next <id>`: ask only when approval is due. Send one message, under 150 words, in their language, in this shape:
 
@@ -71,7 +71,7 @@ Then look in the blueprint whether this color's checks include `brief-approval`.
     <Each scenario in one line, in their words.>
     <Each decision on how it's built, marked as yours; each rule of their product, as a proposal covered by the final yes.>
     <On red: the rules of the product it touches, and up to three things it won't do yet, each as a consequence.>
-    <If it was read: what you left out of its reading, a line each, with why.>
+    <Any disputed addition that needs their decision, and why.>
     <One question a yes answers.>
 
 "The catalog in pages. Each page shows twenty products, in today's order. A page past the last shows the first. I decided: the links to the other pages go under the list. Do you approve it?" Before sending, count its words, check that every scenario has its line, name the file of its scenarios in their copy, which they can open as it is, and run `gdd ask <id> --of brief "<the question, in a line>"`: in one run, a yellow brief nobody approved lost its scenario of twenty products a page, which the person had caught each time they approved the brief. On red, show its scenarios beside the message as they are, because an approval is only worth what was seen. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.

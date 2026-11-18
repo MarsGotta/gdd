@@ -186,8 +186,11 @@ pub(super) fn write_report(
         "checks" if !stopped => report_checks(ctx, l, id, a, &r, out, &mut m)?,
         "build" => report_build(l, id, a, &r, &mut m)?,
         "review" => report_review(ctx, l, id, a, &r, out, &mut m)?,
-        "reading" => report_reading(a, &r, &mut m),
+        "reading" => report_reading(a, &r, &mut m)?,
         _ => {}
+    }
+    if matches!(st, "review" | "reading") && !r.later.is_empty() {
+        m.insert("later".into(), json!(r.later));
     }
     let ev = new_event(id, "step", &time::now_string(), m);
     let line = write(l, id, &ev)?;
@@ -205,7 +208,11 @@ pub(super) fn write_report(
         out.say(format!("  {} {} {}", f.id, f.place, f.what));
     }
     if !r.later.is_empty() {
-        out.say(format!("LATER, for the backlog: {}", r.later.join("; ")));
+        let destination = if st == "reading" { "log" } else { "backlog" };
+        out.say(format!(
+            "LATER, for the {destination}: {}",
+            r.later.join("; ")
+        ));
     }
     if !r.missing.is_empty() {
         out.say(format!("MISSING, for the brief: {}", r.missing.join("; ")));
@@ -534,6 +541,19 @@ fn report_review(
             format!("launch it again, once: gdd launch {id} review"),
         ));
     };
+    if verdict == "fix" && (r.findings.is_empty() || r.uncited.is_some()) {
+        let why = match &r.uncited {
+            Some(f) => format!("finding {f} doesn't cite what it breaks"),
+            None => "the fix has no numbered finding that cites what it breaks".into(),
+        };
+        return Err(Fail::refuse(
+            "uncited-fix",
+            why,
+            format!(
+                "have the reviewer end each numbered finding with | @id:<scenario>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>. Move the rest under LATER: and use pass if nothing blocks. Then gdd report {id} review <file>"
+            ),
+        ));
+    }
     let head = l.state.git.head.clone();
     // What a setup log's trial judges is all it sealed, from where its seal was cut.
     let start = if log_kind(id) == LogKind::Setup {
@@ -599,30 +619,28 @@ fn report_review(
     if !r.notes.is_empty() {
         m.insert("notes".into(), json!(r.notes));
     }
-    if !r.later.is_empty() {
-        m.insert("later".into(), json!(r.later));
-    }
     Ok(())
 }
 
 /// What a reading of a brief adds: its findings, and where each one went.
-fn report_reading(a: &ReportArgs, r: &RoleReport, m: &mut Map<String, Value>) {
-    m.insert(
-        "findings".into(),
-        json!(
-            r.findings
-                .iter()
-                .enumerate()
-                .map(|(i, f)| {
-                    let went = a
-                        .went
-                        .iter()
-                        .find(|(k, _)| *k == f.id)
-                        .map(|(_, w)| w.clone())
-                        .unwrap_or_else(|| "log".into());
-                    json!({"id": f.id, "question": i + 1, "what": f.what, "went": went})
-                })
-                .collect::<Vec<_>>()
-        ),
-    );
+fn report_reading(a: &ReportArgs, r: &RoleReport, m: &mut Map<String, Value>) -> R<()> {
+    if r.findings.len() > 3 {
+        return Err(Fail::refuse(
+            "too-many-additions",
+            "the reading proposes more than three additions",
+            "number up to three blocking additions and put the remaining observations under LATER: for the log, then report the reading again",
+        ));
+    }
+    let mut findings = vec![];
+    for (i, f) in r.findings.iter().enumerate() {
+        let went = a
+            .went
+            .iter()
+            .find(|(k, _)| *k == f.id)
+            .map(|(_, w)| w.as_str())
+            .unwrap_or("log");
+        findings.push(json!({"id": f.id, "question": i + 1, "what": f.what, "went": went}));
+    }
+    m.insert("findings".into(), json!(findings));
+    Ok(())
 }

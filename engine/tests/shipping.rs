@@ -64,7 +64,7 @@ fn yellow_through_gates(r: &Repo, id: &str) -> String {
         &[(&format!("tests/{id}.sh"), "true\n")],
         "Seal its test",
     );
-    let proofs = "```json\n[{\"check\":\"tests\",\"case\":\"rejects\",\"command\":\"sh tests/run.sh\",\"exit\":1,\"tail\":\"FAILED\"}]\n```\nseen rejecting, not seen passing\n";
+    let proofs = "```json\n[{\"check\":\"tests\",\"case\":\"rejects\",\"test\":\"says_ok\",\"wrong\":\"prints nothing\",\"command\":\"sh tests/run.sh\",\"exit\":1,\"tail\":\"FAILED\"}]\n```\nseen rejecting, not seen passing\n";
     let c = r.report(
         id,
         "checks",
@@ -100,6 +100,8 @@ fn the_checks_proofs_come_from_their_json_block() {
         .unwrap();
     assert_eq!(checks["seal"]["proofs"][0]["case"], "rejects");
     assert_eq!(checks["seal"]["proofs"][0]["exit"], 1);
+    assert_eq!(checks["seal"]["proofs"][0]["test"], "says_ok");
+    assert_eq!(checks["seal"]["proofs"][0]["wrong"], "prints nothing");
     // A json block that isn't a list of proofs is refused, with the override named.
     yellow_brief(&r, "p2");
     r.gdd(&[
@@ -348,6 +350,42 @@ fn a_merge_of_main_that_touches_its_files_asks_for_a_review_again() {
 }
 
 #[test]
+fn each_finding_that_sends_a_change_back_cites_what_it_breaks() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "p1");
+    let report =
+        |findings: &str| r.report("p1", "review", &review_text("fix", "yellow", findings), &[]);
+    let first = "f1 src/core/app.txt:1 no output, which breaks `@id:p1-1`.";
+    let before = r.log_lines("p1");
+    for vague in [
+        "",
+        "LATER:\nf1 a shorter message | @id:p1-1",
+        "f1 src/core/app.txt:1 no output\nNOTES FOR THE BUILDER:\nSee @id:p1-1",
+        &format!("{first}\nf2 src/core/app.txt:2 repeated text"),
+        &format!("{first}\nf2 src/core/app.txt:2 repeated text | @id:"),
+        &format!("{first}\nf2 src/core/app.txt:2 repeated text | zone core:"),
+        &format!("{first}\nf2 src/core/app.txt:2 repeated text | constitution:"),
+        &format!("{first}\nf2 src/core/app.txt:2 repeated text | request:"),
+        &format!("{first}\nf1 src/core/app.txt:2 a separate claim without a citation"),
+    ] {
+        let refused = report(vague);
+        assert_eq!(refused.facts["refused"], "uncited-fix", "{}", refused.out);
+        assert!(refused.has("LATER:"), "{}", refused.out);
+        assert_eq!(r.log_lines("p1"), before);
+    }
+    let accepted = report(&format!(
+        "{first}\nf2 tests/run.sh:1 total is hidden | zone core: show the total\n\
+         f3 src/core/app.txt:2 rounds up | constitution: amounts are in whole cents\n\
+         f4 src/core/app.txt:3 no text | request: Make it ok.\nLATER:\nf5 shorten the helper name"
+    ));
+    assert_eq!(accepted.code, 0, "{}", accepted.out);
+    let lines = r.log_lines("p1");
+    let review = lines.last().unwrap();
+    assert_eq!(review["findings"].as_array().unwrap().len(), 4);
+    assert_eq!(review["later"][0], "f5 shorten the helper name");
+}
+
+#[test]
 fn a_red_brief_is_read_before_the_person_is_asked() {
     let r = Repo::new();
     r.write("gdd/briefs/r1.md", "---\nversion: 1\n---\n# Pay\n");
@@ -373,22 +411,46 @@ fn a_red_brief_is_read_before_the_person_is_asked() {
         "{}",
         l.out
     );
+    let reading = review_text(
+        "fix",
+        "red",
+        "f1 charging twice loses money\nf2 a refund can lose money\nf3 a retry can lose the order\nf4 a timeout can lose the receipt",
+    );
+    let excess = r.report("r1", "reading", &reading, &[]);
+    assert_eq!(
+        excess.facts["refused"], "too-many-additions",
+        "{}",
+        excess.out
+    );
     let rd = r.report(
         "r1",
         "reading",
-        &format!(
-            "pass\nf1 gdd/briefs/r1.md: what if it is paid twice?\n{}",
-            report_block("gdd-review", "pass")
-        ),
-        &["--went", "f1=brief"],
+        &reading.replace("f4 ", "LATER:\n"),
+        &["--went", "f1=brief,f2=person"],
     );
     assert_eq!(rd.code, 0, "{}", rd.out);
+    let lines = r.log_lines("r1");
+    let logged = lines.last().unwrap();
+    assert_eq!(logged["findings"][2]["went"], "log");
+    assert_eq!(logged["later"][0], "a timeout can lose the receipt");
     assert_eq!(r.gdd(&["next", "r1"]).facts["state"]["next"]["step"], "ask");
     // A yellow brief names the reading only as a choice.
     yellow_brief(&r, "y5");
     let n = r.gdd(&["next", "y5"]);
     assert_eq!(n.facts["state"]["next"]["step"], "ask");
     assert!(n.has("gdd launch y5 reading"), "{}", n.out);
+    let rd = r.report(
+        "y5",
+        "reading",
+        &review_text("pass", "yellow", "LATER:\na shorter label"),
+        &[],
+    );
+    assert_eq!(rd.code, 0, "{}", rd.out);
+    let readings = r.log_lines("y5");
+    let reading = readings.last().unwrap();
+    assert_eq!(reading["findings"].as_array().unwrap().len(), 0);
+    assert_eq!(reading["later"][0], "a shorter label");
+    assert!(rd.has("for the log"), "{}", rd.out);
 }
 
 #[test]

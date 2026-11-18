@@ -8,6 +8,32 @@ pub struct Finding {
     pub what: String,
 }
 
+/// The reviewer judges whether the cited requirement is broken. The layer checks that the
+/// finding itself gives a source and some words from it.
+fn has_citation(what: &str) -> bool {
+    let mut words = what
+        .split_whitespace()
+        .map(|w| w.trim_matches(['`', '"', '(', ')', '[', ']', ',', '.']));
+    while let Some(word) = words.next() {
+        if word.strip_prefix("@id:").is_some_and(crate::valid_id) {
+            return true;
+        }
+        let mut rest = words.clone();
+        let source = match word {
+            "constitution:" | "request:" => true,
+            "zone" => rest
+                .next()
+                .and_then(|w| w.strip_suffix(':'))
+                .is_some_and(crate::valid_id),
+            _ => false,
+        };
+        if source && rest.any(|w| w.chars().any(char::is_alphanumeric)) {
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct RoleReport {
     pub skill: String,
@@ -21,6 +47,8 @@ pub struct RoleReport {
     /// The color of the `COLOR:` line, and the rest of that line.
     pub color: Option<(String, String)>,
     pub findings: Vec<Finding>,
+    /// The first uncited finding in a fix, even if the role reused an earlier finding's number.
+    pub uncited: Option<String>,
     pub later: Vec<String>,
     pub notes: String,
     pub missing: Vec<String>,
@@ -247,25 +275,48 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
         }
     }
     let mut in_block = false;
+    let mut in_later = false;
     for l in &lines {
         if l.trim().starts_with("```") {
             in_block = !in_block;
+            in_later = false;
             continue;
         }
         if in_block {
             continue;
         }
-        if let Some(f) = finding(l)
-            && !r.findings.iter().any(|x| x.id == f.id)
-        {
-            r.findings.push(f);
+        let p = plain(l);
+        if let Some(rest) = p.strip_prefix("LATER:") {
+            in_later = true;
+            if !rest.trim().is_empty() {
+                r.later.push(rest.trim().to_string());
+            }
+            continue;
+        }
+        if in_later {
+            if ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
+                .iter()
+                .any(|h| p.starts_with(h))
+            {
+                in_later = false;
+            } else {
+                if !p.is_empty() {
+                    r.later
+                        .push(p.trim_start_matches(['-', '*', ' ']).trim().to_string());
+                }
+                continue;
+            }
+        }
+        if let Some(f) = finding(l) {
+            if r.verdict.as_deref() == Some("fix") && r.uncited.is_none() && !has_citation(&f.what)
+            {
+                r.uncited = Some(f.id.clone());
+            }
+            if !r.findings.iter().any(|x| x.id == f.id) {
+                r.findings.push(f);
+            }
         }
     }
-    r.later = section(
-        text,
-        "LATER:",
-        &["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"],
-    );
     r.notes = section(text, "NOTES FOR THE BUILDER:", &["LATER:", "MISSING:"]).join("\n");
     r.missing = section(text, "MISSING:", &["LATER:", "NOTES FOR THE BUILDER:"]);
     match json_block(text) {

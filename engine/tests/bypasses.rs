@@ -761,7 +761,16 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     };
 
     // A fix: no second opinion, and its line stays.
-    let fix = r.report("y7", "review", &review_text("fix", "yellow", ""), &[]);
+    let fix = r.report(
+        "y7",
+        "review",
+        &review_text(
+            "fix",
+            "yellow",
+            "f1 src/core/app.txt:1 the app says more than ok | @id:y7-1",
+        ),
+        &[],
+    );
     assert_eq!(fix.code, 0, "{}", fix.out);
     let line = r.log_lines("y7").len().to_string();
     let way = "gdd launch y7 build";

@@ -129,6 +129,12 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
         "checks"
     );
     // The checks role seals its test on top of the brief.
+    let launch = r.gdd(&["launch", "y1", "checks"]);
+    assert!(
+        launch.has("the wrong solution it rejects in `wrong`"),
+        "{}",
+        launch.out
+    );
     let seal_tip = r.git(&["rev-parse", "gdd-seal/y1"]);
     r.commit_on(
         "gdd-seal/y1",
@@ -203,7 +209,7 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
         &review_text(
             "fix",
             "yellow",
-            "f1 src/core/app.txt:1 it says more than ok\nNOTES FOR THE BUILDER:\nSay only ok.\n",
+            "f1 src/core/app.txt:1 it says more than ok | @id:y1-1\nNOTES FOR THE BUILDER:\nSay only ok.\n",
         ),
         &[],
     );
@@ -910,7 +916,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     );
     r.report("y7", "build", &report_block("gdd-build", "done"), &[]);
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
-    let found = "f1 tests/y7.sh:1 the test passes whatever the app says\n";
+    let found = "f1 tests/y7.sh:1 the test passes whatever the app says | @id:y7-1\n";
     let rv = r.report("y7", "review", &review_text("fix", "yellow", found), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     // The checks role is told what the reviewer found: a better check is its to write.

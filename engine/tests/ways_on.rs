@@ -785,7 +785,7 @@ fn sent_back(r: &Repo, id: &str) {
         &report_text(
             "gdd-review",
             "fix",
-            "fix\nCOLOR: yellow\nf1 tests/run.sh:1 it doesn't run when only the browser tests change",
+            "fix\nCOLOR: yellow\nf1 tests/run.sh:1 it skips the browser tests | zone core: run tests on changes to the suite",
         ),
         &[],
     );

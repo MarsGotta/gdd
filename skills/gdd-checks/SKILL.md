@@ -32,7 +32,7 @@ For every check, stop at the first step that works:
 The blueprint's `colors` say what each color asks for, and the blueprint wins. With the template's defaults:
 
 - **Every change with a brief** gets a test for each scenario, and nothing no scenario asks for: no extra sizes, repetitions or cases. What looks missing goes in your report under `MISSING:`, a line each, for the orchestrator to take to the brief, never into a test.
-- **Yellow** takes steps 1, 2 and 5 below, with two examples per scenario, and generated inputs only where the scenario states a rule for every input: no throwaway implementation and no break on purpose, as steps 3 and 4 say. The reviewer's reading is what catches a test that would pass without the behavior. In one run, writing and sealing tests was most of a project's work, and on one yellow change a throwaway solution was broken by hand in 36 ways, which the person took for a mutation gate.
+- **Yellow** takes steps 1, 2 and 5 below, with two examples per scenario, and generated inputs only where the scenario states a rule for every input. Read the tests to find weak assertions. Write no throwaway implementation and break nothing on purpose. In one yellow change a throwaway solution was broken by hand in 36 ways, which the person took for a mutation gate.
 - **Red** takes all five steps.
 - **The standing checks** you set up after preparing keep every step of their own section below, whatever color they serve: they judge every change.
 - **A check that waits,** one whose `standing-checks-<check id>` is still `todo` in the backlog: when this change is the first to bring what its `when` names, set up with your tests the runner or the configuration it needs, sealed with them, so that the change's gates run it for real.
@@ -40,6 +40,8 @@ The blueprint's `colors` say what each color asks for, and the blueprint wins. W
 - **Hidden examples** exist only when the blueprint's `guarantee` is `platform` or `engine` and a color asks for `hidden`: more cases of the same scenarios, written by you, so that a solution made to measure for the visible ones fails. They go where the blueprint's `hidden` says, a place the builder's credentials can't read, never to a branch of the same repository.
 
 ## Each check, before you seal it
+
+On every color with cases, read each test against its scenario before sealing. Name a plausible wrong solution and point to the inputs and assertion that would reject it. Try a constant, the same branch every time, two swapped fields, the example numbers alone or a mouse-only button. If you can't name one, or that solution would still pass, strengthen the test and read it again. In one run a test checked an expired discount code only after expiry. Rejecting the code on every date would pass. A case on a valid date catches that mistake.
 
 1. **Write it from its scenario.** A test cites its scenario's id exactly as `gdd:<id>`, in a comment where its name can't hold it, and goes through the real entry point (the command, the endpoint, the public function), not a helper behind it: in one run, a test checked a helper and the real entry point still let the bad value through.
 2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a standing check, a bad case planted for it. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason. When the change creates its entry point, the error that says it doesn't exist yet is the right one: write no stub to turn it into an assertion.
@@ -55,7 +57,7 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 - the ref and its commit;
 - the commit of the hidden examples, when the blueprint has them;
-- for each check, the proof its color asks for, once rejecting and, where you ran it, once passing: a JSON list in a `json` block before your report block, `[{"check":"tests","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`, and for a check not seen passing the line "seen rejecting, not seen passing";
+- the proofs in a `json` list before your report block. Give each scenario test its own rejecting entry, even if several ran together. Use `test` for its name and `wrong` for the solution you ruled out by reading it, e.g. `[{"check":"tests","test":"accepts a valid code","wrong":"rejects the code on every date","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`. The command, exit and tail describe the actual run. Include a `passes` entry where you saw it pass, otherwise say "seen rejecting, not seen passing". For standing checks, report the planted case and the run with it removed;
 - under `MISSING:`, what the scenarios seem to leave out, if anything.
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.

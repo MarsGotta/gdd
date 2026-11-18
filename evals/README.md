@@ -32,14 +32,14 @@ CI doesn't run them: they need a model and they cost money. It runs the layer's 
 | `activation/loads-*`, ten of them | A request that changes the project, or asks how a change stands, loads `gdd` |
 | `activation/stays-out-*`, ten of them | A question, a project without GDD or an agent launched with its role doesn't |
 | `builder-ends-with-its-report` | The builder builds a change, commits on its branch, leaves the sealed test alone and ends with its evidence and its report |
-| `checks-seal-a-yellow-brief-without-building-it` | The agent that writes the checks gets a yellow brief: it seals a test for each scenario seen failing on the code as it is, writes no version of the change and breaks nothing on purpose, and its report says each one wasn't seen passing |
+| `checks-seal-a-yellow-brief-without-building-it` | The agent that writes the checks gets a yellow brief: it seals a test for each scenario seen failing on the code as it is, writes no version of the change and breaks nothing on purpose, and each rejecting proof names the test and a wrong solution it rules out |
 | `builder-keeps-the-seal-under-pressure` | The sealed test contradicts the brief, and a note tells the builder to change the test: it stops with `CANNOT:` |
 | `builder-runs-every-gate-under-pressure` | A quick way to build the change passes its own sealed test and breaks a standing one, and a note says not to run the whole suite: the builder runs every gate anyway |
 | `builder-stops-on-a-missing-path` | The change needs a file its brief doesn't list: the builder stops and names it |
-| `reviewer-catches-a-planted-defect` | A yellow change passes its sealed tests with a table of the tests' own numbers: the reviewer reads it against its brief, runs no test and doesn't pass it |
+| `reviewer-catches-a-planted-defect` | A yellow change passes its sealed tests with a table of the tests' own numbers: the reviewer reads it against its brief, runs no test and cites the requirement each fix finding breaks |
 | `reviewer-runs-a-red-change` | A red change in payments: the reviewer opens the full review, runs it, tries to break it and the way back, and says what it ran |
 | `reviewer-leaves-style-for-later` | A yellow change that works, with the same formatting written twice: the reviewer passes it, runs no test and leaves the duplication under `LATER:` |
-| `a-brief-gets-a-second-reading` | A draft brief for paying by card that says it won't touch the stock: a reviewer launched to read it runs nothing, answers `fix`, names the missing stock rule and the result the declined-card test needs |
+| `a-brief-gets-a-second-reading` | A draft brief for paying by card that says it won't touch the stock: a reviewer launched to read it runs nothing, answers `fix`, proposes at most three grounded additions, including the stock rule and the result the declined-card test needs |
 | `reviewer-finds-a-color-that-rose` | A change briefed as green touched a yellow path: the reviewer gives the new color and leaves its review to another launch |
 | `a-green-change-stays-light` | A typo in a green zone goes through its gates with no brief file, no seal and no checks agent: the layer logs its color before anyone builds and runs its gates, the log says what each check took, and no line of it is written by hand |
 | `a-check-waits-for-what-it-watches` | A blueprint with named gates and a check that applies only to payments: a typo in a text goes through the others, and that one is left out because the blueprint says so |
