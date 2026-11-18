@@ -1,11 +1,13 @@
 # Returning a fix to its agent
 
-Use the session of the last builder or checks agent for this change and role. Send the new prompt as printed. It gives the seal tip, the open findings with their citations or the failing gates, and a short account of the last builder's claims. Replaying the conversation makes the role read it again. In three runs, starting a fresh agent for every fix made it read the brief and code all over again.
+Send the prompt from `gdd launch <id> <role>` to the last builder or checks agent for this change and role. It gives the seal tip, what sent the change back and what the last builder tried. When the reviewer returns the change, the prompt keeps that review’s findings and citations in full, along with its notes for the builder. A command’s output may show only its end. The agent can run it again if it needs more. In three runs, a fresh agent for every fix read the brief and code all over again.
 
-When the first launch used `--run`, keep the `session_id` it printed for that role. Codex and Claude include it in their JSON output. To send the fix directly, use the same launch settings with the environment's resume option, that exact id and the model placeholder. For example, for a Codex launch of `codex exec --json -m <model>`, use the builder’s session id. If its input counter is cumulative, keep `reported_input` from the last launch in that session. Pass it as `COUNT` only if the session has done no work since that reading.
+When the role first ran with `--run`, use the `session_id` that Codex or Claude printed for it. A shortcut that picks the latest session could send the fix to the reviewer. A returned role needs an explicit resume command because a plain `--run` would start a new session and the layer refuses it. Keep the original launch settings. For a builder started with `codex exec --json -m <model>`, put its exact id in place of `SESSION_ID`.
 
 ```sh
-gdd launch <id> build --run --tokens-read-before COUNT --command 'codex exec resume --json -m <model> SESSION_ID <prompt>'
+gdd launch <id> build --run --command 'codex exec resume --json -m <model> SESSION_ID <prompt>'
 ```
 
-The layer supplies the new prompt and records the step. A shortcut that selects the latest session could send the fix to the reviewer. Omit `--tokens-read-before` for a per-run counter. If all usage figures are session totals, resume by hand and report only the differences measured across this round, so the token cap also counts it once. Pass all input, including cache reads, with `--tokens-read`. Leave a measurement out when you can't isolate this round. If the first launch used an agent tool, resume its handle with the prompt from `gdd launch <id> <role>` on the named model and record the result with `gdd report`. Start a fresh role only when the original session cannot be resumed.
+The layer records the round. For Codex it compares the thread counters with the previous step for that role. Keep the session for that role alone so the difference measures its work. If the session has done other work, resume by hand and report only what you can measure for this round.
+
+If the role used an agent tool, resume its handle with the printed prompt on the named model. Start a fresh agent by hand only if the original session cannot resume. After a manual launch, use `gdd report`. Pass measured round counts with `--tokens` for the cap and `--tokens-read` for all input, including cache reads and writes. Leave out any count you cannot measure.

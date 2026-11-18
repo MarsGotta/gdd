@@ -208,6 +208,8 @@ pub struct Said {
     pub error: Option<String>,
     /// The session named by the environment, for returning work to this role.
     pub session_id: Option<String>,
+    /// The cumulative reading to save for the next round in this thread.
+    pub codex_thread: Option<Value>,
 }
 
 impl Said {
@@ -216,53 +218,18 @@ impl Said {
     }
 
     pub fn usage_json(&self) -> Value {
-        let m: serde_json::Map<String, Value> = self
-            .usage
-            .iter()
-            .map(|(k, u)| {
-                (
-                    k.clone(),
-                    json!({"input": u.input, "output": u.output, "cache_read": u.cache_read, "cache_write": u.cache_write}),
-                )
-            })
-            .collect();
-        Value::Object(m)
+        let mut usage = json!({});
+        for (model, u) in &self.usage {
+            usage[model] = json!({
+                "input": u.input, "output": u.output, "cache_read": u.cache_read, "cache_write": u.cache_write
+            });
+        }
+        usage
     }
 }
 
 fn int(v: &Value, k: &str) -> i64 {
     v.get(k).and_then(Value::as_i64).unwrap_or(0)
-}
-
-/// Claude gives disjoint input counts. Use the per-model breakdown when it is complete.
-fn claude_tokens_read(result: &Value) -> Option<u64> {
-    let input = |usage: &Value, fresh: &str, read: &str, written: &str| {
-        usage[fresh]
-            .as_u64()?
-            .checked_add(usage[read].as_u64().unwrap_or(0))?
-            .checked_add(usage[written].as_u64().unwrap_or(0))
-    };
-    let by_model = result["modelUsage"]
-        .as_object()
-        .filter(|m| !m.is_empty())
-        .and_then(|models| {
-            models.values().try_fold(0u64, |total, u| {
-                total.checked_add(input(
-                    u,
-                    "inputTokens",
-                    "cacheReadInputTokens",
-                    "cacheCreationInputTokens",
-                )?)
-            })
-        });
-    by_model.or_else(|| {
-        input(
-            &result["usage"],
-            "input_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-        )
-    })
 }
 
 /// Only an identifier can be copied into an explicit resume command.
@@ -278,6 +245,16 @@ fn session_id(value: &Value) -> Option<String> {
 
 /// Read a launched role's output with the adapter of its program.
 pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
+    read_round(adapter, raw, model, None)
+}
+
+/// A returned role has a previous step, even when it has no recorded Codex counters.
+pub(crate) fn read_round(
+    adapter: Adapter,
+    raw: &str,
+    model: &str,
+    previous: Option<&Value>,
+) -> Said {
     let mut said = Said::default();
     let events: Vec<Value> = raw
         .lines()
@@ -307,21 +284,34 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
                     Some("result") => {
                         said.session_id = session_id(&ev["session_id"]);
                         text = ev.get("result").and_then(Value::as_str).map(str::to_string);
-                        said.tokens_read = claude_tokens_read(ev);
-                        if let Some(Value::Object(mu)) = ev.get("modelUsage") {
-                            said.usage.clear();
-                            for (m, u) in mu {
-                                said.usage.insert(
-                                    m.clone(),
-                                    Usage {
-                                        input: int(u, "inputTokens"),
-                                        output: int(u, "outputTokens"),
-                                        cache_read: int(u, "cacheReadInputTokens"),
-                                        cache_write: int(u, "cacheCreationInputTokens"),
-                                    },
-                                );
-                            }
+                        said.usage.clear();
+                        let mut total = Some(0u64);
+                        for (m, u) in ev["modelUsage"].as_object().into_iter().flatten() {
+                            let fresh = u["inputTokens"].as_u64();
+                            let read = int(u, "cacheReadInputTokens");
+                            let written = int(u, "cacheCreationInputTokens");
+                            total = total.and_then(|n| {
+                                n.checked_add(fresh?)?
+                                    .checked_add(read as u64)?
+                                    .checked_add(written as u64)
+                            });
+                            said.usage.insert(
+                                m.clone(),
+                                Usage {
+                                    input: fresh.and_then(|n| n.try_into().ok()).unwrap_or(0),
+                                    output: int(u, "outputTokens"),
+                                    cache_read: read,
+                                    cache_write: written,
+                                },
+                            );
                         }
+                        said.tokens_read = total.filter(|_| !said.usage.is_empty()).or_else(|| {
+                            let u = &ev["usage"];
+                            u["input_tokens"]
+                                .as_u64()?
+                                .checked_add(u["cache_read_input_tokens"].as_u64().unwrap_or(0))?
+                                .checked_add(u["cache_creation_input_tokens"].as_u64().unwrap_or(0))
+                        });
                         if ev.get("is_error") == Some(&Value::Bool(true)) {
                             said.error = Some(text.clone().unwrap_or_else(|| "error".into()));
                         }
@@ -333,40 +323,57 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
         }
         Adapter::Codex => {
             let mut text = None;
+            let mut usage = &Value::Null;
             for ev in &events {
                 match ev.get("type").and_then(Value::as_str) {
                     Some("thread.started") => said.session_id = session_id(&ev["thread_id"]),
-                    Some("turn.completed") => {
-                        let u = ev.get("usage").cloned().unwrap_or(Value::Null);
-                        said.tokens_read = u["input_tokens"].as_u64();
-                        let cached = int(&u, "cached_input_tokens");
-                        // Each turn.completed carries the thread's total so far: the last one counts.
-                        said.usage.insert(
-                            model.to_string(),
-                            Usage {
-                                input: int(&u, "input_tokens") - cached,
-                                output: int(&u, "output_tokens"),
-                                cache_read: cached,
-                                cache_write: 0,
-                            },
-                        );
-                    }
+                    Some("turn.completed") => usage = &ev["usage"],
                     Some("turn.failed") => {
                         said.error =
                             Some(ev.get("error").map(|e| e.to_string()).unwrap_or_default())
                     }
-                    Some("item.completed") => {
-                        let item = ev.get("item").cloned().unwrap_or(Value::Null);
-                        if item.get("type").and_then(Value::as_str) == Some("agent_message")
-                            && let Some(t) = item.get("text").and_then(Value::as_str)
-                        {
-                            text = Some(t.to_string());
-                        }
+                    Some("item.completed") if ev["item"]["type"] == "agent_message" => {
+                        text = ev["item"]["text"].as_str().or(text);
                     }
                     _ => {}
                 }
             }
-            said.text = text.unwrap_or_else(|| raw.to_string());
+            // Codex's last turn reports the totals for the whole thread, including cached input.
+            let thread = json!({
+                "id": said.session_id,
+                "input": usage["input_tokens"].as_u64(),
+                "cached": usage["cached_input_tokens"].as_u64(),
+                "output": usage["output_tokens"].as_u64(),
+            });
+            let delta = |key: &str| {
+                let now = thread[key].as_u64()?;
+                let before = match previous {
+                    None => 0,
+                    Some(p) if said.session_id.is_some() && p["id"] == thread["id"] => {
+                        p[key].as_u64()?
+                    }
+                    _ => return None,
+                };
+                i64::try_from(now.checked_sub(before)?).ok()
+            };
+            let input = delta("input");
+            said.tokens_read = input.map(|n| n as u64);
+            if let (Some(input), Some(cache_read), Some(output)) =
+                (input, delta("cached"), delta("output"))
+                && input >= cache_read
+            {
+                said.usage.insert(
+                    model.to_owned(),
+                    Usage {
+                        input: input - cache_read,
+                        output,
+                        cache_read,
+                        cache_write: 0,
+                    },
+                );
+            }
+            said.codex_thread = said.session_id.as_ref().map(|_| thread);
+            said.text = text.unwrap_or(raw).to_owned();
         }
         Adapter::Plain => said.text = raw.to_string(),
     }

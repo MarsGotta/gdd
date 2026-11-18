@@ -980,6 +980,11 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         "{prompt}"
     );
     assert!(prompt.contains("`sh check-test` exit 1"), "{prompt}");
+    assert!(!prompt.contains("exit 1; start"), "{prompt}");
+    assert!(
+        prompt.contains(&format!("{} end", "á".repeat(96))),
+        "{prompt}"
+    );
     assert!(!prompt.contains(&"á".repeat(100)), "{prompt}");
     assert!(prompt.contains("yours to answer"), "{prompt}");
     r.commit_on(
@@ -1000,7 +1005,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     )));
     assert!(prompt.contains("`sh check-test` exit 1"), "{prompt}");
     assert!(
-        prompt.contains("Don't repeat an unchanged attempt"),
+        prompt.contains("Run the required checks on the fix"),
         "{prompt}"
     );
     assert!(
@@ -1012,11 +1017,24 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
 }
 
 #[test]
-fn a_fix_lists_the_still_open_findings_once_with_their_citations() {
-    let r = Repo::with(&BLUEPRINT.replace("fix_rounds_per_gate: 2", "fix_rounds_per_gate: 3"));
+fn a_fix_lists_only_the_latest_review_findings() {
+    let r = Repo::with(&BLUEPRINT.replace("rounds_per_change: 3", "rounds_per_change: 4"));
     checked(&r, "open");
     let start = r.git(&["rev-parse", "gdd-seal/open"]);
-    for (from, text) in [(Some(start.as_str()), "ok 1"), (None, "ok 2")] {
+    for (from, text, session, findings) in [
+        (
+            Some(start.as_str()),
+            "ok 1",
+            "first-review",
+            "f1 old label | request: show the total\nf2 wrong amount | @id:open-1",
+        ),
+        (
+            None,
+            "ok 2",
+            "second-review",
+            "f1 duplicate charge | zone pay: charge once",
+        ),
+    ] {
         r.commit_on("work/open", from, &[("src/core/app.txt", text)], text);
         assert_eq!(
             r.report("open", "build", &report_block("gdd-build", "done"), &[])
@@ -1024,35 +1042,96 @@ fn a_fix_lists_the_still_open_findings_once_with_their_citations() {
             0
         );
         assert_eq!(r.gdd(&["gates", "open"]).code, 0);
-        let (findings, closed): (&str, &[&str]) = if from.is_some() {
-            (
-                "f1 old label | request: show the total\nf2 wrong amount | @id:open-1",
-                &[],
-            )
-        } else {
-            (
-                "f3 duplicate charge | zone pay: charge once",
-                &["--closed", "f1=fixed"],
-            )
-        };
-        let review = r.report(
-            "open",
-            "review",
-            &review_text("fix", "yellow", findings),
-            closed,
-        );
-        assert_eq!(review.code, 0, "{}", review.out);
+        run_review(&r, "open", session, findings);
     }
     let fix = r.gdd(&["launch", "open", "build"]);
     assert_eq!(fix.code, 0, "{}", fix.out);
     let prompt = fix.facts["prompt"].as_str().unwrap();
-    assert!(!prompt.contains("old label"));
-    assert_eq!(prompt.matches("wrong amount | @id:open-1").count(), 1);
+    assert!(!prompt.contains("wrong amount"), "{prompt}");
+    assert!(!prompt.contains("old label"), "{prompt}");
     assert_eq!(
         prompt
             .matches("duplicate charge | zone pay: charge once")
             .count(),
         1
+    );
+    // Now it is the gate that returns the build.
+    r.commit_on(
+        "work/open",
+        None,
+        &[("src/core/app.txt", "bad total")],
+        "Fix the charge",
+    );
+    assert_eq!(
+        r.report("open", "build", &report_block("gdd-build", "done"), &[])
+            .code,
+        0
+    );
+    assert_eq!(r.gdd(&["gates", "open"]).code, 1);
+    let fix = r.gdd(&["launch", "open", "build"]);
+    assert_eq!(fix.code, 0, "{}", fix.out);
+    let prompt = fix.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("What failed at the gates"), "{prompt}");
+    assert!(!prompt.contains("duplicate charge"), "{prompt}");
+}
+
+fn run_review(r: &Repo, id: &str, session: &str, findings: &str) {
+    let codex = r.fake_codex(
+        session,
+        &review_text("fix", "yellow", findings),
+        serde_json::Value::Null,
+    );
+    let review = r.gdd(&[
+        "launch",
+        id,
+        "review",
+        "--run",
+        "--command",
+        &format!("'{codex}' exec --json -m <model>"),
+    ]);
+    assert_eq!(review.code, 0, "{}", review.out);
+}
+
+#[test]
+fn a_fix_preserves_the_reviewers_full_finding_and_notes() {
+    let r = Repo::new();
+    checked(&r, "words");
+    r.commit_on(
+        "work/words",
+        Some("gdd-seal/words"),
+        &[("src/core/app.txt", "ok 1")],
+        "Build",
+    );
+    assert_eq!(
+        r.report("words", "build", &report_block("gdd-build", "done"), &[])
+            .code,
+        0
+    );
+    assert_eq!(r.gdd(&["gates", "words"]).code, 0);
+    let notes = (1..=8)
+        .map(|i| format!("Step {i}: apply code SUMMER{i} to two cart lines and read the total."))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let finding = (1..=8)
+        .map(|i| format!("with {i} units the total shows WORD{i} instead of the sum"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    run_review(
+        &r,
+        "words",
+        "cart-review",
+        &format!("f1 src/core/app.txt:1 {finding} | @id:words-1\nNOTES FOR THE BUILDER:\n{notes}"),
+    );
+    let fix = r.gdd(&["launch", "words", "build"]);
+    let prompt = fix.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains(&notes), "{prompt}");
+    assert!(
+        prompt.contains(&format!("{finding} | @id:words-1")),
+        "{prompt}"
+    );
+    assert!(
+        !prompt.contains("Don't repeat an unchanged attempt"),
+        "{prompt}"
     );
 }
 

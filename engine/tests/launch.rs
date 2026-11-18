@@ -542,12 +542,7 @@ fn two_refusals_need_the_same_reason_seal_and_head() {
 }
 
 #[test]
-fn a_fix_can_run_on_the_session_that_reported_the_first_build() {
-    check_resumed_build(true);
-    check_resumed_build(false);
-}
-
-fn check_resumed_build(with_starting_count: bool) {
+fn the_documented_fix_resumes_the_builder_that_reported() {
     let r = Repo::with(
         &BLUEPRINT.replace("the Agent tool, with its model field", "sh role.sh <model>"),
     );
@@ -610,7 +605,7 @@ printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_toke
     let codex = script(
         &r,
         "codex",
-        "test \"$1 $2\" = 'exec resume' || exit 1\nshift 2\nexec sh role.sh \"$@\"",
+        "test \"$1 $2 $3 $4\" = 'exec resume --json -m' || exit 1\nshift 4\nexec sh role.sh \"$@\"",
     );
     assert!(
         std::process::Command::new("chmod")
@@ -619,35 +614,25 @@ printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_toke
             .unwrap()
             .success()
     );
-    let resume = format!("'{codex}' exec resume <model> {session_id} <prompt>");
+    let example = include_str!("../../skills/gdd/references/fix-round.md")
+        .lines()
+        .find(|line| line.starts_with("gdd launch "))
+        .unwrap()
+        .replace("<id>", "l1")
+        .replace("SESSION_ID", session_id)
+        .replace("codex exec", &format!("{codex} exec"));
     r.commit_on(
         "work/l1",
         None,
         &[("src/ui/page.txt", "fixed page\n")],
         "Fix the page",
     );
-    let before = first.facts["reported_input"].as_u64().unwrap().to_string();
-    let mut args = vec![
-        "launch",
-        "l1",
-        "build",
-        "--run",
-        "--command",
-        &resume,
-        "--adapter",
-        "codex",
-    ];
-    if with_starting_count {
-        args.extend(["--tokens-read-before", before.as_str()]);
-    }
-    let fixed = r.gdd(&args);
+    let fixed = r.named(&example);
     assert_eq!(fixed.code, 0, "{}", fixed.out);
     assert_eq!(fixed.facts["round"], 2);
-    assert_eq!(fixed.facts["reported_input"], 61);
     assert_eq!(
-        r.log_lines("l1").last().unwrap()["report"]["tokens_read"].as_u64(),
-        with_starting_count.then_some(37),
-        "the input for this fix excludes the first build"
+        r.log_lines("l1").last().unwrap()["report"]["tokens_read"],
+        37
     );
     let gates = r.named(fixed.facts["next_command"].as_str().unwrap());
     assert_eq!(
@@ -655,9 +640,121 @@ printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_toke
         "{}",
         gates.out
     );
-    // The session belongs to the caller. A change's bookkeeping travels to other checkouts.
-    assert!(!r.read("gdd/log/l1.engine.jsonl").contains(session_id));
-    assert!(!r.read("gdd/log/l1.jsonl").contains(session_id));
+}
+
+fn repo_for_codex_rounds() -> Repo {
+    let bp = BLUEPRINT
+        .replace(
+            "  lines_per_change: 400",
+            "  lines_per_change: 400\n  tokens_per_change: 100000",
+        )
+        .replace("rounds_per_change: 1", "rounds_per_change: 6")
+        .replace("fix_rounds_per_gate: 1", "fix_rounds_per_gate: 6");
+    let r = Repo::with(&bp);
+    r.write("tests/run.sh", "grep -q page-ok src/ui/page.txt\n");
+    r.commit("Check the page");
+    assert_eq!(
+        r.gdd(&["brief", "l1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    r
+}
+
+fn codex_round(r: &Repo, round: u32, session: &str, reading: u32) -> Run {
+    let resume = if round == 1 {
+        ""
+    } else {
+        assert_eq!(r.gdd(&["gates", "l1"]).code, 1);
+        session
+    };
+    r.commit_on(
+        "work/l1",
+        (round == 1).then_some("main"),
+        &[("src/ui/page.txt", &format!("broken {round}"))],
+        "Build",
+    );
+    let usage = serde_json::json!({
+        "input_tokens": reading * 12000, "cached_input_tokens": reading * 2000, "output_tokens": reading * 1000
+    });
+    let codex = r.fake_codex(session, &report_block("gdd-build", "done"), usage);
+    // The wrapper identifies the session in its output, whatever it calls the resume operation.
+    let cmd = format!("sh '{codex}' <model> {resume}");
+    let run = r.gdd(&[
+        "launch",
+        "l1",
+        "build",
+        "--run",
+        "--command",
+        &cmd,
+        "--adapter",
+        "codex",
+    ]);
+    assert_eq!(run.code, 0, "{}", run.out);
+    run
+}
+
+#[test]
+fn the_cap_counts_each_codex_round_once() {
+    let r = repo_for_codex_rounds();
+    for round in 1..=4 {
+        codex_round(&r, round, "builder", round);
+    }
+    let limits = r.gdd(&["limits", "l1"]);
+    assert!(limits.has("tokens 44000 of 100000"), "{}", limits.out);
+    let builds = r
+        .log_lines("l1")
+        .into_iter()
+        .filter(|e| e["step"] == "build")
+        .collect::<Vec<_>>();
+    assert_eq!(builds.len(), 4);
+    for step in builds {
+        assert_eq!(step["report"]["tokens"], 11000);
+        assert_eq!(step["report"]["tokens_read"], 12000);
+    }
+}
+
+#[test]
+fn a_codex_fix_uses_the_last_reading_from_its_own_session() {
+    let r = repo_for_codex_rounds();
+    codex_round(&r, 1, "first", 1);
+    let changed = codex_round(&r, 2, "other", 2);
+    assert!(changed.facts["tokens"].is_null(), "{}", changed.out);
+    assert!(changed.has("unknown"), "{}", changed.out);
+    assert!(r.log_lines("l1").last().unwrap()["report"]["tokens_read"].is_null());
+    let next = codex_round(&r, 3, "other", 3);
+    assert_eq!(next.facts["tokens"], 11000);
+    assert_eq!(
+        r.log_lines("l1").last().unwrap()["report"]["tokens_read"],
+        12000
+    );
+    let reset = codex_round(&r, 4, "other", 0);
+    assert!(reset.facts["tokens"].is_null(), "{}", reset.out);
+    assert!(reset.facts.get("reported_input").is_none());
+    let help = r.gdd(&["launch", "--help"]);
+    assert_eq!(help.code, 0);
+    assert!(!help.has("--tokens-read-before"));
+    // A manual or older step has round counts but no thread reading.
+    assert_eq!(r.gdd(&["gates", "l1"]).code, 1);
+    r.commit_on(
+        "work/l1",
+        None,
+        &[("src/ui/page.txt", "broken 5")],
+        "Manual build",
+    );
+    let manual = r.report(
+        "l1",
+        "build",
+        &report_block("gdd-build", "done"),
+        &["--tokens", "4000", "--tokens-read", "5000"],
+    );
+    assert_eq!(manual.code, 0, "{}", manual.out);
+    let after_manual = codex_round(&r, 6, "other", 5);
+    assert!(
+        after_manual.facts["tokens"].is_null(),
+        "{}",
+        after_manual.out
+    );
+    assert!(r.log_lines("l1").last().unwrap()["report"]["tokens_read"].is_null());
 }
 
 #[test]

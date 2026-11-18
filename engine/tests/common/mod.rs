@@ -232,6 +232,28 @@ impl Repo {
         r
     }
 
+    /// A local stand-in for codex exec --json. Each call supplies the next turn's output.
+    pub fn fake_codex(&self, session: &str, message: &str, usage: Value) -> String {
+        let reply = serde_json::json!({"type": "item.completed", "item": {"type": "agent_message", "text": message}});
+        let started = serde_json::json!({"type": "thread.started", "thread_id": session});
+        let turn = serde_json::json!({"type": "turn.completed", "usage": usage});
+        let path = self.dir.path().join("codex");
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\ncat <<'END'\n{started}\n{reply}\n{turn}\nEND\n"),
+        )
+        .unwrap();
+        assert!(
+            Command::new("chmod")
+                .arg("+x")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        path.display().to_string()
+    }
+
     pub fn path(&self, rel: &str) -> PathBuf {
         self.root.join(rel)
     }

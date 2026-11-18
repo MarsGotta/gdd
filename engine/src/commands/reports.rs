@@ -10,6 +10,7 @@ pub struct ReportArgs {
     pub seconds: Option<f64>,
     pub tokens: Option<i64>,
     pub tokens_read: Option<u64>,
+    pub codex_thread: Option<Value>,
     pub proofs: Option<String>,
     pub claims: Option<String>,
     pub closed: Vec<(String, String)>,
@@ -175,6 +176,11 @@ pub(super) fn write_report(
         ),
     ]);
     m["report"]["tokens_read"] = json!(a.tokens_read);
+    if matches!(st, "build" | "checks")
+        && let Some(thread) = &a.codex_thread
+    {
+        m["report"]["codex_thread"] = thread.clone();
+    }
     if let Some((reason, needs)) = &r.cannot {
         m.insert("stop".into(), json!({"reason": reason, "needs": needs}));
     }

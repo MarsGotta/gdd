@@ -195,9 +195,6 @@ enum Cmd {
         /// How to read its output: claude, codex or plain (default: by its program).
         #[arg(long)]
         adapter: Option<String>,
-        /// Measured input total just before this run, if the environment counts the whole session.
-        #[arg(long, requires = "run")]
-        tokens_read_before: Option<u64>,
     },
     /// Describe the merge request from the log, or record the ship once it is in the main branch.
     Ship {
@@ -426,6 +423,7 @@ fn main() {
                         claims: claims.clone(),
                         closed: pairs(closed),
                         went: pairs(went),
+                        codex_thread: None,
                     },
                 ),
                 Err(e) => gdd::Out::new("report").with_fail(gdd::Fail::missing(
@@ -474,7 +472,6 @@ fn main() {
             start_wait,
             timeout,
             adapter,
-            tokens_read_before,
         } => (
             "launch",
             Some(id.clone()),
@@ -489,7 +486,6 @@ fn main() {
                     start_wait: Duration::from_secs(*start_wait),
                     timeout: timeout.map(Duration::from_secs),
                     adapter: adapter.clone(),
-                    tokens_read_before: *tokens_read_before,
                 },
             ),
         ),

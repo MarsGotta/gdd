@@ -319,21 +319,18 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     }
 }
 
-/// Keep a command or a diagnostic on one line. A long tool result can have no line breaks.
-fn excerpt(text: &str, width: usize) -> String {
-    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if line.chars().count() <= width {
-        return line;
+/// A command can leave its whole diagnostic on one long line.
+fn output_tail(text: &str, width: usize) -> &str {
+    match text.char_indices().rev().nth(width) {
+        Some((i, c)) => &text[i + c.len_utf8()..],
+        None => text,
     }
-    let end = line.char_indices().nth(width / 2).unwrap().0;
-    let start = line.char_indices().rev().nth(width / 2 - 1).unwrap().0;
-    format!("{} … {}", &line[..end], &line[start..])
 }
 
 /// Include the builder's own claims, never the proofs that could give its solution away.
 fn last_attempt(s: &mut Vec<String>, build: &Value) {
     if let Some(reason) = build["stop"]["reason"].as_str() {
-        s.push(format!("The builder stopped: {}", excerpt(reason, 200)));
+        s.push(format!("The builder stopped: {reason}"));
     }
     let claims = build["claims"]
         .as_array()
@@ -351,29 +348,14 @@ fn last_attempt(s: &mut Vec<String>, build: &Value) {
         s.push(format!(
             "- {}: `{}` exit {}; {}",
             str_of(c, "check"),
-            excerpt(str_of(c, "command"), 120),
+            str_of(c, "command"),
             c["exit"],
-            excerpt(str_of(c, "tail"), 100)
+            output_tail(str_of(c, "tail"), 100)
         ));
     }
     if runs.len() > 3 {
         s.push(format!("{} other reported runs omitted.", runs.len() - 3));
     }
-}
-
-/// Keep each finding until a review closes it. If it is restated, use its latest wording.
-fn open_findings<'a>(events: &[(usize, &'a Value)]) -> Vec<&'a Value> {
-    let mut open: Vec<&Value> = Vec::new();
-    for (_, review) in events.iter().filter(|(_, v)| step(v) == "review") {
-        for f in review["findings"].as_array().into_iter().flatten() {
-            open.retain(|old| old["id"] != f["id"]);
-            open.push(f);
-        }
-        for closed in review["closed"].as_array().into_iter().flatten() {
-            open.retain(|f| f["id"] != closed["id"]);
-        }
-    }
-    open
 }
 
 fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
@@ -406,16 +388,19 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
                 str_of(e, "check"),
                 str_of(e, "command"),
                 e["exit"],
-                excerpt(str_of(e, "tail"), 320)
+                output_tail(str_of(e, "tail"), 320)
             ));
         }
     }
-    let review = events
+    if let Some((line, r)) = events
         .iter()
         .rev()
         .find(|(_, v)| step(v) == "review")
-        .filter(|(_, v)| matches!(str_of(v, "verdict"), "fix" | "stop"));
-    if let Some((line, r)) = review {
+        .filter(|(line, v)| {
+            matches!(str_of(v, "verdict"), "fix" | "stop")
+                && p.last_gates.as_ref().is_none_or(|g| g.line < *line)
+        })
+    {
         s.push(format!(
             "A fix round. The reviewer said {}.",
             str_of(r, "verdict")
@@ -431,27 +416,21 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
                 str_of(a, "what")
             ));
         }
-    }
-    for f in open_findings(&events) {
-        let what = str_of(f, "what");
-        let finding = match what.split_once(" | ") {
-            Some((body, citation)) => format!("{} | {citation}", excerpt(body, 240)),
-            None => what.to_string(),
-        };
-        s.push(format!(
-            "- {} {}: {finding}",
-            str_of(f, "id"),
-            str_of(f, "where")
-        ));
-    }
-    if let Some((line, r)) = review {
+        for f in r["findings"].as_array().into_iter().flatten() {
+            s.push(format!(
+                "- {} {}: {}",
+                str_of(f, "id"),
+                str_of(f, "where"),
+                str_of(f, "what")
+            ));
+        }
         if role == "checks" {
             s.push("What a finding asks of a check is yours to answer, with a new seal; the rest is the builder's.".into());
         } else {
             if let Some(n) = r["notes"].as_str()
                 && p.last_build.is_none_or(|(last, _)| last < *line)
             {
-                s.push(format!("NOTES FOR THE BUILDER: {}", excerpt(n, 240)));
+                s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
             }
             if events
                 .iter()
@@ -464,7 +443,7 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
     if let Some((_, build)) = events.iter().rev().find(|(_, v)| step(v) == "build") {
         last_attempt(s, build);
     }
-    s.push("Use these results to diagnose the fix. Don't repeat an unchanged attempt to recover its output. Run the required checks on the fix.".into());
+    s.push("Use these results to diagnose the fix. Run the required checks on the fix.".into());
 }
 
 fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
@@ -548,7 +527,6 @@ pub struct LaunchArgs {
     pub start_wait: Duration,
     pub timeout: Option<Duration>,
     pub adapter: Option<String>,
-    pub tokens_read_before: Option<u64>,
 }
 
 /// What the state lets start: the same rules as the step this launch will write.
@@ -691,8 +669,22 @@ fn run_role(
     let raw = Some(read(&output))
         .filter(|o| !o.trim().is_empty())
         .unwrap_or_else(|| read(&errors));
-    let said = launch::read_output(adapter, &raw, model);
-    out.fact("reported_input", json!(said.tokens_read));
+    // A voided step still counts against the cap and still took the thread to its recorded reading.
+    let previous = if matches!(role, "build" | "checks") {
+        l.entries
+            .iter()
+            .rev()
+            .filter_map(|e| e.event())
+            .find(|v| step(v) == role)
+    } else {
+        None
+    }
+    .map(|v| &v["report"]["codex_thread"]);
+    let said = launch::read_round(adapter, &raw, model, previous);
+    let tokens = said.tokens();
+    if adapter == Adapter::Codex && previous.is_some() && tokens.is_none() {
+        out.say("The token cost of this Codex round is unknown. The thread has no comparable reading for the cap, so tokens is null.");
+    }
     if matches!(role, "build" | "checks")
         && let Some(session) = &said.session_id
     {
@@ -704,13 +696,13 @@ fn run_role(
     let journal = json!({"launch": {
         "ran": true, "role": role, "environment": env, "level": level, "model": model, "adapter": adapter.name(),
         "started": seen.started, "first_output": seen.first_output, "seconds": seen.seconds, "timed_out": seen.timed_out,
-        "exit": seen.exit, "tokens": said.tokens(), "usage": if said.usage.is_empty() { Value::Null } else { said.usage_json() },
+        "exit": seen.exit, "tokens": tokens, "usage": if said.usage.is_empty() { Value::Null } else { said.usage_json() },
     }});
     out.journal = Some(journal);
     out.fact("started", seen.started);
     out.fact("seconds", seen.seconds);
     out.fact("timed_out", seen.timed_out);
-    out.fact("tokens", json!(said.tokens()));
+    out.fact("tokens", json!(tokens));
     if !seen.started {
         return Err(Fail::refuse(
             "not-started",
@@ -746,19 +738,9 @@ fn run_role(
         model: Some(model.to_string()),
         level: Some(level.to_string()),
         seconds: Some(seen.seconds),
-        tokens: said.tokens(),
-        // A native Codex resume reports a thread total. Without its starting
-        // reading, the input of this round is unknown.
-        tokens_read: if let Some(before) = a.tokens_read_before {
-            said.tokens_read.and_then(|after| after.checked_sub(before))
-        } else if adapter == Adapter::Codex
-            && Adapter::of_program(&argv[0]) == Adapter::Codex
-            && argv.iter().any(|arg| arg == "resume")
-        {
-            None
-        } else {
-            said.tokens_read
-        },
+        tokens,
+        tokens_read: said.tokens_read,
+        codex_thread: said.codex_thread,
         ..ReportArgs::default()
     };
     // The role sealed or committed while it ran: its report is judged against the project as it
