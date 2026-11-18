@@ -41,6 +41,7 @@ export const UI = {
     estadoTu: 'te toca',
     estadoPara: 'la puerta lo para',
     funciono: '¿Ha funcionado el plano?',
+    sirvio: '¿Y sirvió?',
     si: 'Sí',
     no: 'No',
     teToco: 'Te ha tocado:',
@@ -78,6 +79,7 @@ export const UI = {
     estadoTu: 'your turn',
     estadoPara: 'the gate stops it',
     funciono: 'Did the blueprint work?',
+    sirvio: 'And did it help?',
     si: 'Yes',
     no: 'No',
     teToco: 'What fell to you:',
@@ -148,6 +150,13 @@ export function tutorial({ clave, idioma = 'es', dir }) {
       ${pre(b.codigo)}
       <p class="cambio__cierre">${fmt(b.cierre)}</p>
     </div>` : '';
+    // Closing: what was looked at once the change was in use, and the verdict.
+    const ce = c.cerrar;
+    const cerrar = ce ? `
+    <div class="cambio__cerrar">
+      <p class="cambio__pregunta"><strong>${esc(ui.sirvio)}</strong></p>
+      <p><strong>${esc(ce.veredicto)}.</strong> ${fmt(ce.texto)}</p>
+    </div>` : '';
     return `<article class="cambio" data-cambio="${esc(c.id)}" data-n="${i + 1}">
     <h3 class="cambio__titulo">${i + 1}. ${esc(c.nombre)}</h3>
     <p class="cambio__peticion">"${fmt(c.peticion)}"</p>
@@ -162,7 +171,7 @@ export function tutorial({ clave, idioma = 'es', dir }) {
       <p class="cambio__pregunta"><strong>${esc(ui.funciono)}</strong></p>
       <p class="cambio__respuesta"><strong>${esc(c.resultado.funciono ? ui.si : ui.no)}.</strong> ${fmt(c.resultado.texto)}</p>
     </div>
-    <p class="cambio__toco"><strong>${esc(ui.teToco)}</strong> ${fmt(c.teToco)}</p>${blindar}
+    <p class="cambio__toco"><strong>${esc(ui.teToco)}</strong> ${fmt(c.teToco)}</p>${cerrar}${blindar}
   </article>`;
   };
 

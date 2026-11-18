@@ -63,16 +63,16 @@
 <p>The gates and the context, together, form the agent's environment, which people also call a harness. One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">Start today</a>.</p>
 <h2>The journey: four changes</h2>
 <p>It's all up, so let's ask the agent for four changes, from less to more risk. In each one your job is the same: look at what happened and decide whether the blueprint worked. Before you see the result, think about what color you'd give it.</p>
-<p>Each change goes through two moments: Brief, where we fix what has to pass, and Execute, where the agent goes through the gates. Once it's in use comes Close, where you look at whether it helped, and we won't walk through it in this shop. If something slips through, or a gate stops adding anything, the last one comes, Harden.</p>
+<p>Each change goes through two moments: Brief, where we fix what has to pass, and Execute, where the agent goes through the gates. Once it's in use comes Close, where you look at whether it helped. If something slips through, or a gate stops adding anything, the last one comes, Harden.</p>
 <figure data-pieza="viaje"></figure>
 <h2 id="los-cuatro-juntos">The four together</h2>
 <table>
-<thead><tr><th>Change</th><th>Color</th><th>What got caught along the way</th><th>What fell to you</th></tr></thead>
+<thead><tr><th>Change</th><th>Color</th><th>What got caught along the way</th><th>What fell to you</th><th>How it closed</th></tr></thead>
 <tbody>
-<tr><td>The text of a button</td><td>Green</td><td>Nothing, it wasn't needed</td><td>Nothing</td></tr>
-<tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving three scenarios</td></tr>
-<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading the scenarios, adding one and approving</td></tr>
-<tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving three scenarios, and then deciding what changes in the blueprint</td></tr>
+<tr><td>The text of a button</td><td>Green</td><td>Nothing, it wasn't needed</td><td>Nothing</td><td>By itself, once its week passed</td></tr>
+<tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving three scenarios</td><td>Yes, after ten days</td></tr>
+<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading the scenarios, adding one and approving</td><td>Yes, after the month end</td></tr>
+<tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving three scenarios, and then deciding what changes in the blueprint</td><td>Not yet: first, what slipped through</td></tr>
 </tbody>
 </table>
-<p>The gates were the same four times. What moved is what each change is asked for, and what falls to you. When you want to set it up in your project, start with <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">your first gate</a>.</p>
+<p>The gates were the same four times. What moved is what each change is asked for, what falls to you and how it closes. When you want to set it up in your project, start with <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">your first gate</a>.</p>

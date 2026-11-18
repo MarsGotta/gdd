@@ -251,7 +251,7 @@
       const q = (s) => art.querySelector(s);
       const nodos = {
         titulo: q('.cambio__titulo'), razon: q('.cambio__razon'), sirojo: q('.cambio__sirojo'), pasos: q('.cambio__pasos'),
-        juicio: q('.cambio__juicio'), respuesta: q('.cambio__respuesta'), toco: q('.cambio__toco'), blindar: q('.cambio__blindar'), cierre: q('.cambio__cierre'),
+        juicio: q('.cambio__juicio'), respuesta: q('.cambio__respuesta'), toco: q('.cambio__toco'), cerrar: q('.cambio__cerrar'), blindar: q('.cambio__blindar'), cierre: q('.cambio__cierre'),
       };
       const lis = [...nodos.pasos.children];
       const S = { color: false, elegido: null, paso: 0, juicio: false, resp: null, blindarEjecutado: false, siguiente: false };
@@ -329,6 +329,7 @@
         filaJuicio.hidden = S.resp === 'salto';
         botonesJuicio.forEach((b) => { b.disabled = !!S.resp; b.setAttribute('aria-pressed', String(S.resp === b.dataset.resp)); });
         nodos.toco.hidden = !S.resp;
+        if (nodos.cerrar) nodos.cerrar.hidden = !S.resp;
         if (nodos.blindar) {
           nodos.blindar.hidden = !S.resp;
           nodos.cierre.hidden = !S.blindarEjecutado;
@@ -418,7 +419,7 @@
         pasillo.flush();
         dinamicos.splice(0).forEach((e) => e.remove());
         lis.forEach((li) => { li.hidden = false; });
-        [nodos.razon, nodos.sirojo, nodos.pasos, nodos.juicio, nodos.respuesta, nodos.toco, nodos.blindar, nodos.cierre].forEach((e) => { if (e) e.hidden = false; });
+        [nodos.razon, nodos.sirojo, nodos.pasos, nodos.juicio, nodos.respuesta, nodos.toco, nodos.cerrar, nodos.blindar, nodos.cierre].forEach((e) => { if (e) e.hidden = false; });
         nodos.pasos.removeAttribute('aria-live');
         nodos.pasos.removeAttribute('aria-relevant');
       };

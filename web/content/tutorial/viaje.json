@@ -198,6 +198,10 @@
         "funciono": true,
         "texto": "Había cuatro puertas, y ni te has enterado de que estaban."
       },
+      "cerrar": {
+        "veredicto": "Se cierra solo",
+        "texto": "Un texto no le promete nada a quien compra. El plano dice que un cambio así se cierra cuando pasa una semana sin que nada se rompa, y nadie te llama."
+      },
       "teToco": "Nada"
     },
     {
@@ -214,7 +218,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "El agente redacta los escenarios, y tú lees tres y los apruebas.",
+          "texto": "El agente redacta los escenarios, y tú lees tres y los apruebas. Apuntas también qué esperas del cambio: que quien busca su talla la encuentre antes.",
           "teToca": "Aprobar tres escenarios"
         },
         {
@@ -254,6 +258,10 @@
         "funciono": true,
         "texto": "Ha dicho \"hecho\" dos veces sin estarlo, y a ti solo te ha costado aprobar tres escenarios."
       },
+      "cerrar": {
+        "veredicto": "Sí",
+        "texto": "Diez días después vuelves a mirar. El agente te enseña lo que se ve en la tienda, no lo que él opina: una de cada tres visitas al listado usa el filtro. Era lo que esperabas, y lo cierras."
+      },
       "teToco": "Aprobar tres escenarios"
     },
     {
@@ -270,7 +278,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "Ahora sí te toca. Lees los escenarios y ves que falta uno: si alguien pulsa dos veces el botón de pagar, se le cobra una sola vez. Eso no lo iba a saber el agente, y por eso importa que lo leas tú.",
+          "texto": "Ahora sí te toca. Lees los escenarios y ves que falta uno: si alguien pulsa dos veces el botón de pagar, se le cobra una sola vez. Eso no lo iba a saber el agente, y por eso importa que lo leas tú. Y apuntas qué esperas: no perder ventas al cambiar de pasarela.",
           "codigo": "Escenario: pulsar dos veces el botón de pagar\n  Dado un carrito de 40 €\n  Cuando pulso dos veces el botón de pagar\n  Entonces se me cobran 40 € una sola vez",
           "teToca": "Leer los escenarios y añadir uno"
         },
@@ -323,6 +331,10 @@
         "funciono": true,
         "texto": "Ha costado rondas, tiempo y tu atención. Ahí es donde tiene que costar."
       },
+      "cerrar": {
+        "veredicto": "Sí",
+        "texto": "Esperas a que pase un fin de mes, que es cuando más se vende. Mientras tanto el cambio está en uso y sin cerrar, a la vista, y no frena nada de lo siguiente. Los pagos que fallan son los mismos que antes, y lo cierras."
+      },
       "teToco": "Leer los escenarios, añadir uno y aprobar"
     },
     {
@@ -339,7 +351,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "Apruebas tres escenarios.",
+          "texto": "Apruebas tres escenarios. Lo que esperas es que te escriban menos para preguntar por un pedido.",
           "teToca": "Aprobar tres escenarios"
         },
         {
@@ -366,6 +378,10 @@
       "resultado": {
         "funciono": false,
         "texto": "El agente hizo lo que le pedimos y las puertas lo comprobaron. Se quedó corto el plano, porque nadie dijo que decidir quién ve qué era delicado, y mira que lo preguntamos: \"¿qué sería grave si sale mal?\"."
+      },
+      "cerrar": {
+        "veredicto": "Todavía no",
+        "texto": "La página gusta, pero antes hay que arreglar lo que se coló: un cambio que hace daño no se da por bueno. Se queda en uso y sin cerrar hasta que lo de abajo esté dentro."
       },
       "blindar": {
         "intro": "Aquí llega Blindar, y no basta con arreglar el código:",

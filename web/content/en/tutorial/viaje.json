@@ -198,6 +198,10 @@
         "funciono": true,
         "texto": "There were four gates, and you didn't even notice they were there."
       },
+      "cerrar": {
+        "veredicto": "It closes by itself",
+        "texto": "A text promises nothing to whoever buys. The blueprint says a change like this closes when a week passes without anything breaking, and nobody calls you."
+      },
       "teToco": "Nothing"
     },
     {
@@ -214,7 +218,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "The agent writes the scenarios, and you read three and approve them.",
+          "texto": "The agent writes the scenarios, and you read three and approve them. You also note what you expect from the change: that whoever looks for their size finds it sooner.",
           "teToca": "Approve three scenarios"
         },
         {
@@ -254,6 +258,10 @@
         "funciono": true,
         "texto": "It has said \"done\" twice without it being true, and all it cost you was approving three scenarios."
       },
+      "cerrar": {
+        "veredicto": "Yes",
+        "texto": "Ten days later you come back and look. The agent shows you what can be seen in the shop, not what it thinks: one in three visits to the list uses the filter. That was what you expected, and you close it."
+      },
       "teToco": "Approve three scenarios"
     },
     {
@@ -270,7 +278,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "Now it's your turn. You read the scenarios and see one is missing: if someone clicks the pay button twice, they're charged only once. The agent wasn't going to know that, which is why it matters that you read them.",
+          "texto": "Now it's your turn. You read the scenarios and see one is missing: if someone clicks the pay button twice, they're charged only once. The agent wasn't going to know that, which is why it matters that you read them. And you note what you expect: not to lose sales when you change the payment gateway.",
           "codigo": "Scenario: clicking the pay button twice\n  Given a €40 cart\n  When I click the pay button twice\n  Then I'm charged €40 only once",
           "teToca": "Read the scenarios and add one"
         },
@@ -323,6 +331,10 @@
         "funciono": true,
         "texto": "It cost rounds, time and your attention. That's where it should cost."
       },
+      "cerrar": {
+        "veredicto": "Yes",
+        "texto": "You wait for a month end to pass, which is when you sell the most. Meanwhile the change is in use and not closed, in plain sight, and it holds up nothing that comes next. The payments that fail are the same as before, and you close it."
+      },
       "teToco": "Read the scenarios, add one and approve"
     },
     {
@@ -339,7 +351,7 @@
         {
           "puerta": "escenario",
           "tipo": "tu",
-          "texto": "You approve three scenarios.",
+          "texto": "You approve three scenarios. What you expect is fewer messages asking about an order.",
           "teToca": "Approve three scenarios"
         },
         {
@@ -366,6 +378,10 @@
       "resultado": {
         "funciono": false,
         "texto": "The agent did what we asked and the gates checked it. The blueprint fell short, because nobody said that deciding who sees what was delicate, and we did ask: \"what would be serious if it goes wrong?\""
+      },
+      "cerrar": {
+        "veredicto": "Not yet",
+        "texto": "People like the page, but what slipped through has to be fixed first: a change that does harm isn't taken as good. It stays in use and not closed until what's below is in."
       },
       "blindar": {
         "intro": "This is where Harden comes in, and fixing the code isn't enough:",

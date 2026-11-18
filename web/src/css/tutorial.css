@@ -101,7 +101,7 @@
 .cambio__pasos pre { max-width: 100%; margin-top: .6em; }
 .cambio__acciones { margin: 0 0 20px; }
 .cambio__resp { display: flex; gap: 8px; margin: 0 0 14px; }
-.cambio__juicio, .cambio__toco, .cambio__blindar { max-width: 40rem; }
+.cambio__juicio, .cambio__toco, .cambio__cerrar, .cambio__blindar { max-width: 40rem; }
 .cambio__blindar { margin-top: 1.25em; }
 .cambio__repite { margin: 0 0 14px; }
 .cambio__repite .pasillo { margin-top: 14px; }
