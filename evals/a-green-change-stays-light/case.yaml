@@ -46,7 +46,7 @@ graders:
   - name: loads-gdd-brief
     type: regex
     target: trace
-    pattern: 'Decisions nobody has made'
+    pattern: 'Assumptions and open questions'
   - name: logs-the-color-before-building
     type: regex
     target: trace

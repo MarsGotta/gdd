@@ -20,7 +20,7 @@ something that slipped through once:
   - after another change ships, the change is brought up to date through its
     seal, and the seal check and the color still see only the builder's work;
   - excluding a zone written with :(glob) needs :(exclude,glob);
-  - the search for decisions sees a brief that isn't tracked yet, and the
+  - the search for rule tags sees a feature that isn't tracked yet, and the
     search for the tests of a scenario doesn't take another id that begins
     the same;
   - the zones tried on the history look at the window they say, find the
@@ -392,7 +392,7 @@ def main():
     bookkeeping = command("gdd-review/SKILL.md", r"git diff --name-only <start> HEAD -- gdd/log gdd/backlog\.md")
     exclude = command("gdd-review/SKILL.md", r"':\(exclude,glob\)<pattern>'")
     seal = command("gdd-prepare/assets/blueprint.md", r"git diff --exit-code <start> HEAD -- [^\"\n]+")
-    decisions = command("gdd-brief/SKILL.md", r"git grep --untracked -n \"\\\[DECISION:\" -- gdd/briefs features")
+    rule_tags = command("gdd-brief/SKILL.md", r"git grep --untracked -nE '[^`\n]+' -- features")
     cited = command("CONTRACT.md", r"git grep -nE \"gdd:<id>\(\[\^a-z0-9-\]\|\$\)\"")
     excluded = " ".join(exclude.replace("<pattern>", zone.strip("'").replace(":(glob)", "")) for zone in ZONES)
     uncovered = f". {excluded}"
@@ -502,10 +502,13 @@ def main():
         result = run(repo, seal, start=tip, sealed_paths="")
         expect("the seal check fails when a green change edits the blueprint", result.returncode == 1, f"exit {result.returncode}")
 
-        # The search for decisions, on a brief that isn't tracked yet.
-        write(repo, "gdd/briefs/new.md", "Rounding: [DECISION: per line or on the total?]\n")
-        result = run(repo, decisions)
-        expect("the search for decisions sees an untracked brief", "gdd/briefs/new.md" in result.stdout, result.stdout[:200])
+        # A new feature file is visible while the brief is still being written.
+        write(repo, "features/new.feature", "Feature: Titles\n  @assumed\n  Rule: Titles fit on one line\n"
+              "  @question\n  Rule: Who can rename a title?\n  # @question in prose\n  @questionnaire\n")
+        result = run(repo, rule_tags)
+        expect("the search finds both rule tags in an untracked feature",
+               result.stdout.splitlines() == ["features/new.feature:2:  @assumed", "features/new.feature:4:  @question"],
+               result.stdout)
 
         # The tests of a scenario, when another id begins the same.
         write(repo, "tests/ids.test", "gdd:pay-1 one\ngdd:pay-1-click-3 another\ngdd:pay-10 a third\n")

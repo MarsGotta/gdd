@@ -1,0 +1,3 @@
+# When the person asks for parts
+
+Split it only when the person asks, and propose the parts before you brief any (`--of decision`): a line for each, with what it gives them and about how long it takes, from earlier logs or said to be a guess, and one question a yes answers. The first part has to show them something. Once they say yes, each part gets its own brief and its own approval. Each part has the color of what it touches, leaves the product working and can be undone on its own. A part that delivers nothing yet goes behind a switch, and turning it on is another change, at the level of what it turns on. Splitting doesn't lower the risk.

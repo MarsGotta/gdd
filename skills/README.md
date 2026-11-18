@@ -134,7 +134,7 @@ Add a filter by size to the catalog
 %%{init: {"sequence": {"diagramMarginX": 160, "mirrorActors": false}}}%%
 sequenceDiagram
     accTitle: Who does what in one change
-    accDescr: You ask the orchestrator for a change. It briefs it, writing its use cases as scenarios, on red a reviewer reads the brief before anyone builds, and on yellow when the change changes another zone's data, on yellow and red a second agent writes a test for each scenario and seals them, a third builds, the orchestrator runs the gates, and a reviewer with a clean context gives its verdict. You approve where your blueprint asks for a person.
+    accDescr: You ask the orchestrator for a change. It writes the rules and their scenarios, on red a reviewer reads the brief before anyone builds, and on yellow when the change changes another zone's data, on yellow and red a second agent writes a test for each scenario and seals them, a third builds, the orchestrator runs the gates, and a reviewer with a clean context gives its verdict. You approve where your blueprint asks for a person.
     actor You
     participant O as Orchestrator<br/>gdd
     participant C as Checks<br/>gdd-checks
@@ -142,13 +142,13 @@ sequenceDiagram
     participant R as Reviewer<br/>gdd-review
 
     You->>O: Ask for a change
-    Note over O: Brief. Its color, and its scenarios in Gherkin
+    Note over O: Brief. Rules first, then scenarios and the risk estimate
     opt Red, or yellow on another zone's data
         O->>R: The draft brief
         R-->>O: What it leaves out
     end
     opt Your blueprint asks for brief-approval
-        O-->>You: The scenarios
+        O-->>You: Changed rules and assumptions
         You->>O: Approve them
     end
     opt Yellow and red
@@ -171,7 +171,9 @@ sequenceDiagram
     Note over O: Ship
 ```
 
-1. **Brief.** The paths the change will touch set the floor of its color, and the orchestrator's judgment can raise it, never lower it. On yellow and red it writes the brief and the change's use cases, as scenarios in Gherkin: what someone can observe, with the bad cases too. Before the first scenario it goes through the rules of your product, what the change leaves behind, the features it touches and what it won't do yet, because the paths say where a change lands and not what it does to the rest. Where your blueprint asks for approval, a rule of your product such as rounding goes into the scenarios as a proposal. On red a reviewer reads the brief first, and on yellow when another zone owns data the change alters. The reviewer flags every scenario that cannot yet be tested so it can be clarified before you approve. Separately, a reading proposes at most three additions, each tied to a rule of the constitution or a zone, or to money or data someone could lose. Other observations stay in the log. A brief with nothing blocking it passes. You get one approval message under 150 words with each scenario in a line, the most consequential proposals within the brief’s allowance and any technical decisions the agent took. On red it also says which rules the change touches and up to three things it won't do yet. Your approval stands while what has to pass stays the same. Where the blueprint asks for no approval, the agent tells you what the change will do.
+1. **Brief.** The orchestrator starts with the rules for what you asked to change. It reads the existing rules, what the change leaves behind, the features it touches and what waits. It writes each new or changed rule in the capability's feature file, then puts the scenarios that check it underneath, including the bad cases. Each scenario gives one action and concrete values. The agent marks its own product choices `@assumed`. If the change can leave a question for later, it writes `@question` with no scenarios. The paths set the floor of the risk estimate and judgment can raise it. On red, and on yellow if the change alters another zone's data, a reviewer reads the brief before approval. The reviewer flags each scenario that still needs clarification to write a test. A reading can propose up to three additions, including corrections to the form of rules and scenarios. Each is tied to a constitution or zone rule or to money or data someone could lose. Other observations stay in the log. A brief with nothing blocking it passes.
+
+   The brief opens with your request, the feature files to read, what waits and how to undo the change. Details for the roles follow. Where your blueprint asks for approval, you see each new or changed rule on its own line, then each assumption the agent made, any open question and the technical decisions that concern you. On red you also see the product rules it touches and up to three things it leaves out. The scenarios are in the files you approve. The message stays under 150 words and ends with one question a yes answers. Approval stands while what has to pass stays the same. Where the blueprint asks for no approval, the agent tells you what the change will do.
 2. **Checks.** Another agent, never the one that will build, writes the tests of the change from those scenarios, one test for each. Before sealing, it reads each test, names a wrong solution that would fail its assertions and strengthens any test that would let that solution through. For each thing created, used up or ended, and each value changed in another zone, the test checks the outcome from the other part of the product named in its scenario. It sees each test fail for the right reason, and on red it also sees each one pass and breaks it once on purpose, then seals them. The layer asks for the proofs the color needs. When only the brief’s prose changes, the layer reuses the proofs that still cover the revised plan and asks for any missing runs. It tests only what the scenarios ask for and sends anything missing back to the brief. Only then is anything built. A green change has no brief and no scenarios and skips this step: it goes on with the checks that already exist.
 3. **Build.** The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its checks were made.
 4. **Gates.** The layer runs the checks, away from the builder: in a throwaway copy at exactly the change's commit, or in CI. What takes longer runs once, when the rest pass. On `guarantee: rule` that copy is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A failing check sends the change back with its command, exit code and last lines. A fix goes to the same agent with the seal tip and what the last builder tried. When the reviewer sends it back, the builder gets that review’s findings, citations and notes in full. Builders and checks agents read the end of saved command output and reuse files they already read. The step records how much input the round read when the environment measures it. The first round in a new Codex session counts in full. Later rounds charge the measured difference.
@@ -197,7 +199,7 @@ Two commands read the trail for you: `.gdd/gdd waiting` lists every question wai
 
 ```text
 gdd/briefs/<id>.md               what had to pass, on yellow and red
-features/<capability>.feature    its scenarios
+features/<capability>.feature    its rules and their scenarios
 gdd/log/<id>.jsonl               everything that happened, one event per line, with who approved what
 gdd/log/<id>.engine.jsonl        the layer's journal: each time it was called, and what it refused
 ```
@@ -263,7 +265,8 @@ For each defect, the log names the check that should have caught it and who or w
 | You see | What it means | What you do |
 |---|---|---|
 | It waits for your approval | Your blueprint asks for a person there: the brief before anyone builds, on yellow and red with the template, or the pull request at the end | Read it and approve it. No agent can do that for you |
-| `[DECISION: ...]` in a brief | A rule two people would build differently, or a limit with no number | The agent puts its proposal in the scenario for your approval, where your blueprint asks for one |
+| `@assumed` above a rule | The agent chose this outcome | You can correct it. Approval is recorded in the log and leaves the tag in place |
+| `@question` above a rule | The answer can wait for a later change | The question stays visible in the feature file |
 | A check failed | A fix round. The builder gets the command, its exit code and its last lines | Nothing, unless a limit runs out |
 | `fix` from the reviewer | A fix round, with the reviewer's notes | Nothing |
 | `stop` from the reviewer | The change doesn't go in, whatever else the answer says | Read why |
@@ -288,7 +291,7 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 |---|---|---|---|
 | `gdd` | The orchestrator, on its own, when you ask for any change | All four | What comes next, and who gets launched |
 | `gdd-prepare` | The orchestrator, with you | Prepare | The blueprint, with the gates the project needs, and the constitution |
-| `gdd-brief` | The orchestrator | Brief | What has to pass, as scenarios, and the expected risk |
+| `gdd-brief` | The orchestrator | Brief | Rules, scenarios and the expected risk |
 | `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden | The checks, each seen failing for the right reason |
 | `gdd-build` | The agent that goes through the gate | Execute | The change, and the facts that prove it |
 | `gdd-review` | The reviewer, with a clean context | Brief on red, and Execute | What a brief leaves out, before anyone builds; then its verdict, and the risk worked out again |

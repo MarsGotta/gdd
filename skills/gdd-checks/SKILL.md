@@ -15,7 +15,7 @@ Save command output to a file and read only its end. Don't print unchanged files
 
 ## What you get
 
-The brief and its scenarios in `features/`, already committed on `gdd-seal/<id>` and approved by the person when its color asks for it. After preparing or hardening you get the standing checks to set up instead, which have their own section below. Also the blueprint, for what the color asks for and the id of each check, the constitution, for the commands, and `<base>`, the commit of the main branch the change starts from.
+The brief and its feature files in `features/`, already committed on `gdd-seal/<id>` and approved by the person when its color asks for it. Read each scenario with its rule where it has one. A rule marked `@assumed` gets its tests through its scenarios. An `@question` has no case to test. After preparing or hardening you get the standing checks to set up instead, which have their own section below. Also the blueprint, for what the color asks for and the id of each check, the constitution, for the commands, and `<base>`, the commit of the main branch the change starts from.
 
 When a change's color rose and you're adding the checks of its new color, work from the base and don't read what the builder already wrote: a check written with the code in sight ends up agreeing with the code.
 
@@ -34,7 +34,7 @@ For every check, stop at the first step that works:
 The blueprint's `colors` say what each color asks for, and the blueprint wins. With the template's defaults:
 
 - **Every change with a brief** gets a test for each scenario, and nothing no scenario asks for: no extra sizes, repetitions or cases. What looks missing goes in your report under `MISSING:`, a line each, for the orchestrator to take to the brief, never into a test.
-- **Yellow** takes steps 1, 2 and 5 below, with two examples per scenario, and generated inputs only where the scenario states a rule for every input. Read the tests to find weak assertions. Write no throwaway implementation and break nothing on purpose.
+- **Yellow** takes steps 1, 2 and 5 below, with two examples per scenario, and generated inputs only where the scenario or its rule covers every input. Read the tests to find weak assertions. Write no throwaway implementation and break nothing on purpose.
 - **Red** takes all five steps.
 - **The standing checks** you set up after preparing keep every step of their own section below, whatever color they serve: they judge every change.
 - **A check that waits,** one whose `standing-checks-<check id>` is still `todo` in the backlog: when this change is the first to bring what its `when` names, set up with your tests the runner or the configuration it needs, sealed with them, so that the change's gates run it for real.
@@ -49,7 +49,7 @@ On every color with cases, read each test against its scenario before sealing. N
 2. **Watch it reject.** Run it on the bad case: for a new behavior, the code as it is, still without it; for a standing check, a bad case planted for it. It must fail on the assertion about the behavior, with a message that names what's wrong. A compile error, a missing import, a timeout or a skipped test is the wrong reason. When the change creates its entry point, the error that says it doesn't exist yet is the right one: write no stub to turn it into an assertion.
 3. **Prove it can pass, on red.** Run it on a correct version. If that takes a throwaway implementation, write it in your own worktree, out of the builder's reach, and delete it after: seeing it would give the solution away. On yellow, run it only on a correct version that already exists, or one that costs a single line and isn't the behavior the scenario asks for. Write no version of that behavior, not even one line in a scratch copy: your report says for that check "seen rejecting, not seen passing".
 4. **Break it on purpose, on red, and never on yellow.** Make that correct version wrong once for each check, with the break that removes the work (remove the line that does it, return a constant, flip a comparison), and watch the check go red. If it stays green, it's hollow: strengthen it and break it again, the only time a second break is worth it.
-5. **More than one case.** Two examples per scenario on yellow, two or three on red, so a solution that only fits one of them isn't enough. Where a scenario states a rule that holds for every input and the stack has a tool for it, check the rule over generated inputs too, with a fixed seed, so it gives the same answer every time, and keep each case it finds as one more example.
+5. **More than one case.** Two examples per scenario on yellow, two or three on red, so a solution that only fits one of them isn't enough. Where the scenario or its rule says what holds for every input and the stack has a tool for it, check the rule over generated inputs too, with a fixed seed, so it gives the same answer every time, and keep each case it finds as one more example.
 
 ## Sealing
 

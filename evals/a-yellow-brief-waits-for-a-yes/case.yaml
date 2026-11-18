@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-yellow-brief-waits-for-a-yes
-description: "A shop prepared with the template's defaults, where yellow asks for the person's approval of its brief. Asked to show the catalog in pages, the orchestrator briefs a yellow change with a scenario for twenty products a page, launches nobody to write checks or build, and asks for the approval in under 150 words, with each scenario in a line and one question a yes answers. The brief and its scenarios are in the copy the person has open when it asks."
+description: "A shop prepared with the template's defaults, where yellow asks for the person's approval of its brief. Asked to show the catalog in pages, the orchestrator briefs a yellow change with a rule for twenty products a page and a scenario that tests it, launches nobody to write checks or build, and asks for the approval in under 150 words, with each new or changed rule and each assumption on its own line and one question a yes answers. The brief and its scenarios are in the copy the person has open when it asks."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -45,7 +45,11 @@ graders:
   - name: the-brief-is-in-their-copy
     type: regex
     target: { source: file, path: gdd/briefs/catalog-pages.md }
-    pattern: '(?:[Ss]cenario|[Ee]scenario)'
+    pattern: 'features/[\w./-]+\.feature'
+    weight: 2
+  - name: the-rules-come-before-the-cases
+    type: llm
+    criteria: In the written feature, the page size the owner gave is a Rule with a tagged scenario below it. New scenarios have one When and concrete values. Product choices added by the agent have @assumed above the rule. The brief links the feature before its technical sections and keeps scenario ids in the front matter.
     weight: 2
   - name: the-scenarios-are-in-their-copy
     type: regex
@@ -82,7 +86,7 @@ graders:
     match: not_contains
   - name: asks-for-a-yes
     type: llm
-    criteria: The answer asks the person to approve what the change for the catalog in pages has to do before anything is built. It gives each case in a line, in plain words, twenty products a page among them, says which decisions it took itself, and ends on one question a yes answers. It does not say that anything was built or shipped.
+    criteria: The answer asks the person to approve what the change for the catalog in pages has to do before anything is built. It gives each added or changed rule in plain words on its own line, including twenty products a page. It follows with any assumptions on separate lines marked as the agent's, any question left for later and any technical decisions relevant to the owner. It names the feature file and ends with one question a yes answers. It does not say that anything was built or shipped.
     weight: 3
   - name: records-no-approval-it-was-not-given
     type: regex

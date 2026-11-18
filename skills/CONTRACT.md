@@ -19,7 +19,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `gdd/backlog.md` | What to build, each item with its expected color | `gdd-prepare`, `gdd-brief`, `gdd`, `gdd-harden` | Freely |
 | `gdd/debt.md` | Known debt, with the baseline of each check | `gdd-prepare`, and `gdd` when a person waives a check | Down freely; up only with the person's approval |
 | `gdd/briefs/<id>.md` | What has to pass for one change, which the person approves when its color asks for `brief-approval` | `gdd-brief` | Never once its hashes are in the log: a change makes a new version (the same file, with `version` raised by one), which goes back to the person only if its color asks for `brief-approval` and what has to pass changes |
-| `features/<capability>.feature` | The use cases of changes, as scenarios in Gherkin, grouped by capability | `gdd-brief`, with the person | Only through a brief |
+| `features/<capability>.feature` | Product rules and the Gherkin scenarios that check them, grouped by capability | `gdd-brief`, with the person | Only through a brief |
 | `gdd/log/<id>.jsonl` | Everything that happens to a brief, one event per line | The layer, from what the orchestrator and each role report | Only appended |
 | `gdd/log/<id>.engine.jsonl` | The layer's journal: one line for each time it was called | The layer | Only appended |
 | `gdd/context/` | Copies of external references and research | `gdd-prepare` | Refreshed with a new date |
@@ -336,7 +336,7 @@ The front matter is what agents read; the diagram and the table are for the pers
 - `gates`: the gates of the project, the same for every change: each one's id, the feature that specifies it (`spec`) and the checks that demonstrate it. A gate is passed when every check of it that applies has passed. A blueprint without `gates` was written before version 0.6 and reads as before: its checks are its gates.
 - `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. It may say when it runs (`runs`): `each round`, or `before review`, once the rest pass, for what takes too long to pay for in every fix round. A check without `runs` runs each round, as before 0.10, so a blueprint without it reads as it did. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
 - `install`: only when the checks need more than git holds: the command that gives a fresh copy of the repository what they need, such as the project's dependencies. Whoever runs the gates in a fresh copy runs it there first, and its time is not a check's. If it fails, or a check ends with "command not found" in a copy nobody prepared, that is the environment and not the change: no `gates` step is written and no round is counted.
-- `colors`: what each color asks for. `checks` lists the ones that must pass, `level` is the level of the agents that work on it and `limits` holds the caps of one change of that color: `fix_rounds_per_gate`, how many times the machine checks, and how many times the review, may send it back to the builder; `rounds_per_change`, how many times it may go back to the builder in all, after a `CANNOT:` and a color that rose too; `minutes_per_change`, counted from the first event of its log without the time it waits for a person (from an `ask` to the event that answers it); and `runs_before_review`, how many times the checks that run before the review may run. When one runs out, no new round starts, but a build already finished still goes through its gates and its review. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. The template carries `brief-approval` on yellow and red, and `person-review` on red. The brief approval includes the highest-priority product proposals within the allowance in `gdd-brief`. Technical decisions are the agent's. Before the brief, a separate decision is for a request that cannot fit as given or for parts the person requested. Where a color carries no `brief-approval`, the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. A change whose color rises goes back to Brief. Ask for approval if the new color requires it and the scenarios it will judge still need approval.
+- `colors`: what each color asks for. `checks` lists the ones that must pass, `level` is the level of the agents that work on it and `limits` holds the caps of one change of that color: `fix_rounds_per_gate`, how many times the machine checks, and how many times the review, may send it back to the builder; `rounds_per_change`, how many times it may go back to the builder in all, after a `CANNOT:` and a color that rose too; `minutes_per_change`, counted from the first event of its log without the time it waits for a person (from an `ask` to the event that answers it); and `runs_before_review`, how many times the checks that run before the review may run. When one runs out, no new round starts, but a build already finished still goes through its gates and its review. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. The template carries `brief-approval` on yellow and red, and `person-review` on red. One brief approval covers all added or changed rules, including the agent's assumptions. The question allowance in `gdd-brief` is for open product questions. Technical decisions are the agent's. Before the brief, a separate decision is for a request that cannot fit as given or for parts the person requested. Where a color carries no `brief-approval`, the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. A change whose color rises goes back to Brief. Ask for approval if the new color requires it and what it will judge still needs approval.
 - `zones`: each zone's id, color and pathspecs. The zone's `gates` field names its feature when it has rules of its own. Every change that touches the zone passes them.
 - `context`: each external reference or MCP server, and the zones or gates that get it (`<zone>`, or `<zone>/<Rule>` for one gate). MCP servers carry the least access their gate needs.
 - `hidden`: where the hidden examples live, only when a color asks for the `hidden` check: a place the builder's credentials can't read.
@@ -584,7 +584,7 @@ What already failed a check when GDD arrived, or a check a person waived. A base
 
 ## A brief
 
-The front matter is what the other roles read; the body is what the person reads when the color asks for their approval. No status and no seals: those go to the log. What the person reads to approve, from the request to what it won't do yet, stays under 150 words. On yellow the body may keep to five sections (Request, What it won't do yet, Scenarios, What it touches and Undoing it), and red fills them all. The scenarios are the change's use cases, in Gherkin: the tests of the change are written from them, one for each, before anyone builds.
+Keep status and seals in the log. Keep `scenarios` in the front matter for the layer. The person reads the request, links to the feature files, what waits and how to undo the change, in under 150 words. Paths, color, gates and technical decisions follow for the roles. On yellow, Request, Rules, What it won't do yet, Undoing it and What it touches suffice. Red fills every section. Earlier briefs with the previous headings still verify under `gdd/1`.
 
 <!-- template: gdd-brief/assets/brief.md -->
 ```markdown
@@ -606,17 +606,17 @@ backlog: <item id>
 
 <The person's words.>
 
-## What changes
+## Rules
 
-<A few sentences: what someone will be able to do, and the rules of the product it touches.>
+<Link each features/<capability>.feature file that holds the rules for this change.>
 
 ## What it won't do yet
 
 <Up to three things the person might expect from the request and won't get, each as a consequence they can weigh, with the backlog item that will do it, or none.>
 
-## Scenarios
+## Undoing it
 
-<Each scenario id in features/, with its outcome and where in the product someone can see it.>
+<In one line, how it's undone if it goes wrong and what its gates can't see.>
 
 ## What it touches
 
@@ -634,26 +634,40 @@ backlog: <item id>
 
 ## Decisions
 
-<Your technical decisions and the product rules you propose for approval. None is left as a decision marker.>
-
-## Undoing it
-
-<How it's undone if it goes wrong, and what its gates can't see.>
+<The technical decisions you took.>
 ```
 
-## The scenarios of changes
+## The rules and scenarios of changes
 
-For each thing created, used up or ended, and each value changed in another zone, the scenario names the outcome and the other part of the product where someone can see it. The test observes it there. On red the reviewer uses the product to check it there too. Propose any undecided timing with the other product rules. Tests cite the id of the scenario they check as `gdd:<id>`, in their name or a comment, so `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds them, and not the tests of another id that begins the same.
+Read the capability's existing rules first. Write only rules the change adds or changes. Under each, place the scenarios that check it, with one `When` and concrete values. In an older file without rules, keep untouched top-level scenarios before the first rule and group only new or changed scenarios. Existing files and logs remain valid. The checks role writes one test per scenario before the build. Only scenarios carry `@brief:<id> @id:<capability>-<n>`. The layer counts the brief's front matter `scenarios` list when present and otherwise counts matching `@brief:<id>` tags in its feature files.
+
+Put `@assumed` above a rule the agent chose, including an excluded limit. Approval leaves the tag in place. The tag records who chose it and the log records approval. A person's correction replaces the rule in their words and removes the tag in a new version. Reserve `@question` for a question this change can leave unanswered. It has no scenarios.
+
+For each thing created, used up or ended, and each value changed in another zone, the scenario names the outcome and the other part of the product where someone can see it. The test observes it there. On red the reviewer uses the product to check it there too. Record any timing the agent proposes as an assumed rule. Tests cite the id of the scenario they check as `gdd:<id>`, in their name or a comment, so `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds them, and not the tests of another id that begins the same.
 
 <!-- template: gdd-brief/assets/scenarios.feature -->
 ```gherkin
 Feature: <capability, as the person names it>
 
-  @brief:<brief id> @id:<capability>-<n>
-  Scenario: <what happens, in one line>
-    Given <the starting state>
-    When <what someone does>
-    Then <what they can observe, and from where else in the product they can see each effect>
+  Rule: <one behavior the person gave or approved>
+
+    @brief:<id> @id:<capability>-<n>
+    Scenario: <the case that checks this rule>
+      Given <the starting state with concrete values>
+      When <someone takes one action>
+      Then <the outcome and where each effect can be seen>
+
+  @assumed
+  Rule: <one behavior the agent chose, stated as a fact>
+
+    @brief:<id> @id:<capability>-<n>
+    Scenario: <the case that checks this assumption>
+      Given <the starting state with concrete values>
+      When <someone takes one action>
+      Then <the outcome and where each effect can be seen>
+
+  @question
+  Rule: <what can a later change decide?>
 ```
 
 ## The copies in gdd/context
@@ -709,7 +723,7 @@ A returned builder or checks agent gets the current seal tip, what sent the work
 
 Each finding of a review has an `id`. For a `fix`, each numbered finding ends with a citation in its `what` field, after ` | `. Use `@id:<scenario>`, `zone <name>: <rule>`, `constitution: <rule>`, `request: <words from the request>` or `check <id>` with an id from the blueprint. Every fix holds the change. When citations are missing the step records each uncited finding number once in `uncited`, or an empty list if the fix has no numbered findings. The summary counts both the affected reviews and their uncited findings. The reviewer judges whether the source supports the finding. A later round, or the last one before the change ships, closes it in `closed` with how it ended: `fixed`, `false` when the reviewer was wrong, `intended` when the brief or the person wanted it that way, or `minor` when it stays for later. No line is rewritten. What a reviewer leaves under `LATER:`, the design of the code included, goes to the backlog on every color. The layer keeps, beside its findings, the reviewer's `NOTES FOR THE BUILDER:` in `notes` and what it left under `LATER:` in `later`, a line each. A blank line after an item ends `LATER:`.
 
-A `reading` step is a reviewer reading a brief before anyone builds it: on red, and on yellow when the change changes data another zone owns. The step is optional, so a log without it reads as before. A new version of a brief is one nobody built: a change that turns red after a build gets that version read before the person approves it. Before approval it checks whether each scenario gives the checks role enough to write a failing test. The reading records gaps from `MISSING:` in `missing` so the orchestrator can resolve them before approval. Separately, the reading proposes at most three additions across the brief and the approval. Each names a constitution or zone rule or explains what money or data could be lost. It says `pass` if nothing blocks, even with observations for the log. Number only those additions. To choose their destinations, launch the reading without `--run` and supply `--went` when recording the report. The layer refuses more than three numbered findings. Unassigned findings stay in the log. A reading also keeps observations from `LATER:` in `later` for the log alone.
+A `reading` step is a reviewer reading a brief before anyone builds it: on red, and on yellow when the change changes data another zone owns. The step is optional, so a log without it reads as before. A new version of a brief is one nobody built: a change that turns red after a build gets that version read before the person approves it. Before approval it checks whether each scenario gives the checks role enough to write a failing test. The reading records gaps from `MISSING:` in `missing` so the orchestrator can resolve them before approval. Separately, the reading proposes at most three additions across the brief and the approval. Rule and scenario form findings count toward those three. Each addition names a constitution or zone rule or explains what money or data could be lost. It says `pass` if nothing blocks, even with observations for the log. Number only those additions. To choose their destinations, launch the reading without `--run` and supply `--went` when recording the report. The layer refuses more than three numbered findings. Unassigned findings stay in the log. A reading also keeps observations from `LATER:` in `later` for the log alone.
 
 <!-- template: gdd/assets/log-events.jsonl -->
 ```json
@@ -750,12 +764,12 @@ Hidden examples exist only from `platform` up. They live where the builder's cre
 
 ## Finding what's missing
 
-Traceability needs no script, only greps:
+Use these searches and read the rules they identify:
 
 - A scenario without a test: for each `@id:` in `features/`, `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds nothing.
 - A check no gate asks for: an id in the blueprint's `checks` with no `@check:<id>` in `gdd/gates/` and in no color.
 - A gate nobody saw close: a `gdd/gates/<gate>.feature` with no scenario under `Rule: It closes`, or a check of the gate with no `@check:<id>` there.
-- A decision nobody has made: `git grep --untracked -n "\[DECISION:" -- gdd/briefs features` finds something.
+- An unresolved or unmarked choice: use `git grep --untracked -nE '^[[:space:]]*@(assumed|question)[[:space:]]*$' -- features` to locate tagged rules. Read each changed rule against the request and earlier decisions. Every value the agent chose carries `@assumed`. Each rule the change needs has a scenario and a settled or explicitly assumed outcome. Each `@question` can wait and has no scenarios.
 - A brief that changed after its hashes went to the log: `git hash-object gdd/briefs/<id>.md` differs from the last `brief` step of its log.
 - What has to pass changed without the person: when the color asks for `brief-approval`, the hash of a scenario file differs from the last `approval` of that brief.
 - A sealed check that changed: `git diff --stat <start> HEAD -- <sealed paths>` shows anything, with `<start>` taken from the log.

@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-payment-brief-looks-at-the-stock
-description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what another buyer can see in the catalog after payment, proposes the stock rule in the brief approval, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends with a single question approving the scenarios and the proposed rule together."
+description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what another buyer can see in the catalog after payment, marks any stock timing it chooses as an assumption in the feature and shows it in the approval, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends with one question that covers the rules and assumptions together."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -44,7 +44,7 @@ graders:
     weight: 3
   - name: observes-stock-from-another-part-of-the-shop
     type: llm
-    criteria: Read the payment scenario. It names when the proposed stock rule takes effect, which other part of the shop reads the stock afterwards, and what someone can observe there. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
+    criteria: Read the stock rule and its scenario. The timing the agent chose has @assumed above its Rule. Beneath it a tagged scenario gives concrete values, one When and what another buyer sees in the named part of the shop afterwards. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex
@@ -65,7 +65,7 @@ graders:
     match: not_contains
   - name: proposes-the-shop-rule-in-the-approval
     type: llm
-    criteria: The person gets one brief approval question. It includes a proposed rule of the shop, such as when payment takes an item out of stock, alongside the scenarios. The owner can approve the proposal and the brief with one yes.
+    criteria: The person gets one brief approval question. It gives each new or changed rule in a line and identifies each assumption the agent made, including when payment takes an item out of stock. It points to the feature files and states any question left for later. One yes covers the change.
     weight: 3
   - name: tells-what-it-wont-do-as-a-consequence
     type: llm

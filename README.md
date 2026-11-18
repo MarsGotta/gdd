@@ -93,7 +93,7 @@ One agent writes down what it has to do, another builds the checks, a third buil
 
 ### 4. Answer when it asks
 
-- **It wants your approval of what a change has to do,** on yellow and red. That is a short message, under 150 words, with each case in a line, and the file of cases in `features/`. Read it and say yes, or correct it.
+- **It wants your approval of what a change has to do,** where your blueprint asks for it. In under 150 words the agent gives each new or changed rule its own line, marks its assumptions and names the files in `features/` where you can read the cases. Say yes or correct a rule.
 - **It found a decision nobody has made.** Answer it, or tell it to decide. It then decides how the work gets done and stops asking about that, and a rule of your product it takes from what is usual in your sector and tells you as an assumption. What loosens a check or can't be undone stays with you.
 - **Something stopped the change.** A check that fails, a limit that ran out. It tells you what happened and the one way out it would take. The guide has [every case](skills/README.md#when-it-stops).
 

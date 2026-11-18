@@ -54,9 +54,10 @@ Before:
 
 After:
 
-    The converter will show the nearest whole unit. I propose rounding halves up.
+    You'll see the nearest whole unit.
     If the unit is unknown, you'll see an error and keep the value you typed.
-    `features/rounding.feature` lists the cases. Do you approve them?
+    I assumed that halfway values round up, so 2.5 shows as 3.
+    You can read the cases in `features/rounding.feature`. Shall I use these rules?
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 
@@ -82,7 +83,7 @@ When the next item needs this one, propose the extra attempt now. For example, â
 
 ## When they leave it to you
 
-"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, write it down in the brief, tell them in a line, and don't ask that kind of thing again.
+"You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, record technical choices in the brief and product assumptions in the feature file, tell them in a line, and don't ask that kind of thing again.
 
 It doesn't cover what the method keeps for a person, because nobody else can give it:
 
@@ -91,6 +92,6 @@ It doesn't cover what the method keeps for a person, because nobody else can giv
 - loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
 - what can't be undone.
 
-For those, come back once, with the one thing you propose and a yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+Ask an open product question only when you have no grounds to propose a rule. For decisions where you have a proposal, come back once with one yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
-Use the proposal allowance in `gdd-brief`. Where the color asks for brief approval, one yes covers the selected proposals and the whole change. When they leave it to you, or no question is left for it, take what is usual in their sector, write it into the scenario and say it in your last message as an assumption, so they can still correct it: "I assumed a day in your calendar starts at local midnight. Tell me if you'd use another time."
+Use the product question allowance in `gdd-brief` for open questions you have no grounds to answer. A proposed answer goes in an `@assumed` rule. When the person delegates or no question remains, use the usual rule in their field and state it so they can correct it: "I assumed a day in your calendar starts at local midnight." Where the blueprint asks for approval, one yes covers the rules and all your assumptions.

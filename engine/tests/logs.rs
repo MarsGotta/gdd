@@ -315,12 +315,8 @@ fn metrics_keep_a_readings_later_observation_in_the_log() {
 }
 
 #[test]
-fn metrics_count_only_complete_brief_tags() {
+fn metrics_count_the_same_scenarios_with_and_without_rules() {
     let r = Repo::new();
-    r.write(
-        "features/shared.feature",
-        "@brief:x @id:one\n@brief:x-longer @id:two\n",
-    );
     r.write(
         "gdd/log/x.jsonl",
         &ev(
@@ -328,14 +324,53 @@ fn metrics_count_only_complete_brief_tags() {
             r#""event":"step","step":"brief","files":{"features/shared.feature":"abc"}"#,
         ),
     );
-    let run = r.gdd(&["metrics", "x", "--format", "jsonl"]);
-    let change = run
-        .out
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|row| row["table"] == "changes")
-        .expect(&run.out);
-    assert_eq!(change["scenarios"], 1);
+    let short = "    @brief:x @id:size-1
+    Scenario: Short title
+      When I save 4 letters
+      Then I see all 4 letters";
+    let long = "    @brief:x @id:size-2
+    Scenario: Long title
+      When I save 41 letters
+      Then I see 'Too long'";
+    let empty = "    @brief:x-longer @id:size-3
+    Scenario: Empty title
+      When I save 0 letters
+      Then I see 'Title needed'";
+    let legacy = format!("Feature: Titles\n{short}\n{long}\n{empty}\n");
+    let ruled = format!(
+        "Feature: Titles
+  Rule: The reader sees titles of 1 to 40 letters in full
+{short}
+  @assumed
+  Rule: Saving over 40 letters shows 'Too long'
+{long}
+  Rule: Empty titles need a value
+{empty}
+  @question
+  Rule: How long can a subtitle be?
+"
+    );
+
+    for (brief, expected) in [
+        ("## What changes\n\n## Scenarios\n", 2),
+        ("---\nscenarios: [size-1, size-2]\n---\n\n## Rules\n", 2),
+        // An explicit list wins even when the feature still has tags from an earlier version.
+        ("---\nscenarios: [size-1]\n---\n", 1),
+    ] {
+        r.write("gdd/briefs/x.md", brief);
+        for feature in [&legacy, &ruled] {
+            r.write("features/shared.feature", feature);
+            let run = r.gdd(&["metrics", "x", "--format", "jsonl"]);
+            assert_eq!(run.code, 0, "{}", run.out);
+            let change = run
+                .out
+                .lines()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .find(|row| row["table"] == "changes")
+                .expect(&run.out);
+            assert_eq!(change["scenarios"], expected, "{brief}\n{feature}");
+        }
+    }
 }
 
 #[test]

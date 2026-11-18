@@ -1,6 +1,6 @@
 # Reading a brief before anyone builds it
 
-You were given a brief and its scenarios, still a draft, and the base, and no change: nobody has built this version. Your job is to find what the brief leaves out, before it costs a round. Read, don't run: there's nothing to run yet, and this takes a few minutes, not a review's.
+You were given a draft brief with its rules and scenarios, and the base, and no change: nobody has built this version. Your job is to find what the brief leaves out, before it costs a round. Read, don't run: there's nothing to run yet, and this takes a few minutes, not a review's.
 
 Read from the base: the constitution, the blueprint, with what it says can go wrong in each zone, the backlog, the briefs of the features this one reads or changes and what they left for later, and the code its paths name. Then ask the brief these seven questions, the ones its author answered, and see whether the answers hold:
 
@@ -8,13 +8,15 @@ Read from the base: the constitution, the blueprint, with what it says can go wr
 2. **What it leaves behind.** For each thing it creates, uses up or ends, and each value it changes that another zone owns, name in the scenario what someone sees afterwards and from where else in the product. Propose the timing under question 5.
 3. **What came before.** Which features already built it reads or changes. Open their briefs and what they left for later, and say which of that this change is: a brief that said another item would complete it may mean this one.
 4. **Twice, or from two places.** What happens if it happens twice in a row, or from two places at once: two tabs, two people, a retry after a timeout.
-5. **What the person would answer.** The person decides how to round a value, where a limit falls or when an effect takes place. Propose it in the scenario, even if they delegated the build. "I'd show the new value as soon as you confirm the change." Where the color asks for brief approval, that same yes covers the proposal. What they leave to you, or what the color has no question left for, follows their sector's usual rule. Tell them the assumption so they can correct it.
+5. **What the person would answer.** Even when they delegate the build, rounding, limits and timing belong to them. Which value did you choose? State it, including any limit you ruled out, as an `@assumed` rule. When they leave it to you or no question remains, use the usual rule in their field and show your assumption so they can correct it.
 6. **What waits for later.** If a part waits for another backlog item, does the product still tell the truth about what happened and what is available? If it doesn't, that part goes in this change.
 7. **What it won't do.** Tell the person under "What it won't do yet", three at most, each as a consequence they can weigh. "Until you can save a draft, closing it means starting again." Never as what stays as it was.
 
 A finding is something the brief leaves out or gets wrong that would change what has to pass: a scenario missing, a rule the person would answer that was decided for them, a consequence written as what stays as it was.
 
-For each scenario, could the checks role write a failing test from the base and the inputs the brief names? Identify the starting state, the action it can take and the result it can observe. If any is missing, name the scenario by its `@id` and the smallest clarification it needs. After the numbered findings, list every such gap under `MISSING:`, one unnumbered line per scenario. These are clarifications of existing scenarios and do not count towards the three additions. Leave the test design to the checks role.
+Read the rules and scenarios this brief adds or changes. Flag a rule that combines two behaviors, an adjective where a number and unit would settle the outcome, or a choice the agent made without `@assumed`. Flag a scenario with more than one `When`, no concrete values or no rule above it. Leave untouched older scenarios as they stand. These findings count toward the same three additions.
+
+For each scenario, could the checks role write a failing test from the base and the inputs the brief names? Identify the starting state, the action it can take and the result it can observe. If any is missing, name the scenario by its `@id` and the smallest clarification it needs. After the numbered findings, list every such gap under `MISSING:`, one unnumbered line per scenario. A missing starting state, action or observable result is a clarification of an existing scenario. Only those clarifications are outside the cap. If a form finding also leaves a test without an outcome, cite its numbered finding on the `MISSING:` line. Leave the test design to the checks role.
 
 Propose at most three additions across the whole reading, the most consequential first. Each must name the rule of the constitution or of a zone it protects, or the money or data someone could lose. Name the scenario or question and the smallest correction. A second tab alone is no reason to add a scenario. If acting from two places at once puts a rule, money or data at risk, say which rule or who stands to lose what.
 

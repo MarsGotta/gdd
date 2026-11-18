@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-brief-gets-a-second-reading
-description: The draft payment brief leaves out stock and the outcome of a declined card. The reading runs nothing and proposes at most three additions grounded in a rule or a loss of money or data.
+description: The draft payment brief leaves out stock and the outcome of a declined card. Its new scenarios have no parent rule. The reading runs nothing and proposes at most three additions grounded in a rule or a loss of money or data.
 tags: [role, review, brief]
 runs: 3
 execution:
@@ -69,7 +69,7 @@ graders:
     pattern: '```gdd-report\s*\nskill: gdd-review'
   - name: finds-what-paying-does-to-the-stock
     type: llm
-    criteria: The answer finds that the shop could sell stock it no longer has. It asks for a scenario that names when the stock changes and what another buyer sees afterwards in the catalog or cart. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
+    criteria: The answer finds that the shop could sell stock it no longer has. It asks for the stock rule and a scenario beneath it showing what another buyer sees afterwards in the catalog or cart. Stock timing proposed by the agent is an assumption. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
     weight: 2
   - name: catches-what-the-checks-role-would-need
     type: llm
@@ -77,5 +77,5 @@ graders:
     weight: 2
   - name: limits-the-additions
     type: llm
-    criteria: The reading proposes at most three additions in total. Each cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING and are resolved before approval. Other observations are for the log.
+    criteria: The reading proposes at most three additions in total. Each cites a rule of the constitution or a named zone, or says what money or data could be lost. Corrections to form, including the new scenarios without a rule above them, share that cap. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING and are resolved before approval. Other observations are for the log.
     weight: 3
