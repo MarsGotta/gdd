@@ -63,7 +63,7 @@ The layer names each step. This is what you still decide.
 5. **Review.** A role with a clean context, for every change, green too. On red, a `pass` counts only if it says what the reviewer ran.
    - `stop`: the change doesn't go in, whatever else it says. Tell the person why.
    - A `COLOR:` higher than the one logged at Brief: the change goes back to Brief, as `gdd-brief` says for a color that rose, and `gdd-checks` adds its cases from the base.
-   - `fix`: a fix round, and the layer gives the builder the reviewer's notes. A check it calls wrong goes to `gdd-checks`. What it leaves under `LATER:` goes to the backlog.
+   - `fix`: if every finding names a check sealed for this change, resume `gdd-checks`, then the builder to merge its seal. Any other finding, including one without a file, sends the round to the builder. `LATER:` goes to the backlog.
 6. **Ship.** Bring it up to date first: `gdd seal <id> --merge-main` and the seal's tip merged into the change's branch, or the main branch merged into it when nothing was sealed, then read `gdd next <id>`. The log, the journals and the backlog are your bookkeeping: they live in your copy, off every change's branch, and the layer commits them on top of the change. Ship it as the constitution says, the way the layer names, unasked: the request was the yes. By pull request, `--bookkeeping` before the person's review, when its color has one, `--describe` for its description and `--done <where>` once merged; by a local merge, `--merge`. Never ship what is still waiting for a person, and land changes one at a time. Once it's in, remove the copies its roles made.
 
 ## Launching each role

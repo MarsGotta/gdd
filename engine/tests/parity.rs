@@ -372,6 +372,17 @@ fn synthetic_logs_count_the_same() {
             ev(5, checks, false),
         ],
     ));
+    let mut returned = vec![
+        ev(0, brief, false),
+        ev(1, build, false),
+        ev(2, build, false),
+        ev(3, &format!(r#"{fix},"fix_role":"checks""#), true),
+    ];
+    let one_round = old.replace("rounds_per_change: 6", "rounds_per_change: 1");
+    cases.push(("checks-fix".into(), one_round.clone(), returned.clone()));
+    returned.push(ev(4, checks, false));
+    returned.push(ev(5, &format!(r#"{build},"seal_only":true"#), true));
+    cases.push(("seal-merge".into(), one_round, returned));
     let mut failures = vec![];
     for (name, bp, lines) in &cases {
         let dir = tmp.path().join(format!("s-{name}"));

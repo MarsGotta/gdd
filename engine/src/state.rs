@@ -7,7 +7,7 @@ use crate::judged::GitView;
 use crate::limits::{self, Limits};
 use crate::log::{self, Entry, kind, result, step, str_of, ts};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a log is about.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -73,6 +73,17 @@ pub struct Review {
     pub color: Option<String>,
 }
 
+/// Keep the files that were checks when the reviewer returned them. A reseal
+/// can bring new files, including product changes from the main branch.
+#[derive(Debug, Clone)]
+pub struct ChecksFix {
+    pub line: usize,
+    pub head: Option<String>,
+    pub paths: BTreeSet<String>,
+    // Earlier versions could record the builder immediately after this verdict.
+    recorded_route: bool,
+}
+
 /// The next step of a change: what to do, the exact command, and when it can't go on, why.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Next {
@@ -119,6 +130,8 @@ pub struct Progress {
     pub last_gates: Option<GatesRun>,
     pub reviews: i64,
     pub last_review: Option<Review>,
+    /// The review that returned only sealed checks, kept through the merge and its gates.
+    pub checks_fix: Option<ChecksFix>,
     pub stop_told: bool,
     pub asks: Vec<Ask>,
     /// The person answered a spent-limit question without granting more room.
@@ -187,6 +200,28 @@ impl Progress {
             p.apply(line, v);
         }
         p
+    }
+
+    pub fn findings_on_checks(&self, findings: &Value) -> bool {
+        let Some(items) = findings.as_array() else {
+            return false;
+        };
+        !items.is_empty()
+            && items.iter().all(|f| {
+                let place = str_of(f, "where").trim_start_matches("./");
+                self.checks_sealed.contains_key(place)
+                    || place.rsplit_once(':').is_some_and(|(path, line)| {
+                        line.parse::<usize>().is_ok() && self.checks_sealed.contains_key(path)
+                    })
+            })
+    }
+
+    pub fn needs_checks_fix(&self) -> bool {
+        self.checks_fix.is_some() && self.last_review.is_some()
+    }
+
+    pub fn merging_checks_fix(&self) -> bool {
+        self.checks_fix.is_some() && !self.built_since_seal
     }
 
     pub fn has_brief(&self) -> bool {
@@ -351,6 +386,7 @@ impl Progress {
             "brief" => {
                 self.limit_deferred = false;
                 self.briefs += 1;
+                self.checks_fix = None;
                 let color = v["color"]["color"]
                     .as_str()
                     .filter(|c| crate::color_rank(c).is_some())
@@ -487,6 +523,15 @@ impl Progress {
             }
             "review" => {
                 self.reviews += 1;
+                self.checks_fix = (self.kind == Some(LogKind::Change)
+                    && v["verdict"] == "fix"
+                    && self.findings_on_checks(&v["findings"]))
+                .then(|| ChecksFix {
+                    line,
+                    head: v["color"]["head"].as_str().map(str::to_owned),
+                    paths: self.checks_sealed.keys().cloned().collect(),
+                    recorded_route: v["fix_role"] == "checks",
+                });
                 self.last_review = Some(Review {
                     line,
                     verdict: str_of(v, "verdict").to_string(),
@@ -520,6 +565,24 @@ impl Progress {
         let kind = self.kind.unwrap_or(LogKind::Change);
         if kind == LogKind::Blueprint {
             return Ok(());
+        }
+        if self
+            .checks_fix
+            .as_ref()
+            .is_some_and(|fix| fix.recorded_route)
+        {
+            if st == "build" && self.needs_checks_fix() {
+                return Err((
+                    "out-of-order",
+                    "the checks agent corrects its sealed tests first".into(),
+                ));
+            }
+            if st == "gates" && self.merging_checks_fix() {
+                return Err((
+                    "out-of-order",
+                    "the builder reports the merge of the corrected seal before its gates".into(),
+                ));
+            }
         }
         self.held_by_what_sent_it_back(kind, st, head)?;
         let color = self.color.clone().unwrap_or_default();

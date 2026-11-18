@@ -958,7 +958,10 @@ fn checks_sealed_before_a_merge_of_main_still_count_once_their_step_is_voided() 
 
 #[test]
 fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_the_new_seal() {
-    let r = Repo::new();
+    let r = Repo::with(&BLUEPRINT.replace(
+        "limits:\n  lines_per_change",
+        "limits:\n  tokens_per_change: 1000\n  lines_per_change",
+    ));
     yellow_brief(&r, "y7", "src/core/app.txt");
     r.gdd(&[
         "approve",
@@ -999,6 +1002,9 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let found = "f1 tests/y7.sh:1 the test passes whatever the app says | @id:y7-1\n";
     let rv = r.report("y7", "review", &review_text("fix", "yellow", found), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
+    assert_eq!(rv.facts["next"], "checks", "{}", rv.out);
+    let early = r.report("y7", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
     // The checks role is told what the reviewer found: a better check is its to write.
     let c = r.gdd(&["launch", "y7", "checks"]);
     let prompt = c.facts["prompt"].as_str().unwrap();
@@ -1046,6 +1052,211 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     );
     assert!(prompt.contains("merge <start> into it"), "{prompt}");
     assert!(!prompt.contains("which starts at <start>"), "{prompt}");
+    assert_eq!(again.facts["next"], "build");
+    assert_eq!(r.gdd(&["gates", "y7"]).facts["refused"], "out-of-order");
+    merge_corrected_seal(&r, "y7");
+    let merged = r.report(
+        "y7",
+        "build",
+        &report_block("gdd-build", "done"),
+        &["--tokens", "73"],
+    );
+    assert_eq!(merged.facts["next"], "gates", "{}", merged.out);
+    assert_eq!(merged.facts["round"], 2);
+    let limits = r.gdd(&["limits", "y7"]);
+    assert_eq!(limits.facts["caps"]["rounds"]["used"], 0.0);
+    assert_eq!(limits.facts["caps"]["tokens"]["used"], 73.0);
+    assert_eq!(r.gdd(&["gates", "y7"]).facts["next"], "review");
+    let review = r.gdd(&["launch", "y7", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("fresh clone"), "{prompt}");
+    assert!(prompt.contains("The product has not changed"), "{prompt}");
+    assert!(prompt.contains("Changed tests: tests/y7.sh"), "{prompt}");
+    assert!(prompt.contains("Review only those tests"), "{prompt}");
+    assert!(
+        prompt.contains("f1 tests/y7.sh:1: the test passes whatever the app says | @id:y7-1"),
+        "{prompt}"
+    );
+    assert_eq!(r.gdd(&["verify", "y7"]).facts["errors"], 0);
+
+    // Gates can run on a newer head. The review scope follows what they actually judged.
+    r.commit_on(
+        "work/y7",
+        None,
+        &[("src/core/app.txt", "ok again")],
+        "Change the product",
+    );
+    assert_eq!(r.gdd(&["gates", "y7"]).facts["next"], "review");
+    let review = r.gdd(&["launch", "y7", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert!(!prompt.contains("The product has not changed"), "{prompt}");
+    assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
+
+    // Without the new fields this is a valid older log, with the original build count.
+    let mut lines = r.log_lines("y7");
+    for event in &mut lines {
+        let fields = event.as_object_mut().unwrap();
+        fields.remove("seal_only");
+        fields.remove("fix_role");
+    }
+    let old: Vec<_> = lines.iter().map(ToString::to_string).collect();
+    r.write("gdd/log/y7.jsonl", &old.join("\n"));
+    assert_eq!(r.gdd(&["verify", "y7"]).facts["errors"], 0);
+    assert_eq!(
+        r.gdd(&["limits", "y7"]).facts["caps"]["rounds"]["used"],
+        1.0
+    );
+}
+
+fn merge_corrected_seal(r: &Repo, id: &str) {
+    let dir = r.dir.path().join("merge");
+    let path = dir.to_str().unwrap();
+    r.git(&["worktree", "add", "-q", path, &format!("work/{id}")]);
+    git(
+        &dir,
+        &["merge", "-q", "--no-edit", &format!("gdd-seal/{id}")],
+    );
+    r.git(&["worktree", "remove", path]);
+}
+
+#[test]
+fn a_product_mixed_or_unlocated_finding_returns_to_the_builder() {
+    for findings in [
+        "f1 src/core/app.txt:1 wrong value | @id:route-1",
+        "f1 tests/route.sh:1 weak test | @id:route-1\nf2 src/core/app.txt:1 wrong value | @id:route-1",
+        "f1 tests/route.sh:1 weak test | @id:route-1\nf2 missing result | @id:route-1",
+        "f1 tests/other.sh:1 wrong value | @id:route-1",
+    ] {
+        let r = Repo::new();
+        checked(&r, "route");
+        r.commit_on(
+            "work/route",
+            Some("gdd-seal/route"),
+            &[("src/core/app.txt", "ok")],
+            "Build",
+        );
+        assert_eq!(
+            r.report("route", "build", &report_block("gdd-build", "done"), &[])
+                .code,
+            0
+        );
+        assert_eq!(r.gdd(&["gates", "route"]).code, 0);
+        let fix = r.report(
+            "route",
+            "review",
+            &review_text("fix", "yellow", findings),
+            &[],
+        );
+        assert_eq!(fix.facts["next"], "build", "{}", fix.out);
+        r.commit_on(
+            "work/route",
+            None,
+            &[("src/core/app.txt", "fixed ok")],
+            "Fix",
+        );
+        let built = r.report("route", "build", &report_block("gdd-build", "done"), &[]);
+        assert_eq!(built.facts["next"], "gates", "{}", built.out);
+        assert_eq!(
+            r.gdd(&["limits", "route"]).facts["caps"]["rounds"]["used"],
+            1.0
+        );
+        assert_eq!(r.gdd(&["gates", "route"]).code, 0);
+        let review = r.gdd(&["launch", "route", "review"]);
+        let prompt = review.facts["prompt"].as_str().unwrap();
+        let log = r.log_lines("route");
+        let fix = log.iter().find(|v| v["step"] == "review").unwrap();
+        for f in fix["findings"].as_array().unwrap() {
+            assert!(prompt.contains(f["what"].as_str().unwrap()), "{prompt}");
+        }
+        assert!(
+            prompt.contains("First report how each previous finding ended"),
+            "{prompt}"
+        );
+        assert!(!prompt.contains("Review only those tests"), "{prompt}");
+    }
+}
+
+#[test]
+fn a_product_edit_during_a_seal_merge_still_costs_a_build_round() {
+    let r = Repo::with(&BLUEPRINT.replace("rounds_per_change: 3", "rounds_per_change: 1"));
+    checked(&r, "delta");
+    r.commit_on(
+        "work/delta",
+        Some("gdd-seal/delta"),
+        &[("src/core/app.txt", "wrong")],
+        "Build",
+    );
+    let built = report_block("gdd-build", "done");
+    assert_eq!(r.report("delta", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "delta"]).code, 1);
+    r.commit_on(
+        "work/delta",
+        None,
+        &[("src/core/app.txt", "ok")],
+        "Use the last build round",
+    );
+    assert_eq!(r.report("delta", "build", &built, &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "delta"]).code, 0);
+    let fix = review_text(
+        "fix",
+        "yellow",
+        "f1 tests/delta.sh:1 misses a blank title | @id:delta-1",
+    );
+    assert_eq!(
+        r.report("delta", "review", &fix, &[]).facts["next"],
+        "checks"
+    );
+    r.commit_on(
+        "gdd-seal/delta",
+        None,
+        &[("tests/delta.sh", "test -s src/core/app.txt")],
+        "Correct the test",
+    );
+    assert_eq!(
+        r.report("delta", "checks", &sealed_report(&["tests"]), &[])
+            .facts["next"],
+        "build"
+    );
+    merge_corrected_seal(&r, "delta");
+    r.commit_on(
+        "work/delta",
+        None,
+        &[("src/core/app.txt", "ok again")],
+        "Edit the product too",
+    );
+    let over = r.report("delta", "build", &built, &[]);
+    assert_eq!(over.facts["refused"], "cap-spent", "{}", over.out);
+    // A product edit needs another round even though every finding was about the test.
+    let grant = r.gdd(&[
+        "waiver",
+        "delta",
+        "--who",
+        "P",
+        "--check",
+        "rounds_per_change",
+        "--limit",
+        "rounds_per_change",
+        "--to",
+        "2",
+        "--why",
+        "one more product fix",
+        "--backlog",
+        "delta",
+    ]);
+    assert_eq!(grant.code, 0, "{}", grant.out);
+    assert_eq!(
+        r.report("delta", "build", &built, &[]).facts["next"],
+        "gates"
+    );
+    assert_eq!(
+        r.gdd(&["limits", "delta"]).facts["caps"]["rounds"]["used"],
+        2.0
+    );
+    assert_eq!(r.gdd(&["gates", "delta"]).facts["next"], "review");
+    let launch = r.gdd(&["launch", "delta", "review"]);
+    let prompt = launch.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("misses a blank title"), "{prompt}");
+    assert!(!prompt.contains("Review only those tests"), "{prompt}");
 }
 
 #[test]

@@ -49,9 +49,13 @@ impl Limits {
 
     /// The caps with no room left, those in `stop` and those held for a build being judged.
     pub fn no_room(&self) -> Vec<&'static str> {
+        self.no_room_for(false)
+    }
+
+    pub(crate) fn no_room_for(&self, checks_only: bool) -> Vec<&'static str> {
         self.lines
             .iter()
-            .filter(|l| l.full && !l.tier)
+            .filter(|l| l.full && !l.tier && !(checks_only && l.name == "rounds"))
             .map(|l| l.name)
             .collect()
     }
@@ -148,6 +152,8 @@ struct Tally {
     // A change that shipped is over: its minutes stop there, not at the clock.
     shipped: Option<i64>,
     builds: i64,
+    seal_merges: i64,
+    fixing_checks: bool,
     checks: i64,
     review: i64,
     gates: i64,
@@ -197,6 +203,11 @@ impl Tally {
         if st == "brief" && crate::color_rank(result(v)).is_some() {
             self.color = result(v).to_string();
         }
+        match st {
+            "review" => self.fixing_checks = v["fix_role"] == "checks",
+            "brief" | "build" | "ship" => self.fixing_checks = false,
+            _ => {}
+        }
         // What the last of these steps leaves waiting to be judged.
         let waits = |yes: bool, what: &str| if yes { what.into() } else { String::new() };
         match st {
@@ -221,7 +232,10 @@ impl Tally {
     /// and its tokens.
     fn used(&mut self, v: &Value, late: &[String]) {
         match step(v) {
-            "build" => self.builds += 1,
+            "build" => {
+                self.builds += 1;
+                self.seal_merges += i64::from(v["seal_only"] == true);
+            }
             "checks" => self.checks += 1,
             "review" if any_kv(v, "verdict", "fix") => self.review += 1,
             "gates" => {
@@ -350,9 +364,19 @@ pub fn count_with(
     // gdd-checks in a log of standing checks, where the checks are what is built. The checks
     // sealed again for a build go with it.
     let setup = crate::state::log_kind(id) == crate::state::LogKind::Setup;
-    let launches = if setup { checks } else { builds };
+    let launches = if setup {
+        checks
+    } else {
+        builds - t.seal_merges
+    };
     let rounds = (launches - 1).max(0);
-    report("rounds", rounds as f64, "rounds_per_change", false, judged);
+    report(
+        "rounds",
+        rounds as f64,
+        "rounds_per_change",
+        false,
+        judged || t.fixing_checks,
+    );
     report(
         "sent back by the checks",
         gates as f64,

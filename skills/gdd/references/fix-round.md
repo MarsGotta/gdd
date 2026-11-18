@@ -1,5 +1,7 @@
 # Returning a fix to its agent
 
+If every finding names a test sealed for this change, resume the checks agent with the findings. Then resume the builder to merge the corrected seal and run the required checks. If the product matches the reviewed version, this merge uses no build round. The gates run and a fresh reviewer checks only the corrected tests. If any finding names another file or gives no file, resume the builder with the whole review. Only the checks agent or a person edits a sealed test.
+
 Send the prompt from `gdd launch <id> <role>` to the last builder or checks agent for this change and role. It gives the seal tip, what sent the change back and what the last builder tried. When the reviewer returns the change, the prompt keeps that review’s findings and citations in full, along with its notes for the builder. A command’s output may show only its end. The agent can run it again if it needs more.
 
 When the role first ran with `--run`, use the `session_id` that Codex or Claude printed for it. A shortcut that picks the latest session could send the fix to the reviewer. A returned role needs an explicit resume command because a plain `--run` would start a new session and the layer refuses it. Keep the original launch settings. For a builder started with `codex exec --json -m <model>`, put its exact id in place of `SESSION_ID`.

@@ -1044,7 +1044,7 @@ if [ "$variant" = spent ] || [ "$variant" = finished ]; then
 # each cap: what was used and what the blueprint allows. The last line is
 #   gdd-limits {"color":"<color>","stop":[<each cap with no room left>],"slow":[<each tier past its seconds>],"judge":"<gates, review, ship or empty>"}
 # The color is the result of the last brief step. A round is each launch of gdd-build after the
-# first, and the checks sealed again for it go with it. Where the checks are what is built, in a
+# first, except a build that only brings in corrected sealed tests. Where the checks are built, in a
 # log of standing checks (standing-checks, standing-checks-<check>, gates-<zone>), it is each launch
 # of gdd-checks after the first. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
@@ -1149,7 +1149,9 @@ FNR == NR {
     color = substr($0, RSTART, RLENGTH); sub(/^"result" *: *"/, "", color); sub(/"$/, "", color)
   }
   if ($0 ~ /"step" *: *"(brief|checks|ship)"/) next_up = ""
-  if ($0 ~ /"step" *: *"build"/) { builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
+  if ($0 ~ /"step" *: *"(brief|build|ship)"/) fixing_checks = 0
+  if ($0 ~ /"step" *: *"review"/) fixing_checks = ($0 ~ /"fix_role" *: *"checks"/)
+  if ($0 ~ /"step" *: *"build"/) { if ($0 !~ /"seal_only" *: *true/) builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
   if ($0 ~ /"step" *: *"checks"/) checks++
   if ($0 ~ /"step" *: *"review"/) next_up = ($0 ~ /"verdict" *: *"pass"/) ? "ship" : ""
   if ($0 ~ /"step" *: *"review"/ && $0 ~ /"verdict" *: *"fix"/) review++
@@ -1181,7 +1183,7 @@ END {
   if (color != "") printf "color %s\n", color
   judged = (next_up != "")
   launches = (setup + 0) ? checks : builds
-  report("rounds", launches > 1 ? launches - 1 : 0, "rounds_per_change", 0, judged)
+  report("rounds", launches > 1 ? launches - 1 : 0, "rounds_per_change", 0, judged || fixing_checks)
   report("sent back by the checks", gates + 0, "fix_rounds_per_gate", 1, judged)
   report("sent back by the review", review + 0, "fix_rounds_per_gate", 1, judged)
   report("minutes", minutes, "minutes_per_change", 0, judged)

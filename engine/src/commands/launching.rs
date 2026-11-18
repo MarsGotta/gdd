@@ -243,7 +243,11 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     if role == "review"
         && let Some(size) = counting::size_warning(l)
     {
-        s.push(format!("{size} Review it whole. Size alone is no finding."));
+        s.push(if p.reviews == 0 {
+            format!("{size} Review it whole. Size alone is no finding.")
+        } else {
+            format!("{size} Size alone is no finding.")
+        });
     }
     let brief = format!("gdd/briefs/{id}.md");
     if l.project.path(&brief).is_file() || !p.brief_files.is_empty() {
@@ -358,6 +362,47 @@ fn last_attempt(s: &mut Vec<String>, build: &Value) {
     }
 }
 
+fn list_findings(s: &mut Vec<String>, review: &Value) {
+    for f in review["findings"].as_array().into_iter().flatten() {
+        s.push(format!(
+            "- {} {}: {}",
+            str_of(f, "id"),
+            str_of(f, "where"),
+            str_of(f, "what")
+        ));
+    }
+}
+
+/// A fresh reviewer gets the last verdict's findings, never the builder's conversation.
+fn review_after_fix(s: &mut Vec<String>, l: &Loaded) {
+    let Some((line, r)) = log::events(&l.entries)
+        .into_iter()
+        .rev()
+        .find(|(_, v)| step(v) == "review")
+    else {
+        return;
+    };
+    s.push("First report how each previous finding ended. Retest only what changed.".into());
+    if let Some(before) = r["color"]["head"].as_str() {
+        s.push(format!("Previous review at {before}."));
+    }
+    list_findings(s, r);
+    if l.state.progress.brief_line.is_some_and(|b| b > line) {
+        s.push("The brief changed. Include its revised requirements and the checks its color now asks for.".into());
+    }
+    if let Some(paths) = review_head(l).and_then(|h| changed_tests(l, h)) {
+        s.push("The product has not changed since that review.".into());
+        if paths.is_empty() {
+            s.push("No test changed. Check only whether the previous findings still hold.".into());
+        } else {
+            s.push(format!(
+                "Changed tests: {}. Review only those tests against the previous findings.",
+                paths.join(", ")
+            ));
+        }
+    }
+}
+
 fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
     let p = &l.state.progress;
     let events: Vec<_> = log::events(&l.entries)
@@ -416,14 +461,7 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
                 str_of(a, "what")
             ));
         }
-        for f in r["findings"].as_array().into_iter().flatten() {
-            s.push(format!(
-                "- {} {}: {}",
-                str_of(f, "id"),
-                str_of(f, "where"),
-                str_of(f, "what")
-            ));
-        }
+        list_findings(s, r);
         if role == "checks" {
             s.push("What a finding asks of a check is yours to answer, with a new seal; the rest is the builder's.".into());
         } else {
@@ -501,6 +539,9 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     });
     if round > 1 && matches!(role, "build" | "checks") {
         fix_round_notes(&mut s, l, role, setup);
+    }
+    if round > 1 && role == "review" && !setup {
+        review_after_fix(&mut s, l);
     }
     // What the log can show of a role's own runs comes from a json block, like the checks
     // role's proofs: without it, a claim or a trial is only prose.

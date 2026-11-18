@@ -37,7 +37,7 @@ graders:
   - name: keeps-to-the-yellow-review
     type: regex
     target: trace
-    pattern: 'From the second round on'
+    pattern: 'Some regressions show only side by side'
     match: not_contains
   - name: verdict-is-not-pass
     type: regex

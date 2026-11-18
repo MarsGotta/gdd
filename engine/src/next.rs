@@ -408,7 +408,7 @@ fn before_the_build(
     if asks_approval && !p.approved() {
         return Some(approval_step(id, p, color, now));
     }
-    if p.has_brief() && !p.checks_done {
+    if p.needs_checks_fix() || p.has_brief() && !p.checks_done {
         return Some(checks_step(id, p, lim));
     }
     None
@@ -472,7 +472,11 @@ fn checks_step(id: &str, p: &Progress, lim: &Limits) -> Next {
         lim,
         n(
             "checks",
-            "launch gdd-checks: a test for each scenario, seen failing and sealed",
+            if p.needs_checks_fix() {
+                "return the findings to the checks agent to correct its sealed tests"
+            } else {
+                "launch gdd-checks: a test for each scenario, seen failing and sealed"
+            },
             format!("gdd launch {id} checks{deep}"),
         ),
     )
@@ -500,7 +504,11 @@ fn from_the_build_on(
             lim,
             n(
                 "build",
-                "launch gdd-build on its own branch, from <start>",
+                if p.checks_fix.is_some() {
+                    "resume the builder to merge the corrected seal into the change branch"
+                } else {
+                    "launch gdd-build on its own branch, from <start>"
+                },
                 format!("gdd launch {id} build"),
             ),
         );

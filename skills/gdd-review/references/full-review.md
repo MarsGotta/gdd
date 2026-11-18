@@ -10,10 +10,6 @@ For a red change. You've done steps 1 and 2 of your skill. Go on in this order, 
 8. **Try the way back** the brief describes (a revert, a migration down, a switch turned off) and say whether it works. Nothing red ships without one that does, unless a person decides knowing that.
 9. **Judge what it leaves.** More duplication, a dependency pointing backwards or a special case where a general one belongs goes under `LATER:`, for the backlog, unless a rule of a zone forbids it: the change works, and another round costs more than the item.
 
-## From the second round on
-
-Retest only what changed. Name the whole class of a failure, not one instance of it; don't repeat findings; and mark as "was already there" whatever the change didn't introduce. Say how each earlier finding ended: `fixed`, `false` if you were wrong, `intended` if the brief or the person wanted it that way, or `minor` if it stays for later. The log keeps both, so the project can see how much of what a reviewer flags is noise.
-
 ## About you
 
 Stop only what you started, by its process id or group. A name pattern such as the one passed to `pkill -f` can match your own runner and stop it before it returns a verdict.

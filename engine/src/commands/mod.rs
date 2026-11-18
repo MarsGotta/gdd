@@ -159,6 +159,27 @@ fn review_head(l: &Loaded) -> Option<&str> {
     )
 }
 
+/// Compare the reviewed tree with the actual head holding the corrected seal.
+fn changed_tests(l: &Loaded, head: &str) -> Option<Vec<String>> {
+    let p = &l.state.progress;
+    let fix = p.checks_fix.as_ref()?;
+    let root = &l.project.root;
+    let seal = p.start.as_deref()?;
+    if p.checked.as_ref()?.0 <= fix.line || !git::is_ancestor(root, seal, head) {
+        return None;
+    }
+    let before = fix.head.as_deref()?;
+    let mut paths = git::diff_names(root, before, head).ok()?;
+    paths.retain(|f| !crate::judged::bookkeeping_known(root, &l.state.id, head, f));
+    let built = git::diff_names(root, seal, head).ok()?;
+    let from_checks = |path: &String| {
+        !built.contains(path)
+            && (fix.paths.contains(path)
+                || p.checks_sealed.contains_key(path) && git::blob_at(root, before, path).is_none())
+    };
+    paths.iter().all(from_checks).then_some(paths)
+}
+
 /// Refuse a step the state doesn't allow yet, with what moves the work instead. `head` is the
 /// commit a gates step would judge.
 fn allowed(l: &Loaded, id: &str, step: &str, head: Option<&str>) -> R<()> {

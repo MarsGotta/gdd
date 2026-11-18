@@ -68,6 +68,8 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
 
+When a review returns your sealed tests, use its findings to correct them on the same seal branch. Prove the corrected tests against their scenarios and report the new seal. The builder merges it into the change.
+
 When you're launched for a new version of the brief that changed only its prose, the checks you sealed before may still cover it. Run them against it, and if they hold, commit nothing: report `sealed` with their proofs, and the layer records them as they stand. A new scenario, a changed check or a higher color always takes a new seal.
 
 ## The standing checks

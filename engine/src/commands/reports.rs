@@ -46,7 +46,7 @@ pub(super) fn level_of(
     if let Some(a) = asked {
         return a.to_string();
     }
-    if role == "checks" && p.checks_stopped == 1 && !p.checks_done {
+    if role == "checks" && p.checks_stopped == 1 && (!p.checks_done || p.needs_checks_fix()) {
         return "deep".into();
     }
     bp.color_level(p.color.as_deref().unwrap_or("yellow"))
@@ -84,22 +84,37 @@ pub(super) fn write_report(
     }
     // What the state allows comes before anything git says about the step.
     allowed(l, id, st, None)?;
+    let p = &l.state.progress;
+    let seal_only = st == "build"
+        && p.merging_checks_fix()
+        && !stopped(&r)
+        && l.state
+            .git
+            .head
+            .as_deref()
+            .and_then(|h| changed_tests(l, h))
+            .is_some();
     // A round `gdd launch` would not have started isn't written either: a role run without it, with
     // a cap already spent. What counts is how the caps stood at the log's last line, which is when
     // the round began, so a build that ended after its time ran out is still written and judged.
     if (st == "checks" || st == "build")
         && let Some(then) = l.state.progress.last_ts
     {
-        let lim = limits::count_entries(&l.bp, id, &l.entries, then);
-        let full = lim.no_room();
+        let mut lim = limits::count_entries(&l.bp, id, &l.entries, then);
+        let full = lim.no_room_for(st == "checks" && p.needs_checks_fix() || seal_only);
         if !full.is_empty() {
+            lim.stop = full.iter().map(|name| name.to_string()).collect();
             return Err(Fail::refuse(
                 "cap-spent",
                 format!(
                     "no new round: {} had no room left when this one began",
                     full.join(", ")
                 ),
-                cap_way_on(l),
+                if p.merging_checks_fix() && !seal_only {
+                    crate::next::cap_spent(id, &lim).command
+                } else {
+                    cap_way_on(l)
+                },
             ));
         }
     }
@@ -127,7 +142,6 @@ pub(super) fn write_report(
             ),
         ));
     }
-    let p = &l.state.progress;
     let round = 1 + match st {
         "checks" => p.checks_runs,
         "build" => p.builds,
@@ -175,6 +189,9 @@ pub(super) fn write_report(
             ),
         ),
     ]);
+    if seal_only {
+        m.insert("seal_only".into(), json!(true));
+    }
     m["report"]["tokens_read"] = json!(a.tokens_read);
     if matches!(st, "build" | "checks")
         && let Some(thread) = &a.codex_thread
@@ -678,14 +695,14 @@ fn report_build(
     // A build that stopped on a branch without <start> judged checks that are no longer the
     // change's: in one run its CANNOT blamed a test already fixed on the seal, and the checks role,
     // sent back for it, had nothing to seal.
-    if stopped
+    if (stopped || p.merging_checks_fix())
         && let (Some(h), Some(s)) = (&l.state.git.head, &p.start)
         && !git::is_ancestor(&l.project.root, s, h)
     {
         return Err(Fail::refuse(
             "start-missing",
             format!(
-                "the build stopped on {}, which doesn't hold <start> ({}): what it ran judged checks that are no longer the change's, so its stop doesn't count",
+                "the build on {} doesn't hold <start> ({}): what it ran judged checks that are no longer the change's",
                 git::short(h),
                 git::short(s)
             ),
@@ -802,6 +819,14 @@ fn report_review(
                 .collect::<Vec<_>>()
         ),
     );
+    if verdict == "fix" && log_kind(id) == LogKind::Change {
+        let role = if p.findings_on_checks(&m["findings"]) {
+            "checks"
+        } else {
+            "build"
+        };
+        m.insert("fix_role".into(), json!(role));
+    }
     m.insert(
         "closed".into(),
         json!(

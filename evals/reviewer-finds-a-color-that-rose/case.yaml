@@ -46,7 +46,7 @@ graders:
   - name: leaves-the-full-review-for-another-launch
     type: regex
     target: trace
-    pattern: 'From the second round on'
+    pattern: 'Some regressions show only side by side'
     match: not_contains
   - name: gives-a-verdict
     type: regex

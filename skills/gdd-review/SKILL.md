@@ -21,6 +21,10 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
 - From `<start>`, never from the change's head: the blueprint, the gates of its zones, the constitution and, when there is one, the brief and its feature files. A change can edit any of them. Read each scenario with its rule where it has one. An `@question` has no outcome to judge in this change.
 - The log of the change, with its approvals and its seal, where a line a later `correction` voids doesn't count.
 
+## From the second round on
+
+After the verdict and color, give one line per previous finding with its id, outcome and evidence. For example, “Previous f1, fixed. The test now rejects a blank title.” Use `fixed` for a verified correction, `false` for a mistaken finding, `intended` for behavior the brief or person asked for, and `minor` for one left for later. If it still fails, keep it open under its original id. Retest only what changed. When the product is unchanged after a test correction, check only the named tests against the findings. Keep the independent color and seal checks. Apply the remaining steps within that scope. Group instances of the same failure and mark a pre-existing issue “was already there”.
+
 ## Every change
 
 1. **The color, on what was touched.** For each zone, `git diff --name-only <start> HEAD -- <pathspec>`, from the root of the repository; then once more excluding every zone to find what none covers, which is never green: judge it as the brief did, against what the blueprint marks as delicate, and take the blueprint's word where it says what that counts as. A path written `':(glob)<pattern>'` is excluded as `':(exclude,glob)<pattern>'`: `:(exclude)` put in front of `:(glob)` excludes nothing and gives no error. Then judgment, on what paths miss: code a delicate zone imports, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files, behavior someone would see that a green change added, and anything that can't be undone, which is never green. The color can only go up.

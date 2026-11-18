@@ -437,6 +437,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     Between 28% and 48% of the brief file was process. Keep rules beside their scenarios in the capability's feature file. Put the request, links to those files, what waits and the way back before the details for the roles. The approval shows each added or changed rule and each assumption under the single yes of decision 75. Existing scenarios keep their tags and earlier briefs still verify under `gdd/1`. The owner in those comparisons was a model. Whether the new brief draws more corrections remains to be measured.
 
+85. **A correction pays only for what changed.** On 18 November 2026 the author kept the merge with the builder and sent findings confined to this change's sealed tests back to the checks agent. In benchmark 0.29, 14 changes shipped. Review and fixes took 59% of the time on yellow. Its six extra builds changed no product file. All eight findings concerned tests, and in two of the six rounds the builder could only answer `CANNOT`. One change passed its gates at 7.8 minutes and shipped at 24.3 with the same product.
+
+    A product finding or a finding without a file still goes to the builder. The resumed builder brings in the corrected seal. When its tree differs from the reviewed tree only in sealed tests, the merge uses no build round. Time and tokens still count, and the gates run on the new seal. A fresh reviewer gets the tests that changed and the findings to close. In three of the six later reviews that asked for another fix, the first reviewer already had the evidence. Every fix review now starts with the previous findings and retests only what changed. The next benchmark can count build rounds that left the product unchanged.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

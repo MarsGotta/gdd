@@ -37,7 +37,7 @@ graders:
   - name: reads-the-full-review
     type: regex
     target: trace
-    pattern: 'From the second round on'
+    pattern: 'Some regressions show only side by side'
     weight: 2
   - name: runs-the-change
     type: tool_used
