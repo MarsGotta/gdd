@@ -2,6 +2,26 @@
 
 use super::*;
 
+/// The builder's diff is advice for the review and summary, independent of the round budget.
+fn change_size(
+    root: &Path,
+    bp: &Blueprint,
+    p: &state::Progress,
+    git: &GitView,
+) -> Option<(i64, Option<i64>)> {
+    let used = git::changed_lines(root, p.start.as_deref()?, git.head.as_deref()?)?;
+    let expected = bp.cap(p.color.as_deref().unwrap_or(""), "lines_per_change");
+    Some((used, expected))
+}
+
+pub(super) fn size_warning(l: &Loaded) -> Option<String> {
+    let (used, expected) = change_size(&l.project.root, &l.bp, &l.state.progress, &l.state.git)?;
+    let expected = expected.filter(|n| used > *n)?;
+    Some(format!(
+        "This change covers {used} lines, above the expected {expected}."
+    ))
+}
+
 pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
     run("limits", |out| {
         check_id(id)?;
@@ -41,23 +61,14 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
         // without the bookkeeping. One more line, beside the counter's, and never in `stop`.
         let p = state::Progress::of(id, &entries);
         let gv = GitView::of(&ctx.root, id, ctx.branch.as_deref(), ctx.head.as_deref());
-        if let (Some(start), Some(head)) = (&p.start, &gv.head)
-            && let Some(used) = git::changed_lines(&ctx.root, start, head)
-        {
-            let (cap, raised) = match lim.raised.get("lines_per_change") {
-                Some(r) => (Some(*r), true),
-                None => (bp.cap(&lim.color, "lines_per_change"), false),
-            };
-            let past = cap.is_some_and(|c| used > c);
+        if let Some((used, cap)) = change_size(&ctx.root, &bp, &p, &gv) {
+            let past = cap.is_some_and(|n| used > n);
             out.say(match cap {
-                Some(c) => format!(
-                    "lines {used} of {c}{}{}",
-                    if raised { ", raised by a waiver" } else { "" },
-                    if past { ", past it" } else { "" }
-                ),
+                Some(n) if past => format!("lines {used} of {n}, larger than expected: tell the reviewer and mention it in the summary"),
+                Some(n) => format!("lines {used} of {n}"),
                 None => format!("lines {used} (no cap)"),
             });
-            out.fact("lines", json!({"used": used, "cap": cap, "raised": raised, "past": past, "start": start, "head": head}));
+            out.fact("lines", json!({"used": used, "cap": cap, "raised": false, "past": past, "start": p.start, "head": gv.head}));
         }
         out.code = if lim.stop.is_empty() { 0 } else { 1 };
         if out.code == 1 {

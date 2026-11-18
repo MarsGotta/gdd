@@ -92,6 +92,12 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
         out.say(format!("the blueprint: {p}"));
     }
     let entries = project.read_log("blueprint");
+    if let Some(words) = events::levels_answer(&entries, &bp) {
+        out.say(format!(
+            "the person's answer about working at the available level: {words}"
+        ));
+        out.fact("levels_answer", words);
+    }
     let approvals: Vec<&Value> = log::events(&entries)
         .into_iter()
         .map(|(_, v)| v)

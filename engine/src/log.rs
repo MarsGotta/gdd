@@ -243,7 +243,7 @@ pub const STEPS: [&str; 10] = [
     "prepare", "reading", "brief", "checks", "build", "gates", "review", "ship", "harden", "exam",
 ];
 pub const APPROVAL_OF: [&str; 5] = ["brief", "change", "blueprint", "gates", "debt"];
-pub const ASK_OF: [&str; 8] = [
+pub const ASK_OF: [&str; 9] = [
     "brief",
     "change",
     "blueprint",
@@ -251,6 +251,7 @@ pub const ASK_OF: [&str; 8] = [
     "debt",
     "waiver",
     "decision",
+    "levels",
     "stop",
 ];
 
@@ -282,10 +283,16 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("check", Str, Must),
             ("why", Str, Must),
             ("backlog", Str, Writes),
+            ("ask", Int, May),
             ("limit", Str, May),
             ("to", NumberLike, May),
         ],
-        ("ask", _) => vec![("of", OneOf(&ASK_OF), Must), ("what", Str, Must)],
+        ("ask", _) => vec![
+            ("of", OneOf(&ASK_OF), Must),
+            ("what", Str, Must),
+            ("limits", Arr, May),
+            ("levels", Obj, May),
+        ],
         ("answer", _) => vec![
             ("what", Str, Must),
             ("of", Str, Writes),

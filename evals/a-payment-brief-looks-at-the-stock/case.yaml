@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-payment-brief-looks-at-the-stock
-description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, asks the person about a rule of their shop instead of deciding it, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends at the brief, or at the question about stock when the orchestrator asks it before writing the brief."
+description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, proposes the stock rule in the brief approval, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends with a single question approving the scenarios and the proposed rule together."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -40,12 +40,12 @@ graders:
   - name: a-scenario-looks-at-the-stock
     type: regex
     target: trace
-    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)|"result":"(?:[^"\\]|\\.)*?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)(?:[^"\\]|\\.)*?\?'
+    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)'
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex
     target: trace
-    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md)[\w.-]+\.md[^\n]{0,6000}?#\s?(?:What it won.t do yet|Lo que (?:a[uú]n|todav[ií]a) no (?:hace|har[aá]))|"result":"(?:[^"\\]|\\.)*?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)(?:[^"\\]|\\.)*?\?'
+    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md)[\w.-]+\.md[^\n]{0,6000}?#\s?(?:What it won.t do yet|Lo que (?:a[uú]n|todav[ií]a) no (?:hace|har[aá]))'
     weight: 2
   - name: builds-nothing-before-the-approval
     type: tool_used
@@ -59,9 +59,9 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: asks-a-rule-of-the-shop
+  - name: proposes-the-shop-rule-in-the-approval
     type: llm
-    criteria: The answer asks the person at least one question about a rule of their shop that they would have an answer for, such as what happens to the stock when someone pays, whether two customers can pay for the last unit, a rounding, a maximum or what an empty cart does, and it says what it would do. It does not present that rule as already decided without asking.
+    criteria: The person gets one brief approval question. It includes a proposed rule of the shop, such as when payment takes an item out of stock, alongside the scenarios. The owner can approve the proposal and the brief with one yes.
     weight: 3
   - name: tells-what-it-wont-do-as-a-consequence
     type: llm

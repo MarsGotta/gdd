@@ -15,7 +15,7 @@
 # when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait
 # for a person, from an ask to the event after it. A tier of checks past its seconds in a run of the
 # gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
-# builder's lines are not counted here: git diff --shortstat gives them.
+# layer counts the builder's lines from git. Size is a notice for review and never enters stop.
 #
 # A cap with no room left stops the next round, never the judging of a build already finished. When
 # the last of the build, gates and review steps is a build that didn't stop, its gates come next;

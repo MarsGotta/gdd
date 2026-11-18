@@ -84,7 +84,7 @@ Each try goes in the `prepare` step's `--probe`: its command, exit code and last
 
 Before the first change, write the baseline in the blueprint with the person, from the project's own history: how long a change takes from request to release, how often it stops someone and what slips through. A new project has no history: say so there, and take the baseline from its first changes. Then ask what figure would make the team drop a gate, and write it under it.
 
-Set the caps of a change of each color, in its `limits`, from how long the person said they'd wait. The template's values are a start: keep them only until the project's own logs say otherwise.
+Set each color's caps from the wait they accept. Start with the template, then adjust from the logs. Above `lines_per_change`, tell the reviewer and note the size in the summary. Keep going.
 
 ## Approval
 

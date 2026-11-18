@@ -306,6 +306,7 @@ fn open_asks(f: &mut Findings, p: &Progress, entries: &[Entry]) {
                 "ask-open",
                 format!("an ask of {} still waits for its answer", a.of),
             ),
+            (Some(end), Some("waiver")) if end == "answer" => {}
             (Some(_), Some(w)) => {
                 let got = events.iter().any(|(l, v)| {
                     *l > a.line && kind(v) == w && (w == "waiver" || str_of(v, "of") == a.of)

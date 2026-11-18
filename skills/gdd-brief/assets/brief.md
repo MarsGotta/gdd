@@ -44,7 +44,7 @@ backlog: <item id>
 
 ## Decisions
 
-<Each decision the person made while briefing. None is left as a decision marker.>
+<Your technical decisions and the product rules you propose for approval. None is left as a decision marker.>
 
 ## Undoing it
 

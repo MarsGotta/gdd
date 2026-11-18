@@ -108,6 +108,22 @@ pub fn log_event(ctx: &Ctx, id: &str, json_text: &str) -> Out {
     })
 }
 
+/// The answer is kept in the person's own words. Its scope is the levels they saw.
+pub(super) fn levels_answer<'a>(entries: &'a [Entry], bp: &Blueprint) -> Option<&'a str> {
+    let events = log::events(entries);
+    let (line, ask) = events
+        .iter()
+        .rev()
+        .find(|(_, v)| log::kind(v) == "ask" && v["of"] == "levels")?;
+    if ask.get("levels") != bp.front.get("levels") {
+        return None;
+    }
+    let (_, answer) = events.iter().find(|(_, v)| {
+        log::kind(v) == "answer" && v["of"] == "levels" && v["ask"].as_u64() == Some(*line as u64)
+    })?;
+    answer["what"].as_str()
+}
+
 pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
     run("ask", |out| {
         if !log::ASK_OF.contains(&of) {
@@ -120,9 +136,57 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
             return Err(Fail::usage("what is one line"));
         }
         let l = load(ctx, id)?;
-        // A question about a brief, or about the change, waits for a brief to be logged; one about
-        // a rule of the product, or about how to split the request, is how a brief starts, and
-        // goes any time.
+        if of == "levels" {
+            if id != "blueprint" {
+                return Err(Fail::usage(
+                    "the deep level is a project decision: gdd ask blueprint --of levels",
+                ));
+            }
+            if let Some(words) = levels_answer(&l.entries, &l.bp) {
+                return Err(Fail::refuse(
+                    "already-answered",
+                    format!("the person answered for these levels: {words}"),
+                    "use their answer in gdd next",
+                ));
+            }
+            if let Some(a) = l.state.progress.open_ask().filter(|a| a.of == "levels")
+                && l.entries
+                    .iter()
+                    .find(|e| e.line == a.line)
+                    .and_then(Entry::event)
+                    .is_some_and(|v| v.get("levels") == l.bp.front.get("levels"))
+            {
+                return Err(Fail::refuse(
+                    "needs-person",
+                    "the levels question is already waiting",
+                    "gdd waiting",
+                ));
+            }
+        }
+        if matches!(of, "decision" | "waiver")
+            && l.state.progress.open_ask().is_some_and(|a| a.spent_limit)
+        {
+            return Err(Fail::refuse(
+                "needs-person",
+                "one question about the spent limit is already waiting",
+                crate::next::limit_reply(id),
+            ));
+        }
+        if of == "brief" && l.state.next.step == "reading" {
+            return Err(Fail::refuse(
+                "out-of-order",
+                "read the brief before asking the person to approve it",
+                way_on(&l, id),
+            ));
+        }
+        if of == "brief" && l.state.progress.approved() && log_kind(id) == LogKind::Change {
+            return Err(Fail::refuse(
+                "already-approved",
+                "what has to pass still has the person's approval",
+                way_on(&l, id),
+            ));
+        }
+        // A decision that changes the scope may come before the brief.
         let kind = log_kind(id);
         if (of == "brief" || of == "change")
             && kind == LogKind::Change
@@ -145,17 +209,29 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
                 format!("gdd next {id}"),
             ));
         }
-        let ev = new_event(
+        let mut ev = new_event(
             id,
             "ask",
             &time::now_string(),
             obj(vec![("of", json!(of)), ("what", json!(what.trim()))]),
         );
+        if of == "levels"
+            && let Some(levels) = l.bp.front.get("levels")
+        {
+            ev["levels"] = levels.clone();
+        }
+        if of == "waiver" && l.state.next.blocked.as_deref() == Some("cap-spent") {
+            ev["limits"] = json!(l.state.limits.stop);
+        }
         let line = write(&l, id, &ev)?;
         out.say(format!(
             "wrote the ask, line {line}: send the message now, and the wait counts from here"
         ));
-        let then = crate::next::follow_up(id, of, l.state.progress.version.unwrap_or(1));
+        let then = if ev["limits"].is_array() {
+            crate::next::limit_reply(id)
+        } else {
+            crate::next::follow_up(id, of, l.state.progress.version.unwrap_or(1))
+        };
         out.say(format!("when they answer: {then}"));
         out.fact("then", json!(then));
         out.fact("line", line);
@@ -327,9 +403,13 @@ pub fn waiver(ctx: &Ctx, id: &str, w: &Waiver) -> Out {
                 "a waiver of a limit takes both --limit and --to",
             ));
         }
+        if w.limit == Some("lines_per_change") || w.check == "lines_per_change" {
+            return Err(Fail::usage(
+                "lines_per_change only tells the reviewer the size. Continue without a waiver.",
+            ));
+        }
         if let Some(lim) = w.limit
             && !crate::blueprint::CAP_KEYS.contains(&lim)
-            && lim != "lines_per_change"
         {
             return Err(Fail::usage(format!(
                 "--limit is a cap of the blueprint: {}",
@@ -348,6 +428,9 @@ pub fn waiver(ctx: &Ctx, id: &str, w: &Waiver) -> Out {
             ("backlog", json!(w.backlog)),
         ]);
         if let (Some(lim), Some(to)) = (w.limit, w.to) {
+            if let Some(a) = l.state.progress.open_ask().filter(|a| a.of == "waiver") {
+                m.insert("ask".into(), json!(a.line));
+            }
             m.insert("limit".into(), json!(lim));
             m.insert("to".into(), json!(to));
         }

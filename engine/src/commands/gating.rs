@@ -135,7 +135,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
                     "{} no room left, and no finished build waits to be judged",
                     l.state.limits.stop.join(", ")
                 ),
-                cap_way_on(id, &l.state.limits),
+                cap_way_on(&l),
             ));
         }
         if l.state.limits.spent {

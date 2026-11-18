@@ -13,7 +13,7 @@ levels:  # one block for each agents' environment the project is worked from
     #   standard: <model>
     #   deep: <model>
 limits:  # what holds for every color: the caps of one change are under each color
-  lines_per_change: 400  # the builder's: git diff --shortstat <start> HEAD
+  lines_per_change: 400  # size notice for the review and summary, in lines
   seconds_each_round: 120  # the checks that run each round, all together: one that takes longer runs before review
   seconds_before_review: 600  # the checks that run before the review, all together
   tokens_per_change: <n, where the environment reports them>

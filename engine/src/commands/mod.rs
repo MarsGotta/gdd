@@ -190,9 +190,9 @@ fn way_on(l: &Loaded, id: &str) -> String {
 }
 
 /// What to do when a cap is spent, as `next` says it: who gives more room, and the command.
-fn cap_way_on(id: &str, lim: &limits::Limits) -> String {
-    let n = crate::next::cap_spent(id, lim);
-    format!("{} Run: {}", n.say, n.command)
+fn cap_way_on(l: &Loaded) -> String {
+    let next = &l.state.next;
+    format!("{} Run: {}", next.say, next.command)
 }
 
 /// The paths that differ between two commits, or which two git couldn't compare.

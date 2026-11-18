@@ -38,6 +38,7 @@ pub struct Limits {
     pub waited: i64,
     pub builds: i64,
     pub checks: i64,
+    /// Recorded waivers, including old line waivers. Only caps on rounds, time and cost can stop work.
     pub raised: BTreeMap<String, i64>,
 }
 

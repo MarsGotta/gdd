@@ -69,13 +69,13 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 | The change's tests | none | a test per scenario, seen failing | the same, seen passing and broken once |
 | Fix rounds in all | 1 | 3 | 3 |
 | Runs of the checks before the review | 1 | 2 | 2 |
-| Questions to the person | none | one | two |
+| Product decisions to propose in the brief approval, where required | none | at most one | at most two |
 | The person approves the brief | no | yes, in a short message | yes |
 | The review | the seal and the color | it reads the change against its brief, about five minutes, two rounds at most | it runs the change and tries to break it, two rounds at most, about fifteen minutes |
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once for one more round.
+What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once whether to leave it pending, with what one more attempt would buy.
 
 ## The ladder
 

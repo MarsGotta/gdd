@@ -14,7 +14,10 @@ pub fn ship_describe(ctx: &Ctx, id: &str) -> Out {
         }
         let events = log::events(&l.entries);
         let brief = l.project.brief(id);
-        let text = crate::ship::describe(&l.state, &events, brief.as_ref());
+        let mut text = crate::ship::describe(&l.state, &events, brief.as_ref());
+        if let Some(size) = counting::size_warning(&l) {
+            text.push_str(&format!("\n{size}\n"));
+        }
         for line in text.lines() {
             out.say(line.to_string());
         }

@@ -190,14 +190,19 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
     assert!(
-        n.has("every change waits for the standing checks"),
+        n.has("Every change waits for the standing checks"),
         "{}",
         n.out
     );
-    let ask = format!(
-        "gdd ask {id} --of waiver \"rounds: 1 of 1 used. One more round would <what it buys>. Yes?\""
+    let ask = command_of(&n);
+    assert!(
+        ask.starts_with(&format!("gdd ask {id} --of waiver ")),
+        "{ask}"
     );
-    assert_eq!(command_of(&n), ask, "{}", n.out);
+    assert!(
+        ask.contains("rounds: 1 of 1 used") && ask.contains("leave it for later"),
+        "{ask}"
+    );
     assert!(
         n.has(&format!(
             "gdd waiver {id} --who <person> --check rounds_per_change --why \"<their words>\" --backlog {id} --limit rounds_per_change --to 2"
@@ -209,13 +214,13 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
     let l = r.gdd(&["launch", id, "checks"]);
     assert_eq!(l.facts["refused"], "cap-spent", "{}", l.out);
     assert!(l.has(&ask), "{}", l.out);
-    // After the person's yes, the waiver raises the cap and it goes on.
+    // After the person chooses the extra try, the waiver raises the cap and it goes on.
     r.gdd(&[
         "ask",
         id,
         "--of",
         "waiver",
-        "rounds: 1 of 1 used. One more round would set up the scan. Yes?",
+        "The scan is unfinished after its one try. Another try would set it up. I'd leave it for later. Yes?",
     ]);
     let w = r.gdd(&[
         "waiver",
@@ -261,20 +266,23 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     }
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
+    let ask = command_of(&n);
+    assert!(ask.starts_with("gdd ask c9 --of waiver "), "{ask}");
     assert!(
-        n.has("propose leaving it in the backlog, never more room"),
-        "{}",
-        n.out
+        ask.contains("rounds: 1 of 1 used") && ask.contains("what it would buy"),
+        "{ask}"
     );
-    assert!(n.has("More room is the person's to give"), "{}", n.out);
-    assert!(
-        n.has(&format!(
-            "gdd ask {id} --of waiver \"rounds: 1 of 1 used. One more round would <what it buys>. Yes?\""
-        )),
-        "{}",
-        n.out
+    assert!(!n.has("--of decision") && n.has("--limit rounds_per_change --to 2"));
+    let question = "The cart opens but its total is wrong. I used the one try we allowed. One more would let me fix the total. I'd leave it for later. Yes?";
+    assert_eq!(r.gdd(&["ask", id, "--of", "waiver", question]).code, 0);
+    let waiting = next_of(&r, id);
+    assert_eq!(step_of(&waiting), "wait");
+    assert!(command_of(&waiting).starts_with("If they agree to leave it pending: gdd answer"));
+    assert_eq!(
+        r.gdd(&["ask", id, "--of", "decision", "Another try?"])
+            .facts["refused"],
+        "needs-person"
     );
-    assert!(n.has("--limit rounds_per_change --to 2"), "{}", n.out);
     let w = r.gdd(&[
         "waiver",
         id,
@@ -292,7 +300,43 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
         "2",
     ]);
     assert_eq!(w.code, 0, "{}", w.out);
+    let log = r.log_lines(id);
+    assert_eq!(log.iter().filter(|e| e["event"] == "ask").count(), 1);
+    let permit = log.last().unwrap();
+    assert_eq!(permit["event"], "waiver");
+    let asked = &log[permit["ask"].as_u64().unwrap() as usize - 1];
+    assert_eq!(asked["what"], question);
+    assert_eq!(permit["why"], "one more");
     assert_eq!(step_of(&next_of(&r, id)), "build");
+}
+
+#[test]
+fn agreeing_to_leave_a_spent_change_for_later_closes_the_question() {
+    let bp = BLUEPRINT.replace(
+        "      minutes_per_change: 600",
+        "      minutes_per_change: 0",
+    );
+    let r = Repo::with(&bp);
+    let id = "g1";
+    assert_eq!(r.gdd(&["brief", id, "--paths", "src/ui/page.txt"]).code, 0);
+    assert_eq!(blocked_of(&next_of(&r, id)), "cap-spent");
+    let ask = r.gdd(&["ask", id, "--of", "waiver", "The page still needs its new title. We set aside no time. Five minutes would let me try it. I'd leave it for later. Yes?"]);
+    assert_eq!(ask.code, 0, "{}", ask.out);
+    assert_eq!(r.gdd(&["answer", id, "Yes, leave it for later."]).code, 0);
+    let n = next_of(&r, id);
+    assert!(
+        command_of(&n).starts_with("gdd brief g1 --stop"),
+        "{}",
+        n.out
+    );
+    assert_eq!(
+        r.gdd(&["brief", id, "--stop", "Leave it for later."]).code,
+        0
+    );
+    assert!(!r.gdd(&["verify", id]).has("ask-unanswered"));
+    let log = r.log_lines(id);
+    assert_eq!(log.iter().filter(|e| e["event"] == "ask").count(), 1);
+    assert!(!log.iter().any(|e| e["event"] == "waiver"));
 }
 
 // ----- 3. only standing-checks comes before every change -----

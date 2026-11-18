@@ -46,7 +46,7 @@ After:
 **They have to approve what a change must do.**
 
 - Before: a page that retells the six scenarios, the color and how it was computed.
-- After: "Discount codes at checkout. A valid code takes its percentage off the total. An unknown code changes nothing and says so. I decided: a code never takes the total below zero. The cases are in `features/discount-codes.feature`. Do you approve them?"
+- After: "Discount codes at checkout. A valid code takes its percentage off the total. An unknown code changes nothing and says so. I propose that a discount can take the total down to zero. The cases are in `features/discount-codes.feature`. Do you approve them?"
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 
@@ -57,7 +57,16 @@ After:
 - **The way that loosens nothing, first.** When one way out keeps every check as it is and another lowers one, propose the first.
 - **What they approve, they see.** Name each file in a line, with what it is for, and wait. A summary isn't what they approve.
 - **Say what you need,** not which skill or rule makes you ask.
-- **You aren't on the level a step asks for, or can't tell.** Say so once, with what you'd do: "This part is delicate, and I can't tell I'm on my most careful setting. I'd go on as I am. Yes?" With their yes, go on, and give the step you write `--level standard`, so the log says the level it was done at. Never ask them twice to open another session: in one run, an orchestrator asked for one in twelve turns running, and the request ended with nothing built.
+- **How to prove it is your decision.** In one run the owner was asked to approve interrupting a migration during a write and using a test double for a closed session. Choose the tests yourself. If it matters to them, say what you decided: "I'll check that an interrupted update keeps your accounts and that signing out closes access." Ask only if the outcome for their customers needs a decision.
+- **You can't verify the deep level.** Look at `gdd next` for the answer about the current levels, including after a new session. Honor it, including a refusal. If the project has no answer, use `gdd ask blueprint --of levels` with one proposal: "I can't confirm my most careful setting here. I'd use the available setting when planning changes or revising this project's checks. Is that OK?" Record their words with `gdd answer blueprint "<their words>"`. During first setup, draft the levels and set up the layer before asking. With their yes, give your own step `--level standard`. The answer holds across changes until the levels change. Roles still launch on their assigned models.
+
+## When a limit stops the work
+
+Use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. Put the option to leave it for later last, so a yes is clear:
+
+    The cart keeps your items. I still need to check the total customers see. I've used both tries we set aside. One more would let me fix and check that total. I'd leave it for later. Yes?
+
+A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing. If other work depends on this, say what will wait and ask at once. If they delegated and other work can go on, leave the change for later without asking.
 
 ## When they leave it to you
 
@@ -70,6 +79,6 @@ It doesn't cover what the method keeps for a person, because nobody else can giv
 - loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
 - what can't be undone.
 
-For those, come back once, with the one thing you propose and a yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". In one run, every limit that ran out was lifted on words like those. When a limit runs out and they had left decisions to you, don't ask at all: leave the change in the backlog, say so in a line and go on. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+For those, come back once, with the one thing you propose and a yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". In one run, every limit that ran out was lifted on words like those. For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
-A rule of their product is asked within what its color allows: no question on green, one on yellow, two on red, in one message. When they leave it to you, or no question is left for it, take what is usual in their sector, write it into the scenario and say it in your last message as an assumption, so they can still correct it: "I assumed a refund goes back to the card it was paid with; tell me if not."
+Where the color asks for brief approval, put the proposed product rule in that approval and ask one question about the whole change. Keep proposals within what the color allows: none on green, one on yellow, two on red, in one message. When they leave it to you, or no question is left for it, take what is usual in their sector, write it into the scenario and say it in your last message as an assumption, so they can still correct it: "I assumed a refund goes back to the card it was paid with; tell me if not."

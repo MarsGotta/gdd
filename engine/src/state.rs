@@ -44,6 +44,7 @@ pub struct Ask {
     pub ended_at: Option<i64>,
     /// Whether what answered it was the answer it asked for: its approval, a waiver, an answer.
     pub answered: bool,
+    pub spent_limit: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,6 +108,8 @@ pub struct Progress {
     pub paths: Vec<String>,
     pub why: String,
     pub approvals: Vec<(usize, String, BTreeMap<String, String>)>,
+    /// Paths that defined what had to pass when the brief was last approved.
+    approved_paths: Vec<String>,
     pub checks_done: bool,
     pub checks_stopped: i64,
     pub checks_line: Option<usize>,
@@ -118,6 +121,8 @@ pub struct Progress {
     pub last_review: Option<Review>,
     pub stop_told: bool,
     pub asks: Vec<Ask>,
+    /// The person answered a spent-limit question without granting more room.
+    pub limit_deferred: bool,
     pub shipped: Option<(usize, String)>,
     pub last_ts: Option<i64>,
     pub checks_runs: i64,
@@ -188,37 +193,29 @@ impl Progress {
         !self.brief_files.is_empty()
     }
 
-    /// Whether the person approved what has to pass, as the brief now is: every scenario file
-    /// (or every file, when the brief has no scenario file) with the hash of its last approval.
+    fn requirements(&self) -> impl Iterator<Item = (&String, &String)> {
+        let has_scenarios = self.brief_files.keys().any(|p| p.starts_with("features/"));
+        self.brief_files
+            .iter()
+            .filter(move |(p, _)| !has_scenarios || p.starts_with("features/"))
+    }
+
+    /// A version or waiver does not change approval. Adding or removing a scenario file, or
+    /// changing one of its approved hashes, does.
     pub fn approved(&self) -> bool {
         let Some(brief_line) = self.brief_line else {
             return false;
         };
-        let briefs: Vec<&(usize, String, BTreeMap<String, String>)> =
-            self.approvals.iter().filter(|a| a.1 == "brief").collect();
+        let mut briefs = self.approvals.iter().filter(|a| a.1 == "brief");
         if self.brief_files.is_empty() {
-            return briefs.iter().any(|a| a.0 > brief_line);
+            return briefs.any(|a| a.0 > brief_line);
         }
-        let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
-        for a in &briefs {
-            for (p, h) in &a.2 {
-                seen.insert(p, h);
-            }
+        if !self.requirements().map(|(p, _)| p).eq(&self.approved_paths) {
+            return false;
         }
-        let scenarios: Vec<(&String, &String)> = self
-            .brief_files
-            .iter()
-            .filter(|(p, _)| p.starts_with("features/"))
-            .collect();
-        let need: Vec<(&String, &String)> = if scenarios.is_empty() {
-            self.brief_files.iter().collect()
-        } else {
-            scenarios
-        };
-        !briefs.is_empty()
-            && need
-                .iter()
-                .all(|(p, h)| seen.get(p.as_str()) == Some(&h.as_str()))
+        let seen: BTreeMap<_, _> = briefs.flat_map(|a| &a.2).collect();
+        self.requirements()
+            .all(|(path, hash)| seen.get(path) == Some(&hash))
     }
 
     /// Whether the person approved the change itself after its last build.
@@ -260,6 +257,9 @@ impl Progress {
                 k.to_string()
             });
             a.ended_at = t;
+            if a.spent_limit && k == "answer" {
+                self.limit_deferred = true;
+            }
             a.answered = match k {
                 "answer" => true,
                 "approval" => str_of(v, "of") == a.of,
@@ -294,11 +294,17 @@ impl Progress {
                     ended_by: None,
                     ended_at: None,
                     answered: false,
+                    spent_limit: v["limits"].is_array() && str_of(v, "of") == "waiver",
                 });
             }
-            "approval" => self
-                .approvals
-                .push((line, str_of(v, "of").into(), hashes(&v["files"]))),
+            "waiver" if v["limit"].is_string() => self.limit_deferred = false,
+            "approval" => {
+                let of = str_of(v, "of");
+                if of == "brief" {
+                    self.approved_paths = self.requirements().map(|(p, _)| p.clone()).collect();
+                }
+                self.approvals.push((line, of.into(), hashes(&v["files"])));
+            }
             "seal" => {
                 self.sealed_any = true;
                 self.seal_since_gates = true;
@@ -319,6 +325,7 @@ impl Progress {
     fn apply_step(&mut self, line: usize, v: &Value) {
         match step(v) {
             "brief" => {
+                self.limit_deferred = false;
                 self.briefs += 1;
                 let color = v["color"]["color"]
                     .as_str()

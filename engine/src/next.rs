@@ -103,66 +103,51 @@ fn round_needs_room(id: &str, lim: &Limits, then: Next) -> Next {
     cap_spent(id, lim)
 }
 
-/// A spent cap: no new round, and how more room is asked for. More room is always the person's
-/// to give, by a waiver; for `standing-checks`, which every change waits for, there is no next
-/// item to go on with, so the person is asked at once.
+/// A single question covers the spent caps and exactly what another attempt would buy.
 pub fn cap_spent(id: &str, lim: &Limits) -> Next {
-    let caps = lim.stop.join(", ");
-    let have = if lim.stop.len() == 1 { "has" } else { "have" };
-    let spent = lim
+    let mut spent = Vec::new();
+    let mut grants = std::collections::BTreeMap::new();
+    let backlog = if log_kind(id) == LogKind::Change {
+        "<item>"
+    } else {
+        id
+    };
+    for line in lim
         .lines
         .iter()
-        .find(|l| lim.stop.iter().any(|s| s == l.name));
-    let (name, key, used, cap) = spent
-        .map(|l| {
-            (
-                l.name,
-                l.key,
-                l.used.trunc() as i64,
-                l.cap.map(|c| c.to_string()).unwrap_or("<cap>".into()),
-            )
-        })
-        .unwrap_or(("<cap>", "<key>", 0, "<cap>".into()));
-    // The cap that gives one more round: a count of rounds takes one more; a count of rounds sent
-    // back is spent past its cap, so it takes what was used.
-    let to = match key {
-        "rounds_per_change" | "runs_before_review" => (used + 1).to_string(),
-        "fix_rounds_per_gate" => used.to_string(),
-        _ => "<n>".into(),
-    };
-    let ask = format!(
-        "gdd ask {id} --of waiver \"{name}: {used} of {cap} used. One more round would <what it buys>. Yes?\""
-    );
-    let backlog = if log_kind(id) == LogKind::Change {
-        "<item>".to_string()
-    } else {
-        id.to_string()
-    };
-    let waive = format!(
-        "gdd waiver {id} --who <person> --check {key} --why \"<their words>\" --backlog {backlog} --limit {key} --to {to}"
-    );
-    if id == "standing-checks" {
-        return blocked(
-            "stopped",
-            "cap-spent",
-            format!(
-                "no new round: {caps} {have} no room left, and every change waits for the standing checks, so there is no next item to go on with. Ask the person at once for one more round: {ask}; after their yes: {waive}"
-            ),
-            ask,
-        );
+        .filter(|l| lim.stop.iter().any(|s| s == l.name))
+    {
+        let used = line.used as i64;
+        let Some(cap) = line.cap else { continue };
+        spent.push(format!("{}: {used} of {cap} used", line.name));
+        let n = grants.entry(line.key).or_insert(used);
+        *n = (*n).max(used);
     }
-    let ends = if log_kind(id) == LogKind::Change {
-        format!(". Left in the backlog, it ends here: gdd brief {id} --stop \"<their words>\"")
+    let mut waivers = Vec::new();
+    for (key, used) in grants {
+        let to = match key {
+            "rounds_per_change" | "runs_before_review" => (used + 1).to_string(),
+            "fix_rounds_per_gate" => used.to_string(),
+            _ => "<agreed amount>".into(),
+        };
+        waivers.push(format!("gdd waiver {id} --who <person> --check {key} --why \"<their words>\" --backlog {backlog} --limit {key} --to {to}"));
+    }
+    let waits = if id == "standing-checks" {
+        " Every change waits for the standing checks: say what will wait."
     } else {
-        String::new()
+        ""
     };
     blocked(
         "stopped",
         "cap-spent",
         format!(
-            "no new round: {caps} {have} no room left. Tell the person in one line and propose leaving it in the backlog, never more room; ask once. More room is the person's to give: {ask}, and after their yes: {waive}{ends}"
+            "No new round.{waits} Ask once in the person's words. If they agree to leave it for later, record their answer and leave it in the backlog. Only if they explicitly choose the extra attempt, record that reply directly: {}",
+            waivers.join(", then ")
         ),
-        format!("gdd ask {id} --of decision \"<leave it in the backlog?>\""),
+        format!(
+            "gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. I'd leave it for later. Yes?\"",
+            spent.join(", ")
+        ),
     )
 }
 
@@ -189,6 +174,13 @@ fn waiting_or_ask(id: &str, p: &Progress, of: &str, what: &str, then: &str, now:
     )
 }
 
+/// In a spent-limit question a yes means leaving it pending.
+pub(crate) fn limit_reply(id: &str) -> String {
+    format!(
+        "If they agree to leave it pending: gdd answer {id} \"<their words>\", then keep the item in the backlog. Only if they request the extra attempt: gdd waiver {id} --who <person> --check <cap> --why \"<their words>\" --backlog <item> --limit <cap> --to <agreed amount>"
+    )
+}
+
 /// What records the person's answer to an ask of a kind: an approval for what a person approves,
 /// a waiver for a waiver, and their words for the rest.
 pub fn follow_up(id: &str, of: &str, version: i64) -> String {
@@ -197,7 +189,7 @@ pub fn follow_up(id: &str, of: &str, version: i64) -> String {
             "gdd approve {id} --of {of} --version {version} --who <person> --where <conversation, commit or pull request> <files>"
         ),
         "waiver" => format!(
-            "gdd waiver {id} --who <person> --check <check or limit> --why \"<reason>\" --backlog <item> [--limit <cap> --to <n>], or for a no: gdd answer {id} \"<their words>\""
+            "gdd waiver {id} --who <person> --check <check or limit> --why \"<reason>\" --backlog <item> [--limit <cap> --to <n>], only if they chose what the question would loosen. To keep the limit or check: gdd answer {id} \"<their words>\""
         ),
         _ => format!("gdd answer {id} \"<their words>\""),
     }
@@ -251,7 +243,11 @@ pub(crate) fn next_step(
         let waited =
             a.ts.map(|t| crate::time::waited(now - t))
                 .unwrap_or_default();
-        let then = follow_up(id, &a.of, p.version.unwrap_or(1));
+        let then = if a.spent_limit {
+            limit_reply(id)
+        } else {
+            follow_up(id, &a.of, p.version.unwrap_or(1))
+        };
         return blocked(
             "wait",
             "needs-person",
@@ -264,13 +260,27 @@ pub(crate) fn next_step(
     }
     let color = p.color.clone().unwrap_or_default();
     let asks = |c: &str| !color.is_empty() && bp.color_asks(&color, c);
-    if kind == LogKind::Setup {
-        return next_in_setup(id, p, lim, git, asks("person-review"), now);
+    let next = if kind == LogKind::Setup {
+        next_in_setup(id, p, lim, git, asks("person-review"), now)
+    } else {
+        before_the_build(id, p, lim, &color, asks("brief-approval"), now).unwrap_or_else(|| {
+            from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
+        })
+    };
+    if next.blocked.as_deref() == Some("cap-spent") && p.limit_deferred {
+        let command = if kind == LogKind::Change {
+            format!("gdd brief {id} --stop \"<their words>\"")
+        } else {
+            "gdd backlog list".into()
+        };
+        return blocked(
+            "stopped",
+            "cap-spent",
+            "The person left this for later. Keep the item in the backlog. Their answer stands.",
+            command,
+        );
     }
-    if let Some(step) = before_the_build(id, p, lim, &color, asks("brief-approval"), now) {
-        return step;
-    }
-    from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
+    next
 }
 
 /// Setting up the standing checks: the checks, their trial, the person's review where the color

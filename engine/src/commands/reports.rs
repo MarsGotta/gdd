@@ -104,7 +104,7 @@ pub(super) fn write_report(
                     "no new round: {} had no room left when this one began",
                     full.join(", ")
                 ),
-                cap_way_on(id, &l.state.limits),
+                cap_way_on(l),
             ));
         }
     }

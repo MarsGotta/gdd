@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-brief-gets-a-second-reading
-description: A draft brief for paying by card, in a shop whose constitution says nothing is sold without stock, says it won't touch the stock because orders come later. A reviewer launched to read it before anyone builds runs nothing, answers fix and names the stock.
+description: A draft brief for paying by card, in a shop whose constitution says nothing is sold without stock, says it won't touch the stock because orders come later. The declined-card scenario leaves its expected outcome unspecified. A reviewer launched to read it before anyone builds runs nothing, answers fix and names the stock.
 tags: [role, review, brief]
 runs: 3
 execution:
@@ -70,4 +70,8 @@ graders:
   - name: finds-what-paying-does-to-the-stock
     type: llm
     criteria: The answer finds that the brief leaves out what paying does to the stock, for example that no scenario says what happens to the stock after a payment, that the shop could sell what it no longer has, or that "it doesn't touch the stock" is written as what stays as it was instead of as a consequence. It ties it to the rule of the constitution that nothing is sold without stock, or to orders being a later item.
+    weight: 2
+  - name: catches-what-the-checks-role-would-need
+    type: llm
+    criteria: The reading names card-payment-2 and explains what its test would need to observe when a payment is declined, such as no charge and the message shown to the customer. It gives the orchestrator a concrete correction before approval.
     weight: 2

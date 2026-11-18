@@ -258,7 +258,16 @@ fn a_red_change_stops_on_a_reviewers_stop() {
         "src/pay/pay.txt",
     ]);
     assert_eq!(b.facts["color"], "red");
-    r.gdd(&["ask", "r1", "--of", "brief", "Approve?"]);
+    assert_eq!(
+        r.gdd(&["ask", "r1", "--of", "brief", "Approve?"]).facts["refused"],
+        "out-of-order"
+    );
+    assert_eq!(
+        r.report("r1", "reading", &report_block("gdd-review", "pass"), &[])
+            .code,
+        0
+    );
+    assert_eq!(r.gdd(&["ask", "r1", "--of", "brief", "Approve?"]).code, 0);
     r.gdd(&[
         "approve",
         "r1",
@@ -370,7 +379,8 @@ fn a_finished_build_with_its_rounds_spent_is_still_judged() {
     assert_eq!(l.facts["refused"], "cap-spent", "{}", l.out);
     let n = r.gdd(&["next", "y2"]);
     assert_eq!(n.facts["state"]["next"]["blocked"], "cap-spent");
-    // A waiver of the cap gives it room, and the counter sees it.
+    // The same reply grants another attempt without reopening the brief.
+    assert_eq!(r.gdd(&["ask", "y2", "--of", "waiver", "The total still looks wrong. The one try we agreed on is spent. One more could fix the total. Leave it for later?"]).code, 0);
     let w = r.gdd(&[
         "waiver",
         "y2",
@@ -389,6 +399,11 @@ fn a_finished_build_with_its_rounds_spent_is_still_judged() {
     ]);
     assert_eq!(w.code, 0, "{}", w.out);
     assert!(r.read("gdd/backlog.md").contains("| y2-rounds |"));
+    assert_eq!(
+        r.gdd(&["ask", "y2", "--of", "brief", "Approve it again?"])
+            .facts["refused"],
+        "already-approved"
+    );
     let lim = r.gdd(&["limits", "y2"]);
     assert!(lim.has("rounds 1 of 2, raised by a waiver"), "{}", lim.out);
     assert_eq!(
@@ -504,6 +519,11 @@ fn a_new_version_of_a_brief_needs_new_checks_and_keeps_its_base() {
     assert_eq!(last["version"], 2);
     assert_eq!(last["color"]["base"], base);
     assert_eq!(b.facts["next"], "checks", "{}", b.out);
+    assert_eq!(
+        r.gdd(&["ask", "y4", "--of", "brief", "Approve it again?"])
+            .facts["refused"],
+        "already-approved"
+    );
     // The role finds that what it sealed still covers the new version, and seals nothing new: its
     // checks stand, as they were sealed, and the change goes on to its build.
     let c = r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
@@ -1028,5 +1048,139 @@ fn a_role_on_another_model_than_its_levels_is_refused() {
     assert_eq!(
         r.report("yy", "build", &done, &["--model", "model-b"]).code,
         0
+    );
+}
+
+#[test]
+fn removing_a_scenario_file_changes_what_the_person_approved() {
+    let r = Repo::new();
+    let id = "cart";
+    yellow_brief(&r, id, "src/core/app.txt");
+    let brief = "gdd/briefs/cart.md";
+    let cart = "features/cart.feature";
+    let empty = "features/empty.feature";
+    r.write(empty, "Feature: An empty cart shows a zero total\n");
+    assert_eq!(r.gdd(&["seal", id, empty]).code, 0);
+    let both = [
+        "brief",
+        id,
+        brief,
+        cart,
+        empty,
+        "--paths",
+        "src/core/app.txt",
+    ];
+    assert_eq!(r.gdd(&both).code, 0);
+    assert_eq!(
+        r.gdd(&[
+            "approve",
+            id,
+            "--of",
+            "brief",
+            "--who",
+            "Owner",
+            "--where",
+            "conversation",
+            cart,
+            empty
+        ])
+        .code,
+        0
+    );
+    let fewer = r.gdd(&["brief", id, brief, cart, "--paths", "src/core/app.txt"]);
+    assert_eq!(fewer.facts["next"], "ask", "{}", fewer.out);
+    // Restoring exactly what the person saw keeps their approval.
+    assert_eq!(r.gdd(&both).facts["next"], "checks");
+}
+
+#[test]
+fn a_large_change_gets_its_review_and_a_size_note_without_a_waiver() {
+    let r = Repo::new();
+    let id = "g1";
+    assert_eq!(r.gdd(&["brief", id, "--paths", "src/ui/page.txt"]).code, 0);
+    let base = r.git(&["rev-parse", "main"]);
+    r.commit_on(
+        "work/g1",
+        Some(&base),
+        &[("src/ui/new.txt", &"line\n".repeat(540))],
+        "Add the pages",
+    );
+    assert_eq!(
+        r.report(id, "build", &report_block("gdd-build", "done"), &[])
+            .code,
+        0
+    );
+    let limits = r.gdd(&["limits", id]);
+    assert_eq!(limits.code, 0, "{}", limits.out);
+    assert_eq!(limits.facts["lines"]["used"], 540);
+    assert_eq!(limits.facts["lines"]["past"], true);
+    assert_eq!(limits.facts["stop"].as_array().unwrap().len(), 0);
+    assert_eq!(r.gdd(&["gates", id]).code, 0);
+    let review = r.gdd(&["launch", id, "review"]);
+    let note = "540 lines, above the expected 400";
+    assert!(review.facts["prompt"].as_str().unwrap().contains(note));
+    assert_eq!(
+        r.report(id, "review", &review_text("pass", "green", ""), &[])
+            .code,
+        0
+    );
+    assert!(
+        r.gdd(&["ship", id, "--describe"]).facts["description"]
+            .as_str()
+            .unwrap()
+            .contains(note)
+    );
+    let w = r.gdd(&[
+        "waiver",
+        id,
+        "--who",
+        "Owner",
+        "--check",
+        "lines_per_change",
+        "--why",
+        "more lines",
+        "--backlog",
+        "pages",
+        "--limit",
+        "lines_per_change",
+        "--to",
+        "600",
+    ]);
+    assert_ne!(w.code, 0);
+}
+
+#[test]
+fn the_answer_about_the_deep_level_lasts_until_the_project_changes_levels() {
+    let r = Repo::new();
+    let question = [
+        "ask",
+        "blueprint",
+        "--of",
+        "levels",
+        "May I plan at the available setting for this project?",
+    ];
+    assert_eq!(r.gdd(&question).code, 0);
+    assert_eq!(r.gdd(&["answer", "blueprint", "Yes, go ahead."]).code, 0);
+    r.write(
+        "gdd/blueprint.md",
+        &BLUEPRINT.replace("lines_per_change: 400", "lines_per_change: 300"),
+    );
+    assert_eq!(r.gdd(&["next"]).facts["levels_answer"], "Yes, go ahead.");
+    assert_eq!(r.gdd(&question).facts["refused"], "already-answered");
+    assert_eq!(r.log_lines("blueprint").len(), 2);
+    r.write(
+        "gdd/blueprint.md",
+        &BLUEPRINT.replace("deep: model-c", "deep: model-d"),
+    );
+    assert!(r.gdd(&["next"]).facts["levels_answer"].is_null());
+    assert_eq!(r.gdd(&question).code, 0);
+    assert_eq!(
+        r.gdd(&["answer", "blueprint", "Wait for the deep setting."])
+            .code,
+        0
+    );
+    assert_eq!(
+        r.gdd(&["next"]).facts["levels_answer"],
+        "Wait for the deep setting."
     );
 }

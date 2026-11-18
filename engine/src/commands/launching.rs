@@ -241,6 +241,11 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     if role == "reading" {
         s.push("You are to read a brief before anyone builds it: follow references/brief.md of the skill.".into());
     }
+    if role == "review"
+        && let Some(size) = counting::size_warning(l)
+    {
+        s.push(format!("{size} Review it whole. Size alone is no finding."));
+    }
     let brief = format!("gdd/briefs/{id}.md");
     if l.project.path(&brief).is_file() || !p.brief_files.is_empty() {
         let scen: Vec<&String> = p
@@ -491,7 +496,7 @@ fn may_launch(ctx: &Ctx, l: &Loaded, id: &str, role: &str) -> R<()> {
                 "no new round: {} no room left",
                 l.state.limits.stop.join(", ")
             ),
-            cap_way_on(id, &l.state.limits),
+            cap_way_on(l),
         ));
     }
     if role == "build" && l.state.next.step != "build" {
