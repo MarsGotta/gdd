@@ -764,19 +764,22 @@ fn report_review(
         out.say(format!("fix missing citations ({missing}): end each numbered finding with | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>"));
         m.insert("uncited".into(), json!(r.uncited));
     }
-    if let Some(read) = &r.reviewed
-        && review_stamp(l).as_ref() != Some(read)
-    {
-        let next = if l.state.next.step == "gates" {
-            format!("gdd gates {id}, then ")
-        } else {
-            String::new()
-        };
-        return Err(Fail::refuse(
-            "stale-review",
-            "the branch or gates changed since this review started",
-            format!("{next}gdd launch {id} review"),
-        ));
+    if let Some(read) = &r.reviewed {
+        let (current, bare_commit) = review_stamp(l).unwrap_or_else(|| ("none".into(), None));
+        if !read.eq_ignore_ascii_case(&current)
+            && !bare_commit.is_some_and(|head| read.eq_ignore_ascii_case(head))
+        {
+            let next = if l.state.next.step == "gates" {
+                format!("gdd gates {id}, then ")
+            } else {
+                String::new()
+            };
+            return Err(Fail::refuse(
+                "stale-review",
+                format!("reviewed: {read}\ncurrent: {current}"),
+                format!("{next}gdd launch {id} review"),
+            ));
+        }
     }
     let head = review_head(l).map(str::to_owned);
     // What a setup log's trial judges is all it sealed, from where its seal was cut.
@@ -842,10 +845,13 @@ fn report_review(
         .map(Vec::as_slice)
         .unwrap_or_default();
     let closed = a.closed.as_deref().or(r.closed.as_deref()).unwrap_or("");
-    let outcomes = closed_findings(closed, previous).ok_or_else(|| Fail::refuse(
-        "bad-closed", "closed: needs one valid outcome per named finding from the previous review, without duplicates",
-        format!("correct the closed: line and run gdd report {id} review <file>"),
-    ))?;
+    let outcomes = closed_findings(closed, previous).unwrap_or_else(|| {
+        out.say(format!(
+            "no previous findings were closed because the layer could not read closed: {closed}"
+        ));
+        m.insert("unparsed_closed".into(), json!(closed));
+        Vec::new()
+    });
     m.insert("closed".into(), json!(outcomes));
     if !r.notes.is_empty() {
         m.insert("notes".into(), json!(r.notes));
@@ -855,7 +861,7 @@ fn report_review(
 
 fn closed_findings(text: &str, previous: &[Value]) -> Option<Vec<Value>> {
     let mut closed = Vec::new();
-    if text.trim().is_empty() {
+    if text.trim().is_empty() || text.trim().eq_ignore_ascii_case("none") {
         return Some(closed);
     }
     let mut seen = BTreeSet::new();

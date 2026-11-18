@@ -201,7 +201,9 @@ fn bookkeeping_and_a_local_merge() {
     r.write("features/y1.feature", "A local correction");
     let refuse = r.gdd(&["ship", id, "--merge"]);
     assert_eq!(refuse.facts["refused"], "dirty-tree", "{}", refuse.out);
-    assert!(refuse.has("Never commit brief files on main") && refuse.has("git restore"));
+    assert!(dirty.has("set other pending work aside"));
+    assert!(refuse.has("For a brief file, never commit it on main yourself"));
+    assert!(refuse.has("git restore it if main has it"));
     assert_eq!(r.read("features/y1.feature"), "A local correction");
     r.git(&["restore", "--", "features/y1.feature"]);
     // The merge: the copies of the brief and the logs go aside, the merge brings them back.

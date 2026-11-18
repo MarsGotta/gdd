@@ -67,7 +67,7 @@ graders:
   # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
-    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:[ \t]*\r?\n)?```\s*$'
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'
   - name: finds-what-paying-does-to-the-stock
     type: llm
     criteria: The answer finds that the shop could sell stock it no longer has. It asks for the stock rule and a scenario beneath it showing what another buyer sees afterwards in the catalog or cart. Stock timing proposed by the agent is an assumption. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.

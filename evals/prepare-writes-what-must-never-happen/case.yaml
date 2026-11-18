@@ -92,6 +92,10 @@ graders:
     pattern: 'constitution\.md[^\n]*\b(?:put|write|restate|phrase|express|describe)\b[^\n]*\bin your (?:own )?words\b'
     flags: i
     weight: 2
+  - name: waits-for-approval-before-changes
+    type: llm
+    criteria: It does not say the project is ready for changes now.
+    weight: 2
   - name: invites-corrections-to-the-payment-rules
     type: regex
     pattern: 'gdd/gates/[^\n]*\b(?:correct (?:it|them|any|the|my|a)|(?:you (?:to|can|may|should)|please) correct)\b'

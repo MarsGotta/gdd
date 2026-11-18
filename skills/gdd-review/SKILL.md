@@ -54,7 +54,7 @@ In every round, name the whole class of each failure. Group its instances in one
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
 
-- `pass`: it works. On red you ran it. On yellow you read it against its brief without running the product or its tests. List minor issues under `LATER:`. A blank line after an item ends the list.
+- `pass`: on green the color and the seal held. On red you ran it and it worked. On yellow you read it against its brief without running the product or its tests. List minor issues under `LATER:`. A blank line after an item ends the list.
 - `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:<scenario>`), `zone <name>: <rule>`, `constitution: <rule>`, `request: <the person's words>` or `check <id>`. For example, `f1 tests/playlist:42 the test passes even when skipping a track restarts it | @id:playlist-1`. If all findings name tests sealed for this change, `gdd-checks` corrects them and the builder merges the seal. If none do, the builder takes the fix. For mixed findings, `gdd-checks` corrects the named tests first, then the builder merges the seal and handles the rest, including findings without a file. Your fix holds the change. The layer logs any missing citations so Harden can count them. Put anything you can't tie to one of those sources under `LATER:` for the backlog. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 

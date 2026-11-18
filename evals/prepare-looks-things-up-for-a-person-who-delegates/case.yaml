@@ -33,7 +33,7 @@ graders:
   - name: tries-to-open-a-source
     type: regex
     target: trace
-    pattern: '"name":"WebFetch","input":\{[^}]*"url":"https?://|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:curl|wget)\s+(?:(?!\\n)[^;&|"])*?https?://'
+    pattern: '"name":"WebSearch","input":\{[^}]*"query":"[^"\s][^"]*"|"name":"WebFetch","input":\{[^}]*"url":"https?://|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:curl|wget)\s+(?:(?!\\n)[^;&|"])*?https?://'
     weight: 2
   - name: keeps-what-it-found
     type: regex

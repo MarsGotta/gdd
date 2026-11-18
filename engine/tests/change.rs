@@ -43,6 +43,7 @@ fn a_green_change_from_brief_to_ship() {
         prompt.contains("git fetch <clone> work/g1:work/g1"),
         "{prompt}"
     );
+    assert!(prompt.contains("name the branch and the file"), "{prompt}");
     let base = r.git(&["rev-parse", "main"]);
     r.commit_on(
         "work/g1",
@@ -1342,6 +1343,47 @@ fn a_review_cannot_launch_after_the_product_moves_past_the_gates() {
 }
 
 #[test]
+fn a_fix_survives_formatting_of_the_reviewed_line() {
+    let r = Repo::new();
+    let head = gated_change(&r, "stamp", "");
+    let launch = r.gdd(&["launch", "stamp", "review"]);
+    let stamp = launch.facts["prompt"]
+        .as_str()
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Copy this line into your gdd-report block: reviewed: "))
+        .unwrap();
+    let fix = review_text("fix", "yellow", "f1 title is blank | @id:stamp-1");
+    let report = |value: &str| {
+        let text = fix.replace("caught: none", &format!("caught: none\nreviewed: {value}"));
+        r.report("stamp", "review", &text, &[])
+    };
+    let other = "a".repeat(40);
+    let stale = report(&other);
+    assert_eq!(stale.facts["refused"], "stale-review");
+    assert!(stale.has(&other) && stale.has(stamp), "{}", stale.out);
+
+    let before = r.read("gdd/log/stamp.jsonl");
+    for value in [
+        stamp,
+        &format!("`{stamp}`."),
+        &format!("{stamp}."),
+        &stamp.to_ascii_uppercase(),
+        &head,
+        &head[..7],
+        &"f".repeat(41),
+        "",
+        "none",
+        "<copy the value from the prompt's reviewed: line, or omit this line if none>",
+    ] {
+        r.write("gdd/log/stamp.jsonl", &before);
+        let written = report(value);
+        assert_eq!(written.facts["next"], "build", "{value}: {}", written.out);
+        assert_eq!(r.log_lines("stamp").last().unwrap()["verdict"], "fix");
+    }
+}
+
+#[test]
 fn a_review_cannot_report_against_a_later_branch_or_gate_run() {
     let r = Repo::new();
     let gated = gated_change(&r, "snapshot", "");
@@ -1376,6 +1418,12 @@ fn a_review_cannot_report_against_a_later_branch_or_gate_run() {
             .facts["refused"],
         "stale-review"
     );
+    let bare = review_text("fix", "yellow", "f1 title is blank | @id:snapshot-1")
+        .replace("caught: none", &format!("caught: none\nreviewed: {gated}"));
+    for opts in [vec![], vec!["--head", &gated]] {
+        let late = r.report("snapshot", "review", &bare, &opts);
+        assert_eq!(late.facts["refused"], "stale-review", "{}", late.out);
+    }
     assert_eq!(r.gdd(&["gates", "snapshot"]).code, 0);
     let late = r.report("snapshot", "review", &second, &[]);
     assert_eq!(late.facts["refused"], "stale-review");
@@ -1902,72 +1950,105 @@ fn a_product_edit_at_the_round_limit_needs_a_waiver() {
     );
 }
 
+fn review_after_product_fix(r: &Repo) {
+    gated_change(r, "closed", "");
+    let findings = (1..=4)
+        .map(|i| format!("f{i} issue {i} | @id:closed-1"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(
+        r.report(
+            "closed",
+            "review",
+            &review_text("fix", "yellow", &findings),
+            &[]
+        )
+        .facts["next"],
+        "build"
+    );
+    r.commit_on(
+        "work/closed",
+        None,
+        &[("src/core/app.txt", "ok now")],
+        "Fix the product",
+    );
+    assert_eq!(
+        r.report("closed", "build", &build_report(""), &[]).facts["next"],
+        "gates"
+    );
+    assert_eq!(r.gdd(&["gates", "closed"]).facts["next"], "review");
+}
+
+#[test]
+fn an_unreadable_closed_list_preserves_the_fix_and_closes_nothing() {
+    let r = Repo::new();
+    review_after_product_fix(&r);
+    let before = r.read("gdd/log/closed.jsonl");
+    let fix = review_text("fix", "yellow", "f5 title is blank | @id:closed-1");
+    for value in [
+        "",
+        "none",
+        "-",
+        "f1=fixed.",
+        "`f1=fixed`",
+        "f1=fixed; f2=false",
+        "f1: fixed",
+        "f1=fixed f9=minor",
+        "f1=open",
+        "f1=fixed junk",
+        "f1=fixed, F1 = false",
+        "f1=fixed,,f2=false",
+        "<optional such as f1=fixed>",
+    ] {
+        r.write("gdd/log/closed.jsonl", &before);
+        let text = fix.replace("caught: none", &format!("caught: none\nclosed: {value}"));
+        let written = r.report("closed", "review", &text, &[]);
+        assert_eq!(written.code, 0, "{value}: {}", written.out);
+        let lines = r.log_lines("closed");
+        let step = lines.last().unwrap();
+        assert_eq!(step["verdict"], "fix");
+        assert_eq!(step["findings"][0]["id"], "f5");
+        assert_eq!(step["closed"], serde_json::json!([]));
+        if value.is_empty() || value == "none" {
+            assert!(!written.has("could not read closed:"));
+            assert!(step.get("unparsed_closed").is_none());
+        } else {
+            assert!(
+                written.has(&format!("could not read closed: {value}")),
+                "{}",
+                written.out
+            );
+            assert_eq!(step["unparsed_closed"], value);
+        }
+    }
+    // Repeated fields and a manual override use the same all-or-nothing check.
+    for (fields, options, raw) in [
+        (
+            "closed: f1=fixed\nclosed: f1=false",
+            vec![],
+            "f1=fixed,f1=false",
+        ),
+        (
+            "closed: f1=fixed",
+            vec!["--closed", "f1=fixed,junk"],
+            "f1=fixed,junk",
+        ),
+    ] {
+        r.write("gdd/log/closed.jsonl", &before);
+        let text = fix.replace("caught: none", fields);
+        let written = r.report("closed", "review", &text, &options);
+        assert_eq!(written.code, 0, "{}", written.out);
+        let lines = r.log_lines("closed");
+        assert_eq!(lines.last().unwrap()["unparsed_closed"], raw);
+        assert_eq!(lines.last().unwrap()["closed"], serde_json::json!([]));
+    }
+}
+
 #[test]
 fn the_review_block_closes_findings_in_manual_and_run_reports() {
     for automated in [false, true] {
         let r = Repo::new();
-        gated_change(&r, "closed", "");
-        let pretend = review_text("pass", "yellow", "").replace(
-            "caught: none",
-            "caught: none\nclosed: <optional such as f1=fixed>",
-        );
-        assert_eq!(
-            r.report("closed", "review", &pretend, &[]).facts["refused"],
-            "bad-closed"
-        );
-        let findings = (1..=4)
-            .map(|i| format!("f{i} issue {i} | @id:closed-1"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert_eq!(
-            r.report(
-                "closed",
-                "review",
-                &review_text("fix", "yellow", &findings),
-                &[]
-            )
-            .facts["next"],
-            "build"
-        );
-        r.commit_on(
-            "work/closed",
-            None,
-            &[("src/core/app.txt", "ok now")],
-            "Fix the product",
-        );
-        assert_eq!(
-            r.report("closed", "build", &build_report(""), &[]).facts["next"],
-            "gates"
-        );
-        assert_eq!(r.gdd(&["gates", "closed"]).facts["next"], "review");
-        let pass = review_text("pass", "yellow", "");
-        for bad in [
-            "f1=other",
-            "f1=fixed junk",
-            "f1=fixed, F1 = false",
-            "f99=minor",
-            "f1=fixed,,f2=false",
-        ] {
-            let block = pass.replace("caught: none", &format!("caught: none\nclosed: {bad}"));
-            assert_eq!(
-                r.report("closed", "review", &block, &[]).facts["refused"],
-                "bad-closed",
-                "{bad}"
-            );
-        }
-        assert_eq!(
-            r.report("closed", "review", &pass, &["--closed", "f1=fixed,junk"])
-                .facts["refused"],
-            "bad-closed"
-        );
-        let repeated = pass.replace(
-            "caught: none",
-            "caught: none\nclosed: f1=fixed\nclosed: f1=false",
-        );
-        assert_eq!(
-            r.report("closed", "review", &repeated, &[]).facts["refused"],
-            "bad-closed"
-        );
+        review_after_product_fix(&r);
         let text = review_text("pass", "yellow", "closed: f5=minor").replace(
             "caught: none",
             "caught: none\nclosed: F1 = fixed, f2=false f3=intended f4=minor",

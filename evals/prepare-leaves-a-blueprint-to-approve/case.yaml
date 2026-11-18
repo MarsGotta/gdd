@@ -199,7 +199,7 @@ graders:
     weight: 2
   - name: asks-the-person-to-approve
     type: llm
-    criteria: The answer names the blueprint and the other files to read and asks the person to approve them together before building starts. It tells them what checks still need to be set up or tried and when. Asking “Do you approve them as they are?” after listing the files covers the blueprint.
+    criteria: The answer names the blueprint and the other files to read and asks the person to approve them together before building starts. It tells them what checks still need to be set up or tried and when. Asking “Do you approve them as they are?” after listing the files covers the blueprint. It does not say the project is ready for changes now.
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex

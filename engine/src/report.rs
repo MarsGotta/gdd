@@ -356,7 +356,18 @@ pub(crate) fn parse_with_blueprint(
         .map(|(_, v)| v.as_str())
         .collect();
     r.closed = (!closed.is_empty()).then(|| closed.join(","));
-    r.reviewed = get("reviewed");
+    r.reviewed = get("reviewed")
+        .map(|v| {
+            v.replace('`', "")
+                .trim()
+                .trim_end_matches(['.', ',', ';', ':', '!', '?'])
+                .trim_end()
+                .to_owned()
+        })
+        .filter(|v| {
+            v.split(|c: char| !c.is_ascii_hexdigit())
+                .any(|hex| hex.len() == 40)
+        });
     let lines: Vec<&str> = text.lines().collect();
     if let Some(i) = lines.iter().position(|l| plain(l).starts_with("CANNOT:")) {
         let reason = plain(lines[i])

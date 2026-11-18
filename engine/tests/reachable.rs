@@ -93,13 +93,7 @@ fn answer_question(r: &Repo, state: &Value, command: &str) {
 }
 
 fn ask(r: &Repo, next: &Value, command: &str) {
-    let ask = if next["blocked"] == "cap-spent" {
-        offered(command, "gdd brief example --stop");
-        command.split_once("Otherwise: ").unwrap().1
-    } else {
-        command
-    };
-    let args = gdd::launch::split(ask).unwrap();
+    let args = gdd::launch::split(command).unwrap();
     assert_eq!(&args[..4], ["gdd", "ask", "example", "--of"]);
     assert_eq!(args.len(), 6);
     if matches!(args[4].as_str(), "brief" | "stop") {
@@ -220,6 +214,9 @@ fn walk_change(path: &str, choices: &mut Choices, visited: &mut BTreeSet<String>
             }
             "ask" | "stopped" => {
                 assert!(next["blocked"].is_string(), "{}", n.out);
+                if next["blocked"] == "cap-spent" {
+                    offered(&n.out, "gdd brief example --stop");
+                }
                 ask(&r, next, command);
             }
             "wait" => {

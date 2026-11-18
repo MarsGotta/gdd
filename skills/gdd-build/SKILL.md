@@ -12,7 +12,7 @@ metadata:
 Gates decide when you're done. Never orchestrate, write checks, approve or launch agents.
 
 - Build from the brief (otherwise the request) within its paths. Commit on your branch.
-- Use your own worktree inside the project, from `<start>`, later the project's branch tip. If git cannot add it, follow `gdd/references/role-clone.md`. Never force a refused fetch: stop with `CANNOT:`.
+- Use your own worktree inside the project, from `<start>`, later the project's branch tip. If git cannot add it, follow `../gdd/references/role-clone.md`. Never force a refused fetch: stop with `CANNOT:`.
 - Never touch sealed checks, `gdd/`, `features/` or agents' files. Never seek hidden examples. Never weaken, skip, delete or retry a test or raise its timeout to pass.
 - Save command output and read only the file tails. Don't print unchanged files twice. That fills your context. Run every gate with the constitution's command. Report command, exit code and last five lines. A failing gate's scenario says why.
 - Prove pre-existing failures on the base. Leave them alone.

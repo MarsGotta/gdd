@@ -314,10 +314,16 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
     let ask = command_of(&n);
-    assert!(
-        ask.find("gdd brief c9 --stop").unwrap() < ask.find("gdd ask c9 --of waiver").unwrap(),
-        "{ask}"
-    );
+    assert!(ask.starts_with("gdd ask c9 --of waiver "), "{ask}");
+    assert!(!ask.contains("gdd brief"));
+    assert!(n.out.lines().any(|line| line == format!("run: {ask}")));
+    let advice = n
+        .out
+        .lines()
+        .find(|line| line.starts_with("next: "))
+        .unwrap();
+    assert!(advice.contains("If they delegated and other work can go on"));
+    assert!(advice.contains("keep or add the item in the backlog and use gdd brief c9 --stop"));
     assert!(n.has("If the next item needs this work") && !ask.contains("leave it for later"));
     assert!(
         ask.contains("rounds: 1 of 1 used") && ask.contains("what it would buy"),

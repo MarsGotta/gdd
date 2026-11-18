@@ -152,7 +152,7 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
     };
     let delegated = if log_kind(id) == LogKind::Change {
         format!(
-            "If the person left the decision to you and no other item needs this work, ask nothing: tell them what is left and run gdd brief {id} --stop \"<what is left>\". Otherwise: "
+            "If they delegated and other work can go on, leave the change for later without asking. Tell them what is left, keep or add the item in the backlog and use gdd brief {id} --stop \"<what is left>\". Otherwise use the waiver question below. "
         )
     } else {
         String::new()
@@ -165,7 +165,7 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
             waivers.join(", then ")
         ),
         format!(
-            "{delegated}gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. {proposal}\"",
+            "gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. {proposal}\"",
             spent.join(", ")
         ),
     )

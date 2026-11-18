@@ -82,7 +82,7 @@ When you tell the person the change is in, give each reported choice one line in
 
 ## When a limit stops the work
 
-If they delegated and other work can go on, leave the change for later without asking. Tell them what is left and use `gdd brief <id> --stop "<what is left>"`. Otherwise use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
+If they delegated and other work can go on, leave the change for later without asking. Tell them what is left, keep or add the item in the backlog and use `gdd brief <id> --stop "<what is left>"`. Otherwise use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
 
     Your songbook shows the lyrics. I still need to check the chords. I've used both tries we agreed on. One more would let me fix and check the chords. I'd leave that for later. Yes?
 

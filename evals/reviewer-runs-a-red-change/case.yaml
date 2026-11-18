@@ -64,15 +64,15 @@ graders:
     weight: 3
   - name: tries-the-way-back
     type: regex
-    pattern: '^(?![^\n]*(?:did not|never|didn.t|would|should|might)\b)[^\n]*(?:\bgit revert\b[^\x60\n]*?(?:\x60[ ,:]*|[ ,:]+)(?:exit(?:ed|s)?(?: code)?[ :=]+|returned )-?\d+\b|"command"\s*:\s*"git revert [^"\n]+",\s*"exit"\s*:\s*-?\d+|\b(?:tried|tested|ran) the (?:way back|rollback)\b[^\n]*?\b(?:worked|failed|succeeded)\b)'
+    pattern: '^(?![^\n]*(?:did not|never|didn.t|would|should|might)\b)[^\n]*(?:\bgit(?:\s+-C\s+\S+)?\s+revert\b[^\x60\n]*?(?:\x60[ ,:]*|[ ,:]+)(?:exit(?:ed|s)?(?: code)?[ :=]+|returned )-?\d+\b|"command"\s*:\s*"(?:\s*|(?:[^"\\\n]|\\.)*?(?:&&|\|\||;)\s*)\bgit(?:\s+-C\s+\S+)?\s+revert\b(?:[^"\\\n]|\\.)*",\s*"exit"\s*:\s*-?\d+|\b(?:tried|tested|ran) the (?:way back|rollback)\b[^\n]*?\b(?:worked|failed|succeeded)\b)'
     flags: mi
     weight: 1
   # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
-    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:[ \t]*\r?\n)?```\s*$'
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'
   - name: tries-to-break-it
     type: regex
-    pattern: '(?:\bcharge\([^\n)]*(?:-\d|\d+\.\d+|\bNone\b)[^\n)]*\)|\bcharge\(([^,\n)]+),[^\n)]*\)(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b[^\n]*?\bcharge\(\1,[^\n)]*\)|(?:\b(?:restart(?:ed)?|concurrent|threaded|simultaneous|retried|twice)\b)[^\n]*?(?:cart|charge|calls))(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b'
+    pattern: '(?:\bcharge\([^\n)]*(?:-\d|\d+\.\d+|\bNone\b)[^\n)]*\)|\bcharge\(([^,\n)]+),[^\n)]*\)(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b[^\n]*?\bcharge\(\1,[^\n)]*\))(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b'
     flags: i
     weight: 2

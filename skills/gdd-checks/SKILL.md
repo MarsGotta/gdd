@@ -13,7 +13,7 @@ A gate that never closes is not a gate: it's a drawing on the wall. Your checks 
 
 Save command output to a file and read only its end. Don't print unchanged files again. Each repeat fills the next round's context.
 
-Use your own worktree inside the project. If git cannot add it, follow `gdd/references/role-clone.md`. When you commit checks in a clone, start from the project's current `gdd-seal/<id>` (main for a new setup seal) and run `git fetch <clone> gdd-seal/<id>:gdd-seal/<id>` from the project before reporting. If git refuses it, stop with `CANNOT:` and name the test file. Never force it.
+Use your own worktree inside the project. If git cannot add it, clone the project in your temporary folder. Copy its `user.name` and `user.email` to the clone. Start at the project's `gdd-seal/<id>` tip (main for a new setup seal). In the project, run `git fetch <clone> gdd-seal/<id>:gdd-seal/<id>` before reporting. If git refuses, stop with `CANNOT:` and name the branch and file. Never force it. See `../gdd/references/role-clone.md`.
 
 ## What you get
 

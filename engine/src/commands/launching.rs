@@ -333,7 +333,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
                 "from its current tip in the project (merge <start> into it if needed)"
             };
             s.push(format!(
-                "Work on branch {branch} {from} and commit there. Use your own worktree inside the project. If git cannot add it, clone the project in your own temporary folder. Copy the project's `user.name` and `user.email` into the clone's git config. If you used a clone, run `git fetch <clone> {branch}:{branch}` from the project before reporting. If git refuses the fetch, stop with CANNOT: and name the branch. Never force it."
+                "Work on branch {branch} {from} and commit there. Use your own worktree inside the project. If git cannot add it, clone the project in your own temporary folder. Copy the project's `user.name` and `user.email` into the clone's git config. If you used a clone, run `git fetch <clone> {branch}:{branch}` from the project before reporting. If git refuses the fetch, stop with CANNOT: and name the branch and the file you were working on. Never force it."
             ));
         }
         "review" => s.push(format!(
@@ -529,7 +529,7 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
         change_prompt(&mut s, &x);
     }
     if role == "review"
-        && let Some(stamp) = review_stamp(l)
+        && let Some((stamp, _)) = review_stamp(l)
     {
         s.push(format!(
             "Copy this line into your gdd-report block: reviewed: {stamp}"
