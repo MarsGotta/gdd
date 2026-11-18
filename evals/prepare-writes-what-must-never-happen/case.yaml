@@ -68,11 +68,45 @@ graders:
     pattern: '@zone:(?:pay[\w-]*|money|billing|checkout)\b(?:(?:(?!\\n[ \t]*Rule:|\\n(?:[\w-]+(?:\\n|")|@(?:gate|zone):)|(?<!\\)").)*?\\n[ \t]*Rule:){6}'
     match: not_contains
     weight: 1
+  # Stop at the next Rule and at the end of the written feature (JSON string or shell heredoc).
   - name: checks-what-the-payment-rules-protect
-    type: llm
+    type: regex
     target: trace
-    criteria: Use the payment feature the blueprint links. Its proposed rules describe distinct losses this shop could suffer, in the owner's words. Each pair of scenarios shows a breach and an acceptable outcome for that rule. Outcomes a proposed machine check can verify carry its tag as well as the reviewer's. Grade the written feature, even if the final message only points to it.
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:\\n[ \t]*)+Feature:
+      (?:[^"\\\n]|\\(?!n).)*(?:(?:\\n[ \t]*)+Rule:
+      (?=[^"\\]*\b(?:charg\w*|pay\w*|paid|amount|total|price|stock|cart|order|buyer|customer|card|key|secret|refund\w*|receipt|money|provider|cents?)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
+      [^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
+      (?![^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)[^"\\]*\b(?:pass(?:es)?|accept(?:s|ed)?|through|same|kept|only|exactly|once|one|no|never|unpaid|paid|still|charg\w*|receives?|remain\w*|cents?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?){3,5}(?=\\n(?:[\w-]+(?:\\n|")|")|(?<!\\)")
+    flags: i
     weight: 2
+  - name: proposes-distinct-payment-rules
+    type: regex
+    target: trace
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:(?!\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Rule:[ \t]+([^"\\]+)\\n(?:(?!\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Rule:[ \t]+\2(?=\\n|")
+    flags: i
+    match: not_contains
+    weight: 1
+  # Check both tags at the start of the scenario, even when they occupy separate lines.
+  - name: tags-machine-checkable-payment-outcomes
+    type: regex
+    target: trace
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:(?!(?<!\\)"|\\n[\w-]+(?:\\n|")).)*?\\n[ \t]*(?:Rule:|Then |And |But )(?:[^"\\\n]|\\[^n\n])*(?:\\n[ \t]*)+(?!(?=(?:@[\w:-]+(?:[ \t]|\\n)+)*@check:review\b)(?=(?:@[\w:-]+(?:[ \t]|\\n)+)*@check:tests\b))(?:@[\w:-]+(?:[ \t]|\\n)+)*Scenario:
+      (?:[^"\\\n]|\\[^n\n])*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\[^n\n])*)?)*\\n[ \t]*Then
+      [^"\\]*\b(?:\d+ cents|exactly (?:\d+|the (?:total|amount))|(?:no (?:new|second)|one) charge|charg(?:ed|es) (?:once|twice)|(?:tests?|test suite) (?:fails?|pass(?:es)?))\b
+    flags: i
+    match: not_contains
+  - name: tags-secret-exposures-for-the-scan-and-review
+    type: regex
+    target: trace
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:(?!(?<!\\)"|\\n[\w-]+(?:\\n|")).)*?\\n[ \t]*(?:Rule:|Then |And |But )(?:[^"\\\n]|\\[^n\n])*(?:\\n[ \t]*)+(?!(?=(?:@[\w:-]+(?:[ \t]|\\n)+)*@check:review\b)(?=(?:@[\w:-]+(?:[ \t]|\\n)+)*@check:secrets\b))(?:@[\w:-]+(?:[ \t]|\\n)+)*Scenario:
+      (?:[^"\\]*(?:card number|key|secret)[^"\\]*(?:stor\w*|logg\w*|commit\w*|written|reaches)|(?:[^"\\\n]|\\[^n\n])*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\[^n\n])*)?)*\\n[ \t]*Then
+      [^"\\]*\bsecrets? (?:check |scan )?(?:fails?|passes))
+    flags: i
+    match: not_contains
   - name: asks-for-brief-approval-on-yellow
     type: regex
     target: { source: file, path: gdd/blueprint.md }

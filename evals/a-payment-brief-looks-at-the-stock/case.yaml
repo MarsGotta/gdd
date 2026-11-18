@@ -49,9 +49,19 @@ graders:
     input_match: '\bbrief\s+\S+\s+(?=(?:(?!\s--paths\b|\\n|[;&|]).)*?(?:gdd/briefs/[\w.-]+\.md\b|\$\{?brief\b))(?=(?:(?!\s--paths\b|\\n|[;&|]).)*?(?:features/[\w./-]+\.feature\b|\$\{?(?:feature|scenarios?)\b))(?:(?!\s--paths\b|\\n|[;&|]).)*?\s--paths\s+\S'
     weight: 2
   - name: observes-stock-from-another-part-of-the-shop
-    type: llm
+    type: regex
     target: trace
-    criteria: Read the stock rule and its scenario in the feature written for this payment change. The timing the agent chose has @assumed above its Rule. Beneath it a tagged scenario gives concrete values, one When and what another buyer sees in the named part of the shop afterwards. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
+    # Stay within the tagged stock scenario, from the payment to the quantity another shopper can see.
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)features/[\w./-]+\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)(?:(?!\\n[\w-]+(?:\\n|")|(?<!\\)").)*?@assumed\b(?:\\n[ \t]*)+Rule:
+      (?=[^"\\]*\b(?:stock|inventar\w*|existencias?|available|left|disponibles?)\b)(?:[^"\\\n]|\\[^n\n])*(?:\\n[ \t]*)+(?:@[\w:.-]+(?:[ \t]|\\n)+)*@id:[\w.-]+(?:[ \t]|\\n)+(?:@[\w:.-]+(?:[ \t]|\\n)+)*(?:Scenario|Escenario):
+      (?=(?:(?!\\n[ \t]*(?:@|Rule:|Scenario:|Escenario:|[\w-]+(?:\\n|"))|(?<!\\)").)*?\b(?:pay\w*|paid|charg\w*|pag\w*|cobr\w*)\b)(?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:Given|Dad[oa]|And|Y|But|Pero)
+      (?:[^"\\\n]|\\[^n\n])*)*(?:\\n[ \t]*)+(?:When|Cuando)
+      (?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:Then|Entonces|And|Y|But|Pero)
+      (?:[^"\\\n]|\\[^n\n])*)*(?:\\n[ \t]*)+(?:Then|Entonces|And|Y)
+      (?=[^"\\]*\b(?:catalog\w*|catálogo|cart|carrito|buyer|customer|cliente|comprador)\b)(?=[^"\\]*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b)[^"\\]*\b(?:\d+|one|two|three|no|zero|none|uno|una|dos|tres|cero)\b(?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:And|Y|But|Pero)
+      (?:[^"\\\n]|\\[^n\n])*)*(?=(?:\\n[ \t]*)*(?:@|Rule:|Scenario:|Escenario:|[\w-]+(?=\\n|")|(?<!\\)"))
+    flags: i
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex

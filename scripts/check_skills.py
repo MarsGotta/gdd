@@ -27,7 +27,7 @@ What it checks:
   - no skill ships scripts, but the templates of the project's runner and
     counter in the assets of gdd-prepare, and only gdd can be invoked
     implicitly in Codex;
-  - the GDD block the eval cases give their agents is the one of the contract;
+  - eval cases use the contract's GDD block and give no target to an LLM grader;
   - what the contract names reaches the skills, and the other way round: every
     file of the contract, every check of the blueprint and every event and
     step of the log is named in some SKILL.md, the orchestrator knows the
@@ -58,6 +58,11 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "skills"
@@ -133,9 +138,7 @@ def front_matter(path):
     if not match:
         problem(path, "no YAML front matter", 1)
         return {}, text
-    try:
-        import yaml
-    except ImportError:  # a check that can't run must fail, so this one isn't skipped
+    if yaml is None:  # a check that can't run must fail, so this one isn't skipped
         if NO_YAML not in problems:
             problems.append(NO_YAML)
     else:
@@ -305,9 +308,20 @@ def main():
     block_lines = [line.strip() for line in re.sub(r"<!--.*?-->", "", block).splitlines() if line.strip()]
     carriers = sorted(EVALS.rglob("case.yaml")) + [EVALS / "fixtures" / "shop.sh"] if EVALS.is_dir() else []
     for path in carriers:
-        if not path.is_file() or "## GDD" not in path.read_text(encoding="utf-8"):
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        if path.name == "case.yaml" and yaml is not None:
+            try:
+                case = yaml.safe_load(source)
+                for index, grader in enumerate(case.get("graders", [])):
+                    if grader.get("type") == "llm" and "target" in grader:
+                        problem(path, f"invalid case.yaml:   graders.{index}: Unrecognized key(s) in object: 'target'")
+            except (yaml.YAMLError, AttributeError, TypeError) as error:
+                problem(path, f"invalid case.yaml: {error}")
+        if "## GDD" not in source:
             continue  # a case about a project without GDD carries no block
-        text = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
+        text = [line.strip() for line in source.splitlines()]
         missing = [line for line in block_lines if line not in text]
         if missing:
             problem(path, f"its GDD block differs from the one in skills/CONTRACT.md: {missing[0][:60]!r} is missing")

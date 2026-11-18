@@ -75,10 +75,16 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
+  # Only a completed gates command returns a judged head, a log line and a verdict.
+  - name: reports-the-recorded-gate-outcome
+    type: regex
+    target: trace
+    pattern: '"type":"tool_result"[^\n]*?gdd \{\\"command\\":\\"gates\\",(?=[^}\n]*\\"head\\":\\"[0-9a-f]{40}\\")(?=[^}\n]*\\"line\\":\d+)[^}\n]*?\\"passed\\":(?:true,[\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?(?<!\b(?:not|never|nunca|no(?: se)?(?: ha| está| fue| quedó)?)\s)\b(?:merged|shipped|incorporad[oa]|integrad[oa]|fusionad[oa]|(?:went|moved|sent|ready) (?:on |it )?(?:for|to) review|(?:pas[óa]|list[oa]|enviad[oa]) (?:a|para)(?: la)? revisión|(?:revisión|review)\W{1,8}(?:pas[óa]|passed))\b|false,[\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?\b(?:failed|fall(?:a(?:n|ron)?|ó)|stopped|parked|left for later|se detuvo|queda para (?:más (?:adelante|tarde)|después)|aplazad[oa]|pospuest[oa])\b)'
+    flags: im
+    weight: 2
   - name: judges-the-build-it-had
     type: llm
-    target: trace
-    criteria: Compare the final message with the layer’s gate result for the fourth build. The answer tells the person what came of the last build of the message for the empty cart once its checks ran on it. Either they passed and it went on, to its review or into the shop, or they failed and the change stopped there, left for later without a waiver question because other work can continue. A refused command is not a completed gate run. It does not say the change stopped before its checks ran, and it does not ask the person to allow more rounds or more time.
+    criteria: The final answer tells the owner what happened to the empty-cart change after its fourth build was checked. It reports either that the checks passed and the change went on to review or shipped, or that the checks failed and the change was left for later while other work can continue. Stopping before the checks ran or asking for a waiver, more time or another round fails.
     weight: 3
   - name: starts-no-new-round
     type: regex

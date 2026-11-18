@@ -71,7 +71,7 @@ graders:
     match: not_contains
   - name: each-test-rejects-a-concrete-wrong-solution
     type: llm
-    criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Going by what the answer says each test calls and expects, that test alone would reject the one wrong solution named for it. A generic statement that tests failed on the base is insufficient.
+    criteria: The JSON proof block in the final answer gives each scenario test its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Going by what the answer says each test calls and expects, that test alone would reject the one wrong solution named for it. A generic statement that tests failed on the base is insufficient.
     weight: 3
   # Follow the same saved log into tail, either by filename or through tee.
   - name: reads-the-end-of-saved-output

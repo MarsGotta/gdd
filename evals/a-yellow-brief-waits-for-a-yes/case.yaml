@@ -45,7 +45,9 @@ graders:
   - name: the-brief-is-in-their-copy
     type: regex
     target: { source: file, path: gdd/briefs/catalog-pages.md }
-    pattern: 'features/[\w./-]+\.feature'
+    # Scenario ids belong in the opening metadata. The owner sees the feature link before technical details.
+    pattern: '(?<![\s\S])---\r?\n(?:(?!^---$)[\s\S])*?^scenarios:[ \t]*(?:\[[ \t]*[\w-]+-\d+|(?:\r?\n[ \t]+-[ \t]+[\w-]+-\d+))(?:(?!^---$)[\s\S])*?^---$(?:(?!^##[ \t]+(?:What it touches|Gates|Decisions|Undoing it|Technical|Color)\b)[\s\S])*?features/[\w./-]+\.feature\b'
+    flags: im
     weight: 2
   - name: puts-the-sealed-files-before-the-paths
     type: regex
@@ -53,10 +55,38 @@ graders:
     pattern: '"step"\s*:\s*"brief"[^\n]*"files"\s*:\s*\{(?=[^}]*"gdd/briefs/[\w.-]+\.md"\s*:)(?=[^}]*"features/[\w./-]+\.feature"\s*:)'
     weight: 2
   - name: the-rules-come-before-the-cases
-    type: llm
+    type: regex
     target: trace
-    criteria: In the feature written or revised for this change, the page size the owner gave is a Rule with a tagged scenario below it. New scenarios have one When and concrete values. Product choices added by the agent have @assumed above the rule. The brief links the feature before its technical sections and keeps scenario ids in the front matter.
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)features/[\w./-]+\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)(?:(?!(?<!\\)"|\\n[\w-]+(?:\\n|")).)*?Rule:
+      (?=[^"\\]*\b(?:20|twenty|veinte)\b)(?=[^"\\]*\b(?:pag(?:e|es|ina|inas)|páginas?)\b)(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*)+(?=(?:@[\w:.-]+(?:[ \t]|\\n)+)*@brief:catalog-pages\b)(?:@[\w:.-]+(?:[ \t]|\\n)+)*@id:[\w.-]+(?:[ \t]+|\\n[ \t]*)+(?:@[\w:.-]+(?:[ \t]+|\\n[ \t]*)+)*(?:Scenario|Escenario):
+      (?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@|[\w-]+(?:\\n|"))|(?<!\\)").)*?\\n[ \t]*(?:When|Cuando)
+      (?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*)+(?:Then|Entonces)
+      (?=(?:[^"\\\n]|\\(?!n).)*\b(?:\d+|twenty|veinte)\b)(?:[^"\\\n]|\\(?!n).)*
+    flags: i
     weight: 2
+  - name: each-new-page-scenario-has-one-action-and-an-example
+    type: regex
+    target: trace
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)features/[\w./-]+\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)(?:(?!(?<!\\)"|\\n[\w-]+(?:\\n|")).)*?(?:Rule:
+      (?=[^"\\]*\b(?:pages?|páginas?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*|@brief:catalog-pages(?:[ \t]|\\n)+(?:@[\w:.-]+(?:[ \t]|\\n)+)*)(?:Scenario|Escenario):
+      (?!(?:[^"\\\n]|\\[^n\n])*(?=(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@|[\w-]+(?:\\n|"))|(?<!\\)").)*?(?:\b(?:\d+|zero|one|two|twenty|cero|uno|dos|veinte)\b|\\"))(?:(?:\\n[ \t]*)+(?:Given|Dad[oa]|And|Y|But|Pero)
+      (?:[^"\\\n]|\\[^n\n])*)*(?:\\n[ \t]*)+(?:When|Cuando)
+      (?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:Then|Entonces|And|Y|But|Pero)
+      (?:[^"\\\n]|\\[^n\n])*)+(?=(?:\\n[ \t]*)*(?:@|Rule:|Scenario:|Escenario:|[\w-]+(?=\\n|")|(?<!\\)")))
+    flags: i
+    match: not_contains
+    weight: 1
+  - name: marks-added-page-rules-as-assumed
+    type: regex
+    target: trace
+    pattern: >-
+      (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)features/[\w./-]+\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)(?:(?!(?<!\\)"|\\n[\w-]+(?:\\n|")).)*?(?<!@assumed(?:[ \t]|\\n)+)Rule:
+      (?:(?![^"\\]*\b(?:20|twenty|veinte|order|orden|first|primera|doesn.t exist|missing|nonexistent|out of range|no existe)\b)|(?=[^"\\]*(?:numbered from|number of pages|how many pages|empty catalog|catálogo vacío|numerad[ao]s? desde|cuántas páginas)))
+    flags: i
+    match: not_contains
+    weight: 1
   - name: the-scenarios-are-in-their-copy
     type: regex
     target: trace
