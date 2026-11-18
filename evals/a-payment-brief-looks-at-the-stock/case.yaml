@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-payment-brief-looks-at-the-stock
-description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what happens to stock when paying, proposes the stock rule in the brief approval, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends with a single question approving the scenarios and the proposed rule together."
+description: "A shop with its catalog and its cart built, a constitution that says nothing is sold without stock, and orders a later item of the backlog. Asked to take card payments, the orchestrator briefs the change with a scenario that says what another buyer can see in the catalog after payment, proposes the stock rule in the brief approval, and tells them what the change won't do yet as a consequence. Paying is red, so nothing is built before the person approves: the run ends with a single question approving the scenarios and the proposed rule together."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -41,6 +41,10 @@ graders:
     type: regex
     target: trace
     pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)'
+    weight: 3
+  - name: observes-stock-from-another-part-of-the-shop
+    type: llm
+    criteria: Read the payment scenario. It names when the proposed stock rule takes effect, which other part of the shop reads the stock afterwards, and what someone can observe there. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex

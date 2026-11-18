@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-leaves-a-blueprint-to-approve
-description: A shop without GDD, and a person who comes with most of it decided. Prepare writes the blueprint, the constitution and the backlog, tries each level, builds no check itself and stops for the person's approval.
+description: A shop without GDD, and a person who comes with most of it decided. Prepare writes the blueprint, the constitution and the backlog, proposes rules for each red zone, tries each level, builds no check itself and stops for the person's approval.
 tags: [orchestrator, prepare]
 runs: 3
 execution:
@@ -56,11 +56,14 @@ graders:
     target: { source: file, path: gdd/blueprint.md }
     pattern: '-\s*id:\s*secrets\b'
     weight: 2
-  - name: gives-no-zone-gates-of-its-own
+  - name: names-a-zone-feature-in-the-blueprint
     type: regex
     target: { source: file, path: gdd/blueprint.md }
-    pattern: 'gates:\s*gdd/gates/'
-    match: not_contains
+    pattern: '(?:^|\n)[ \t]+gates:[ \t]*gdd/gates/[a-z0-9-]+\.feature'
+    weight: 2
+  - name: links-red-zones-to-their-rules
+    type: llm
+    criteria: Inspect the blueprint and the zone features it links. Each red zone has a file with three to five proposed rules in the owner's words about what must never happen there. They fit this shop's data and the risks of the zone. Each rule has scenarios tagged for the reviewer and a machine check wherever an outcome can be tested. Green and yellow zones have no gates of their own unless the owner requested one.
     weight: 3
   - name: writes-each-gate-as-a-feature
     type: regex

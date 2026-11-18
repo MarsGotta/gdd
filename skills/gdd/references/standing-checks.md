@@ -18,6 +18,6 @@ These go the same way, each as a backlog item with a log and a seal of its own n
 
 - **A check the project hadn't set up,** which the color of a new zone asks for: `standing-checks-<check id>`. No change starts in that zone before it holds.
 - **A check that waited for something to judge,** in a project that had no code: `standing-checks-<check id>`, right after the first item that brings it work. That item's checks role set up what the check needs, sealed with its tests, and its gates ran it; here it is proved and tried on that code, as steps 2 and 3 say.
-- **A zone's own gate,** which hardening gave it or the person asked for when preparing: `gates-<zone>`, or `gates-<zone>-2` when the zone already has one. `gdd-checks` builds its check from the scenarios in `gdd/gates/<zone>.feature`, and no change starts in that zone before it holds.
+- **A zone's own gate,** from the approved blueprint or from hardening: `gates-<zone>`, or `gates-<zone>-2` when the zone already has one. `gdd-checks` builds its check from the scenarios in `gdd/gates/<zone>.feature`, as soon as there is behavior to test. No further change starts in that zone before the check holds. The reviewer answers its rule from the first change.
 
 A project prepared before version 0.3 has an item `gates-<zone>` for each zone instead. Those that are `done` stand for `standing-checks`, and each zone keeps the gates it has. Where one is still `todo`, ask the person whether to finish it, or to take that zone's `gates` out of the blueprint and set up `standing-checks`.

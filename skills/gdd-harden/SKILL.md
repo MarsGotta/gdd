@@ -32,7 +32,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 
 ## What you propose
 
-- **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it. This is where a zone gets gates of its own: when preparing, only if the person asks for one.
+- **The scenario that would have caught it,** with its bad case first, in `gdd/gates/<zone>.feature` (`assets/gates.feature`), tagged with the check that will cover it. Preparing already proposes rules for red zones. Hardening can add one to a zone of any color.
 - **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **Mutation testing, or a threshold of coverage,** when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. Propose it for the color where that happened, before the review, at its tool's own default, looked up on the tool's own page and never from memory, and never the highest.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.

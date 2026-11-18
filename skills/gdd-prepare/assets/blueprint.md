@@ -93,7 +93,7 @@ zones:
     color: <green, yellow or red>
     paths:
       - ':(glob)<pattern>'
-    # gates: gdd/gates/<zone>.feature   # only once this zone has a gate of its own
+    # gates: gdd/gates/<zone>.feature   # include for the red zone rules approved with the blueprint, or whenever the zone has its own gates
 # hidden: <where the hidden examples live, when a color asks for them>
 context:
   - file: gdd/context/<file>

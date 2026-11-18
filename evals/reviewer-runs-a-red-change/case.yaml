@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: reviewer-runs-a-red-change
-description: A red change in payments, built and through its gates. The reviewer opens the full review, runs the change and tries to break it, tries the way back, and says what it ran and what came out, a line each.
+description: A red change in payments, built and through its gates. The reviewer opens the full review, runs the change and tries to break it, tries the way back, and reports what it could observe at the provider for each payment scenario.
 tags: [role, review]
 runs: 3
 execution:
@@ -58,6 +58,10 @@ graders:
     pattern: '(?:^|\n)[^\n]*\b(?:python3|git (?:revert|diff|checkout|stash))\b[^\n]*\b(?:exit|code|OK|FAIL|passe?[sd]?|fail(?:s|ed)?|ran)\b'
     flags: i
     weight: 2
+  - name: checks-what-the-provider-sees
+    type: llm
+    criteria: For each scenario, the reviewer reports the outcome at the provider or uses the running product to show that the shop exposes only the amount its function returns. In the latter case it identifies which promised provider effects it could not verify. A return value alone does not show a provider was asked to charge anything.
+    weight: 3
   - name: tries-the-way-back
     type: regex
     pattern: '\b(?:revert(?:ed|s|ing)?|way back|undo(?:ne|ing)?)\b'

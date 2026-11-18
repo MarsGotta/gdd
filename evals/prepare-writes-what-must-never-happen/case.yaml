@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-writes-what-must-never-happen
-description: A small shop without GDD whose products file keeps how many of each are in stock. Prepare leaves a constitution whose rules that hold everywhere say, in plain words, that nothing is sold without stock, with three to seven rules, and stops for the approval.
+description: A small shop without GDD whose products file keeps how many of each are in stock. Prepare leaves a constitution whose rules that hold everywhere say, in plain words, that nothing is sold without stock, with three to seven rules, and proposes the payment rules with the blueprint for the same approval.
 tags: [orchestrator, prepare]
 runs: 3
 execution:
@@ -50,6 +50,10 @@ graders:
     target: { source: file, path: gdd/constitution.md }
     pattern: '## Rules that hold everywhere(?:(?!\n## )[\s\S])*?\b(?:MUST|SHALL|NEVER|ALWAYS)\b'
     match: not_contains
+  - name: proposes-rules-specific-to-payments
+    type: llm
+    criteria: Follow the blueprint's link for the payments zone. The feature proposes three to five distinct Rule blocks about losses possible in this shop, each with a bad and a good case tagged for the reviewer. There is a test proposed wherever those outcomes can be checked. The project-wide rules still live in the constitution.
+    weight: 3
   - name: asks-for-brief-approval-on-yellow
     type: regex
     target: { source: file, path: gdd/blueprint.md }
@@ -66,7 +70,7 @@ graders:
     match: not_contains
   - name: asks-the-person-to-put-the-rules-in-their-words
     type: llm
-    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and that they can correct those rules or put them in their own words. It does not say the project is ready for changes now.
+    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and where they can read and correct the proposed payment rules with the same approval. It does not say the project is ready for changes now.
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex

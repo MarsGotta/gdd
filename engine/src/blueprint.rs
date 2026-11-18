@@ -17,6 +17,7 @@ pub struct Check {
     /// `each round` or `before review`; a check without `runs` runs each round.
     pub runs: String,
     pub when: Vec<String>,
+    pub cases_each_change: bool,
 }
 
 impl Check {
@@ -209,6 +210,7 @@ impl Blueprint {
                         .map(|r| r.trim().to_string())
                         .unwrap_or_else(|| "each round".into()),
                     when: list(&c["when"]),
+                    cases_each_change: c["cases"] == "each change",
                 })
             })
             .collect()

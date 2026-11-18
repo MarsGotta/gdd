@@ -26,7 +26,7 @@ backlog: <item id>
 
 ## Scenarios
 
-<Each id it adds or changes, with one line on what it says. The scenarios live in features/.>
+<Each scenario id in features/, with its outcome and where in the product someone can see it.>
 
 ## What it touches
 

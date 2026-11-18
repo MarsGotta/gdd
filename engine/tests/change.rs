@@ -145,7 +145,7 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let c = r.report(
         "y1",
         "checks",
-        &format!("Sealed.\n{}", report_block("gdd-checks", "sealed")),
+        &format!("Sealed.\n{}", sealed_report(&["tests"])),
         &[],
     );
     assert_eq!(c.code, 0, "{}", c.out);
@@ -292,7 +292,7 @@ fn a_red_change_stops_on_a_reviewers_stop() {
         &[("tests/r1.sh", "true # gdd:r1-1\n")],
         "Seal",
     );
-    r.report("r1", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    r.report("r1", "checks", &sealed_report(&["tests"]), &[]);
     let start = r.git(&["rev-parse", "gdd-seal/r1"]);
     r.commit_on(
         "work/r1",
@@ -355,7 +355,7 @@ fn a_finished_build_with_its_rounds_spent_is_still_judged() {
         "features/y2.feature",
     ]);
     r.commit_on("gdd-seal/y2", None, &[("tests/y2.sh", "true\n")], "Seal");
-    r.report("y2", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    r.report("y2", "checks", &sealed_report(&["tests"]), &[]);
     let start = r.git(&["rev-parse", "gdd-seal/y2"]);
     r.commit_on(
         "work/y2",
@@ -493,7 +493,7 @@ fn a_new_version_of_a_brief_needs_new_checks_and_keeps_its_base() {
         "features/y4.feature",
     ]);
     r.commit_on("gdd-seal/y4", None, &[("tests/y4.sh", "true\n")], "Seal");
-    r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    r.report("y4", "checks", &sealed_report(&["tests"]), &[]);
     // The brief changes prose only: a new version, no new approval needed, but its checks come up to it.
     let text = r
         .read("gdd/briefs/y4.md")
@@ -532,14 +532,14 @@ fn a_new_version_of_a_brief_needs_new_checks_and_keeps_its_base() {
     );
     // The role finds that what it sealed still covers the new version, and seals nothing new: its
     // checks stand, as they were sealed, and the change goes on to its build.
-    let c = r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let c = r.report("y4", "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     let lines = r.log_lines("y4");
     let checks = &lines.last().unwrap()["seal"]["checks"];
     assert!(checks["tests/y4.sh"].is_string(), "{checks}");
     assert_eq!(c.facts["next"], "build", "{}", c.out);
     // Once they stand, the same word again is nothing sealed.
-    let again = r.report("y4", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let again = r.report("y4", "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(again.facts["refused"], "not-sealed", "{}", again.out);
 }
 
@@ -570,7 +570,7 @@ fn checked(r: &Repo, id: &str) {
         &[(test.as_str(), "true\n")],
         "Seal",
     );
-    let c = r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let c = r.report(id, "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
 }
 
@@ -591,7 +591,7 @@ fn new_version(r: &Repo, id: &str, files: &[&str], extra: &[&str]) {
 }
 
 fn sealed_nothing(r: &Repo, id: &str) -> Run {
-    r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[])
+    r.report(id, "checks", &sealed_report(&["tests"]), &[])
 }
 
 /// With no checks sealed yet, the role's word that nothing had to change is still nothing sealed.
@@ -856,7 +856,7 @@ fn checks_sealed_before_a_merge_of_main_still_count_once_their_step_is_voided() 
         &[("tests/y5.sh", "grep -q ok src/core/app.txt # gdd:y5-1\n")],
         "Seal the test of y5",
     );
-    let sealed = format!("Sealed.\n{}", report_block("gdd-checks", "sealed"));
+    let sealed = format!("Sealed.\n{}", sealed_report(&["tests"]));
     assert_eq!(r.report("y5", "checks", &sealed, &[]).code, 0);
     let line = r.log_lines("y5").len().to_string();
     let v = r.gdd(&[
@@ -906,7 +906,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         &[("tests/y7.sh", "true # gdd:y7-1\n")],
         "Seal",
     );
-    r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    r.report("y7", "checks", &sealed_report(&["tests"]), &[]);
     let start = r.git(&["rev-parse", "gdd-seal/y7"]);
     r.commit_on(
         "work/y7",
@@ -931,7 +931,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         &[("tests/y7.sh", "grep -q ok src/core/app.txt # gdd:y7-1\n")],
         "Seal a test that looks",
     );
-    let again = r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let again = r.report("y7", "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(again.code, 0, "{}", again.out);
     // The builder gets the same finding, and is told the seal already answered it.
     let b = r.gdd(&["launch", "y7", "build"]);
@@ -972,7 +972,7 @@ fn a_build_that_stopped_without_start_goes_again() {
         &[("tests/yv.sh", "true # fixed\n")],
         "Fix the test",
     );
-    let c = r.report("yv", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let c = r.report("yv", "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     // The next round stops on its branch without merging that tip.
     r.commit_on("work/yv", None, &[("src/core/app.txt", "b\n")], "Round 2");

@@ -913,3 +913,155 @@ fn a_local_merge_after_a_pull_request_takes_the_copys_bookkeeping() {
     let v = r.gdd(&["verify", "--all"]);
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
 }
+
+fn stock_checks_ready(r: &Repo, id: &str, color: &str, path: &str) {
+    let brief = format!("gdd/briefs/{id}.md");
+    let feature = format!("features/{id}.feature");
+    r.write(
+        &brief,
+        &format!(
+            "---\nid: {id}\nversion: 1\ncolor: {color}\nscenarios: [last-unit, cancelled]\n---\n"
+        ),
+    );
+    r.write(&feature, &format!("Feature: Stock\n\n  @brief:{id} @id:last-unit\n  Scenario: Sell the last unit\n\n  @brief:{id} @id:cancelled\n  Scenario: Cancel a reservation\n"));
+    for args in [
+        vec!["seal", id, &brief, &feature],
+        vec!["brief", id, &brief, &feature, "--paths", path],
+    ] {
+        let step = r.gdd(&args);
+        assert_eq!(step.code, 0, "{}", step.out);
+    }
+    if color == "red" {
+        let reading = r.report(id, "reading", &review_text("pass", "red", ""), &[]);
+        assert_eq!(reading.code, 0, "{}", reading.out);
+    }
+    let approval = r.gdd(&[
+        "approve",
+        id,
+        "--of",
+        "brief",
+        "--who",
+        "Owner",
+        "--where",
+        "conversation",
+        &feature,
+    ]);
+    assert_eq!(approval.code, 0, "{}", approval.out);
+    r.commit_on(
+        &format!("gdd-seal/{id}"),
+        None,
+        &[(
+            "tests/stock.sh",
+            "# gdd:last-unit\ntrue\n# gdd:cancelled\ntrue\n",
+        )],
+        "Seal",
+    );
+}
+
+/// A refused report leaves the step open. The checks role can supply the missing runs on the same seal.
+#[test]
+fn checks_reports_require_the_proofs_of_their_color() {
+    use serde_json::json;
+    let bp = BLUEPRINT
+        .replace(
+            "command: sh tests/run.sh",
+            "cases: each change\n    command: sh tests/run.sh",
+        )
+        .replace("id: tests", "id: stock")
+        .replace("seal, tests", "seal, stock");
+    for (color, path) in [("yellow", "src/core/app.txt"), ("red", "src/pay/pay.txt")] {
+        let r = Repo::with(&bp);
+        let id = "stock";
+        stock_checks_ready(&r, id, color, path);
+        let before = r.log_lines(id);
+        let report = report_block("gdd-checks", "sealed");
+        let reject = json!({"check":"stock","case":"rejects","test":"last unit","wrong":"stock stays unchanged","command":"check stock","exit":1,"tail":"expected none left"});
+        let cancelled = json!({"check":"stock","case":"rejects","test":"cancelled sale","wrong":"keeps the last unit","command":"check stock","exit":1,"tail":"expected one left"});
+        let pass =
+            json!({"check":"stock","case":"passes","command":"check stock","exit":0,"tail":"ok"});
+        let file = r.dir.path().join("proofs.json");
+        let with_proofs = |proofs: Value| {
+            std::fs::write(&file, proofs.to_string()).unwrap();
+            r.report(id, "checks", &report, &["--proofs", file.to_str().unwrap()])
+        };
+        let refused = r.report(id, "checks", &report, &[]);
+        assert_eq!(
+            refused.facts["refused"], "missing-proofs",
+            "{}",
+            refused.out
+        );
+        assert!(
+            refused.has("gdd report stock checks")
+                && refused.has("stock")
+                && refused.has("rejects")
+        );
+        for invalid in [
+            json!([]),
+            json!([pass]),
+            json!([{"check":"stock","case":"rejects"}]),
+            json!([reject, reject, pass]),
+        ] {
+            assert_ne!(with_proofs(invalid).code, 0);
+        }
+        for (key, value) in [
+            ("wrong", json!(" ")),
+            ("command", json!("")),
+            ("exit", json!(0)),
+            ("test", json!("")),
+        ] {
+            let mut incomplete = cancelled.clone();
+            incomplete[key] = value;
+            let bad = with_proofs(json!([reject, incomplete, pass]));
+            assert_eq!(bad.facts["refused"], "bad-proofs", "{}", bad.out);
+        }
+        let proofs = if color == "red" {
+            let missing = with_proofs(json!([reject, cancelled]));
+            assert!(
+                missing.code != 0 && missing.has("passes") && missing.has("stock"),
+                "{}",
+                missing.out
+            );
+            let mut one_test_passed = pass.clone();
+            one_test_passed["test"] = reject["test"].clone();
+            let partial = with_proofs(json!([reject, cancelled, one_test_passed]));
+            assert_eq!(partial.facts["refused"], "missing-proofs");
+            assert!(partial.has("cancelled sale"));
+            let mut unrelated = pass.clone();
+            unrelated["check"] = json!("lint");
+            assert_ne!(with_proofs(json!([reject, cancelled, unrelated])).code, 0);
+            json!([reject, cancelled, pass])
+        } else {
+            json!([reject, cancelled])
+        };
+        assert_eq!(r.log_lines(id), before);
+        let ok = with_proofs(proofs);
+        assert_eq!(ok.facts["next"], "build", "{}", ok.out);
+    }
+}
+
+#[test]
+fn only_case_checks_selected_for_the_color_and_planned_paths_need_proofs() {
+    let bp = BLUEPRINT
+        .replace(
+            "command: sh tests/run.sh",
+            "cases: each change\n    when: [':(glob)src/pay/**']\n    command: sh tests/run.sh",
+        )
+        .replace("id: slow", "id: slow\n    cases: each change");
+    let r = Repo::with(&bp);
+    stock_checks_ready(&r, "core", "yellow", "./src/core/");
+    let no_cases = r.report("core", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(no_cases.facts["next"], "build", "{}", no_cases.out);
+    stock_checks_ready(&r, "payments", "red", "./src/pay/");
+    let missing = r.report(
+        "payments",
+        "checks",
+        &report_block("gdd-checks", "sealed"),
+        &[],
+    );
+    assert_eq!(
+        missing.facts["refused"], "missing-proofs",
+        "{}",
+        missing.out
+    );
+    assert!(missing.has("rejects proof for tests"));
+}

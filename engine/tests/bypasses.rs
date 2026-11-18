@@ -88,7 +88,7 @@ fn yellow_sealed(r: &Repo, id: &str) -> String {
         )],
         "Seal its check",
     );
-    let c = r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[]);
+    let c = r.report(id, "checks", &sealed_report(&["tests"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     r.git(&["rev-parse", &format!("gdd-seal/{id}")])
 }
@@ -850,7 +850,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     );
     refused(
         "checks reported",
-        &r.report("y7", "checks", &report_block("gdd-checks", "sealed"), &[]),
+        &r.report("y7", "checks", &sealed_report(&["tests"]), &[]),
         "out-of-order",
         way,
     );

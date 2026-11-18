@@ -82,7 +82,7 @@ fn setup_subject(id: &str) -> (String, String) {
 
 /// Whether the project has code yet: a tracked file that is not one of its GDD files, its
 /// scenarios, its agents' files, its CI, its documents or its data.
-fn has_code(root: &Path) -> bool {
+pub(super) fn has_code(root: &Path) -> bool {
     let Ok(files) = git::ls_files(root, &[]) else {
         return true;
     };
@@ -302,7 +302,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         .unwrap_or_else(|| format!("work/{id}"));
     match role {
         "checks" => s.push(format!(
-            "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
+            "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
         )),
         "build" if p.builds == 0 => s.push(format!(
             "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."

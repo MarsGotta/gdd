@@ -69,7 +69,7 @@ graders:
     pattern: '```gdd-report\s*\nskill: gdd-review'
   - name: finds-what-paying-does-to-the-stock
     type: llm
-    criteria: The answer finds that the shop could sell stock it no longer has. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
+    criteria: The answer finds that the shop could sell stock it no longer has. It asks for a scenario that names when the stock changes and what another buyer sees afterwards in the catalog or cart. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
     weight: 2
   - name: catches-what-the-checks-role-would-need
     type: llm

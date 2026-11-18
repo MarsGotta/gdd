@@ -1,6 +1,7 @@
 //! A role's report, turned into its step of the log.
 
 use super::*;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Default)]
 pub struct ReportArgs {
@@ -365,7 +366,11 @@ fn report_checks(
     } else {
         r.proofs.clone().unwrap_or_else(|| json!([]))
     };
-    let n = proofs.as_array().map(Vec::len).unwrap_or(0);
+    let proofs = proofs
+        .as_array()
+        .expect("both proof sources read a JSON list");
+    check_proofs(l, id, proofs)?;
+    let n = proofs.len();
     m.insert(
         "seal".into(),
         json!({"ref": format!("gdd-seal/{id}"), "commit": tip, "checks": checks, "hidden": null, "proofs": proofs}),
@@ -387,8 +392,204 @@ fn report_checks(
         git::short(&tip),
         checks.keys().cloned().collect::<Vec<_>>().join(", ")
     ));
-    if n == 0 {
-        out.say("its last message has no json block of proofs: they aren't in the log (or pass --proofs <file>)");
+    Ok(())
+}
+
+/// A check takes proof when it is set up, or when the blueprint asks for cases on this change.
+fn required_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<BTreeSet<String>> {
+    let p = &l.state.progress;
+    let color = p.color.as_deref().unwrap_or("");
+    let checks = l.bp.checks();
+    let machine = checks.iter().filter(|c| c.kind == "machine");
+    if id == "standing-checks" {
+        let code = super::launching::has_code(&l.project.root);
+        return Ok(machine
+            .filter(|c| code || matches!(c.id.as_str(), "seal" | "secrets"))
+            .map(|c| c.id.clone())
+            .collect());
+    }
+    if let Some(check) = id.strip_prefix("standing-checks-") {
+        return Ok(BTreeSet::from([check.to_owned()]));
+    }
+    let mut required = BTreeSet::new();
+    if !p.has_brief() {
+        return Ok(required);
+    }
+    let paths: Vec<String> = color::planned_paths(&l.project.root, &p.paths)
+        .map_err(Fail::usage)?
+        .into_iter()
+        .flat_map(|(_, files)| files)
+        .collect();
+    // Older blueprints listed their checks without marking which supplied the scenario tests.
+    // A role with a brief still owes proofs. It names the check it used from its color.
+    let legacy = l.bp.front.get("gates").is_none() && !checks.iter().any(|c| c.cases_each_change);
+    let mut legacy_cases = false;
+    for c in machine.filter(|c| l.bp.color_asks(color, &c.id)) {
+        if !c.cases_each_change && !(legacy && c.id != "seal" && color != "green") {
+            continue;
+        }
+        if !c.when.is_empty()
+            && git::match_paths(&l.project.root, &paths, &c.when)
+                .map_err(Fail::usage)?
+                .is_empty()
+        {
+            continue;
+        }
+        if legacy {
+            legacy_cases = true;
+            if !proofs.iter().any(|proof| proof["check"] == c.id) {
+                continue;
+            }
+        }
+        required.insert(c.id.clone());
+    }
+    if legacy_cases && required.is_empty() {
+        return Err(missing_proof(
+            id,
+            "the scenario tests need a rejects proof naming the check of this color that ran them",
+        ));
+    }
+    Ok(required)
+}
+
+fn missing_proof(id: &str, why: impl Into<String>) -> Fail {
+    Fail::refuse(
+        "missing-proofs",
+        why,
+        format!(
+            "have the checks role supply the missing runs, then gdd report {id} checks <file> (or add --proofs <json file>)"
+        ),
+    )
+}
+
+#[derive(Default)]
+struct CheckRuns<'a> {
+    rejects: BTreeSet<&'a str>,
+    passes: BTreeSet<&'a str>,
+}
+
+fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
+    let p = &l.state.progress;
+    let setup = log_kind(id) == LogKind::Setup;
+    let required = required_proofs(l, id, proofs)?;
+    let bad = |why: String| {
+        Fail::refuse(
+            "bad-proofs",
+            why,
+            format!(
+                "report the actual run in the json block, then gdd report {id} checks <file> (or add --proofs <json file>)"
+            ),
+        )
+    };
+    let mut runs: BTreeMap<&str, CheckRuns> = required
+        .iter()
+        .map(|id| (id.as_str(), CheckRuns::default()))
+        .collect();
+    for proof in proofs {
+        let field = |key: &str| proof[key].as_str().map(str::trim).unwrap_or("");
+        let check = field("check");
+        let case = field("case");
+        let Some(exit) = proof["exit"].as_i64() else {
+            return Err(bad(format!(
+                "the {case} proof for {check} needs the command's exit code"
+            )));
+        };
+        if check.is_empty() || field("command").is_empty() || !proof["tail"].is_string() {
+            return Err(bad(format!(
+                "a {case} proof needs its check, command, exit and tail"
+            )));
+        }
+        let runs = runs.entry(check).or_default();
+        let test = field("test");
+        match (case, exit) {
+            ("rejects", n) if n != 0 => {
+                if required.contains(check)
+                    && !setup
+                    && (test.is_empty() || field("wrong").is_empty())
+                {
+                    return Err(bad(format!(
+                        "the rejects proof for {check} needs the test name and the wrong solution it rejects"
+                    )));
+                }
+                runs.rejects.insert(test);
+            }
+            ("passes", 0) => {
+                runs.passes.insert(test);
+            }
+            _ => {
+                return Err(bad(format!(
+                    "the proof for {check} must say rejects with a failing exit or passes with exit 0"
+                )));
+            }
+        }
+    }
+    if setup && runs.is_empty() {
+        return Err(missing_proof(
+            id,
+            "setting up a check needs both a rejects proof and a passes proof",
+        ));
+    }
+    let mut scenario_tests = 0;
+    for (check, runs) in runs {
+        if runs.rejects.is_empty() {
+            return Err(missing_proof(
+                id,
+                format!("missing the rejects proof for {check}"),
+            ));
+        }
+        if required.contains(check) {
+            scenario_tests += runs.rejects.len();
+        }
+        if setup || p.color.as_deref() == Some("red") {
+            if runs.passes.is_empty() {
+                return Err(missing_proof(
+                    id,
+                    format!("missing the passes proof for {check}"),
+                ));
+            }
+            // A passing run of the whole check covers all its tests. A named run covers just that test.
+            if !setup
+                && required.contains(check)
+                && !runs.passes.contains("")
+                && let Some(test) = runs.rejects.difference(&runs.passes).next()
+            {
+                return Err(missing_proof(
+                    id,
+                    format!("missing the passes proof for {check} {test}"),
+                ));
+            }
+        }
+    }
+    if !setup && !required.is_empty() {
+        let start = p.start.as_deref().unwrap_or("");
+        let file = format!("gdd/briefs/{id}.md");
+        let count = git::show(&l.project.root, start, &file)
+            .as_deref()
+            .and_then(crate::blueprint::split_front_matter)
+            .and_then(|(front, _)| crate::blueprint::read_yaml(front).ok())
+            .and_then(|front| front["scenarios"].as_array().map(Vec::len))
+            .unwrap_or_else(|| {
+                let tag = format!("@brief:{id}");
+                p.brief_files
+                    .keys()
+                    .filter(|f| f.starts_with("features/"))
+                    .filter_map(|f| git::show(&l.project.root, start, f))
+                    .map(|feature| {
+                        feature
+                            .split_whitespace()
+                            .filter(|word| *word == tag)
+                            .count()
+                    })
+                    .sum()
+            });
+        if scenario_tests < count {
+            return Err(missing_proof(
+                id,
+                format!(
+                    "the sealed brief lists {count} scenarios but only {scenario_tests} distinct scenario tests have a rejects proof"
+                ),
+            ));
+        }
     }
     Ok(())
 }

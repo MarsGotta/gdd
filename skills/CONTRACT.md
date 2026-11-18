@@ -1,6 +1,6 @@
 # The GDD contract
 
-A gate is one thing a change has to demonstrate before it goes on, and its checks are what demonstrate it. The gates of the project are named in the blueprint, each with a feature that specifies it, and they are the same for every change. Their checks are the standing checks, which hold for the whole project: the blueprint lists them, and the color of a change says which of them it passes. A change brings no check of its own: it brings cases, its scenarios and a test for each one, written before anyone builds. A zone gives a change its color, and has standing gates of its own, the `Rule:`s of its file, only when the person asks for one or hardening gives it one. What the method leaves in a repository is the contract between the skills and any engine, T-minus included: an engine reads and writes these same files (decision 13 in [DESIGN.md](DESIGN.md)). This file is its only source. Each skill carries a copy of the templates it writes in its `assets/` folder, and `scripts/check_skills.py`, in this repository, fails if a copy differs from its template here. That check is ours: no project installs it.
+A gate is one thing a change has to demonstrate before it goes on, and its checks are what demonstrate it. The gates of the project are named in the blueprint, each with a feature that specifies it, and they are the same for every change. Their checks are the standing checks, which hold for the whole project: the blueprint lists them, and the color of a change says which of them it passes. A change brings no check of its own: it brings cases, its scenarios and a test for each one, written before anyone builds. A zone gives a change its color. Prepare proposes standing gates for every red zone. Other zones get their own gates when the person asks or through hardening. What the method leaves in a repository is the contract between the skills and any engine, T-minus included: an engine reads and writes these same files (decision 13 in [DESIGN.md](DESIGN.md)). This file is its only source. Each skill carries a copy of the templates it writes in its `assets/` folder, and `scripts/check_skills.py`, in this repository, fails if a copy differs from its template here. That check is ours: no project installs it.
 
 The version of the contract is `gdd/1`. It goes in the front matter of the blueprint and of each brief, and in every event of the log.
 
@@ -14,7 +14,7 @@ The version of the contract is `gdd/1`. It goes in the front matter of the bluep
 | `gdd/check.sh` | The project's runner, when it has one: it runs a check, times it and says what it took | `gdd-prepare`, with the person | Like the blueprint |
 | `gdd/limits.sh` | The project's counter, when it has one: what the blueprint's `limits` still allow a change, counted from its log | `gdd-prepare`, with the person | Like the blueprint |
 | `gdd/gates/<gate>.feature` | A gate of the project, in Gherkin: which checks it asks of each color, and the bad case each of them rejects | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
-| `gdd/gates/<zone>.feature` | A zone's own standing gates, in Gherkin, when the person asked for one or hardening gave it one | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
+| `gdd/gates/<zone>.feature` | A zone's approved rules for the reviewer, with a test wherever possible | `gdd-prepare`, `gdd-harden`, with the person | Like the blueprint |
 | `gdd/exam.md` | The reviewer's exam: the changes that got past a reviewer, as commits of the main branch | `gdd-harden`, with the person | Like the blueprint |
 | `gdd/backlog.md` | What to build, each item with its expected color | `gdd-prepare`, `gdd-brief`, `gdd`, `gdd-harden` | Freely |
 | `gdd/debt.md` | Known debt, with the baseline of each check | `gdd-prepare`, and `gdd` when a person waives a check | Down freely; up only with the person's approval |
@@ -333,7 +333,7 @@ The front matter is what agents read; the diagram and the table are for the pers
 - `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. It may say when it runs (`runs`): `each round`, or `before review`, once the rest pass, for what takes too long to pay for in every fix round. A check without `runs` runs each round, as before 0.10, so a blueprint without it reads as it did. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
 - `install`: only when the checks need more than git holds: the command that gives a fresh copy of the repository what they need, such as the project's dependencies. Whoever runs the gates in a fresh copy runs it there first, and its time is not a check's. If it fails, or a check ends with "command not found" in a copy nobody prepared, that is the environment and not the change: no `gates` step is written and no round is counted.
 - `colors`: what each color asks for. `checks` lists the ones that must pass, `level` is the level of the agents that work on it and `limits` holds the caps of one change of that color: `fix_rounds_per_gate`, how many times the machine checks, and how many times the review, may send it back to the builder; `rounds_per_change`, how many times it may go back to the builder in all, after a `CANNOT:` and a color that rose too; `minutes_per_change`, counted from the first event of its log without the time it waits for a person (from an `ask` to the event that answers it); and `runs_before_review`, how many times the checks that run before the review may run. When one runs out, no new round starts, but a build already finished still goes through its gates and its review. Where a person approves is in `checks` too, and the team decides which colors carry it: `brief-approval` is the person approving what has to pass before anyone builds, and `person-review` is the person reviewing the change at the end. The template carries `brief-approval` on yellow and red, and `person-review` on red. A product rule the person needs to decide is proposed in the approval of what has to pass. Technical decisions are the agent's. Before the brief, a separate decision is for a request that cannot fit as given or for parts the person requested. Where a color carries no `brief-approval`, the brief and its scenarios are still written, the person is told in a line what the change will do, and nobody waits for them. A change whose color rises goes back to Brief. Ask for approval if the new color requires it and the scenarios it will judge still need approval.
-- `zones`: each zone's id, color and pathspecs. A zone gets no gates of its own when the project is prepared: `gates` names their file once the person asks for one or hardening gives it one, and from then on a change also passes the standing gates of every zone it touches, whatever its color.
+- `zones`: each zone's id, color and pathspecs. The zone's `gates` field names its feature when it has rules of its own. Every change that touches the zone passes them.
 - `context`: each external reference or MCP server, and the zones or gates that get it (`<zone>`, or `<zone>/<Rule>` for one gate). MCP servers carry the least access their gate needs.
 - `hidden`: where the hidden examples live, only when a color asks for the `hidden` check: a place the builder's credentials can't read.
 
@@ -436,7 +436,7 @@ zones:
     color: <green, yellow or red>
     paths:
       - ':(glob)<pattern>'
-    # gates: gdd/gates/<zone>.feature   # only once this zone has a gate of its own
+    # gates: gdd/gates/<zone>.feature   # include for the red zone rules approved with the blueprint, or whenever the zone has its own gates
 # hidden: <where the hidden examples live, when a color asks for them>
 context:
   - file: gdd/context/<file>
@@ -508,26 +508,28 @@ Feature: <Gate>
 
 ## The gates of a zone
 
-A zone gets this file when the person asks for a gate of its own or hardening gives it one, never by default when the project is prepared: until then it has only its color. Each `Rule:` is one thing a gate of the zone demonstrates. Under it go at least the scenario its check must reject (the bad case) and one it must accept, each tagged with the id of the check that covers it, as listed in the blueprint. A check of type `reviewer` is tagged the same way: its scenario is a question on the reviewer's exam.
+For each red zone, Prepare proposes three to five things that must never happen, in the person's words, drawn from the project's data and its sector. The person approves or corrects them with the blueprint. A green or yellow zone gets this file only on request or through hardening. Each `Rule:` is one thing a gate of the zone demonstrates. Under it go at least the scenario its check must reject (the bad case) and one it must accept, each tagged with the id of the check that covers it, as listed in the blueprint. Tag each proposed red zone rule's scenarios for the reviewer, and for a machine check too wherever a test can observe the outcome. On every change touching the zone, the reviewer answers each rule.
 
 <!-- template: gdd-prepare/assets/gates.feature gdd-harden/assets/gates.feature -->
 ```gherkin
 @zone:<zone>
 Feature: <Zone> gates
 
-  Rule: <one thing this zone's gates demonstrate, in one sentence>
+  # Repeat for each rule. For a proposed red zone rule, tag both scenarios with
+  # the reviewer check id and add the machine check tag wherever there is a test.
+  Rule: <what must never happen here, in the person's words>
 
     @check:<check id>
     Scenario: <the bad case, which the check must reject>
       Given <a change that does the wrong thing>
       When the gate runs
-      Then the <check id> check fails and names the file and the line
+      Then <where the breach is visible, with the file and line when a machine check fails>
 
     @check:<check id>
     Scenario: <a good case, which the check must accept>
       Given <a change that does the right thing>
       When the gate runs
-      Then the <check id> check passes
+      Then <what shows the rule held and where>
 ```
 
 ## The reviewer's exam
@@ -608,7 +610,7 @@ backlog: <item id>
 
 ## Scenarios
 
-<Each id it adds or changes, with one line on what it says. The scenarios live in features/.>
+<Each scenario id in features/, with its outcome and where in the product someone can see it.>
 
 ## What it touches
 
@@ -635,7 +637,7 @@ backlog: <item id>
 
 ## The scenarios of changes
 
-Tests cite the id of the scenario they check as `gdd:<id>`, in their name or a comment, so `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds them, and not the tests of another id that begins the same.
+For each thing created, used up or ended, and each value changed in another zone, the scenario names the outcome and the other part of the product where someone can see it. The test observes it there. On red the reviewer uses the product to check it there too. Propose any undecided timing with the other product rules. Tests cite the id of the scenario they check as `gdd:<id>`, in their name or a comment, so `git grep -nE "gdd:<id>([^a-z0-9-]|$)"` finds them, and not the tests of another id that begins the same.
 
 <!-- template: gdd-brief/assets/scenarios.feature -->
 ```gherkin
@@ -645,7 +647,7 @@ Feature: <capability, as the person names it>
   Scenario: <what happens, in one line>
     Given <the starting state>
     When <what someone does>
-    Then <what they can observe>
+    Then <what they can observe, and from where else in the product they can see each effect>
 ```
 
 ## The copies in gdd/context
@@ -671,7 +673,7 @@ result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```
 
-The layer writes the `report` of the log from it, with `gdd report`: the level the role was launched at and which round it was, from the log and the blueprint, and what the orchestrator gives it, the model it ran on, the seconds and the tokens when its environment reports them (`null` when it doesn't). What a role ran goes in a `json` block right before its report block, a list the layer reads into the step: the checks role's proofs (each with `check`, `case`, `command`, `exit` and `tail`), what the builder says each check gave (`claims`, each with `check`, `command`, `exit` and `tail`) and the commands the reviewer ran (`ran`, each with `command`, `exit` and `tail`). The prompt the layer writes for a role asks for it. Without it the list stays empty, and the log can't show what ran.
+The layer writes the `report` of the log from it, with `gdd report`: the level the role was launched at and which round it was, from the log and the blueprint, and what the orchestrator gives it, the model it ran on, the seconds and the tokens when its environment reports them (`null` when it doesn't). What a role ran goes in a `json` block right before its report block, a list the layer reads into the step: the checks role's proofs (each with `check`, `case`, `command`, `exit` and `tail`), what the builder says each check gave (`claims`, each with `check`, `command`, `exit` and `tail`) and the commands the reviewer ran (`ran`, each with `command`, `exit` and `tail`). The prompt the layer writes for a role asks for it. A completed checks step needs the proofs described below. A role that stops can report what blocked it before it has those proofs.
 
 For the steps the orchestrator does itself (`prepare`, `brief`, `harden` and `exam`) there is no block: `gdd brief` writes its own, and `gdd step blueprint <step>` the others, from its flags.
 
@@ -693,7 +695,7 @@ A `waiver` of a limit also carries `limit`, the key of the cap as the blueprint 
 
 An `approval` says in `where` how the person approved, from the strongest to the weakest: a pull request approved on the platform, a commit of theirs, or `conversation`, when they said yes to the orchestrator. Without a platform, the last two are all there is, and they are a rule, not a guarantee. Its `files` are the versions the person saw: a file changed after their yes needs an approval of its own.
 
-The `proofs` of a `checks` step are what the color asks for: with the template's defaults, on yellow a case `rejects` for each check and a case `passes` only where a correct version already existed, and on red both. On every color with cases, the rejecting proof for each scenario test also gives its name in `test` and the wrong solution its assertions reject in `wrong`. This is what the checks role found by reading the test. The command, exit and tail record what actually ran.
+The `proofs` of a `checks` step are what the color asks for: with the template's defaults, on yellow a case `rejects` for each check and a case `passes` only where a correct version already existed, and on red both. On every color with cases, the rejecting proof for each scenario test also gives its name in `test` and the wrong solution its assertions reject in `wrong`. This is what the checks role found by reading the test. The command, exit and tail record what actually ran. A passing run of the whole check covers its tests together. A passing entry that names one test covers that test. A completed report with a required proof missing is refused before the step is logged. Submit the runs for the same seal in the report or with `--proofs <json file>`. The blueprint selects checks with `cases: each change` by color and planned path. In older blueprints without project gates or that marker, a yellow or red brief takes scenario proofs from the machine check of its color that ran them. The reviewer checks which scenario each test actually exercises. Setting up a standing check takes both proofs for that check whatever its color.
 
 Setting up the standing checks has a log of its own, `gdd/log/standing-checks.jsonl`, named after its backlog item, the only one that comes before every change. In a project with no code yet it sets up and tries only `seal` and `secrets`, and CI running them: every other check waits in the blueprint with a `when` that names what it watches, asks nothing of a change until there is something for it to reject, and has its trial as an item of its own, `standing-checks-<check id>`, right after the first item that brings it something to judge, whose checks role sets up what it needs to run, sealed with its tests. Nobody is asked to demonstrate a check on code that does not exist. The log of `standing-checks` holds a `checks` step, with its seal on `gdd-seal/standing-checks`, and a `review` step with the verdict. So does a check that waited for something to judge, or one set up later for the color of a new zone, as `standing-checks-<check id>`, and a zone's own gate, as `gates-<zone>` (`gates-<zone>-2` when the zone already has one). A `harden` step goes to `gdd/log/blueprint.jsonl` and names in `change` the change that let the failure through, whose own log is closed. A removal has no such change: its `crack` says what no longer adds anything. An `exam` step goes there too, each time the exam is run: who was examined, how many questions it was asked, how many it caught and which it missed.
 

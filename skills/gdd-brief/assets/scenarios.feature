@@ -4,4 +4,4 @@ Feature: <capability, as the person names it>
   Scenario: <what happens, in one line>
     Given <the starting state>
     When <what someone does>
-    Then <what they can observe>
+    Then <what they can observe, and from where else in the product they can see each effect>

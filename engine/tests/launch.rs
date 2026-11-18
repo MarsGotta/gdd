@@ -272,11 +272,16 @@ fn approved(r: &Repo, id: &str) {
 fn committing(r: &Repo, name: &str, add: &str, file: &str, skill: &str, result: &str) -> String {
     let wt = r.dir.path().join(format!("{name}-wt"));
     let wt = wt.display();
+    let report = if skill == "gdd-checks" {
+        sealed_report(&["tests"])
+    } else {
+        report_block(skill, result)
+    };
     script(
         r,
         &format!("{name}.sh"),
         &format!(
-            "git worktree add -q {add} || exit 8\nmkdir -p $(dirname {wt}/{file})\necho 'by {name}' > {wt}/{file}\ngit -C {wt} add -A && git -C {wt} commit -q -m Work || exit 7\ngit worktree remove --force {wt}\nprintf 'Worked.\\n```gdd-report\\nskill: {skill} 0.10.1\\nresult: {result}\\ncaught: none\\n```\\n'"
+            "git worktree add -q {add} || exit 8\nmkdir -p $(dirname {wt}/{file})\necho 'by {name}' > {wt}/{file}\ngit -C {wt} add -A && git -C {wt} commit -q -m Work || exit 7\ngit worktree remove --force {wt}\ncat <<'REPORT'\n{report}REPORT"
         ),
     )
 }

@@ -10,6 +10,8 @@ What is usual for a project like this one isn't what you remember: tools change,
 
 In a project with history, with a person who knows the area, research only what they ask for or what would change a zone or a gate.
 
+For each red zone, compare those sources with the project's data, workflows and past failures. Use the losses that fit this zone to propose its rules in the blueprint approval.
+
 ## What to look for
 
 - **What a product like this has to protect.** The rules of its sector and its country, read from the regulation or the regulator itself. For a shop that takes cards, that is the card schemes' own standard, the law on personal data and the consumer law on prices.

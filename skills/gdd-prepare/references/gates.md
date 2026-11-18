@@ -1,6 +1,12 @@
 # Proposing the gates
 
-Open this before you propose any gate. Which gates a project needs is the person's decision: what follows is where a proposal starts, never a list to impose. A project starts with the minimum, and its gates grow only by hardening, when something slipped through.
+Open this before you propose any gate. Which gates a project needs is the person's decision: what follows is where a proposal starts, never a list to impose. Start with the project minimum and the rules you propose for its red zones.
+
+## What must never happen in this red zone
+
+Read the sector sources as `references/research.md` describes and follow this project's data through the zone. Propose three to five losses the person would recognize. In a shop, a buyer might pay a different amount from the order total, a discount meant for one use might pay for two orders, or a cancelled order might keep the last unit off sale. Choose what fits the zone and the product. The person can correct the rules with the blueprint.
+
+Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one can observe them. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Queue their tests as soon as there is behavior to exercise. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
 
 ## What the project already has
 

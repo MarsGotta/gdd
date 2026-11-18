@@ -87,11 +87,21 @@ fn the_standing_checks_of_the_prepared_shop_from_start_to_ship() {
             (".gitleaks.toml", "[allowlist]\n"),
         ],
     );
-    let proofs = "```json\n[{\"check\":\"tests\",\"case\":\"rejects\",\"command\":\"python3 -m unittest discover -s tests -q\",\"exit\":1,\"tail\":\"FAILED (failures=1)\"},{\"check\":\"tests\",\"case\":\"passes\",\"command\":\"python3 -m unittest discover -s tests -q\",\"exit\":0,\"tail\":\"OK\"}]\n```";
     let f = write(
         &tmp.path().join("checks.txt"),
-        &report_text("gdd-checks", "sealed", &format!("Set up.\n{proofs}")),
+        &sealed_report(&["seal", "tests", "lint", "secrets"]),
     );
+    let incomplete = write(
+        &tmp.path().join("incomplete.txt"),
+        &sealed_report(&["tests", "lint", "seal"]),
+    );
+    let missing = gdd(&["report", id, "checks", &incomplete]);
+    assert_eq!(
+        missing.facts["refused"], "missing-proofs",
+        "{}",
+        missing.out
+    );
+    assert!(missing.has("secrets"));
     let c = gdd(&["report", id, "checks", &f]);
     assert_eq!(c.code, 0, "the bug: a setup log had no <start>: {}", c.out);
     let lines: Vec<serde_json::Value> =
@@ -102,7 +112,7 @@ fn the_standing_checks_of_the_prepared_shop_from_start_to_ship() {
             .collect();
     let checks = &lines[0];
     assert_eq!(checks["seal"]["checks"].as_object().unwrap().len(), 2);
-    assert_eq!(checks["seal"]["proofs"].as_array().unwrap().len(), 2);
+    assert_eq!(checks["seal"]["proofs"].as_array().unwrap().len(), 8);
     assert_eq!(
         checks["color"]["color"], "yellow",
         "judges is yellow here, and .gitleaks.toml no zone covers"
@@ -179,12 +189,7 @@ fn a_zones_own_gate_with_the_persons_review_by_pull_request() {
             "grep -rn '[0-9]\\.[0-9]' src/pay && exit 1 || exit 0\n",
         )],
     );
-    let c = r.report(
-        id,
-        "checks",
-        &report_text("gdd-checks", "sealed", "Built the check of the Rule."),
-        &[],
-    );
+    let c = r.report(id, "checks", &sealed_report(&["prices"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     let r2 = r.report(
         id,

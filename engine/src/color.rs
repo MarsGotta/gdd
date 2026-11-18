@@ -76,16 +76,25 @@ fn stands_for(root: &Path, given: &str, clean: &str) -> Result<Vec<String>, Stri
     }
 }
 
-/// Put each path in the zones whose pathspecs git matches it to, and list what no zone covers.
-/// A folder is in every zone that holds one of its files, and it is covered only when all of them
-/// are.
-pub fn sort_paths(root: &Path, bp: &Blueprint, paths: &[String]) -> Result<Sorted, String> {
+/// Resolve planned files and folders the same way for zone colors and a check's path conditions.
+pub(crate) fn planned_paths(
+    root: &Path,
+    paths: &[String],
+) -> Result<Vec<(String, Vec<String>)>, String> {
     let mut stands: Vec<(String, Vec<String>)> = vec![];
     for p in paths {
         let clean = clean_path(p)?;
         let files = stands_for(root, p, &clean)?;
         stands.push((clean, files));
     }
+    Ok(stands)
+}
+
+/// Put each path in the zones whose pathspecs git matches it to, and list what no zone covers.
+/// A folder is in every zone that holds one of its files, and it is covered only when all of them
+/// are.
+pub fn sort_paths(root: &Path, bp: &Blueprint, paths: &[String]) -> Result<Sorted, String> {
+    let stands = planned_paths(root, paths)?;
     let mut all: Vec<String> = stands.iter().flat_map(|(_, f)| f.iter().cloned()).collect();
     all.sort();
     all.dedup();

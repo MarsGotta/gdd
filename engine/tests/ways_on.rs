@@ -45,12 +45,11 @@ fn set_up(r: &Repo, id: &str, file: &str, body: &str) {
         let main = r.git(&["rev-parse", "main"]);
         r.commit_on(&seal, Some(&main), &[(file, body)], "Set them up");
     }
-    let c = r.report(
-        id,
-        "checks",
-        &report_text("gdd-checks", "sealed", "Set up."),
-        &[],
-    );
+    let report = match id.strip_prefix("standing-checks-") {
+        Some(check) => sealed_report(&[check]),
+        None => sealed_report(&["seal", "tests", "slow"]),
+    };
+    let c = r.report(id, "checks", &report, &[]);
     assert_eq!(c.code, 0, "{}", c.out);
 }
 
@@ -820,12 +819,7 @@ fn a_fix_already_on_the_seal_after_a_merge_gets_its_new_trial() {
     let m = r.gdd(&["seal", id, "--merge-main"]);
     assert_eq!(m.code, 0, "{}", m.out);
     // The role has nothing left to seal: what the trial asked for is there, and it says so.
-    let c = r.report(
-        id,
-        "checks",
-        &report_text("gdd-checks", "sealed", "The fix is on the seal."),
-        &[],
-    );
+    let c = r.report(id, "checks", &sealed_report(&["catalog"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     let lines = r.log_lines(id);
     let sealed = &lines.last().unwrap()["seal"];
@@ -851,12 +845,7 @@ fn a_fix_that_came_through_the_main_branch_gets_its_new_trial() {
     );
     r.commit("Run the tests when the browser tests change");
     assert_eq!(r.gdd(&["seal", id, "--merge-main"]).code, 0);
-    let c = r.report(
-        id,
-        "checks",
-        &report_text("gdd-checks", "sealed", "The fix came through main."),
-        &[],
-    );
+    let c = r.report(id, "checks", &sealed_report(&["catalog"]), &[]);
     assert_eq!(c.code, 0, "{}", c.out);
     assert_eq!(step_of(&next_of(&r, id)), "review");
 }
@@ -868,12 +857,7 @@ fn a_seal_the_trial_already_judged_is_not_a_fix() {
     let id = "standing-checks-catalog";
     set_up(&r, id, "tests/standing.sh", "true\n");
     sent_back(&r, id);
-    let c = r.report(
-        id,
-        "checks",
-        &report_text("gdd-checks", "sealed", "Nothing to change."),
-        &[],
-    );
+    let c = r.report(id, "checks", &sealed_report(&["catalog"]), &[]);
     assert_eq!(c.facts["refused"], "not-sealed", "{}", c.out);
 }
 
