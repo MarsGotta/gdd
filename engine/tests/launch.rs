@@ -506,6 +506,11 @@ fn two_refusals_need_the_same_reason_seal_and_head() {
     );
     assert_eq!(reject().facts["refused"], "no-report");
     assert_eq!(next()["blocked"], "needs-person");
+    let ask = gdd::launch::split(next()["command"].as_str().unwrap()).unwrap();
+    assert!(
+        ask.last().unwrap().contains('<'),
+        "the orchestrator supplies the proposal"
+    );
 
     r.commit_on(
         "gdd-seal/c1",

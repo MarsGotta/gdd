@@ -3,6 +3,7 @@
 
 mod common;
 use common::*;
+use serde_json::Value;
 use std::collections::BTreeSet;
 
 struct Choices(u32);
@@ -67,160 +68,186 @@ fn checks_report(cases: u32) -> String {
     )
 }
 
+/// These two decisions offer alternatives in a single command string. The fixture
+/// chooses an offered command, just as the person chooses whether to defer or ship locally.
+fn offered(command: &str, choice: &str) {
+    assert!(command.contains(choice), "{choice} missing from {command}");
+}
+
+fn answer_question(r: &Repo, state: &Value, command: &str) {
+    if command.starts_with("gdd approve ") {
+        follow(
+            r,
+            &command
+                .replace("<person>", "Owner")
+                .replace("<conversation, commit or pull request>", "conversation")
+                .replace("<files>", "gdd/briefs/example.md features/example.feature"),
+        );
+    } else if state["open_ask"]["of"] == "waiver" {
+        let answer = r#"gdd answer example "<their words>""#;
+        offered(command, answer);
+        follow(r, &answer.replace("<their words>", "Leave it pending"));
+    } else {
+        follow(r, &command.replace("<their words>", "Yes"));
+    }
+}
+
+fn ask(r: &Repo, next: &Value, command: &str) {
+    let args = gdd::launch::split(command).unwrap();
+    assert_eq!(&args[..4], ["gdd", "ask", "example", "--of"]);
+    assert_eq!(args.len(), 6);
+    if matches!(args[4].as_str(), "brief" | "stop") {
+        for _ in 0..2 {
+            assert_eq!(
+                r.report("example", "build", "no role output", &[]).facts["refused"],
+                "no-report"
+            );
+        }
+        assert_eq!(r.gdd(&["next", "example"]).facts["state"]["next"], *next);
+    }
+    accepted(r.gdd(&[
+        "ask",
+        "example",
+        "--of",
+        &args[4],
+        "Shall we use this example?",
+    ]));
+}
+
+/// The seed chooses missing reports and what the first completed review says.
+struct Roles {
+    bad_reports: u32,
+    send_back: u32,
+    builds: u32,
+    consecutive_refusals: u32,
+}
+
+impl Roles {
+    fn report(&mut self, r: &Repo, path: &str, state: &Value, step: &str, choices: &mut Choices) {
+        if self.bad_reports > 0 && (self.consecutive_refusals > 0 || choices.pick(2) == 0) {
+            self.bad_reports -= 1;
+            let refused = r.report("example", step, "no role output", &[]);
+            assert_eq!(refused.facts["refused"], "no-report", "{}", refused.out);
+            self.consecutive_refusals += 1;
+            return;
+        }
+        self.consecutive_refusals = 0;
+        let text = match step {
+            "reading" => report_block("gdd-review", "pass"),
+            "checks" => {
+                r.commit_on(
+                    "gdd-seal/example",
+                    None,
+                    &[("tests/example.sh", "true\n")],
+                    "Seal the example",
+                );
+                checks_report(if path.contains("/pay/") { 11 } else { 1 })
+            }
+            "build" => {
+                self.builds += 1;
+                let from = (self.builds == 1).then(|| state["start"].as_str().unwrap());
+                r.commit_on(
+                    "work/example",
+                    from,
+                    &[(path, &format!("ok {}\n", self.builds))],
+                    "Build the example",
+                );
+                report_block("gdd-build", "done")
+            }
+            "review" => {
+                let verdict = ["pass", "fix", "stop"][self.send_back as usize];
+                self.send_back = 0;
+                review_text(
+                    verdict,
+                    state["color"].as_str().unwrap(),
+                    "f1 example:1 The result is missing | @id:example-1",
+                )
+            }
+            _ => unreachable!(),
+        };
+        accepted(r.report("example", step, &text, &[]));
+    }
+}
+
+fn walk_change(path: &str, choices: &mut Choices, visited: &mut BTreeSet<String>) {
+    let r = Repo::new();
+    let mut roles = Roles {
+        bad_reports: choices.pick(3),
+        send_back: choices.pick(3),
+        builds: 0,
+        consecutive_refusals: 0,
+    };
+    for _ in 0..28 {
+        let n = r.gdd(&["next", "example"]);
+        let state = &n.facts["state"];
+        let next = &state["next"];
+        let step = next["step"].as_str().expect(&n.out);
+        let command = next["command"].as_str().expect(&n.out);
+        visited.insert(step.to_owned());
+        if roles.consecutive_refusals == 2 {
+            assert_eq!(next["blocked"], "needs-person", "{}", n.out);
+            assert!(
+                command.starts_with("gdd ask example --of decision "),
+                "{}",
+                n.out
+            );
+            roles.consecutive_refusals = 0;
+        }
+        match step {
+            "brief" => {
+                assert!(command.starts_with("gdd brief example --paths <path>..."));
+                if path.contains("/ui/") {
+                    follow(&r, &format!("gdd brief example --paths {path}"));
+                } else if path.contains("/pay/") {
+                    brief_with_supplied_file(&r);
+                } else {
+                    yellow_brief(&r, "example", path);
+                }
+            }
+            "stopped" if command.starts_with("gdd brief example --stop ") => {
+                assert_eq!(next["blocked"], "cap-spent");
+                follow(&r, &command.replace("<their words>", "Leave it pending"));
+                let dropped = r.gdd(&["next", "example"]);
+                assert_eq!(dropped.facts["state"]["next"]["blocked"], "cannot");
+                assert!(dropped.has("a new brief takes it up again"));
+                return;
+            }
+            "ask" | "stopped" => {
+                assert!(next["blocked"].is_string(), "{}", n.out);
+                ask(&r, next, command);
+            }
+            "wait" => {
+                assert_eq!(next["blocked"], "needs-person");
+                answer_question(&r, state, command);
+            }
+            "checks" | "reading" | "build" | "review" => {
+                assert!(next["blocked"].is_null());
+                assert!(command.starts_with(&format!("gdd launch example {step}")));
+                follow(&r, command);
+                roles.report(&r, path, state, step, choices);
+            }
+            "gates" => follow(&r, command),
+            "ship" => {
+                let merge = "gdd ship example --merge";
+                offered(command, merge);
+                follow(&r, merge);
+            }
+            "done" => {
+                assert_eq!(state["shipped"], true);
+                return;
+            }
+            _ => panic!("no way on for {path}: {}", n.out),
+        }
+    }
+    panic!("{path} had neither shipped nor been deferred within 28 steps");
+}
+
 #[test]
 fn each_reachable_step_has_a_way_on() {
     let mut choices = Choices(0x5ea1);
     let mut visited = BTreeSet::new();
     for path in ["src/ui/page.txt", "src/core/app.txt", "src/pay/pay.txt"] {
-        let r = Repo::new();
-        let id = "example";
-        let brief = "gdd/briefs/example.md";
-        let scenario = "features/example.feature";
-        // Choose when a role gives no usable report, and what its next completed review says.
-        let mut bad_reports = choices.pick(3);
-        let mut send_back = choices.pick(3);
-        let mut builds = 0;
-        let mut consecutive_refusals = 0;
-        let mut finished = false;
-        for _ in 0..28 {
-            let n = r.gdd(&["next", id]);
-            let state = &n.facts["state"];
-            let next = &state["next"];
-            let step = next["step"].as_str().expect(&n.out);
-            let command = next["command"].as_str().expect(&n.out);
-            visited.insert(step.to_owned());
-            if consecutive_refusals == 2 {
-                assert_eq!(next["blocked"], "needs-person", "{}", n.out);
-                assert!(
-                    command.starts_with("gdd ask example --of decision "),
-                    "{}",
-                    n.out
-                );
-                consecutive_refusals = 0;
-            }
-            match step {
-                "brief" => {
-                    assert!(command.starts_with("gdd brief example --paths <path>..."));
-                    if path.contains("/ui/") {
-                        follow(&r, &format!("gdd brief example --paths {path}"));
-                    } else if path.contains("/pay/") {
-                        brief_with_supplied_file(&r);
-                    } else {
-                        yellow_brief(&r, id, path);
-                    }
-                }
-                "stopped" if command.starts_with("gdd brief example --stop ") => {
-                    assert_eq!(next["blocked"], "cap-spent");
-                    follow(&r, &command.replace("<their words>", "Leave it pending"));
-                    let dropped = r.gdd(&["next", id]);
-                    assert_eq!(dropped.facts["state"]["next"]["blocked"], "cannot");
-                    assert!(dropped.has("a new brief takes it up again"));
-                    finished = true;
-                    break;
-                }
-                "ask" | "stopped" => {
-                    assert!(next["blocked"].is_string(), "{}", n.out);
-                    let (ask, _) = command.split_once(" \"").expect(command);
-                    assert!(ask.starts_with("gdd ask example --of "), "{command}");
-                    // Repeated reports while a required approval or the reviewer's stop waits
-                    // must leave that original question in place.
-                    if ask.ends_with("--of brief") || ask.ends_with("--of stop") {
-                        for _ in 0..2 {
-                            assert_eq!(
-                                r.report(id, "build", "no role output", &[]).facts["refused"],
-                                "no-report"
-                            );
-                        }
-                        assert_eq!(r.gdd(&["next", id]).facts["state"]["next"], *next);
-                    }
-                    follow(&r, &format!("{ask} \"Shall we use this example?\""));
-                }
-                "wait" => {
-                    assert_eq!(next["blocked"], "needs-person");
-                    if command.starts_with("gdd approve ") {
-                        follow(
-                            &r,
-                            &command
-                                .replace("<person>", "Owner")
-                                .replace("<conversation, commit or pull request>", "conversation")
-                                .replace("<files>", &format!("{brief} {scenario}")),
-                        );
-                    } else if state["open_ask"]["of"] == "waiver" {
-                        let reply = command
-                            .strip_prefix("If they agree to leave it pending: ")
-                            .unwrap();
-                        follow(
-                            &r,
-                            &reply
-                                .split_once(", then")
-                                .unwrap()
-                                .0
-                                .replace("<their words>", "Leave it pending"),
-                        );
-                    } else {
-                        follow(&r, &command.replace("<their words>", "Yes"));
-                    }
-                }
-                "checks" | "reading" | "build" | "review" => {
-                    assert!(next["blocked"].is_null());
-                    assert!(command.starts_with(&format!("gdd launch {id} {step}")));
-                    follow(&r, command);
-                    if bad_reports > 0 && (consecutive_refusals > 0 || choices.pick(2) == 0) {
-                        bad_reports -= 1;
-                        let refused = r.report(id, step, "no role output", &[]);
-                        assert_eq!(refused.facts["refused"], "no-report", "{}", refused.out);
-                        consecutive_refusals += 1;
-                        continue;
-                    }
-                    consecutive_refusals = 0;
-                    let text = match step {
-                        "reading" => report_block("gdd-review", "pass"),
-                        "checks" => {
-                            r.commit_on(
-                                "gdd-seal/example",
-                                None,
-                                &[("tests/example.sh", "true\n")],
-                                "Seal the example",
-                            );
-                            checks_report(if path.contains("/pay/") { 11 } else { 1 })
-                        }
-                        "build" => {
-                            builds += 1;
-                            let from = (builds == 1).then(|| state["start"].as_str().unwrap());
-                            r.commit_on(
-                                "work/example",
-                                from,
-                                &[(path, &format!("ok {builds}\n"))],
-                                "Build the example",
-                            );
-                            report_block("gdd-build", "done")
-                        }
-                        _ => {
-                            let verdict = ["pass", "fix", "stop"][send_back as usize];
-                            send_back = 0;
-                            review_text(
-                                verdict,
-                                state["color"].as_str().unwrap(),
-                                "f1 example:1 The result is missing | @id:example-1",
-                            )
-                        }
-                    };
-                    accepted(r.report(id, step, &text, &[]));
-                }
-                "gates" => follow(&r, command),
-                "ship" => follow(&r, command.split_once("; or ").unwrap().0),
-                "done" => {
-                    assert!(state["shipped"].as_bool().unwrap());
-                    finished = true;
-                    break;
-                }
-                _ => panic!("no way on for {path}: {}", n.out),
-            }
-        }
-        assert!(
-            finished,
-            "{path} had neither shipped nor been deferred within 28 steps"
-        );
+        walk_change(path, &mut choices, &mut visited);
     }
     for step in [
         "reading", "ask", "wait", "checks", "build", "gates", "review", "ship", "done",

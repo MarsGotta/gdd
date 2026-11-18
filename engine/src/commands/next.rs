@@ -10,32 +10,7 @@ fn stop_repeating(state: &mut State, entries: &[Entry], repeated: Option<(Value,
     if let Some((attempt, reason)) = repeated
         && attempt == crate::journal::attempt(&state.next.step, &state.git, entries)
     {
-        let question = match reason.as_str() {
-            "vague-stop" => {
-                "We still don't know what prevented the checks. Shall we go through one example together to find what is missing?"
-            }
-            "wrong-model" | "no-model" | "no-environment" => {
-                "The agreed setup for this work is unavailable. Shall we restore it before trying again?"
-            }
-            "no-report" | "wrong-skill" | "no-verdict" => {
-                "We still lack a usable result for this work. Shall I get the missing result before we go on?"
-            }
-            "bad-proofs" | "missing-proofs" => {
-                "We still lack evidence that the change works. Shall I get the missing checks demonstrated before we go on?"
-            }
-            "start-missing" | "wrong-start" => {
-                "The work used an older version of the checks. Shall I bring it up to date before we try again?"
-            }
-            "not-sealed" | "seal-mismatch" | "seal-missing" | "seal-moved" => {
-                "The agreed checks are missing from the version we need to use. Shall I put them in place before we go on?"
-            }
-            "nothing-built" => {
-                "There is still no change to try. Shall we agree on the first result you need to see?"
-            }
-            _ => {
-                "<what is blocked in the product>. Shall I <proposed fix for the cause in the last refusal> before trying again?"
-            }
-        };
+        let question = "<what is blocked in the product>. Shall I <proposed fix for the cause in the last refusal> before trying again?";
         let remedy = if reason == "vague-stop" {
             "The checks role must name the blocked scenario by @id or the file it needs."
         } else {
@@ -153,8 +128,55 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     for p in bp.problems() {
         out.say(format!("the blueprint: {p}"));
     }
+    show_blueprint_approval(&project, &bp, out);
+    let path = project.path("gdd/backlog.md");
+    let read = backlog::read(&std::fs::read_to_string(&path).unwrap_or_default());
+    if !read.problems.is_empty() && path.is_file() {
+        let mut problems = Vec::new();
+        for p in read.problems {
+            out.say(format!(
+                "can't read {}: fix it, then gdd backlog list",
+                p.say()
+            ));
+            problems.push(json!({"line": p.line, "what": p.what}));
+        }
+        out.fact("backlog_problems", json!(problems));
+    }
+    let items = read.items;
+    let standing = items
+        .iter()
+        .find(|i| i.id == "standing-checks")
+        .map(|i| i.state.as_str());
+    out.say(match standing {
+        Some("done") => "the standing checks are set up".to_string(),
+        Some(s) => format!("the standing checks are {s}: they come before any change"),
+        None => "the backlog has no standing-checks item".into(),
+    });
+    out.fact("standing_checks", json!(standing));
+    show_work_under_way(ctx, &project, &bp, out);
+    match backlog::next(&items) {
+        Some(i) if standing == Some("done") || i.id == "standing-checks" => {
+            out.say(format!(
+                "next in the backlog: {} ({}, {}): {}",
+                i.id, i.color, i.state, i.what
+            ));
+            out.fact("backlog_next", json!(i.id));
+        }
+        Some(i) => {
+            out.say(format!(
+                "next in the backlog, once the standing checks hold: {}",
+                i.id
+            ));
+            out.fact("backlog_next", json!(i.id));
+        }
+        None => out.say("the backlog has nothing to do"),
+    }
+    Ok(())
+}
+
+fn show_blueprint_approval(project: &Project, bp: &Blueprint, out: &mut Out) {
     let entries = project.read_log("blueprint");
-    if let Some(words) = events::levels_answer(&entries, &bp) {
+    if let Some(words) = events::levels_answer(&entries, bp) {
         out.say(format!(
             "the person's answer about working at the available level: {words}"
         ));
@@ -165,7 +187,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
         .map(|(_, v)| v)
         .filter(|v| log::kind(v) == "approval" && str_of(v, "of") == "blueprint")
         .collect();
-    let now_hash = git::hash_object(&ctx.root, "gdd/blueprint.md").ok();
+    let now_hash = git::hash_object(&project.root, "gdd/blueprint.md").ok();
     let named = approvals
         .iter()
         .rev()
@@ -181,39 +203,9 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     };
     out.say(approved.clone());
     out.fact("blueprint", approved);
-    let text = std::fs::read_to_string(project.path("gdd/backlog.md")).unwrap_or_default();
-    let read = backlog::read(&text);
-    if project.path("gdd/backlog.md").is_file() {
-        for p in &read.problems {
-            out.say(format!(
-                "can't read {}: fix it, then gdd backlog list",
-                p.say()
-            ));
-        }
-        if !read.problems.is_empty() {
-            out.fact(
-                "backlog_problems",
-                json!(
-                    read.problems
-                        .iter()
-                        .map(|p| json!({"line": p.line, "what": p.what}))
-                        .collect::<Vec<_>>()
-                ),
-            );
-        }
-    }
-    let items = read.items;
-    let standing = items
-        .iter()
-        .find(|i| i.id == "standing-checks")
-        .map(|i| i.state.clone());
-    let set_up = standing.as_deref() == Some("done");
-    out.say(match standing.as_deref() {
-        Some("done") => "the standing checks are set up".to_string(),
-        Some(s) => format!("the standing checks are {s}: they come before any change"),
-        None => "the backlog has no standing-checks item".into(),
-    });
-    out.fact("standing_checks", json!(standing));
+}
+
+fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut Out) {
     let now = time::now();
     let mut open = vec![];
     let mut under_way = vec![];
@@ -241,7 +233,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
             }
             let mut s = state::derive(
                 &lid,
-                &bp,
+                bp,
                 &e,
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
                 now,
@@ -250,7 +242,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
             if p.events == 0 && s.next.blocked.as_deref() != Some("needs-person") {
                 continue;
             }
-            prefer_run(ctx, &bp, &mut s);
+            prefer_run(ctx, bp, &mut s);
             under_way.push(json!({"id": lid, "next": s.next.step, "command": s.next.command, "blocked": s.next.blocked}));
             out.say(match &s.next.blocked {
                 Some(b) => format!("under way: {lid}, stopped ({b}): {}", s.next.command),
@@ -270,22 +262,4 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
         json!(open.iter().map(|(t, lid, of, what)| json!({"id": lid, "of": of, "what": what, "seconds": now - t})).collect::<Vec<_>>()),
     );
     out.fact("under_way", json!(under_way));
-    match backlog::next(&items) {
-        Some(i) if set_up || i.id == "standing-checks" => {
-            out.say(format!(
-                "next in the backlog: {} ({}, {}): {}",
-                i.id, i.color, i.state, i.what
-            ));
-            out.fact("backlog_next", json!(i.id));
-        }
-        Some(i) => {
-            out.say(format!(
-                "next in the backlog, once the standing checks hold: {}",
-                i.id
-            ));
-            out.fact("backlog_next", json!(i.id));
-        }
-        None => out.say("the backlog has nothing to do"),
-    }
-    Ok(())
 }

@@ -127,6 +127,7 @@ checks:
     command: "git diff --exit-code <start> HEAD -- gdd features AGENTS.md <sealed paths> ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"
     runs: each round
   - id: tests
+    cases: each change
     type: machine
     command: sh tests/run.sh
     runs: each round

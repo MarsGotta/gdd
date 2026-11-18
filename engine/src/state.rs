@@ -193,6 +193,30 @@ impl Progress {
         !self.brief_files.is_empty()
     }
 
+    /// Callers read the version they are judging: the seal for proofs, the working copy for metrics.
+    pub(crate) fn scenario_count(
+        &self,
+        id: &str,
+        read: impl Fn(&str) -> Option<String>,
+    ) -> Option<usize> {
+        if let Some(text) = read(&format!("gdd/briefs/{id}.md"))
+            && let Some((front, _)) = crate::blueprint::split_front_matter(&text)
+            && let Ok(brief) = crate::blueprint::read_yaml(front)
+            && let Some(scenarios) = brief["scenarios"].as_array()
+        {
+            return Some(scenarios.len());
+        }
+        let tag = format!("@brief:{id}");
+        let count = self
+            .brief_files
+            .keys()
+            .filter(|file| file.starts_with("features/"))
+            .filter_map(|file| read(file))
+            .map(|text| text.split_whitespace().filter(|word| *word == tag).count())
+            .sum();
+        (count > 0).then_some(count)
+    }
+
     fn requirements(&self) -> impl Iterator<Item = (&String, &String)> {
         let has_scenarios = self.brief_files.keys().any(|p| p.starts_with("features/"));
         self.brief_files

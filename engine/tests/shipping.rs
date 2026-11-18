@@ -759,6 +759,28 @@ fn a_launch_that_closes_its_own_standard_input() {
 }
 
 #[test]
+fn hardening_without_attribution_records_unknown() {
+    let r = Repo::new();
+    let wrote = r.gdd(&[
+        "step",
+        "blueprint",
+        "harden",
+        "--crack",
+        "missing test",
+        "--proposal",
+        "check refunds",
+    ]);
+    assert_eq!(wrote.code, 0, "{}", wrote.out);
+    let record = &r.log_lines("blueprint")[0];
+    assert_eq!(record["expected_check"], "unknown");
+    assert_eq!(record["caught_by"], "unknown");
+    assert!(
+        r.gdd(&["metrics", "--all", "--summary"])
+            .has("unknown | unknown | 1")
+    );
+}
+
+#[test]
 fn hardening_keeps_the_catches_and_cost_of_a_reduction() {
     let r = Repo::new();
     for action in ["relax", "retire"] {
@@ -777,7 +799,9 @@ fn hardening_keeps_the_catches_and_cost_of_a_reduction() {
             "--caught-by",
             "none",
         ];
-        assert!(r.gdd(&args).has("--catches"));
+        let missing = r.gdd(&args);
+        assert_eq!(missing.code, 2, "{}", missing.out);
+        assert!(missing.has("--catches"));
         args.extend([
             "--catches",
             "0 failures in 14 gate runs; builder counts unavailable",
@@ -1118,10 +1142,6 @@ fn stock_checks_ready(r: &Repo, id: &str, color: &str, path: &str) {
 fn checks_reports_require_the_proofs_of_their_color() {
     use serde_json::json;
     let bp = BLUEPRINT
-        .replace(
-            "command: sh tests/run.sh",
-            "cases: each change\n    command: sh tests/run.sh",
-        )
         .replace("id: tests", "id: stock")
         .replace("seal, tests", "seal, stock");
     for (color, path) in [("yellow", "src/core/app.txt"), ("red", "src/pay/pay.txt")] {
@@ -1199,11 +1219,19 @@ fn checks_reports_require_the_proofs_of_their_color() {
 }
 
 #[test]
+fn an_unmarked_check_needs_no_scenario_proofs() {
+    let r = Repo::with(&BLUEPRINT.replace("    cases: each change\n", ""));
+    stock_checks_ready(&r, "core", "yellow", "./src/core/");
+    let result = r.report("core", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(result.facts["next"], "build", "{}", result.out);
+}
+
+#[test]
 fn only_case_checks_selected_for_the_color_and_planned_paths_need_proofs() {
     let bp = BLUEPRINT
         .replace(
             "command: sh tests/run.sh",
-            "cases: each change\n    when: [':(glob)src/pay/**']\n    command: sh tests/run.sh",
+            "when: [':(glob)src/pay/**']\n    command: sh tests/run.sh",
         )
         .replace("id: slow", "id: slow\n    cases: each change");
     let r = Repo::with(&bp);

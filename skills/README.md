@@ -256,7 +256,7 @@ flowchart LR
 
 Hardening never starts by itself: a change leaves one proposal at most in the backlog, and it waits for you to take it up between changes.
 
-For each defect, the log names the check that should have caught it and who or what found it. A proposal to relax or retire a check records what it caught and what it cost over the same changes. The log keeps what each check took every time it ran, so your blueprint can say what would make you simplify as a figure the logs can count. A check, or a question of the reviewer's, that reaches it gets proposed for retirement, with what it caught and what it cost, and that's for you or your team to approve as well. A new model on one of your levels is no reason to drop a check, which judges your product and not the model: after a few changes the orchestrator reads the logs and may propose a lighter level or lower limits for a color.
+For each defect, the log names the check that should have caught it and who or what found it. Either can be unknown. A proposal to relax or retire a check records what it caught and what it cost over the same changes. The log keeps what each check took every time it ran, so your blueprint can say what would make you simplify as a figure the logs can count. A check, or a question of the reviewer's, that reaches it gets proposed for retirement, with what it caught and what it cost, and that's for you or your team to approve as well. A new model on one of your levels is no reason to drop a check, which judges your product and not the model: after a few changes the orchestrator reads the logs and may propose a lighter level or lower limits for a color.
 
 ## When it stops
 

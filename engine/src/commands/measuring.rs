@@ -48,19 +48,9 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
                     };
                 }
             }
-            let scenarios = project
-                .brief(id)
-                .and_then(|(f, _)| f["scenarios"].as_array().map(|a| a.len() as i64))
-                .or_else(|| {
-                    let n: usize = p
-                        .brief_files
-                        .keys()
-                        .filter(|k| k.starts_with("features/"))
-                        .filter_map(|k| std::fs::read_to_string(project.path(k)).ok())
-                        .map(|t| t.matches(&format!("@brief:{id}")).count())
-                        .sum();
-                    (n > 0).then_some(n as i64)
-                });
+            let scenarios = p
+                .scenario_count(id, |file| std::fs::read_to_string(project.path(file)).ok())
+                .map(|n| n as i64);
             stash.push((id.clone(), entries, journal, cg, scenarios));
         }
         let inputs: Vec<metrics::Input> = stash

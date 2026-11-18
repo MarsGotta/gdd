@@ -124,6 +124,74 @@ pub(super) fn levels_answer<'a>(entries: &'a [Entry], bp: &Blueprint) -> Option<
     answer["what"].as_str()
 }
 
+fn check_levels_question(l: &Loaded, id: &str) -> R<()> {
+    if id != "blueprint" {
+        return Err(Fail::usage(
+            "the deep level is a project decision: gdd ask blueprint --of levels",
+        ));
+    }
+    if let Some(words) = levels_answer(&l.entries, &l.bp) {
+        return Err(Fail::refuse(
+            "already-answered",
+            format!("the person answered for these levels: {words}"),
+            "use their answer in gdd next",
+        ));
+    }
+    if let Some(a) = l.state.progress.open_ask().filter(|a| a.of == "levels")
+        && l.entries
+            .get(a.line - 1)
+            .and_then(Entry::event)
+            .is_some_and(|v| v.get("levels") == l.bp.front.get("levels"))
+    {
+        return Err(Fail::refuse(
+            "needs-person",
+            "the levels question is already waiting",
+            "gdd waiting",
+        ));
+    }
+    Ok(())
+}
+
+fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
+    let p = &l.state.progress;
+    let kind = log_kind(id);
+    match of {
+        "levels" => check_levels_question(l, id),
+        "decision" | "waiver" if p.open_ask().is_some_and(|a| a.spent_limit) => Err(Fail::refuse(
+            "needs-person",
+            "one question about the spent limit is already waiting",
+            crate::next::limit_reply(id),
+        )),
+        "brief" if l.state.next.step == "reading" => Err(Fail::refuse(
+            "out-of-order",
+            "read the brief before asking the person to approve it",
+            way_on(l, id),
+        )),
+        "brief" if kind == LogKind::Change && p.approved() => Err(Fail::refuse(
+            "already-approved",
+            "what has to pass still has the person's approval",
+            way_on(l, id),
+        )),
+        "brief" | "change" if kind == LogKind::Change && p.brief_line.is_none() => {
+            Err(Fail::refuse(
+                "out-of-order",
+                format!("no brief is logged for {id}: run gdd brief first"),
+                format!(
+                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]; a question before its brief, such as how to split it when the person asked for parts, goes with gdd ask {id} --of decision"
+                ),
+            ))
+        }
+        "brief" if kind == LogKind::Setup => Err(Fail::refuse(
+            "out-of-order",
+            format!(
+                "{id} sets up checks and has no brief: the person reviews it with --of change, once its trial passes"
+            ),
+            format!("gdd next {id}"),
+        )),
+        _ => Ok(()),
+    }
+}
+
 pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
     run_change(ctx, id, "ask", |out| {
         if !log::ASK_OF.contains(&of) {
@@ -136,79 +204,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
             return Err(Fail::usage("what is one line"));
         }
         let l = load(ctx, id)?;
-        if of == "levels" {
-            if id != "blueprint" {
-                return Err(Fail::usage(
-                    "the deep level is a project decision: gdd ask blueprint --of levels",
-                ));
-            }
-            if let Some(words) = levels_answer(&l.entries, &l.bp) {
-                return Err(Fail::refuse(
-                    "already-answered",
-                    format!("the person answered for these levels: {words}"),
-                    "use their answer in gdd next",
-                ));
-            }
-            if let Some(a) = l.state.progress.open_ask().filter(|a| a.of == "levels")
-                && l.entries
-                    .iter()
-                    .find(|e| e.line == a.line)
-                    .and_then(Entry::event)
-                    .is_some_and(|v| v.get("levels") == l.bp.front.get("levels"))
-            {
-                return Err(Fail::refuse(
-                    "needs-person",
-                    "the levels question is already waiting",
-                    "gdd waiting",
-                ));
-            }
-        }
-        if matches!(of, "decision" | "waiver")
-            && l.state.progress.open_ask().is_some_and(|a| a.spent_limit)
-        {
-            return Err(Fail::refuse(
-                "needs-person",
-                "one question about the spent limit is already waiting",
-                crate::next::limit_reply(id),
-            ));
-        }
-        if of == "brief" && l.state.next.step == "reading" {
-            return Err(Fail::refuse(
-                "out-of-order",
-                "read the brief before asking the person to approve it",
-                way_on(&l, id),
-            ));
-        }
-        if of == "brief" && l.state.progress.approved() && log_kind(id) == LogKind::Change {
-            return Err(Fail::refuse(
-                "already-approved",
-                "what has to pass still has the person's approval",
-                way_on(&l, id),
-            ));
-        }
-        // A decision that changes the scope may come before the brief.
-        let kind = log_kind(id);
-        if (of == "brief" || of == "change")
-            && kind == LogKind::Change
-            && l.state.progress.brief_line.is_none()
-        {
-            return Err(Fail::refuse(
-                "out-of-order",
-                format!("no brief is logged for {id}: run gdd brief first"),
-                format!(
-                    "gdd brief {id} [<brief and scenario files>] --paths <path>... [--request \"<their words>\", or --request-file <a file with them>]; a question before its brief, such as how to split it when the person asked for parts, goes with gdd ask {id} --of decision"
-                ),
-            ));
-        }
-        if of == "brief" && kind == LogKind::Setup {
-            return Err(Fail::refuse(
-                "out-of-order",
-                format!(
-                    "{id} sets up checks and has no brief: the person reviews it with --of change, once its trial passes"
-                ),
-                format!("gdd next {id}"),
-            ));
-        }
+        check_question(&l, id, of)?;
         let mut ev = new_event(
             id,
             "ask",

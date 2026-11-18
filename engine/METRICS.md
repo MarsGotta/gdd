@@ -25,7 +25,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 | color_touched | color | the last `review` step's `color.color`, on what was touched |
 | rose | bool | color_touched above color_planned |
 | zones, uncovered | lists | the last `brief` step's `color` |
-| scenarios | count | the brief's front matter `scenarios`, else the `@brief:<id>` tags of its sealed feature files |
+| scenarios | count | the brief's front matter `scenarios`, else the complete `@brief:<id>` tags in the working copies of the feature files named in its seal |
 | files_changed, lines_added, lines_deleted | count | `git diff --numstat <start> <head>`, head being the last gates' `head` or the change's branch; null without git |
 | events, steps | count | readable lines, and those that are steps |
 | minutes_work | minutes | as the counter counts them, from the first event to the last, without the waits for a person |
@@ -68,7 +68,7 @@ Each row identifies the change, run number, log line, head, start, check and tie
 
 ## hardening: one row per recorded Harden step
 
-`line` identifies the blueprint log entry. `change` names the originating change when there is one. For each `crack`, `expected_check` identifies what should have caught it and `caught_by` identifies the check, person or place that found it. Each row gives the `proposal`, its `action` and the recorded `result` (for example, proposed or approved). For `relax` and `retire`, `expected_check` names the check under consideration. `catches` and `cost` give the evidence for the period examined. Older entries leave missing fields null. A proposal and its later approval can describe the same defect.
+`line` identifies the blueprint log entry. `change` names the originating change when there is one. For each `crack`, `expected_check` identifies what should have caught it and `caught_by` identifies the check, person or place that found it. A new entry with missing attribution shows `unknown` for that field. Each row gives the `proposal`, its optional `action` and the recorded `result` (for example, proposed or approved). For `relax` and `retire`, `expected_check` names the check under consideration. `catches` and `cost` give the evidence for the period examined. Older entries leave missing fields null. A proposal and its later approval can describe the same defect.
 
 ## asks: one row per question to the person
 

@@ -174,11 +174,16 @@ fn write(l: &Loaded, id: &str, event: &Value) -> R<usize> {
         .progress
         .allows(Some(&l.bp), event)
         .map_err(|(code, why)| Fail::refuse(code, why, way_on(l, id)))?;
-    log::append(&l.project.log_path(id), event).map_err(|e| Fail {
-        exit: 1,
-        reason: "bad-shape".into(),
-        lines: vec![format!("refused: {e}")],
-        what: None,
+    log::append_event(&l.project.log_path(id), event).map_err(|e| {
+        if log::is_step(event, "harden") && e.kind() == std::io::ErrorKind::InvalidInput {
+            return Fail::usage(e.to_string());
+        }
+        Fail {
+            exit: 1,
+            reason: "bad-shape".into(),
+            lines: vec![format!("refused: {e}")],
+            what: None,
+        }
     })
 }
 

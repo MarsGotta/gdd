@@ -83,6 +83,76 @@ fn json_list(text: &Option<String>, what: &str, keys: &[&str]) -> R<Value> {
     Ok(v)
 }
 
+fn prepare_fields(ctx: &Ctx, a: &StepArgs, ev: &mut Value) -> R<()> {
+    if !matches!(a.result.as_deref(), Some("proposed" | "approved")) {
+        return Err(Fail::usage("--result is proposed or approved"));
+    }
+    for file in &a.files {
+        if !ctx.root.join(file).exists() {
+            return Err(Fail::missing(
+                file,
+                format!("{file} is not in the working copy"),
+            ));
+        }
+    }
+    ev["files"] = json!(a.files);
+    ev["probe"] = json_list(&a.probe, "--probe", &["try", "command", "exit", "tail"])?;
+    ev["levels"] = json_list(
+        &a.levels,
+        "--levels",
+        &["environment", "level", "launch", "model"],
+    )?;
+    Ok(())
+}
+
+fn harden_fields(a: &StepArgs, ev: &mut Value) -> R<()> {
+    let (Some(crack), Some(proposal)) = (&a.crack, &a.proposal) else {
+        return Err(Fail::usage("a harden step takes --crack and --proposal"));
+    };
+    let change = a.change.as_deref().filter(|c| *c != "none");
+    if let Some(id) = change {
+        check_id(id)?;
+    }
+    ev["change"] = json!(change);
+    ev["crack"] = json!(crack);
+    ev["proposal"] = json!(proposal);
+    ev["scenario"] = json!(a.scenario.as_deref().filter(|s| *s != "none"));
+    ev["expected_check"] = json!(a.expected_check.as_deref().unwrap_or("unknown"));
+    ev["caught_by"] = json!(a.caught_by.as_deref().unwrap_or("unknown"));
+    for (key, value) in [
+        ("action", &a.action),
+        ("catches", &a.catches),
+        ("cost", &a.cost),
+    ] {
+        if let Some(value) = value {
+            ev[key] = json!(value);
+        }
+    }
+    Ok(())
+}
+
+fn exam_fields(a: &StepArgs, ev: &mut Value) -> R<()> {
+    let (Some(asked), Some(model)) = (a.asked, &a.model) else {
+        return Err(Fail::usage(
+            "an exam step takes --asked, --caught, --level and --model (the reviewer's)",
+        ));
+    };
+    let caught: i64 = a
+        .caught
+        .as_deref()
+        .unwrap_or("none")
+        .parse()
+        .map_err(|_| Fail::usage("--caught is how many questions it caught, a number"))?;
+    if caught > asked || caught < 0 {
+        return Err(Fail::usage("--caught is between 0 and --asked"));
+    }
+    ev["reviewer"] = json!({"level": a.level.as_deref().unwrap_or("deep"), "model": model});
+    ev["asked"] = json!(asked);
+    ev["caught"] = json!(caught);
+    ev["missed"] = json!(a.missed);
+    Ok(())
+}
+
 /// The orchestrator's own steps, `prepare`, `harden` and `exam`, in the shapes of the contract,
 /// so nobody composes a whole report by hand. They go to the blueprint's log.
 pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
@@ -97,132 +167,35 @@ pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
             .iter()
             .filter(|(_, v)| step(v) == st)
             .count() as i64;
-        let level = a.level.clone().unwrap_or_else(|| "deep".into());
-        let caught = a.caught.clone().unwrap_or_else(|| "none".into());
-        let mut m = obj(vec![("step", json!(st))]);
+        let level = a.level.as_deref().unwrap_or("deep");
+        let caught = a.caught.as_deref().unwrap_or("none");
+        let mut ev = new_event(
+            id,
+            "step",
+            &time::now_string(),
+            obj(vec![("step", json!(st))]),
+        );
         match st {
-            "prepare" => {
-                let result = a
-                    .result
-                    .clone()
-                    .ok_or(Fail::usage("--result is proposed or approved"))?;
-                if result != "proposed" && result != "approved" {
-                    return Err(Fail::usage("--result is proposed or approved"));
-                }
-                for f in &a.files {
-                    if !ctx.root.join(f).exists() {
-                        return Err(Fail::missing(
-                            f.to_string(),
-                            format!("{f} is not in the working copy"),
-                        ));
-                    }
-                }
-                m.insert(
-                    "report".into(),
-                    report_obj(
-                        "gdd-prepare",
-                        a.skill_version
-                            .as_deref()
-                            .or(Some(env!("CARGO_PKG_VERSION"))),
-                        Some(&level),
-                        a.model.as_deref(),
-                        round,
-                        &result,
-                        &caught,
-                        a.seconds,
-                        a.tokens,
-                    ),
-                );
-                m.insert("files".into(), json!(a.files));
-                m.insert(
-                    "probe".into(),
-                    json_list(&a.probe, "--probe", &["try", "command", "exit", "tail"])?,
-                );
-                m.insert(
-                    "levels".into(),
-                    json_list(
-                        &a.levels,
-                        "--levels",
-                        &["environment", "level", "launch", "model"],
-                    )?,
-                );
-            }
-            "harden" => {
-                let (Some(crack), Some(proposal)) = (&a.crack, &a.proposal) else {
-                    return Err(Fail::usage("a harden step takes --crack and --proposal"));
-                };
-                let result = a.result.clone().unwrap_or_else(|| "proposed".into());
-                m.insert(
-                    "report".into(),
-                    report_obj(
-                        "gdd-harden",
-                        a.skill_version
-                            .as_deref()
-                            .or(Some(env!("CARGO_PKG_VERSION"))),
-                        Some(&level),
-                        a.model.as_deref(),
-                        round,
-                        &result,
-                        &caught,
-                        a.seconds,
-                        a.tokens,
-                    ),
-                );
-                let change = a.change.clone().filter(|c| c != "none");
-                if let Some(c) = &change {
-                    check_id(c)?;
-                }
-                m.insert("change".into(), json!(change));
-                let required = |value: &Option<String>, flag: &str| {
-                    value
-                        .as_deref()
-                        .filter(|s| !s.trim().is_empty())
-                        .map(Value::from)
-                        .ok_or_else(|| Fail::usage(format!("a harden step needs --{flag}")))
-                };
-                let action = required(&a.action, "action")?;
-                let expected = required(&a.expected_check, "expected-check")?;
-                let reduction = action == "relax" || action == "retire";
-                if reduction && expected == "none" {
-                    return Err(Fail::usage(
-                        "--expected-check names the check to relax or retire",
-                    ));
-                }
-                for (field, value) in [("catches", &a.catches), ("cost", &a.cost)] {
-                    if reduction || value.is_some() {
-                        m.insert(field.into(), required(value, field)?);
-                    }
-                }
-                m.insert("action".into(), action);
-                m.insert("expected_check".into(), expected);
-                m.insert("caught_by".into(), required(&a.caught_by, "caught-by")?);
-                m.insert("crack".into(), json!(crack));
-                m.insert(
-                    "scenario".into(),
-                    json!(a.scenario.clone().filter(|s| s != "none")),
-                );
-                m.insert("proposal".into(), json!(proposal));
-            }
-            "exam" => {
-                let (Some(asked), Some(model)) = (a.asked, &a.model) else {
-                    return Err(Fail::usage(
-                        "an exam step takes --asked, --caught, --level and --model (the reviewer's)",
-                    ));
-                };
-                let caught: i64 = caught.parse().map_err(|_| {
-                    Fail::usage("--caught is how many questions it caught, a number")
-                })?;
-                if caught > asked || caught < 0 {
-                    return Err(Fail::usage("--caught is between 0 and --asked"));
-                }
-                m.insert("reviewer".into(), json!({"level": level, "model": model}));
-                m.insert("asked".into(), json!(asked));
-                m.insert("caught".into(), json!(caught));
-                m.insert("missed".into(), json!(a.missed));
-            }
+            "prepare" => prepare_fields(ctx, a, &mut ev)?,
+            "harden" => harden_fields(a, &mut ev)?,
+            "exam" => exam_fields(a, &mut ev)?,
             _ => return Err(Fail::usage("the step is prepare, harden or exam")),
         }
-        let ev = new_event(id, "step", &time::now_string(), m);
+        if st != "exam" {
+            ev["report"] = report_obj(
+                &format!("gdd-{st}"),
+                a.skill_version
+                    .as_deref()
+                    .or(Some(env!("CARGO_PKG_VERSION"))),
+                Some(level),
+                a.model.as_deref(),
+                round,
+                a.result.as_deref().unwrap_or("proposed"),
+                caught,
+                a.seconds,
+                a.tokens,
+            );
+        }
         let line = write(&l, id, &ev)?;
         out.say(format!(
             "wrote the {st} step to gdd/log/blueprint.jsonl, line {line}, round {round}"

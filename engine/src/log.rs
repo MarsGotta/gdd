@@ -209,7 +209,6 @@ enum T {
     StrOrNull,
     Int,
     IntOrNull,
-    CountOrNull,
     NumOrNull,
     NumberLike,
     Bool,
@@ -353,7 +352,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("crack", Str, Writes),
             ("expected_check", Str, Writes),
             ("caught_by", Str, Writes),
-            ("action", OneOf(&["strengthen", "relax", "retire"]), Writes),
+            ("action", OneOf(&["strengthen", "relax", "retire"]), May),
             ("scenario", StrOrNull, Writes),
             ("proposal", Str, Writes),
         ],
@@ -374,7 +373,6 @@ fn fits(v: &Value, t: T) -> bool {
         T::Int => v.is_i64() || v.is_u64(),
         T::IntOrNull => v.is_i64() || v.is_u64() || v.is_null(),
         T::NumOrNull => v.is_number() || v.is_null(),
-        T::CountOrNull => v.is_u64() || v.is_null(),
         T::NumberLike => number_like(v).is_some(),
         T::Bool => v.is_boolean(),
         T::Obj => v.is_object(),
@@ -393,7 +391,6 @@ fn describe(t: T) -> String {
         T::Int | T::IntOrNull => "a whole number".into(),
         T::NumOrNull => "a number or null".into(),
         T::NumberLike => "a number".into(),
-        T::CountOrNull => "a non-negative whole number or null".into(),
         T::Bool => "true or false".into(),
         T::Obj => "an object".into(),
         T::Arr => "a list".into(),
@@ -484,22 +481,38 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
         };
         a.check(key, t, need, obj.get(key), "");
     }
-    if is_step(v, "harden") && matches!(v["action"].as_str(), Some("relax" | "retire")) {
-        for field in ["catches", "cost"] {
-            a.check(field, T::Str, Need::Must, obj.get(field), "");
+    if is_step(v, "harden") {
+        let reduction = matches!(v["action"].as_str(), Some("relax" | "retire"));
+        if writing && reduction && v["expected_check"] == "none" {
+            a.errors
+                .push("--expected-check names the check to relax or retire".into());
+        }
+        for field in ["expected_check", "caught_by", "catches", "cost"] {
+            let needs_value = reduction && matches!(field, "catches" | "cost");
+            let present = v[field]
+                .as_str()
+                .is_some_and(|s| !writing || !s.trim().is_empty());
+            if (needs_value || writing && obj.contains_key(field)) && !present {
+                a.errors
+                    .push(format!("a harden step needs --{}", field.replace('_', "-")));
+            }
         }
     }
     if is_step(v, "build")
         && let Some(claims) = v["claims"].as_array()
     {
         for (i, claim) in claims.iter().enumerate() {
-            a.check(
-                "failures",
-                T::CountOrNull,
-                Need::May,
-                claim.get("failures"),
-                &format!("claims[{i}]."),
-            );
+            let n = &claim["failures"];
+            if !n.is_null() && !n.is_u64() {
+                let issues = if writing {
+                    &mut a.errors
+                } else {
+                    &mut a.warnings
+                };
+                issues.push(format!(
+                    "claims[{i}].failures is not a non-negative whole number or null"
+                ));
+            }
         }
     }
     if event == "step" && !matches!(step, "gates" | "ship" | "exam") {
@@ -621,32 +634,39 @@ pub fn new_event(brief: &str, event: &str, ts: &str, rest: Map<String, Value>) -
 
 /// Append one event to a log, as one line. Refuses an event whose shape isn't the contract's.
 pub fn append(path: &Path, event: &Value) -> Result<usize, String> {
+    append_event(path, event).map_err(|e| e.to_string())
+}
+
+pub(crate) fn append_event(path: &Path, event: &Value) -> std::io::Result<usize> {
+    use std::io::{Error, ErrorKind::InvalidInput};
     let (errors, _) = shape(event, true);
     if !errors.is_empty() {
-        return Err(format!(
-            "the event isn't the contract's shape: {}",
-            errors.join("; ")
+        return Err(Error::new(
+            InvalidInput,
+            format!(
+                "the event isn't the contract's shape: {}",
+                errors.join("; ")
+            ),
         ));
     }
-    let line = serde_json::to_string(event).map_err(|e| e.to_string())?;
+    let line = serde_json::to_string(event)?;
     if line.contains('\n') {
-        return Err("an event must fit on one line".into());
+        return Err(Error::new(InvalidInput, "an event must fit on one line"));
     }
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(dir)?;
     }
     // A log that doesn't end with a newline gets one first, so the new event is a line of its own.
     let existing = std::fs::read(path).unwrap_or_default();
     let mut f = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
+        .open(path)?;
     if !existing.is_empty() && !existing.ends_with(b"\n") {
-        f.write_all(b"\n").map_err(|e| e.to_string())?;
+        f.write_all(b"\n")?;
     }
-    f.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
-    f.write_all(b"\n").map_err(|e| e.to_string())?;
+    f.write_all(line.as_bytes())?;
+    f.write_all(b"\n")?;
     let n = existing.iter().filter(|b| **b == b'\n').count()
         + usize::from(!existing.is_empty() && !existing.ends_with(b"\n"))
         + 1;

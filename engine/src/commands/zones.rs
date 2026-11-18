@@ -1,116 +1,100 @@
 //! The color of some paths, and the zones of the blueprint tried on the repository.
 
 use super::*;
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::collections::BTreeSet;
 
-/// A draft's zone feature may not be in Git yet.
-fn draft_zone_checks(project: &Project, zone: &str, file: &str, out: &mut Out) -> R<Vec<String>> {
-    let root = project
-        .root
-        .canonicalize()
-        .map_err(|e| crate::out::io(&project.root, e))?;
-    let path = project.path(&color::clean_path(file).map_err(Fail::usage)?);
-    match path.canonicalize() {
-        Ok(p) if p.starts_with(&root) && p.is_file() => {
-            let feature = std::fs::read_to_string(&p).map_err(|e| crate::out::io(&p, e))?;
-            Ok(gates::zone_gate_checks(&feature))
-        }
-        _ => {
-            out.say(format!("  zone {zone}: {file} is unavailable in the project, so its own checks could not be previewed"));
-            Ok(Vec::new())
-        }
-    }
-}
-
-/// Compare actual files, so Git's exclusions and a change touching two zones keep their meaning.
-/// With a sample, also preview the gate plan, including the checks named in draft zone features.
-fn show_coverage(
+/// Git can exclude files from either a zone or a check's pathspecs.
+fn show_gaps(
     out: &mut Out,
-    project: &Project,
     bp: &Blueprint,
-    sample: Option<&color::Colored>,
+    scope: &str,
     matching: impl Fn(&[String]) -> Result<Vec<String>, String>,
 ) -> R<()> {
     let mut zones = Vec::new();
-    let mut zone_checks = Vec::new();
-    for zone in bp.zones() {
-        if zone.paths.is_empty() || sample.is_some_and(|s| !s.zones.contains_key(&zone.id)) {
-            continue;
-        }
+    for zone in bp.zones().into_iter().filter(|z| !z.paths.is_empty()) {
         let files = matching(&zone.paths).map_err(Fail::usage)?;
-        if files.is_empty() {
+        if !files.is_empty() {
+            zones.push((zone, files));
+        }
+    }
+    let mut gaps = Vec::new();
+    for check in bp.checks() {
+        if check.kind != "machine" || check.when.is_empty() {
             continue;
         }
-        if sample.is_some()
-            && let Some(file) = &zone.gates
-        {
-            zone_checks.extend(draft_zone_checks(project, &zone.id, file, out)?);
-        }
-        zones.push((bp.color_checks(&zone.color), zone, files));
-    }
-
-    let mut change_checks = zone_checks.clone();
-    if let Some(s) = sample {
-        change_checks.extend(bp.color_checks(&s.color));
-    }
-    let scope = if sample.is_some() {
-        "sampled"
-    } else {
-        "tracked"
-    };
-    let mut filters = BTreeMap::new();
-    let mut gaps = Vec::new();
-    for check in bp
-        .checks()
-        .into_iter()
-        .filter(|c| c.kind == "machine" && !c.when.is_empty())
-    {
         let asking: Vec<_> = zones
             .iter()
-            .filter(|(ids, _, _)| ids.contains(&check.id))
+            .filter(|(z, _)| bp.color_asks(&z.color, &check.id))
             .collect();
-        if asking.is_empty() && !change_checks.contains(&check.id) {
+        if asking.is_empty() {
             continue;
         }
-        let watched = match filters.entry(check.when.clone()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let files = matching(&check.when).map_err(Fail::usage)?;
-                entry.insert(files.into_iter().collect::<BTreeSet<_>>())
-            }
-        };
-        for (_, zone, files) in asking {
-            if files.iter().all(|p| !watched.contains(p)) {
+        let watched: BTreeSet<_> = matching(&check.when)
+            .map_err(Fail::usage)?
+            .into_iter()
+            .collect();
+        for (z, files) in asking {
+            if !files.iter().any(|p| watched.contains(p)) {
                 out.say(format!(
                     "  zone {} ({}): {}'s when matches no {scope} file in this zone",
-                    zone.id, zone.color, check.id
+                    z.id, z.color, check.id
                 ));
-                gaps.push(json!({"zone": zone.id, "color": zone.color, "check": check.id, "when": check.when}));
+                gaps.push(
+                    json!({"zone": z.id, "color": z.color, "check": check.id, "when": check.when}),
+                );
             }
         }
     }
     out.fact("gaps", json!(gaps));
-    if let Some(s) = sample {
-        let plan = gates::plan(
-            bp,
-            &s.color,
-            &|when| !filters[when].is_empty(),
-            &zone_checks,
-        );
-        show_plan(out, &plan);
-        let other: Vec<_> = bp
-            .checks()
-            .into_iter()
-            .filter(|c| {
-                matches!(c.kind.as_str(), "person" | "reviewer") && change_checks.contains(&c.id)
-            })
-            .map(|c| c.id)
-            .collect();
-        if !other.is_empty() {
-            out.say(format!("  reviewer or person: {}", other.join(", ")));
+    Ok(())
+}
+
+fn preview(
+    out: &mut Out,
+    root: &Path,
+    bp: &Blueprint,
+    sample: &color::Colored,
+    files: &[String],
+) -> R<()> {
+    let root = root.canonicalize().map_err(|e| crate::out::io(root, e))?;
+    let mut extra = Vec::new();
+    for z in bp.zones() {
+        let Some(file) = z.gates.filter(|_| sample.zones.contains_key(&z.id)) else {
+            continue;
+        };
+        let path = root.join(color::clean_path(&file).map_err(Fail::usage)?);
+        if let Ok(p) = path.canonicalize()
+            && p.starts_with(&root)
+            && p.is_file()
+        {
+            let text = std::fs::read_to_string(&p).map_err(|e| crate::out::io(&p, e))?;
+            extra.extend(gates::zone_gate_checks(&text));
+        } else {
+            out.say(format!("  zone {}: {file} is unavailable in the project, so its own checks could not be previewed", z.id));
         }
-        out.fact("other_checks", json!(other));
     }
+    let matching = |when: &[String]| git::match_paths(&root, files, when);
+    show_gaps(out, bp, "sampled", matching)?;
+    let mut other = Vec::new();
+    let mut matched = Vec::new();
+    for c in bp.checks() {
+        if !bp.color_asks(&sample.color, &c.id) && !extra.contains(&c.id) {
+            continue;
+        }
+        match c.kind.as_str() {
+            "machine" if !matching(&c.when).map_err(Fail::usage)?.is_empty() => {
+                matched.push(c.when)
+            }
+            "person" | "reviewer" => other.push(c.id),
+            _ => {}
+        }
+    }
+    let touched = |when: &[String]| matched.iter().any(|m| m == when);
+    show_plan(out, &gates::plan(bp, &sample.color, &touched, &extra));
+    if !other.is_empty() {
+        out.say(format!("  reviewer or person: {}", other.join(", ")));
+    }
+    out.fact("other_checks", json!(other));
     Ok(())
 }
 
@@ -208,9 +192,7 @@ pub fn color_cmd(ctx: &Ctx, id: Option<&str>, paths: &[String]) -> Out {
                 .collect();
             files.sort();
             files.dedup();
-            show_coverage(out, &project, &bp, Some(&c), |specs| {
-                git::match_paths(&ctx.root, &files, specs)
-            })?;
+            preview(out, &ctx.root, &bp, &c, &files)?;
         }
         out.fact("on", on);
         out.fact("paths", json!(c.paths));
@@ -264,9 +246,7 @@ pub fn zones_cmd(ctx: &Ctx) -> Out {
             r.empty.len(),
             r.uncovered.len()
         ));
-        show_coverage(out, &project, &bp, None, |specs| {
-            git::ls_files(&ctx.root, specs)
-        })?;
+        show_gaps(out, &bp, "tracked", |specs| git::ls_files(&ctx.root, specs))?;
         Ok(())
     })
 }

@@ -215,6 +215,53 @@ fn finding(line: &str) -> Option<Finding> {
     Some(Finding { id, place, what })
 }
 
+/// A numbered line inside LATER belongs to the log. After a blank line it can bind the change.
+fn read_findings(lines: &[&str], r: &mut RoleReport) {
+    let mut in_block = false;
+    let mut in_later = false;
+    for l in lines {
+        if l.trim().starts_with("```") {
+            in_block = !in_block;
+            in_later = false;
+            continue;
+        }
+        if in_block {
+            continue;
+        }
+        let p = plain(l);
+        if let Some(rest) = p.strip_prefix("LATER:") {
+            in_later = true;
+            if !rest.trim().is_empty() {
+                r.later.push(rest.trim().to_string());
+            }
+            continue;
+        }
+        if in_later {
+            if l.trim().is_empty()
+                || ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
+                    .iter()
+                    .any(|h| p.starts_with(h))
+            {
+                in_later = false;
+            } else {
+                if !p.is_empty() {
+                    r.later
+                        .push(p.trim_start_matches(['-', '*', ' ']).trim().to_string());
+                }
+                continue;
+            }
+        }
+        if let Some(f) = finding(l) {
+            if r.verdict.as_deref() == Some("fix") && !has_citation(&f.what) {
+                r.uncited.push(f.id.clone());
+            }
+            if !r.findings.iter().any(|x| x.id == f.id) {
+                r.findings.push(f);
+            }
+        }
+    }
+}
+
 /// Read what a role said. Without its `gdd-report` block the step didn't happen.
 pub fn parse(text: &str) -> Result<RoleReport, String> {
     let Some(fields) = block(text) else {
@@ -282,49 +329,7 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
             ));
         }
     }
-    let mut in_block = false;
-    let mut in_later = false;
-    for l in &lines {
-        if l.trim().starts_with("```") {
-            in_block = !in_block;
-            in_later = false;
-            continue;
-        }
-        if in_block {
-            continue;
-        }
-        let p = plain(l);
-        if let Some(rest) = p.strip_prefix("LATER:") {
-            in_later = true;
-            if !rest.trim().is_empty() {
-                r.later.push(rest.trim().to_string());
-            }
-            continue;
-        }
-        if in_later {
-            if l.trim().is_empty()
-                || ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
-                    .iter()
-                    .any(|h| p.starts_with(h))
-            {
-                in_later = false;
-            } else {
-                if !p.is_empty() {
-                    r.later
-                        .push(p.trim_start_matches(['-', '*', ' ']).trim().to_string());
-                }
-                continue;
-            }
-        }
-        if let Some(f) = finding(l) {
-            if r.verdict.as_deref() == Some("fix") && !has_citation(&f.what) {
-                r.uncited.push(f.id.clone());
-            }
-            if !r.findings.iter().any(|x| x.id == f.id) {
-                r.findings.push(f);
-            }
-        }
-    }
+    read_findings(&lines, &mut r);
     r.notes = section(text, "NOTES FOR THE BUILDER:", &["LATER:", "MISSING:"]).join("\n");
     r.missing = section(text, "MISSING:", &["LATER:", "NOTES FOR THE BUILDER:"]);
     match json_block(text) {

@@ -68,7 +68,10 @@ pub fn limits_cmd(ctx: &Ctx, id: &str) -> Out {
                 Some(n) => format!("lines {used} of {n}"),
                 None => format!("lines {used} (no cap)"),
             });
-            out.fact("lines", json!({"used": used, "cap": cap, "raised": false, "past": past, "start": p.start, "head": gv.head}));
+            out.fact(
+                "lines",
+                json!({"used": used, "cap": cap, "past": past, "start": p.start, "head": gv.head}),
+            );
         }
         out.code = if lim.stop.is_empty() { 0 } else { 1 };
         if out.code == 1 {

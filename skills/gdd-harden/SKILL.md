@@ -72,4 +72,4 @@ Retiring a gate, or a question of the reviewer's, that no longer adds anything, 
 
 - In the T-minus pilot, the same tests failed now and then without anything changing, and the gate rejected good changes for it. A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
-When you close, write the `harden` step: `gdd step blueprint harden --result <proposed or approved> --change <the change that let it through, or none for a removal> --action <strengthen, relax or retire> --expected-check <check id or none> --caught-by "<check, person, place or none>" --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<the blueprint change>"`.
+Record the proposal with `gdd step blueprint harden --result <proposed or approved> --change <id or none> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<blueprint change>"`. Give `--action`, `--expected-check` and `--caught-by` when known. Use `none` when there was no check or no defect. Omit an unknown attribution so the log records the gap.

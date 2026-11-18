@@ -402,7 +402,7 @@ fn reported_proofs(id: &str, a: &ReportArgs, r: &RoleReport) -> R<Vec<Value>> {
 }
 
 /// A check takes proof when it is set up, or when the blueprint asks for cases on this change.
-fn required_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<BTreeSet<String>> {
+fn required_proofs(l: &Loaded, id: &str) -> R<BTreeSet<String>> {
     let p = &l.state.progress;
     let color = p.color.as_deref().unwrap_or("");
     let checks = l.bp.checks();
@@ -433,14 +433,7 @@ fn required_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<BTreeSet<String>
         .into_iter()
         .flat_map(|(_, files)| files)
         .collect();
-    // Older blueprints listed their checks without marking which supplied the scenario tests.
-    // A role with a brief still owes proofs. It names the check it used from its color.
-    let legacy = l.bp.front.get("gates").is_none() && !checks.iter().any(|c| c.cases_each_change);
-    let mut legacy_cases = false;
-    for c in machine.filter(|c| l.bp.color_asks(color, &c.id)) {
-        if !c.cases_each_change && !(legacy && c.id != "seal" && color != "green") {
-            continue;
-        }
+    for c in machine.filter(|c| c.cases_each_change && l.bp.color_asks(color, &c.id)) {
         if !c.when.is_empty()
             && git::match_paths(&l.project.root, &paths, &c.when)
                 .map_err(Fail::usage)?
@@ -448,19 +441,7 @@ fn required_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<BTreeSet<String>
         {
             continue;
         }
-        if legacy {
-            legacy_cases = true;
-            if !proofs.iter().any(|proof| proof["check"] == c.id) {
-                continue;
-            }
-        }
         required.insert(c.id.clone());
-    }
-    if legacy_cases && required.is_empty() {
-        return Err(missing_proof(
-            id,
-            "the scenario tests need a rejects proof naming the check of this color that ran them",
-        ));
     }
     Ok(required)
 }
@@ -481,10 +462,11 @@ struct CheckRuns<'a> {
     passes: BTreeSet<&'a str>,
 }
 
-fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
-    let p = &l.state.progress;
-    let setup = log_kind(id) == LogKind::Setup;
-    let required = required_proofs(l, id, proofs)?;
+fn proof_runs<'a>(
+    id: &str,
+    required: &'a BTreeSet<String>,
+    proofs: &'a [Value],
+) -> R<BTreeMap<&'a str, CheckRuns<'a>>> {
     let bad = |why: String| {
         Fail::refuse(
             "bad-proofs",
@@ -517,7 +499,7 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
         match (case, exit) {
             ("rejects", n) if n != 0 => {
                 if required.contains(check)
-                    && !setup
+                    && log_kind(id) != LogKind::Setup
                     && (test.is_empty() || field("wrong").is_empty())
                 {
                     return Err(bad(format!(
@@ -536,6 +518,14 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
             }
         }
     }
+    Ok(runs)
+}
+
+fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
+    let p = &l.state.progress;
+    let setup = log_kind(id) == LogKind::Setup;
+    let required = required_proofs(l, id)?;
+    let runs = proof_runs(id, &required, proofs)?;
     if setup && id != "standing-checks" && runs.is_empty() {
         return Err(missing_proof(
             id,
@@ -553,51 +543,28 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
                 format!("missing the rejects proof for {check}"),
             ));
         }
-        if required.contains(check) {
-            scenario_tests += runs.rejects.len();
+        scenario_tests += runs.rejects.len();
+        if !setup && p.color.as_deref() != Some("red") {
+            continue;
         }
-        if setup || p.color.as_deref() == Some("red") {
-            if runs.passes.is_empty() {
-                return Err(missing_proof(
-                    id,
-                    format!("missing the passes proof for {check}"),
-                ));
-            }
-            // A passing run of the whole check covers all its tests. A named run covers just that test.
-            if !setup
-                && required.contains(check)
-                && !runs.passes.contains("")
-                && let Some(test) = runs.rejects.difference(&runs.passes).next()
-            {
-                return Err(missing_proof(
-                    id,
-                    format!("missing the passes proof for {check} {test}"),
-                ));
-            }
+        let missing_pass =
+            |name: &str| missing_proof(id, format!("missing the passes proof for {name}"));
+        if runs.passes.is_empty() {
+            return Err(missing_pass(check));
+        }
+        // A passing run of the whole check covers all its tests.
+        if !setup
+            && !runs.passes.contains("")
+            && let Some(test) = runs.rejects.difference(&runs.passes).next()
+        {
+            return Err(missing_pass(&format!("{check} {test}")));
         }
     }
     if !setup && !required.is_empty() {
         let start = p.start.as_deref().unwrap_or("");
-        let file = format!("gdd/briefs/{id}.md");
-        let count = git::show(&l.project.root, start, &file)
-            .as_deref()
-            .and_then(crate::blueprint::split_front_matter)
-            .and_then(|(front, _)| crate::blueprint::read_yaml(front).ok())
-            .and_then(|front| front["scenarios"].as_array().map(Vec::len))
-            .unwrap_or_else(|| {
-                let tag = format!("@brief:{id}");
-                p.brief_files
-                    .keys()
-                    .filter(|f| f.starts_with("features/"))
-                    .filter_map(|f| git::show(&l.project.root, start, f))
-                    .map(|feature| {
-                        feature
-                            .split_whitespace()
-                            .filter(|word| *word == tag)
-                            .count()
-                    })
-                    .sum()
-            });
+        let count = p
+            .scenario_count(id, |file| git::show(&l.project.root, start, file))
+            .unwrap_or(0);
         if scenario_tests < count {
             return Err(missing_proof(
                 id,

@@ -1347,6 +1347,7 @@ fn a_large_change_gets_its_review_and_a_size_note_without_a_waiver() {
     assert_eq!(limits.code, 0, "{}", limits.out);
     assert_eq!(limits.facts["lines"]["used"], 540);
     assert_eq!(limits.facts["lines"]["past"], true);
+    assert!(limits.facts["lines"].get("raised").is_none());
     assert_eq!(limits.facts["stop"].as_array().unwrap().len(), 0);
     assert_eq!(r.gdd(&["gates", id]).code, 0);
     let review = r.gdd(&["launch", id, "review"]);
@@ -1393,6 +1394,14 @@ fn the_answer_about_the_deep_level_lasts_until_the_project_changes_levels() {
         "May I plan at the available setting for this project?",
     ];
     assert_eq!(r.gdd(&question).code, 0);
+    let repeated = r.gdd(&question);
+    assert_eq!(
+        repeated.facts["refused"], "needs-person",
+        "{}",
+        repeated.out
+    );
+    assert!(repeated.has("the levels question is already waiting"));
+    assert_eq!(r.log_lines("blueprint").len(), 1);
     assert_eq!(r.gdd(&["answer", "blueprint", "Yes, go ahead."]).code, 0);
     r.write(
         "gdd/blueprint.md",

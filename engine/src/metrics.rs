@@ -743,7 +743,8 @@ pub fn summary(t: &Tables) -> Vec<String> {
     hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
     trust_lines(&mut out, t);
-    cost_lines(&mut out, t);
+    role_costs(&mut out, t);
+    engine_costs(&mut out, t);
     out
 }
 
@@ -1038,8 +1039,8 @@ fn trust_lines(out: &mut Vec<String>, t: &Tables) {
     ));
 }
 
-/// What it cost: tokens by role, what the layer refused, and how its launches went.
-fn cost_lines(out: &mut Vec<String>, t: &Tables) {
+/// Measured role costs and the steps with missing measurements.
+fn role_costs(out: &mut Vec<String>, t: &Tables) {
     #[derive(Default)]
     struct RoleCost {
         seconds: Option<f64>,
@@ -1079,6 +1080,10 @@ fn cost_lines(out: &mut Vec<String>, t: &Tables) {
             cost.missing_seconds, cost.missing_tokens
         ));
     }
+}
+
+/// Calls per change, refusals and launch outcomes.
+fn engine_costs(out: &mut Vec<String>, t: &Tables) {
     let logged_calls: BTreeMap<_, _> = t
         .changes
         .iter()
@@ -1104,23 +1109,13 @@ fn cost_lines(out: &mut Vec<String>, t: &Tables) {
             out.push(format!("  {id} | {count}"));
         }
     }
-    out.push(format!(
-        "the layer: {} invocations, {} refused{}",
-        t.engine.len(),
-        refused.values().sum::<usize>(),
-        if refused.is_empty() {
-            String::new()
-        } else {
-            format!(
-                " ({})",
-                refused
-                    .iter()
-                    .map(|(k, v)| format!("{k} {v}"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-    ));
+    let total = refused.values().sum::<usize>();
+    let mut line = format!("the layer: {} invocations, {total} refused", t.engine.len());
+    if !refused.is_empty() {
+        let reasons: Vec<_> = refused.iter().map(|(k, n)| format!("{k} {n}")).collect();
+        line.push_str(&format!(" ({})", reasons.join(", ")));
+    }
+    out.push(line);
     let launched: Vec<&Row> = t
         .engine
         .iter()

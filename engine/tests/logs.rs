@@ -293,6 +293,30 @@ fn metrics_tables_on_a_logged_project() {
 }
 
 #[test]
+fn metrics_count_only_complete_brief_tags() {
+    let r = Repo::new();
+    r.write(
+        "features/shared.feature",
+        "@brief:x @id:one\n@brief:x-longer @id:two\n",
+    );
+    r.write(
+        "gdd/log/x.jsonl",
+        &ev(
+            1,
+            r#""event":"step","step":"brief","files":{"features/shared.feature":"abc"}"#,
+        ),
+    );
+    let run = r.gdd(&["metrics", "x", "--format", "jsonl"]);
+    let change = run
+        .out
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|row| row["table"] == "changes")
+        .expect(&run.out);
+    assert_eq!(change["scenarios"], 1);
+}
+
+#[test]
 fn metrics_join_the_journal() {
     let r = Repo::new();
     r.gdd(&["next", "m1"]);
