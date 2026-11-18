@@ -11,7 +11,7 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
     Before you say yes:
     - <How many recent changes or planned items needed each level of care. Name the parts of the product and where past fixes fell.>
-    - <What the checks would miss, including any area no zone covers, or that the sample revealed no gaps.>
+    - <What the checks would miss. Count the changes that touch an area no zone covers and name it. Say what the revised plan covers or that the sample revealed no gaps.>
     - <What protects nothing yet, anything within an agent's reach and anything you couldn't confirm.>
     - <What isn't set up or tried yet, and when it will be. With no code yet, use the line from `references/new-project.md`.>
 
@@ -19,17 +19,19 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
 Everything this skill tells you to say to the person before the approval goes under "Before you say yes". Keep it to four lines at most. Use two for the trial of the blueprint. Combine other caveats that belong together, including anything that comes from memory because you couldn't look it up. What they asked for by name gets its answer in the line of the file that holds it. No other headings and no other lists.
 
-Example:
+Filled in for a birdwatching diary:
 
     Your plan is ready to read. Work starts after your approval.
 
     Please read:
-    - <plan>: how each change is checked, including the extra review you requested.
-    - <rules>: what must never go wrong. Please correct anything that doesn't fit.
+    - `gdd/blueprint.md`: how each change is checked, including the extra review you requested for sharing.
+    - `gdd/constitution.md`: rules such as "Only you can see a sighting you marked private." Put them in your own words.
+    - `gdd/gates/`: what the checks must prove. Please correct any sharing rule that doesn't fit.
+    - `gdd/backlog.md`: the first jobs, in order.
 
     Before you say yes:
-    - Of <n> changes, <n> needed a quick check, <n> a closer look and <n> your review. The fixes were in <part of the product>.
-    - Changes to who could see an entry would have missed the tests. The revised plan covers them.
+    - Of your last 25 changes, 10 changed labels, 9 changed how you record sightings and 6 changed who can see them, including both privacy fixes.
+    - Two touched sharing settings that the plan missed. The revised plan runs the privacy tests there too.
     - The privacy rule comes from the guidance you supplied. The other rules are my proposals.
     - For now the agents can change the checks. Setting up and trying them comes first after approval.
 

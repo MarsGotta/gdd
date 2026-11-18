@@ -79,13 +79,25 @@ MAX_LINES = 500
 MAX_BYTES = 14_500  # an agent keeps the first 20,000 characters of a skill after a compaction: this leaves room
 DESCRIPTION_CHARS = 400
 SEAL = re.compile(r"git diff --exit-code <start> HEAD -- [^`\n\"]+")
+# Look for reports about past runs. A run count alone can be a limit or part of a filled-in proof.
+RUN_COUNT = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several)"
 DOMAIN_EXAMPLE = re.compile(
-    r"\b(?:in\s+(?:one\s+run|benchmark)|shops?|shopping|carts?|at checkout|payments?|charges?|"
-    r"discounts?|stock|invoices?|catalog(?:ue)?s?|refunds?|coupons?|"
-    r"(?:a|the|online) store|(?:an|purchase|customer|paid|unpaid) orders?|"
-    r"order (?:total|history|processing)|"
-    r"tiendas?|carritos?|pagos?|cobros?|descuentos?|pedidos?|catálogos?|facturas?)\b",
-    re.I,
+    rf"""\b(?:
+        (?:T-minus\s+pilot|Orbit\s+run|method\s+benchmark)
+        | (?:in|during|across|from|on)\s+(?:the|our|a)\s+(?:pilot|benchmark)
+        | (?:pilot|benchmark)(?:['’]s|\s+(?:showed|found|revealed)|\s+\d+\.\d+)
+        | (?:in|during|across|on)\s+(?:
+              (?:an?\s+|the\s+)?(?:real|previous|earlier|prior|separate|first|second|last)
+              | another | {RUN_COUNT}(?:\s+of\s+{RUN_COUNT})?
+          )\s+(?:benchmark\s+)?runs?
+          (?=,(?!\s*(?:then|and|or)\b)|:|\s+(?:a|an|the|these|those|it|we|that|out\s+of|[a-z]+\s+(?:had|was|were|got|took|added|needed))\b)
+        | (?:stopped|blocked)\s+{RUN_COUNT}\s+changes\s+in\s+{RUN_COUNT}\s+runs?
+        | (?:a|one)\s+(?:agent|reviewer|builder|orchestrator)\s+once
+        # Shop phrases whose usual meaning is specific to shopping.
+        | shopping\s+carts? | discount\s+codes? | out[-\s]of[-\s]stock\s+(?:goods|items|products)
+        | carritos?\s+de\s+(?:la\s+)?compra | códigos?\s+de\s+descuento
+    )\b""",
+    re.I | re.X,
 )
 NO_YAML = (
     "scripts/check_skills.py: PyYAML is missing, so no front matter was checked as YAML. "

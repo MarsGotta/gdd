@@ -62,9 +62,10 @@ graders:
     type: tool_used
     tool: Bash
     input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+zones\b'
+  # The history grader above checks the product wording and where the fixes fell.
   - name: gives-the-counts-and-coverage-in-two-lines
     type: regex
-    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})(?=[^\n]*\b(?:wording|texts?|copy|labels?|light|routine)\b)(?=[^\n]*\b(?:cart|basket|standard)\b)(?=[^\n]*\b(?:pay\w*|checkout|deep)\b)[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|unprotected|uncheck|untest|blind spot)'
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|unprotected|uncheck|untest|blind spot)'
     flags: i
     weight: 3
   - name: says-what-no-zone-covers

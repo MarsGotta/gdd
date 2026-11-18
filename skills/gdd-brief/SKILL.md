@@ -74,9 +74,15 @@ If this color omits `brief-approval`, tell the person in one line what the chang
     <Any disputed addition that needs their decision, and why.>
     <One question a yes answers.>
 
-    Your newest photo will open first.
-    If the gallery is empty, you'll see an invitation to add a photo.
-    I chose to put the date below each photo. Do you approve these cases?
+Example for a photo gallery:
+
+> Your newest photo will open first.
+>
+> If the gallery is empty, you'll see an invitation to add a photo.
+>
+> I chose to put the date below each photo.
+>
+> `features/gallery.feature` lists the cases. Do you approve them?
 
 Before sending, count its words, check that every scenario has its line, name the file of its scenarios in their copy, which they can open as it is, and run `gdd ask <id> --of brief "<the question, in a line>"`. On red, show its scenarios beside the message as they are, because an approval is only worth what was seen. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
 

@@ -85,7 +85,7 @@ Unless they asked for more, every message to the person is under 100 words, in t
     <One line per gate that ran.>
     <If you need something: what you'd do, and one question a yes answers.>
 
-"Your recipe correction is written but not in yet. Printing was already broken. I'd fix printing first, then release both changes. Yes?" Say "written but not in yet" or "it's in", never a branch, a commit, "main" or what the layer logged, and name a file only when they have to open it. Before sending, count its words, take out any file of the method named to justify a question, reread it as someone who never saw the method and, if it asks them something, run `gdd ask` first and send it at once. Open `references/person.md` if they delegate, a way out would loosen a check, or the question is about how to test something.
+"Your recipe correction is written but not in yet. The print check was already failing before I corrected the recipe. I'd fix that first, then release both changes. Yes?" Say "written but not in yet" or "it's in", never a branch, a commit, "main" or what the layer logged, and name a file only when they have to open it. Before sending, count its words, take out any file of the method named to justify a question, reread it as someone who never saw the method and, if it asks them something, run `gdd ask` first and send it at once. Open `references/person.md` if they delegate, a way out would loosen a check, or the question is about how to test something.
 
 ## Stopping
 

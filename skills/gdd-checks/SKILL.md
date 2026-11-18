@@ -57,7 +57,13 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 - the ref and its commit;
 - the commit of the hidden examples, when the blueprint has them;
-- the proofs in a `json` list before your report block. Give each scenario test its own rejecting entry, even if several ran together. Use `test` for its name and `wrong` for the solution you ruled out by reading it, e.g. `[{"check":"tests","test":"<test name>","wrong":"<wrong solution this test rejects>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`. The command, exit and tail describe the actual run. Include a `passes` entry where you saw it pass, otherwise say "seen rejecting, not seen passing". For standing checks, report the planted case and the run with it removed;
+- the proofs in a `json` list before your report block. Give each scenario test its own rejecting entry, even if several ran together. Use `test` for its name and `wrong` for the solution you ruled out by reading it.
+
+  Template: `[{"check":"tests","test":"<test name>","wrong":"<wrong solution this test rejects>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`
+
+  Filled in: `[{"check":"tests","test":"opens the bookmark on page nine","wrong":"opens every bookmark on page one","case":"rejects","command":"sh test-bookmarks.sh","exit":1,"tail":"expected page 9, got page 1"}]`
+
+  The command, exit and tail describe the actual run. Include a `passes` entry where you saw it pass, otherwise say "seen rejecting, not seen passing". For standing checks, report the planted case and the run with it removed;
 - under `MISSING:`, what the scenarios seem to leave out, if anything.
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.

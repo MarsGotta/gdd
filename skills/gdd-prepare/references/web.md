@@ -6,7 +6,7 @@ Open this when the project builds for the web. It has four parts: what usually g
 
 Candidates for the rules of the product in the constitution, for the person to correct in their own words. Take only those the product has.
 
-- **Amounts and quantities.** Check that amounts agree across steps and use the required precision. Look for repeated effects, reversals larger than the original, quantities below zero, use beyond what is available and changes to a final record.
+- **Money.** Check that amounts agree across steps and use the required precision. Look for repeated effects, reversals larger than the original, quantities below zero, use beyond what is available and changes to a final record. Submitting the same shared expense twice must never double what anyone owes for it.
 - **Accounts and personal data.** One account seeing another person's private records, a password stored so it can be read, a session still open after logging out, personal data in a log or an error. What one account can see, another can't.
 - **Data loaded from another system.** A record loaded twice or lost halfway, a load that half fails and reports success, a format that changes without warning. A load lands whole, or not at all.
 - **The interface.** A page that misstates the current state, a form that loses what was typed on an error, what works only with a mouse or at one width. What a page shows is what the data says.

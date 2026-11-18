@@ -7,4 +7,10 @@ In the harden step, use `--action relax` or `--action retire` and put the checkâ
 - In `--catches`, give the period, how often the check ran, what it found in gates and what builders reported. Say which counts are missing. A failure can be another run of the same defect.
 - In `--cost`, give the measured time, tokens or wait over that period and say what went unmeasured.
 
-`--catches "<period>: <runs> gate runs, <failures> failures after the builders finished, builder counts unknown" --cost "<seconds> measured"`
+If their builders left no counts, say so. The gate results tell you what happened after the builders finished.
+
+`--catches "<period>, <gate runs and failures>, <what the builders reported>" --cost "<measured cost and any gaps>"`
+
+Filled in for a lint check:
+
+`--catches "Last 12 changes, 14 gate runs, no failures after the builders finished. The builders left no counts." --cost "28 seconds in total. Tokens and wait were unmeasured."`

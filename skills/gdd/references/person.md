@@ -12,7 +12,7 @@ Write to them as you'd tell a colleague, across a table, what happened and what 
 |---|---|
 | a branch, a commit, committed, merged | "written but not in yet", "it's in" |
 | main, the main branch | "what your customers see", in the words of their product |
-| a test by its function name, a file path | what it protects, in the person's words |
+| a test by its function name, a file path | what it protects, in the person's words: "a test of the crossword clues" |
 | red, yellow, green, a zone | "the delicate parts" |
 | the brief, its scenarios | "what the change has to do" |
 | debt, a quarantine, a waiver | "leave that failure noted for later", "switch that test off for now" |
@@ -24,6 +24,12 @@ A file, a command or a word of the method goes in only when they have to open it
 
 **A change went in.**
 
+Before:
+
+    The newsletter date fix was merged into main. The seal passed and the reviewer confirmed green.
+
+After:
+
     Your newsletter now shows the correct date, and it's in.
     seal      passed
     tests     passed
@@ -32,11 +38,25 @@ A file, a command or a word of the method goes in only when they have to open it
 
 **Something stops the change.**
 
-    The new labels are ready. The timetable was already showing yesterday's times. I'd fix that first. Yes?
+Before:
+
+    Labels committed. The departure test fails on base too. Record debt, quarantine the test or fix it separately?
+
+After:
+
+    The new timetable labels are written but not in yet. The check for today's departures already failed before I changed them. I'd fix that first, then put both changes in. Yes?
 
 **They have to approve what a change must do.**
 
-    The converter will show the nearest whole unit. I propose rounding halves up. Do you approve the cases I've shared?
+Before:
+
+    The converter is yellow. Its scenarios cover rounding and validation. Approve the brief?
+
+After:
+
+    The converter will show the nearest whole unit. I propose rounding halves up.
+    If the unit is unknown, you'll see an error and keep the value you typed.
+    `features/rounding.feature` lists the cases. Do you approve them?
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 

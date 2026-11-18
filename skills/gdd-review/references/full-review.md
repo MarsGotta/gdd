@@ -16,4 +16,4 @@ Retest only what changed. Name the whole class of a failure, not one instance of
 
 ## About you
 
-Stop only what you started, by its process id or group.
+Stop only what you started, by its process id or group. A name pattern such as the one passed to `pkill -f` can match your own runner and stop it before it returns a verdict.

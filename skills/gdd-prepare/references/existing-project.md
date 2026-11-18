@@ -27,7 +27,7 @@ Look at about the last two hundred commits of the main branch, without merges. `
 - The ones that touched something no zone covers: `git rev-list --no-merges <since>..<main branch> -- . ':(exclude,glob)<pattern>'`, excluding every pathspec of every zone. A pathspec written without `:(glob)` is excluded as `':(exclude)<path>'`.
 - The ones that fixed or undid something, by the words this project uses for it: `git rev-list --no-merges -i --grep=fix --grep=revert <since>..<main branch>`.
 
-For each commit with changed files, get its paths with `git diff-tree --root --no-commit-id --no-renames --name-only -r -z <commit>`. Pass those filenames together to `gdd color --paths <path>...`, one argument per file. A mixed change counts once, at the color the layer gives it. Count by color in the shell. Keep the uncovered paths, the colors of fixes and the checks whose `when` misses a zone. Compare with `gdd zones` on the tracked files: a mixed change can trigger a check that misses one zone on its own.
+For each commit with changed files, get its paths with `git diff-tree --root --no-commit-id --no-renames --name-only -r -z <commit>`. Pass those filenames together to `gdd color --paths <path>...`, one argument per file. A mixed change counts once, at the color the layer gives it. Count by color in the shell. Keep the uncovered paths, the colors of fixes and the checks whose `when` misses a zone. Compare with `gdd zones` on the tracked files: if a change touches both the screen and the server, the screen files can trigger the tests. A change to the server alone could still skip them.
 
 Then read it with them, and let them decide:
 
