@@ -84,7 +84,7 @@ When you tell the person the change is in, give each reported choice one line in
 
 Use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
 
-    Your route map shows the paths. I still need to check the distances. I've used both tries we agreed on. One more would let me fix and check the distances. I'd leave that for later. Yes?
+    Your songbook shows the lyrics. I still need to check the chords. I've used both tries we agreed on. One more would let me fix and check the chords. I'd leave that for later. Yes?
 
 A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing. If they delegated and other work can go on, leave the change for later without asking.
 
@@ -94,7 +94,7 @@ When the next item needs this one, propose the extra attempt now. For example, �
 
 "You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, record technical choices in the brief and product assumptions in the feature file, tell them in a line, and don't ask that kind of thing again.
 
-Even when they delegate, the person decides whether to take a request in parts. Before briefing, use `gdd-brief/references/proposing-parts.md` when they ask for parts or for several things they could use separately. If they decline, brief the whole request without asking again.
+Even when they delegate, the person decides whether to take a request in parts. Before briefing, use `gdd-brief/references/proposing-parts.md` when they ask for parts or for several things they could use separately. Ask about parts once. Without a clear yes, even if they say “you decide” or leave the question unanswered, brief the whole request.
 
 The following decisions also stay with the person.
 
@@ -103,6 +103,6 @@ The following decisions also stay with the person.
 - loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
 - what can't be undone.
 
-Ask an open product question only when you have no grounds to propose a rule. For decisions where you have a proposal, come back once with one yes to give. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+Ask an open product question only when you have no grounds to propose a rule. For each of these four decisions, come back once with what you propose and one question a yes answers. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
 Use the product question allowance in `gdd-brief` for open questions you have no grounds to answer. A proposed answer goes in an `@assumed` rule. When the person delegates or no question remains, use the usual rule in their field and state it so they can correct it: "I assumed a day in your calendar starts at local midnight." Where the blueprint asks for approval, one yes covers the rules and all your assumptions.

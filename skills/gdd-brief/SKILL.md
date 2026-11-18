@@ -11,7 +11,7 @@ metadata:
 
 Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level, as `gdd` says.
 
-**One request, one change.** Propose parts once before briefing if the person asks for them or for several things they could use separately (`references/proposing-parts.md`). Otherwise, or if they decline, brief it whole, however large. Never count lines, zones or scenarios to decide.
+**One request, one change.** Propose parts once before briefing if the person asks for them or for several things they could use separately (`references/proposing-parts.md`). Without a clear yes to parts, brief the whole request, however large, and never ask about parts again. Never count lines, zones or scenarios to decide.
 
 ## Write the rules first
 
@@ -26,7 +26,7 @@ Write one behavior per `Rule:` line. Say who acts, under what condition and what
         When you set it to 30 seconds
         Then you see "Choose a shorter time"
 
-After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Leave the implementation to the builder.
+After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios. The builder decides how to produce the outcome.
 
 ## The color: git sets the floor, and judgment can only raise it
 
@@ -70,11 +70,11 @@ Use `assets/brief.md`. On yellow, five sections suffice: Request, Rules (the fea
 
 ## Assumptions and open questions
 
-Use a plain `Rule:` for a rule the person gives you or has already approved. Put `@assumed` above every rule you choose yourself. State it firmly, including what you leave out: "The only limit is 80 characters per line." Look for a missing number and edges such as empty, twice or midnight. Keep the tag after approval. Removing it changes the sealed file. The tag records who chose the rule. The approval in the log records what the person saw. If they correct it, use their words, remove the tag and update its scenarios. This changes what must pass.
+Use a plain `Rule:` only for a rule the person gives in their own words. Put `@assumed` above every rule you choose yourself. State it firmly, including what you leave out: "The only limit is 80 characters per line." Look for a missing number and edges such as empty, twice or midnight. Keep the tag after approval. Removing it changes the sealed file. The tag records who chose the rule. The approval in the log records what the person saw. Remove the tag only when they correct the rule or state it in their own words. Use their wording and update its scenarios. A correction changes what must pass.
 
 Ask about the most consequential unknown you cannot settle. Use an open question: "What happens when time runs out?" None on green, at most one on yellow or two on red. One brief approval covers all your assumptions. For an unknown this change can leave for later, write `@question` above `Rule: <the open question?>` and leave it without scenarios.
 
-Before sealing, settle each rule the change needs. If it is unknown, ask or mark an assumption. Check each has a scenario. Use `git grep --untracked -nE '^[[:space:]]*@(assumed|question)[[:space:]]*$' -- features` to locate the tags. Check that each open question can wait and has no scenarios. Ask before briefing (`--of decision`) only if the answer changes what you can brief. Ask to agree on parts, settle what won't fit or write a rule. Without brief approval, ask once after logging only if needed. See the reference on writing to the person for delegation.
+Before sealing, settle each rule the change needs and check it has a scenario. Reread each rule for one behavior, who acts, under what condition, what someone observes, and a unit for each measured number. Use `git grep --untracked -nE '^[[:space:]]*@(assumed|question)[[:space:]]*$' -- features` to locate the tags. Check that each open question can wait and has no scenarios. Ask before briefing (`--of decision`) only if the answer changes what you can brief. It must settle whether to take parts, what to leave out if the request won't fit, or a rule you cannot assume. Mark all other product choices the change needs `@assumed`. The person can correct them at approval or in the line you send if the color asks for none. See the reference on writing to the person for delegation.
 
 A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief.
 
@@ -84,18 +84,21 @@ Always in this order: write, `gdd seal`, `gdd brief`, the reading where the colo
 
 Write the brief and its scenarios in your own copy, the one the person has open, at the paths they will have in the project, and seal them from there with `gdd seal <id> <files>`, which commits them on `gdd-seal/<id>` without touching your copy. A file the person handed over that git doesn't track goes in the seal too. Then `gdd brief <id> <files> --paths <path>...` writes the `brief` step with that commit and each file's hash: exactly what has to pass. The seal is what judges, and their copy is what they read.
 
-Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions tied to a constitution or zone rule or loss of money or data. Form findings count toward the same three. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
+Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. These name the brief rule that needs correction, or the scenario missing its rule. Other additions cite a constitution or zone rule or a loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
 If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the step the layer printed. Ask only when approval is due. Use one message under 150 words in their language:
 
     <What the change will do, in their words.>
-    <Each new or changed rule the person gave or approved, one per line in their words.>
+    <Each new or changed rule the person gave in their own words, one per line.>
     <Then each assumption you added or changed, one per line, marked as yours.>
+    <Each scenario without a rule above it, one per line in the person's words.>
     <Any open question, left for later.>
     <Technical decisions that matter to them, marked as yours.>
     <On red: product rules it touches and up to three things it won't do yet, each as a consequence.>
     <Any disputed addition they need to decide, and why.>
     <Where to read the scenarios. One question a yes answers.>
+
+Example for a photo gallery:
 
 > You'll see "Album full" when you try to add a 21st photo.
 >
@@ -105,9 +108,9 @@ If this color omits `brief-approval`, tell the person in one line what the chang
 >
 > You can read the cases in `features/albums.feature`. Shall I go ahead with these rules?
 
-Count the words. Check each added or changed rule appears once, including each assumption. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
+Count the words. Check each added or changed rule appears once, including each assumption, and each scenario without a rule has its own line. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
 
-Once its hashes are in the log, a brief changes only as a new version: the same file with `version` raised by one, sealed and logged the same way, with `gdd seal` and `gdd brief`. It goes back to the person only if its color asks for `brief-approval` and what has to pass changes. A waiver or a change to the list of paths keeps the same approval when its rules and scenarios still stand. If the person edits their copy, that's a correction: compare it with the seal and make a new version. Never commit them on the main branch yourself: when the change goes in, undo your copy of them first (`git restore` a file the main branch has, remove a new one), so the main branch brings its own.
+To revise a logged brief or ship its change, open `references/brief-versions.md`.
 
 ## When a change comes back
 

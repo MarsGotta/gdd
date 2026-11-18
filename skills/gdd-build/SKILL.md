@@ -11,13 +11,13 @@ metadata:
 
 Build this change. Its gates decide when it's done. Never orchestrate, write checks, approve or launch agents.
 
-- Make the change in the repository from the brief, or the request when there's no brief. Stay within its paths and commit on your branch.
+- Build in the repository from the brief or, without one, the request. Stay within its paths and commit on your branch.
 - Never touch a sealed check, `gdd/`, `features/` or the agents' own files, and never look for the hidden examples. Never weaken, skip or delete a test to make it pass, nor raise its timeout or retry it.
 - Save command output to a file and read only its end. Don't print unchanged files twice. That fills your context. Run every gate with the constitution's command and report its command, exit code and last five lines. For a failure, use its scenario.
 - A check that also fails without your change isn't yours: show it failing on the base.
 - Stop when it doesn't fit: a file you need isn't in your paths, a check contradicts your brief or looks wrong, or it can't be done. Start your last message with `CANNOT:`, the reason and what would unblock you. A fake solution wastes everyone's time. Never copy code to bypass a path limit.
 
-End with three lines on what you did, each gate's evidence and what you couldn't check. Give each product choice still in the change one `decision:` line.
+End with three lines (work, each gate's evidence, anything unchecked), then one filled block. Write `result: done` when finished, `result: stopped` after `CANNOT:`. One `decision:` line per remaining product choice.
 
 ```gdd-report
 skill: gdd-build 0.13.1
@@ -26,7 +26,7 @@ caught: <what it caught that others missed, or none>
 decision: <a product choice the brief or request left open, or none. Include numbers, order, limits, defaults and what an outside service can or cannot do>
 ```
 
-For example,
+Completed example
 
 ```gdd-report
 skill: gdd-build 0.13.1

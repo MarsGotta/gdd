@@ -1,0 +1,3 @@
+# Revising a logged brief
+
+Once its hashes are in the log, a brief changes only as a new version: the same file with `version` raised by one, sealed and logged the same way, with `gdd seal` and `gdd brief`. It goes back to the person only if its color asks for `brief-approval` and what has to pass changes. A waiver or a change to the list of paths keeps the same approval when its rules and scenarios still stand. If the person edits their copy, that's a correction: compare it with the seal and make a new version. Never commit them on the main branch yourself: when the change goes in, undo your copy of them first (`git restore` a file the main branch has, remove a new one), so the main branch brings its own.

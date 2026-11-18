@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-request-is-not-split
-description: "Customers can use accounts and card payments separately. The orchestrator proposes both parts and waits for the person's decision before briefing either one, writing checks or building."
+description: "Customers want one outcome: paying for their cart by card through the test provider. The orchestrator briefs it as one change, without proposing parts or asking whether to split it, and nobody writes checks or builds before the person approves that brief."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -23,7 +23,7 @@ execution:
 
         @gdd/constitution.md
   prompt: |
-    Que los clientes puedan crearse una cuenta y pagar con tarjeta lo que tienen en el carrito, de momento con el proveedor de pruebas de tools/fakepay.mjs.
+    Que los clientes puedan pagar con tarjeta lo que tienen en el carrito, de momento con el proveedor de pruebas de tools/fakepay.mjs.
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -32,18 +32,44 @@ graders:
     type: tool_used
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
-  - name: writes-no-new-brief
+  - name: writes-a-brief
     type: regex
     target: files
     pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md$)[\w.-]+\.md$'
     flags: m
-    match: not_contains
+    match: contains
     weight: 2
-  - name: asks-for-a-decision-before-briefing
+  - name: writes-only-one-brief
+    type: regex
+    target: files
+    pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md\n)[\w.-]+\.md\n(?:[^\n]*\n)*?gdd/briefs/(?!(?:catalog|cart)\.md(?:\n|$))[\w.-]+\.md'
+    match: not_contains
+    weight: 3
+  - name: asks-no-decision-about-parts
     type: tool_used
     tool: Bash
     input_match: '\bask\s+(?:\S+\s+)?--of(?:\s+|=)decision\b'
+    min: 0
+    max: 0
     weight: 3
+  - name: asks-for-brief-approval
+    type: tool_used
+    tool: Bash
+    input_match: '\bask\s+(?:\S+\s+)?--of(?:\s+|=)brief\b'
+    weight: 2
+  - name: writes-no-tests-or-product-itself
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"(?:[^"]*/)?(?:src|tests)/'
+    match: not_contains
+    weight: 2
+  - name: runs-no-checks-agent-or-builder
+    type: tool_used
+    tool: Bash
+    input_match: '\blaunch\s+\S+\s+(?:checks|build)\s+[^;&|\n]*?--run\b'
+    min: 0
+    max: 0
+    weight: 2
   - name: builds-nothing-before-the-yes
     type: tool_used
     tool: Agent
@@ -51,10 +77,10 @@ graders:
     min: 0
     max: 0
     weight: 2
-  - name: asks-in-under-a-hundred-words
+  - name: asks-in-under-a-hundred-and-fifty-words
     type: regex
     target: trace
-    pattern: '"result":"(?:(?:[^"\\\s]|\\[^ntr])+(?:\s|\\[ntr])+){99}(?:[^"\\\s]|\\[^ntr])'
+    pattern: '"result":"(?:[^"\\]|\\.){1100,}"'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method
@@ -62,9 +88,9 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: proposes-the-parts-and-waits-for-a-yes
+  - name: proposes-no-parts
     type: llm
-    criteria: The answer proposes accounts and card payments as two things customers could use separately. Either can come first. Each gets one line with what customers could do and a rough time estimate. The first delivers something the person could try. It ends with one question whose yes accepts those parts. It waits for that decision before briefing either part. It does not ask the person to approve a brief or say that work on a part has started.
+    criteria: The answer treats the request as one change. It does not propose doing it in parts, list parts with how long each takes, or ask whether to split it. It asks the person to approve one brief covering payment by card through the test provider.
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex

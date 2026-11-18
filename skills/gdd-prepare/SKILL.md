@@ -67,6 +67,12 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
+For example, for an alarm clock:
+
+- A disabled alarm never rings.
+- Snoozing one alarm never changes another.
+- A weekday alarm stays silent on weekends.
+
 Then the protections. Write a `CODEOWNERS` file that asks for the person's review on what the team always approves (`gdd/blueprint.md`, `gdd/gates/`, `gdd/check.sh`, `gdd/limits.sh`, `gdd/exam.md`, `gdd/constitution.md` and `gdd/debt.md`), on the agents' own files (`AGENTS.md`, `CLAUDE.md`, skills and settings) and on the zones they mark red. Add `features/` if the team wants every change to what has to pass to reach a person. Leave `gdd/log/`, `gdd/briefs/` and `gdd/backlog.md` out: agents write there on every change. Give the person the rest to apply on the platform, because it takes their credentials: a protected main branch that requires the checks to pass, the layer's too, a rule that keeps `gdd-seal/*` out of the builder's reach, and an agent confined to its work, with no access to production, its own credentials, a restricted network and none of its environment's apps, plugins or connectors that act on the person's accounts.
 
 ## The probe

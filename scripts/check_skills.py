@@ -93,8 +93,8 @@ DOMAIN_EXAMPLE = re.compile(
           (?=,(?!\s*(?:then|and|or)\b)|:|\s+(?:a|an|the|these|those|it|we|that|out\s+of|[a-z]+\s+(?:had|was|were|got|took|added|needed))\b)
         | (?:stopped|blocked)\s+{RUN_COUNT}\s+changes\s+in\s+{RUN_COUNT}\s+runs?
         | (?:a|one)\s+(?:agent|reviewer|builder|orchestrator)\s+once
-        # Shop phrases whose usual meaning is specific to shopping.
-        | shopping\s+carts? | discount\s+codes? | out[-\s]of[-\s]stock\s+(?:goods|items|products)
+        # Shop vocabulary the skills do not use in any other sense.
+        | (?:cart|shop|checkout|refund|coupon|discount)s? | out[-\s]of[-\s]stock\s+(?:goods|items|products)
         | carritos?\s+de\s+(?:la\s+)?compra | códigos?\s+de\s+descuento
     )\b""",
     re.I | re.X,

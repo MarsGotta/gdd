@@ -1,6 +1,6 @@
 Feature: <capability, as the person names it>
 
-  Rule: <one behavior the person gave or approved>
+  Rule: <one behavior the person gives in their own words>
 
     @brief:<id> @id:<capability>-<n>
     Scenario: <the case that checks this rule>
