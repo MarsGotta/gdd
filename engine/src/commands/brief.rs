@@ -126,6 +126,50 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 ))?
             }
         };
+        let (sealed, paths): (Vec<_>, Vec<_>) = a.paths.iter().partition(|f| {
+            l.state
+                .progress
+                .sealed
+                .contains_key(f.trim_start_matches("./"))
+        });
+        if let Some(&f) = sealed.first() {
+            let files = a
+                .files
+                .iter()
+                .chain(sealed)
+                .map(|p| gates::quote(p))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let paths = if paths.is_empty() {
+                "<path the change will touch>...".into()
+            } else {
+                paths
+                    .iter()
+                    .map(|p| gates::quote(p))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            let mut command = format!("gdd brief {id} {files} --paths {paths}");
+            for (flag, value) in [
+                ("--color", a.color),
+                ("--why", Some(a.why)),
+                ("--level", a.level),
+                ("--skill-version", a.skill_version),
+                ("--request", a.request),
+                ("--request-file", a.request_file),
+            ] {
+                if let Some(value) = value.filter(|v| !v.is_empty()) {
+                    command.push_str(&format!(" {flag} {}", gates::quote(value)));
+                }
+            }
+            return Err(Fail::refuse(
+                "sealed-path",
+                format!(
+                    "{f} is sealed for {id}: it judges the change and is not one of its paths. What follows --paths counts as a path"
+                ),
+                command,
+            ));
+        }
         let logged = l.state.progress.color.clone();
         let c = color::color_of(&ctx.root, &l.bp, a.paths, a.color, logged.as_deref(), a.why)
             .map_err(Fail::usage)?;

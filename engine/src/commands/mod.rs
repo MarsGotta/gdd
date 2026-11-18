@@ -153,23 +153,21 @@ fn review_head(l: &Loaded) -> Option<&str> {
         .or(l.state.git.head.as_deref())
 }
 
-/// Compare the reviewed tree with the actual head holding the corrected seal.
+/// The prompt and report identify the same gate run, even when gates ran twice at one commit.
+fn review_stamp(l: &Loaded) -> Option<String> {
+    let read = review_head(l)?;
+    let line = l.state.progress.last_gates.as_ref().map_or(0, |g| g.line);
+    let git = &l.state.git;
+    let branch_tip = git
+        .branch
+        .as_ref()
+        .and_then(|b| crate::git::commit_of(&l.project.root, &crate::git::branch_ref(b)));
+    let tip = branch_tip.as_ref().or(git.head.as_ref())?;
+    Some(format!("{read} (gates line {line}, branch {tip})"))
+}
+
 fn changed_tests(l: &Loaded, head: &str) -> Option<Vec<String>> {
-    let p = &l.state.progress;
-    let fix = p.checks_fix.as_ref()?;
-    let root = &l.project.root;
-    let seal = p.start.as_deref()?;
-    if p.checked.as_ref()?.0 <= fix.line || !git::is_ancestor(root, seal, head) {
-        return None;
-    }
-    let before = fix.head.as_deref()?;
-    let mut paths = git::diff_names(root, before, head).ok()?;
-    paths.retain(|f| !crate::judged::bookkeeping_known(root, &l.state.id, head, f));
-    let built = git::diff_names(root, seal, head).ok()?;
-    paths
-        .iter()
-        .all(|p| fix.paths.contains(p) && !built.contains(p))
-        .then_some(paths)
+    crate::judged::changed_tests(&l.project.root, &l.state.id, &l.state.progress, head)
 }
 
 /// Refuse a step the state doesn't allow yet, with what moves the work instead. `head` is the

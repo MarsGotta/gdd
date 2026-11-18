@@ -132,6 +132,8 @@ fn the_checks_proofs_come_from_their_json_block() {
 #[test]
 fn bookkeeping_and_a_local_merge() {
     let r = tracked_logs_repo();
+    r.write("features/y1.feature", "Feature: Existing scenarios\n");
+    r.commit("Track the existing scenarios");
     let id = "y1";
     yellow_through_gates(&r, id);
     assert_eq!(
@@ -196,6 +198,12 @@ fn bookkeeping_and_a_local_merge() {
     let dirty = r.gdd(&["ship", id, "--merge"]);
     assert_eq!(dirty.facts["refused"], "dirty-tree", "{}", dirty.out);
     r.git(&["checkout", "--", "src/ui/page.txt"]);
+    r.write("features/y1.feature", "A local correction");
+    let refuse = r.gdd(&["ship", id, "--merge"]);
+    assert_eq!(refuse.facts["refused"], "dirty-tree", "{}", refuse.out);
+    assert!(refuse.has("Never commit brief files on main") && refuse.has("git restore"));
+    assert_eq!(r.read("features/y1.feature"), "A local correction");
+    r.git(&["restore", "--", "features/y1.feature"]);
     // The merge: the copies of the brief and the logs go aside, the merge brings them back.
     let m = r.gdd(&["ship", id, "--merge"]);
     assert_eq!(m.code, 0, "{}", m.out);
@@ -1054,7 +1062,8 @@ fn every_call_is_in_the_metrics_without_its_id_and_without_git() {
     r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
     r.gdd(&["gates", "g1"]);
     // A copy of the project without .git, and without the blueprint.
-    let copy = tempfile::tempdir().unwrap();
+    let copy = tempfile::tempdir_in(&r.root).unwrap();
+    let ceiling = r.root.canonicalize().unwrap();
     std::fs::create_dir_all(copy.path().join("gdd/log")).unwrap();
     for e in std::fs::read_dir(r.path("gdd/log")).unwrap() {
         let e = e.unwrap();
@@ -1063,7 +1072,10 @@ fn every_call_is_in_the_metrics_without_its_id_and_without_git() {
     let m = run_gdd(
         copy.path(),
         &["metrics", "--all", "--format", "jsonl"],
-        &[("GDD_NO_JOURNAL", "1")],
+        &[
+            ("GDD_NO_JOURNAL", "1"),
+            ("GIT_CEILING_DIRECTORIES", ceiling.to_str().unwrap()),
+        ],
     );
     assert_eq!(m.code, 0, "{}", m.out);
     let engine: Vec<Value> = m

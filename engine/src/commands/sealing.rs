@@ -87,12 +87,14 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
             out.say(format!("  {f} {h}"));
         }
         out.say("the checkout and its index were not touched");
-        if s.unchanged {
-            out.say(format!(
-                "when logging a new brief: gdd brief {id} --paths ... {}",
-                files.join(" ")
-            ));
-        }
+        out.say(format!(
+            "when logging a new brief: gdd brief {id} {} --paths <path>...",
+            files
+                .iter()
+                .map(|p| gates::quote(p))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
         out.fact("ref", json!(format!("gdd-seal/{id}")));
         out.fact("commit", json!(s.commit));
         out.fact(

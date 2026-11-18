@@ -202,7 +202,10 @@ fn order_and_caps(
                 .collect();
             if let Some(at) = at {
                 let lim = limits::count_with(bp, id, &before, &void, at);
-                let full = lim.no_room_for(p.checks_fix_step(st));
+                let full = lim.no_room_for(
+                    st == "checks" && p.correcting_tests()
+                        || st == "build" && p.merging_checks_fix() && v["seal_only"] == true,
+                );
                 if !full.is_empty() {
                     f.push(
                         line,

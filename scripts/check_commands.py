@@ -321,7 +321,7 @@ def layer_cases(binary):
         expect("the layer refuses the report of a build that changed nothing",
                empty.returncode == 1 and "nothing-built" in empty.stdout, empty.stdout[-300:])
         git(repo, "branch", "-d", "work/g1")
-        fetch = command("gdd-build/SKILL.md", r"git fetch [^`\n]+")
+        fetch = command("gdd/references/role-clone.md", r"git fetch [^`\n]+")
         with tempfile.TemporaryDirectory() as copies:
             for name in ("first round", "fix round"):
                 builder = Path(copies) / name

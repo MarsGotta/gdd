@@ -13,7 +13,7 @@ pub struct ReportArgs {
     pub codex_thread: Option<Value>,
     pub proofs: Option<String>,
     pub claims: Option<String>,
-    pub closed: Option<Vec<(String, String)>>,
+    pub closed: Option<String>,
     pub went: Vec<(String, String)>,
 }
 
@@ -101,7 +101,7 @@ pub(super) fn write_report(
         && let Some(then) = l.state.progress.last_ts
     {
         let lim = limits::count_entries(&l.bp, id, &l.entries, then);
-        let full = lim.no_room_for(p.checks_fix_step(st));
+        let full = lim.no_room_for(st == "checks" && p.correcting_tests() || seal_only);
         if !full.is_empty() {
             return Err(Fail::refuse(
                 "cap-spent",
@@ -764,6 +764,20 @@ fn report_review(
         out.say(format!("fix missing citations ({missing}): end each numbered finding with | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>"));
         m.insert("uncited".into(), json!(r.uncited));
     }
+    if let Some(read) = &r.reviewed
+        && review_stamp(l).as_ref() != Some(read)
+    {
+        let next = if l.state.next.step == "gates" {
+            format!("gdd gates {id}, then ")
+        } else {
+            String::new()
+        };
+        return Err(Fail::refuse(
+            "stale-review",
+            "the branch or gates changed since this review started",
+            format!("{next}gdd launch {id} review"),
+        ));
+    }
     let head = review_head(l).map(str::to_owned);
     // What a setup log's trial judges is all it sealed, from where its seal was cut.
     let start = if log_kind(id) == LogKind::Setup {
@@ -818,28 +832,53 @@ fn report_review(
         ),
     );
     if verdict == "fix" && log_kind(id) == LogKind::Change {
-        let role = if p.findings_on_checks(&m["findings"]) {
-            "checks"
-        } else {
-            "build"
-        };
-        m.insert("fix_role".into(), json!(role));
+        m.insert("fix_role".into(), json!(p.fix_role(&m["findings"])));
     }
-    m.insert(
-        "closed".into(),
-        json!(
-            a.closed
-                .as_ref()
-                .unwrap_or(&r.closed)
-                .iter()
-                .map(|(i, o)| json!({"id": i, "outcome": o}))
-                .collect::<Vec<_>>()
-        ),
-    );
+    let previous = log::events(&l.entries)
+        .into_iter()
+        .rev()
+        .find(|(_, v)| step(v) == "review")
+        .and_then(|(_, v)| v["findings"].as_array())
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let closed = a.closed.as_deref().or(r.closed.as_deref()).unwrap_or("");
+    let outcomes = closed_findings(closed, previous).ok_or_else(|| Fail::refuse(
+        "bad-closed", "closed: needs one valid outcome per named finding from the previous review, without duplicates",
+        format!("correct the closed: line and run gdd report {id} review <file>"),
+    ))?;
+    m.insert("closed".into(), json!(outcomes));
     if !r.notes.is_empty() {
         m.insert("notes".into(), json!(r.notes));
     }
     Ok(())
+}
+
+fn closed_findings(text: &str, previous: &[Value]) -> Option<Vec<Value>> {
+    let mut closed = Vec::new();
+    if text.trim().is_empty() {
+        return Some(closed);
+    }
+    let mut seen = BTreeSet::new();
+    for group in text.split(',') {
+        let spaced = group.replace('=', " = ");
+        let mut words = spaced.split_whitespace().peekable();
+        words.peek()?;
+        while let Some(id) = words.next() {
+            let id = id.to_ascii_lowercase();
+            if words.next()? != "="
+                || !seen.insert(id.clone())
+                || !previous.iter().any(|f| f["id"] == id)
+            {
+                return None;
+            }
+            let outcome = words.next()?;
+            if !matches!(outcome, "fixed" | "false" | "intended" | "minor") {
+                return None;
+            }
+            closed.push(json!({"id":id, "outcome":outcome}));
+        }
+    }
+    Some(closed)
 }
 
 /// What a reading of a brief adds: its findings, and where each one went.

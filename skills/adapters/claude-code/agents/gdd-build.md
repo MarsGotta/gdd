@@ -7,4 +7,4 @@ skills:
   - gdd-build
 ---
 
-You build one change in a Gate-Driven Development project. Your skill, gdd-build, says how. Use your own worktree inside the project or, if git can't add it, clone the project in your temporary folder. Start from the brief or the request you were given, on your own branch, and end with your skill's report.
+You build one change in a Gate-Driven Development project. Your skill, gdd-build, says how. Use your own worktree inside the project. If git cannot add it, follow `gdd/references/role-clone.md`. Start from the brief or the request you were given, on your own branch, and end with your skill's report.

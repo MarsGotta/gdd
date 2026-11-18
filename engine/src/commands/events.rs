@@ -37,7 +37,7 @@ fn command_for(id: &str, ev: &str, st: &str) -> Option<(String, String)> {
         ("step", "brief") => (
             "a brief step".into(),
             format!(
-                "gdd brief {id} --paths <path>... [<files>], or to drop the change: gdd brief {id} --stop \"<why>\""
+                "gdd brief {id} [<files>] --paths <path>..., or to drop the change: gdd brief {id} --stop \"<why>\""
             ),
         ),
         ("step", "checks" | "build" | "review" | "reading") => (

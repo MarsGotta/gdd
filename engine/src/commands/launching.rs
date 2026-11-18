@@ -324,13 +324,16 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
             "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
         )),
         "build" => {
+            if p.merging_checks_fix() && l.state.limits.line("rounds_per_change", "rounds").is_some_and(|l| l.full) {
+                s.push("Only merge the corrected seal. No build round remains for a product change.".into());
+            }
             let from = if p.builds == 0 {
                 "from <start>"
             } else {
                 "from its current tip in the project (merge <start> into it if needed)"
             };
             s.push(format!(
-                "Work on {branch} {from} and commit in your own worktree inside the project folder. If git can't add it, clone the project in your temporary folder with its git name and email, then run `git fetch <clone> {branch}:{branch}` from the project before reporting."
+                "Work on branch {branch} {from} and commit there. Use your own worktree inside the project. If git cannot add it, clone the project in your own temporary folder. Copy the project's `user.name` and `user.email` into the clone's git config. If you used a clone, run `git fetch <clone> {branch}:{branch}` from the project before reporting. If git refuses the fetch, stop with CANNOT: and name the branch. Never force it."
             ));
         }
         "review" => s.push(format!(
@@ -524,6 +527,13 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
         setup_prompt(&mut s, &x);
     } else {
         change_prompt(&mut s, &x);
+    }
+    if role == "review"
+        && let Some(stamp) = review_stamp(l)
+    {
+        s.push(format!(
+            "Copy this line into your gdd-report block: reviewed: {stamp}"
+        ));
     }
     let zones: Vec<String> = p.zones.clone();
     let ctx_files: Vec<String> =

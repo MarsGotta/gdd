@@ -62,7 +62,8 @@ pub struct RoleReport {
     /// The color of the `COLOR:` line, and the rest of that line.
     pub color: Option<(String, String)>,
     pub findings: Vec<Finding>,
-    pub closed: Vec<(String, String)>,
+    pub closed: Option<String>,
+    pub reviewed: Option<String>,
     /// Distinct finding numbers without a citation in a fix.
     pub uncited: Vec<String>,
     pub later: Vec<String>,
@@ -151,7 +152,12 @@ fn block(text: &str) -> Option<Vec<(String, String)>> {
         }
         if let Some((k, mut value)) = l.split_once(':') {
             let mut key = k.trim().to_lowercase();
-            let label = key.trim_matches(['-', '+', '*', '_', ' ']);
+            let numbered = key
+                .split_once('.')
+                .filter(|(n, _)| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+            let label = numbered
+                .map_or(key.as_str(), |(_, rest)| rest)
+                .trim_matches(['-', '+', '*', '_', ' ']);
             if matches!(label, "decision" | "decisions") {
                 // A bold label may enclose its colon, as in **decision:**.
                 if let Some(prefix) = key.strip_suffix(label)
@@ -291,7 +297,7 @@ pub(crate) fn product_choices<'a>(values: impl Iterator<Item = &'a str>) -> Vec<
             let clean: String = value
                 .trim()
                 .chars()
-                .filter(|c| !c.is_control() && !matches!(c, '\u{2028}' | '\u{2029}'))
+                .filter(|c| !c.is_control() && !matches!(c, '\u{200b}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
                 .take(240)
                 .collect();
             let choice = clean.trim();
@@ -344,19 +350,13 @@ pub(crate) fn parse_with_blueprint(
     if choices.peek().is_some() {
         r.decisions = Some(product_choices(choices));
     }
-    if let Some(closed) = get("closed") {
-        r.closed = closed
-            .split_whitespace()
-            .filter_map(|pair| {
-                let (id, outcome) = pair.split_once('=')?;
-                let digits = id.strip_prefix('f')?;
-                (!digits.is_empty()
-                    && digits.bytes().all(|b| b.is_ascii_digit())
-                    && matches!(outcome, "fixed" | "false" | "intended" | "minor"))
-                .then(|| (id.to_owned(), outcome.to_owned()))
-            })
-            .collect();
-    }
+    let closed: Vec<_> = fields
+        .iter()
+        .filter(|(k, _)| k == "closed")
+        .map(|(_, v)| v.as_str())
+        .collect();
+    r.closed = (!closed.is_empty()).then(|| closed.join(","));
+    r.reviewed = get("reviewed");
     let lines: Vec<&str> = text.lines().collect();
     if let Some(i) = lines.iter().position(|l| plain(l).starts_with("CANNOT:")) {
         let reason = plain(lines[i])

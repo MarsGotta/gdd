@@ -13,7 +13,7 @@ A gate that never closes is not a gate: it's a drawing on the wall. Your checks 
 
 Save command output to a file and read only its end. Don't print unchanged files again. Each repeat fills the next round's context.
 
-Use your own worktree inside the project or, if git can't add it, clone the project in your temporary folder with its git name and email. When you commit checks in a clone, fetch the seal branch back into the project before reporting.
+Use your own worktree inside the project. If git cannot add it, follow `gdd/references/role-clone.md`. When you commit checks in a clone, start from the project's current `gdd-seal/<id>` (main for a new setup seal) and run `git fetch <clone> gdd-seal/<id>:gdd-seal/<id>` from the project before reporting. If git refuses it, stop with `CANNOT:` and name the test file. Never force it.
 
 ## What you get
 
@@ -59,18 +59,18 @@ Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, wit
 
 - the ref and its commit;
 - the commit of the hidden examples, when the blueprint has them;
-- the proofs in a `json` list before your report block. Give each scenario test its own rejecting entry, even if several ran together. Use `test` for its name and `wrong` for the solution you ruled out by reading it.
+- the proofs in a `json` list before your report block. Give each scenario test its own rejecting entry, even if several ran together. Use `test` for its name and `wrong` for one wrong solution that this test rejects by itself. A constant that fits one example goes in the entry of the scenario's other example.
 
   Template: `[{"check":"tests","test":"<test name>","wrong":"<wrong solution this test rejects>","case":"rejects","command":"<command>","exit":1,"tail":"<last lines, five at most>"}]`
 
-  Filled in: `[{"check":"tests","test":"opens the bookmark on page nine","wrong":"opens every bookmark on page one","case":"rejects","command":"sh test-bookmarks.sh","exit":1,"tail":"expected page 9, got page 1"}]`
+  Filled in: `[{"check":"tests","test":"opens the bookmark on page nine","wrong":"opens every bookmark on page one","case":"rejects","command":"sh test-bookmarks.sh","exit":1,"tail":"expected page 9, got page 1"},{"check":"tests","test":"opens the bookmark on page two","wrong":"opens every bookmark on page nine","case":"rejects","command":"sh test-bookmarks.sh","exit":1,"tail":"expected page 2, got page 9"}]`
 
   The command, exit and tail describe the actual run. Include a `passes` entry where you saw it pass, otherwise say "seen rejecting, not seen passing". For standing checks, report the planted case and the run with it removed;
 - under `MISSING:`, what the scenarios seem to leave out, if anything.
 
 From then on, nobody touches a sealed check. If one turns out to be wrong, fixing it is a new commit on the same ref, made by you or by a person, never by the builder, and if the fix changes what has to pass and the color asks for `brief-approval`, it goes back to the person.
 
-When a review returns your sealed tests, correct only the named tests on the same seal branch. Never edit product code in a correction. Prove the corrected tests against their scenarios and report the new seal. The builder merges it into the change.
+When a review returns your sealed tests, correct only the named tests on the same seal branch. If a finding is a product defect and the test is right, answer `CANNOT:` and say so. Never edit product code in a correction. Prove the corrected tests against their scenarios and report the new seal. The builder merges it into the change.
 
 When you're launched for a new version of the brief that changed only its prose, the checks you sealed before may still cover it. Run them against it, and if they hold, commit nothing: report `sealed` with their proofs, and the layer records them as they stand. A new scenario, a changed check or a higher color always takes a new seal.
 
@@ -80,7 +80,7 @@ After preparing, you set up the machine checks the blueprint's `checks` name, on
 
 In a project with no code yet, set up only `seal` and `secrets`, and CI running them. Every other check waits in the blueprint with its `when`, and nobody is asked to demonstrate a check on code that does not exist: that isn't a `CANNOT:`. Its own item, `standing-checks-<check id>`, proves it later, on the code the first change brought.
 
-Prove each check once, in your own throwaway copy, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. The bad case is the one the blueprint gives the check in `breaks`, which its gate's feature repeats under `Rule: It closes`. When there's none, choose the plainest thing the check exists to catch and report it, so that it goes into the blueprint with the person's yes. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change starts.
+Prove each check once, in a throwaway clone in your temporary folder, and here that is its whole proof, one bad case and no more: plant it and watch the check fail and name the file and the line, then take it out and watch it pass. The bad case is the one the blueprint gives the check in `breaks`, which its gate's feature repeats under `Rule: It closes`. When there's none, choose the plainest thing the check exists to catch and report it, so that it goes into the blueprint with the person's yes. Nothing planted is committed. Seal what you set up on the ref you were given, `gdd-seal/standing-checks` the first time. Then `gdd-review` tries each check, and until they hold, no change starts.
 
 Two kinds of check need more care, because an empty project proves nothing about them:
 

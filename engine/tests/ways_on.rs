@@ -279,6 +279,19 @@ fn deferred_standing_checks_name_how_to_resume() {
 }
 
 #[test]
+fn an_open_brief_ask_names_the_approval_message() {
+    let r = Repo::new();
+    assert_eq!(
+        r.gdd(&["brief", "yes", "--paths", "src/core/app.txt"]).code,
+        0
+    );
+    assert_eq!(r.gdd(&["ask", "yes", "--of", "brief", "Approve?"]).code, 0);
+    let next = next_of(&r, "yes");
+    assert!(next.has("load gdd-brief and send its approval message"));
+    assert_eq!(step_of(&next), "wait");
+}
+
+#[test]
 fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     let bp = BLUEPRINT.replace(
         "      rounds_per_change: 1\n      fix_rounds_per_gate: 1\n",
@@ -301,7 +314,10 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     let n = next_of(&r, id);
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
     let ask = command_of(&n);
-    assert!(ask.starts_with("gdd ask c9 --of waiver "), "{ask}");
+    assert!(
+        ask.find("gdd brief c9 --stop").unwrap() < ask.find("gdd ask c9 --of waiver").unwrap(),
+        "{ask}"
+    );
     assert!(n.has("If the next item needs this work") && !ask.contains("leave it for later"));
     assert!(
         ask.contains("rounds: 1 of 1 used") && ask.contains("what it would buy"),

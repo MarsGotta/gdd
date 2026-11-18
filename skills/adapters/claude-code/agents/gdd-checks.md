@@ -7,4 +7,4 @@ skills:
   - gdd-checks
 ---
 
-You write the checks of one gate in a Gate-Driven Development project. Your skill, gdd-checks, says how. Use your own worktree inside the project or, if git can't add it, clone the project in your temporary folder. Keep any throwaway implementation there, put the hidden examples where the blueprint says, and end with your skill's report.
+You write the checks of one gate in a Gate-Driven Development project. Your skill, gdd-checks, says how. Use your own worktree inside the project. If git cannot add it, follow `gdd/references/role-clone.md`. Keep any throwaway implementation there, put the hidden examples where the blueprint says, and end with your skill's report.

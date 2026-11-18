@@ -23,7 +23,7 @@ Work in a fresh clone of the repository in your temporary folder, at the change'
 
 ## From the second round on
 
-After the verdict and color, give one line per previous finding with its id, outcome and evidence. For example, “Previous f1, fixed. The test now rejects a blank title.” Use `fixed` for a verified correction, `false` for a mistaken finding, `intended` for behavior the brief or person asked for, and `minor` for one left for later. If it still fails, keep it open under its original id. Retest only what changed. When the product is unchanged after a test correction, check only the named tests against the findings. Keep the independent color and seal checks. Apply the remaining steps within that scope.
+After the verdict and color, give one line per previous finding with its id, outcome and evidence. For example, “Previous f1, fixed. The test now rejects a blank title.” Use `fixed` for a verified correction, `false` for a mistaken finding, `intended` for behavior the brief or person asked for, and `minor` for one left for later. Repeat each resolved outcome in your report's `closed:` line, for example `closed: f1=fixed f2=intended`. Leave the line empty if nothing closed. If it still fails, keep it open under its original id. Retest only what changed. When the product is unchanged after a test correction, check only the named tests against the findings. Keep the independent color and seal checks. Apply the remaining steps within that scope.
 
 ## Every change
 
@@ -50,15 +50,15 @@ On every change that touches a zone, answer each of its reviewer rules, includin
 
 Before reporting a `fix`, finish reviewing the whole change in scope, including the product even when a sealed test is weak, because the next review may cover only the correction.
 
-In every round, name the whole class of each failure. Group its instances in one finding and never repeat a finding. Mark a pre-existing issue “was already there”.
+In every round, name the whole class of each failure. Group its instances in one finding and never repeat a finding within one report. Mark a pre-existing issue “was already there”.
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
 
-- `pass`: you ran it and it works. List minor issues under `LATER:`. A blank line after an item ends the list.
+- `pass`: it works. On red you ran it. On yellow you read it against its brief without running the product or its tests. List minor issues under `LATER:`. A blank line after an item ends the list.
 - `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:<scenario>`), `zone <name>: <rule>`, `constitution: <rule>`, `request: <the person's words>` or `check <id>`. For example, `f1 tests/playlist:42 the test passes even when skipping a track restarts it | @id:playlist-1`. If all findings name tests sealed for this change, `gdd-checks` corrects them and the builder merges the seal. If none do, the builder takes the fix. For mixed findings, `gdd-checks` corrects the named tests first, then the builder merges the seal and handles the rest, including findings without a file. Your fix holds the change. The layer logs any missing citations so Harden can count them. Put anything you can't tie to one of those sources under `LATER:` for the backlog. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 
-The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you read or ran and what came out, a line each, and what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
+The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then a line for each thing you read or ran and what came out. A command goes as you typed it, with its exit code and its last line: `sh test-playlist.sh`, exit 0, “12 passed”. On red, whatever the verdict, that is a line for the run, each break, each attack and the way back: `git revert --no-edit HEAD`, exit 0, “1 file changed, 1 insertion(+), 1 deletion(-)”. Then what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
 
 ## Report
 
@@ -68,5 +68,6 @@ End your last message with this block, filled in. `result` is your verdict.
 skill: gdd-review 0.13.1
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
-closed: <optional space-separated pairs such as f1=fixed f2=intended, using fixed, false, intended or minor>
+closed:
+reviewed: <copy the value from the prompt's reviewed: line, or omit this line if none>
 ```

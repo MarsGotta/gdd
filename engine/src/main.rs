@@ -421,7 +421,7 @@ fn main() {
                         tokens_read: *tokens_read,
                         proofs: proofs.clone(),
                         claims: claims.clone(),
-                        closed: (!closed.is_empty()).then(|| pairs(closed)),
+                        closed: (!closed.is_empty()).then(|| closed.join(",")),
                         went: pairs(went),
                         codex_thread: None,
                     },

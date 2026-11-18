@@ -2,7 +2,24 @@
 
 use super::*;
 
-const WORKTREE: &str = "a fresh worktree";
+#[derive(Clone, Copy)]
+enum Place {
+    Worktree,
+    Clone,
+    Checked,
+    Ci,
+}
+
+impl Place {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Worktree => "a fresh worktree",
+            Self::Clone => "a fresh clone",
+            Self::Checked => "a checked directory",
+            Self::Ci => "ci",
+        }
+    }
+}
 
 /// The private folder of one run's outputs (see [`crate::runs`]); when the usual one can't be
 /// trusted, it says so and uses a fresh one.
@@ -170,9 +187,10 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, out);
             Ok((installed, ran, skipped))
         })();
-        if place == WORKTREE {
+        if matches!(place, Place::Worktree) {
             let _ = git::worktree_remove(&ctx.root, &dir);
         }
+        let place = place.label();
         let (installed, ran, skipped) = judged?;
         // "Command not found" in a fresh copy nobody prepared is the copy lacking what the check
         // needs, not the change failing: nothing is written, and no round is counted.
@@ -331,7 +349,7 @@ fn place_for(
     ctx: &Ctx,
     at: Option<&Path>,
     head: &str,
-) -> R<(PathBuf, &'static str, Option<tempfile::TempDir>)> {
+) -> R<(PathBuf, Place, Option<tempfile::TempDir>)> {
     match at {
         Some(d) => {
             git::clean_at(d, head).map_err(|e| {
@@ -342,9 +360,9 @@ fn place_for(
                 )
             })?;
             let place = if std::env::var("CI").is_ok() {
-                "ci"
+                Place::Ci
             } else {
-                "a checked directory"
+                Place::Checked
             };
             Ok((d.to_path_buf(), place, None))
         }
@@ -355,7 +373,7 @@ fn place_for(
                 .map_err(|e| Fail::missing("a temporary folder for the gates", e.to_string()))?;
             let d = tmp.path().join("tree");
             match git::worktree_add(&ctx.root, &d, head) {
-                Ok(()) => Ok((d, WORKTREE, Some(tmp))),
+                Ok(()) => Ok((d, Place::Worktree, Some(tmp))),
                 Err(worktree) => {
                     let clone = tmp.path().join("clone");
                     git::clone_at(&ctx.root, &clone, head).map_err(|e| {
@@ -364,7 +382,7 @@ fn place_for(
                             format!("{worktree}\n{e}"),
                         )
                     })?;
-                    Ok((clone, "a fresh clone", Some(tmp)))
+                    Ok((clone, Place::Clone, Some(tmp)))
                 }
             }
         }

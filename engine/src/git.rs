@@ -1,5 +1,5 @@
-//! The few git commands the layer needs, each one a small function. It never fetches, pushes or
-//! deletes a branch: every command here reads, or writes objects and the refs of a seal.
+//! The few git commands the layer needs, each one a small function. A gate clone fetches refs only from the local project.
+//! The layer never pushes or deletes a project branch.
 
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -155,7 +155,11 @@ pub fn refuses(root: &Path) -> Option<(String, Option<std::path::PathBuf>)> {
         return None;
     }
     let here = std::fs::canonicalize(root).ok()?;
-    let top = here.ancestors().find(|d| d.join(".git").exists())?;
+    let ceilings = std::env::var_os("GIT_CEILING_DIRECTORIES").unwrap_or_default();
+    let top = here
+        .ancestors()
+        .take_while(|d| *d == here || !std::env::split_paths(&ceilings).any(|c| c == *d))
+        .find(|d| d.join(".git").exists())?;
     let said = String::from_utf8_lossy(&o.stderr);
     let first = said
         .lines()
@@ -476,11 +480,21 @@ pub fn worktree_add(root: &Path, dir: &Path, commit: &str) -> Result<(), String>
 
 pub fn clone_at(root: &Path, dir: &Path, commit: &str) -> Result<(), String> {
     let path = dir.to_string_lossy();
+    out(root, &["clone", "--no-checkout", ".", &path])?;
+    out(dir, &["checkout", "--detach", "--quiet", commit])?;
+    let source = out(dir, &["remote", "get-url", "origin"])?;
+    out(dir, &["remote", "remove", "origin"])?;
     out(
-        root,
-        &["clone", "--no-hardlinks", "--no-checkout", ".", &path],
-    )?;
-    out(dir, &["checkout", "--detach", "--quiet", commit]).map(|_| ())
+        dir,
+        &[
+            "fetch",
+            "--quiet",
+            source.trim(),
+            "+refs/heads/*:refs/heads/*",
+            "+refs/remotes/*:refs/remotes/*",
+        ],
+    )
+    .map(|_| ())
 }
 
 pub fn worktree_remove(root: &Path, dir: &Path) -> Result<(), String> {

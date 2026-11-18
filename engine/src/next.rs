@@ -150,15 +150,22 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
             "<propose another try if the next item depends on this, otherwise defer>. Yes?",
         )
     };
+    let delegated = if log_kind(id) == LogKind::Change {
+        format!(
+            "If the person left the decision to you and no other item needs this work, ask nothing: tell them what is left and run gdd brief {id} --stop \"<what is left>\". Otherwise: "
+        )
+    } else {
+        String::new()
+    };
     blocked(
         "stopped",
         "cap-spent",
         format!(
-            "No new round. {advice} If they choose to wait, record their answer. If they agree to the extra attempt, record their reply directly: {}",
+            "No new round. {delegated}{advice} If they choose to wait, record their answer. If they agree to the extra attempt, record their reply directly: {}",
             waivers.join(", then ")
         ),
         format!(
-            "gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. {proposal}\"",
+            "{delegated}gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. {proposal}\"",
             spent.join(", ")
         ),
     )
@@ -257,6 +264,11 @@ pub(crate) fn next_step(
         let waited =
             a.ts.map(|t| crate::time::waited(now - t))
                 .unwrap_or_default();
+        let reminder = if a.of == "brief" {
+            ". To ask again, load gdd-brief and send its approval message: each rule or scenario in a line, your assumptions, the feature file, one question"
+        } else {
+            ""
+        };
         let then = if a.spent_limit {
             limit_reply(id)
         } else {
@@ -266,7 +278,7 @@ pub(crate) fn next_step(
             "wait",
             "needs-person",
             format!(
-                "waiting for the person since line {} ({waited}), {}: {}",
+                "waiting for the person since line {} ({waited}), {}: {}{reminder}",
                 a.line, a.of, a.what
             ),
             then,
@@ -378,7 +390,7 @@ fn before_the_build(
             "brief",
             "load gdd-brief: its color goes to the log before anyone builds",
             format!(
-                "gdd brief {id} --paths <path>... [--color <color> --why \"<reason>\"] [--request \"<their words>\" or --request-file <a file with them>, when there is no brief file] [<brief and scenario files>]"
+                "gdd brief {id} [<brief and scenario files>] --paths <path the change will touch>... [--color <color> --why \"<reason>\"] [--request \"<their words>\" or --request-file <a file with them>, when there is no brief file]"
             ),
         ));
     }
@@ -504,7 +516,9 @@ fn from_the_build_on(
             lim,
             n(
                 "build",
-                if p.checks_fix.is_some() {
+                if p.checks_fix.as_ref().is_some_and(|f| !f.tests_only) {
+                    "resume the builder to merge the corrected seal and address the remaining findings"
+                } else if p.checks_fix.is_some() {
                     "resume the builder to merge the corrected seal into the change branch"
                 } else {
                     "launch gdd-build on its own branch, from <start>"

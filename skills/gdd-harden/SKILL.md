@@ -11,6 +11,8 @@ metadata:
 
 Gates with cracks get hardened. When something slips through, fixing it isn't enough: what it would have taken to catch it stays as a check, so that it can't get in that way again. Hardening is also knowing when to reduce: a gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, on the same evidence. The two keep the balance. You do it yourself, as the orchestrator, with the person, and it needs the deep level, as `gdd` says. It never starts by itself, and only between changes: a change leaves one proposal at most in the backlog, for the person once it ends, and hardening starts when they take it up or ask.
 
+In every command below, run the project's `.gdd/gdd` first. Use `gdd` on the path only if `.gdd/gdd` is unavailable and `gdd --version` names the GDD layer.
+
 ## What counts
 
 - **What slips through:** a failure that got through every gate and was found later, by a person, in production, or by a reviewer where a machine check should have caught it.

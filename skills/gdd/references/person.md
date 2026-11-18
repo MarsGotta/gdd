@@ -82,11 +82,11 @@ When you tell the person the change is in, give each reported choice one line in
 
 ## When a limit stops the work
 
-Use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
+If they delegated and other work can go on, leave the change for later without asking. Tell them what is left and use `gdd brief <id> --stop "<what is left>"`. Otherwise use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
 
     Your songbook shows the lyrics. I still need to check the chords. I've used both tries we agreed on. One more would let me fix and check the chords. I'd leave that for later. Yes?
 
-A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing. If they delegated and other work can go on, leave the change for later without asking.
+A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing.
 
 When the next item needs this one, propose the extra attempt now. For example, “Every change needs this scan. I used the two tries we agreed on. Shall I try once more to get it to catch the sample?” Record their yes with `gdd waiver`. If they choose to wait, record their words with `gdd answer`.
 
@@ -96,7 +96,7 @@ When the next item needs this one, propose the extra attempt now. For example, �
 
 Even when they delegate, the person decides whether to take a request in parts. Before briefing, use `gdd-brief/references/proposing-parts.md` when they ask for parts or for several things they could use separately. Ask about parts once. Without a clear yes, even if they say “you decide” or leave the question unanswered, brief the whole request.
 
-The following decisions also stay with the person.
+It doesn't cover what the method keeps for a person, because nobody else can give it:
 
 - approving the blueprint, and what has to pass for a change when its color asks for it;
 - a rule of their product they'd have an answer for: rounding, a limit, sequence, or how to handle a zero or empty value;
@@ -106,3 +106,7 @@ The following decisions also stay with the person.
 Ask an open product question only when you have no grounds to propose a rule. For each of these four decisions, come back once with what you propose and one question a yes answers. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
 Use the product question allowance in `gdd-brief` for open questions you have no grounds to answer. A proposed answer goes in an `@assumed` rule. When the person delegates or no question remains, use the usual rule in their field and state it so they can correct it: "I assumed a day in your calendar starts at local midnight." Where the blueprint asks for approval, one yes covers the rules and all your assumptions.
+
+## When a check or a limit would be loosened
+
+Skipping or lowering a check or a limit, even in an emergency, loosens it: the person approves it and you record it with `gdd waiver <id> --who <person> --check <check or limit> --why "<reason>" --backlog <item>`, and `--limit <cap> --to <n>` for a limit, which also leaves it in the backlog, so the change goes through what it skipped afterwards. Their explicit choice answers a question that names what it loosens, what was spent and what more buys: "go on" or "you decide" isn't one. A reviewer's `stop` is never waived: it gets a fix and a new review. The blueprint says beforehand what an emergency may skip.

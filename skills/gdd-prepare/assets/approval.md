@@ -17,7 +17,7 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
     Do you approve them as they are?
 
-Everything this skill tells you to say to the person before the approval goes under "Before you say yes". Keep it to four lines at most. Use two for the trial of the blueprint. Combine other caveats that belong together, including anything that comes from memory because you couldn't look it up. What they asked for by name gets its answer in the line of the file that holds it. No other headings and no other lists.
+Everything this skill tells you to say to the person before the approval goes under "Before you say yes". Keep it to four lines at most. The first two are the trial of the blueprint, one line each, also when it found nothing: never fold them to make room. Combine other caveats that belong together, including anything that comes from memory because you couldn't look it up. What they asked for by name gets its answer in the line of the file that holds it. No other headings and no other lists.
 
 Filled in for a birdwatching diary:
 
@@ -39,6 +39,11 @@ Filled in for a birdwatching diary:
 
 What stays out, because it is in the files: the full list of zones and their colors, the models, the tools, the limits, what an emergency may skip and how you got here. If they ask about any of it, answer then. That holds when the person left the rest to you.
 
-For a person who isn't technical, say what a file is for and give its name only where they have to open it, and use no word of a tool, a model or git: "the checks every change passes" for a linter or mutation testing, "who has to approve a change" for the file of owners, "ready" for committed.
+For a person who isn't technical, say what a file is for and give its name only where they have to open it, and use no word of a tool, a model, git or the place you run in: "the checks every change passes" for a linter or mutation testing, "the check that no password gets in" for a secret scan, "who has to approve a change" for the file of owners, "ready" for committed, "one past change" for one commit, "from here" for a sandbox. Their four lines, for the same diary:
+
+    - Your diary has one past change, too few to try the plan on. Sharing gets the most care and labels the least.
+    - Nothing in it falls outside the plan.
+    - The privacy rule comes from the guidance you gave me. The other rules are my own proposals.
+    - Nothing stops an assistant from changing the checks yet, and I couldn't try one of them from here. Trying them all is the first job after your yes.
 
 Before you send it, count its words with a command, such as `wc -w` on a here-document that holds it: over 200, cut it and count again, and send it only once it is under. Then reread it as someone who never saw the method.

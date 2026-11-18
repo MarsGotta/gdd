@@ -14,6 +14,7 @@ pub struct GitView {
     /// The tip of the change's branch: the commit its gates judge.
     pub head: Option<String>,
     pub seal_tip: Option<String>,
+    pub merge_changes_product: bool,
     pub main_tip: Option<String>,
     /// Whether the repository has a remote, which says how it likely ships.
     pub has_remote: bool,
@@ -55,6 +56,28 @@ fn bookkeeping_commits(
             Some((b["commit"].as_str()?.to_string(), hashes(&b["files"])))
         })
         .collect()
+}
+
+/// Compare the reviewed tree with the actual head holding the corrected seal.
+pub(crate) fn changed_tests(
+    root: &std::path::Path,
+    id: &str,
+    p: &Progress,
+    head: &str,
+) -> Option<Vec<String>> {
+    let fix = p.checks_fix.as_ref().filter(|f| f.tests_only)?;
+    let seal = p.start.as_deref()?;
+    if p.checked.as_ref()?.0 <= fix.line || !crate::git::is_ancestor(root, seal, head) {
+        return None;
+    }
+    let before = fix.head.as_deref()?;
+    let mut paths = crate::git::diff_names(root, before, head).ok()?;
+    paths.retain(|f| !bookkeeping_known(root, id, head, f));
+    let built = crate::git::diff_names(root, seal, head).ok()?;
+    paths
+        .iter()
+        .all(|p| fix.paths.contains(p) && !built.contains(p))
+        .then_some(paths)
 }
 
 /// Whether a bookkeeping file holds, at `commit`, content the orchestrator's bookkeeping of `id` had:
@@ -126,6 +149,18 @@ impl GitView {
             return gv;
         }
         let p = Progress::of(id, entries);
+        if p.merging_checks_fix()
+            && let Some(before) = p
+                .checks_fix
+                .as_ref()
+                .filter(|f| f.tests_only)
+                .and_then(|f| f.head.as_deref())
+            && let Some(head) = gv.head.as_deref()
+        {
+            gv.merge_changes_product = head != before
+                && !only_bookkeeping(root, id, before, head)
+                && changed_tests(root, id, &p, head).is_none();
+        }
         let g = p.last_gates.as_ref().and_then(|g| g.head.clone());
         let r = p.last_review.as_ref().and_then(|r| r.head.clone());
         let r_start = p.last_review.as_ref().and_then(|r| r.start.clone());
@@ -273,6 +308,7 @@ impl GitView {
             available: true,
             has_remote: crate::git::out(root, &["remote"]).is_ok_and(|r| !r.trim().is_empty()),
             same: vec![],
+            merge_changes_product: false,
             seal_tip: crate::git::commit_of(root, &format!("refs/heads/gdd-seal/{id}")),
             main_tip: crate::git::commit_of(root, &crate::git::branch_ref(&main)),
             branch,

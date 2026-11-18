@@ -77,6 +77,7 @@ pub struct Review {
 /// can bring new files, including product changes from the main branch.
 #[derive(Debug, Clone)]
 pub struct ChecksFix {
+    pub tests_only: bool,
     pub line: usize,
     pub head: Option<String>,
     pub paths: BTreeSet<String>,
@@ -130,7 +131,7 @@ pub struct Progress {
     pub last_gates: Option<GatesRun>,
     pub reviews: i64,
     pub last_review: Option<Review>,
-    /// The review that returned only sealed checks, kept through the merge and its gates.
+    /// The review that returned sealed tests, kept through the merge and its gates.
     pub checks_fix: Option<ChecksFix>,
     pub stop_told: bool,
     pub asks: Vec<Ask>,
@@ -202,18 +203,27 @@ impl Progress {
         p
     }
 
-    pub fn findings_on_checks(&self, findings: &Value) -> bool {
+    pub fn fix_role(&self, findings: &Value) -> &'static str {
         let Some(items) = findings.as_array() else {
-            return false;
+            return "build";
         };
-        !items.is_empty()
-            && items.iter().all(|f| {
+        let named = items
+            .iter()
+            .filter(|f| {
                 let place = str_of(f, "where").trim_start_matches("./");
                 self.checks_sealed.contains_key(place)
                     || place.rsplit_once(':').is_some_and(|(path, line)| {
                         line.parse::<usize>().is_ok() && self.checks_sealed.contains_key(path)
                     })
             })
+            .count();
+        if named == 0 {
+            "build"
+        } else if named == items.len() {
+            "checks"
+        } else {
+            "checks-then-build"
+        }
     }
 
     pub fn needs_checks_fix(&self) -> bool {
@@ -224,8 +234,8 @@ impl Progress {
         self.checks_fix.is_some() && !self.built_since_seal
     }
 
-    pub(crate) fn checks_fix_step(&self, step: &str) -> bool {
-        step == "checks" && self.needs_checks_fix() || step == "build" && self.merging_checks_fix()
+    pub(crate) fn correcting_tests(&self) -> bool {
+        self.needs_checks_fix() && self.checks_fix.as_ref().is_some_and(|f| f.tests_only)
     }
 
     pub fn has_brief(&self) -> bool {
@@ -369,6 +379,7 @@ impl Progress {
                 self.approvals.push((line, of.into(), hashes(&v["files"])));
             }
             "seal" => {
+                self.sealed.extend(hashes(&v["files"]));
                 self.sealed_any = true;
                 self.seal_since_gates = true;
                 if let Some(to) = v["to"].as_str() {
@@ -539,11 +550,15 @@ impl Progress {
             }
             "review" => {
                 self.reviews += 1;
-                self.checks_fix = (v["fix_role"] == "checks").then(|| ChecksFix {
-                    line,
-                    head: self.last_gates.as_ref().and_then(|g| g.head.clone()),
-                    paths: self.checks_sealed.keys().cloned().collect(),
-                });
+                self.checks_fix =
+                    matches!(v["fix_role"].as_str(), Some("checks" | "checks-then-build")).then(
+                        || ChecksFix {
+                            line,
+                            tests_only: v["fix_role"] == "checks",
+                            head: self.last_gates.as_ref().and_then(|g| g.head.clone()),
+                            paths: self.checks_sealed.keys().cloned().collect(),
+                        },
+                    );
                 self.last_review = Some(Review {
                     line,
                     verdict: str_of(v, "verdict").to_string(),
@@ -846,7 +861,14 @@ pub fn derive(id: &str, bp: &Blueprint, entries: &[Entry], git: GitView, now: i6
     } else {
         now
     };
-    let lim = limits::count_entries(bp, id, entries, until);
+    let mut lim = limits::count_entries(bp, id, entries, until);
+    if git.merge_changes_product
+        && lim
+            .line("rounds_per_change", "rounds")
+            .is_some_and(|l| l.full)
+    {
+        lim.stop.push("rounds".into());
+    }
     let passed_on_head = match (&p.last_gates, &git.head) {
         (Some(g), Some(h)) if g.passed && g.head.as_ref().is_none_or(|x| git.stands_for(x, h)) => {
             g.ran.clone()

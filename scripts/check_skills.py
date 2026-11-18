@@ -442,7 +442,7 @@ def main():
         if not path.is_file():
             continue
         parts = path.relative_to(SKILLS).parts
-        agent_text = path.name == "SKILL.md" or (len(parts) > 2 and parts[1] in {"assets", "references"})
+        agent_text = path == SKILLS / "README.md" or path.name == "SKILL.md" or (len(parts) > 2 and parts[1] in {"assets", "references"})
         check_dash = path.suffix in {".md", ".feature", ".yaml", ".jsonl", ".json"}
         if agent_text or check_dash:
             # An asset may be binary. Keep strict decoding for the text formats we validate.

@@ -21,6 +21,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
 - **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
 - **Research** what is usual in the project's sector before you propose, in a new project or when the person leaves it to you: `references/research.md`.
+- **Open each reference by itself:** several in one command come back cut.
 - **Ask which models do the work:** propose one for each level, from what each of the person's environments offers, and try each before it counts, as `references/levels.md` says.
 - **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
 - **Ask what the gates may cost them:** how long they'd wait for a change, and how often they want to be stopped to approve something. The first sets the `limits`, the second which colors carry an approval. If they leave it to you, keep the template's.
@@ -58,7 +59,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 
 | File | From | Notes |
 |---|---|---|
-| `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Then what must never happen in the product, whichever part a change touches, from its data and what you looked up, in the person's words, three to seven, for them to correct: every brief is checked against them, and a rule left in a zone's context is never seen by a change outside it. How one zone's code is written goes to its context. |
+| `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Then what must never happen in the product, whichever part a change touches, from its data, one for each amount, quantity or state its records keep, and what you looked up, in the person's words, three to seven, for them to correct: every brief is checked against them, and a rule left in a zone's context is never seen by a change outside it. How one zone's code is written goes to its context. |
 | `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
 | `.gdd/gdd` | `references/layer.md` | The layer, set up before any step is logged. |
 | `gdd/check.sh`, `gdd/limits.sh` | `assets/check.sh`, `assets/limits.sh` | A runner that times each check, unless the person says no: the constitution's commands go through it, `seal` apart. And the counter of what `limits` caps. |
@@ -67,7 +68,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | `gdd/debt.md` | `assets/debt.md` | Only in an existing project with known debt. |
 | GDD block of `AGENTS.md` | `assets/agents-block.md` | Under 100 words. If there is a `CLAUDE.md`, add `@AGENTS.md` to it. |
 
-For example, for an alarm clock:
+Three rules for the constitution of an alarm clock:
 
 - A disabled alarm never rings.
 - Snoozing one alarm never changes another.

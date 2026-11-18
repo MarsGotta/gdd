@@ -33,7 +33,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 | minutes_parked | minutes | always null: no event says a change was set aside |
 | minutes_to_ship | minutes | the first event to the `ship`, waits included |
 | builds, checks_launches | count | `build` and `checks` steps |
-| rounds_used, rounds_allowed, rounds_raised | count, count, bool | builds after the first, excluding a verified merge of corrected checks (`seal_only: true`), or checks launches after the first in a setup log. A merge that changes the product counts even when launched at the build-round limit. Older builds count as before. The limit is `rounds_per_change` and a waiver can raise it |
+| rounds_used, rounds_allowed, rounds_raised | count, count, bool | builds after the first, excluding a verified merge of corrected checks (`seal_only: true`), or checks launches after the first in a setup log. A merge that changes the product costs a round. At the limit its report is refused until the person grants another attempt. `verify` flags earlier logs that went over. Older builds count as before. The limit is `rounds_per_change` and a waiver can raise it |
 | sent_back_checks_*, sent_back_review_* | count | gates that failed, reviews that said `fix`, against `fix_rounds_per_gate` |
 | minutes_used, minutes_allowed, minutes_raised | minutes | against `minutes_per_change` |
 | runs_before_review_* | count | gates runs that ran a check whose `runs` is `before review` |
@@ -78,7 +78,7 @@ change, line, ts; kind (its `of`); what; answered (an event followed it); answer
 
 ## findings: one row per finding of a review or a reading, and per item left for later
 
-change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; the reviewer supplies `closed` in its report block or the orchestrator supplies the list with `--closed`. For a reading’s numbered addition, the destination from `--went` (`brief`, `person`, `log`, `dropped`, default `log`); for `LATER:`, `log` in a brief reading and `backlog` in a review.
+change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; the id must exist in the previous review and can be closed only once in that report. The reviewer supplies `closed` in its report block or the orchestrator supplies the list with `--closed`. For a reading’s numbered addition, the destination from `--went` (`brief`, `person`, `log`, `dropped`, default `log`); for `LATER:`, `log` in a brief reading and `backlog` in a review.
 
 The reading step keeps unnumbered clarifications under `missing`. Only numbered additions and `LATER:` observations get finding rows.
 

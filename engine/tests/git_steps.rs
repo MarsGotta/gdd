@@ -176,6 +176,77 @@ fn blueprint_preview_finds_a_server_zone_its_checks_never_reach() {
     assert_eq!(excluded.facts["checks"], serde_json::json!(["seal"]));
 }
 
+#[cfg(unix)]
+#[test]
+fn a_local_gate_clone_shares_unchanged_git_objects() {
+    use std::os::unix::fs::MetadataExt;
+    let r = Repo::new();
+    let head = r.git(&["rev-parse", "HEAD"]);
+    let clone = r.dir.path().join("gate-clone");
+    gdd::git::clone_at(&r.root, &clone, &head).unwrap();
+    let object = format!(".git/objects/{}/{}", &head[..2], &head[2..]);
+    assert_eq!(
+        r.path(&object).metadata().unwrap().ino(),
+        clone.join(object).metadata().unwrap().ino()
+    );
+}
+
+#[test]
+fn printed_brief_commands_put_the_files_before_paths() {
+    let r = Repo::new();
+    let path = "features/two words.feature";
+    r.write(path, "Feature: Captions\n");
+    assert!(
+        r.gdd(&["next", "order"])
+            .has("[<brief and scenario files>] --paths")
+    );
+    let first = r.gdd(&["seal", "order", path]);
+    assert!(
+        first.has("gdd brief order 'features/two words.feature' --paths"),
+        "{}",
+        first.out
+    );
+    let again = r.gdd(&["seal", "order", path]);
+    assert!(
+        again.has("gdd brief order 'features/two words.feature' --paths"),
+        "{}",
+        again.out
+    );
+    let early = r.gdd(&["ask", "order", "--of", "brief", "Approve?"]);
+    assert!(
+        early.has("[<brief and scenario files>] --paths"),
+        "{}",
+        early.out
+    );
+}
+
+#[test]
+fn a_sealed_file_cannot_be_a_change_path() {
+    let r = Repo::new();
+    let file = "features/title.feature";
+    r.write(file, "Feature: Titles\n");
+    assert_eq!(r.gdd(&["seal", "title", file]).code, 0);
+    let wrong = r.gdd(&[
+        "brief",
+        "title",
+        "--paths",
+        "src/core/app.txt",
+        file,
+        "--color",
+        "red",
+        "--why",
+        "shared titles",
+    ]);
+    assert_eq!(wrong.facts["refused"], "sealed-path", "{}", wrong.out);
+    assert!(wrong.has("gdd brief title features/title.feature --paths src/core/app.txt --color red --why 'shared titles'"));
+    assert_eq!(r.log_lines("title").len(), 1);
+    assert_eq!(
+        r.gdd(&["brief", "title", file, "--paths", "src/core/app.txt"])
+            .code,
+        0
+    );
+}
+
 #[test]
 fn the_seal_leaves_the_checkout_and_its_index_untouched() {
     let r = Repo::new();

@@ -1,6 +1,6 @@
 # Proposing parts before the brief
 
-When the person asks for parts or you see several things they could use separately, propose the parts before you brief any. Give each part one line with what they get and roughly how long it takes. Use earlier logs for the estimates or say you're guessing. The first part must give them something they can see or try. Ask one question they can answer with a yes (`--of decision`). Wait for that yes before briefing any part.
+Unless they asked for parts, one outcome with several details is one thing: propose nothing. When the person asks for parts or you see several things they could use separately, propose the parts before you brief any. Give each part one line with what they get and roughly how long it takes. Use earlier logs for the estimates or say you're guessing. The first part must give them something they can see or try. Ask one question they can answer with a yes (`--of decision`). Wait for that yes before briefing any part.
 
     <What they can see or try first> (<rough time>)
     <What they get next> (<rough time>, one line per remaining part)

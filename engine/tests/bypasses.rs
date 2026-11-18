@@ -335,7 +335,7 @@ fn gates_use_a_fresh_clone_when_git_cannot_add_a_worktree() {
         )
         .replace(
             "sh tests/run.sh",
-            "test -f ready && git diff --quiet <base> <start> -- src && sh tests/c1.sh",
+            "test -f ready && git diff --quiet <base> <start> -- src && git diff main...HEAD --stat && test \"$(git rev-parse gdd-seal/c1)\" = <start> && test \"$(git rev-parse origin/main)\" = <start> && sh tests/c1.sh",
         );
     let r = Repo::with(&bp);
     let seal = yellow_sealed(&r, "c1");
@@ -345,6 +345,8 @@ fn gates_use_a_fresh_clone_when_git_cannot_add_a_worktree() {
         &[("src/core/app.txt", "ok, built\n")],
         "Build",
     );
+    r.git(&["update-ref", "refs/remotes/origin/main", &seal]);
+    r.git(&["checkout", "-qb", "elsewhere"]);
     r.write(".git/worktrees", "git cannot add a worktree here\n");
     let built = r.report("c1", "build", &report_block("gdd-build", "done"), &[]);
     assert_eq!(built.code, 0, "{}", built.out);

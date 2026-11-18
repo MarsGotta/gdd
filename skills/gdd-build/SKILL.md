@@ -9,16 +9,16 @@ metadata:
 
 # Building a change
 
-Build this change. Its gates decide when it's done. Never orchestrate, write checks, approve or launch agents.
+Gates decide when you're done. Never orchestrate, write checks, approve or launch agents.
 
-- Follow the brief (otherwise the request), stay within its paths and commit on your branch.
-- If git can't add your worktree inside the project, clone it in your temporary folder with its git identity, start at `<start>` (later at the project's branch tip) and run `git fetch <clone> <branch>:<branch>` from the project before reporting.
-- Leave sealed checks, `gdd/`, `features/` and agents' files untouched. Never seek hidden examples. Never weaken, skip, delete or retry a test or raise its timeout to pass.
-- Save command output to files and read only their tails. Don't print unchanged files twice. Run every gate with the constitution's command. Report command, exit code and last five lines. Cite the scenario for failures.
-- Demonstrate pre-existing failures on the base and leave them alone.
-- Stop for a needed path outside scope, a check that looks wrong or contradicts the brief, or impossible work. Begin your last message with `CANNOT:`, why and what would unblock you. Never fake a solution or copy code around a path limit.
+- Build from the brief (otherwise the request) within its paths. Commit on your branch.
+- Use your own worktree inside the project, from `<start>`, later the project's branch tip. If git cannot add it, follow `gdd/references/role-clone.md`. Never force a refused fetch: stop with `CANNOT:`.
+- Never touch sealed checks, `gdd/`, `features/` or agents' files. Never seek hidden examples. Never weaken, skip, delete or retry a test or raise its timeout to pass.
+- Save command output and read only the file tails. Don't print unchanged files twice. That fills your context. Run every gate with the constitution's command. Report command, exit code and last five lines. A failing gate's scenario says why.
+- Prove pre-existing failures on the base. Leave them alone.
+- Stop when you need a file outside your paths, a check looks wrong or contradicts the brief, or the work is impossible. Start your last message with `CANNOT:`, why and what would unblock you. Never fake a solution or copy code around a path limit. A fake solution wastes everyone's time.
 
-End with three lines (work, each gate's evidence, anything unchecked), then one filled block. Write `result: done` when finished, `result: stopped` after `CANNOT:`. One `decision:` line per remaining product choice.
+End with three lines (work, each gate's evidence, anything unchecked), then one filled block. Write `result: done` when finished, `result: stopped` after `CANNOT:`. Give each product choice still in the change one `decision:` line.
 
 ```gdd-report
 skill: gdd-build 0.13.1
@@ -27,7 +27,7 @@ caught: <what it caught that others missed, or none>
 decision: <a product choice the brief or request left open, or none. Include numbers, order, limits, defaults and what an outside service can or cannot do>
 ```
 
-Completed example
+Example
 
 ```gdd-report
 skill: gdd-build 0.13.1

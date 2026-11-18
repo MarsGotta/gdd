@@ -51,7 +51,7 @@ An example to adapt, for gitleaks 8, a scanner in wide use and not the method's 
 git rev-parse --verify --quiet "<start>^{commit}" > /dev/null && gitleaks git --log-opts="<start>..HEAD" --config gdd/gitleaks.toml --gitleaks-ignore-path gdd --ignore-gitleaks-allow --redact --no-banner --no-color --verbose .
 ```
 
-Check every flag in the scanner's own help before you write it. Then try the command once, before it goes in the constitution: in a throwaway clone in your temporary folder, commit a fake key on a line with the exemption mark and watch it fail and name the file, the line and the kind, without the value; run it again from a commit that doesn't exist and watch it fail too. So the person approves it once. The trial never touches the project: stop it when the copy can't be made or entered (`git clone -q . "$copy" || exit 1; cd "$copy" || exit 1`), and never hide what those two say.
+Check every flag in the scanner's own help before you write it. Then try the command once, before it goes in the constitution: in a throwaway clone in your temporary folder, commit a fake key on a line with the exemption mark and watch it fail and name the file, the line and the kind, without the value; run it again from a commit that doesn't exist and watch it fail too. So the person approves it once. The trial never touches the project: stop it when the copy can't be made or entered (`git clone -q . "$copy" || exit 1; cd "$copy" || exit 1`), and never hide what those two say. If the trial can't run where you are, leave the command as it is, write no script around it and tell the person it is untried: `standing-checks` tries it first.
 
 ## What isn't in the minimum, and why
 

@@ -11,7 +11,7 @@ metadata:
 
 Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level, as `gdd` says.
 
-**One request, one change.** Propose parts once before briefing if the person asks for them or for several things they could use separately (`references/proposing-parts.md`). Without a clear yes to parts, brief the whole request, however large, and never ask about parts again. Never count lines, zones or scenarios to decide.
+**One request, one change.** Propose parts once before briefing if the person asks for them or for several things they could use separately (`references/proposing-parts.md`). Without a clear yes to parts, brief the whole request, however large, and never ask about parts again. Unless they asked for parts, one outcome with several details is one thing: propose nothing. Never count lines, zones or scenarios to decide.
 
 ## Write the rules first
 
@@ -26,7 +26,7 @@ Write one behavior per `Rule:` line. Say who acts, under what condition and what
         When you set it to 30 seconds
         Then you see "Choose a shorter time"
 
-After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios. The builder decides how to produce the outcome.
+After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios: an implementation detail ties the builder's hands and proves little. The builder decides how to produce the outcome.
 
 ## The color: git sets the floor, and judgment can only raise it
 
@@ -43,11 +43,11 @@ On green there's no brief file, unless the blueprint's green asks for `brief-app
 On yellow and red, answer these seven questions before you write the change's use cases as scenarios, from the request, the constitution, the blueprint, the backlog and the code. The paths say where a change lands, not what it does to the rest of the product.
 
 1. **The product's rules.** Go through each rule of the constitution, and what the blueprint says can go wrong in every zone whose data this change changes, not only in the zones its paths fall in. Say whether this change can break each one. Every one it can gets a scenario with its bad case, whatever paths the change touches.
-2. **What it leaves behind.** For each thing it creates, uses up or ends, and each value it changes that another zone owns, name in the scenario what someone sees afterwards and from where else in the product. Propose the timing under question 5.
+2. **What it leaves behind.** For each thing it creates, uses up or ends, and each value it changes that another zone owns, name in the scenario what someone sees afterwards and from where else in the product. "After a car leaves, the sign at the gate shows 12 free spaces." Propose the timing under question 5.
 3. **What came before.** Which features already built it reads or changes. Open their briefs and what they left for later, and say which of that this change is: a brief that said another item would complete it may mean this one.
 4. **Twice, or from two places.** What happens if it happens twice in a row, or from two places at once: two tabs, two people, a retry after a timeout.
 5. **What the person would answer.** Even when they delegate the build, rounding, limits and timing belong to them. Which value did you choose? State it, including any limit you ruled out, as an `@assumed` rule. When they leave it to you or no question remains, use the usual rule in their field and show your assumption so they can correct it.
-6. **What waits for later.** If a part waits for another backlog item, does the product still tell the truth about what happened and what is available? If it doesn't, that part goes in this change.
+6. **What waits for later.** If a part waits for another backlog item, does the product still tell the truth about what happened and what is available? If it doesn't, that part goes in this change with its scenario. A line under question 7 isn't enough.
 7. **What it won't do.** Tell the person under "What it won't do yet", three at most, each as a consequence they can weigh. "Until you can save a draft, closing it means starting again." Never as what stays as it was.
 
 Each answer ends up in a rule, a scenario, a technical decision, a path or a line of the brief, never as a paragraph of its own.
@@ -56,7 +56,7 @@ Each answer ends up in a rule, a scenario, a technical decision, a path or a lin
 
 Use `assets/scenarios.feature`. Tag each scenario with `@brief:<id> @id:<capability>-<n>`. Both tags belong to the scenario alone. These Gherkin use cases come before the build: `gdd-checks` writes a test from each, sees it fail and seals it.
 
-Use `assets/brief.md`. On yellow, five sections suffice: Request, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
+Use `assets/brief.md`, in this skill's folder, never an older brief as the model. On yellow, five sections suffice: Request, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
 
 - **What it touches.** Include:
   - the twins: a document and its translation, a feature and its reference page;
@@ -110,11 +110,4 @@ Example for a photo gallery:
 
 Count the words. Check each added or changed rule appears once, including each assumption, and each scenario without a rule has its own line. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
 
-To revise a logged brief or ship its change, open `references/brief-versions.md`.
-
-## When a change comes back
-
-- **An agent stopped.** Check its reason against the repository, then write a new version: add the missing path, change the scenario it contradicts (with the person's approval, when the color asks for it), or drop the change. Never loosen a check so that it fits.
-- **Its color rose.** Keep its id. Write the brief of the new color, or raise the one it had, from the request and the blueprint, as if nothing had been built: don't read what the builder did. With its code in sight you'd write what it did, not what was needed.
-
-A change you drop ends in a `brief` step whose `result` is `stopped`: `gdd brief <id> --stop "<why>"`.
+If the person edits their copy, you revise a logged brief, or a change comes back (an agent stopped or its color rose), open `references/brief-versions.md`.

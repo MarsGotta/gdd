@@ -383,7 +383,7 @@ impl Aside {
                     "something else is pending in the checkout: {}",
                     pending.join(", ")
                 ),
-                "commit or set it aside yourself; a correction of the brief is a new version",
+                "set pending work aside. Never commit brief files on main yourself: compare your copy with the seal and seal any correction as a new version. Then git restore a file main has (including its index if staged), or remove a new one",
             ));
         }
         let keep = runs_dir(&ctx.root, id, "merge", out)?.join("aside");
