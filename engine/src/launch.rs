@@ -203,6 +203,8 @@ pub struct Said {
     pub text: String,
     /// Tokens by model; empty when the environment reported none.
     pub usage: BTreeMap<String, Usage>,
+    /// All measured input, including cached input. A missing count is distinct from zero.
+    pub tokens_read: Option<u64>,
     pub error: Option<String>,
     /// The session named by the environment, for returning work to this role.
     pub session_id: Option<String>,
@@ -230,6 +232,37 @@ impl Said {
 
 fn int(v: &Value, k: &str) -> i64 {
     v.get(k).and_then(Value::as_i64).unwrap_or(0)
+}
+
+/// Claude gives disjoint input counts. Use the per-model breakdown when it is complete.
+fn claude_tokens_read(result: &Value) -> Option<u64> {
+    let input = |usage: &Value, fresh: &str, read: &str, written: &str| {
+        usage[fresh]
+            .as_u64()?
+            .checked_add(usage[read].as_u64().unwrap_or(0))?
+            .checked_add(usage[written].as_u64().unwrap_or(0))
+    };
+    let by_model = result["modelUsage"]
+        .as_object()
+        .filter(|m| !m.is_empty())
+        .and_then(|models| {
+            models.values().try_fold(0u64, |total, u| {
+                total.checked_add(input(
+                    u,
+                    "inputTokens",
+                    "cacheReadInputTokens",
+                    "cacheCreationInputTokens",
+                )?)
+            })
+        });
+    by_model.or_else(|| {
+        input(
+            &result["usage"],
+            "input_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
+    })
 }
 
 /// Only an identifier can be copied into an explicit resume command.
@@ -274,6 +307,7 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
                     Some("result") => {
                         said.session_id = session_id(&ev["session_id"]);
                         text = ev.get("result").and_then(Value::as_str).map(str::to_string);
+                        said.tokens_read = claude_tokens_read(ev);
                         if let Some(Value::Object(mu)) = ev.get("modelUsage") {
                             said.usage.clear();
                             for (m, u) in mu {
@@ -304,6 +338,7 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
                     Some("thread.started") => said.session_id = session_id(&ev["thread_id"]),
                     Some("turn.completed") => {
                         let u = ev.get("usage").cloned().unwrap_or(Value::Null);
+                        said.tokens_read = u["input_tokens"].as_u64();
                         let cached = int(&u, "cached_input_tokens");
                         // Each turn.completed carries the thread's total so far: the last one counts.
                         said.usage.insert(

@@ -950,7 +950,15 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         &[("src/core/app.txt", "it says ok\n")],
         "Round 1",
     );
-    r.report("y7", "build", &report_block("gdd-build", "done"), &[]);
+    let claim = serde_json::json!([{
+        "check": "tests", "command": "sh check-test", "exit": 1,
+        "tail": format!("start {} end", "á".repeat(5000))
+    }]);
+    let message = format!(
+        "```json\n{claim}\n```\n{}",
+        report_block("gdd-build", "done")
+    );
+    assert_eq!(r.report("y7", "build", &message, &[]).code, 0);
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
     let found = "f1 tests/y7.sh:1 the test passes whatever the app says | @id:y7-1\n";
     let rv = r.report("y7", "review", &review_text("fix", "yellow", found), &[]);
@@ -959,7 +967,16 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let c = r.gdd(&["launch", "y7", "checks"]);
     let prompt = c.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("The reviewer said fix"), "{prompt}");
-    assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
+    assert!(
+        prompt.contains("f1 tests/y7.sh:1: the test passes whatever the app says | @id:y7-1"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!("Current seal tip: {start}")),
+        "{prompt}"
+    );
+    assert!(prompt.contains("`sh check-test` exit 1"), "{prompt}");
+    assert!(!prompt.contains(&"á".repeat(100)), "{prompt}");
     assert!(prompt.contains("yours to answer"), "{prompt}");
     r.commit_on(
         "gdd-seal/y7",
@@ -973,12 +990,66 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let b = r.gdd(&["launch", "y7", "build"]);
     let prompt = b.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("f1 tests/y7.sh:1"), "{prompt}");
+    assert!(prompt.contains(&format!(
+        "Current seal tip: {}",
+        r.git(&["rev-parse", "gdd-seal/y7"])
+    )));
+    assert!(prompt.contains("`sh check-test` exit 1"), "{prompt}");
+    assert!(
+        prompt.contains("Don't repeat an unchanged attempt"),
+        "{prompt}"
+    );
     assert!(
         prompt.contains("sealed again after that review"),
         "{prompt}"
     );
     assert!(prompt.contains("merge <start> into it"), "{prompt}");
     assert!(!prompt.contains("which starts at <start>"), "{prompt}");
+}
+
+#[test]
+fn a_fix_lists_the_still_open_findings_once_with_their_citations() {
+    let r = Repo::with(&BLUEPRINT.replace("fix_rounds_per_gate: 2", "fix_rounds_per_gate: 3"));
+    checked(&r, "open");
+    let start = r.git(&["rev-parse", "gdd-seal/open"]);
+    for (from, text) in [(Some(start.as_str()), "ok 1"), (None, "ok 2")] {
+        r.commit_on("work/open", from, &[("src/core/app.txt", text)], text);
+        assert_eq!(
+            r.report("open", "build", &report_block("gdd-build", "done"), &[])
+                .code,
+            0
+        );
+        assert_eq!(r.gdd(&["gates", "open"]).code, 0);
+        let (findings, closed): (&str, &[&str]) = if from.is_some() {
+            (
+                "f1 old label | request: show the total\nf2 wrong amount | @id:open-1",
+                &[],
+            )
+        } else {
+            (
+                "f3 duplicate charge | zone pay: charge once",
+                &["--closed", "f1=fixed"],
+            )
+        };
+        let review = r.report(
+            "open",
+            "review",
+            &review_text("fix", "yellow", findings),
+            closed,
+        );
+        assert_eq!(review.code, 0, "{}", review.out);
+    }
+    let fix = r.gdd(&["launch", "open", "build"]);
+    assert_eq!(fix.code, 0, "{}", fix.out);
+    let prompt = fix.facts["prompt"].as_str().unwrap();
+    assert!(!prompt.contains("old label"));
+    assert_eq!(prompt.matches("wrong amount | @id:open-1").count(), 1);
+    assert_eq!(
+        prompt
+            .matches("duplicate charge | zone pay: charge once")
+            .count(),
+        1
+    );
 }
 
 /// A build that stops on a branch without <start> judged checks that are no longer the change's:

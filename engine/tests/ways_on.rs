@@ -125,10 +125,15 @@ fn a_setup_log_gets_a_fix_round_after_its_trials_stop() {
     let l = r.gdd(&["launch", id, "checks"]);
     assert_eq!(l.code, 0, "{}", l.out);
     let prompt = l.facts["prompt"].as_str().unwrap();
-    assert!(
-        prompt.contains("it passes whatever the code does"),
+    assert_eq!(
+        prompt.matches("it passes whatever the code does").count(),
+        1,
         "{prompt}"
     );
+    assert!(prompt.contains(&format!(
+        "Current seal tip: {}",
+        r.git(&["rev-parse", "gdd-seal/standing-checks"])
+    )));
     assert!(prompt.contains("yes, fix it"), "{prompt}");
     assert!(prompt.contains("on top of its tip"), "{prompt}");
     // Until a new trial passes, it doesn't ship.

@@ -60,6 +60,9 @@ graders:
   - name: gives-its-evidence
     type: regex
     pattern: 'python3 -m unittest'
+  - name: reads-the-end-of-saved-output
+    type: llm
+    criteria: Inspect the tool calls. The role saves test output to a file and reads its last lines. It keeps the exit status of the test and avoids printing entire unchanged files again.
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-build[^\n]*\nresult: done'

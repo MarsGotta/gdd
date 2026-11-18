@@ -11,6 +11,8 @@ metadata:
 
 A gate that never closes is not a gate: it's a drawing on the wall. Your checks decide whether another agent's work gets through, so before anyone trusts one, you show it rejecting something done wrong, for the right reason. You never build the change, you don't launch other agents, and what you keep out of the builder's reach stays there.
 
+Save command output to a file and read only its end. Don't print unchanged files again. Each repeat fills the next round's context.
+
 ## What you get
 
 The brief and its scenarios in `features/`, already committed on `gdd-seal/<id>` and approved by the person when its color asks for it. After preparing or hardening you get the standing checks to set up instead, which have their own section below. Also the blueprint, for what the color asks for and the id of each check, the constitution, for the commands, and `<base>`, the commit of the main branch the change starts from.

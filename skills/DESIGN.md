@@ -421,6 +421,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     The layer warns when a check the zone's color asks for matches none of its tracked or sampled files. It judges each zone on its own files even if another zone triggers the same check in a mixed change. At execution, each check excluded by its path condition gets a line saying why, even when an earlier tier fails.
 
+81. **Resume the same role with a compact account of the fix.** Two runs of benchmark 0.29 resumed roles 46 and 32 times. Roles read 58 and 40 million tokens, up from about 20 million, and context reached 106,000 tokens, up from about 70,000. Decision 71 keeps the fix with its author. The prompt gives the current seal tip, the open findings with their citations, failed gates and the last builder's reported attempts. Reuse that evidence for diagnosis and run the required checks on the fix. Builders and checks agents save command output and read its end. They reuse unchanged files they already read.
+
+    The role step records measured input for the round, including cached input, apart from the tokens counted against the cap. The estimated reduction of 10 to 25 percent in resumed roles' reading has yet to be tested.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

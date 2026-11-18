@@ -54,7 +54,7 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 
 ## steps: one row per step event
 
-change, line, ts; step; role (the report's skill) and skill_version; level; model; round; result (the report's result, the verdict of a review, pass or fail for gates); caught; seconds and tokens, as the report gives them; seconds_since_previous, from the event before with a time, which is how long that step took if it was written when it closed; suspect_time, true when a step that takes time (checks, build, gates, review, reading) has the same second as the step before it, the sign of a log written afterwards, unless the journal shows that each of the two was written by its own call of the layer; by_layer, true when the journal shows a call of the layer wrote that line.
+change, line, ts; step; role (the report's skill) and skill_version; level; model; round; result (the report's result, the verdict of a review, pass or fail for gates); caught; seconds, tokens and tokens_read, as the report gives them; seconds_since_previous, from the event before with a time, which is how long that step took if it was written when it closed; suspect_time, true when a step that takes time (checks, build, gates, review, reading) has the same second as the step before it, the sign of a log written afterwards, unless the journal shows that each of the two was written by its own call of the layer; by_layer, true when the journal shows a call of the layer wrote that line.
 
 ## checks: one row per check of each gates run
 
@@ -72,7 +72,7 @@ change, line; source (`review` or `reading`); round; finding (its id); kind (`fi
 
 change; ts; command; args (as journaled, free text as `<text>`); exit; ms; wrote_line (the log line the call wrote, if any); refused (a short code: `needs-approval`, `cap-spent`, `not-merged`, `out-of-order`, `no-report`, `no-verdict`, `not-started`, `timeout`, `hash-mismatch`, `seal-mismatch`, `wrong-commit`...); and for `launch --run`: role, model, adapter, started, seconds_to_first_output, seconds, timed_out, tokens, and input_tokens, output_tokens, cache_read_tokens, cache_write_tokens as the environment reported them.
 
-A launch records tokens only when its environment reports them, read by an adapter chosen by the launched program (`--adapter` overrides it). A step's `tokens` is fresh input plus cache writes plus output; cache reads are kept apart in the journal, because a long session repeats them on every turn. Nothing is recorded when the environment reports nothing.
+A launch records tokens only when its environment reports them, read by an adapter chosen by the launched program (`--adapter` overrides it). A step's `tokens` is fresh input plus cache writes plus output; cache reads are kept apart in the journal, because a long session repeats them on every turn. The steps table also gives `tokens_read`, the round’s input including cache reads and writes. Codex already includes cached input in its input total. Claude reports fresh input, cache reads and cache writes separately. Output is excluded. An unavailable count or an older step gives null.
 
 ## The summary
 

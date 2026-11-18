@@ -9,6 +9,7 @@ pub struct ReportArgs {
     pub level: Option<String>,
     pub seconds: Option<f64>,
     pub tokens: Option<i64>,
+    pub tokens_read: Option<u64>,
     pub proofs: Option<String>,
     pub claims: Option<String>,
     pub closed: Vec<(String, String)>,
@@ -178,6 +179,7 @@ pub(super) fn write_report(
             ),
         ),
     ]);
+    m["report"]["tokens_read"] = json!(a.tokens_read);
     if let Some((reason, needs)) = &r.cannot {
         m.insert("stop".into(), json!({"reason": reason, "needs": needs}));
     }

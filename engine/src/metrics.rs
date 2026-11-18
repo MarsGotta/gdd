@@ -205,6 +205,7 @@ fn step_rows(
                 ("caught", r["caught"].clone()),
                 ("seconds", r["seconds"].clone()),
                 ("tokens", r["tokens"].clone()),
+                ("tokens_read", r["tokens_read"].clone()),
                 ("seconds_since_previous", since),
                 ("suspect_time", json!(sus)),
                 ("by_layer", json!(by_layer)),

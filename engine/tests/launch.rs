@@ -75,6 +75,7 @@ fn a_fake_role_that_starts_and_reports() {
     assert_eq!(review["report"]["model"], "model-a");
     assert_eq!(review["report"]["level"], "light");
     assert!(review["report"]["seconds"].is_number());
+    assert!(review["report"]["tokens_read"].is_null());
     assert!(
         review["report"]["tokens"].is_null(),
         "a plain command reports no tokens"
@@ -172,7 +173,10 @@ fn tokens_are_read_from_the_stream_of_its_environment() {
         "type": "result",
         "result": "pass\nCOLOR: green\n```gdd-report\nskill: gdd-review 0.10.1\nresult: pass\ncaught: none\n```",
         "session_id": "s1",
-        "modelUsage": {"model-a": {"inputTokens": 100, "outputTokens": 40, "cacheReadInputTokens": 5000, "cacheCreationInputTokens": 60}}
+        "modelUsage": {
+            "model-a": {"inputTokens": 100, "outputTokens": 40, "cacheReadInputTokens": 5000, "cacheCreationInputTokens": 60},
+            "model-b": {"inputTokens": 0, "outputTokens": 0, "cacheReadInputTokens": 200}
+        }
     });
     let stream = r.dir.path().join("stream.jsonl");
     std::fs::write(
@@ -207,6 +211,7 @@ fn tokens_are_read_from_the_stream_of_its_environment() {
         review["report"]["tokens"], 200,
         "fresh input, cache writes and output"
     );
+    assert_eq!(review["report"]["tokens_read"], 5360);
     let j = journal(&r);
     assert_eq!(
         j.last().unwrap()["launch"]["usage"]["model-a"]["cache_read"],
@@ -223,9 +228,93 @@ fn tokens_are_read_from_the_stream_of_its_environment() {
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .find(|v| v["table"] == "engine" && v["command"] == "launch")
         .unwrap();
-    assert_eq!(launch["cache_read_tokens"], 5000);
+    assert_eq!(launch["cache_read_tokens"], 5200);
     assert_eq!(launch["input_tokens"], 100);
     assert_eq!(launch["started"], true);
+    let review_step = m
+        .out
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find(|v| v["table"] == "steps" && v["step"] == "review")
+        .unwrap();
+    assert_eq!(review_step["tokens_read"], 5360);
+}
+
+#[test]
+fn a_manual_role_reports_only_the_input_measured_for_its_round() {
+    let r = Repo::new();
+    r.write("tests/run.sh", "grep -q page src/ui/page.txt\n");
+    r.commit("Check the page");
+    r.gdd(&["brief", "l1", "--paths", "src/ui/page.txt"]);
+    r.commit_on(
+        "work/l1",
+        Some("main"),
+        &[("src/ui/page.txt", "broken")],
+        "First build",
+    );
+    assert_eq!(
+        r.report("l1", "build", &report_block("gdd-build", "done"), &[])
+            .code,
+        0
+    );
+    let gates = r.gdd(&["gates", "l1"]);
+    assert_eq!(gates.facts["next"], "build", "{}", gates.out);
+    r.commit_on(
+        "work/l1",
+        None,
+        &[("src/ui/page.txt", "fixed page")],
+        "Fix the page",
+    );
+    let build = r.report(
+        "l1",
+        "build",
+        &report_block("gdd-build", "done"),
+        &["--tokens-read", "900"],
+    );
+    assert_eq!(build.code, 0, "{}", build.out);
+    let events = r.log_lines("l1");
+    let report = &events.last().unwrap()["report"];
+    assert_eq!(report["round"], 2);
+    assert_eq!(report["tokens_read"], 900);
+    assert!(report["tokens"].is_null());
+}
+
+#[test]
+fn a_missing_input_measurement_is_distinct_from_a_measured_zero() {
+    use gdd::launch::{Adapter, read_output};
+    let read = |adapter, event: serde_json::Value| {
+        read_output(adapter, &event.to_string(), "model-a").tokens_read
+    };
+    for (adapter, event) in [
+        (
+            Adapter::Codex,
+            serde_json::json!({"type":"turn.completed","usage":{"output_tokens":7}}),
+        ),
+        (
+            Adapter::Claude,
+            serde_json::json!({"type":"result","modelUsage":{"model-a":{"outputTokens":7}}}),
+        ),
+    ] {
+        assert_eq!(read(adapter, event), None);
+    }
+    assert_eq!(
+        read(
+            Adapter::Codex,
+            serde_json::json!({
+                "type":"turn.completed","usage":{"input_tokens":0,"output_tokens":7}
+            })
+        ),
+        Some(0)
+    );
+    assert_eq!(
+        read(
+            Adapter::Claude,
+            serde_json::json!({
+                "type":"result","usage":{"input_tokens":8,"cache_read_input_tokens":40,"cache_creation_input_tokens":12}
+            })
+        ),
+        Some(60)
+    );
 }
 
 #[test]
@@ -450,6 +539,11 @@ fn two_refusals_need_the_same_reason_seal_and_head() {
 
 #[test]
 fn a_fix_can_run_on_the_session_that_reported_the_first_build() {
+    check_resumed_build(true);
+    check_resumed_build(false);
+}
+
+fn check_resumed_build(with_starting_count: bool) {
     let r = Repo::with(
         &BLUEPRINT.replace("the Agent tool, with its model field", "sh role.sh <model>"),
     );
@@ -463,15 +557,17 @@ fn a_fix_can_run_on_the_session_that_reported_the_first_build() {
         &format!(
             r#"set -eu
 test "$1" = model-a
+input=24
 if test "$#" = 3; then
+    input=61
     test "$2" = {session}
     case "$3" in *"A fix round"*) ;; *) exit 1 ;; esac
 fi
 cat <<'END'
 {{"type":"thread.started","thread_id":"{session}"}}
 {reply}
-{{"type":"turn.completed","usage":{{"input_tokens":4,"output_tokens":2}}}}
 END
+printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_tokens":20,"output_tokens":2}}}}\n' "$input"
 "#
         ),
     );
@@ -490,18 +586,35 @@ END
     let session_id = first.facts["session_id"].as_str().unwrap();
     assert_eq!(session_id, session);
     assert_eq!(first.facts["tokens"], 6);
+    assert_eq!(
+        r.log_lines("l1").last().unwrap()["report"]["tokens_read"],
+        24
+    );
     assert!(first.facts["seconds"].is_number());
     let failed = r.named(first.facts["next_command"].as_str().unwrap());
     assert_eq!(failed.code, 1, "{}", failed.out);
     assert_eq!(failed.facts["next_command"], "gdd launch l1 build");
-    let resume = format!("sh role.sh <model> {session_id} <prompt>");
+    let codex = script(
+        &r,
+        "codex",
+        "test \"$1 $2\" = 'exec resume' || exit 1\nshift 2\nexec sh role.sh \"$@\"",
+    );
+    assert!(
+        std::process::Command::new("chmod")
+            .args(["+x", &codex])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let resume = format!("'{codex}' exec resume <model> {session_id} <prompt>");
     r.commit_on(
         "work/l1",
         None,
         &[("src/ui/page.txt", "fixed page\n")],
         "Fix the page",
     );
-    let fixed = r.gdd(&[
+    let before = first.facts["reported_input"].as_u64().unwrap().to_string();
+    let mut args = vec![
         "launch",
         "l1",
         "build",
@@ -510,9 +623,19 @@ END
         &resume,
         "--adapter",
         "codex",
-    ]);
+    ];
+    if with_starting_count {
+        args.extend(["--tokens-read-before", before.as_str()]);
+    }
+    let fixed = r.gdd(&args);
     assert_eq!(fixed.code, 0, "{}", fixed.out);
     assert_eq!(fixed.facts["round"], 2);
+    assert_eq!(fixed.facts["reported_input"], 61);
+    assert_eq!(
+        r.log_lines("l1").last().unwrap()["report"]["tokens_read"].as_u64(),
+        with_starting_count.then_some(37),
+        "the input for this fix excludes the first build"
+    );
     let gates = r.named(fixed.facts["next_command"].as_str().unwrap());
     assert_eq!(
         gates.facts["next_command"], "gdd launch l1 review --run",

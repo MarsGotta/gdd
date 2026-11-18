@@ -255,7 +255,7 @@ pub const ASK_OF: [&str; 9] = [
     "stop",
 ];
 
-const REPORT: [Field; 9] = [
+const REPORT: [Field; 10] = [
     ("skill", T::Str, Need::Must),
     ("result", T::Str, Need::Must),
     ("version", T::StrOrNull, Need::Writes),
@@ -265,6 +265,7 @@ const REPORT: [Field; 9] = [
     ("caught", T::Str, Need::Writes),
     ("seconds", T::NumOrNull, Need::Writes),
     ("tokens", T::NumOrNull, Need::Writes),
+    ("tokens_read", T::IntOrNull, Need::May),
 ];
 
 fn fields_of(event: &str, step: &str) -> Vec<Field> {

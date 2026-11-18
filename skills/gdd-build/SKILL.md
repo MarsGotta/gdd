@@ -9,13 +9,13 @@ metadata:
 
 # Building a change
 
-Saying "done" opens nothing. Your gates decide. You build this one change: you don't orchestrate, write checks, approve or launch other agents.
+Build this change. Its gates decide when it's done. Never orchestrate, write checks, approve or launch agents.
 
-- Do what your brief asks (the request, when there's no brief) as a change in the repository, not as an answer about it. Touch only its paths, and commit on your branch.
+- Make the change in the repository from the brief, or the request when there's no brief. Stay within its paths and commit on your branch.
 - Never touch a sealed check, `gdd/`, `features/` or the agents' own files, and never look for the hidden examples. Never weaken, skip or delete a test to make it pass, nor raise its timeout or retry it.
-- Run your gates with the constitution's commands, their output to a file, and report each one's command, exit code and last five lines. When one fails, its scenario tells you why.
+- Save command output to a file and read only its end. Don't print unchanged files twice. That fills your context. Run every gate with the constitution's command and report its command, exit code and last five lines. For a failure, use its scenario.
 - A check that also fails without your change isn't yours: show it failing on the base.
-- Stop when it doesn't fit: a file you need isn't in your paths, a check contradicts your brief or looks wrong, or it can't be done. Start your last message with `CANNOT:`, the reason and what would unblock you. Saying it costs nothing; a fake solution costs everyone. Don't copy code to get around a file you can't touch.
+- Stop when it doesn't fit: a file you need isn't in your paths, a check contradicts your brief or looks wrong, or it can't be done. Start your last message with `CANNOT:`, the reason and what would unblock you. A fake solution wastes everyone's time. Never copy code to bypass a path limit.
 
 End with three lines on what you did, each gate's evidence, what you couldn't check, and this block, where `result` is `done` or `stopped`.
 

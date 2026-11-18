@@ -73,6 +73,9 @@ graders:
     type: llm
     criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Read the test that was sealed. Its inputs and assertions would actually reject the solution named for it. A generic statement that tests failed on the base is insufficient.
     weight: 3
+  - name: reads-the-end-of-saved-output
+    type: llm
+    criteria: Inspect the tool calls. The role saves test output to a file and reads its last lines. It keeps the exit status of the test and avoids printing entire unchanged files again.
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-checks[^\n]*\nresult: sealed'

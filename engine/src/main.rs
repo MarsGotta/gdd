@@ -125,6 +125,9 @@ enum Cmd {
         seconds: Option<f64>,
         #[arg(long)]
         tokens: Option<i64>,
+        /// Input tokens for this role's round, including cached input, when measured.
+        #[arg(long)]
+        tokens_read: Option<u64>,
         /// A JSON list of the checks role's proofs.
         #[arg(long)]
         proofs: Option<String>,
@@ -192,6 +195,9 @@ enum Cmd {
         /// How to read its output: claude, codex or plain (default: by its program).
         #[arg(long)]
         adapter: Option<String>,
+        /// Measured input total just before this run, if the environment counts the whole session.
+        #[arg(long, requires = "run")]
+        tokens_read_before: Option<u64>,
     },
     /// Describe the merge request from the log, or record the ship once it is in the main branch.
     Ship {
@@ -434,6 +440,7 @@ fn main() {
             level,
             seconds,
             tokens,
+            tokens_read,
             proofs,
             claims,
             closed,
@@ -457,6 +464,7 @@ fn main() {
                         level: level.clone(),
                         seconds: *seconds,
                         tokens: *tokens,
+                        tokens_read: *tokens_read,
                         proofs: proofs.clone(),
                         claims: claims.clone(),
                         closed: pairs(closed),
@@ -509,6 +517,7 @@ fn main() {
             start_wait,
             timeout,
             adapter,
+            tokens_read_before,
         } => (
             "launch",
             Some(id.clone()),
@@ -523,6 +532,7 @@ fn main() {
                     start_wait: Duration::from_secs(*start_wait),
                     timeout: timeout.map(Duration::from_secs),
                     adapter: adapter.clone(),
+                    tokens_read_before: *tokens_read_before,
                 },
             ),
         ),

@@ -195,36 +195,7 @@ fn setup_prompt(s: &mut Vec<String>, x: &PromptFor) {
             s.push(format!(
                 "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
             ));
-            // A fix round after a trial that sent the checks back or said stop: what it found,
-            // and what the person answered when they were told.
-            let events = log::events(&l.entries);
-            if let Some(r) = &p.last_review
-                && matches!(r.verdict.as_str(), "fix" | "stop")
-                && let Some((_, v)) = events.iter().find(|(line, _)| *line == r.line)
-            {
-                s.push(format!(
-                    "A fix round. The trial said {}:",
-                    r.verdict
-                ));
-                for f in v["findings"].as_array().cloned().unwrap_or_default() {
-                    s.push(format!(
-                        "- {} {}: {}",
-                        str_of(&f, "id"),
-                        str_of(&f, "where"),
-                        str_of(&f, "what")
-                    ));
-                }
-                if let Some((_, a)) = events
-                    .iter()
-                    .rev()
-                    .find(|(line, v)| *line > r.line && log::kind(v) == "answer")
-                {
-                    s.push(format!(
-                        "The person's answer, word for word: \"{}\"",
-                        str_of(a, "what")
-                    ));
-                }
-            }
+
         }
         "review" => s.push(format!(
             "Try {tried} on gdd-seal/{id}{}, in a fresh clone: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
@@ -348,63 +319,152 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     }
 }
 
-/// What a role gets in a fix round: what sent the change back. A reviewer's finding can ask for a
-/// better check, so the checks role gets them too, and a builder is told when the checks were
-/// sealed again after them: what a finding asked of a check is no longer its to answer.
-fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str) {
-    let p = &l.state.progress;
-    let entries = log::events(&l.entries);
-    if role == "build"
-        && let Some(g) = entries.iter().rev().find(|(_, v)| step(v) == "gates")
-        && log::any_kv(g.1, "result", "fail")
-    {
-        s.push("A fix round. What failed at the gates:".into());
-        for e in g.1["gates"].as_array().cloned().unwrap_or_default() {
-            if str_of(&e, "result") == "fail" {
-                s.push(format!(
-                    "- {}: `{}` exit {}; last lines:\n{}",
-                    str_of(&e, "check"),
-                    str_of(&e, "command"),
-                    e["exit"],
-                    str_of(&e, "tail")
-                ));
-            }
+/// Keep a command or a diagnostic on one line. A long tool result can have no line breaks.
+fn excerpt(text: &str, width: usize) -> String {
+    let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= width {
+        return line;
+    }
+    let end = line.char_indices().nth(width / 2).unwrap().0;
+    let start = line.char_indices().rev().nth(width / 2 - 1).unwrap().0;
+    format!("{} … {}", &line[..end], &line[start..])
+}
+
+/// Include the builder's own claims, never the proofs that could give its solution away.
+fn last_attempt(s: &mut Vec<String>, build: &Value) {
+    if let Some(reason) = build["stop"]["reason"].as_str() {
+        s.push(format!("The builder stopped: {}", excerpt(reason, 200)));
+    }
+    let claims = build["claims"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if claims.is_empty() {
+        s.push("The last build has no recorded claims.".into());
+        return;
+    }
+    // Show failed attempts first; a long suite of passing checks can hide them.
+    let mut runs: Vec<_> = claims.iter().collect();
+    runs.sort_by_key(|c| c["exit"].as_i64() == Some(0));
+    s.push("The last builder reported these runs:".into());
+    for c in runs.iter().take(3) {
+        s.push(format!(
+            "- {}: `{}` exit {}; {}",
+            str_of(c, "check"),
+            excerpt(str_of(c, "command"), 120),
+            c["exit"],
+            excerpt(str_of(c, "tail"), 100)
+        ));
+    }
+    if runs.len() > 3 {
+        s.push(format!("{} other reported runs omitted.", runs.len() - 3));
+    }
+}
+
+/// Keep each finding until a review closes it. If it is restated, use its latest wording.
+fn open_findings<'a>(events: &[(usize, &'a Value)]) -> Vec<&'a Value> {
+    let mut open: Vec<&Value> = Vec::new();
+    for (_, review) in events.iter().filter(|(_, v)| step(v) == "review") {
+        for f in review["findings"].as_array().into_iter().flatten() {
+            open.retain(|old| old["id"] != f["id"]);
+            open.push(f);
+        }
+        for closed in review["closed"].as_array().into_iter().flatten() {
+            open.retain(|f| f["id"] != closed["id"]);
         }
     }
-    let Some(r) = entries
+    open
+}
+
+fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
+    let p = &l.state.progress;
+    let events: Vec<_> = log::events(&l.entries)
+        .into_iter()
+        .filter(|(line, _)| *line > p.brief_line.unwrap_or(0))
+        .collect();
+    match l.state.git.seal_tip.as_deref() {
+        Some(tip) => s.push(format!("Current seal tip: {tip}.")),
+        None if p.sealed_any => {
+            s.push("The seal branch is absent here. <start> is the recorded tip.".into())
+        }
+        None => s.push("No seal yet.".into()),
+    }
+    if role == "build"
+        && let Some(g) = &p.last_gates
+        && !g.passed
+        && let Some((_, v)) = events.iter().find(|(line, _)| *line == g.line)
+    {
+        s.push("A fix round. What failed at the gates:".into());
+        for e in v["gates"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|e| e["result"] == "fail")
+        {
+            s.push(format!(
+                "- {}: `{}` exit {}; last lines: {}",
+                str_of(e, "check"),
+                str_of(e, "command"),
+                e["exit"],
+                excerpt(str_of(e, "tail"), 320)
+            ));
+        }
+    }
+    let review = events
         .iter()
         .rev()
         .find(|(_, v)| step(v) == "review")
-        .filter(|r| matches!(str_of(r.1, "verdict"), "fix" | "stop"))
-        .filter(|r| p.last_gates.as_ref().is_none_or(|g| g.line < r.0))
-    else {
-        return;
-    };
-    s.push(format!(
-        "A fix round. The reviewer said {}:",
-        str_of(r.1, "verdict")
-    ));
-    for f in r.1["findings"].as_array().cloned().unwrap_or_default() {
+        .filter(|(_, v)| matches!(str_of(v, "verdict"), "fix" | "stop"));
+    if let Some((line, r)) = review {
         s.push(format!(
-            "- {} {}: {}",
-            str_of(&f, "id"),
-            str_of(&f, "where"),
-            str_of(&f, "what")
+            "A fix round. The reviewer said {}.",
+            str_of(r, "verdict")
+        ));
+        if setup
+            && let Some((_, a)) = events
+                .iter()
+                .rev()
+                .find(|(n, v)| n > line && log::kind(v) == "answer" && v["of"] == "stop")
+        {
+            s.push(format!(
+                "The person's answer, word for word: \"{}\".",
+                str_of(a, "what")
+            ));
+        }
+    }
+    for f in open_findings(&events) {
+        let what = str_of(f, "what");
+        let finding = match what.split_once(" | ") {
+            Some((body, citation)) => format!("{} | {citation}", excerpt(body, 240)),
+            None => what.to_string(),
+        };
+        s.push(format!(
+            "- {} {}: {finding}",
+            str_of(f, "id"),
+            str_of(f, "where")
         ));
     }
-    if role == "checks" {
-        s.push("What a finding asks of a check is yours to answer, with a new seal; the rest is the builder's.".into());
-        return;
+    if let Some((line, r)) = review {
+        if role == "checks" {
+            s.push("What a finding asks of a check is yours to answer, with a new seal; the rest is the builder's.".into());
+        } else {
+            if let Some(n) = r["notes"].as_str()
+                && p.last_build.is_none_or(|(last, _)| last < *line)
+            {
+                s.push(format!("NOTES FOR THE BUILDER: {}", excerpt(n, 240)));
+            }
+            if events
+                .iter()
+                .any(|(n, v)| n > line && step(v) == "checks" && v["seal"]["commit"].is_string())
+            {
+                s.push("The checks were sealed again after that review. What a finding asked of a check was answered there. Make the checks pass as they are now.".into());
+            }
+        }
     }
-    if let Some(n) = r.1["notes"].as_str() {
-        s.push(format!("NOTES FOR THE BUILDER:\n{n}"));
+    if let Some((_, build)) = events.iter().rev().find(|(_, v)| step(v) == "build") {
+        last_attempt(s, build);
     }
-    let resealed = entries
-        .iter()
-        .any(|(line, v)| *line > r.0 && step(v) == "checks" && v["seal"]["commit"].is_string());
-    if resealed {
-        s.push("The checks were sealed again after that review, and <start> is their new tip: what a finding asked of a check was answered there. Make the checks pass as they are now.".into());
-    }
+    s.push("Use these results to diagnose the fix. Don't repeat an unchanged attempt to recover its output. Run the required checks on the fix.".into());
 }
 
 fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
@@ -461,7 +521,7 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
         format!("This is round {round} of {role} for this change.")
     });
     if round > 1 && matches!(role, "build" | "checks") {
-        fix_round_notes(&mut s, l, role);
+        fix_round_notes(&mut s, l, role, setup);
     }
     // What the log can show of a role's own runs comes from a json block, like the checks
     // role's proofs: without it, a claim or a trial is only prose.
@@ -488,6 +548,7 @@ pub struct LaunchArgs {
     pub start_wait: Duration,
     pub timeout: Option<Duration>,
     pub adapter: Option<String>,
+    pub tokens_read_before: Option<u64>,
 }
 
 /// What the state lets start: the same rules as the step this launch will write.
@@ -631,6 +692,7 @@ fn run_role(
         .filter(|o| !o.trim().is_empty())
         .unwrap_or_else(|| read(&errors));
     let said = launch::read_output(adapter, &raw, model);
+    out.fact("reported_input", json!(said.tokens_read));
     if matches!(role, "build" | "checks")
         && let Some(session) = &said.session_id
     {
@@ -685,6 +747,18 @@ fn run_role(
         level: Some(level.to_string()),
         seconds: Some(seen.seconds),
         tokens: said.tokens(),
+        // A native Codex resume reports a thread total. Without its starting
+        // reading, the input of this round is unknown.
+        tokens_read: if let Some(before) = a.tokens_read_before {
+            said.tokens_read.and_then(|after| after.checked_sub(before))
+        } else if adapter == Adapter::Codex
+            && Adapter::of_program(&argv[0]) == Adapter::Codex
+            && argv.iter().any(|arg| arg == "resume")
+        {
+            None
+        } else {
+            said.tokens_read
+        },
         ..ReportArgs::default()
     };
     // The role sealed or committed while it ran: its report is judged against the project as it

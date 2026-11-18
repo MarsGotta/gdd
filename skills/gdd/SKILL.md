@@ -27,7 +27,7 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 | You send the person a question | `gdd ask <id> --of <brief, change, blueprint, waiver, decision, levels or stop> "<the question, in a line>"`, at that moment |
 | They answer | What `gdd ask` printed for that kind: `gdd approve` with the files they saw, `gdd waiver` or `gdd answer` |
 | A role is next | `gdd launch <id> <role> --run` runs the blueprint's command and records the report. For an agent tool, or to record where findings went, omit `--run` and use its exact model and prompt. |
-| A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds` and `--tokens` when your environment reports them, `--closed f1=fixed` for findings a later round settles |
+| A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds`, `--tokens` and `--tokens-read` when measured, `--closed f1=fixed` for findings a later round settles |
 | The gates are next | `gdd gates <id>`: it runs them on the change's commit, out of the builder's reach, and writes what ran |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
