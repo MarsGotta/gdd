@@ -142,19 +142,6 @@ fn load_attempt(ctx: &Ctx, id: &str, step: &str, out: &mut Out) -> R<Loaded> {
     Ok(l)
 }
 
-/// The state of a change again, after this command wrote to its log.
-fn after(ctx: &Ctx, l: &Loaded, id: &str) -> State {
-    let entries = l.project.read_log(id);
-    let gv = GitView::for_log(
-        &ctx.root,
-        id,
-        ctx.branch.as_deref(),
-        ctx.head.as_deref(),
-        &entries,
-    );
-    state::derive(id, &l.bp, &entries, gv, time::now())
-}
-
 /// A fresh reviewer sees the product commit the gates judged. Bookkeeping added since then
 /// is the orchestrator's work and would otherwise raise the touched color of the change.
 fn review_head(l: &Loaded) -> Option<&str> {
@@ -231,14 +218,6 @@ fn read_backlog(ctx: &Ctx) -> R<(PathBuf, String)> {
     let text = std::fs::read_to_string(&path)
         .map_err(|_| Fail::missing("gdd/backlog.md", "gdd/backlog.md is missing"))?;
     Ok((path, text))
-}
-
-/// What comes next, and the command that runs it when there is one.
-fn say_next(out: &mut Out, next: &state::Next) {
-    out.say(format!("next: {}", next.say));
-    if !next.command.is_empty() {
-        out.say(format!("run: {}", next.command));
-    }
 }
 
 /// Refuse where there is no git repository, saying what needed one.
@@ -325,4 +304,34 @@ fn run<F: FnOnce(&mut Out) -> R<()>>(command: &str, f: F) -> Out {
         Ok(()) => out,
         Err(fail) => out.with_fail(fail),
     }
+}
+
+/// A command that wrote a log line hands off from the new state, even when its gates failed.
+/// Computing the next step here makes no invocation or journal entry of its own.
+fn run_change<F: FnOnce(&mut Out) -> R<()>>(ctx: &Ctx, id: &str, command: &str, f: F) -> Out {
+    let mut out = run(command, f);
+    if out.facts.contains_key("line") {
+        match next::load_next(ctx, id) {
+            Ok(l) => {
+                if command == "gates" && !l.state.limits.slow.is_empty() {
+                    out.say(format!(
+                        "past its seconds, for the backlog: {}",
+                        l.state.limits.slow.join(", ")
+                    ));
+                }
+                let next = l.state.next;
+                out.fact("next", next.step.as_str());
+                out.fact("next_command", next.command.as_str());
+                out.next = Some(next);
+            }
+            Err(fail) => {
+                // The event already happened. A failed read must never invite a second write.
+                out.lines.extend(fail.lines);
+                out.say(format!(
+                    "the log line was written; to read the next step: gdd next {id}"
+                ));
+            }
+        }
+    }
+    out
 }

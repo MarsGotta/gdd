@@ -32,7 +32,7 @@ fn json_file(path: &Option<String>) -> R<Value> {
 }
 
 pub fn report(ctx: &Ctx, id: &str, st: &str, text: &str, a: &ReportArgs) -> Out {
-    run("report", |out| {
+    run_change(ctx, id, "report", |out| {
         let l = load_attempt(ctx, id, st, out)?;
         let (line, _) = write_report(ctx, &l, id, st, text, a, out)?;
         out.fact("line", line);
@@ -40,23 +40,20 @@ pub fn report(ctx: &Ctx, id: &str, st: &str, text: &str, a: &ReportArgs) -> Out 
     })
 }
 
-pub(super) fn level_of(l: &Loaded, role: &str, asked: Option<&str>) -> String {
+pub(super) fn level_of(
+    bp: &Blueprint,
+    p: &state::Progress,
+    role: &str,
+    asked: Option<&str>,
+) -> String {
     if let Some(a) = asked {
         return a.to_string();
     }
-    let color = l
-        .state
-        .progress
-        .color
-        .clone()
-        .unwrap_or_else(|| "yellow".into());
-    let base =
-        l.bp.color_level(&color)
-            .unwrap_or_else(|| "standard".into());
-    if role == "checks" && l.state.progress.checks_stopped == 1 && !l.state.progress.checks_done {
+    if role == "checks" && p.checks_stopped == 1 && !p.checks_done {
         return "deep".into();
     }
-    base
+    bp.color_level(p.color.as_deref().unwrap_or("yellow"))
+        .unwrap_or_else(|| "standard".into())
 }
 
 pub(super) fn write_report(
@@ -109,15 +106,16 @@ pub(super) fn write_report(
             ));
         }
     }
-    let level = level_of(l, st, a.level.as_deref());
-    let model = a
-        .model
-        .clone()
-        .or_else(|| model_for(l, &ctx.env, st, &level).ok().map(|(_, m, _)| m));
+    let level = level_of(&l.bp, &l.state.progress, st, a.level.as_deref());
+    let model = a.model.clone().or_else(|| {
+        model_for(&l.bp, &ctx.env, st, &level)
+            .ok()
+            .map(|(_, m, _)| m)
+    });
     // A role on another model than its level's isn't the role the blueprint asks for: in one run,
     // two rounds asked at the deep level ran on the orchestrator's own model.
     if let Some(said) = &a.model
-        && let Ok((env, wanted, _)) = model_for(l, &ctx.env, st, &level)
+        && let Ok((env, wanted, _)) = model_for(&l.bp, &ctx.env, st, &level)
         && !said
             .to_ascii_lowercase()
             .starts_with(&wanted.to_ascii_lowercase())
@@ -218,11 +216,8 @@ pub(super) fn write_report(
     if !r.missing.is_empty() {
         out.say(format!("MISSING, for the brief: {}", r.missing.join("; ")));
     }
-    let after = after(ctx, l, id);
-    say_next(out, &after.next);
     out.fact("result", json!(result));
     out.fact("round", round);
-    out.fact("next", json!(after.next.step));
     Ok((line, r))
 }
 

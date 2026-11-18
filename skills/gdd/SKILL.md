@@ -15,18 +15,19 @@ The agent says "done." The gate checks if it's true. You are the orchestrator: y
 
 A GDD project has a layer, `gdd`, a command that keeps the order, the accounting and the evidence of every change, so that you don't. It is the file `.gdd/gdd` in the project, or a `gdd` on the path whose `--version` names the layer, never GNU's `dd`: below, `gdd` means that one. If neither runs, set it up as `gdd-prepare/references/layer.md` says, in the folder next to this skill's, and if you can't, tell the person in one line what it needs and stop. You keep the judgment.
 
-- **Before each step, run `gdd next <id>`** (`gdd next` alone for the whole project) and do the one step it names, with the command it gives. You don't choose the order, and you don't skip a step it names.
+- **Follow the step the layer prints.** Each write ends with the next step and its command. Run `gdd next <id>` at the start, after compaction or when unsure. Each command checks the state again.
 - **Only the layer writes `gdd/log/`.** Never append or edit a line there yourself, and never work out a time, a hash or a count for it: each command below writes its own line, and its journal, `gdd/log/<id>.engine.jsonl`, keeps every call.
 - **After a refusal, read its remedy and run `gdd next <id>` before retrying.** Two identical refusals on unchanged work can repeat forever. When it names a decision, ask what it proposes in the person's words. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch it or build your own, even with a yes.
-- Its last line is JSON for programs: read the lines above it.
+- **Wait once for a role or a long command.** Set the longest wait the tool allows. If a role allows an hour, request 3,600,000 ms. If a command returns a handle, wait on it for the tool's maximum. Both return when done. Renew only if the wait expires. In one run, 300 one-minute waits each reread the conversation.
+- Read the lines above the final JSON.
 
 | When | Run |
 |---|---|
 | A change starts | Load `gdd-brief`, for every change, a typo too: it ends in `gdd seal` and `gdd brief` |
 | You send the person a question | `gdd ask <id> --of <brief, change, blueprint, waiver, decision, levels or stop> "<the question, in a line>"`, at that moment |
 | They answer | What `gdd ask` printed for that kind: `gdd approve` with the files they saw, `gdd waiver` or `gdd answer` |
-| A role is next | `gdd launch <id> <checks, build, review or reading>`: it gives the model and the prompt, and you launch exactly that, or `--run` launches it and writes its step where the blueprint's `launch` is a command line |
-| A role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds` and `--tokens` when your environment reports them, `--closed f1=fixed` for findings a later round settles |
+| A role is next | `gdd launch <id> <role> --run` runs the blueprint's command and records the report. For an agent tool, or to record where findings went, omit `--run` and use its exact model and prompt. |
+| A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds` and `--tokens` when your environment reports them, `--closed f1=fixed` for findings a later round settles |
 | The gates are next | `gdd gates <id>`: it runs them on the change's commit, out of the builder's reach, and writes what ran |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
@@ -37,7 +38,7 @@ A GDD project has a layer, `gdd`, a command that keeps the order, the accounting
 1. Read `gdd/blueprint.md`. If there isn't one, the next moment is Prepare.
 2. Read the request, in the person's words.
 3. Run `gdd next`. If it says the standing checks aren't set up, they come before the request: do it now, as `references/standing-checks.md` says, in this skill's folder. Don't ask whether to or offer to skip it: the person agreed to it with the blueprint. Nothing else under way comes before a request: what is stopped waits for the person, said in one line.
-4. For a change already under way, after a compaction too, `gdd next <id>` says where it stands: the brief has no status. Trust it and git, not your memory.
+4. The brief has no status. For a change under way, trust the layer and git.
 5. If the layer says git can't write a ref, stop and tell the person in one line, and no more: "I can't start: git can't write in this copy, so nothing was built. Open me where it can and I'll go on."
 
 ## The four moments
@@ -63,11 +64,11 @@ The layer names each step. This is what you still decide.
    - `stop`: the change doesn't go in, whatever else it says. Tell the person why.
    - A `COLOR:` higher than the one logged at Brief: the change goes back to Brief, as `gdd-brief` says for a color that rose, and `gdd-checks` adds its cases from the base.
    - `fix`: a fix round, and the layer gives the builder the reviewer's notes. A check it calls wrong goes to `gdd-checks`. What it leaves under `LATER:` goes to the backlog.
-6. **Ship.** Bring it up to date first: `gdd seal <id> --merge-main` and the seal's tip merged into the change's branch, or the main branch merged into it when nothing was sealed, then what `gdd next` asks for. The log, the journals and the backlog are your bookkeeping: they live in your copy, off every change's branch, and the layer commits them on top of the change. Ship it as the constitution says, the way `gdd next` names, unasked: the request was the yes. By pull request, `--bookkeeping` before the person's review, when its color has one, `--describe` for its description and `--done <where>` once merged; by a local merge, `--merge`. Never ship what is still waiting for a person, and land changes one at a time. Once it's in, remove the copies its roles made.
+6. **Ship.** Bring it up to date first: `gdd seal <id> --merge-main` and the seal's tip merged into the change's branch, or the main branch merged into it when nothing was sealed, then follow the layer's next step. The log, the journals and the backlog are your bookkeeping: they live in your copy, off every change's branch, and the layer commits them on top of the change. Ship it as the constitution says, the way the layer names, unasked: the request was the yes. By pull request, `--bookkeeping` before the person's review, when its color has one, `--describe` for its description and `--done <where>` once merged; by a local merge, `--merge`. Never ship what is still waiting for a person, and land changes one at a time. Once it's in, remove the copies its roles made.
 
 ## Launching each role
 
-Every role starts with a clean context: a new session or subagent, never this conversation. A change sent back goes to the agent that made it, resumed with the round's prompt, or to a new one if it can't be. The reviewer, and whoever reads a brief, starts clean every time. Wait for a role in one wait, as long as your environment allows, which ends when it does: each short wait reads your whole conversation again. Launch it from your own copy, at the base, because a role loads its skill from where it's launched and a change can edit it, and have it work in a copy of its own. Copies, yours too, go inside the project's folder, where agents can write and git ignores them, never in a shared temporary folder.
+Start each role in a new session or subagent. Return a fix to the agent that made it, with the new prompt. Open `references/fix-round.md` when resuming it. Start fresh only if it cannot resume. Reviewers and brief readers always start fresh. Launch it from your own copy, at the base, because a role loads its skill from where it's launched and a change can edit it, and have it work in a copy of its own. Copies, yours too, go inside the project's folder, where agents can write and git ignores them, never in a shared temporary folder.
 
 - **What it gets** is the prompt the layer wrote, as it is, on the model it names: one launched without naming it runs on yours. If the layer can't find your environment or a model in the blueprint, stop and ask: never use another.
 - **What it never gets.** The builder never gets the log, the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.

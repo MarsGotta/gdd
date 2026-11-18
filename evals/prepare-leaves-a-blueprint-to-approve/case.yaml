@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-leaves-a-blueprint-to-approve
-description: A shop without GDD, and a person who comes with most of it decided. Prepare writes the blueprint, the constitution and the backlog, proposes rules for each red zone, tries each level, builds no check itself and stops for the person's approval.
+description: A shop without GDD, and a person who comes with most of it decided. Prepare writes the blueprint, the constitution and the backlog, proposes rules for each red zone, tries each level by command line when available, builds no check itself and stops for the person's approval.
 tags: [orchestrator, prepare]
 runs: 3
 execution:
@@ -127,26 +127,22 @@ graders:
     target: { source: file, path: gdd/blueprint.md }
     pattern: 'levels:[^\n]*\n(?:\s*#[^\n]*\n)*\s+claude[\w-]*:[^\n]*\n[\s\S]*?launch:\s*\S[\s\S]*?light:\s*\S*haiku[\s\S]*?standard:\s*\S*sonnet[\s\S]*?deep:\s*\S*opus'
     weight: 3
-  - name: tries-the-light-level
-    type: tool_used
-    tool: Agent
-    input_match: '"model"\s*:\s*"[^"]*haiku'
-    min: 1
-  - name: tries-the-standard-level
-    type: tool_used
-    tool: Agent
-    input_match: '"model"\s*:\s*"[^"]*sonnet'
-    min: 1
-  - name: tries-the-deep-level
-    type: tool_used
-    tool: Agent
-    input_match: '"model"\s*:\s*"[^"]*opus'
-    min: 1
-  - name: logs-what-each-try-showed
+  - name: tries-the-three-models-by-the-route-it-records
+    type: llm
+    criteria: Inspect the tool calls and their results. Require an actual launch at each of haiku, sonnet and opus, on the model named. When the command line launches the agreed model here, Prepare uses that route even if the agent tool also accepts a model, and the blueprint launch includes the model placeholder. Accept a model-selecting agent tool for a model the command line cannot launch here. A plan, a help command or recording a model name alone does not count as a launch.
+    weight: 3
+  - name: logs-the-light-probe
     type: regex
     target: { source: file, path: gdd/log/blueprint.jsonl }
-    pattern: '"levels"\s*:\s*\[\s*\{[^\]]*"model"'
-    weight: 2
+    pattern: '"levels"\s*:\s*\[[^\]]*?\{(?=[^{}]*"level"\s*:\s*"light")(?=[^{}]*"launch"\s*:\s*"[^"]+")(?=[^{}]*"model"\s*:\s*"[^"]*haiku)'
+  - name: logs-the-standard-probe
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"levels"\s*:\s*\[[^\]]*?\{(?=[^{}]*"level"\s*:\s*"standard")(?=[^{}]*"launch"\s*:\s*"[^"]+")(?=[^{}]*"model"\s*:\s*"[^"]*sonnet)'
+  - name: logs-the-deep-probe
+    type: regex
+    target: { source: file, path: gdd/log/blueprint.jsonl }
+    pattern: '"levels"\s*:\s*\[[^\]]*?\{(?=[^{}]*"level"\s*:\s*"deep")(?=[^{}]*"launch"\s*:\s*"[^"]+")(?=[^{}]*"model"\s*:\s*"[^"]*opus)'
   - name: logs-it-in-the-shape-of-the-contract
     type: regex
     target: { source: file, path: gdd/log/blueprint.jsonl }

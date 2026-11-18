@@ -295,6 +295,8 @@ fn metrics_tables_on_a_logged_project() {
 #[test]
 fn metrics_join_the_journal() {
     let r = Repo::new();
+    r.gdd(&["next", "m1"]);
+    r.gdd(&["next", "another-change"]);
     r.gdd(&["brief", "m1", "--paths", "src/ui/page.txt"]);
     r.gdd(&["gates", "m1"]);
     r.gdd(&["ask", "m1", "--of", "decision", "Which page?"]);
@@ -311,14 +313,15 @@ fn metrics_join_the_journal() {
         .join("\n");
     let all: Value = serde_json::from_str(&body).unwrap();
     let engine = all["tables"]["engine"].as_array().unwrap();
-    assert_eq!(engine.len(), 4, "{engine:?}");
+    assert_eq!(engine.len(), 5, "{engine:?}");
     assert!(
         engine
             .iter()
             .any(|e| e["command"] == "gates" && e["refused"] == "out-of-order")
     );
     let change = &all["tables"]["changes"][0];
-    assert_eq!(change["invocations"], 4);
+    assert_eq!(change["invocations"], 5);
+    assert_eq!(engine.iter().filter(|e| e["command"] == "next").count(), 1);
     assert_eq!(change["refusals"], 1);
     let asks = all["tables"]["asks"].as_array().unwrap();
     assert_eq!(asks[0]["answered"], true);

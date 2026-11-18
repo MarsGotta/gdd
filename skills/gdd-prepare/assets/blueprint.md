@@ -3,12 +3,12 @@ contract: gdd/1
 guarantee: <rule, platform or engine>
 levels:  # one block for each agents' environment the project is worked from
   <environment, by the name of its command>:
-    launch: <how a role gets its model there, by its tool for launching agents or by a new session of its command line>
+    launch: <tested command with <model>, or how the agent tool selects the model if no such command works here>
     light: <model for little reasoning, cheap and fast, by the name that environment launches it with>
     standard: <model for normal reasoning>
     deep: <model for the most reasoning>
     # reviewer:            # only for a reviewer on another family of models, once it was seen to work when preparing
-    #   launch: <how, when it runs in another environment>
+    #   launch: <its tested command or agent tool, when it runs in another environment>
     #   light: <model>
     #   standard: <model>
     #   deep: <model>

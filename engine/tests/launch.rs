@@ -194,6 +194,10 @@ fn tokens_are_read_from_the_stream_of_its_environment() {
         "5",
     ]);
     assert_eq!(l.code, 0, "{}", l.out);
+    assert!(
+        l.facts.get("session_id").is_none(),
+        "reviewers always start fresh"
+    );
     let review = r
         .log_lines("l1")
         .into_iter()
@@ -441,5 +445,108 @@ fn two_refusals_need_the_same_reason_seal_and_head() {
         capped.facts["state"]["next"]["blocked"], "cap-spent",
         "{}",
         capped.out
+    );
+}
+
+#[test]
+fn a_fix_can_run_on_the_session_that_reported_the_first_build() {
+    let r = Repo::with(
+        &BLUEPRINT.replace("the Agent tool, with its model field", "sh role.sh <model>"),
+    );
+    let session = "thread-of-this-builder";
+    let reply = serde_json::json!({
+        "type": "item.completed",
+        "item": {"type": "agent_message", "text": report_block("gdd-build", "done")}
+    });
+    r.write(
+        "role.sh",
+        &format!(
+            r#"set -eu
+test "$1" = model-a
+if test "$#" = 3; then
+    test "$2" = {session}
+    case "$3" in *"A fix round"*) ;; *) exit 1 ;; esac
+fi
+cat <<'END'
+{{"type":"thread.started","thread_id":"{session}"}}
+{reply}
+{{"type":"turn.completed","usage":{{"input_tokens":4,"output_tokens":2}}}}
+END
+"#
+        ),
+    );
+    r.write("tests/run.sh", "grep -q page src/ui/page.txt\n");
+    r.commit("Set up the fake command and the check");
+    let brief = r.gdd(&["brief", "l1", "--paths", "src/ui/page.txt"]);
+    assert_eq!(brief.facts["next_command"], "gdd launch l1 build --run");
+    r.commit_on(
+        "work/l1",
+        Some("main"),
+        &[("src/ui/page.txt", "broken\n")],
+        "First build",
+    );
+    let first = r.named("gdd launch l1 build --run --adapter codex");
+    assert_eq!(first.code, 0, "{}", first.out);
+    let session_id = first.facts["session_id"].as_str().unwrap();
+    assert_eq!(session_id, session);
+    assert_eq!(first.facts["tokens"], 6);
+    assert!(first.facts["seconds"].is_number());
+    let failed = r.named(first.facts["next_command"].as_str().unwrap());
+    assert_eq!(failed.code, 1, "{}", failed.out);
+    assert_eq!(failed.facts["next_command"], "gdd launch l1 build");
+    let resume = format!("sh role.sh <model> {session_id} <prompt>");
+    r.commit_on(
+        "work/l1",
+        None,
+        &[("src/ui/page.txt", "fixed page\n")],
+        "Fix the page",
+    );
+    let fixed = r.gdd(&[
+        "launch",
+        "l1",
+        "build",
+        "--run",
+        "--command",
+        &resume,
+        "--adapter",
+        "codex",
+    ]);
+    assert_eq!(fixed.code, 0, "{}", fixed.out);
+    assert_eq!(fixed.facts["round"], 2);
+    let gates = r.named(fixed.facts["next_command"].as_str().unwrap());
+    assert_eq!(
+        gates.facts["next_command"], "gdd launch l1 review --run",
+        "{}",
+        gates.out
+    );
+    // The session belongs to the caller. A change's bookkeeping travels to other checkouts.
+    assert!(!r.read("gdd/log/l1.engine.jsonl").contains(session_id));
+    assert!(!r.read("gdd/log/l1.jsonl").contains(session_id));
+}
+
+#[test]
+fn the_suggested_launch_uses_the_selected_environments_route() {
+    let blueprint = BLUEPRINT.replace(
+        "limits:\n  lines_per_change",
+        "  terminal:\n    launch: sh role.sh <model>\n    light: model-a\nlimits:\n  lines_per_change");
+    let r = Repo::with(&blueprint);
+    let brief = r.gdd(&[
+        "brief",
+        "g1",
+        "--paths",
+        "src/ui/page.txt",
+        "--env",
+        "terminal",
+    ]);
+    let command = "gdd launch g1 build --env terminal --run";
+    assert_eq!(brief.facts["next_command"], command);
+    let next = r.gdd(&["next", "g1", "--env", "terminal"]);
+    assert_eq!(next.facts["state"]["next"]["command"], command);
+    let project = r.gdd(&["next", "--env", "terminal"]);
+    assert_eq!(project.facts["under_way"][0]["command"], command);
+    let tool = r.gdd(&["next", "g1", "--env", "fake"]);
+    assert_eq!(
+        tool.facts["state"]["next"]["command"],
+        "gdd launch g1 build --env fake"
     );
 }

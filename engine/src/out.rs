@@ -10,6 +10,8 @@ pub struct Out {
     pub lines: Vec<String>,
     pub facts: Map<String, Value>,
     pub code: i32,
+    /// Printed after all messages, including the ship's final bookkeeping.
+    pub next: Option<crate::state::Next>,
     /// When the command refused, a short code for why, such as `needs-approval`.
     pub refused: Option<String>,
     /// What the journal records beyond the invocation, such as what a launch saw.
@@ -53,6 +55,12 @@ impl Out {
         for l in &self.lines {
             s.push_str(l);
             s.push('\n');
+        }
+        if let Some(next) = &self.next {
+            s.push_str(&format!("next: {}\n", next.say));
+            if !next.command.is_empty() {
+                s.push_str(&format!("run: {}\n", next.command));
+            }
         }
         s.push_str(&self.last_line());
         s.push('\n');

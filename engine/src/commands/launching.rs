@@ -4,12 +4,12 @@ use super::*;
 
 /// The environment, the model and the launch of a role, from the blueprint's `levels`.
 pub(super) fn model_for(
-    l: &Loaded,
+    bp: &Blueprint,
     env: &Option<String>,
     role: &str,
     level: &str,
 ) -> R<(String, String, Option<String>)> {
-    let envs = l.bp.environments();
+    let envs = bp.environments();
     let wanted = env.clone().or_else(|| std::env::var("GDD_ENV").ok());
     let e = match wanted {
         Some(w) => envs.iter().find(|e| e.name == w).ok_or(Fail::refuse(
@@ -51,6 +51,34 @@ pub(super) fn model_for(
     ))?;
     let launch = models.launch.clone().or(e.models.launch.clone());
     Ok((e.name.clone(), model.to_string(), launch))
+}
+
+/// A fresh role can run and report in one call. A returned build or set of checks needs
+/// the prompt for the agent that did the work, which may have been launched by hand.
+pub(super) fn prefer_run(ctx: &Ctx, bp: &Blueprint, state: &mut State) {
+    let next = &mut state.next;
+    if !next.command.starts_with("gdd launch ") {
+        return;
+    }
+    if let Some(env) = &ctx.env {
+        next.command
+            .push_str(&format!(" --env {}", gates::quote(env)));
+    }
+    let p = &state.progress;
+    let role = next.step.as_str();
+    if returned_role(p, role) {
+        return;
+    }
+    let level = level_of(bp, p, role, None);
+    if let Ok((_, _, Some(template))) = model_for(bp, &ctx.env, role, &level)
+        && launch::is_command(&template)
+    {
+        next.command.push_str(" --run");
+    }
+}
+
+fn returned_role(p: &state::Progress, role: &str) -> bool {
+    (role == "build" && p.builds > 0) || (role == "checks" && p.checks_runs > 0)
 }
 
 /// What a setup log sets up, in words for its roles: `standing-checks`, `standing-checks-<check>`
@@ -603,6 +631,14 @@ fn run_role(
         .filter(|o| !o.trim().is_empty())
         .unwrap_or_else(|| read(&errors));
     let said = launch::read_output(adapter, &raw, model);
+    if matches!(role, "build" | "checks")
+        && let Some(session) = &said.session_id
+    {
+        out.say(format!(
+            "session for {id} {role}: {session} (keep it for a fix round)"
+        ));
+        out.fact("session_id", session.as_str());
+    }
     let journal = json!({"launch": {
         "ran": true, "role": role, "environment": env, "level": level, "model": model, "adapter": adapter.name(),
         "started": seen.started, "first_output": seen.first_output, "seconds": seen.seconds, "timed_out": seen.timed_out,
@@ -660,14 +696,14 @@ fn run_role(
 }
 
 pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
-    run("launch", |out| {
+    run_change(ctx, id, "launch", |out| {
         if !["checks", "build", "review", "reading"].contains(&role) {
             return Err(Fail::usage("the role is checks, build, review or reading"));
         }
         let l = load_attempt(ctx, id, role, out)?;
         may_launch(ctx, &l, id, role)?;
-        let level = level_of(&l, role, a.level.as_deref());
-        let (env, model, launch_text) = model_for(&l, &ctx.env, role, &level)?;
+        let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
+        let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
         let prompt = prompt_for(&l, id, role, &level);
         let template = a
             .command
@@ -710,9 +746,11 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         out.say(format!("prompt: {}", prompt_file.display()));
         out.fact("argv", json!(shown));
         if !a.run {
-            out.say(format!(
-                "run it with --run, or launch it yourself and then: gdd report {id} {role} <file>"
-            ));
+            if returned_role(&l.state.progress, role) {
+                out.say(format!("resume the session that did this {role} with this prompt on {model}. With its command line, use --run --command with that session's id. If you resume it by hand: gdd report {id} {role} <file>"));
+            } else {
+                out.say(format!("run it with --run, or launch it yourself and then: gdd report {id} {role} <file>"));
+            }
             return Ok(());
         }
         let who = Launched {

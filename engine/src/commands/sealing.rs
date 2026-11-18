@@ -3,7 +3,7 @@
 use super::*;
 
 pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out {
-    run("seal", |out| {
+    run_change(ctx, id, "seal", |out| {
         let l = load(ctx, id)?;
         if log_kind(id) == LogKind::Setup && !merge_main {
             return Err(Fail::refuse(
@@ -86,10 +86,13 @@ pub fn seal_cmd(ctx: &Ctx, id: &str, files: &[String], merge_main: bool) -> Out 
         for (f, h) in &s.files {
             out.say(format!("  {f} {h}"));
         }
-        out.say(format!(
-            "the checkout and its index were not touched; next: gdd brief {id} --paths ... {}",
-            files.join(" ")
-        ));
+        out.say("the checkout and its index were not touched");
+        if s.unchanged {
+            out.say(format!(
+                "when logging a new brief: gdd brief {id} --paths ... {}",
+                files.join(" ")
+            ));
+        }
         out.fact("ref", json!(format!("gdd-seal/{id}")));
         out.fact("commit", json!(s.commit));
         out.fact(

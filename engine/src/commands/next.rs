@@ -53,40 +53,46 @@ fn stop_repeating(state: &mut State, entries: &[Entry], repeated: Option<(Value,
     }
 }
 
+pub(super) fn load_next(ctx: &Ctx, id: &str) -> R<Loaded> {
+    let mut l = load(ctx, id)?;
+    // A step that seals, builds, judges or ships needs a git that can write.
+    if ["brief", "checks", "build", "gates", "ship"].contains(&l.state.next.step.as_str())
+        && git_writes(ctx).is_err()
+    {
+        l.state.next = state::Next {
+            step: "stopped".into(),
+            say: format!(
+                "{CANNOT_WRITE}: work where git can write (its .git folder, and its refs), then ask again"
+            ),
+            command: format!("gdd next {id}"),
+            blocked: Some("cannot".into()),
+        };
+    } else if ["brief", "checks", "build", "ship"].contains(&l.state.next.step.as_str())
+        && git_commits(ctx).is_err()
+    {
+        // The same for a step that ends in a commit: of the layer's, or of the role it launches.
+        l.state.next = state::Next {
+            step: "stopped".into(),
+            say: format!("{NO_AUTHOR}: {SET_AUTHOR}"),
+            command: format!("gdd next {id}"),
+            blocked: Some("cannot".into()),
+        };
+    }
+    stop_repeating(
+        &mut l.state,
+        &l.entries,
+        crate::journal::repeated_refusal(&l.project.journal_path(id)),
+    );
+    prefer_run(ctx, &l.bp, &mut l.state);
+    Ok(l)
+}
+
 pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
     run("next", |out| {
         let Some(id) = id else {
             return next_project(ctx, out);
         };
-        let mut l = load(ctx, id)?;
-        // A step that seals, builds, judges or ships needs a git that can write.
-        if ["brief", "checks", "build", "gates", "ship"].contains(&l.state.next.step.as_str())
-            && git_writes(ctx).is_err()
-        {
-            l.state.next = state::Next {
-                step: "stopped".into(),
-                say: format!(
-                    "{CANNOT_WRITE}: work where git can write (its .git folder, and its refs), then ask again"
-                ),
-                command: format!("gdd next {id}"),
-                blocked: Some("cannot".into()),
-            };
-        } else if ["brief", "checks", "build", "ship"].contains(&l.state.next.step.as_str())
-            && git_commits(ctx).is_err()
-        {
-            // The same for a step that ends in a commit: of the layer's, or of the role it launches.
-            l.state.next = state::Next {
-                step: "stopped".into(),
-                say: format!("{NO_AUTHOR}: {SET_AUTHOR}"),
-                command: format!("gdd next {id}"),
-                blocked: Some("cannot".into()),
-            };
-        }
-        stop_repeating(
-            &mut l.state,
-            &l.entries,
-            crate::journal::repeated_refusal(&l.project.journal_path(id)),
-        );
+        let l = load_next(ctx, id)?;
         let s = &l.state;
         if l.entries.is_empty() {
             out.say(format!("{id} has no log yet"));
@@ -122,7 +128,7 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
         if !s.limits.stop.is_empty() {
             out.say(format!("no room left: {}", s.limits.stop.join(", ")));
         }
-        say_next(out, &s.next);
+        out.next = Some(s.next.clone());
         out.fact("state", s.facts());
         if s.next
             .blocked
@@ -244,6 +250,7 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
             if p.events == 0 && s.next.blocked.as_deref() != Some("needs-person") {
                 continue;
             }
+            prefer_run(ctx, &bp, &mut s);
             under_way.push(json!({"id": lid, "next": s.next.step, "command": s.next.command, "blocked": s.next.blocked}));
             out.say(match &s.next.blocked {
                 Some(b) => format!("under way: {lid}, stopped ({b}): {}", s.next.command),

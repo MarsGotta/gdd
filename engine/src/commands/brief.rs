@@ -65,14 +65,13 @@ fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) 
         "{id} is dropped: wrote the brief step, stopped, line {line}"
     ));
     out.fact("line", line);
-    out.fact("next", "stopped");
     Ok(())
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
 /// the seal's tip, which must hold those same files.
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
-    run("brief", |out| {
+    run_change(ctx, id, "brief", |out| {
         let l = load_attempt(ctx, id, "brief", out)?;
         if log_kind(id) == LogKind::Setup {
             return Err(Fail::refuse(
@@ -251,11 +250,8 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             ));
         }
         out.say(format!("wrote the brief step, line {line}"));
-        let after = after(ctx, &l, id);
-        say_next(out, &after.next);
         out.fact("color", json!(c.color));
         out.fact("line", line);
-        out.fact("next", json!(after.next.step));
         Ok(())
     })
 }

@@ -4,6 +4,24 @@
 mod common;
 use common::*;
 
+/// The public output can drive the next command without another journaled invocation.
+fn same_as_next(r: &Repo, id: &str, written: &Run) {
+    assert!(written.facts["line"].is_number(), "{}", written.out);
+    let read = r.gdd(&["--no-journal", "next", id]);
+    let next = &read.facts["state"]["next"];
+    assert_eq!(written.facts["next"], next["step"], "{}", written.out);
+    assert_eq!(
+        written.facts["next_command"], next["command"],
+        "{}",
+        written.out
+    );
+    let last = written.out.lines().rev().nth(1).unwrap();
+    match next["command"].as_str().unwrap() {
+        "" => assert!(last.starts_with("next: "), "{last}"),
+        command => assert_eq!(last, format!("run: {command}")),
+    }
+}
+
 #[test]
 fn a_green_change_from_brief_to_ship() {
     let r = Repo::new();
@@ -11,6 +29,7 @@ fn a_green_change_from_brief_to_ship() {
     assert_eq!(n.facts["state"]["next"]["step"], "brief", "{}", n.out);
     let b = r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);
     assert_eq!(b.code, 0, "{}", b.out);
+    same_as_next(&r, "g1", &b);
     assert_eq!(b.facts["color"], "green");
     assert_eq!(b.facts["next"], "build", "{}", b.out);
     // The launch prints the command and the prompt: the blueprint's launch is prose here.
@@ -35,9 +54,11 @@ fn a_green_change_from_brief_to_ship() {
         &[],
     );
     assert_eq!(rep.code, 0, "{}", rep.out);
+    same_as_next(&r, "g1", &rep);
     assert_eq!(rep.facts["next"], "gates");
     let g = r.gdd(&["gates", "g1"]);
     assert_eq!(g.code, 0, "{}", g.out);
+    same_as_next(&r, "g1", &g);
     let ran: Vec<&str> = g.facts["checks"]
         .as_array()
         .unwrap()
@@ -51,6 +72,7 @@ fn a_green_change_from_brief_to_ship() {
     );
     let rv = r.report("g1", "review", &review_text("pass", "green", ""), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
+    same_as_next(&r, "g1", &rv);
     assert_eq!(rv.facts["next"], "ship", "{}", rv.out);
     let d = r.gdd(&["ship", "g1", "--describe"]);
     assert_eq!(d.code, 0, "{}", d.out);
@@ -66,6 +88,7 @@ fn a_green_change_from_brief_to_ship() {
         r.read("gdd/backlog.md")
             .contains("| g1 | A green change | green | 1 | | done |")
     );
+    same_as_next(&r, "g1", &s);
     let v = r.gdd(&["verify", "g1"]);
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
     let n = r.gdd(&["next", "g1"]);
@@ -75,6 +98,7 @@ fn a_green_change_from_brief_to_ship() {
     let void = r.gdd(&["correct", "g1", "--line", &line, "--void", "reopen it"]);
     assert_eq!(void.facts["refused"], "out-of-order", "{}", void.out);
     let note = r.gdd(&["correct", "g1", "--line", &line, "a typo in its place"]);
+    same_as_next(&r, "g1", &note);
     assert_eq!(note.code, 0, "{}", note.out);
     assert_eq!(
         r.gdd(&["next", "g1"]).facts["state"]["next"]["step"],
@@ -123,6 +147,7 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
         "gdd/briefs/y1.md",
         "features/y1.feature",
     ]);
+    same_as_next(&r, "y1", &ap);
     assert_eq!(ap.code, 0, "{}", ap.out);
     assert_eq!(
         r.gdd(&["next", "y1"]).facts["state"]["next"]["step"],
@@ -1226,4 +1251,22 @@ fn the_answer_about_the_deep_level_lasts_until_the_project_changes_levels() {
         r.gdd(&["next"]).facts["levels_answer"],
         "Wait for the deep setting."
     );
+}
+
+#[test]
+fn an_open_blueprint_question_hands_off_to_its_answer() {
+    let r = Repo::new();
+    let asked = r.gdd(&[
+        "ask",
+        "blueprint",
+        "--of",
+        "levels",
+        "Use the available level?",
+    ]);
+    same_as_next(&r, "blueprint", &asked);
+    assert_eq!(asked.facts["next"], "wait");
+    assert_eq!(asked.facts["next_command"], asked.facts["then"]);
+    let answer = r.gdd(&["answer", "blueprint", "Yes"]);
+    same_as_next(&r, "blueprint", &answer);
+    assert_eq!(answer.facts["next"], "done");
 }

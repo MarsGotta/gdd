@@ -115,7 +115,7 @@ fn judged_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
 }
 
 pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
-    run("gates", |out| {
+    run_change(ctx, id, "gates", |out| {
         let l = load_attempt(ctx, id, "gates", out)?;
         need_repo(ctx, "the gates judge a commit")?;
         if at.is_none() {
@@ -217,21 +217,11 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             git::short(&start),
             outputs.display()
         ));
-        let after = after(ctx, &l, id);
-        let lim_after = &after.limits;
-        if !lim_after.slow.is_empty() {
-            out.say(format!(
-                "past its seconds, for the backlog: {}",
-                lim_after.slow.join(", ")
-            ));
-        }
-        say_next(out, &after.next);
         out.fact("head", json!(head));
         out.fact("start", json!(start));
         out.fact("passed", passed);
         out.fact("line", line);
         out.fact("checks", json!(ran.iter().map(|r| json!({"check": r.check, "result": if r.passed {"pass"} else {"fail"}, "seconds": r.seconds, "exit": r.exit})).collect::<Vec<_>>()));
-        out.fact("next", json!(after.next.step));
         if !passed {
             out.code = 1;
         }

@@ -125,7 +125,7 @@ pub(super) fn levels_answer<'a>(entries: &'a [Entry], bp: &Blueprint) -> Option<
 }
 
 pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
-    run("ask", |out| {
+    run_change(ctx, id, "ask", |out| {
         if !log::ASK_OF.contains(&of) {
             return Err(Fail::usage(format!(
                 "--of is one of {}",
@@ -240,7 +240,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
 }
 
 pub fn answer(ctx: &Ctx, id: &str, words: &str) -> Out {
-    run("answer", |out| {
+    run_change(ctx, id, "answer", |out| {
         let l = load(ctx, id)?;
         let Some(a) = l.state.progress.open_ask().cloned() else {
             return Err(Fail::refuse(
@@ -281,7 +281,7 @@ pub struct Approval<'a> {
 }
 
 pub fn approve(ctx: &Ctx, id: &str, a: &Approval) -> Out {
-    run("approve", |out| {
+    run_change(ctx, id, "approve", |out| {
         if !log::APPROVAL_OF.contains(&a.of) {
             return Err(Fail::usage(format!(
                 "--of is one of {}",
@@ -397,7 +397,7 @@ pub struct Waiver<'a> {
 }
 
 pub fn waiver(ctx: &Ctx, id: &str, w: &Waiver) -> Out {
-    run("waiver", |out| {
+    run_change(ctx, id, "waiver", |out| {
         if w.limit.is_some() != w.to.is_some() {
             return Err(Fail::usage(
                 "a waiver of a limit takes both --limit and --to",
@@ -462,7 +462,7 @@ pub fn waiver(ctx: &Ctx, id: &str, w: &Waiver) -> Out {
 }
 
 pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out {
-    run("correct", |out| {
+    run_change(ctx, id, "correct", |out| {
         let l = load(ctx, id)?;
         if !l.entries.iter().any(|e| e.line == line) {
             return Err(Fail::usage(format!(

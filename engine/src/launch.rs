@@ -204,6 +204,8 @@ pub struct Said {
     /// Tokens by model; empty when the environment reported none.
     pub usage: BTreeMap<String, Usage>,
     pub error: Option<String>,
+    /// The session named by the environment, for returning work to this role.
+    pub session_id: Option<String>,
 }
 
 impl Said {
@@ -228,6 +230,17 @@ impl Said {
 
 fn int(v: &Value, k: &str) -> i64 {
     v.get(k).and_then(Value::as_i64).unwrap_or(0)
+}
+
+/// Only an identifier can be copied into an explicit resume command.
+fn session_id(value: &Value) -> Option<String> {
+    let id = value.as_str()?;
+    (id.len() <= 128
+        && id.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')))
+    .then(|| id.to_owned())
 }
 
 /// Read a launched role's output with the adapter of its program.
@@ -259,6 +272,7 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
                         }
                     }
                     Some("result") => {
+                        said.session_id = session_id(&ev["session_id"]);
                         text = ev.get("result").and_then(Value::as_str).map(str::to_string);
                         if let Some(Value::Object(mu)) = ev.get("modelUsage") {
                             said.usage.clear();
@@ -287,6 +301,7 @@ pub fn read_output(adapter: Adapter, raw: &str, model: &str) -> Said {
             let mut text = None;
             for ev in &events {
                 match ev.get("type").and_then(Value::as_str) {
+                    Some("thread.started") => said.session_id = session_id(&ev["thread_id"]),
                     Some("turn.completed") => {
                         let u = ev.get("usage").cloned().unwrap_or(Value::Null);
                         let cached = int(&u, "cached_input_tokens");
@@ -479,6 +494,7 @@ mod tests {
 "#;
         let s = read_output(Adapter::Claude, raw, "model-a");
         assert!(s.text.starts_with("pass"));
+        assert_eq!(s.session_id.as_deref(), Some("s1"));
         assert_eq!(s.tokens(), Some(35));
         assert_eq!(s.usage["model-a"].cache_read, 1000);
     }

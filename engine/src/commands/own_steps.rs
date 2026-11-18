@@ -42,7 +42,7 @@ fn json_list(text: &Option<String>, what: &str, keys: &[&str]) -> R<Value> {
 /// The orchestrator's own steps, `prepare`, `harden` and `exam`, in the shapes of the contract,
 /// so nobody composes a whole report by hand. They go to the blueprint's log.
 pub fn step_cmd(ctx: &Ctx, id: &str, st: &str, a: &StepArgs) -> Out {
-    run("step", |out| {
+    run_change(ctx, id, "step", |out| {
         if id != "blueprint" {
             return Err(Fail::usage(format!(
                 "a {st} step goes to the blueprint's log: gdd step blueprint {st} ..."

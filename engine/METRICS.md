@@ -80,6 +80,7 @@ A launch records tokens only when its environment reports them, read by an adapt
 
 ## What it can answer, and what it can't
 
+- **Layer calls per change.** Read `changes.invocations` for the change id. It counts one journal entry for an explicit `next`, one for a launch that both runs and reports, and two for a manual `launch` followed by `report`. Printing the next command after a write adds zero. To see where the calls went, group that change's `engine` rows by `command`. Calls without a change id belong to the project journal. Waits in the calling tool can only be counted in its trace.
 - **Cost and turns.** Tokens per role come from the steps' reports and from the journal of each launch; invocations and refusals from the journal. The orchestrator's own tokens and turns are invisible to the tool: it never sees the conversation that calls it. A benchmark measures those from outside and joins them by change id.
 - **No run stuck or voided by bookkeeping.** Roles that never started or timed out, and every refusal with its reason, are in `engine`; changes stopped and why in `changes`.
 - **Every log passing verify.** `verify_errors` and `verify_warnings` per change; `gdd verify --all` gives the same with git as well.

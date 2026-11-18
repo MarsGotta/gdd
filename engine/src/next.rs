@@ -224,13 +224,6 @@ pub(crate) fn next_step(
     now: i64,
 ) -> Next {
     let kind = p.kind.unwrap_or(LogKind::Change);
-    if kind == LogKind::Blueprint {
-        return n(
-            "done",
-            "the blueprint's log has no next step of its own",
-            "",
-        );
-    }
     if let Some((line, w)) = &p.shipped {
         return n(
             "done",
@@ -256,6 +249,13 @@ pub(crate) fn next_step(
                 a.line, a.of, a.what
             ),
             then,
+        );
+    }
+    if kind == LogKind::Blueprint {
+        return n(
+            "done",
+            "the blueprint's log has no next step of its own",
+            "",
         );
     }
     let color = p.color.clone().unwrap_or_default();

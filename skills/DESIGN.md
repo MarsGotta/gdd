@@ -411,6 +411,12 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     A fixed-seed test follows the commands printed by `next` in throwaway projects. It supplies synthetic role reports and answers, exercises refusals as well as successful steps and checks that each walk ends in shipment or a decision to leave the change pending. Following the printed commands exposed two more refusals. A brief whose color rose lacked the required `--paths`. After bookkeeping, the suggested review refused to launch because the branch had moved. The brief command now includes its paths, and the reviewer sees and reports on the product commit the gates judged.
 
+79. **A command that writes a step gives the next one.** In benchmark 0.28 the orchestrator made 174 to 381 calls per run just to ask the layer what came next, launch roles and report their work. This revises the instruction in decision 53 to run `next` before every step. Its guarantee holds because each command still checks the state for itself. The orchestrator follows the next step and command printed after a write and reads `next` at the start, after compaction or when unsure. After a refusal it still checks the remedy before retrying (decision 78). The existing `changes.invocations` counts the calls per change.
+
+    Prepare tries the command line first when it can launch the agreed model. One `launch --run` waits, records the step and measures the run. Two of three runs through the agent tool lacked seconds and tokens. Decision 71 still applies to a fix. Return the round's prompt to the same session by its id using the existing `--command`, or resume it through the agent tool. Reviewers and brief readers start fresh.
+
+    Decision 72 was one sentence inside the paragraph on launching roles. It gave no timeout example and said nothing about a command still running. In 0.29 two runs made 300 and 175 waits of one minute. The instruction now sits beside the command table and gives a number. Wait once for the longest interval the environment allows, for a role or a long command. The estimate of 5 to 13 percent of total cost concerns waits. The savings from fewer layer calls have yet to be measured.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.
