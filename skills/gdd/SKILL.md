@@ -77,7 +77,7 @@ Start each role in a new session or subagent. Return a fix to the agent that mad
 
 ## The person
 
-Send a command's output to a file and read only its end.
+Send a command's output to a file and read only its end. When `ship` lists product choices, open `references/person.md`.
 
 Unless they asked for more, every message to the person is under 100 words, in their language, in this shape:
 

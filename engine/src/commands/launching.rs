@@ -240,6 +240,18 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     if role == "reading" {
         s.push("You are to read a brief before anyone builds it: follow references/brief.md of the skill.".into());
     }
+    if let Some(decisions) = &p.decisions
+        && !decisions.is_empty()
+        && matches!(role, "review" | "build")
+    {
+        let instruction = if role == "review" {
+            "Within this review's scope, check these product choices against the product rules and the brief or request. If a choice contradicts a written rule, report the finding and cite the rule."
+        } else {
+            "These were the last builder's product choices. Update the list in your report to match what you built."
+        };
+        s.push(instruction.into());
+        s.extend(decisions.iter().map(|choice| format!("- {choice}")));
+    }
     if role == "review"
         && let Some(size) = counting::size_warning(l)
     {

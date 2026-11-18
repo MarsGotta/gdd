@@ -208,17 +208,15 @@ def main():
         return 2
 
     found = templates()
+    report = found.pop("report", "")
+    build_report = found.pop("build-report", "")
     if "--write" in sys.argv:
         for destination, text in found.items():
-            if destination == "report":
-                continue
             target = SKILLS / destination
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
 
     for destination, text in found.items():
-        if destination == "report":
-            continue
         target = SKILLS / destination
         if not target.is_file():
             problem(target, "missing: its template is in skills/CONTRACT.md")
@@ -250,7 +248,8 @@ def main():
             problem(skill, "metadata doesn't say contract: gdd/1")
 
         block = report_block(body)
-        expected = found.get("report", "").replace("<skill> <version>", f"{name} {version}")
+        template = build_report if name == "gdd-build" else report
+        expected = template.replace("<skill> <version>", f"{name} {version}")
         if name in LAUNCHED:
             if block is None:
                 problem(skill, "doesn't end with the gdd-report block")

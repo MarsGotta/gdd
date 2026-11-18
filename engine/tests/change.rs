@@ -110,6 +110,76 @@ fn a_green_change_from_brief_to_ship() {
     assert!(journal.contains("\"refused\":\"not-merged\""));
 }
 
+fn build_report(field: &str) -> String {
+    format!("```gdd-report\nskill: gdd-build 0.13.1\nresult: done\ncaught: none\n{field}```")
+}
+
+fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
+    let r = Repo::new();
+    let id = "g1";
+    assert_eq!(r.gdd(&["brief", id, "--paths", "src/ui/page.txt"]).code, 0);
+    r.commit_on(
+        "work/g1",
+        Some("main"),
+        &[("src/ui/page.txt", "updated\n")],
+        "Build",
+    );
+    let report = format!("decision: Outside the block.\n{}", build_report(field));
+    let build = r.report(id, "build", &report, &[]);
+    assert_eq!(build.facts["next"], "gates", "{}", build.out);
+    let log = r.log_lines(id);
+    assert_eq!(
+        log.last().unwrap().get("decisions").cloned(),
+        expected.map(|choices| serde_json::json!(choices))
+    );
+    assert_eq!(r.gdd(&["gates", id]).facts["next"], "review");
+    let launch = r.gdd(&["launch", id, "review"]);
+    let prompt = launch.facts["prompt"].as_str().unwrap();
+    let reviewed = r.report(id, "review", &review_text("pass", "green", ""), &[]);
+    assert_eq!(reviewed.facts["next"], "ship", "{}", reviewed.out);
+    let shipped = r.gdd(&["ship", id, "--merge"]);
+    assert_eq!(shipped.facts["next"], "done", "{}", shipped.out);
+    let choices = expected.unwrap_or_default();
+    assert_eq!(
+        shipped.facts.get("decisions").is_some(),
+        !choices.is_empty()
+    );
+    assert_eq!(prompt.contains("cite the rule"), !choices.is_empty());
+    for (text, heading) in [
+        (
+            prompt,
+            "check these product choices against the product rules and the brief or request",
+        ),
+        (
+            shipped.out.as_str(),
+            "Tell the person which product choices",
+        ),
+    ] {
+        let mut lines = text.lines().skip_while(|line| !line.contains(heading));
+        assert_eq!(lines.next().is_some(), !choices.is_empty());
+        let listed: Vec<_> = lines.map_while(|line| line.strip_prefix("- ")).collect();
+        assert_eq!(listed, choices);
+        assert!(!text.contains("Outside the block."));
+    }
+    let verified = r.gdd(&["verify", id]);
+    assert_eq!(verified.facts["errors"], 0, "{}", verified.out);
+}
+
+#[test]
+fn build_decisions_reach_the_reviewer_and_the_ship_message() {
+    check_build_decisions(
+        "decision: Show 8 entries by default.\ndecision: Order: newest first.\n",
+        Some(&["Show 8 entries by default.", "Order: newest first."]),
+    );
+}
+
+#[test]
+fn empty_and_older_build_reports_ship_without_decision_lines() {
+    check_build_decisions("decision: none\n", Some(&[]));
+    check_build_decisions("decision:\n", Some(&[]));
+    check_build_decisions("", None);
+}
+
 #[test]
 fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let r = Repo::new();
@@ -224,7 +294,12 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
         &[("src/core/app.txt", "ok, and better\n")],
         "Round 2",
     );
-    let b2 = r.report("y1", "build", &report_block("gdd-build", "done"), &[]);
+    let b2 = r.report(
+        "y1",
+        "build",
+        &build_report("decision: Add a greeting.\n"),
+        &[],
+    );
     assert_eq!(b2.facts["round"], 2);
     let g2 = r.gdd(&["gates", "y1"]);
     assert_eq!(g2.code, 0, "{}", g2.out);
@@ -251,13 +326,19 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     );
     assert_eq!(rv.code, 0, "{}", rv.out);
     let l = r.gdd(&["launch", "y1", "build"]);
+    assert!(l.has("Add a greeting."));
     assert!(
         l.facts["prompt"].as_str().unwrap().contains("Say only ok."),
         "{}",
         l.out
     );
     r.commit_on("work/y1", None, &[("src/core/app.txt", "ok\n")], "Round 3");
-    r.report("y1", "build", &report_block("gdd-build", "done"), &[]);
+    r.report(
+        "y1",
+        "build",
+        &build_report("decision: Use lower case.\n"),
+        &[],
+    );
     assert_eq!(r.gdd(&["gates", "y1"]).code, 0);
     let rv = r.report(
         "y1",
@@ -271,6 +352,8 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     r.git(&["merge", "-q", "--no-ff", "-m", "Merge y1", "work/y1"]);
     let s = r.gdd(&["ship", "y1", "--done", "main"]);
     assert_eq!(s.code, 0, "{}", s.out);
+    assert!(s.out.lines().any(|line| line == "- Use lower case."));
+    assert!(!s.has("Add a greeting."));
     let v = r.gdd(&["verify", "--all"]);
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
     let lim = r.gdd(&["limits", "y1"]);
@@ -995,7 +1078,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     }]);
     let message = format!(
         "```json\n{claim}\n```\n{}",
-        report_block("gdd-build", "done")
+        build_report("decision: Use a single line.\n")
     );
     assert_eq!(r.report("y7", "build", &message, &[]).code, 0);
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
@@ -1073,6 +1156,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     assert!(prompt.contains("The product has not changed"), "{prompt}");
     assert!(prompt.contains("Changed tests: tests/y7.sh"), "{prompt}");
     assert!(prompt.contains("Review only those tests"), "{prompt}");
+    assert!(prompt.contains("- Use a single line."), "{prompt}");
     assert!(
         prompt.contains("f1 tests/y7.sh:1: the test passes whatever the app says | @id:y7-1"),
         "{prompt}"

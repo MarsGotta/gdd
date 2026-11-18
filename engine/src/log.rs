@@ -320,7 +320,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("request", Str, May),
         ],
         ("step", "checks") => vec![("seal", Obj, Must), ("color", Obj, May)],
-        ("step", "build") => vec![("claims", Arr, Writes)],
+        ("step", "build") => vec![("claims", Arr, Writes), ("decisions", Arr, May)],
         ("step", "gates") => vec![
             ("start", Str, Must),
             ("where", Str, Writes),

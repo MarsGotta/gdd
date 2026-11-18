@@ -61,6 +61,15 @@ After:
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 
+## When the builder made a product choice
+
+When you tell the person the change is in, give each reported choice one line in their words. Say what you chose and how they can correct it. Leave the brief as agreed and finish without a question.
+
+    Your walking map is in.
+    The distance check passed.
+    I set distances to kilometres. I can switch them to miles.
+    I put the shortest walks first. I can change that order too.
+
 ## When you need something from them
 
 - **One thing, the one that stops the work,** in the last message of your turn. A question left in an earlier message may never be read.

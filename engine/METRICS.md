@@ -58,6 +58,8 @@ change, line, ts; step; role (the report's skill) and skill_version; level; mode
 
 For a fix flagged for missing citations, `uncited` counts distinct finding numbers without a citation, including in older logs that repeat a number. Zero means the flagged fix gave no numbered finding at all. Other steps, including older logs without the flag, leave this column null. The summary counts flagged reviews and adds their uncited findings.
 
+To compare what the builder declared with what the brief left open, use the step's `change` and `line` to read `decisions` in the build log. An empty list records an explicit report of no choices. A missing field is unknown.
+
 ## checks: one row per executed or skipped check of each gates run
 
 Each row identifies the change, run number, log line, head, start, check and tier (`each round` or `before review`). A run gives the command, exit code, measured seconds and result (`pass` or `fail`). An omission has `result: "skipped"` and its logged reason in `why`. Its command, exit and seconds are null. A path filter can exclude a check, or a failure can stop a later tier. Old logs can only show the omissions they recorded.

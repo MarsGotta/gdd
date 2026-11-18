@@ -126,6 +126,8 @@ pub struct Progress {
     pub checks_line: Option<usize>,
     pub builds: i64,
     pub last_build: Option<(usize, bool)>,
+    /// Product choices still in the change, when the builder reported them.
+    pub decisions: Option<Vec<String>>,
     pub build_stop: Option<String>,
     pub last_gates: Option<GatesRun>,
     pub reviews: i64,
@@ -487,6 +489,9 @@ impl Progress {
                 let stopped = result(v) == "stopped" || v.get("stop").is_some();
                 self.build_stop = stopped.then(|| str_of(&v["stop"], "reason").to_string());
                 self.last_build = Some((line, stopped));
+                if v["seal_only"] != true || v.get("decisions").is_some() {
+                    self.decisions = v.get("decisions").map(strings);
+                }
                 self.built_since_seal = true;
                 self.last_gates = None;
                 self.last_review = None;

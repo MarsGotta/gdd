@@ -734,6 +734,9 @@ fn report_build(
         }
     }
     m.insert("claims".into(), Value::Array(claims));
+    if let Some(decisions) = &r.decisions {
+        m.insert("decisions".into(), json!(decisions));
+    }
     Ok(())
 }
 

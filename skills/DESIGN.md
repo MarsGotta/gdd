@@ -441,6 +441,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     A product finding or a finding without a file still goes to the builder. The resumed builder brings in the corrected seal. When its tree differs from the reviewed tree only in sealed tests, the merge uses no build round. Time and tokens still count, and the gates run on the new seal. A fresh reviewer gets the tests that changed and the findings to close. In three of the six later reviews that asked for another fix, the first reviewer already had the evidence. Every fix review now starts with the previous findings and retests only what changed. The next benchmark can count build rounds that left the product unchanged.
 
+86. **The builder reports the product choices the brief left open.** Across two runs of benchmark 0.29, builders silently chose a minimum length, left a payment pending on an unchecked assumption about the provider, and served a data file to people who should not have seen it. The three choices cost three judge scenarios and two high-severity defects. Across all three runs, 10 of the 12 serious defects had no scenario asking for the expected behavior or had a brief that said the opposite.
+
+    The builder knows which choices it made. It lists each one in its report. A fresh reviewer checks them against the written rules and cites any conflict as an ordinary finding. After shipping, the orchestrator tells the person what was chosen so they can correct it. A declaration adds no requirement or approval. The next benchmark can check whether a blind reviewer still finds product choices missing from both the brief and the report.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

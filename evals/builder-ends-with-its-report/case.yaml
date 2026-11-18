@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: builder-ends-with-its-report
-description: A small yellow change that can be built. The builder commits on its branch, leaves the sealed test alone and reports its last run and the number of failures it saw for each check.
+description: A small yellow change that can be built. The builder commits on its branch, leaves the sealed test alone and reports its last run and the number of failures it saw for each check. Its report block lists any product choices the brief left open, or says none.
 tags: [role, build]
 runs: 3
 execution:
@@ -79,6 +79,9 @@ graders:
     target: trace
     pattern: '"name":"Read","input":\{"file_path":"([^"]+)"\}(?:(?!"name":"(?:Bash|Write|Edit|MultiEdit)")[\s\S])*?"name":"Read","input":\{"file_path":"\1"\}'
     match: not_contains
+  - name: declares-product-choices-in-its-report
+    type: regex
+    pattern: '```gdd-report[ \t]*\r?\n(?:(?![ \t]*```)[^\n]*\n)*?[ \t]*decision:[ \t]*\S'
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-build[^\n]*\nresult: done'

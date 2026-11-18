@@ -54,6 +54,7 @@ pub struct RoleReport {
     pub version: Option<String>,
     pub result: String,
     pub caught: String,
+    pub decisions: Option<Vec<String>>,
     /// The reason and what would unblock it, when the role stopped with `CANNOT:`.
     pub cannot: Option<(String, String)>,
     /// The reviewer's first word: `pass`, `fix` or `stop`.
@@ -301,6 +302,14 @@ pub(crate) fn parse_with_blueprint(
         caught: get("caught").unwrap_or_else(|| "none".into()),
         ..RoleReport::default()
     };
+    for (key, value) in fields {
+        if key == "decision" {
+            let decisions = r.decisions.get_or_insert_with(Vec::new);
+            if !value.is_empty() && !value.eq_ignore_ascii_case("none") {
+                decisions.push(value);
+            }
+        }
+    }
     let lines: Vec<&str> = text.lines().collect();
     if let Some(i) = lines.iter().position(|l| plain(l).starts_with("CANNOT:")) {
         let reason = plain(lines[i])

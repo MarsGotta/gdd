@@ -625,6 +625,15 @@ fn write_ship(
         ));
         out.fact("empty_zones", json!(names));
     }
+    if let Some(decisions) = &l.state.progress.decisions
+        && !decisions.is_empty()
+    {
+        out.say("Tell the person which product choices the builder made:");
+        for choice in decisions {
+            out.say(format!("- {choice}"));
+        }
+        out.fact("decisions", json!(decisions));
+    }
     Ok(line)
 }
 

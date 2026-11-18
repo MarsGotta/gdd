@@ -17,10 +17,20 @@ Build this change. Its gates decide when it's done. Never orchestrate, write che
 - A check that also fails without your change isn't yours: show it failing on the base.
 - Stop when it doesn't fit: a file you need isn't in your paths, a check contradicts your brief or looks wrong, or it can't be done. Start your last message with `CANNOT:`, the reason and what would unblock you. A fake solution wastes everyone's time. Never copy code to bypass a path limit.
 
-End with three lines on what you did, each gate's evidence, what you couldn't check, and this block, where `result` is `done` or `stopped`.
+End with three lines on what you did, each gate's evidence and what you couldn't check. Give each product choice still in the change one `decision:` line.
 
 ```gdd-report
 skill: gdd-build 0.13.1
-result: <what it leaves, in a word or two>
+result: <done or stopped>
 caught: <what it caught that others missed, or none>
+decision: <a product choice the brief or request left open, or none. Include numbers, order, limits, defaults and what an outside service can or cannot do>
+```
+
+For example,
+
+```gdd-report
+skill: gdd-build 0.13.1
+result: done
+caught: none
+decision: New sketches start with a 5 mm grid.
 ```
