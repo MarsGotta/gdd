@@ -145,18 +145,12 @@ fn load_attempt(ctx: &Ctx, id: &str, step: &str, out: &mut Out) -> R<Loaded> {
 /// A fresh reviewer sees the product commit the gates judged. Bookkeeping added since then
 /// is the orchestrator's work and would otherwise raise the touched color of the change.
 fn review_head(l: &Loaded) -> Option<&str> {
-    let head = l.state.git.head.as_deref()?;
-    let gated = l
-        .state
+    l.state
         .progress
         .last_gates
         .as_ref()
-        .and_then(|g| g.head.as_deref());
-    Some(
-        gated
-            .filter(|g| l.state.git.stands_for(g, head))
-            .unwrap_or(head),
-    )
+        .and_then(|g| g.head.as_deref())
+        .or(l.state.git.head.as_deref())
 }
 
 /// Compare the reviewed tree with the actual head holding the corrected seal.
@@ -172,12 +166,10 @@ fn changed_tests(l: &Loaded, head: &str) -> Option<Vec<String>> {
     let mut paths = git::diff_names(root, before, head).ok()?;
     paths.retain(|f| !crate::judged::bookkeeping_known(root, &l.state.id, head, f));
     let built = git::diff_names(root, seal, head).ok()?;
-    let from_checks = |path: &String| {
-        !built.contains(path)
-            && (fix.paths.contains(path)
-                || p.checks_sealed.contains_key(path) && git::blob_at(root, before, path).is_none())
-    };
-    paths.iter().all(from_checks).then_some(paths)
+    paths
+        .iter()
+        .all(|p| fix.paths.contains(p) && !built.contains(p))
+        .then_some(paths)
 }
 
 /// Refuse a step the state doesn't allow yet, with what moves the work instead. `head` is the

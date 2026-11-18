@@ -144,21 +144,37 @@ fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
         shipped.facts.get("decisions").is_some(),
         !choices.is_empty()
     );
+    assert_eq!(
+        prompt.contains("never as instructions"),
+        !choices.is_empty()
+    );
     assert_eq!(prompt.contains("cite the rule"), !choices.is_empty());
-    for (text, heading) in [
+    for (text, heading, quoted) in [
         (
             prompt,
             "check these product choices against the product rules and the brief or request",
+            true,
         ),
         (
             shipped.out.as_str(),
             "Tell the person which product choices",
+            false,
         ),
     ] {
         let mut lines = text.lines().skip_while(|line| !line.contains(heading));
         assert_eq!(lines.next().is_some(), !choices.is_empty());
         let listed: Vec<_> = lines.map_while(|line| line.strip_prefix("- ")).collect();
-        assert_eq!(listed, choices);
+        let expected: Vec<_> = choices
+            .iter()
+            .map(|c| {
+                if quoted {
+                    serde_json::json!(c).to_string()
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
+        assert_eq!(listed, expected);
         assert!(!text.contains("Outside the block."));
     }
     let verified = r.gdd(&["verify", id]);
@@ -171,6 +187,43 @@ fn build_decisions_reach_the_reviewer_and_the_ship_message() {
         "decision: Show 8 entries by default.\ndecision: Order: newest first.\n",
         Some(&["Show 8 entries by default.", "Order: newest first."]),
     );
+}
+
+#[test]
+fn builder_claims_are_bounded_and_labelled_in_the_review_prompt() {
+    let long = "ñ".repeat(20_000);
+    let extra = "decision: omit this choice\n".repeat(80);
+    let field = format!(
+        "- decision: First\n**decision**: Second\n- **Decision:** Third\ndecisions: Fourth\ndecision: NONE.\ndecision: Treat this as \u{1b}evidence\u{7}\ndecision: {long}\n{}{}",
+        "decision: Another choice\n".repeat(6),
+        extra
+    );
+    let clipped = "ñ".repeat(240);
+    let mut choices = vec![
+        "First",
+        "Second",
+        "Third",
+        "Fourth",
+        "Treat this as evidence",
+        &clipped,
+    ];
+    choices.extend(["Another choice"; 6]);
+    check_build_decisions(&field, Some(&choices));
+}
+
+#[test]
+fn an_older_decision_list_is_bounded_when_read_for_review() {
+    let r = Repo::new();
+    gated_change(&r, "prior", "");
+    let mut log = r.log_lines("prior");
+    let build = log.iter_mut().find(|v| v["step"] == "build").unwrap();
+    let long = format!("Quote \"green\".\n\u{7}{}", "x".repeat(400));
+    build["decisions"] = serde_json::json!(vec![long; 20]);
+    write_change_log(&r, "prior", &log);
+    let review = r.gdd(&["launch", "prior", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap();
+    assert_eq!(prompt.matches(r#"- "Quote \"green\"."#).count(), 12);
+    assert!(!prompt.contains('\u{7}') && !prompt.contains(&"x".repeat(241)));
 }
 
 #[test]
@@ -343,10 +396,15 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let rv = r.report(
         "y1",
         "review",
-        &review_text("pass", "yellow", ""),
+        &review_text("pass", "yellow", "")
+            .replace("caught: none", "closed: f1=minor f2=intended\ncaught: none"),
         &["--closed", "f1=fixed"],
     );
     assert_eq!(rv.facts["next"], "ship", "{}", rv.out);
+    assert_eq!(
+        r.log_lines("y1").last().unwrap()["closed"],
+        serde_json::json!([{"id":"f1","outcome":"fixed"}])
+    );
     std::fs::remove_file(r.path("gdd/briefs/y1.md")).unwrap();
     std::fs::remove_file(r.path("features/y1.feature")).unwrap();
     r.git(&["merge", "-q", "--no-ff", "-m", "Merge y1", "work/y1"]);
@@ -1137,6 +1195,9 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     assert!(!prompt.contains("which starts at <start>"), "{prompt}");
     assert_eq!(again.facts["next"], "build");
     assert_eq!(r.gdd(&["gates", "y7"]).facts["refused"], "out-of-order");
+    let early = r.report("y7", "build", &build_report(""), &[]);
+    assert_eq!(early.facts["refused"], "start-missing", "{}", early.out);
+    assert!(early.has("gdd launch y7 build"));
     merge_corrected_seal(&r, "y7");
     let merged = r.report(
         "y7",
@@ -1156,7 +1217,7 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     assert!(prompt.contains("The product has not changed"), "{prompt}");
     assert!(prompt.contains("Changed tests: tests/y7.sh"), "{prompt}");
     assert!(prompt.contains("Review only those tests"), "{prompt}");
-    assert!(prompt.contains("- Use a single line."), "{prompt}");
+    assert!(prompt.contains("- \"Use a single line.\""), "{prompt}");
     assert!(
         prompt.contains("f1 tests/y7.sh:1: the test passes whatever the app says | @id:y7-1"),
         "{prompt}"
@@ -1201,6 +1262,305 @@ fn merge_corrected_seal(r: &Repo, id: &str) {
         &["merge", "-q", "--no-edit", &format!("gdd-seal/{id}")],
     );
     r.git(&["worktree", "remove", path]);
+}
+
+fn gated_change(r: &Repo, id: &str, decisions: &str) -> String {
+    checked(r, id);
+    let head = r.commit_on(
+        &format!("work/{id}"),
+        Some(&format!("gdd-seal/{id}")),
+        &[("src/core/app.txt", "ok")],
+        "Build",
+    );
+    assert_eq!(r.report(id, "build", &build_report(decisions), &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", id]).facts["next"], "review");
+    head
+}
+
+fn return_test(r: &Repo, id: &str) {
+    let finding = format!("f1 tests/{id}.sh:1 accepts a blank title | @id:{id}-1");
+    let fix = r.report(id, "review", &review_text("fix", "yellow", &finding), &[]);
+    assert_eq!(fix.facts["next"], "checks", "{}", fix.out);
+}
+
+fn correct_test(r: &Repo, id: &str, extra: &[(&str, &str)]) {
+    let test = format!("tests/{id}.sh");
+    let mut files = vec![(test.as_str(), "test -s src/core/app.txt")];
+    files.extend_from_slice(extra);
+    r.commit_on(&format!("gdd-seal/{id}"), None, &files, "Correct the test");
+    let sealed = r.report(id, "checks", &sealed_report(&["tests"]), &[]);
+    assert_eq!(sealed.facts["next"], "build", "{}", sealed.out);
+    merge_corrected_seal(r, id);
+}
+
+#[test]
+fn a_late_product_edit_is_reviewed_from_the_gated_commit() {
+    let r = Repo::new();
+    let gated = gated_change(&r, "late", "");
+    let first = r.gdd(&["launch", "late", "review"]);
+    assert!(first.has(&gated));
+    let moved = r.commit_on(
+        "work/late",
+        None,
+        &[("src/core/app.txt", "ok later")],
+        "Late edit",
+    );
+    return_test(&r, "late");
+    let mut log = r.log_lines("late");
+    let review = log.last_mut().unwrap();
+    assert_eq!(review["color"]["head"], gated);
+    // Previous releases could write the branch tip at report time. Replay that log too.
+    review["color"]["head"] = moved.into();
+    write_change_log(&r, "late", &log);
+    correct_test(&r, "late", &[]);
+    let build = r.report("late", "build", &build_report(""), &[]);
+    assert_eq!(build.facts["next"], "gates");
+    assert!(
+        r.log_lines("late")
+            .last()
+            .unwrap()
+            .get("seal_only")
+            .is_none()
+    );
+    assert_eq!(
+        r.gdd(&["limits", "late"]).facts["caps"]["rounds"]["used"],
+        1.0
+    );
+    assert_eq!(r.gdd(&["gates", "late"]).facts["next"], "review");
+    let launch = r.gdd(&["launch", "late", "review"]);
+    let prompt = launch.facts["prompt"].as_str().unwrap();
+    assert!(
+        prompt.contains(&format!("Previous review at {gated}.")),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("The product has not changed"), "{prompt}");
+}
+
+fn report_test_merge(r: &Repo, id: &str) -> bool {
+    let build = r.report(id, "build", &build_report(""), &[]);
+    assert_eq!(build.facts["next"], "gates", "{}", build.out);
+    r.log_lines(id).last().unwrap()["seal_only"] == true
+}
+
+#[test]
+fn a_new_product_file_on_the_seal_gets_a_product_review() {
+    let r = Repo::new();
+    gated_change(&r, "plugin", "");
+    return_test(&r, "plugin");
+    correct_test(
+        &r,
+        "plugin",
+        &[("src/core/plugin.txt", "new product behavior")],
+    );
+    assert!(!report_test_merge(&r, "plugin"));
+    assert_eq!(r.gdd(&["gates", "plugin"]).facts["next"], "review");
+    assert!(
+        !r.gdd(&["launch", "plugin", "review"])
+            .has("Review only those tests")
+    );
+}
+
+#[test]
+fn a_builder_edit_to_the_corrected_test_costs_a_round() {
+    let r = Repo::new();
+    gated_change(&r, "edit", "");
+    return_test(&r, "edit");
+    correct_test(&r, "edit", &[]);
+    r.commit_on(
+        "work/edit",
+        None,
+        &[("tests/edit.sh", "true # changed by builder")],
+        "Edit the sealed test",
+    );
+    assert!(!report_test_merge(&r, "edit"));
+    assert_eq!(
+        r.gdd(&["limits", "edit"]).facts["caps"]["rounds"]["used"],
+        1.0
+    );
+}
+
+#[test]
+fn known_bookkeeping_is_left_out_of_the_changed_tests() {
+    let r = Repo::new();
+    gated_change(&r, "book", "");
+    return_test(&r, "book");
+    correct_test(&r, "book", &[]);
+    let backlog = format!("{BACKLOG}\nAnother item\n");
+    r.write("gdd/backlog.md", &backlog);
+    r.commit_on(
+        "work/book",
+        None,
+        &[("gdd/backlog.md", &backlog)],
+        "Record the backlog",
+    );
+    assert!(report_test_merge(&r, "book"));
+    assert_eq!(r.gdd(&["gates", "book"]).facts["next"], "review");
+    assert!(
+        r.gdd(&["launch", "book", "review"])
+            .has("Changed tests: tests/book.sh.")
+    );
+}
+
+#[test]
+fn a_previous_seal_is_no_evidence_that_the_checks_were_corrected() {
+    let r = Repo::new();
+    let original = gated_change(&r, "tip", "");
+    return_test(&r, "tip");
+    correct_test(&r, "tip", &[]);
+    let mut log = r.log_lines("tip");
+    // This checks step has no recorded commit. Only the original seal is known.
+    log.last_mut().unwrap()["seal"]
+        .as_object_mut()
+        .unwrap()
+        .remove("commit");
+    write_change_log(&r, "tip", &log);
+    let build = r.report("tip", "build", &build_report(""), &["--head", &original]);
+    assert_eq!(build.facts["next"], "gates");
+    assert!(r.log_lines("tip").last().unwrap()["seal_only"].is_null());
+}
+
+fn write_change_log(r: &Repo, id: &str, log: &[serde_json::Value]) {
+    let lines: Vec<_> = log.iter().map(ToString::to_string).collect();
+    r.write(&format!("gdd/log/{id}.jsonl"), &(lines.join("\n") + "\n"));
+}
+
+#[test]
+fn a_fix_without_a_recorded_route_keeps_the_older_build_order() {
+    let r = Repo::new();
+    gated_change(&r, "old", "");
+    return_test(&r, "old");
+    let mut log = r.log_lines("old");
+    log.last_mut()
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .remove("fix_role");
+    write_change_log(&r, "old", &log);
+    let next = r.gdd(&["next", "old"]);
+    assert_eq!(
+        next.facts["state"]["next"]["command"],
+        "gdd launch old build"
+    );
+    assert_eq!(r.gdd(&["launch", "old", "build"]).code, 0);
+    r.commit_on("work/old", None, &[("src/core/app.txt", "fixed ok")], "Fix");
+    assert_eq!(
+        r.report("old", "build", &build_report(""), &[]).facts["next"],
+        "gates"
+    );
+    assert_eq!(r.gdd(&["gates", "old"]).facts["next"], "review");
+    assert_eq!(r.gdd(&["verify", "old"]).facts["errors"], 0);
+}
+
+#[test]
+fn later_builds_keep_the_last_known_product_choices() {
+    for seal_only in [false, true] {
+        let r = Repo::new();
+        gated_change(&r, "choices", "decision: Use eight entries.\n");
+        let field = if seal_only {
+            return_test(&r, "choices");
+            correct_test(&r, "choices", &[]);
+            "decision: none\n"
+        } else {
+            let fix = review_text(
+                "fix",
+                "yellow",
+                "f1 src/core/app.txt:1 wrong title | @id:choices-1",
+            );
+            assert_eq!(
+                r.report("choices", "review", &fix, &[]).facts["next"],
+                "build"
+            );
+            r.commit_on(
+                "work/choices",
+                None,
+                &[("src/core/app.txt", "ok now")],
+                "Fix the title",
+            );
+            ""
+        };
+        assert_eq!(
+            r.report("choices", "build", &build_report(field), &[])
+                .facts["next"],
+            "gates"
+        );
+        assert_eq!(r.gdd(&["gates", "choices"]).facts["next"], "review");
+        let review = r.gdd(&["launch", "choices", "review"]);
+        assert!(
+            review.facts["prompt"]
+                .as_str()
+                .unwrap()
+                .contains("Use eight entries.")
+        );
+        let pass = r.report("choices", "review", &review_text("pass", "yellow", ""), &[]);
+        assert_eq!(pass.facts["next"], "ship");
+        let shipped = r.gdd(&["ship", "choices", "--merge"]);
+        assert_eq!(
+            shipped.facts["decisions"],
+            serde_json::json!(["Use eight entries."]),
+            "{}",
+            shipped.out
+        );
+    }
+}
+
+#[test]
+fn checks_cannot_fix_a_product_defect_cited_at_a_test() {
+    let r = Repo::new();
+    gated_change(&r, "title", "");
+    let findings = "f1 tests/title.sh:1 the product returns a blank title | @id:title-1\nf2 tests/title.sh:2 the product drops spaces | @id:title-1";
+    let fix = r.report(
+        "title",
+        "review",
+        &review_text("fix", "yellow", findings),
+        &[],
+    );
+    assert_eq!(fix.facts["next"], "checks");
+    let cannot = report_text(
+        "gdd-checks",
+        "stopped",
+        "CANNOT: tests/title.sh already checks both title rules.",
+    );
+    let declined = r.report("title", "checks", &cannot, &[]);
+    assert_eq!(
+        declined.facts["next_command"], "gdd launch title build",
+        "{}",
+        declined.out
+    );
+    let build = r.named(declined.facts["next_command"].as_str().unwrap());
+    let prompt = build.facts["prompt"].as_str().unwrap();
+    assert!(
+        prompt.contains("the product returns a blank title")
+            && prompt.contains("the product drops spaces"),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("sealed again after that review"));
+    r.commit_on(
+        "work/title",
+        None,
+        &[("src/core/app.txt", "ok title")],
+        "Fix both product defects",
+    );
+    assert_eq!(
+        r.report("title", "build", &build_report(""), &[]).facts["next"],
+        "gates"
+    );
+    assert_eq!(
+        r.gdd(&["limits", "title"]).facts["caps"]["rounds"]["used"],
+        1.0
+    );
+    assert_eq!(r.gdd(&["gates", "title"]).facts["next"], "review");
+    assert!(
+        !r.gdd(&["launch", "title", "review"])
+            .has("Review only those tests")
+    );
+    let later_fix = r.report(
+        "title",
+        "review",
+        &review_text("fix", "yellow", findings),
+        &[],
+    );
+    assert_eq!(later_fix.facts["next_command"], "gdd launch title checks");
+    assert_eq!(r.gdd(&["verify", "title"]).facts["errors"], 0);
 }
 
 #[test]
@@ -1301,6 +1661,9 @@ fn a_product_edit_during_a_seal_merge_still_costs_a_build_round() {
             .facts["next"],
         "build"
     );
+    let next = r.gdd(&["next", "delta"]);
+    let launch = r.named(next.facts["state"]["next"]["command"].as_str().unwrap());
+    assert_eq!(launch.code, 0, "{}", launch.out);
     merge_corrected_seal(&r, "delta");
     r.commit_on(
         "work/delta",
@@ -1308,26 +1671,6 @@ fn a_product_edit_during_a_seal_merge_still_costs_a_build_round() {
         &[("src/core/app.txt", "ok again")],
         "Edit the product too",
     );
-    let over = r.report("delta", "build", &built, &[]);
-    assert_eq!(over.facts["refused"], "cap-spent", "{}", over.out);
-    // A product edit needs another round even though every finding was about the test.
-    let grant = r.gdd(&[
-        "waiver",
-        "delta",
-        "--who",
-        "P",
-        "--check",
-        "rounds_per_change",
-        "--limit",
-        "rounds_per_change",
-        "--to",
-        "2",
-        "--why",
-        "one more product fix",
-        "--backlog",
-        "delta",
-    ]);
-    assert_eq!(grant.code, 0, "{}", grant.out);
     assert_eq!(
         r.report("delta", "build", &built, &[]).facts["next"],
         "gates"
@@ -1336,11 +1679,91 @@ fn a_product_edit_during_a_seal_merge_still_costs_a_build_round() {
         r.gdd(&["limits", "delta"]).facts["caps"]["rounds"]["used"],
         2.0
     );
+    let verified = r.gdd(&["verify", "delta"]);
+    assert_eq!(verified.facts["errors"], 0, "{}", verified.out);
+    assert!(!verified.has("cap-exceeded"), "{}", verified.out);
     assert_eq!(r.gdd(&["gates", "delta"]).facts["next"], "review");
     let launch = r.gdd(&["launch", "delta", "review"]);
     let prompt = launch.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("misses a blank title"), "{prompt}");
     assert!(!prompt.contains("Review only those tests"), "{prompt}");
+    return_test(&r, "delta");
+    let cannot = report_text(
+        "gdd-checks",
+        "stopped",
+        "CANNOT: tests/delta.sh already covers blank titles.",
+    );
+    let declined = r.report("delta", "checks", &cannot, &[]);
+    assert!(
+        declined.facts["next_command"]
+            .as_str()
+            .unwrap()
+            .starts_with("gdd ask delta --of waiver"),
+        "{}",
+        declined.out
+    );
+    assert_eq!(
+        r.gdd(&["launch", "delta", "build"]).facts["refused"],
+        "cap-spent"
+    );
+}
+
+#[test]
+fn the_review_block_closes_findings_in_manual_and_run_reports() {
+    for automated in [false, true] {
+        let r = Repo::new();
+        gated_change(&r, "closed", "");
+        let findings = (1..=4)
+            .map(|i| format!("f{i} issue {i} | @id:closed-1"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(
+            r.report(
+                "closed",
+                "review",
+                &review_text("fix", "yellow", &findings),
+                &[]
+            )
+            .facts["next"],
+            "build"
+        );
+        r.commit_on(
+            "work/closed",
+            None,
+            &[("src/core/app.txt", "ok now")],
+            "Fix the product",
+        );
+        assert_eq!(
+            r.report("closed", "build", &build_report(""), &[]).facts["next"],
+            "gates"
+        );
+        assert_eq!(r.gdd(&["gates", "closed"]).facts["next"], "review");
+        let text = review_text("pass", "yellow", "closed: f5=minor").replace(
+            "caught: none",
+            "caught: none\nclosed: f1=fixed f2=false f3=intended f4=minor",
+        );
+        let pass = if automated {
+            let cmd = r.fake_codex("new-review", &text, serde_json::Value::Null);
+            r.gdd(&[
+                "launch",
+                "closed",
+                "review",
+                "--run",
+                "--command",
+                &format!("'{cmd}' exec --json -m <model>"),
+            ])
+        } else {
+            r.report("closed", "review", &text, &[])
+        };
+        assert_eq!(pass.facts["next"], "ship", "{}", pass.out);
+        assert_eq!(
+            r.log_lines("closed").last().unwrap()["closed"],
+            serde_json::json!([
+                {"id":"f1","outcome":"fixed"}, {"id":"f2","outcome":"false"},
+                {"id":"f3","outcome":"intended"}, {"id":"f4","outcome":"minor"}
+            ])
+        );
+    }
 }
 
 #[test]

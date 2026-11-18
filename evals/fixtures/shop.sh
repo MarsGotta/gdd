@@ -1153,6 +1153,7 @@ FNR == NR {
   if ($0 ~ /"step" *: *"review"/) fixing_checks = ($0 ~ /"fix_role" *: *"checks"/)
   if ($0 ~ /"step" *: *"build"/) { if ($0 !~ /"seal_only" *: *true/) builds++; next_up = ($0 ~ /"result" *: *"stopped"/) ? "" : "gates" }
   if ($0 ~ /"step" *: *"checks"/) checks++
+  if ($0 ~ /"step" *: *"checks"/ && ($0 ~ /"result" *: *"stopped"/ || $0 ~ /"stop" *: *\{/)) fixing_checks = 0
   if ($0 ~ /"step" *: *"review"/) next_up = ($0 ~ /"verdict" *: *"pass"/) ? "ship" : ""
   if ($0 ~ /"step" *: *"review"/ && $0 ~ /"verdict" *: *"fix"/) review++
   if ($0 ~ /"step" *: *"gates"/) {

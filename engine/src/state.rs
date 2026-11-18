@@ -80,8 +80,6 @@ pub struct ChecksFix {
     pub line: usize,
     pub head: Option<String>,
     pub paths: BTreeSet<String>,
-    // Earlier versions could record the builder immediately after this verdict.
-    recorded_route: bool,
 }
 
 /// The next step of a change: what to do, the exact command, and when it can't go on, why.
@@ -224,6 +222,10 @@ impl Progress {
 
     pub fn merging_checks_fix(&self) -> bool {
         self.checks_fix.is_some() && !self.built_since_seal
+    }
+
+    pub(crate) fn checks_fix_step(&self, step: &str) -> bool {
+        step == "checks" && self.needs_checks_fix() || step == "build" && self.merging_checks_fix()
     }
 
     pub fn has_brief(&self) -> bool {
@@ -443,7 +445,12 @@ impl Progress {
                 self.checks_runs += 1;
                 self.checks_line = Some(line);
                 if result(v) == "stopped" || v.get("stop").is_some() {
-                    self.checks_stopped += 1;
+                    if self.needs_checks_fix() {
+                        self.checks_fix = None;
+                        self.checks_stopped = 0;
+                    } else {
+                        self.checks_stopped += 1;
+                    }
                 } else {
                     self.checks_done = true;
                     self.checks_stopped = 0;
@@ -489,8 +496,12 @@ impl Progress {
                 let stopped = result(v) == "stopped" || v.get("stop").is_some();
                 self.build_stop = stopped.then(|| str_of(&v["stop"], "reason").to_string());
                 self.last_build = Some((line, stopped));
-                if v["seal_only"] != true || v.get("decisions").is_some() {
-                    self.decisions = v.get("decisions").map(strings);
+                if v["seal_only"] != true
+                    && let Some(d) = v["decisions"].as_array()
+                {
+                    self.decisions = Some(crate::report::product_choices(
+                        d.iter().filter_map(Value::as_str),
+                    ));
                 }
                 self.built_since_seal = true;
                 self.last_gates = None;
@@ -528,14 +539,10 @@ impl Progress {
             }
             "review" => {
                 self.reviews += 1;
-                self.checks_fix = (self.kind == Some(LogKind::Change)
-                    && v["verdict"] == "fix"
-                    && self.findings_on_checks(&v["findings"]))
-                .then(|| ChecksFix {
+                self.checks_fix = (v["fix_role"] == "checks").then(|| ChecksFix {
                     line,
-                    head: v["color"]["head"].as_str().map(str::to_owned),
+                    head: self.last_gates.as_ref().and_then(|g| g.head.clone()),
                     paths: self.checks_sealed.keys().cloned().collect(),
-                    recorded_route: v["fix_role"] == "checks",
                 });
                 self.last_review = Some(Review {
                     line,
@@ -571,23 +578,17 @@ impl Progress {
         if kind == LogKind::Blueprint {
             return Ok(());
         }
-        if self
-            .checks_fix
-            .as_ref()
-            .is_some_and(|fix| fix.recorded_route)
-        {
-            if st == "build" && self.needs_checks_fix() {
-                return Err((
-                    "out-of-order",
-                    "the checks agent corrects its sealed tests first".into(),
-                ));
-            }
-            if st == "gates" && self.merging_checks_fix() {
-                return Err((
-                    "out-of-order",
-                    "the builder reports the merge of the corrected seal before its gates".into(),
-                ));
-            }
+        if st == "build" && self.needs_checks_fix() {
+            return Err((
+                "out-of-order",
+                "the checks agent corrects its sealed tests first".into(),
+            ));
+        }
+        if st == "gates" && self.merging_checks_fix() {
+            return Err((
+                "out-of-order",
+                "the builder reports the merge of the corrected seal before its gates".into(),
+            ));
         }
         self.held_by_what_sent_it_back(kind, st, head)?;
         let color = self.color.clone().unwrap_or_default();

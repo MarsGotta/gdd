@@ -209,7 +209,7 @@ def main():
 
     found = templates()
     report = found.pop("report", "")
-    build_report = found.pop("build-report", "")
+    role_reports = {"gdd-build": found.pop("build-report", ""), "gdd-review": found.pop("review-report", "")}
     if "--write" in sys.argv:
         for destination, text in found.items():
             target = SKILLS / destination
@@ -248,7 +248,7 @@ def main():
             problem(skill, "metadata doesn't say contract: gdd/1")
 
         block = report_block(body)
-        template = build_report if name == "gdd-build" else report
+        template = role_reports.get(name, report)
         expected = template.replace("<skill> <version>", f"{name} {version}")
         if name in LAUNCHED:
             if block is None:

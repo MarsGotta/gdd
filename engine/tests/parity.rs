@@ -380,6 +380,13 @@ fn synthetic_logs_count_the_same() {
     ];
     let one_round = old.replace("rounds_per_change: 6", "rounds_per_change: 1");
     cases.push(("checks-fix".into(), one_round.clone(), returned.clone()));
+    let mut declined = returned.clone();
+    declined.push(ev(
+        4,
+        r#""event":"step","step":"checks","report":{"result":"stopped"}"#,
+        true,
+    ));
+    cases.push(("checks-cannot".into(), one_round.clone(), declined));
     returned.push(ev(4, checks, false));
     returned.push(ev(5, &format!(r#"{build},"seal_only":true"#), true));
     cases.push(("seal-merge".into(), one_round, returned));

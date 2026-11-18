@@ -62,6 +62,7 @@ pub struct RoleReport {
     /// The color of the `COLOR:` line, and the rest of that line.
     pub color: Option<(String, String)>,
     pub findings: Vec<Finding>,
+    pub closed: Vec<(String, String)>,
     /// Distinct finding numbers without a citation in a fix.
     pub uncited: Vec<String>,
     pub later: Vec<String>,
@@ -148,8 +149,19 @@ fn block(text: &str) -> Option<Vec<(String, String)>> {
         if l.trim().starts_with("```") {
             return Some(out);
         }
-        if let Some((k, v)) = l.split_once(':') {
-            out.push((k.trim().to_lowercase(), v.trim().to_string()));
+        if let Some((k, mut value)) = l.split_once(':') {
+            let mut key = k.trim().to_lowercase();
+            let label = key.trim_matches(['-', '+', '*', '_', ' ']);
+            if matches!(label, "decision" | "decisions") {
+                // A bold label may enclose its colon, as in **decision:**.
+                if let Some(prefix) = key.strip_suffix(label)
+                    && let Some(mark) = ["**", "__"].into_iter().find(|m| prefix.ends_with(m))
+                {
+                    value = value.strip_prefix(mark).unwrap_or(value);
+                }
+                key = "decision".into();
+            }
+            out.push((key, value.trim().to_string()));
         }
     }
     // A block cut off before its closing fence still says what it says.
@@ -272,6 +284,28 @@ fn read_findings(lines: &[&str], r: &mut RoleReport, blueprint: Option<&Blueprin
     }
 }
 
+/// Bound builder text at both entry points: a new report and a list read from an older log.
+pub(crate) fn product_choices<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
+    values
+        .filter_map(|value| {
+            let clean: String = value
+                .trim()
+                .chars()
+                .filter(|c| !c.is_control() && !matches!(c, '\u{2028}' | '\u{2029}'))
+                .take(240)
+                .collect();
+            let choice = clean.trim();
+            (!choice.is_empty()
+                && !choice
+                    .strip_suffix('.')
+                    .unwrap_or(choice)
+                    .eq_ignore_ascii_case("none"))
+            .then(|| choice.to_string())
+        })
+        .take(12)
+        .collect()
+}
+
 /// Read what a role said. Without its `gdd-report` block the step didn't happen.
 pub fn parse(text: &str) -> Result<RoleReport, String> {
     parse_with_blueprint(text, None)
@@ -302,13 +336,26 @@ pub(crate) fn parse_with_blueprint(
         caught: get("caught").unwrap_or_else(|| "none".into()),
         ..RoleReport::default()
     };
-    for (key, value) in fields {
-        if key == "decision" {
-            let decisions = r.decisions.get_or_insert_with(Vec::new);
-            if !value.is_empty() && !value.eq_ignore_ascii_case("none") {
-                decisions.push(value);
-            }
-        }
+    let mut choices = fields
+        .iter()
+        .filter(|(k, _)| k == "decision")
+        .map(|(_, v)| v.as_str())
+        .peekable();
+    if choices.peek().is_some() {
+        r.decisions = Some(product_choices(choices));
+    }
+    if let Some(closed) = get("closed") {
+        r.closed = closed
+            .split_whitespace()
+            .filter_map(|pair| {
+                let (id, outcome) = pair.split_once('=')?;
+                let digits = id.strip_prefix('f')?;
+                (!digits.is_empty()
+                    && digits.bytes().all(|b| b.is_ascii_digit())
+                    && matches!(outcome, "fixed" | "false" | "intended" | "minor"))
+                .then(|| (id.to_owned(), outcome.to_owned()))
+            })
+            .collect();
     }
     let lines: Vec<&str> = text.lines().collect();
     if let Some(i) = lines.iter().position(|l| plain(l).starts_with("CANNOT:")) {

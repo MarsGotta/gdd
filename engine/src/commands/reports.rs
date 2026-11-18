@@ -13,7 +13,7 @@ pub struct ReportArgs {
     pub codex_thread: Option<Value>,
     pub proofs: Option<String>,
     pub claims: Option<String>,
-    pub closed: Vec<(String, String)>,
+    pub closed: Option<Vec<(String, String)>>,
     pub went: Vec<(String, String)>,
 }
 
@@ -46,7 +46,7 @@ pub(super) fn level_of(
     if let Some(a) = asked {
         return a.to_string();
     }
-    if role == "checks" && p.checks_stopped == 1 && (!p.checks_done || p.needs_checks_fix()) {
+    if role == "checks" && p.checks_stopped == 1 && !p.checks_done {
         return "deep".into();
     }
     bp.color_level(p.color.as_deref().unwrap_or("yellow"))
@@ -100,21 +100,16 @@ pub(super) fn write_report(
     if (st == "checks" || st == "build")
         && let Some(then) = l.state.progress.last_ts
     {
-        let mut lim = limits::count_entries(&l.bp, id, &l.entries, then);
-        let full = lim.no_room_for(st == "checks" && p.needs_checks_fix() || seal_only);
+        let lim = limits::count_entries(&l.bp, id, &l.entries, then);
+        let full = lim.no_room_for(p.checks_fix_step(st));
         if !full.is_empty() {
-            lim.stop = full.iter().map(|name| name.to_string()).collect();
             return Err(Fail::refuse(
                 "cap-spent",
                 format!(
                     "no new round: {} had no room left when this one began",
                     full.join(", ")
                 ),
-                if p.merging_checks_fix() && !seal_only {
-                    crate::next::cap_spent(id, &lim).command
-                } else {
-                    cap_way_on(l)
-                },
+                cap_way_on(l),
             ));
         }
     }
@@ -834,6 +829,8 @@ fn report_review(
         "closed".into(),
         json!(
             a.closed
+                .as_ref()
+                .unwrap_or(&r.closed)
                 .iter()
                 .map(|(i, o)| json!({"id": i, "outcome": o}))
                 .collect::<Vec<_>>()

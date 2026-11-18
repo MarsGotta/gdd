@@ -52,10 +52,10 @@ impl Limits {
         self.no_room_for(false)
     }
 
-    pub(crate) fn no_room_for(&self, checks_only: bool) -> Vec<&'static str> {
+    pub(crate) fn no_room_for(&self, checks_fix: bool) -> Vec<&'static str> {
         self.lines
             .iter()
-            .filter(|l| l.full && !l.tier && !(checks_only && l.name == "rounds"))
+            .filter(|l| l.full && !l.tier && !(checks_fix && l.name == "rounds"))
             .map(|l| l.name)
             .collect()
     }
@@ -205,6 +205,9 @@ impl Tally {
         }
         match st {
             "review" => self.fixing_checks = v["fix_role"] == "checks",
+            "checks" if result(v) == "stopped" || v.get("stop").is_some() => {
+                self.fixing_checks = false
+            }
             "brief" | "build" | "ship" => self.fixing_checks = false,
             _ => {}
         }
@@ -536,6 +539,33 @@ mod tests {
         assert!(l.stop.contains(&"rounds".to_string()));
         assert!(l.stop.contains(&"sent back by the checks".to_string()));
         assert_eq!(l.judge, "");
+    }
+
+    #[test]
+    fn seal_merges_spend_review_returns_without_spending_build_rounds() {
+        let mut events = vec![ev(0, BRIEF), ev(1, CHECKS), ev(2, BUILD)];
+        for round in 1..=3 {
+            events.push(ev(
+                3 * round,
+                r#""event":"step","step":"review","verdict":"fix","fix_role":"checks""#,
+            ));
+            let limits = run(&events, 3 * round);
+            assert_eq!(
+                limits.line("rounds_per_change", "rounds").unwrap().used,
+                0.0
+            );
+            assert_eq!(
+                limits.stop.contains(&"sent back by the review".to_string()),
+                round == 3
+            );
+            if round < 3 {
+                events.push(ev(3 * round + 1, CHECKS));
+                events.push(ev(
+                    3 * round + 2,
+                    r#""event":"step","step":"build","report":{"result":"done"},"seal_only":true"#,
+                ));
+            }
+        }
     }
 
     #[test]

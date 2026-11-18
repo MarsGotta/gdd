@@ -48,6 +48,8 @@ On every change that touches a zone, answer each of its reviewer rules, includin
 
 ## Your verdict
 
+Before reporting a `fix`, finish reviewing the whole change in scope, including the product even when a sealed test is weak, because the next review may cover only the correction.
+
 In every round, name the whole class of each failure. Group its instances in one finding and never repeat a finding. Mark a pre-existing issue “was already there”.
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
@@ -66,4 +68,5 @@ End your last message with this block, filled in. `result` is your verdict.
 skill: gdd-review 0.13.1
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
+closed: <optional space-separated pairs such as f1=fixed f2=intended, using fixed, false, intended or minor>
 ```
