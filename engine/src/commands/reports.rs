@@ -113,6 +113,24 @@ pub(super) fn write_report(
         .model
         .clone()
         .or_else(|| model_for(l, &ctx.env, st, &level).ok().map(|(_, m, _)| m));
+    // A role on another model than its level's isn't the role the blueprint asks for: in one run,
+    // two rounds asked at the deep level ran on the orchestrator's own model.
+    if let Some(said) = &a.model
+        && let Ok((env, wanted, _)) = model_for(l, &ctx.env, st, &level)
+        && !said
+            .to_ascii_lowercase()
+            .starts_with(&wanted.to_ascii_lowercase())
+    {
+        return Err(Fail::refuse(
+            "wrong-model",
+            format!(
+                "the {st} role ran on {said}, and the {level} level of {env} is {wanted}: it isn't the role the blueprint asks for"
+            ),
+            format!(
+                "launch it again on {wanted}: gdd launch {id} {st}; if your environment can't, stop and ask the person, never use another"
+            ),
+        ));
+    }
     let p = &l.state.progress;
     let round = 1 + match st {
         "checks" => p.checks_runs,
@@ -121,6 +139,22 @@ pub(super) fn write_report(
         _ => p.readings_n,
     };
     let stopped = stopped(&r);
+    // A stop of the checks role names what stops it: in one run, five rounds stopped on "the
+    // eleven scenarios" and wrote no test. Many scenarios are no reason to stop.
+    if st == "checks" && stopped {
+        let (reason, needs) = r.cannot.clone().unwrap_or_default();
+        if !names_a_blocker(&ctx.root, &format!("{reason} {needs}")) {
+            return Err(Fail::refuse(
+                "vague-stop",
+                format!(
+                    "a stop of the checks role names what stops it, a scenario by its @id or a file it needs, and this one names neither: \"{reason}\". Many scenarios are no reason to stop"
+                ),
+                format!(
+                    "launch it again, to write and seal them one after another: gdd launch {id} checks"
+                ),
+            ));
+        }
+    }
     let result = if stopped {
         "stopped".to_string()
     } else if st == "review" || st == "reading" {
@@ -182,6 +216,35 @@ pub(super) fn write_report(
     out.fact("round", round);
     out.fact("next", json!(after.next.step));
     Ok((line, r))
+}
+
+/// Whether a stop names something concrete: a scenario by its `@id` in `features/`, or a file
+/// (a word with a path or an extension, such as `tools/fakepay.mjs`). A ref such as
+/// `gdd-seal/<id>` or a hash names nothing.
+fn names_a_blocker(root: &Path, text: &str) -> bool {
+    let ids: Vec<String> = std::fs::read_dir(root.join("features"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .flat_map(|t| {
+            t.split_whitespace()
+                .filter_map(|w| w.strip_prefix("@id:").map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let file_like = |w: &str| {
+        let name = w.rsplit('/').next().unwrap_or(w);
+        name.rsplit_once('.').is_some_and(|(stem, ext)| {
+            !stem.is_empty()
+                && ext.len() <= 6
+                && ext.starts_with(|c: char| c.is_ascii_alphabetic())
+                && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        })
+    };
+    text.split(|c: char| c.is_whitespace() || "`'\"()[]{},;<>".contains(c))
+        .map(|w| w.trim_end_matches(['.', ':']).trim_start_matches("gdd:"))
+        .any(|w| !w.is_empty() && (ids.iter().any(|i| i == w) || file_like(w)))
 }
 
 /// Whether a role stopped: it said `CANNOT:`, or its report's result says so.

@@ -96,6 +96,8 @@ Checks found already green, and hollow, in real runs:
 
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
+Many scenarios are no reason to stop: write and seal them one after another, and stop only on one you can't check, naming it by its `@id`, or naming the file you need. The layer refuses a stop that names neither: in one run, five rounds stopped on "the eleven scenarios" and wrote no test. Don't read `gdd/log/`: what you need is in your prompt, and an earlier round's stop isn't yours. Those five rounds had read the stops before them.
+
 ```gdd-report
 skill: gdd-checks 0.13.0
 result: <what it leaves, in a word or two>

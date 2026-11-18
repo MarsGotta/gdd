@@ -61,7 +61,7 @@ fn cannot(r: &Repo, id: &str, step: &str, skill: &str) -> Run {
         &report_text(
             skill,
             "stopped",
-            "CANNOT: what it needs isn't there\nThe person decides.",
+            "CANNOT: tests/helper.sh, which it needs, isn't there\nThe person decides.",
         ),
         &[],
     )

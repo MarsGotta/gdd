@@ -296,7 +296,9 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         .clone()
         .unwrap_or_else(|| format!("work/{id}"));
     match role {
-        "checks" => s.push(format!("Seal what you write on gdd-seal/{id}, on top of its tip.")),
+        "checks" => s.push(format!(
+            "Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
+        )),
         "build" if p.builds == 0 => s.push(format!(
             "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."
         )),

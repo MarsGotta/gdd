@@ -974,3 +974,59 @@ fn a_build_that_stopped_without_start_goes_again() {
     r.git(&["update-ref", "refs/heads/work/yv", &merge, &head]);
     assert_eq!(r.report("yv", "build", &says, &[]).code, 0);
 }
+
+/// A stop of the checks role names what stops it, a scenario by its @id or a file: in one run,
+/// five rounds stopped on "the eleven scenarios" and wrote no test.
+#[test]
+fn a_checks_stop_that_names_nothing_is_refused() {
+    let r = Repo::new();
+    yellow_brief(&r, "yx", "src/core/app.txt");
+    approved(&r, "yx");
+    for vague in [
+        "CANNOT: I could not prove the checks for all eleven scenarios",
+        "CANNOT: gdd-seal/yx stays at 4575d37, version 0.13.0",
+    ] {
+        let v = r.report(
+            "yx",
+            "checks",
+            &report_text("gdd-checks", "stopped", vague),
+            &[],
+        );
+        assert_eq!(v.facts["refused"], "vague-stop", "{vague}: {}", v.out);
+    }
+    for named in [
+        "CANNOT: `yx-1` contradicts a sealed check",
+        "CANNOT: tools/fakepay.mjs isn't in git",
+    ] {
+        let c = r.report(
+            "yx",
+            "checks",
+            &report_text("gdd-checks", "stopped", named),
+            &[],
+        );
+        assert_eq!(c.code, 0, "{named}: {}", c.out);
+    }
+}
+
+/// A role on another model than its level's isn't the role the blueprint asks for: in one run,
+/// two rounds asked at the deep level ran on the orchestrator's own model.
+#[test]
+fn a_role_on_another_model_than_its_levels_is_refused() {
+    let r = Repo::new();
+    checked(&r, "yy");
+    let start = r.git(&["rev-parse", "gdd-seal/yy"]);
+    r.commit_on(
+        "work/yy",
+        Some(&start),
+        &[("src/core/app.txt", "built\n")],
+        "Build",
+    );
+    let done = report_block("gdd-build", "done");
+    let w = r.report("yy", "build", &done, &["--model", "model-x"]);
+    assert_eq!(w.facts["refused"], "wrong-model", "{}", w.out);
+    assert!(w.has("model-b"), "{}", w.out);
+    assert_eq!(
+        r.report("yy", "build", &done, &["--model", "model-b"]).code,
+        0
+    );
+}
