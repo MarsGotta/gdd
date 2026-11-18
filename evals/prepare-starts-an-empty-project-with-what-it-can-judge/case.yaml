@@ -106,8 +106,14 @@ graders:
     pattern: '"step"\s*:\s*"prepare"[^\n]*"result"\s*:\s*"proposed"'
     weight: 2
   - name: tries-the-planned-work-before-approval
-    type: llm
-    criteria: Prepare actually calls gdd color --paths with the anticipated files of individual backlog items, keeping each item together even if the files do not exist. Its approval message gives counts by color on one line and on another says what the checks would miss or that the sample revealed no gaps. Counts of tracked files alone do not satisfy this.
+    type: regex
+    target: trace
+    pattern: 'gdd \{\\"command\\":\\"color\\"(?:(?!\\n|gdd \{).)*?\\"on\\":\\"planned\\",\\"paths\\":\[\\"[^"\\\n]+\\",\\"[^"\\\n]+\\"'
+    weight: 3
+  - name: reports-the-planned-work-and-gaps
+    type: regex
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\n]*?\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b){3})(?=[^\n]*\b(?:jobs?|items?|changes?|planned)\b)(?=(?:[^\n]*?\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b(?:[ \t]+(?:are|is|the|a|touch(?:es)?|for|in|affect(?:s)?|change[sd]?|only))*[ \t]+(?:money|payments?|paying|stock|cart|basket|catalog|pages?|screens?|texts?|labels?|wording|checkout|orders?|prices?|accounts?|checks?)\b){2})[^\n]+\n[^\n]*(?:cover|miss|gap|skip|outside (?:a |the |any |all )?(?:zones?|plan|checks?|coverage)|left out\b|no zone\b)'
+    flags: i
     weight: 3
   - name: asks-the-person-to-approve
     type: llm

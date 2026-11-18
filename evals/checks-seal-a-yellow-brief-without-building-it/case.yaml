@@ -42,7 +42,7 @@ graders:
   - name: writes-no-version-of-the-change
     type: regex
     target: trace
-    pattern: '>>?\s*[^\s"\\]*cart\.py|"file_path":"[^"]*cart\.py"|sed -i[^"\n]*cart\.py'
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"(?:[^"]*/)?cart\.py"|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:>>?\s*(?!&)|\btee\s+(?:-a\s+)?|\bsed\s+-i\b(?:(?!\\n)[^;|&"])*?\s)(?:\\?"|\x27)?(?:[^\s"\\;|&<>]*/)?cart\.py(?=\\?["\x27]|\\n|[\s;|&<>]|$)'
     match: not_contains
     weight: 3
   - name: edits-no-code-of-the-shop
@@ -62,7 +62,7 @@ graders:
     weight: 2
   - name: says-not-seen-passing
     type: regex
-    pattern: 'not seen passing'
+    pattern: '\b(?:(?:not|never|haven[''’]t|hasn[''’]t|hadn[''’]t)(?:\s+(?:yet|been))?\s+seen(?:\s+(?:any|one|of|them|these|the|tests?|it|all))*\s+pass(?:ing)?|none (?:of \w+ )?(?:has |have |was |were )?(?:been )?seen pass(?:ing)?|seen [^.\n]{0,30}reject\w*[^.\n]{0,10}\bnot pass(?:ing)?)\b'
     flags: i
     weight: 3
   - name: does-not-stop
@@ -71,7 +71,7 @@ graders:
     match: not_contains
   - name: each-test-rejects-a-concrete-wrong-solution
     type: llm
-    criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Read the test that was sealed. Its inputs and assertions would actually reject the solution named for it. A generic statement that tests failed on the base is insufficient.
+    criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Going by what the answer says each test calls and expects, that test alone would reject the one wrong solution named for it. A generic statement that tests failed on the base is insufficient.
     weight: 3
   # Follow the same saved log into tail, either by filename or through tee.
   - name: reads-the-end-of-saved-output

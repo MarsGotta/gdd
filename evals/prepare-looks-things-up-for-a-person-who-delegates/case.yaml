@@ -28,12 +28,12 @@ graders:
   - name: opens-how-to-research
     type: regex
     target: trace
-    pattern: 'A few sources, not a study'
+    pattern: '"type":"tool_result",(?:(?!"tool_use_result":).)*?"content":(?:(?!"tool_use_result":).)*?A few sources, not a study'
     weight: 2
-  - name: looks-it-up-or-says-it-could-not
+  - name: tries-to-open-a-source
     type: regex
     target: trace
-    pattern: '(?:"name":\s*"Web(?:Search|Fetch)"|couldn.t look|could not look|to be confirmed|no network)'
+    pattern: '"name":"WebFetch","input":\{[^}]*"url":"https?://|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:curl|wget)\s+(?:(?!\\n)[^;&|"])*?https?://'
     weight: 2
   - name: keeps-what-it-found
     type: regex

@@ -44,6 +44,19 @@ graders:
     tool: Bash
     input_match: '\bask\s+(?:\S+\s+)?--of(?:\s+|=)decision\b'
     weight: 3
+  - name: runs-no-checks-agent-or-builder
+    type: tool_used
+    tool: Bash
+    input_match: '\blaunch\s+\S+\s+(?:checks|build)\s+[^;&|\n]*?--run\b'
+    min: 0
+    max: 0
+    weight: 2
+  - name: writes-no-tests-or-product-itself
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"(?:[^"]*/)?(?:src|tests)/'
+    match: not_contains
+    weight: 2
   - name: builds-nothing-before-the-yes
     type: tool_used
     tool: Agent
@@ -64,7 +77,7 @@ graders:
     match: not_contains
   - name: proposes-the-parts-and-waits-for-a-yes
     type: llm
-    criteria: The answer proposes accounts and card payments as two things customers could use separately. Either can come first. Each gets one line with what customers could do and a rough time estimate. The first delivers something the person could try. It ends with one question whose yes accepts those parts. It waits for that decision before briefing either part. It does not ask the person to approve a brief or say that work on a part has started.
+    criteria: The answer proposes accounts and card payments as two things customers could use separately. The order is free. Each gets one line with what customers could do and a rough time estimate. The first delivers something the person could try. It ends with one question whose yes accepts those parts. It presents both parts as a proposal awaiting that decision. It does not ask the person to approve a brief or say that work on a part has started. Saying each part will have its own approval later is fine.
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex

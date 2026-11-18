@@ -66,9 +66,20 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
+  - name: records-the-delegated-stop
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"step"\s*:\s*"brief"[^\n]*"result"\s*:\s*"stopped"[^\n]*"stop"\s*:\s*\{\s*"reason"\s*:\s*"\S'
+    weight: 3
+  - name: asks-no-waiver-when-work-can-continue
+    type: regex
+    target: { source: file, path: gdd/log/empty-cart.jsonl }
+    pattern: '"event"\s*:\s*"ask"\s*,\s*"of"\s*:\s*"waiver"'
+    match: not_contains
+    weight: 2
   - name: stops-without-asking-for-more
     type: llm
-    criteria: The answer says what was done for the empty cart, what remains and that it is left for later. The person delegated, so the orchestrator leaves it pending without asking for more attempts, offering a split or asking to reopen the change under new limits. The answer accurately says whether the change is in the shop.
+    criteria: The answer tells the person what works for the empty cart, what remains, and that the unshipped change is left for later. It asks no question, offers no split and asks for no extra attempt or new limit.
     weight: 3
   - name: starts-no-new-round
     type: regex

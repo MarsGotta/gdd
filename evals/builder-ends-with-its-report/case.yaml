@@ -26,7 +26,7 @@ execution:
     You were launched by the GDD orchestrator as the builder of one change. Load the `gdd-build` skill and follow it.
 
     The change is `empty-cart`. Its brief is `gdd/briefs/empty-cart.md`, and you are on your branch, `work/empty-cart`, which starts at its seal.
-    Before the gdd-report block, give one JSON claim per check you ran. Include its id, command, final exit, tail and failures in this round. Use zero when it passed every time.
+    Before the gdd-report block, give a json block with one claim per check you ran this round. Count every failed run in failures, including a final failure. Use 0 when it never failed. Give the last run's evidence: [{"check":"<check id>","failures":0,"command":"<command>","exit":0,"tail":"<its last lines>"}].
 context:
   scaffold_script: scaffold.sh
 graders:

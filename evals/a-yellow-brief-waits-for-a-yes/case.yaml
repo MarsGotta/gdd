@@ -47,9 +47,15 @@ graders:
     target: { source: file, path: gdd/briefs/catalog-pages.md }
     pattern: 'features/[\w./-]+\.feature'
     weight: 2
+  - name: puts-the-sealed-files-before-the-paths
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"step"\s*:\s*"brief"[^\n]*"files"\s*:\s*\{(?=[^}]*"gdd/briefs/[\w.-]+\.md"\s*:)(?=[^}]*"features/[\w./-]+\.feature"\s*:)'
+    weight: 2
   - name: the-rules-come-before-the-cases
     type: llm
-    criteria: In the written feature, the page size the owner gave is a Rule with a tagged scenario below it. New scenarios have one When and concrete values. Product choices added by the agent have @assumed above the rule. The brief links the feature before its technical sections and keeps scenario ids in the front matter.
+    target: trace
+    criteria: In the feature written or revised for this change, the page size the owner gave is a Rule with a tagged scenario below it. New scenarios have one When and concrete values. Product choices added by the agent have @assumed above the rule. The brief links the feature before its technical sections and keeps scenario ids in the front matter.
     weight: 2
   - name: the-scenarios-are-in-their-copy
     type: regex

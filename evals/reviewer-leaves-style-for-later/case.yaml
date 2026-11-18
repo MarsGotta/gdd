@@ -26,6 +26,7 @@ execution:
     You were launched by the GDD orchestrator as the reviewer of one change. Load the `gdd-review` skill and follow it.
 
     The change is `empty-cart`, on the branch `work/empty-cart` of this repository. It was briefed as yellow. Its log is `gdd/log/empty-cart.jsonl`, here in my copy: `<base>` is the base in its `brief` step, and `<start>` is the commit of its seal, in its `checks` step. Its gates already ran, and their result is in the log.
+    Before the gdd-report block, give a json block with each command you ran: [{"command":"<command>","exit":0,"tail":"<its last lines>"}].
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -59,6 +60,7 @@ graders:
     type: regex
     pattern: '^COLOR:\s*yellow'
     flags: mi
+  # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
-    pattern: '```gdd-report\s*\nskill: gdd-review'
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:[ \t]*\r?\n)?```\s*$'

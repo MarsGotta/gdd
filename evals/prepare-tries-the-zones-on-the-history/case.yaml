@@ -47,29 +47,33 @@ graders:
     match: not_contains
     weight: 2
   - name: tells-the-person-what-the-history-shows
-    type: llm
-    criteria: Under "Before you say yes", one line gives the counts for each level of care in the shop’s words and says most fixes were in payments. The next names any gaps or says what the sample covered. The answer asks for approval.
+    type: regex
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?=(?:[^\n]*?(?:\b\d+\b(?:[ \t]+(?:were|the|touched|changed|affected|only|in))*[ \t]+(?:wording|texts?|notes?|copy|labels?|cart|basket|payments?|checkout)\b|\b(?:wording|texts?|notes?|copy|labels?|cart|basket|payments?|checkout)[ \t]*:[ \t]*\b\d+\b)){3})[^\n]*?(?:\b(?:payments?|checkout)(?: changes?)?\s*(?:(?:,\s*)?(?:includ(?:ed|ing)|had|accounted for|contained|saw|held|with)\s+(?:all |both |the |most |of |\d+ )*)?(?:fix(?:es)?|reverts?|corrections?)\b|\b(?:fix(?:es)?|reverts?|corrections?)\b[^.;\n]{0,65}?\b(?:in|touched|affected|were to|fell on|involved)\s+(?:the |card )?(?:payments?|checkout)\b)'
+    flags: i
     weight: 1
   - name: gets-the-files-of-a-change
     type: tool_used
     tool: Bash
     input_match: '\bgit\s+(?:(?:-C\s+(?:\\"[^"\\]+\\"|[^\s;"|&]+)|--no-pager)\s+)*(?:diff-tree|show|diff|log)\s+(?:[^;&|"\\]|\\")*--name-(?:only|status)\b'
   - name: previews-the-checks-on-real-changes
-    type: tool_used
-    tool: Bash
-    input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+color\s+--paths\s+[^ <"]'
+    type: regex
+    target: trace
+    pattern: 'gdd \{\\"command\\":\\"color\\"(?:(?!\\n|gdd \{).)*?\\"on\\":\\"planned\\",\\"paths\\":\[\\"[^"\\\n]+\\"'
+    weight: 1
   - name: checks-the-draft-zones
     type: tool_used
     tool: Bash
     input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+zones\b'
   - name: gives-the-counts-and-coverage-in-two-lines
     type: regex
-    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})(?=[^\n]*\b(?:wording|texts?|copy|labels?)\b)(?=[^\n]*\b(?:cart|basket)\b)(?=[^\n]*\b(?:pay\w*|checkout)\b)[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|unprotected|uncheck|untest|blind spot)'
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})(?=[^\n]*\b(?:wording|texts?|copy|labels?)\b)(?=[^\n]*\b(?:cart|basket)\b)(?=[^\n]*\b(?:pay\w*|checkout)\b)[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|unprotected|uncheck|untest|blind spot|outside (?:a |the |any |all )?(?:zones?|plan|checks?|coverage)|left out\b|no zone\b)'
     flags: i
     weight: 3
   - name: says-what-no-zone-covers
-    type: llm
-    criteria: The answer accounts for the notes folder, which the usual zones of this shop don't cover. Either it says that some commits touched paths no zone covered and what it proposes for them, or the blueprint it shows has a zone that lists notes.
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '^zones:[ \t]*\n(?:[ \t][^\n]*\n)*?[ \t]+paths:[ \t]*(?:\[(?:[^,\]\n]+,[ \t]*)*|(?:\n[ \t]+-[^\n]*)*?\n[ \t]+-[ \t]*)[\x22\x27]?(?::\(glob\))?notes(?:/[^,\]\s\x22\x27#]*)?(?=[\s,\]\x22\x27]|$)'
+    flags: m
     weight: 1
   - name: writes-no-line-of-the-log-by-hand
     type: regex

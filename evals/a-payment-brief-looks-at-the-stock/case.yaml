@@ -40,11 +40,18 @@ graders:
   - name: a-scenario-looks-at-the-stock
     type: regex
     target: trace
-    pattern: 'features/[\w./-]+\.feature[^\n]{0,8000}?(?:Scenario|Escenario)[^\n]{0,3000}?(?:[Ss]tock|[Ee]xistencias|[Ii]nventari)'
+    pattern: '(?:Scenario|Escenario):(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\b(?:pay(?:s|ing|ment)?|paid|charg(?:e[ds]?|ing)|pag(?:a|o|ado))\b(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*(?:Then|And|Entonces|Y)\s+(?=[^"\\\n]*\b(?:catalog\w*|catálogo|cart|carrito|buyer|customer|cliente|comprador))[^"\\\n]*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b'
+    flags: i
     weight: 3
+  - name: puts-the-sealed-files-before-the-paths
+    type: tool_used
+    tool: Bash
+    input_match: '\bbrief\s+\S+\s+(?=(?:(?!\s--paths\b|\\n|[;&|]).)*?(?:gdd/briefs/[\w.-]+\.md\b|\$\{?brief\b))(?=(?:(?!\s--paths\b|\\n|[;&|]).)*?(?:features/[\w./-]+\.feature\b|\$\{?(?:feature|scenarios?)\b))(?:(?!\s--paths\b|\\n|[;&|]).)*?\s--paths\s+\S'
+    weight: 2
   - name: observes-stock-from-another-part-of-the-shop
     type: llm
-    criteria: Read the stock rule and its scenario. The timing the agent chose has @assumed above its Rule. Beneath it a tagged scenario gives concrete values, one When and what another buyer sees in the named part of the shop afterwards. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
+    target: trace
+    criteria: Read the stock rule and its scenario in the feature written for this payment change. The timing the agent chose has @assumed above its Rule. Beneath it a tagged scenario gives concrete values, one When and what another buyer sees in the named part of the shop afterwards. For example, the next buyer sees one fewer unit in the catalog. A successful payment or a statement that stock is updated leaves the observation missing.
     weight: 3
   - name: writes-what-it-wont-do-yet
     type: regex
@@ -69,7 +76,7 @@ graders:
     weight: 3
   - name: tells-what-it-wont-do-as-a-consequence
     type: llm
-    criteria: The answer does one of two things. Either it says that paying will take what was paid out of stock, or it tells the person something the card payment won't do yet, put as a consequence they can weigh for their shop (for example that until orders exist the shop could sell what it no longer has, or that a payment is recorded to no one), and not only as what stays as it was (such as "it doesn't touch the stock").
+    criteria: The answer explains when payment changes what is available to another buyer, or describes an owner-visible consequence of a separate limit, such as the lack of an order history. Saying only that two buyers could still pay for the last item does not settle the stock rule.
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex

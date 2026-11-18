@@ -26,6 +26,7 @@ execution:
     You were launched by the GDD orchestrator as the reviewer of one change. Load the `gdd-review` skill and follow it.
 
     The change is `fix-footer`, on the branch `work/fix-footer` of this repository. The request was: "Fix the typo in the footer, and add the count of items it is going to show." It was briefed as green, so it has no brief and nothing was sealed. Its log is `gdd/log/fix-footer.jsonl`, here in my copy: its `brief` step has `<base>`, which is also `<start>`.
+    Before the gdd-report block, give a json block with each command you ran: [{"command":"<command>","exit":0,"tail":"<its last lines>"}].
 context:
   scaffold_script: scaffold.sh
 graders:
@@ -51,6 +52,7 @@ graders:
   - name: gives-a-verdict
     type: regex
     pattern: '^\s*(pass|fix|stop)\b'
+  # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
-    pattern: '```gdd-report\s*\nskill: gdd-review'
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:[ \t]*\r?\n)?```\s*$'

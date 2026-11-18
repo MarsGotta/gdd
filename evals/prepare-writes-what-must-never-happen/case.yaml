@@ -50,10 +50,29 @@ graders:
     target: { source: file, path: gdd/constitution.md }
     pattern: '## Rules that hold everywhere(?:(?!\n## )[\s\S])*?\b(?:MUST|SHALL|NEVER|ALWAYS)\b'
     match: not_contains
-  - name: proposes-rules-specific-to-payments
-    type: llm
-    criteria: Follow the blueprint's link for the payments zone. The feature proposes three to five distinct Rule blocks about losses possible in this shop, each with a bad and a good case tagged for the reviewer. There is a test proposed wherever those outcomes can be checked. The project-wide rules still live in the constitution.
+  # In the payment feature, both scenarios of every proposed rule carry the reviewer tag.
+  - name: links-the-payment-zone-to-its-feature
+    type: regex
+    target: { source: file, path: gdd/blueprint.md }
+    pattern: '^([ \t]+)- id:[ \t]*([\w-]+)[ \t]*$(?=(?:\n\1[ \t][^\n]*)*?\n\1[ \t]+-[^\n]*src/pay/)(?:\n\1[ \t][^\n]*)*?\n\1[ \t]+gates:[ \t]*gdd/gates/\2\.feature\b'
+    flags: m
+    weight: 2
+  - name: gives-the-payment-zone-its-reviewed-rules
+    type: regex
+    target: trace
+    pattern: '@zone:(?:pay[\w-]*|money|billing|checkout)\b(?:(?!\\n[ \t]*(?:Rule|Scenario):|\\n(?:[\w-]+(?:\\n|")|@(?:zone|gate):)|(?<!\\)").)*?(?:\\n[ \t]*Rule:(?:(?:(?!\\n[ \t]*(?:Rule|Scenario):|\\n(?:[\w-]+(?:\\n|")|@(?:zone|gate):)|(?<!\\)").)*?@check:review\b(?:[ \t]|\\n|@[\w:-]+)*Scenario:){2,}(?:(?!\\n[ \t]*(?:Rule|Scenario):|\\n(?:[\w-]+(?:\\n|")|@(?:zone|gate):)|(?<!\\)").)*?){3,}(?=\\n(?:[\w-]+(?:\\n|")|@(?:zone|gate):)|(?<!\\)"|$)'
     weight: 3
+  - name: gives-it-no-more-than-five
+    type: regex
+    target: trace
+    pattern: '@zone:(?:pay[\w-]*|money|billing|checkout)\b(?:(?:(?!\\n[ \t]*Rule:|\\n(?:[\w-]+(?:\\n|")|@(?:gate|zone):)|(?<!\\)").)*?\\n[ \t]*Rule:){6}'
+    match: not_contains
+    weight: 1
+  - name: checks-what-the-payment-rules-protect
+    type: llm
+    target: trace
+    criteria: Use the payment feature the blueprint links. Its proposed rules describe distinct losses this shop could suffer, in the owner's words. Each pair of scenarios shows a breach and an acceptable outcome for that rule. Outcomes a proposed machine check can verify carry its tag as well as the reviewer's. Grade the written feature, even if the final message only points to it.
+    weight: 2
   - name: asks-for-brief-approval-on-yellow
     type: regex
     target: { source: file, path: gdd/blueprint.md }
@@ -69,8 +88,14 @@ graders:
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
   - name: asks-the-person-to-put-the-rules-in-their-words
-    type: llm
-    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and invites them to put those rules in their own words. It shows them where to read and correct the proposed payment rules with the same approval. It does not say the project is ready for changes now.
+    type: regex
+    pattern: 'constitution\.md[^\n]*\b(?:put|write|restate|phrase|express|describe)\b[^\n]*\bin your (?:own )?words\b'
+    flags: i
+    weight: 2
+  - name: invites-corrections-to-the-payment-rules
+    type: regex
+    pattern: 'gdd/gates/[^\n]*\b(?:correct (?:it|them|any|the|my|a)|(?:you (?:to|can|may|should)|please) correct)\b'
+    flags: i
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex

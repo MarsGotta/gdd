@@ -62,7 +62,7 @@ graders:
     weight: 3
   - name: tells-the-person-what-it-judged
     type: llm
-    criteria: The answer tells the person in plain language that the plan does not cover docs/ yet. It explains why it treated this change as medium risk (low risk is reserved for areas the person has marked that way) and proposes adding the path to the plan for the person to decide. It does not call the change high risk or ask the person to classify it before going on. It says nothing has been built yet because the plan calls for the person to approve what this change will do first.
+    criteria: The answer tells the person in plain language that the plan does not cover docs/ yet. It says it treated this change as medium risk (or yellow) and proposes adding the path to the plan for the person to decide. It does not call the change high risk or ask the person to classify it before going on. It says nothing has been built yet because the plan calls for the person to approve what this change will do first.
     weight: 3
   - name: launches-no-builder
     type: tool_used

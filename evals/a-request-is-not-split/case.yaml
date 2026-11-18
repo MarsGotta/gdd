@@ -45,13 +45,14 @@ graders:
     pattern: 'gdd/briefs/(?!(?:catalog|cart)\.md\n)[\w.-]+\.md\n(?:[^\n]*\n)*?gdd/briefs/(?!(?:catalog|cart)\.md(?:\n|$))[\w.-]+\.md'
     match: not_contains
     weight: 3
-  - name: asks-no-decision-about-parts
+  # This counts all decision calls. The final-message grader judges their subject.
+  - name: asks-no-decision-question
     type: tool_used
     tool: Bash
     input_match: '\bask\s+(?:\S+\s+)?--of(?:\s+|=)decision\b'
     min: 0
     max: 0
-    weight: 3
+    weight: 1
   - name: asks-for-brief-approval
     type: tool_used
     tool: Bash

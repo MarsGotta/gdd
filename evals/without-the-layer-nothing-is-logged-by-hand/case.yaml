@@ -50,11 +50,11 @@ graders:
     pattern: '^(?:(?!gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}brief[\\"]{1,8},[\\"]{1,8}color)[\s\S])*?"subagent_type":\s*"(?:[\w-]+:)?gdd-build"'
     match: not_contains
     weight: 2
-  - name: says-it-in-about-a-hundred-words
+  - name: says-it-in-under-a-hundred-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:[^"\\]|\\.){800,}"'
+    pattern: '^\s*(?:\S+\s+){99}\S'
     match: not_contains
+    weight: 1
   - name: names-no-file-of-the-method
     type: regex
     target: trace
@@ -62,5 +62,5 @@ graders:
     match: not_contains
   - name: sets-it-up-or-says-what-it-needs
     type: llm
-    criteria: The answer does one of two things. Either it tells the person that the footer typo is fixed and in, with the checks that passed, once the project's GDD tool was set up, or it tells them in a line or two that the GDD tool this project needs isn't installed in this copy, what it takes to get it (such as building it, or installing Rust), and that nothing was changed or shipped meanwhile. It does not say the typo went in while also saying the tool is missing, and it does not offer to go on without the tool.
+    criteria: The answer does one of two things. Either it tells the person that the footer typo is fixed and in, with the checks that passed, once the project's GDD tool was set up, or it tells them that the GDD tool this project needs isn't installed in this copy, what it takes to get it (such as building it, or installing Rust), and that nothing was changed or shipped meanwhile. It does not say the typo went in while also saying the tool is missing, and it does not offer to go on without the tool.
     weight: 3

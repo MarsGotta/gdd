@@ -64,9 +64,10 @@ graders:
     target: files
     pattern: 'src/pay/'
     match: not_contains
+  # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
-    pattern: '```gdd-report\s*\nskill: gdd-review'
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:[ \t]*\r?\n)?```\s*$'
   - name: finds-what-paying-does-to-the-stock
     type: llm
     criteria: The answer finds that the shop could sell stock it no longer has. It asks for the stock rule and a scenario beneath it showing what another buyer sees afterwards in the catalog or cart. Stock timing proposed by the agent is an assumption. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
@@ -77,5 +78,5 @@ graders:
     weight: 2
   - name: limits-the-additions
     type: llm
-    criteria: The reading proposes at most three additions in total. The reading identifies the new scenarios that lack a parent rule. That form finding counts toward the three and needs no separate risk. Other form corrections name the affected brief rule. Each other addition cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING and are resolved before approval. Other observations are for the log.
+    criteria: The reading proposes at most three additions in total. The reading identifies the new scenarios that lack a parent rule. That form finding counts toward the three and needs no separate risk. Other form corrections name the affected brief rule. Each other addition cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING. Further suggestions may go under LATER without counting as proposed corrections for this brief.
     weight: 3
