@@ -90,6 +90,11 @@ pub fn record(root: &Path, id: Option<&str>, command: &str, args: &[String], ms:
     m.insert("exit".into(), json!(out.code));
     m.insert("ms".into(), json!(ms as u64));
     m.insert("refused".into(), json!(out.refused));
+    if out.refused.is_some()
+        && let Some(attempt) = &out.attempt
+    {
+        m.insert("attempt".into(), attempt.clone());
+    }
     if let Some(Value::Object(extra)) = &out.journal {
         for (k, v) in extra {
             m.insert(k.clone(), v.clone());
@@ -123,6 +128,38 @@ pub fn record(root: &Path, id: Option<&str>, command: &str, args: &[String], ms:
     {
         let _ = writeln!(f, "{line}");
     }
+}
+
+/// A missing branch or seal is a known state too. Older journal lines lack this whole object.
+pub(crate) fn attempt(
+    step: &str,
+    git: &crate::judged::GitView,
+    entries: &[crate::log::Entry],
+) -> Value {
+    json!({"step": step, "seal": git.seal_tip, "head": git.head, "after_line": entries.last().map_or(0, |e| e.line)})
+}
+
+/// A status read or printing a launch prompt between two refused reports is not a new attempt.
+pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
+    let journal = std::fs::read_to_string(path).ok()?;
+    let mut calls = journal
+        .lines()
+        .rev()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|j| {
+            j["wrote"].is_object()
+                || (j["exit"].as_i64().unwrap_or(0) != 0
+                    && !matches!(
+                        j["command"].as_str(),
+                        Some("next" | "limits" | "verify" | "metrics" | "color")
+                    ))
+        });
+    let last = calls.next()?;
+    let reason = last["refused"].as_str()?;
+    let attempt = last.get("attempt")?;
+    let before = calls.next()?;
+    (before.get("attempt") == Some(attempt) && before["refused"] == reason)
+        .then(|| (attempt.clone(), reason.to_owned()))
 }
 
 /// The lines of a log that a call of the layer wrote, by its journal: a journal line names the

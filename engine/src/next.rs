@@ -578,7 +578,9 @@ fn from_the_build_on(
                     format!(
                         "the reviewer found {rc}, higher than {color}: back to Brief, and gdd-checks adds its cases"
                     ),
-                    format!("gdd brief {id} --color {rc} --why \"<what raised it>\" <files>"),
+                    format!(
+                        "gdd brief {id} <files> --color {rc} --why \"<what raised it>\" --paths <path>..."
+                    ),
                 );
             }
             if person_reviews && !p.person_reviewed() {

@@ -384,3 +384,62 @@ fn a_role_that_wrote_only_to_standard_error_still_said_it() {
     ]);
     assert_eq!(l.code, 0, "{}", l.out);
 }
+
+/// Both ways of reporting a role count. A move during --run belongs to that attempt.
+#[test]
+fn two_refusals_need_the_same_reason_seal_and_head() {
+    let r = Repo::new();
+    approved(&r, "c1");
+    let reject = || r.report("c1", "checks", "No report block", &[]);
+    let next = || r.gdd(&["next", "c1"]).facts["state"]["next"].clone();
+    assert_eq!(reject().facts["refused"], "no-report");
+
+    // The role creates the change branch during its launch, then leaves an unusable report.
+    let cmd = format!(
+        "sh {} <model>",
+        script(
+            &r,
+            "try.sh",
+            "git branch work/c1 gdd-seal/c1 && echo 'No report block'"
+        )
+    );
+    let ran = r.gdd(&["launch", "c1", "checks", "--run", "--command", &cmd]);
+    assert_eq!(ran.facts["refused"], "no-report", "{}", ran.out);
+    assert_eq!(
+        next()["step"],
+        "checks",
+        "the head changed during the launch"
+    );
+    assert_eq!(reject().facts["refused"], "no-report");
+    assert_eq!(next()["blocked"], "needs-person");
+
+    r.commit_on(
+        "gdd-seal/c1",
+        None,
+        &[("tests/example.sh", "true\n")],
+        "Seal a test",
+    );
+    assert_eq!(
+        next()["step"],
+        "checks",
+        "the seal moved without a log event"
+    );
+    assert_eq!(reject().facts["refused"], "no-report");
+    let wrong = r.report("c1", "checks", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(wrong.facts["refused"], "wrong-skill");
+    assert_eq!(reject().facts["refused"], "no-report");
+    assert_eq!(
+        next()["step"],
+        "checks",
+        "the two matching reasons were not consecutive"
+    );
+    assert_eq!(reject().facts["refused"], "no-report");
+    assert_eq!(next()["blocked"], "needs-person");
+    let later = gdd::time::format(gdd::time::now() + 601 * 60);
+    let capped = r.gdd_env(&["next", "c1"], &[("GDD_NOW", &later)]);
+    assert_eq!(
+        capped.facts["state"]["next"]["blocked"], "cap-spent",
+        "{}",
+        capped.out
+    );
+}

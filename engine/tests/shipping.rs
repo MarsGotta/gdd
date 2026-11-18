@@ -244,6 +244,51 @@ fn bookkeeping_and_a_local_merge() {
     assert!(!v.has("(start)") && !v.has("(same-second)"), "{}", v.out);
 }
 
+/// Asking for a fresh review after bookkeeping still gives an executable next command.
+#[test]
+fn a_fresh_review_after_bookkeeping_can_run_on_the_head_it_will_judge() {
+    let r = tracked_logs_repo();
+    let id = "y1";
+    yellow_through_gates(&r, id);
+    let pass = review_text("pass", "yellow", "");
+    let review = r.report(id, "review", &pass, &[]);
+    assert_eq!(review.code, 0, "{}", review.out);
+    assert_eq!(r.gdd(&["ship", id, "--bookkeeping"]).code, 0);
+    let line = review.facts["line"].to_string();
+    assert_eq!(
+        r.gdd(&[
+            "correct",
+            id,
+            "--line",
+            &line,
+            "--void",
+            "Record a fresh review"
+        ])
+        .code,
+        0
+    );
+    let n = r.gdd(&["next", id]);
+    let next = &n.facts["state"]["next"];
+    assert_eq!(next["step"], "review");
+    let launch = r.named(next["command"].as_str().unwrap());
+    assert_eq!(launch.code, 0, "{}", launch.out);
+    let gated = r
+        .log_lines(id)
+        .into_iter()
+        .find(|e| e["step"] == "gates")
+        .unwrap()["head"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        launch.has(&format!("Review the change at {gated}")),
+        "{}",
+        launch.out
+    );
+    assert_ne!(gated, r.git(&["rev-parse", "work/y1"]));
+    assert_eq!(r.report(id, "review", &pass, &[]).facts["next"], "ship");
+}
+
 #[test]
 fn a_merge_of_main_that_touches_none_of_its_files_asks_for_the_gates_not_a_review() {
     let r = Repo::new();

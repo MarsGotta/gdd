@@ -1008,10 +1008,13 @@ fn a_checks_stop_that_names_nothing_is_refused() {
     let r = Repo::new();
     yellow_brief(&r, "yx", "src/core/app.txt");
     approved(&r, "yx");
-    for vague in [
+    for (attempt, vague) in [
         "CANNOT: I could not prove the checks for all eleven scenarios",
         "CANNOT: gdd-seal/yx stays at 4575d37, version 0.13.1",
-    ] {
+    ]
+    .iter()
+    .enumerate()
+    {
         let v = r.report(
             "yx",
             "checks",
@@ -1019,7 +1022,41 @@ fn a_checks_stop_that_names_nothing_is_refused() {
             &[],
         );
         assert_eq!(v.facts["refused"], "vague-stop", "{vague}: {}", v.out);
+        if attempt == 0 {
+            assert_eq!(
+                r.gdd(&["next", "yx"]).facts["state"]["next"]["step"],
+                "checks"
+            );
+            assert_eq!(r.gdd(&["launch", "yx", "checks"]).code, 0);
+        }
     }
+    let n = r.gdd(&["next", "yx"]);
+    let next = &n.facts["state"]["next"];
+    assert_eq!(next["blocked"], "needs-person", "{}", n.out);
+    assert!(n.has("@id") && n.has("file"), "{}", n.out);
+    let cmd = next["command"].as_str().unwrap();
+    let question = cmd
+        .strip_prefix("gdd ask yx --of decision \"")
+        .unwrap()
+        .strip_suffix('"')
+        .unwrap();
+    assert!(question.ends_with('?'));
+    let project = r.gdd(&["next"]);
+    assert_eq!(project.facts["under_way"][0]["command"], cmd);
+    assert_eq!(r.gdd(&["ask", "yx", "--of", "decision", question]).code, 0);
+    assert_eq!(
+        r.gdd(&["next", "yx"]).facts["state"]["next"]["step"],
+        "wait"
+    );
+    assert_eq!(
+        r.gdd(&["answer", "yx", "Use the empty basket example"])
+            .code,
+        0
+    );
+    assert_eq!(
+        r.gdd(&["next", "yx"]).facts["state"]["next"]["step"],
+        "checks"
+    );
     for named in [
         "CANNOT: `yx-1` contradicts a sealed check",
         "CANNOT: tools/fakepay.mjs isn't in git",

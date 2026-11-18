@@ -33,7 +33,7 @@ fn json_file(path: &Option<String>) -> R<Value> {
 
 pub fn report(ctx: &Ctx, id: &str, st: &str, text: &str, a: &ReportArgs) -> Out {
     run("report", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, st, out)?;
         let (line, _) = write_report(ctx, &l, id, st, text, a, out)?;
         out.fact("line", line);
         Ok(())
@@ -755,7 +755,7 @@ fn report_review(
             ),
         ));
     }
-    let head = l.state.git.head.clone();
+    let head = review_head(l).map(str::to_owned);
     // What a setup log's trial judges is all it sealed, from where its seal was cut.
     let start = if log_kind(id) == LogKind::Setup {
         p.base.clone().or(p.start.clone()).unwrap_or_default()

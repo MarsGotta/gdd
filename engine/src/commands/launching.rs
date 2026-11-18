@@ -313,7 +313,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         )),
         "review" => s.push(format!(
             "Review the change at {}, in a fresh clone. Its log is {}.",
-            l.state.git.head.clone().unwrap_or_else(|| format!("the tip of {branch}")),
+            review_head(l).map(str::to_owned).unwrap_or_else(|| format!("the tip of {branch}")),
             log_path.display()
         )),
         _ => {}
@@ -469,7 +469,7 @@ fn may_launch(ctx: &Ctx, l: &Loaded, id: &str, role: &str) -> R<()> {
         allowed(l, id, role, None)?;
         if role == "review"
             && let Some(g) = p.last_gates.as_ref()
-            && let (Some(gh), Some(h)) = (&g.head, &l.state.git.head)
+            && let (Some(gh), Some(h)) = (g.head.as_deref(), review_head(l))
             && gh != h
         {
             return Err(Fail::refuse(
@@ -653,7 +653,7 @@ fn run_role(
     };
     // The role sealed or committed while it ran: its report is judged against the project as it
     // left it, not as it was when it was launched.
-    let l = &load(ctx, id)?;
+    let l = &load_attempt(ctx, id, role, out)?;
     let (line, _) = write_report(ctx, l, id, role, &said.text, &ra, out)?;
     out.fact("line", line);
     Ok(())
@@ -664,7 +664,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         if !["checks", "build", "review", "reading"].contains(&role) {
             return Err(Fail::usage("the role is checks, build, review or reading"));
         }
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, role, out)?;
         may_launch(ctx, &l, id, role)?;
         let level = level_of(&l, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l, &ctx.env, role, &level)?;

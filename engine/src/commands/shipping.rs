@@ -220,7 +220,7 @@ fn commit_bookkeeping(
 
 pub fn ship_bookkeeping(ctx: &Ctx, id: &str) -> Out {
     run("ship", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, "ship", out)?;
         need_repo(ctx, "the bookkeeping is committed with git")?;
         git_writes(ctx)?;
         git_commits(ctx)?;
@@ -504,7 +504,7 @@ fn merge_judged(
 
 pub fn ship_merge(ctx: &Ctx, id: &str) -> Out {
     run("ship", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, "ship", out)?;
         need_repo(ctx, "a merge needs git")?;
         git_writes(ctx)?;
         git_commits(ctx)?;
@@ -630,7 +630,7 @@ fn write_ship(
 
 pub fn ship_done(ctx: &Ctx, id: &str, place: &str) -> Out {
     run("ship", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, "ship", out)?;
         need_repo(ctx, "shipping is checked against git")?;
         let main = git::main_branch(&ctx.root);
         ready_to_ship(&l, id)?;

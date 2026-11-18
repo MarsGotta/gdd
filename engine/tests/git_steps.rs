@@ -55,10 +55,23 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
         review["color"]["color"], "yellow",
         "git's floor wins over the reviewer's word"
     );
-    assert_eq!(
-        r.gdd(&["next", "c1"]).facts["state"]["next"]["step"],
-        "brief"
+    let n = r.gdd(&["next", "c1"]);
+    let next = &n.facts["state"]["next"];
+    assert_eq!(next["step"], "brief");
+    r.write(
+        "features/c1.feature",
+        "Feature: The page and the app change together\n",
     );
+    assert_eq!(r.gdd(&["seal", "c1", "features/c1.feature"]).code, 0);
+    let command = next["command"]
+        .as_str()
+        .unwrap()
+        .replace("<files>", "features/c1.feature")
+        .replace("<path>...", "src/ui/page.txt src/core/app.txt")
+        .replace("<what raised it>", "the app also changed");
+    let raised = r.named(&command);
+    assert_eq!(raised.code, 0, "{}", raised.out);
+    assert_eq!(raised.facts["color"], "yellow");
     // Judgment can't lower a color.
     let b = r.gdd(&[
         "brief",

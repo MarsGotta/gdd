@@ -28,7 +28,7 @@ flowchart LR
     class Z room
 ```
 
-Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check, and for the day a gate stops adding anything, so that it gets relaxed or retired. The two keep the balance.
+Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. If the same step fails twice for the same reason and nothing has changed, your agent tells you what is blocked and proposes one way forward. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check, and for the day a gate stops adding anything, so that it gets relaxed or retired. The two keep the balance.
 
 | Step | You say | You end up with |
 |---|---|---|

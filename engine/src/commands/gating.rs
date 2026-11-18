@@ -116,7 +116,7 @@ fn judged_start(ctx: &Ctx, l: &Loaded, head: &str, out: &mut Out) -> R<String> {
 
 pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
     run("gates", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, "gates", out)?;
         need_repo(ctx, "the gates judge a commit")?;
         if at.is_none() {
             git_writes(ctx)?;

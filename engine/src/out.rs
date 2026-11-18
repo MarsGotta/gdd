@@ -14,6 +14,8 @@ pub struct Out {
     pub refused: Option<String>,
     /// What the journal records beyond the invocation, such as what a launch saw.
     pub journal: Option<Value>,
+    /// The step and project state this call tried. Journaled only on a refusal.
+    pub attempt: Option<Value>,
     /// Bookkeeping to commit on the main branch once the call is journaled: the message.
     pub commit_log: Option<String>,
 }

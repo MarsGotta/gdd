@@ -261,6 +261,13 @@ impl Repo {
         run_gdd(&self.root, args, &[("GDD_RUNS_DIR", &runs)])
     }
 
+    /// Follow a command printed by the layer after the caller filled its placeholders.
+    pub fn named(&self, command: &str) -> Run {
+        let args = gdd::launch::split(command).unwrap();
+        assert_eq!(args.first().map(String::as_str), Some("gdd"), "{command}");
+        self.gdd(&args[1..].iter().map(String::as_str).collect::<Vec<_>>())
+    }
+
     pub fn gdd_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         let runs = self.runs.path().to_string_lossy().to_string();
         let mut e = vec![("GDD_RUNS_DIR", runs.as_str())];

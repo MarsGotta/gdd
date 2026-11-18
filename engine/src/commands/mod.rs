@@ -135,6 +135,13 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
     })
 }
 
+/// Keep the refs the command actually judged, including when a role moved them during --run.
+fn load_attempt(ctx: &Ctx, id: &str, step: &str, out: &mut Out) -> R<Loaded> {
+    let l = load(ctx, id)?;
+    out.attempt = Some(crate::journal::attempt(step, &l.state.git, &l.entries));
+    Ok(l)
+}
+
 /// The state of a change again, after this command wrote to its log.
 fn after(ctx: &Ctx, l: &Loaded, id: &str) -> State {
     let entries = l.project.read_log(id);
@@ -146,6 +153,23 @@ fn after(ctx: &Ctx, l: &Loaded, id: &str) -> State {
         &entries,
     );
     state::derive(id, &l.bp, &entries, gv, time::now())
+}
+
+/// A fresh reviewer sees the product commit the gates judged. Bookkeeping added since then
+/// is the orchestrator's work and would otherwise raise the touched color of the change.
+fn review_head(l: &Loaded) -> Option<&str> {
+    let head = l.state.git.head.as_deref()?;
+    let gated = l
+        .state
+        .progress
+        .last_gates
+        .as_ref()
+        .and_then(|g| g.head.as_deref());
+    Some(
+        gated
+            .filter(|g| l.state.git.stands_for(g, head))
+            .unwrap_or(head),
+    )
 }
 
 /// Refuse a step the state doesn't allow yet, with what moves the work instead. `head` is the

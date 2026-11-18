@@ -73,7 +73,7 @@ fn brief_stopped(l: &Loaded, id: &str, why: &str, a: &BriefArgs, out: &mut Out) 
 /// the seal's tip, which must hold those same files.
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
     run("brief", |out| {
-        let l = load(ctx, id)?;
+        let l = load_attempt(ctx, id, "brief", out)?;
         if log_kind(id) == LogKind::Setup {
             return Err(Fail::refuse(
                 "out-of-order",

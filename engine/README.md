@@ -78,6 +78,7 @@ No state of a log answers the same refusal whatever the orchestrator does: each 
 | Stopped (`blocked`) | When | The way on |
 |---|---|---|
 | `needs-person` | A question to the person is open, or the color asks for their approval | What `gdd ask` printed for that kind: `gdd approve`, `gdd waiver` or `gdd answer` |
+| `needs-person` after two refusals | The journal shows the same reason twice for the suggested step at the same seal tip and judged head, with no new log event | `gdd ask <id> --of decision "<one proposed fix in the person's words>"`, then record their answer and act on it. For `vague-stop`, identify the blocked scenario or missing file before another attempt. |
 | `cap-spent` | A cap has no room for a new round | Ask once with `--of waiver`. Say what is done, what is missing, what was spent and what one extra attempt would buy. Propose leaving it pending. A yes is recorded with `gdd answer`, followed for a change by `gdd brief <id> --stop "<their words>"`. Only an explicit request for that attempt goes to `gdd waiver`. |
 | `cannot`, the brief stopped | The change was dropped | A new brief takes it up again: `gdd brief <id> ...` |
 | `cannot`, the checks stopped twice | gdd-checks couldn't write a check | The person decides (`gdd ask <id> --of decision`); then a new version of the brief, or, if they said so, `gdd launch <id> checks --level deep` |
@@ -88,11 +89,26 @@ No state of a log answers the same refusal whatever the orchestrator does: each 
 | `seal-broken` | The gates found what judges the change touched | Tell the person (`gdd ask <id> --of stop`); then a fix round that puts it back as sealed, `gdd launch <id> build`, and the gates |
 | `review-stop` | The reviewer, or a setup log's trial, said stop | Tell the person (`gdd ask <id> --of stop`); then a fix round (`gdd launch <id> build`, or `checks` for a setup log) and a new review or trial. A stop is never waived |
 
+When a review raises the color, the command for the new brief includes the paths that set its floor. If a new review is needed after a bookkeeping commit, its prompt and its report use the product commit the gates judged.
+
+A launch prompt or a status read between two refused reports leaves both attempts in view. The journal records the refs as the command judged them, including after a role run by the layer. A different refusal, a recorded answer or step, or a changed seal or head breaks the sequence. A journal from an older layer has no refs for its refusals, so they cannot count toward the pair.
+
 Every refusal of a command names what to run instead, or what to do; one that leaves nothing else names `gdd next <id>`, and a closed log says that anything more is a new change with an id of its own.
 
 What sent a change back holds whatever command comes next, and not only in what `next` names. After a review that said `fix` or `stop`, no other review and no gates are written until a build step, or new checks in a setup log, answers it. After a `stop`, or gates that found what judges the change touched, that round waits for the person to be told and to answer. Commits on the branch that nobody logged change none of it. Gates that failed may run again on the same commit, but not on another one before a build step reports the round that moved the branch: `next` names that report. A branch that only took the main branch in, through its seal, has no round to report. The line that sent the change back is never voided, and neither is any line of a log that is closed. And a round that began with a cap already spent isn't written, whether `gdd launch` started it or not: what counts is how the caps stood at the log's last line, so a build that ended after its time ran out is still written and judged. `gdd verify` gives an error for a void of a line that sent the change back, and a warning for one of any other gates or review step.
 
 One refusal comes before every command, `verify` included: a repository git won't read, as it won't one another user owns, which is what a checkout in a CI container often is. Taken for a folder with no git, the logs would be checked alone and pass. The layer says what git said and names the line that marks the folder as safe (`git config --global --add safe.directory <folder>`), for whoever decides that copy is the one to trust. Only `gdd verify --no-git`, which asks for no git, goes on without it.
+
+### Regression coverage
+
+Decision 65 reorganized the code and kept the same transitions. The cases below exercise the transitions affected by the other decisions.
+
+| Decisions | Synthetic cases in `engine/tests/` |
+|---|---|
+| 60–64 | `bypasses.rs` covers an unreported fix, a misspelled gate tier and a stop that still binds. `logs.rs` puts deferred checks after the first product item. `shipping.rs` reads a brief that turned red after a build. `parity.rs` counts a new seal with its build. |
+| 66–69 | `launch.rs` runs fixture roles that commit during a launch and write to separate output streams. `shipping.rs` asks a decision before the brief. `change.rs` follows a finding back to the checks role and reuses checks after a prose edit or a merge from main. |
+| 70–74 | `reachable.rs` carries eleven scenarios and a supplied file through one red change. `change.rs` retries a build missing the new seal and exercises both a vague stop and a role on the wrong model. Resuming an agent and waiting for it once belong to the orchestrator. |
+| 78 | `reachable.rs` follows `next` with a fixed seed and at most 28 steps per change. `launch.rs` changes the refusal reason and moves each ref independently. `git_steps.rs` runs the new brief command after the color rises. `shipping.rs` launches a fresh review after bookkeeping. |
 
 ## What stays with the agents
 

@@ -2,6 +2,57 @@
 
 use super::*;
 
+/// Existing stops and approvals keep their own remedies. Only replace an otherwise live step.
+fn stop_repeating(state: &mut State, entries: &[Entry], repeated: Option<(Value, String)>) {
+    if state.next.blocked.is_some() || state.next.step == "done" {
+        return;
+    }
+    if let Some((attempt, reason)) = repeated
+        && attempt == crate::journal::attempt(&state.next.step, &state.git, entries)
+    {
+        let question = match reason.as_str() {
+            "vague-stop" => {
+                "We still don't know what prevented the checks. Shall we go through one example together to find what is missing?"
+            }
+            "wrong-model" | "no-model" | "no-environment" => {
+                "The agreed setup for this work is unavailable. Shall we restore it before trying again?"
+            }
+            "no-report" | "wrong-skill" | "no-verdict" => {
+                "We still lack a usable result for this work. Shall I get the missing result before we go on?"
+            }
+            "bad-proofs" | "missing-proofs" => {
+                "We still lack evidence that the change works. Shall I get the missing checks demonstrated before we go on?"
+            }
+            "start-missing" | "wrong-start" => {
+                "The work used an older version of the checks. Shall I bring it up to date before we try again?"
+            }
+            "not-sealed" | "seal-mismatch" | "seal-missing" | "seal-moved" => {
+                "The agreed checks are missing from the version we need to use. Shall I put them in place before we go on?"
+            }
+            "nothing-built" => {
+                "There is still no change to try. Shall we agree on the first result you need to see?"
+            }
+            _ => {
+                "<what is blocked in the product>. Shall I <proposed fix for the cause in the last refusal> before trying again?"
+            }
+        };
+        let remedy = if reason == "vague-stop" {
+            "The checks role must name the blocked scenario by @id or the file it needs."
+        } else {
+            "Use the last refusal to explain what must change and propose one fix."
+        };
+        state.next = state::Next {
+            step: "ask".into(),
+            say: format!(
+                "The {} step was refused twice ({reason}). {remedy} Wait for the person's answer.",
+                state.next.step
+            ),
+            command: format!("gdd ask {} --of decision \"{question}\"", state.id),
+            blocked: Some("needs-person".into()),
+        };
+    }
+}
+
 pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
     run("next", |out| {
         let Some(id) = id else {
@@ -31,6 +82,11 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
                 blocked: Some("cannot".into()),
             };
         }
+        stop_repeating(
+            &mut l.state,
+            &l.entries,
+            crate::journal::repeated_refusal(&l.project.journal_path(id)),
+        );
         let s = &l.state;
         if l.entries.is_empty() {
             out.say(format!("{id} has no log yet"));
@@ -155,7 +211,13 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
     let now = time::now();
     let mut open = vec![];
     let mut under_way = vec![];
-    for lid in project.log_ids() {
+    // A setup or first brief can be refused twice before it writes its first event.
+    let ids: std::collections::BTreeSet<_> = project
+        .log_ids()
+        .into_iter()
+        .chain(project.journal_ids())
+        .collect();
+    for lid in ids {
         let e = project.read_log(&lid);
         let p = state::Progress::of(&lid, &e);
         if let Some(a) = p.open_ask() {
@@ -166,14 +228,22 @@ fn next_project(ctx: &Ctx, out: &mut Out) -> R<()> {
                 a.what.clone(),
             ));
         }
-        if log_kind(&lid) != LogKind::Blueprint && p.shipped.is_none() && p.events > 0 {
-            let s = state::derive(
+        if log_kind(&lid) != LogKind::Blueprint && p.shipped.is_none() {
+            let repeated = crate::journal::repeated_refusal(&project.journal_path(&lid));
+            if p.events == 0 && repeated.is_none() {
+                continue;
+            }
+            let mut s = state::derive(
                 &lid,
                 &bp,
                 &e,
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
                 now,
             );
+            stop_repeating(&mut s, &e, repeated);
+            if p.events == 0 && s.next.blocked.as_deref() != Some("needs-person") {
+                continue;
+            }
             under_way.push(json!({"id": lid, "next": s.next.step, "command": s.next.command, "blocked": s.next.blocked}));
             out.say(match &s.next.blocked {
                 Some(b) => format!("under way: {lid}, stopped ({b}): {}", s.next.command),
