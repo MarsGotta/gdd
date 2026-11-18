@@ -411,6 +411,25 @@ fn report_build(
             format!("give it the request again, word for word, once: gdd launch {id} build"),
         ));
     }
+    // A build that stopped on a branch without <start> judged checks that are no longer the
+    // change's: in one run its CANNOT blamed a test already fixed on the seal, and the checks role,
+    // sent back for it, had nothing to seal.
+    if stopped
+        && let (Some(h), Some(s)) = (&l.state.git.head, &p.start)
+        && !git::is_ancestor(&l.project.root, s, h)
+    {
+        return Err(Fail::refuse(
+            "start-missing",
+            format!(
+                "the build stopped on {}, which doesn't hold <start> ({}): what it ran judged checks that are no longer the change's, so its stop doesn't count",
+                git::short(h),
+                git::short(s)
+            ),
+            format!(
+                "launch it again, which merges <start> into its branch first: gdd launch {id} build"
+            ),
+        ));
+    }
     // What it says each check gave: --claims, or the json block of its last message.
     let claims = if a.claims.is_some() {
         json_file(&a.claims)?

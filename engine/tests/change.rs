@@ -918,3 +918,59 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     assert!(prompt.contains("merge <start> into it"), "{prompt}");
     assert!(!prompt.contains("which starts at <start>"), "{prompt}");
 }
+
+/// A build that stops on a branch without <start> judged checks that are no longer the change's:
+/// in one run its CANNOT blamed a test already fixed on the seal, the checks role had nothing to
+/// seal, and the change could go nowhere. Its report is refused, and the build goes again.
+#[test]
+fn a_build_that_stopped_without_start_goes_again() {
+    let r = Repo::new();
+    checked(&r, "yv");
+    let start = r.git(&["rev-parse", "gdd-seal/yv"]);
+    r.commit_on(
+        "work/yv",
+        Some(&start),
+        &[("src/core/app.txt", "a\n")],
+        "Round 1",
+    );
+    let says = report_text(
+        "gdd-build",
+        "stopped",
+        "CANNOT: the sealed test looks wrong",
+    );
+    assert_eq!(r.report("yv", "build", &says, &[]).code, 0);
+    // The checks role fixes the test, and <start> moves to the seal's new tip.
+    r.commit_on(
+        "gdd-seal/yv",
+        None,
+        &[("tests/yv.sh", "true # fixed\n")],
+        "Fix the test",
+    );
+    let c = r.report("yv", "checks", &report_block("gdd-checks", "sealed"), &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    // The next round stops on its branch without merging that tip.
+    r.commit_on("work/yv", None, &[("src/core/app.txt", "b\n")], "Round 2");
+    let b = r.report("yv", "build", &says, &[]);
+    assert_eq!(b.facts["refused"], "start-missing", "{}", b.out);
+    assert!(b.has("gdd launch yv build"), "{}", b.out);
+    assert_eq!(
+        r.gdd(&["next", "yv"]).facts["state"]["next"]["step"],
+        "build"
+    );
+    // Once it holds <start>, its CANNOT counts.
+    let tip = r.git(&["rev-parse", "gdd-seal/yv"]);
+    let tree = r.git(&["merge-tree", "--write-tree", "work/yv", &tip]);
+    let head = r.git(&["rev-parse", "work/yv"]);
+    let merge = r.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        &head,
+        "-p",
+        &tip,
+        "-m",
+        "Merge <start>",
+    ]);
+    r.git(&["update-ref", "refs/heads/work/yv", &merge, &head]);
+    assert_eq!(r.report("yv", "build", &says, &[]).code, 0);
+}
