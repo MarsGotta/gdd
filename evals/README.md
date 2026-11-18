@@ -14,7 +14,7 @@ claude plugin eval . --scaffold --allow-tools Bash Write Edit --no-publish --mod
 ```
 
 - `--scaffold` lets each case build its project with its `scaffold.sh`, which calls `fixtures/shop.sh`. It runs as you, and copies the layer into the project as `.gdd/gdd`.
-- `--allow-tools Bash Write Edit` gives the agents what a builder and a reviewer need. They run in a sandbox that can write only in the workspace of the run.
+- `--allow-tools Bash Write Edit` gives the agents what a builder and a reviewer need. With the Bash sandbox in Claude Code 2.1.323 or later, each role works in a clone in its temporary folder and the gates run in a fresh temporary clone.
 - By default each case also runs without the skills, and the report shows the difference. `--ablation none` skips that arm.
 - `--tag activation`, `--tag role`, `--tag orchestrator`, `--tag prepare`, `--tag layer` or `--case <name>` run a part, and `--max-cost-usd` sets a ceiling. The ceiling is each run's own: two runs at once spend it twice, so run them one after another, or give each half.
 - `--keep-temp --json <file>` keeps what each run left, for `evals/check_runs.py`, below.

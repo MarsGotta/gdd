@@ -68,7 +68,7 @@ The layer names each step. This is what you still decide.
 
 ## Launching each role
 
-Start each role in a new session or subagent. Return a fix to the agent that made it, with the new prompt. Open `references/fix-round.md` when resuming it. Start fresh only if it cannot resume. Reviewers and brief readers always start fresh. Launch it from your own copy, at the base, because a role loads its skill from where it's launched and a change can edit it, and have it work in a copy of its own. Copies, yours too, go inside the project's folder, where agents can write and git ignores them, never in a shared temporary folder.
+Start each role in a new session or subagent. Return a fix to the agent that made it, with the new prompt. Open `references/fix-round.md` when resuming it. Start fresh only if it cannot resume. Reviewers and brief readers always start fresh. Launch it from your own copy, at the base, because a role loads its skill from where it's launched and a change can edit it, and have it work in a copy of its own. Keep your copy and worktrees in writable, git-ignored project folders. Roles make clones in their private temporary folders.
 
 - **What it gets** is the prompt the layer wrote, as it is, on the model it names: one launched without naming it runs on yours. If the layer can't find your environment or a model in the blueprint, stop and ask: never use another.
 - **What it never gets.** The builder never gets the log, the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.

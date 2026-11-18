@@ -179,6 +179,7 @@ fn blueprint_preview_finds_a_server_zone_its_checks_never_reach() {
 #[test]
 fn the_seal_leaves_the_checkout_and_its_index_untouched() {
     let r = Repo::new();
+    r.write(".git/worktrees", "no linked worktrees here\n");
     r.write("src/core/app.txt", "ok, edited and staged\n");
     r.git(&["add", "src/core/app.txt"]);
     r.write("src/ui/page.txt", "edited, not staged\n");

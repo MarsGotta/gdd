@@ -1,6 +1,6 @@
 # Trying new standing checks
 
-When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, the features of the project's gates in `gdd/gates/`, when the blueprint names any, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone.
+When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, the features of the project's gates in `gdd/gates/`, when the blueprint names any, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone in your temporary folder.
 
 In a project with no code yet, only `seal` and `secrets` are set up. Every other check waits with a `when` that names what it watches, and its trial comes later, as `standing-checks-<check id>`, on the code the first change brought: one with nothing to judge yet isn't a finding, because nobody is asked to demonstrate a check on code that does not exist. Read each `when` to see that it names what its check watches. Even in a project with code, a check whose `when` matches no tracked file waits for its trial.
 

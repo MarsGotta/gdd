@@ -151,7 +151,7 @@ impl Blueprint {
     }
 
     /// The command that gives a fresh copy of the repository what the checks need, such as the
-    /// project's dependencies. The gates run it in their throwaway worktree before any check.
+    /// project's dependencies. The gates run it in their fresh copy before any check.
     pub fn install(&self) -> Option<String> {
         s(&self.front["install"]).filter(|c| !c.trim().is_empty())
     }

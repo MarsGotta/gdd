@@ -2,6 +2,8 @@
 
 use super::*;
 
+const WORKTREE: &str = "a fresh worktree";
+
 /// The private folder of one run's outputs (see [`crate::runs`]); when the usual one can't be
 /// trusted, it says so and uses a fresh one.
 pub(super) fn runs_dir(root: &Path, id: &str, what: &str, out: &mut Out) -> R<PathBuf> {
@@ -155,9 +157,9 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
         }
         let (plan, commands) = plan_for(ctx, &l, id, &start, &head)?;
         let outputs = runs_dir(&ctx.root, id, "gates", out)?;
-        let (dir, place, _worktree) = place_for(ctx, at, &head)?;
+        let (dir, place, _temp) = place_for(ctx, at, &head)?;
         // A fresh copy has only what git holds: the blueprint's `install` gives it what the checks
-        // need. Whatever comes of it, the worktree is removed once, here.
+        // need. Only a linked worktree also needs removing from the project.
         let fresh = at.is_none();
         let install = l.bp.install().filter(|_| fresh);
         let judged = (|| -> R<_> {
@@ -168,7 +170,7 @@ pub fn gates_cmd(ctx: &Ctx, id: &str, at: Option<&Path>) -> Out {
             let (ran, skipped) = run_checks(&dir, &outputs, &plan, &commands, out);
             Ok((installed, ran, skipped))
         })();
-        if fresh {
+        if place == WORKTREE {
             let _ = git::worktree_remove(&ctx.root, &dir);
         }
         let (installed, ran, skipped) = judged?;
@@ -323,9 +325,8 @@ fn plan_for(
     Ok((plan, commands))
 }
 
-/// Where the gates run: a directory checked to hold exactly that commit, or a fresh worktree of
-/// it, which the caller removes. Returns the directory, what the log calls it and the worktree's
-/// temporary folder, kept alive while the gates run.
+/// A checked directory or a fresh copy at the given commit. Keep its temporary folder alive
+/// while the gates run.
 fn place_for(
     ctx: &Ctx,
     at: Option<&Path>,
@@ -353,9 +354,19 @@ fn place_for(
                 .tempdir()
                 .map_err(|e| Fail::missing("a temporary folder for the gates", e.to_string()))?;
             let d = tmp.path().join("tree");
-            git::worktree_add(&ctx.root, &d, head)
-                .map_err(|e| Fail::missing(format!("a worktree of {head}"), e))?;
-            Ok((d, "a fresh worktree", Some(tmp)))
+            match git::worktree_add(&ctx.root, &d, head) {
+                Ok(()) => Ok((d, WORKTREE, Some(tmp))),
+                Err(worktree) => {
+                    let clone = tmp.path().join("clone");
+                    git::clone_at(&ctx.root, &clone, head).map_err(|e| {
+                        Fail::missing(
+                            format!("a worktree or clone of {head}"),
+                            format!("{worktree}\n{e}"),
+                        )
+                    })?;
+                    Ok((clone, "a fresh clone", Some(tmp)))
+                }
+            }
         }
     }
 }

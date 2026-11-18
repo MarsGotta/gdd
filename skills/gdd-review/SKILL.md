@@ -15,7 +15,7 @@ If you were given new standing checks instead of a change, open `references/stan
 
 ## What you read
 
-Work in a fresh clone of the repository, at the change's head, never in the tree you were launched in: a worktree shares its refs and its configuration with the builder's.
+Work in a fresh clone of the repository in your temporary folder, at the change's head, never in the tree you were launched in: a worktree shares its refs and its configuration with the builder's.
 
 - The change: `git diff <start> HEAD`, what the builder did. `<base>` and `<start>` are the commits the orchestrator gave you. `<start>` holds everything that judges the change, and it's the base when nothing was sealed.
 - From `<start>`, never from the change's head: the blueprint, the gates of its zones, the constitution and, when there is one, the brief and its feature files. A change can edit any of them. Read each scenario with its rule where it has one. An `@question` has no outcome to judge in this change.

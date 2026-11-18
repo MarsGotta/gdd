@@ -193,12 +193,12 @@ fn setup_prompt(s: &mut Vec<String>, x: &PromptFor) {
                 format!("on gdd-seal/{id}, cut from the main branch")
             };
             s.push(format!(
-                "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in a throwaway clone, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
+                "Set up {what}: each one with a tool that already exists before a script of the project's own, proved once in your own copy, its bad case planted and seen failing, then seen passing without it, and sealed {on}."
             ));
 
         }
         "review" => s.push(format!(
-            "Try {tried} on gdd-seal/{id}{}, in a fresh clone: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
+            "Try {tried} on gdd-seal/{id}{}, in a fresh clone in your temporary folder: follow references/standing-checks.md of the skill. Each check three ways, a round each: it rejects a planted bad case, it accepts without it, and a change can't switch it off. When the blueprint names its gates, read each gate's feature against the blueprint too. Its log is {}.",
             seal.map(|c| format!(", at {c}")).unwrap_or_default(),
             log_path.display()
         )),
@@ -323,15 +323,18 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         "checks" => s.push(format!(
             "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
         )),
-        "build" if p.builds == 0 => s.push(format!(
-            "Work on the branch {branch}, which starts at <start>, in a worktree of your own inside the project folder, and commit there."
-        )),
-        // A later round goes on where the earlier ones left it, and the seal may have moved since.
-        "build" => s.push(format!(
-            "Work on the branch {branch}, where the earlier rounds are, in a worktree of your own inside the project folder, and commit there. It has to hold <start>: merge <start> into it when it doesn't."
-        )),
+        "build" => {
+            let from = if p.builds == 0 {
+                "from <start>"
+            } else {
+                "from its current tip in the project (merge <start> into it if needed)"
+            };
+            s.push(format!(
+                "Work on {branch} {from} and commit in your own worktree inside the project folder. If git can't add it, clone the project in your temporary folder with its git name and email, then run `git fetch <clone> {branch}:{branch}` from the project before reporting."
+            ));
+        }
         "review" => s.push(format!(
-            "Review the change at {}, in a fresh clone. Its log is {}.",
+            "Review the change at {}, in a fresh clone in your temporary folder. Its log is {}.",
             review_head(l).map(str::to_owned).unwrap_or_else(|| format!("the tip of {branch}")),
             log_path.display()
         )),

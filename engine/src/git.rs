@@ -474,6 +474,15 @@ pub fn worktree_add(root: &Path, dir: &Path, commit: &str) -> Result<(), String>
     .map(|_| ())
 }
 
+pub fn clone_at(root: &Path, dir: &Path, commit: &str) -> Result<(), String> {
+    let path = dir.to_string_lossy();
+    out(
+        root,
+        &["clone", "--no-hardlinks", "--no-checkout", ".", &path],
+    )?;
+    out(dir, &["checkout", "--detach", "--quiet", commit]).map(|_| ())
+}
+
 pub fn worktree_remove(root: &Path, dir: &Path) -> Result<(), String> {
     let d = dir.to_string_lossy().to_string();
     let r = out(root, &["worktree", "remove", "--force", &d]).map(|_| ());

@@ -453,6 +453,18 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
     In the benchmark, splitting automatically at two red zones multiplied role launches without improving the result. Each part paid the fixed cost of a change in Execute. That cost is being addressed separately. The run with the worst outcome stalled on its largest change. Counts of lines, zones or scenarios never trigger a proposal. The orchestrator never splits work on its own or midway through a change, and a spent cap is never a reason to offer parts.
 
+88. **Use a temporary clone when git cannot add a worktree.** Claude Code's 2.1.323 changelog and its sandbox documentation under “Protected paths” explain why the Bash sandbox blocks `git worktree add`, `move` and `remove` and protects the project's git config and hooks. On 18 November 2026, six behavior cases on `main` stopped under Claude Code 2.1.327. Five stopped at the builder with `fatal: could not create directory of '.git/worktrees/footer-typo': Operation not permitted`. One stopped at the gates with `a worktree of 57e7dc4…: git worktree add --detach --quiet …: fatal: could not create directory of '.git/worktrees/tree': Operation not permitted`.
+
+    | Operation tried in that sandbox | Result |
+    |---|---|
+    | Add a worktree inside the project or in `$TMPDIR` | Both failed on the project's `.git/worktrees`. |
+    | Write the project's git config or hooks, or clone inside the project | All failed. |
+    | Clone the project in `$TMPDIR` | Worked with or without hardlinks, and as a bare clone. |
+    | Commit in the clone and fetch its branch from the project | Both worked with the project's git name and email supplied for the commit. |
+    | Create or delete branches, or commit in the project | All worked. Branch deletion warned that it could not update config. |
+
+    The builder and the checks agent keep their own worktrees inside the project wherever git can add them. Otherwise each works in a private temporary clone with the project's git identity and brings its branch back before reporting. A fix starts from the branch already in the project. The reviewer always starts fresh in its own temporary clone. The layer still runs the gates away from the builder at the exact head, first trying a worktree and then a separate clone in the same private temporary folder. The gates step records which one ran.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

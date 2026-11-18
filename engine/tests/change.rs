@@ -36,9 +36,12 @@ fn a_green_change_from_brief_to_ship() {
     let l = r.gdd(&["launch", "g1", "build"]);
     assert_eq!(l.code, 0, "{}", l.out);
     assert_eq!(l.facts["model"], "model-a");
+    let prompt = l.facts["prompt"].as_str().unwrap();
+    assert!(prompt.contains("gdd-build"), "{prompt}");
+    assert!(prompt.contains("work/g1 from <start>"), "{prompt}");
     assert!(
-        l.facts["prompt"].as_str().unwrap().contains("/gdd-build")
-            || l.facts["prompt"].as_str().unwrap().contains("gdd-build")
+        prompt.contains("git fetch <clone> work/g1:work/g1"),
+        "{prompt}"
     );
     let base = r.git(&["rev-parse", "main"]);
     r.commit_on(
@@ -1192,7 +1195,10 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
         "{prompt}"
     );
     assert!(prompt.contains("merge <start> into it"), "{prompt}");
-    assert!(!prompt.contains("which starts at <start>"), "{prompt}");
+    assert!(
+        prompt.contains("work/y7 from its current tip in the project"),
+        "{prompt}"
+    );
     assert_eq!(again.facts["next"], "build");
     assert_eq!(r.gdd(&["gates", "y7"]).facts["refused"], "out-of-order");
     let early = r.report("y7", "build", &build_report(""), &[]);
@@ -1213,7 +1219,10 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     assert_eq!(r.gdd(&["gates", "y7"]).facts["next"], "review");
     let review = r.gdd(&["launch", "y7", "review"]);
     let prompt = review.facts["prompt"].as_str().unwrap();
-    assert!(prompt.contains("fresh clone"), "{prompt}");
+    assert!(
+        prompt.contains("fresh clone in your temporary folder"),
+        "{prompt}"
+    );
     assert!(prompt.contains("The product has not changed"), "{prompt}");
     assert!(prompt.contains("Changed tests: tests/y7.sh"), "{prompt}");
     assert!(prompt.contains("Review only those tests"), "{prompt}");

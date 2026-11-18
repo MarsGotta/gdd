@@ -327,6 +327,44 @@ fn gates_take_start_from_the_seal_and_not_from_a_log_line() {
 }
 
 #[test]
+fn gates_use_a_fresh_clone_when_git_cannot_add_a_worktree() {
+    let bp = BLUEPRINT
+        .replace(
+            "limits:\n  lines_per_change",
+            "install: touch ready\nlimits:\n  lines_per_change",
+        )
+        .replace(
+            "sh tests/run.sh",
+            "test -f ready && git diff --quiet <base> <start> -- src && sh tests/c1.sh",
+        );
+    let r = Repo::with(&bp);
+    let seal = yellow_sealed(&r, "c1");
+    let head = r.commit_on(
+        "work/c1",
+        Some(&seal),
+        &[("src/core/app.txt", "ok, built\n")],
+        "Build",
+    );
+    r.write(".git/worktrees", "git cannot add a worktree here\n");
+    let built = r.report("c1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    let blocked = r.gdd_env(&["gates", "c1"], &[("GIT_ALLOW_PROTOCOL", "")]);
+    assert_eq!(blocked.facts["reason"], "missing", "{}", blocked.out);
+    assert!(blocked.has("git worktree add") && blocked.has("git clone"));
+    assert_eq!(r.log_lines("c1").last().unwrap()["step"], "build");
+    let g = r.gdd(&["gates", "c1"]);
+    assert_eq!(g.code, 0, "{}", g.out);
+    let step = r.log_lines("c1").pop().unwrap();
+    assert_eq!(step["where"], "a fresh clone");
+    assert_eq!(step["start"], seal);
+    assert_eq!(step["head"], head);
+    assert_eq!(step["install"]["exit"], 0);
+    assert_eq!(step["gates"][0]["check"], "seal");
+    assert_eq!(step["gates"][1]["check"], "tests");
+    assert!(!r.path("ready").exists());
+}
+
+#[test]
 fn gates_in_ci_take_the_seal_its_remote_holds() {
     let r = Repo::new();
     let id = "c1";

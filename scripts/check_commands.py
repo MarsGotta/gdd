@@ -320,11 +320,21 @@ def layer_cases(binary):
         empty = gdd(repo, "report", "g1", "build", str(report))
         expect("the layer refuses the report of a build that changed nothing",
                empty.returncode == 1 and "nothing-built" in empty.stdout, empty.stdout[-300:])
-        builder = Path(folder + "-build")
-        git(repo, "worktree", "add", "-q", str(builder), "work/g1")
-        write(builder, "src/ui/b.js", "ui, typo fixed\n")
-        commit(builder, "a typo")
-        git(repo, "worktree", "remove", "--force", str(builder))
+        git(repo, "branch", "-d", "work/g1")
+        fetch = command("gdd-build/SKILL.md", r"git fetch [^`\n]+")
+        with tempfile.TemporaryDirectory() as copies:
+            for name in ("first round", "fix round"):
+                builder = Path(copies) / name
+                if name == "first round":
+                    git(repo, "clone", "-q", ".", str(builder))
+                    git(builder, "checkout", "-q", "-b", "work/g1", base)
+                else:
+                    git(repo, "clone", "-q", "-b", "work/g1", ".", str(builder))
+                write(builder, "src/ui/b.js", name + "\n")
+                tip = commit(builder, name)
+                fetched = run(repo, fetch, clone=shlex.quote(str(builder)), branch="work/g1")
+                expect(f"the project fetches the builder's {name} from its clone",
+                       fetched.returncode == 0 and head(repo, "work/g1") == tip, fetched.stderr)
         built = gdd(repo, "report", "g1", "build", str(report))
         report.unlink()
         expect("the layer writes the report of a build that changed something", built.returncode == 0, built.stdout[-300:])
