@@ -76,7 +76,9 @@ change, line, ts; kind (its `of`); what; answered (an event followed it); answer
 
 ## findings: one row per finding of a review or a reading, and per item left for later
 
-change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; for a reading's, where it went (`brief`, `person`, `log`, `dropped`); `backlog` for what was left under `LATER:`.
+change, line; source (`review` or `reading`); round; finding (its id); kind (`finding`, `reading` or `later`); what; where; went: for a review's finding, how a later `closed` ended it (`fixed`, `false`, `intended`, `minor`) or `open`; for a reading’s numbered addition, the destination from `--went` (`brief`, `person`, `log`, `dropped`, default `log`); `backlog` for what was left under `LATER:`.
+
+Unnumbered clarifications under `MISSING:` are printed for the orchestrator and have no finding row.
 
 ## engine: one row per invocation of the tool, from the journals
 

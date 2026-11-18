@@ -36,7 +36,7 @@ Then read it with them, and let them decide:
 - The fixes pile up in a zone that comes out green: it is marked too low.
 - A zone no commit touched: check its pathspec with `git ls-files -- <pathspec>`. A typo can leave a whole area outside its intended zone.
 
-If a check should cover the missed files, correct its condition in the draft and try the same changes again. A screen check may deliberately skip a server change. Explain each zone edit by the damage a change there could do. Put the counts by color and where the fixes fell on the first line of the approval message. On the second give the number of changes that touched paths no zone covers and name the affected areas and any checks that miss them. Say when the draft now covers a gap you found.
+If a check should cover the missed files, correct its condition in the draft and try the same changes again. A screen check may deliberately skip a server change. Explain each zone edit by the damage a change there could do. On the first line under "Before you say yes", give the counts in the product’s words and say where the fixes fell. On the second give the number of changes that touched paths no zone covers and name the affected areas and any checks that miss them. Say when the draft now covers a gap you found.
 
 ## The baseline
 

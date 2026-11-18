@@ -27,14 +27,12 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## What's already there
 
-- Open `references/existing-project.md` when there is code. Cover the whole project, record what already fails and map its code to zones.
-- Open `references/new-project.md` when there is only an idea, data or documents.
-
-Before asking for approval, run `gdd zones` on the draft and `gdd color --paths <path>...` on each recent change, or on each backlog item's planned files in a new project. In one run the server was red and its tests never applied. Give the color counts on one line and what the checks miss on the next. Give the reason for every zone change and try it again. Never lower a color to improve the figures.
+- For a project with code, follow `references/existing-project.md`.
+- For an idea, data or documents without code, follow `references/new-project.md`.
 
 ## Zones
 
-A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do.
+A zone is a set of git pathspecs with a color: green (low), yellow (medium) or red (high), by how much damage a change there can do. Try the draft before approval: in one run, a red server got no tests. Change a zone only for a reason grounded in risk, and try it again.
 
 - Mark as delicate whatever is expensive if it fails. In software, start with payments, access and permissions, deployments and CI, the updater, customer data, and whatever judges the rest, in a zone whose color asks for `review`: the blueprint itself, the standing checks and what runs them (CI and each tool's configuration).
 - Mark behaviors, not only folders: code outside a delicate zone that configures it, feeds it data or decides what it does belongs to it too.
@@ -46,11 +44,11 @@ A zone is a set of git pathspecs with a color: green (low), yellow (medium) or r
 
 ## Gates
 
-Which gates the project needs is the person's decision, and they differ with the discipline and the project. Before you propose any, open `references/gates.md`, and `references/web.md` too when it builds for the web. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
+The gates are the project's, the same for every change. The person chooses them and what each color asks: more risk means more checks, not other gates. Before you propose any, open `references/gates.md`, and `references/web.md` too when it builds for the web. Propose the usual minimum, each gate with what it has to demonstrate and the checks that demonstrate it, and each check with its tool's own numbers, never the strictest: what is stricter earns its place when hardening, with what slipped through as its evidence. A check that not every color asks judges only what the change adds or changes: its command takes `<start>`, like `seal`.
 
 For each red zone, propose three to five things that must never happen, in the person's words. Open `references/research.md` when choosing them from the project's data and what is usual in its sector. The person can approve or correct them with the blueprint. Yellow and green get their own gates only on request or through hardening.
 
-List standing checks once in the blueprint's `checks`, with the constitution's command, the bad case (`breaks`) and any path condition (`when`). In software these usually include tests and lint. Propose a secret scan in every project. Name each project gate's feature in `gates`. It says what each color asks and what each check rejects. Write each zone rule as a `Rule:` in `gdd/gates/<zone>.feature`. Link that file from the zone's `gates` field. Tag its scenarios for the reviewer on every change touching the zone, and also for a test where possible. Queue those tests for `gates-<zone>` once there is behavior to test.
+List standing checks once in the blueprint's `checks`, with the constitution's command, the bad case (`breaks`) and any path condition (`when`). In software these usually include tests and lint. Propose a secret scan in every project. Name each project gate's feature in `gates`. It says what each color asks and what each check rejects. Write each zone rule as a `Rule:` in `gdd/gates/<zone>.feature`. Link that file from the zone's `gates` field. Tag its scenarios for the reviewer on every change touching the zone, and also for a test where possible. For rules a test can cover, the orchestrator adds `gates-<zone>` to the backlog during Prepare. Put it after `standing-checks` if the behavior exists, or just after the first item that brings it. There `gdd-checks` writes the tests.
 
 Each check says when it runs (`runs`): `each round`, within the two minutes the template gives those together, or `before review`, for what takes longer, so a fix round doesn't pay for it. Put them in the blueprint's table of checks, in the person's words, for one yes. For every check, climb the ladder in `references/gates.md` and stop at the first step that works.
 

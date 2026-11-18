@@ -73,9 +73,21 @@ graders:
     type: llm
     criteria: In the json proofs, each scenario test has its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Read the test that was sealed. Its inputs and assertions would actually reject the solution named for it. A generic statement that tests failed on the base is insufficient.
     weight: 3
+  # Match the redirected test log and the same filename passed to tail, in one Bash call or two.
   - name: reads-the-end-of-saved-output
-    type: llm
-    criteria: Inspect the tool calls. The role saves test output to a file and reads its last lines. It keeps the exit status of the test and avoids printing entire unchanged files again.
+    type: regex
+    target: trace
+    pattern: '"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\bunittest\b[^;|&>"\\]*?\s+(?:&?>|2>)\s*(?:\\"|'')?([\w.$/{}-]+)(?=[\s"''\\;&|]|$)(?:\\"|'')?(?:(?:[^"\\]|\\.)*?|(?:[^"\\]|\\.)*?"[\s\S]*?"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?)\btail\s+(?:(?:-n\s*|-)[1-9]\d*\s+)?(?:--\s+)?(?:\\"|'')?\1(?=[\s"''\\;&|]|$)'
+  # Bash returns the test's exit directly when it runs alone. A compound command has to capture it.
+  - name: keeps-the-test-exit-status
+    type: tool_used
+    tool: Bash
+    input_match: '\bunittest\b[^;|&"\\]*?(?:&?>|2>)\s*(?:\\"[^"\\]+\\"|''[^'']+''|[^\s;"\\&|]+)(?:\s+2>&1)?\s*(?:"|(?:;\s*|\\n\s*)[^;&|"\\]*(?:\\")?\$\?|\|\|\s*\w+=\$\?)'
+  - name: avoids-repeating-a-full-file-read
+    type: regex
+    target: trace
+    pattern: '"name":"Read","input":\{"file_path":"([^"]+)"\}(?:(?!"name":"(?:Bash|Write|Edit|MultiEdit)")[\s\S])*?"name":"Read","input":\{"file_path":"\1"\}'
+    match: not_contains
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-checks[^\n]*\nresult: sealed'

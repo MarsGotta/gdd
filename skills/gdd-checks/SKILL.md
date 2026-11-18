@@ -51,8 +51,6 @@ On every color with cases, read each test against its scenario before sealing. N
 4. **Break it on purpose, on red, and never on yellow.** Make that correct version wrong once for each check, with the break that removes the work (remove the line that does it, return a constant, flip a comparison), and watch the check go red. If it stays green, it's hollow: strengthen it and break it again, the only time a second break is worth it. One of the pilot's reviewers brought back the old function and all six tests still passed, and another replaced a hash with 64 zeros and the same 28 scenarios passed.
 5. **More than one case.** Two examples per scenario on yellow, two or three on red, so a solution that only fits one of them isn't enough. Where a scenario states a rule that holds for every input (the total is never below zero) and the stack has a tool for it, check the rule over generated inputs too, with a fixed seed, so it gives the same answer every time, and keep each case it finds as one more example.
 
-When you run a command, send its output to a file and read only its end.
-
 ## Sealing
 
 Commit the checks on `gdd-seal/<id>`, on top of the brief and its scenarios, without any throwaway code. That commit is where the builder starts, and it never writes to it. Then report, for the layer, which reads the seal and its hashes from git:

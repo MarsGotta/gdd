@@ -70,7 +70,7 @@ graders:
     match: not_contains
   - name: asks-the-person-to-put-the-rules-in-their-words
     type: llm
-    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and where they can read and correct the proposed payment rules with the same approval. It does not say the project is ready for changes now.
+    criteria: The answer asks the person to approve the files it wrote, the blueprint among them. It tells them the constitution holds what must never happen in their shop, a rule about stock among it, and invites them to put those rules in their own words. It shows them where to read and correct the proposed payment rules with the same approval. It does not say the project is ready for changes now.
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex

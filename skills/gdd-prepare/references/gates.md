@@ -6,7 +6,7 @@ Open this before you propose any gate. Which gates a project needs is the person
 
 Read the sector sources as `references/research.md` describes and follow this project's data through the zone. Propose three to five losses the person would recognize. In a shop, a buyer might pay a different amount from the order total, a discount meant for one use might pay for two orders, or a cancelled order might keep the last unit off sale. Choose what fits the zone and the product. The person can correct the rules with the blueprint.
 
-Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one can observe them. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Queue their tests as soon as there is behavior to exercise. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
+Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one can observe them. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Place their tests in the backlog as described under Gates in `gdd-prepare`. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
 
 ## What the project already has
 
@@ -75,13 +75,12 @@ Where a project starts, for green, yellow and red, until its own logs correct it
 | The change's tests | none | a test per scenario, seen failing | the same, seen passing and broken once |
 | Fix rounds in all | 1 | 3 | 3 |
 | Runs of the checks before the review | 1 | 2 | 2 |
-| Product decisions to propose in the brief approval, where required | none | at most one | at most two |
 | The person approves the brief | no | yes, in a short message | yes |
 | The review | the seal and the color | it reads the change against its brief, about five minutes, two rounds at most | it runs the change and tries to break it, two rounds at most, about fifteen minutes |
 | A reading of the brief before building | no | only when the change changes data another zone owns | yes |
 | Level | light | standard | standard to build, deep for its brief |
 
-What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once whether to leave it pending, with what one more attempt would buy.
+For how many product decisions to propose, follow `gdd-brief`. What the person reads to approve a brief stays under 150 words. A request is split only when the person asks, and then its first part shows them something. When a limit runs out, no new round starts, but a build already finished still goes through its gates and its review: in one run, a change stayed built and never went in because its rounds ran out before its gates. If the person had left the decisions to the agents, nobody asks them to extend it: the change is left in the backlog, unless every change waits on what stopped, such as the standing checks, and then the person is asked at once whether to leave it pending, with what one more attempt would buy.
 
 ## The ladder
 

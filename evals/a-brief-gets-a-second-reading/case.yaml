@@ -77,5 +77,5 @@ graders:
     weight: 2
   - name: limits-the-additions
     type: llm
-    criteria: The reading proposes at most three additions in total. Each cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Further observations, if any, are explicitly for the log.
+    criteria: The reading proposes at most three additions in total. Each cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING and are resolved before approval. Other observations are for the log.
     weight: 3

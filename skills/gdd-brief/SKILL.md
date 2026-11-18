@@ -53,7 +53,7 @@ Use `assets/brief.md` for the brief and `assets/scenarios.feature` for its scena
 
 ## Decisions nobody has made
 
-Mark open rules while drafting with `[DECISION: <the question>]`. Look for limits with no number, and edges such as empty, twice or midnight. Replace each marker with your proposed outcome before sealing. With `brief-approval`, put those proposals in the approval message. Without it, ask only if a rule needs them, after logging the brief and within the color's allowance. One message, the most important first: none on green, one on yellow, two on red. Revise the scenario if they correct it. Ask before briefing (`--of decision`) only when the answer changes which change to brief: they requested parts, or something doesn't fit. The reference on writing to the person explains delegation. A finished brief has no markers: `git grep --untracked -n "\[DECISION:" -- gdd/briefs features`.
+Mark open rules while drafting with `[DECISION: <the question>]`. Look for limits with no number, and edges such as empty, twice or midnight. Replace every marker with an outcome before sealing. Put the most consequential proposals to the person: none on green, at most one on yellow or two on red. With `brief-approval`, include them in its single yes. Otherwise ask once after logging the brief, only if needed. For the rest, state the assumptions as in question 5. Correct the scenario if they disagree. Ask before briefing (`--of decision`) only when the answer changes which change to brief: they requested parts, or something doesn't fit. The reference on writing to the person explains delegation. A finished brief has no markers: `git grep --untracked -n "\[DECISION:" -- gdd/briefs features`.
 
 A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief. In one run, rules for a later feature got built into the current one, before anyone had asked for that feature.
 
@@ -63,13 +63,13 @@ Always in this order: write, `gdd seal`, `gdd brief`, the reading where the colo
 
 Write the brief and its scenarios in your own copy, the one the person has open, at the paths they will have in the project, and seal them from there with `gdd seal <id> <files>`, which commits them on `gdd-seal/<id>` without touching your copy. A file the person handed over that git doesn't track goes in the seal too: in one run, the roles lacked a test provider for two rounds. Then `gdd brief <id> <files> --paths <path>...` writes the `brief` step with that commit and each file's hash: exactly what has to pass. The seal is what judges, and their copy is what they read: in one run, the scenarios lived only on the seal, and the person saw them only by asking to have them pasted in.
 
-Before approval, have the sealed brief read on red and on yellow when it changes another zone's data. Use the launch route in `gdd`. When you need to choose findings' destinations after the reading, run the printed launch yourself and record them once with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Fold the additions you accept into a new version, up to three tied to a constitution or zone rule or loss of money or data. Raise disputed ones with the person only where the color asks for approval. The rest stay in the log.
+Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions tied to a constitution or zone rule or loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
 If this color omits `brief-approval`, tell the person in one line what the change will do and go on. Otherwise follow the step the layer printed. Ask only when approval is due. Send one message, under 150 words, in their language, in this shape:
 
     <What the change will do, in words of their product.>
     <Each scenario in one line, in their words.>
-    <Each decision on how it's built, marked as yours; each rule of their product, as a proposal covered by the final yes.>
+    <Your technical decisions and the product proposals selected above.>
     <On red: the rules of the product it touches, and up to three things it won't do yet, each as a consequence.>
     <Any disputed addition that needs their decision, and why.>
     <One question a yes answers.>

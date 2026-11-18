@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: prepare-tries-the-zones-on-the-history
-description: "A shop without GDD and with twenty-five commits of history. Before it asks the person to approve the blueprint, Prepare tries the colors and checks on those commits. Two lines give the color counts, where fixes fell and any gaps in the draft."
+description: "A shop without GDD and with twenty-five commits of history. Before it asks the person to approve the blueprint, Prepare tries the colors and checks on those commits. Two lines give the counts in shop terms, where fixes fell and any gaps in the draft."
 tags: [orchestrator, prepare, history]
 runs: 3
 execution:
@@ -48,11 +48,24 @@ graders:
     weight: 2
   - name: tells-the-person-what-the-history-shows
     type: llm
-    criteria: The answer has a part about the repository's past commits. That part gives numbers of commits by color. It says that most of the commits that fixed or undid something were in payments. The answer asks the person to approve the blueprint.
+    criteria: Under "Before you say yes", one line gives the counts for each level of care in the shop’s words and says most fixes were in payments. The next names any gaps or says what the sample covered. The answer asks for approval.
     weight: 1
+  - name: gets-the-files-of-a-change
+    type: tool_used
+    tool: Bash
+    input_match: '\bgit\s+(?:diff-tree|show|diff|log)\s+[^;&|"]*--name-(?:only|status)\b'
   - name: previews-the-checks-on-real-changes
-    type: llm
-    criteria: The tool calls try gdd color --paths on the files of recent commits, grouped by change, and gdd zones on the draft. The approval message uses two lines for the results, one with counts by color and one naming what the checks or zones miss or saying the sample revealed no gaps.
+    type: tool_used
+    tool: Bash
+    input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+color\s+--paths\s+[^ <"]'
+  - name: checks-the-draft-zones
+    type: tool_used
+    tool: Bash
+    input_match: '\b(?:gdd|GDD_BIN)(?:\\")?\s+zones\b'
+  - name: gives-the-counts-and-coverage-in-two-lines
+    type: regex
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?![^\n]*\b(?:red|yellow|green)\b)(?=(?:[^\d\n]*\d+\b){3})[^\n]+\n[^\n]*(?:cover|miss|gap|skip|watch|check|test|unprotected)'
+    flags: i
     weight: 3
   - name: says-what-no-zone-covers
     type: llm
