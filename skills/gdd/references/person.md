@@ -82,7 +82,7 @@ When you tell the person the change is in, give each reported choice one line in
 
 ## When a limit stops the work
 
-Use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later.
+Use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
 
     Your route map shows the paths. I still need to check the distances. I've used both tries we agreed on. One more would let me fix and check the distances. I'd leave that for later. Yes?
 
@@ -94,13 +94,15 @@ When the next item needs this one, propose the extra attempt now. For example, â
 
 "You decide" covers how the work gets done: the tools, the design, the order, and what a scenario says where they'd have no answer of their own. Decide it, record technical choices in the brief and product assumptions in the feature file, tell them in a line, and don't ask that kind of thing again.
 
-It doesn't cover what the method keeps for a person, because nobody else can give it:
+Even when they delegate, the person decides whether to take a request in parts. Before briefing, use `gdd-brief/references/proposing-parts.md` when they ask for parts or for several things they could use separately. If they decline, brief the whole request without asking again.
+
+The following decisions also stay with the person.
 
 - approving the blueprint, and what has to pass for a change when its color asks for it;
 - a rule of their product they'd have an answer for: rounding, a limit, sequence, or how to handle a zero or empty value;
 - loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
 - what can't be undone.
 
-Ask an open product question only when you have no grounds to propose a rule. For decisions where you have a proposal, come back once with one yes to give. The question names what it loosens, what was spent and what more buys: "go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+Ask an open product question only when you have no grounds to propose a rule. For decisions where you have a proposal, come back once with one yes to give. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
 Use the product question allowance in `gdd-brief` for open questions you have no grounds to answer. A proposed answer goes in an `@assumed` rule. When the person delegates or no question remains, use the usual rule in their field and state it so they can correct it: "I assumed a day in your calendar starts at local midnight." Where the blueprint asks for approval, one yes covers the rules and all your assumptions.

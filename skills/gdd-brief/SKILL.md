@@ -11,6 +11,8 @@ metadata:
 
 Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level, as `gdd` says.
 
+**One request, one change.** Propose parts once before briefing if the person asks for them or for several things they could use separately (`references/proposing-parts.md`). Otherwise, or if they decline, brief it whole, however large. Never count lines, zones or scenarios to decide.
+
 ## Write the rules first
 
 For a change with a brief, start in `features/<capability>.feature`. Read the rules that cover what the change touches. Write only rules it adds or changes. In an older file, leave untouched top-level scenarios before the first rule. Group only scenarios this change adds or changes.
@@ -65,7 +67,6 @@ Use `assets/brief.md`. On yellow, five sections suffice: Request, Rules (the fea
 - **Scenarios it contradicts.** Search `features/` and the tests for the behavior the request changes. If a rule or scenario in `features/` says the opposite, change it and say so in the brief, because that changes what has to pass.
 - **Gates.** The change's own scenarios, the standing gates of every zone it touches and the checks its color asks for, each with the context the blueprint gives it.
 - **What connects it.** If it builds a part, say which item of the backlog it serves and what will put it in use, and set that item to `briefed` with `gdd backlog briefed <item> --brief <id>`.
-- **One request, one change.** Don't split a request yourself, however big it is or however many red zones it crosses: every part pays its whole way through the gates. Only when the person asks for parts, follow `references/when-the-person-asks-for-parts.md`.
 
 ## Assumptions and open questions
 
@@ -73,7 +74,7 @@ Use a plain `Rule:` for a rule the person gives you or has already approved. Put
 
 Ask about the most consequential unknown you cannot settle. Use an open question: "What happens when time runs out?" None on green, at most one on yellow or two on red. One brief approval covers all your assumptions. For an unknown this change can leave for later, write `@question` above `Rule: <the open question?>` and leave it without scenarios.
 
-Before sealing, settle each rule the change needs. If it is unknown, ask or mark an assumption. Check each has a scenario. Use `git grep --untracked -nE '^[[:space:]]*@(assumed|question)[[:space:]]*$' -- features` to locate the tags. Check that each open question can wait and has no scenarios. Ask before briefing (`--of decision`) only if the answer changes what you can brief: they asked for parts, the request does not fit, or you need an answer to write the rule. Without brief approval, ask once after logging only if needed. See the reference on writing to the person for delegation.
+Before sealing, settle each rule the change needs. If it is unknown, ask or mark an assumption. Check each has a scenario. Use `git grep --untracked -nE '^[[:space:]]*@(assumed|question)[[:space:]]*$' -- features` to locate the tags. Check that each open question can wait and has no scenarios. Ask before briefing (`--of decision`) only if the answer changes what you can brief. Ask to agree on parts, settle what won't fit or write a rule. Without brief approval, ask once after logging only if needed. See the reference on writing to the person for delegation.
 
 A rule the person gives for something not asked yet goes to that item of the backlog, not into this brief.
 
