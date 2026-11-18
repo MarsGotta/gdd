@@ -984,7 +984,7 @@ fn a_checks_stop_that_names_nothing_is_refused() {
     approved(&r, "yx");
     for vague in [
         "CANNOT: I could not prove the checks for all eleven scenarios",
-        "CANNOT: gdd-seal/yx stays at 4575d37, version 0.13.0",
+        "CANNOT: gdd-seal/yx stays at 4575d37, version 0.13.1",
     ] {
         let v = r.report(
             "yx",
