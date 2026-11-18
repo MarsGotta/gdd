@@ -30,7 +30,7 @@ Work in a fresh clone of the repository, at the change's head, never in the tree
    - `git diff --name-only <base> <start>` lists only the brief, its scenarios and the sealed checks, and what the main branch brought if it was merged into the seal.
    - When there is a brief, at `<start>` it has the blob hash of the last `brief` step in the log (`git rev-parse <start>:<path>`) and, when the color asks for `brief-approval`, each scenario file has the one of its last approval.
    - No test that was already there was weakened, skipped or deleted, and what surrounds the tests changed only for a reason the brief or the request gives: the test script in the package manifest, test configuration and setup files, hooks, CI workflows.
-3. **The checks that applied.** A check with a `when` in the blueprint applies when `git diff --name-only <start> HEAD -- <pathspec>` prints something for its paths. Say which checks of the color didn't apply, and why, as the `skipped` of the log's `gates` step does: one that applied and wasn't run is a `fix`.
+3. **The checks that applied.** A check with a `when` in the blueprint applies when `git diff --name-only <start> HEAD -- <pathspec>` prints something for its paths. Say which checks of the color didn't apply, and why, as the `skipped` of the log's `gates` step does: if one applied and did not run, ask for a `fix` and cite `check <id>`.
 
 ## Then, by the color you were launched for
 
@@ -46,8 +46,8 @@ On every change that touches a zone, answer each of its reviewer rules, includin
 
 The first line of your answer is exactly one of these words, with nothing before it, because the orchestrator reads it as it is:
 
-- `pass`: you ran it and it works. Minor issues can remain; list them after a line `LATER:`.
-- `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:cart-5`), `zone <name>: <rule>`, `constitution: <rule>` or `request: <the person's words>`. For example, `f1 tests/cart:42 swapping the price and subtotal still passes | @id:cart-5`. The layer refuses a fix without a cited finding or with even one uncited finding. Put anything you can't tie to one of those sources under `LATER:` for the backlog. In one run, a reviewer sent a change back five times, each for a finer defect. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
+- `pass`: you ran it and it works. List minor issues under `LATER:`. A blank line ends the list.
+- `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:cart-5`), `zone <name>: <rule>`, `constitution: <rule>`, `request: <the person's words>` or `check <id>`. For example, `f1 tests/cart:42 swapping the price and subtotal still passes | @id:cart-5`. Your fix holds the change. The layer logs any missing citations so Harden can count them. Put anything you can't tie to one of those sources under `LATER:` for the backlog. In one run, a reviewer sent a change back five times, each for a finer defect. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 
 The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then what you read or ran and what came out, a line each, and what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.

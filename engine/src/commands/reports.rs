@@ -16,19 +16,14 @@ pub struct ReportArgs {
     pub went: Vec<(String, String)>,
 }
 
-fn json_file(path: &Option<String>) -> R<Value> {
-    match path {
-        None => Ok(json!([])),
-        Some(p) => {
-            let t = std::fs::read_to_string(p)
-                .map_err(|_| Fail::missing(p.to_string(), format!("{p} is missing")))?;
-            let v: Value = serde_json::from_str(&t)
-                .map_err(|e| Fail::usage(format!("{p} isn't JSON: {e}")))?;
-            if !v.is_array() {
-                return Err(Fail::usage(format!("{p} isn't a JSON list")));
-            }
-            Ok(v)
-        }
+fn json_file(path: &str) -> R<Vec<Value>> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|_| Fail::missing(path.to_string(), format!("{path} is missing")))?;
+    let value =
+        serde_json::from_str(&text).map_err(|e| Fail::usage(format!("{path} isn't JSON: {e}")))?;
+    match value {
+        Value::Array(items) => Ok(items),
+        _ => Err(Fail::usage(format!("{path} isn't a JSON list"))),
     }
 }
 
@@ -307,7 +302,7 @@ fn report_checks(
     // sealed before still covers it: in one run the brief only gained a port, and the layer refused
     // the role's word that nothing had to change, round after round.
     let standing = if tip == from && pending.is_empty() {
-        let s = (!p.checks_done).then(|| standing_checks(ctx, p, id, &tip));
+        let s = (!p.checks_done).then(|| standing_checks(ctx, l, id, &tip));
         let Some(s) = s.flatten() else {
             return Err(Fail::refuse(
                 "not-sealed",
@@ -345,28 +340,17 @@ fn report_checks(
             checks.insert(f.clone(), json!(h));
         }
     }
-    if let Some(s) = standing {
+    let proofs = if let Some((previous_checks, previous_proofs)) = standing {
+        checks = previous_checks;
         out.say(
             "nothing new on the seal: the checks sealed before stand for this version of the brief",
         );
-        checks = s;
-    }
-    // Its proofs: --proofs overrides the json block of its last message.
-    let proofs = if a.proofs.is_some() {
-        json_file(&a.proofs)?
-    } else if let Some(err) = &r.proofs_error {
-        return Err(Fail::refuse(
-            "bad-proofs",
-            format!("the role's proofs can't be read: {err}"),
-            format!("pass them as a file: gdd report {id} checks <file> --proofs <json file>"),
-        ));
+        previous_proofs
     } else {
-        r.proofs.clone().unwrap_or_else(|| json!([]))
+        let proofs = reported_proofs(id, a, r)?;
+        check_proofs(l, id, &proofs)?;
+        proofs
     };
-    let proofs = proofs
-        .as_array()
-        .expect("both proof sources read a JSON list");
-    check_proofs(l, id, proofs)?;
     let n = proofs.len();
     m.insert(
         "seal".into(),
@@ -392,23 +376,49 @@ fn report_checks(
     Ok(())
 }
 
+fn reported_proofs(id: &str, a: &ReportArgs, r: &RoleReport) -> R<Vec<Value>> {
+    // Its proofs: --proofs overrides the json block of its last message.
+    if let Some(path) = &a.proofs {
+        return json_file(path);
+    }
+    if let Some(err) = &r.proofs_error {
+        return Err(Fail::refuse(
+            "bad-proofs",
+            format!("the role's proofs can't be read: {err}"),
+            format!("pass them as a file: gdd report {id} checks <file> --proofs <json file>"),
+        ));
+    }
+    Ok(r.proofs
+        .as_ref()
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
 /// A check takes proof when it is set up, or when the blueprint asks for cases on this change.
 fn required_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<BTreeSet<String>> {
     let p = &l.state.progress;
     let color = p.color.as_deref().unwrap_or("");
     let checks = l.bp.checks();
     let machine = checks.iter().filter(|c| c.kind == "machine");
+    let mut required = BTreeSet::new();
     if id == "standing-checks" {
-        let code = super::launching::has_code(&l.project.root);
-        return Ok(machine
-            .filter(|c| code || matches!(c.id.as_str(), "seal" | "secrets"))
-            .map(|c| c.id.clone())
-            .collect());
+        let root = &l.project.root;
+        let code = super::launching::has_code(root);
+        for c in machine.filter(|c| code || matches!(c.id.as_str(), "seal" | "secrets")) {
+            if c.when.is_empty()
+                || !git::ls_files(root, &c.when)
+                    .map_err(Fail::usage)?
+                    .is_empty()
+            {
+                required.insert(c.id.clone());
+            }
+        }
+        return Ok(required);
     }
     if let Some(check) = id.strip_prefix("standing-checks-") {
         return Ok(BTreeSet::from([check.to_owned()]));
     }
-    let mut required = BTreeSet::new();
     if !p.has_brief() {
         return Ok(required);
     }
@@ -520,7 +530,7 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
             }
         }
     }
-    if setup && runs.is_empty() {
+    if setup && id != "standing-checks" && runs.is_empty() {
         return Err(missing_proof(
             id,
             "setting up a check needs both a rejects proof and a passes proof",
@@ -528,6 +538,9 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
     }
     let mut scenario_tests = 0;
     for (check, runs) in runs {
+        if (!setup || id == "standing-checks") && !required.contains(check) {
+            continue;
+        }
         if runs.rejects.is_empty() {
             return Err(missing_proof(
                 id,
@@ -600,11 +613,14 @@ fn check_proofs(l: &Loaded, id: &str, proofs: &[Value]) -> R<()> {
 /// A new scenario, a check that changed or a higher color need the role to seal again.
 fn standing_checks(
     ctx: &Ctx,
-    p: &crate::state::Progress,
+    l: &Loaded,
     id: &str,
     tip: &str,
-) -> Option<Map<String, Value>> {
-    let (at, then) = p.checked.as_ref()?;
+) -> Option<(Map<String, Value>, Vec<Value>)> {
+    let p = &l.state.progress;
+    let (line, then) = p.checked.as_ref()?;
+    let seal = &l.entries.get(line - 1)?.event()?["seal"];
+    let at = seal["commit"].as_str()?;
     let rank = |c: &Option<String>| c.as_deref().and_then(crate::color_rank);
     let prose = format!("gdd/briefs/{id}.md");
     // The main branch as the seal last took it in: the second parent of its newest merge since
@@ -647,7 +663,7 @@ fn standing_checks(
         .keys()
         .filter_map(|f| git::blob_at(&ctx.root, tip, f).map(|h| (f.clone(), json!(h))))
         .collect();
-    (!s.is_empty()).then_some(s)
+    (!s.is_empty()).then(|| (s, seal["proofs"].as_array().cloned().unwrap_or_default()))
 }
 
 /// What a build step adds: what the builder says each check gave. A build that left nothing to
@@ -699,11 +715,10 @@ fn report_build(
         ));
     }
     // What it says each check gave: --claims, or the json block of its last message.
-    let claims = if a.claims.is_some() {
-        json_file(&a.claims)?
+    let mut claims = if let Some(path) = &a.claims {
+        json_file(path)?
     } else {
-        let c: Vec<Value> = r
-            .list
+        r.list
             .as_ref()
             .and_then(|v| v.as_array())
             .map(|a| {
@@ -712,10 +727,16 @@ fn report_build(
                     .cloned()
                     .collect()
             })
-            .unwrap_or_default();
-        json!(c)
+            .unwrap_or_default()
     };
-    m.insert("claims".into(), claims);
+    for claim in &mut claims {
+        if let Some(count) = claim.get_mut("failures")
+            && !count.is_u64()
+        {
+            *count = Value::Null;
+        }
+    }
+    m.insert("claims".into(), Value::Array(claims));
     Ok(())
 }
 
@@ -739,18 +760,14 @@ fn report_review(
             format!("launch it again, once: gdd launch {id} review"),
         ));
     };
-    if verdict == "fix" && (r.findings.is_empty() || r.uncited.is_some()) {
-        let why = match &r.uncited {
-            Some(f) => format!("finding {f} doesn't cite what it breaks"),
-            None => "the fix has no numbered finding that cites what it breaks".into(),
+    if verdict == "fix" && (r.findings.is_empty() || !r.uncited.is_empty()) {
+        let missing = if r.findings.is_empty() {
+            "no numbered finding".into()
+        } else {
+            r.uncited.join(", ")
         };
-        return Err(Fail::refuse(
-            "uncited-fix",
-            why,
-            format!(
-                "have the reviewer end each numbered finding with | @id:<scenario>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>. Move the rest under LATER: and use pass if nothing blocks. Then gdd report {id} review <file>"
-            ),
-        ));
+        out.say(format!("fix missing citations ({missing}): end each numbered finding with | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>"));
+        m.insert("uncited".into(), json!(r.uncited));
     }
     let head = review_head(l).map(str::to_owned);
     // What a setup log's trial judges is all it sealed, from where its seal was cut.

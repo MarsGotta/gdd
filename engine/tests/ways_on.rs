@@ -204,7 +204,9 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
         "{ask}"
     );
     assert!(
-        ask.contains("rounds: 1 of 1 used") && ask.contains("leave it for later"),
+        ask.contains("rounds: 1 of 1 used")
+            && !ask.contains("leave it for later")
+            && ask.contains("one more attempt?"),
         "{ask}"
     );
     assert!(
@@ -219,13 +221,14 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
     assert_eq!(l.facts["refused"], "cap-spent", "{}", l.out);
     assert!(l.has(&ask), "{}", l.out);
     // After the person chooses the extra try, the waiver raises the cap and it goes on.
-    r.gdd(&[
-        "ask",
-        id,
-        "--of",
-        "waiver",
-        "The scan is unfinished after its one try. Another try would set it up. I'd leave it for later. Yes?",
-    ]);
+    let asked = r.named(&ask);
+    assert_eq!(asked.code, 0, "{}", asked.out);
+    assert!(
+        asked.facts["then"]
+            .as_str()
+            .unwrap()
+            .starts_with("If they agree to the extra attempt: gdd waiver")
+    );
     let w = r.gdd(&[
         "waiver",
         id,
@@ -234,7 +237,7 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
         "--check",
         "rounds_per_change",
         "--why",
-        "one more round",
+        "Yes",
         "--backlog",
         id,
         "--limit",
@@ -246,6 +249,29 @@ fn a_spent_cap_on_the_standing_checks_asks_the_person_at_once() {
     let n = next_of(&r, id);
     assert_eq!(step_of(&n), "checks", "{}", n.out);
     assert_eq!(command_of(&n), format!("gdd launch {id} checks"));
+}
+
+#[test]
+fn deferred_standing_checks_name_how_to_resume() {
+    let bp = BLUEPRINT.replace(
+        "  lines_per_change: 400",
+        "  lines_per_change: 400\n  rounds_per_change: 1",
+    );
+    let r = Repo::with(&bp);
+    let id = "standing-checks";
+    for _ in 0..2 {
+        assert_eq!(cannot(&r, id, "checks", "gdd-checks").code, 0);
+    }
+    let ask = command_of(&next_of(&r, id));
+    assert_eq!(r.named(&ask).code, 0);
+    let answer = r.gdd(&["answer", id, "Leave it for later"]);
+    let resume = command_of(&next_of(&r, id));
+    assert_eq!(answer.facts["next_command"], resume);
+    assert!(
+        resume.starts_with("gdd ask standing-checks --of waiver"),
+        "{resume}"
+    );
+    assert_eq!(r.named(&resume).facts["next"], "wait");
 }
 
 #[test]
@@ -272,6 +298,7 @@ fn a_spent_cap_on_a_change_says_more_room_is_the_persons_to_give() {
     assert_eq!(blocked_of(&n), "cap-spent", "{}", n.out);
     let ask = command_of(&n);
     assert!(ask.starts_with("gdd ask c9 --of waiver "), "{ask}");
+    assert!(n.has("If the next item needs this work") && !ask.contains("leave it for later"));
     assert!(
         ask.contains("rounds: 1 of 1 used") && ask.contains("what it would buy"),
         "{ask}"

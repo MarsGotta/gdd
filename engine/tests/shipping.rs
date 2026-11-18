@@ -395,39 +395,98 @@ fn a_merge_of_main_that_touches_its_files_asks_for_a_review_again() {
 }
 
 #[test]
-fn each_finding_that_sends_a_change_back_cites_what_it_breaks() {
+fn an_uncited_fix_holds_the_change_and_counts_each_uncited_finding() {
     let r = Repo::new();
     yellow_through_gates(&r, "p1");
-    let report =
-        |findings: &str| r.report("p1", "review", &review_text("fix", "yellow", findings), &[]);
-    let first = "f1 src/core/app.txt:1 no output, which breaks `@id:p1-1`.";
-    let before = r.log_lines("p1");
-    for vague in [
-        "",
-        "LATER:\nf1 a shorter message | @id:p1-1",
-        "f1 src/core/app.txt:1 no output\nNOTES FOR THE BUILDER:\nSee @id:p1-1",
-        &format!("{first}\nf2 src/core/app.txt:2 repeated text"),
-        &format!("{first}\nf2 src/core/app.txt:2 repeated text | @id:"),
-        &format!("{first}\nf2 src/core/app.txt:2 repeated text | zone core:"),
-        &format!("{first}\nf2 src/core/app.txt:2 repeated text | constitution:"),
-        &format!("{first}\nf2 src/core/app.txt:2 repeated text | request:"),
-        &format!("{first}\nf1 src/core/app.txt:2 a separate claim without a citation"),
-    ] {
-        let refused = report(vague);
-        assert_eq!(refused.facts["refused"], "uncited-fix", "{}", refused.out);
-        assert!(refused.has("LATER:"), "{}", refused.out);
-        assert_eq!(r.log_lines("p1"), before);
-    }
-    let accepted = report(&format!(
-        "{first}\nf2 tests/run.sh:1 total is hidden | zone core: show the total\n\
-         f3 src/core/app.txt:2 rounds up | constitution: amounts are in whole cents\n\
-         f4 src/core/app.txt:3 no text | request: Make it ok.\nLATER:\nf5 shorten the helper name"
-    ));
-    assert_eq!(accepted.code, 0, "{}", accepted.out);
+    let fix = review_text(
+        "fix",
+        "yellow",
+        "f1 src/core/app.txt:1 the total doubles\nf2 src/core/app.txt:2 rounds up | constitution:\nf3 src/core/app.txt:3 no text | @id:p1-1\nNOTES FOR THE BUILDER:\nSee @id:p1-1",
+    );
+    let written = r.report("p1", "review", &fix, &[]);
+    assert_eq!(written.facts["next"], "build", "{}", written.out);
+    assert!(
+        written
+            .out
+            .lines()
+            .any(|l| l.contains("f1, f2") && l.contains("| check <id>"))
+    );
     let lines = r.log_lines("p1");
     let review = lines.last().unwrap();
-    assert_eq!(review["findings"].as_array().unwrap().len(), 4);
-    assert_eq!(review["later"][0], "f5 shorten the helper name");
+    assert_eq!(review["verdict"], "fix");
+    assert_eq!(review["uncited"], serde_json::json!(["f1", "f2"]));
+    assert_ne!(
+        r.report("p1", "review", &review_text("pass", "yellow", ""), &[])
+            .code,
+        0
+    );
+    assert_eq!(r.log_lines("p1"), lines);
+    let metrics = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(
+        metrics.has("fix reviews missing citations: 1, uncited findings: 2"),
+        "{}",
+        metrics.out
+    );
+}
+
+#[test]
+fn a_launched_fix_without_numbered_findings_still_holds() {
+    let r = Repo::with(
+        &BLUEPRINT.replace("the Agent tool, with its model field", "sh role.sh <model>"),
+    );
+    r.write(
+        "role.sh",
+        &format!(
+            "cat <<'END'\n{}END\n",
+            review_text("fix", "yellow", "The total doubles.")
+        ),
+    );
+    r.commit("A review without a numbered finding");
+    yellow_through_gates(&r, "p1");
+    let fix = r.gdd(&["launch", "p1", "review", "--run"]);
+    assert_eq!(fix.facts["next"], "build", "{}", fix.out);
+    assert!(fix.has("no numbered finding"));
+    assert_eq!(
+        r.log_lines("p1").last().unwrap()["uncited"],
+        serde_json::json!([])
+    );
+    assert!(
+        r.gdd(&["metrics", "--all", "--summary"])
+            .has("fix reviews missing citations: 1, uncited findings: 0")
+    );
+}
+
+#[test]
+fn a_fix_can_cite_the_check_that_failed_or_was_skipped() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "p1");
+    let findings = "f1 test.sh:1 expected failure | check tests\nf2 test.sh:2 missing run | check slow\nf3 cart:1 total is hidden | zone core: show the total\nf4 cart:2 rounds up | constitution: use whole cents\nf5 cart:3 no text | request: Make it ok.";
+    let written = r.report("p1", "review", &review_text("fix", "yellow", findings), &[]);
+    assert_eq!(written.facts["next"], "build", "{}", written.out);
+    let lines = r.log_lines("p1");
+    let review = lines.last().unwrap();
+    assert_eq!(review["findings"].as_array().unwrap().len(), 5);
+    assert!(review.get("uncited").is_none());
+}
+
+#[test]
+fn a_blank_line_ends_later_before_a_blocking_finding() {
+    let r = Repo::new();
+    yellow_through_gates(&r, "p1");
+    let text = review_text(
+        "stop",
+        "yellow",
+        "LATER: shorten the footer\n- shorten the title\n   \nf1 cart:1 charges twice | @id:p1-1",
+    );
+    let written = r.report("p1", "review", &text, &[]);
+    assert_eq!(written.code, 0, "{}", written.out);
+    let lines = r.log_lines("p1");
+    let review = lines.last().unwrap();
+    assert_eq!(
+        review["later"],
+        serde_json::json!(["shorten the footer", "shorten the title"])
+    );
+    assert_eq!(review["findings"][0]["id"], "f1");
 }
 
 #[test]
@@ -1130,6 +1189,10 @@ fn checks_reports_require_the_proofs_of_their_color() {
             json!([reject, cancelled])
         };
         assert_eq!(r.log_lines(id), before);
+        let mut proofs = proofs;
+        proofs.as_array_mut().unwrap().push(
+            json!({"check":"slow", "case":"passes", "command":"slow", "exit":0, "tail":"ok"}),
+        );
         let ok = with_proofs(proofs);
         assert_eq!(ok.facts["next"], "build", "{}", ok.out);
     }

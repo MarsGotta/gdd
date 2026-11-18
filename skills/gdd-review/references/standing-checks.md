@@ -2,7 +2,7 @@
 
 When standing checks are new, from preparing or hardening, your job is to see each one close, once in each round. Read the blueprint's `checks` and what was sealed on the ref you were given, the features of the project's gates in `gdd/gates/`, when the blueprint names any, and, when a zone got a gate of its own, its scenarios in `gdd/gates/<zone>.feature`. Work in a fresh clone.
 
-In a project with no code yet, only `seal` and `secrets` are set up. Every other check waits with a `when` that names what it watches, and its trial comes later, as `standing-checks-<check id>`, on the code the first change brought: one with nothing to judge yet isn't a finding, because nobody is asked to demonstrate a check on code that does not exist. Read only that each `when` names what its check watches.
+In a project with no code yet, only `seal` and `secrets` are set up. Every other check waits with a `when` that names what it watches, and its trial comes later, as `standing-checks-<check id>`, on the code the first change brought: one with nothing to judge yet isn't a finding, because nobody is asked to demonstrate a check on code that does not exist. Read each `when` to see that it names what its check watches. Even in a project with code, a check whose `when` matches no tracked file waits for its trial.
 
 Try each machine check three ways, and no more:
 
@@ -29,4 +29,4 @@ The third has degrees, and the blueprint's `guarantee` says which one this proje
 
 Your verdict is the first line of your answer, as for a change: `pass` when every check holds; `fix` when one of the three tries failed, with how under `NOTES FOR THE BUILDER:`, which here go to the agent that set the checks up; or `stop` when a check can't be made to hold, or when the third try fails because a check's files fall in a zone whose color asks for no `review`: that is a pathspec for the person, not a `fix`, so name the paths. End with your skill's report block.
 
-For a `fix`, use the numbered findings and citations in your skill's verdict format. For example, if the scan passes a planted secret, cite the zone rule it violates or quote the person's request for that check. Other improvements belong under `LATER:`.
+For a `fix`, use the numbered findings and citations in your skill's verdict format. For example, if the scan passes a planted secret, end the finding with `| check secrets`. The failed trial tells the checks role what to fix. Other improvements belong under `LATER:`.

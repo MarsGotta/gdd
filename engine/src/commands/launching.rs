@@ -102,7 +102,7 @@ fn setup_subject(id: &str) -> (String, String) {
         )
     } else {
         (
-            "the standing checks the blueprint's `checks` name, from the blueprint and the constitution".into(),
+            "the standing checks the blueprint's `checks` name whose `when` is empty or matches a tracked file, from the blueprint and the constitution".into(),
             "the new standing checks".into(),
         )
     }
@@ -776,6 +776,15 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let l = load_attempt(ctx, id, role, out)?;
         may_launch(ctx, &l, id, role)?;
+        if a.run && a.command.is_none() && returned_role(&l.state.progress, role) {
+            return Err(Fail::refuse(
+                "resume-required",
+                format!("the {role} round goes back to the session that did the work"),
+                format!(
+                    "resume it with gdd launch {id} {role} --run --command \"<resume command>\". If it cannot resume, get the prompt with gdd launch {id} {role}, launch by hand, then gdd report {id} {role} <file>"
+                ),
+            ));
+        }
         let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
         let prompt = prompt_for(&l, id, role, &level);

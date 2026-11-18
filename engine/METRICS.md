@@ -56,13 +56,15 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 
 change, line, ts; step; role (the report's skill) and skill_version; level; model; round; result (the report's result, the verdict of a review, pass or fail for gates); caught; seconds, tokens and tokens_read, as the report gives them; seconds_since_previous, from the event before with a time, which is how long that step took if it was written when it closed; suspect_time, true when a step that takes time (checks, build, gates, review, reading) has the same second as the step before it, the sign of a log written afterwards, unless the journal shows that each of the two was written by its own call of the layer; by_layer, true when the journal shows a call of the layer wrote that line.
 
+For a fix flagged for missing citations, `uncited` counts the numbered findings without a citation. Zero means the flagged fix gave no numbered finding at all. Other steps, including older logs without the flag, leave this column null. The summary counts flagged reviews and adds their uncited findings.
+
 ## checks: one row per executed or skipped check of each gates run
 
 Each row identifies the change, run number, log line, head, start, check and tier (`each round` or `before review`). A run gives the command, exit code, measured seconds and result (`pass` or `fail`). An omission has `result: "skipped"` and its logged reason in `why`. Its command, exit and seconds are null. A path filter can exclude a check, or a failure can stop a later tier. Old logs can only show the omissions they recorded.
 
 ## claims: one row per check the builder reported in a round
 
-`change`, `line` and `round` identify the build. `check` is its blueprint id. `failures` counts failed runs of that check in that round, including a final failure. The last run supplies `command`, `exit` and `tail`. A claim with `failures: 0` says the builder saw no failure. An older claim can have a successful final exit and an unknown failure count. Its count is null. A build with no claims contributes no rows to this table.
+`change`, `line` and `round` identify the build. `check` is its blueprint id. `failures` counts failed runs of that check in that round, including a final failure. The last run supplies `command`, `exit` and `tail`. A claim with `failures: 0` says the builder saw no failure. An unreadable or missing count is null, even if the final run passed. A build with no claims contributes no rows to this table.
 
 ## hardening: one row per recorded Harden step
 

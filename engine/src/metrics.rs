@@ -218,6 +218,7 @@ fn step_rows(
                     },
                 ),
                 ("caught", r["caught"].clone()),
+                ("uncited", json!(v["uncited"].as_array().map(Vec::len))),
                 ("seconds", r["seconds"].clone()),
                 ("tokens", r["tokens"].clone()),
                 ("tokens_read", r["tokens_read"].clone()),
@@ -816,6 +817,18 @@ fn gates_lines(out: &mut Vec<String>, t: &Tables, changes: &[&Row]) {
             r.len()
         )
     ));
+    let uncited: Vec<_> = t
+        .steps
+        .iter()
+        .filter_map(|s| s["uncited"].as_u64())
+        .collect();
+    if !uncited.is_empty() {
+        out.push(format!(
+            "fix reviews missing citations: {}, uncited findings: {}",
+            uncited.len(),
+            uncited.iter().sum::<u64>()
+        ));
+    }
     let mut checks: BTreeMap<String, Vec<f64>> = BTreeMap::new();
     for c in &t.checks {
         if let Some(s) = c["seconds"].as_f64() {

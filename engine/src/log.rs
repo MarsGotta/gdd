@@ -209,7 +209,7 @@ enum T {
     StrOrNull,
     Int,
     IntOrNull,
-    Count,
+    CountOrNull,
     NumOrNull,
     NumberLike,
     Bool,
@@ -334,6 +334,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("ran", Arr, Writes),
             ("findings", Arr, Writes),
             ("closed", Arr, Writes),
+            ("uncited", Arr, May),
         ],
         ("step", "reading") => vec![("findings", Arr, Writes)],
         ("step", "ship") => vec![
@@ -372,7 +373,7 @@ fn fits(v: &Value, t: T) -> bool {
         T::Int => v.is_i64() || v.is_u64(),
         T::IntOrNull => v.is_i64() || v.is_u64() || v.is_null(),
         T::NumOrNull => v.is_number() || v.is_null(),
-        T::Count => v.is_u64(),
+        T::CountOrNull => v.is_u64() || v.is_null(),
         T::NumberLike => number_like(v).is_some(),
         T::Bool => v.is_boolean(),
         T::Obj => v.is_object(),
@@ -391,7 +392,7 @@ fn describe(t: T) -> String {
         T::Int | T::IntOrNull => "a whole number".into(),
         T::NumOrNull => "a number or null".into(),
         T::NumberLike => "a number".into(),
-        T::Count => "a non-negative whole number".into(),
+        T::CountOrNull => "a non-negative whole number or null".into(),
         T::Bool => "true or false".into(),
         T::Obj => "an object".into(),
         T::Arr => "a list".into(),
@@ -493,7 +494,7 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
         for (i, claim) in claims.iter().enumerate() {
             a.check(
                 "failures",
-                T::Count,
+                T::CountOrNull,
                 Need::May,
                 claim.get("failures"),
                 &format!("claims[{i}]."),

@@ -320,6 +320,9 @@ fn run_change<F: FnOnce(&mut Out) -> R<()>>(ctx: &Ctx, id: &str, command: &str, 
                     ));
                 }
                 let next = l.state.next;
+                if id == "blueprint" && next.step == "done" {
+                    return out;
+                }
                 out.fact("next", next.step.as_str());
                 out.fact("next_command", next.command.as_str());
                 out.next = Some(next);

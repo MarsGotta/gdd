@@ -529,6 +529,9 @@ fn two_refusals_need_the_same_reason_seal_and_head() {
     );
     assert_eq!(reject().facts["refused"], "no-report");
     assert_eq!(next()["blocked"], "needs-person");
+    let typo = r.gdd(&["report", "c1", "checks", "absent-report.txt"]);
+    assert_eq!(typo.code, 2);
+    assert_eq!(next()["blocked"], "needs-person");
     let later = gdd::time::format(gdd::time::now() + 601 * 60);
     let capped = r.gdd_env(&["next", "c1"], &[("GDD_NOW", &later)]);
     assert_eq!(
@@ -557,6 +560,7 @@ fn check_resumed_build(with_starting_count: bool) {
         "role.sh",
         &format!(
             r#"set -eu
+echo launched >> launches
 test "$1" = model-a
 input=24
 if test "$#" = 3; then
@@ -595,6 +599,14 @@ printf '{{"type":"turn.completed","usage":{{"input_tokens":%s,"cached_input_toke
     let failed = r.named(first.facts["next_command"].as_str().unwrap());
     assert_eq!(failed.code, 1, "{}", failed.out);
     assert_eq!(failed.facts["next_command"], "gdd launch l1 build");
+    let before = r.log_lines("l1");
+    let launches = r.read("launches");
+    assert!(!launches.is_empty());
+    let fresh = r.gdd(&["launch", "l1", "build", "--run"]);
+    assert_eq!(fresh.code, 1, "{}", fresh.out);
+    assert!(fresh.has("--run --command") && fresh.has("gdd report l1 build"));
+    assert_eq!(r.log_lines("l1"), before);
+    assert_eq!(r.read("launches"), launches);
     let codex = script(
         &r,
         "codex",

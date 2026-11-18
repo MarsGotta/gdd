@@ -132,20 +132,26 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
         };
         waivers.push(format!("gdd waiver {id} --who <person> --check {key} --why \"<their words>\" --backlog {backlog} --limit {key} --to {to}"));
     }
-    let waits = if id == "standing-checks" {
-        " Every change waits for the standing checks: say what will wait."
+    let (advice, proposal) = if id == "standing-checks" {
+        (
+            "Every change waits for the standing checks. Ask for the extra attempt now.",
+            "<what will wait>. Shall I make one more attempt?",
+        )
     } else {
-        ""
+        (
+            "If the next item needs this work, say what will wait and propose one more attempt now. Otherwise propose leaving it for later.",
+            "<propose another try if the next item depends on this, otherwise defer>. Yes?",
+        )
     };
     blocked(
         "stopped",
         "cap-spent",
         format!(
-            "No new round.{waits} Ask once in the person's words. If they agree to leave it for later, record their answer and leave it in the backlog. Only if they explicitly choose the extra attempt, record that reply directly: {}",
+            "No new round. {advice} If they choose to wait, record their answer. If they agree to the extra attempt, record their reply directly: {}",
             waivers.join(", then ")
         ),
         format!(
-            "gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. I'd leave it for later. Yes?\"",
+            "gdd ask {id} --of waiver \"<what works and what is missing>. {}. One more attempt <how much more, and what it would buy>. {proposal}\"",
             spent.join(", ")
         ),
     )
@@ -174,11 +180,19 @@ fn waiting_or_ask(id: &str, p: &Progress, of: &str, what: &str, then: &str, now:
     )
 }
 
-/// In a spent-limit question a yes means leaving it pending.
+/// The person's reply records either the extra attempt offered or the choice to wait.
 pub(crate) fn limit_reply(id: &str) -> String {
-    format!(
-        "If they agree to leave it pending: gdd answer {id} \"<their words>\", then keep the item in the backlog. Only if they request the extra attempt: gdd waiver {id} --who <person> --check <cap> --why \"<their words>\" --backlog <item> --limit <cap> --to <agreed amount>"
-    )
+    let grant = format!(
+        "gdd waiver {id} --who <person> --check <cap> --why \"<their words>\" --backlog <item> --limit <cap> --to <agreed amount>"
+    );
+    let defer = format!("gdd answer {id} \"<their words>\", then keep the item in the backlog");
+    if id == "standing-checks" {
+        format!("If they agree to the extra attempt: {grant}. If they choose to wait: {defer}")
+    } else {
+        format!(
+            "If they agree to leave it pending: {defer}. If they agree to the extra attempt: {grant}"
+        )
+    }
 }
 
 /// What records the person's answer to an ask of a kind: an approval for what a person approves,
@@ -268,17 +282,16 @@ pub(crate) fn next_step(
         })
     };
     if next.blocked.as_deref() == Some("cap-spent") && p.limit_deferred {
+        let say = format!(
+            "The person left this for later. Keep it in the backlog. When they want to resume, ask about the extra attempt: {}",
+            next.command
+        );
         let command = if kind == LogKind::Change {
             format!("gdd brief {id} --stop \"<their words>\"")
         } else {
-            "gdd backlog list".into()
+            next.command
         };
-        return blocked(
-            "stopped",
-            "cap-spent",
-            "The person left this for later. Keep the item in the backlog. Their answer stands.",
-            command,
-        );
+        return blocked("stopped", "cap-spent", say, command);
     }
     next
 }

@@ -11,6 +11,14 @@ pub struct Finding {
 /// The reviewer judges whether the cited requirement is broken. The layer checks that the
 /// finding itself gives a source and some words from it.
 fn has_citation(what: &str) -> bool {
+    if let Some((_, source)) = what.rsplit_once('|')
+        && source
+            .trim()
+            .strip_prefix("check ")
+            .is_some_and(|id| crate::valid_id(id.trim()))
+    {
+        return true;
+    }
     let mut words = what
         .split_whitespace()
         .map(|w| w.trim_matches(['`', '"', '(', ')', '[', ']', ',', '.']));
@@ -47,8 +55,8 @@ pub struct RoleReport {
     /// The color of the `COLOR:` line, and the rest of that line.
     pub color: Option<(String, String)>,
     pub findings: Vec<Finding>,
-    /// The first uncited finding in a fix, even if the role reused an earlier finding's number.
-    pub uncited: Option<String>,
+    /// Numbers used for uncited findings in a fix, including reused numbers.
+    pub uncited: Vec<String>,
     pub later: Vec<String>,
     pub notes: String,
     pub missing: Vec<String>,
@@ -294,9 +302,10 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
             continue;
         }
         if in_later {
-            if ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
-                .iter()
-                .any(|h| p.starts_with(h))
+            if l.trim().is_empty()
+                || ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
+                    .iter()
+                    .any(|h| p.starts_with(h))
             {
                 in_later = false;
             } else {
@@ -308,9 +317,8 @@ pub fn parse(text: &str) -> Result<RoleReport, String> {
             }
         }
         if let Some(f) = finding(l) {
-            if r.verdict.as_deref() == Some("fix") && r.uncited.is_none() && !has_citation(&f.what)
-            {
-                r.uncited = Some(f.id.clone());
+            if r.verdict.as_deref() == Some("fix") && !has_citation(&f.what) {
+                r.uncited.push(f.id.clone());
             }
             if !r.findings.iter().any(|x| x.id == f.id) {
                 r.findings.push(f);

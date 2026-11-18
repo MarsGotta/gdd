@@ -627,7 +627,7 @@ fn new_version(r: &Repo, id: &str, files: &[&str], extra: &[&str]) {
 }
 
 fn sealed_nothing(r: &Repo, id: &str) -> Run {
-    r.report(id, "checks", &sealed_report(&["tests"]), &[])
+    r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[])
 }
 
 /// With no checks sealed yet, the role's word that nothing had to change is still nothing sealed.
@@ -703,7 +703,11 @@ fn checks_still_stand_for_a_new_version_after_a_merge_of_main() {
     let c = sealed_nothing(&r, "ym");
     assert_eq!(c.code, 0, "{}", c.out);
     let lines = r.log_lines("ym");
-    let checks = &lines.last().unwrap()["seal"]["checks"];
+    let first = lines.iter().find(|e| e["step"] == "checks").unwrap();
+    let seal = &lines.last().unwrap()["seal"];
+    assert!(!first["seal"]["proofs"].as_array().unwrap().is_empty());
+    assert_eq!(seal["proofs"], first["seal"]["proofs"]);
+    let checks = &seal["checks"];
     assert!(checks["tests/ym.sh"].is_string(), "{checks}");
     assert!(checks["src/ui/page.txt"].is_null(), "{checks}");
 }
@@ -1349,6 +1353,65 @@ fn an_open_blueprint_question_hands_off_to_its_answer() {
     assert_eq!(asked.facts["next"], "wait");
     assert_eq!(asked.facts["next_command"], asked.facts["then"]);
     let answer = r.gdd(&["answer", "blueprint", "Yes"]);
-    same_as_next(&r, "blueprint", &answer);
-    assert_eq!(answer.facts["next"], "done");
+    assert_eq!(answer.code, 0, "{}", answer.out);
+    assert!(answer.facts.get("next").is_none());
+}
+
+#[test]
+fn a_proposed_blueprint_never_hands_off_as_done() {
+    let r = Repo::new();
+    let proposed = r.gdd(&[
+        "step",
+        "blueprint",
+        "prepare",
+        "--result",
+        "proposed",
+        "--file",
+        "gdd/blueprint.md",
+    ]);
+    assert_eq!(proposed.code, 0, "{}", proposed.out);
+    assert!(r.gdd(&["next"]).has("no approval of the blueprint"));
+    assert_ne!(proposed.facts["next"], "done", "{}", proposed.out);
+}
+
+#[test]
+fn unreadable_failure_counts_leave_the_build_and_its_claims_intact() {
+    use serde_json::json;
+    let r = Repo::new();
+    assert_eq!(
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    r.commit_on(
+        "work/g1",
+        Some("main"),
+        &[("src/ui/page.txt", "built\n")],
+        "Build",
+    );
+    let counts = [
+        json!(null),
+        json!("two"),
+        json!(-1),
+        json!(1.5),
+        json!(0),
+        json!(2),
+    ];
+    let claims: Vec<_> = counts
+        .iter()
+        .map(|n| json!({"check":"tests","failures":n, "command":"test", "exit":0, "tail":"ok"}))
+        .collect();
+    let text = report_text(
+        "gdd-build",
+        "done",
+        &format!("```json\n{}\n```", json!(claims)),
+    );
+    let build = r.report("g1", "build", &text, &[]);
+    assert_eq!(build.facts["next"], "gates", "{}", build.out);
+    let lines = r.log_lines("g1");
+    let saved = lines.last().unwrap()["claims"].as_array().unwrap();
+    assert_eq!(saved.len(), counts.len());
+    for (claim, count) in saved.iter().zip(counts) {
+        assert_eq!(claim["failures"], json!(count.as_u64()));
+        assert_eq!(claim["tail"], "ok");
+    }
 }

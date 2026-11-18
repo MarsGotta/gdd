@@ -148,7 +148,7 @@ pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter(|j| {
             j["wrote"].is_object()
-                || (j["exit"].as_i64().unwrap_or(0) != 0
+                || (j["exit"].as_i64() == Some(1)
                     && !matches!(
                         j["command"].as_str(),
                         Some("next" | "limits" | "verify" | "metrics" | "color")

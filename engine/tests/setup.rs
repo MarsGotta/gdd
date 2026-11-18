@@ -373,3 +373,29 @@ fn a_refusal_names_what_is_missing() {
     ]);
     assert_eq!(ap.facts["what"], "no/such/file.txt", "{}", ap.out);
 }
+
+#[test]
+fn standing_checks_only_demonstrate_checks_with_files_to_judge() {
+    let bp = BLUEPRINT.replace("when: [':(glob)src/ui/**']", "when: [':(glob)web/**']");
+    for has_page in [false, true] {
+        let r = Repo::with(&bp);
+        if has_page {
+            r.write("web/index.html", "Page");
+            r.commit("Add the first page");
+        }
+        let id = "standing-checks";
+        seal_as_the_checks_role(
+            &r.root,
+            r.dir.path(),
+            id,
+            &[("tests/standing.sh", "true\n")],
+        );
+        let checks = r.report(id, "checks", &sealed_report(&["seal", "tests"]), &[]);
+        if has_page {
+            assert_eq!(checks.facts["refused"], "missing-proofs", "{}", checks.out);
+            assert!(checks.has("slow"));
+        } else {
+            assert_eq!(checks.facts["next"], "review", "{}", checks.out);
+        }
+    }
+}
