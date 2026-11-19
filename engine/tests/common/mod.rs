@@ -275,7 +275,18 @@ impl Repo {
         self.root.join(rel)
     }
 
+    /// A brief written here promises nothing to whoever uses the product, unless it says how it
+    /// closes: the layer refuses one that says neither.
     pub fn write(&self, rel: &str, text: &str) {
+        if rel.starts_with("gdd/briefs/") && !text.contains("## Closing it") {
+            let closing =
+                "## Closing it\n\nNothing to close: it promises nothing to whoever uses it\n";
+            return self.write_as_it_is(rel, &format!("{text}\n{closing}"));
+        }
+        self.write_as_it_is(rel, text)
+    }
+
+    pub fn write_as_it_is(&self, rel: &str, text: &str) {
         let p = self.root.join(rel);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, text).unwrap();

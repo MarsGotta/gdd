@@ -26,6 +26,10 @@ fn command_for(id: &str, ev: &str, st: &str) -> Option<(String, String)> {
             "an answer".into(),
             format!("gdd answer {id} \"<their words>\""),
         ),
+        ("close", _) => (
+            "a person's verdict on a change in use".into(),
+            crate::closing::verdict_command(id),
+        ),
         ("correction", _) => (
             "a correction".into(),
             format!("gdd correct {id} --line <n> \"<what was wrong>\""),
@@ -162,6 +166,19 @@ fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
             "one question about the spent limit is already waiting",
             crate::next::limit_reply(id),
         )),
+        "close" => match &l.state.standing {
+            Some(crate::closing::Standing::Closed(how)) => Err(Fail::refuse(
+                "out-of-order",
+                format!("{id} is closed, {how}: there is no verdict left to ask for"),
+                way_on(l, id),
+            )),
+            Some(_) => Ok(()),
+            None => Err(Fail::refuse(
+                "out-of-order",
+                format!("{id} hasn't shipped: the verdict is asked once it is in use"),
+                way_on(l, id),
+            )),
+        },
         "brief" if l.state.next.step == "reading" => Err(Fail::refuse(
             "out-of-order",
             "read the brief before asking the person to approve it",
@@ -479,11 +496,18 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
             )));
         }
         if void {
-            // A closed log is closed: no line of it stops counting once the change shipped.
-            if l.state.progress.shipped.is_some() {
+            // Nothing that judged a change stops counting once it shipped. A verdict written
+            // wrong is the exception: voiding it leaves the change in use, waiting for the right one.
+            let is_close = l
+                .entries
+                .iter()
+                .find(|e| e.line == line)
+                .and_then(|e| e.event())
+                .is_some_and(|v| log::kind(v) == "close");
+            if l.state.progress.shipped.is_some() && !is_close {
                 return Err(Fail::refuse(
                     "out-of-order",
-                    format!("{id} shipped and its log is closed: no line of it is voided now"),
+                    format!("{id} shipped: no line that judged it is voided now"),
                     format!(
                         "say what was wrong without --void, which changes nothing of what counted: gdd correct {id} --line {line} \"<what was wrong>\""
                     ),

@@ -135,7 +135,7 @@ fn a_legacy_brief_shows_only_changed_orphans_and_names_each_file() {
 }
 
 #[test]
-fn approval_needs_both_a_seal_and_a_feature_to_print_any_lines() {
+fn approval_needs_a_seal_and_prints_no_rule_without_a_feature() {
     let r = Repo::new();
     record(&r, RULES);
     let mut brief = r.log_lines("lines").pop().unwrap();
@@ -162,7 +162,12 @@ fn approval_needs_both_a_seal_and_a_feature_to_print_any_lines() {
             ok(&r, &["next", id]),
         ] {
             assert_eq!(approval_lines(&result), "");
-            assert!(!result.has("yes covers"));
+            // A brief with no feature still says how it closes, and the person approves that.
+            assert_eq!(result.has("yes covers"), id == "green", "{}", result.out);
+            assert_eq!(
+                result.has("closes: nothing to close, it promises nothing to whoever uses it"),
+                id == "green"
+            );
         }
     }
 }

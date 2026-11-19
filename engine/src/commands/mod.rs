@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod brief;
+mod closing;
 mod counting;
 mod events;
 mod gating;
@@ -39,6 +40,7 @@ mod waiting;
 mod zones;
 
 pub use brief::*;
+pub use closing::*;
 pub use counting::*;
 pub use events::*;
 pub use gating::*;
@@ -126,7 +128,10 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
         ctx.head.as_deref(),
         &entries,
     );
-    let state = state::derive(id, &bp, &entries, gv, time::now());
+    let named = crate::closing::named(&project.read_log("blueprint"))
+        .get(id)
+        .copied();
+    let state = state::derive(id, &bp, &entries, gv, named, time::now());
     Ok(Loaded {
         project,
         bp,
@@ -212,7 +217,12 @@ fn way_on(l: &Loaded, id: &str) -> String {
             return "the blueprint's log has steps of its own: gdd step blueprint <prepare, harden or exam>, gdd ask blueprint, gdd approve blueprint".into();
         }
         return format!(
-            "{id} shipped and its log is closed: anything more is a new change, with an id of its own (gdd brief <new id> --paths <path>...)"
+            "{id} shipped and is closed: anything more is a new change, with an id of its own (gdd brief <new id> --paths <path>...)"
+        );
+    }
+    if n.step == "close" {
+        return format!(
+            "{id} shipped and waits for the person's verdict: gdd close {id} shows what to look at; anything more is a new change, with an id of its own"
         );
     }
     format!("gdd next {id}")

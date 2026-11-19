@@ -3,6 +3,7 @@
 //! change stands. It reads nothing itself: the log's entries and what git says are given to it.
 
 use crate::blueprint::Blueprint;
+use crate::closing::Standing;
 use crate::judged::GitView;
 use crate::limits::{self, Limits};
 use crate::log::{self, Entry, kind, result, step, str_of, ts};
@@ -83,10 +84,20 @@ pub struct ChecksFix {
     pub paths: BTreeSet<String>,
 }
 
+/// A person's verdict at Close, as a `close` event keeps it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Verdict {
+    pub line: usize,
+    /// `yes`, `not-yet` or `no`.
+    pub verdict: String,
+    pub who: String,
+    pub ts: Option<i64>,
+}
+
 /// The next step of a change: what to do, the exact command, and when it can't go on, why.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Next {
-    /// `brief`, `ask`, `wait`, `checks`, `build`, `gates`, `review`, `ship`, `done`, `stopped`.
+    /// `brief`, `ask`, `wait`, `checks`, `build`, `gates`, `review`, `ship`, `close`, `done`, `stopped`.
     pub step: String,
     pub say: String,
     pub command: String,
@@ -138,6 +149,11 @@ pub struct Progress {
     /// The person answered a spent-limit question without granting more room.
     pub limit_deferred: bool,
     pub shipped: Option<(usize, String)>,
+    pub shipped_at: Option<i64>,
+    /// What the last brief step says closes the change: its three lines, or why nothing does.
+    pub closing: Option<Value>,
+    /// Every verdict a person gave once it was in use, in the order of the log.
+    pub verdicts: Vec<Verdict>,
     pub last_ts: Option<i64>,
     pub checks_runs: i64,
     pub readings_n: i64,
@@ -312,6 +328,11 @@ impl Progress {
         self.asks.last().filter(|a| a.ended_by.is_none())
     }
 
+    /// The verdict that closed the change: a yes or a no. A not-yet leaves it in use.
+    pub fn closed_by(&self) -> Option<&Verdict> {
+        self.verdicts.iter().find(|v| v.verdict != "not-yet")
+    }
+
     /// Take one event, in the order of the log.
     pub fn apply(&mut self, line: usize, v: &Value) {
         self.events += 1;
@@ -337,6 +358,7 @@ impl Progress {
                 "answer" => true,
                 "approval" => str_of(v, "of") == a.of,
                 "waiver" => a.of == "waiver" || a.of == "stop" || a.of == "decision",
+                "close" => a.of == "close",
                 _ => false,
             };
         }
@@ -391,6 +413,12 @@ impl Progress {
                     self.start = Some(to.into());
                 }
             }
+            "close" => self.verdicts.push(Verdict {
+                line,
+                verdict: str_of(v, "verdict").into(),
+                who: str_of(v, "who").into(),
+                ts: t,
+            }),
             "step" => self.apply_step(line, v),
             _ => {}
         }
@@ -433,6 +461,7 @@ impl Progress {
                 self.uncovered = strings(&v["color"]["uncovered"]);
                 self.why = str_of(&v["color"], "why").to_string();
                 self.brief_files = hashes(&v["files"]);
+                self.closing = v.get("closing").filter(|c| c.is_object()).cloned();
                 for (p, h) in &self.brief_files {
                     self.sealed.insert(p.clone(), h.clone());
                 }
@@ -574,17 +603,44 @@ impl Progress {
                     self.read_since_red = true;
                 }
             }
-            "ship" => self.shipped = Some((line, str_of(v, "where").to_string())),
+            "ship" => {
+                self.shipped = Some((line, str_of(v, "where").to_string()));
+                self.shipped_at = ts(v);
+            }
             _ => {}
         }
     }
 
     /// Whether this event may come next, and if not, the code and the reason.
     pub fn allows(&self, bp: Option<&Blueprint>, v: &Value) -> Allowed {
-        if log::kind(v) != "step" {
-            return Ok(());
+        match log::kind(v) {
+            "step" => self.allows_step(bp, step(v), v["head"].as_str()),
+            "close" => self.allows_close(),
+            _ => Ok(()),
         }
-        self.allows_step(bp, step(v), v["head"].as_str())
+    }
+
+    /// A verdict is given on a change in use, and the one that closes it is the last.
+    fn allows_close(&self) -> Allowed {
+        if self.kind != Some(LogKind::Change) {
+            return Err(("out-of-order", "only a change is closed".into()));
+        }
+        if self.shipped.is_none() {
+            return Err((
+                "out-of-order",
+                "a verdict before the change shipped: it isn't in use yet".into(),
+            ));
+        }
+        if let Some(v) = self.closed_by() {
+            return Err((
+                "out-of-order",
+                format!(
+                    "a verdict after the one that closed it (line {}, {}): what comes next is a new change",
+                    v.line, v.verdict
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Whether a step may be written next. `head` is the commit a gates step would judge.
@@ -826,6 +882,8 @@ pub struct State {
     pub git: GitView,
     /// The checks that passed on the current head, by the last gates run.
     pub passed_on_head: Vec<String>,
+    /// Where it stands at Close, once it shipped.
+    pub standing: Option<Standing>,
 }
 
 impl State {
@@ -845,6 +903,7 @@ impl State {
             "rounds": self.limits.line("rounds_per_change", "rounds").map(|l| l.used as i64),
             "open_ask": p.open_ask().map(|a| json!({"line": a.line, "of": a.of, "what": a.what})),
             "shipped": p.shipped.is_some(),
+            "close": self.standing.as_ref().map(Standing::word),
             "stop": self.limits.stop,
             "judge": self.limits.judge,
             "next": {"step": self.next.step, "command": self.next.command, "blocked": self.next.blocked},
@@ -852,8 +911,16 @@ impl State {
     }
 }
 
-/// Derive a change's state from its log and from git, as of `now`.
-pub fn derive(id: &str, bp: &Blueprint, entries: &[Entry], git: GitView, now: i64) -> State {
+/// Derive a change's state from its log and from git, as of `now`. `named` is when a hardening
+/// record first named it as the change that let something through, from the blueprint's log.
+pub fn derive(
+    id: &str,
+    bp: &Blueprint,
+    entries: &[Entry],
+    git: GitView,
+    named: Option<i64>,
+    now: i64,
+) -> State {
     let p = Progress::of(id, entries);
     // A closed log counts to its last event; an open one to now.
     let until = if p.shipped.is_some() {
@@ -876,9 +943,11 @@ pub fn derive(id: &str, bp: &Blueprint, entries: &[Entry], git: GitView, now: i6
         (Some(g), None) if g.passed => g.ran.clone(),
         _ => vec![],
     };
-    let next = crate::next::next_step(id, bp, &p, &lim, &git, now);
+    let next = crate::next::next_step(id, bp, &p, &lim, &git, named, now);
+    let standing = crate::closing::standing(&p, bp, named, now);
     State {
         id: id.into(),
+        standing,
         progress: p,
         limits: lim,
         next,

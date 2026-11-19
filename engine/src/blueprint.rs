@@ -293,6 +293,18 @@ impl Blueprint {
 
     /// A blueprint from before 0.5 may say that what no zone covers counts as red. That is prose of
     /// its body, not a field, so it is read from the words.
+    /// The days in use after which a change that promised nothing closes by itself. A blueprint
+    /// without them was written before version 0.16 and reads as before: such a change is closed
+    /// when it ships.
+    pub fn closing_days(&self) -> i64 {
+        whole(&self.front["closing"]["days"]).unwrap_or(0)
+    }
+
+    /// Who gives the verdict on a change in use, when the blueprint names someone.
+    pub fn closing_who(&self) -> Option<String> {
+        s(&self.front["closing"]["who"]).filter(|w| !w.trim().is_empty() && !w.starts_with('<'))
+    }
+
     pub fn uncovered_is_red(&self) -> bool {
         let body = self.body.to_lowercase();
         body.contains("no zone covers counts as red")

@@ -116,11 +116,23 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         .map(|c| c.id)
         .collect();
     let mut t = Tables::default();
+    let named = inputs
+        .iter()
+        .find(|i| i.id == "blueprint")
+        .map(|i| crate::closing::named(i.entries))
+        .unwrap_or_default();
     for input in inputs {
         let id = input.id;
         let events = log::events(input.entries);
         let layer = crate::journal::lines_written(input.journal, input.entries);
-        let state = crate::state::derive(id, bp, input.entries, GitView::default(), now);
+        let state = crate::state::derive(
+            id,
+            bp,
+            input.entries,
+            GitView::default(),
+            named.get(id).copied(),
+            now,
+        );
         let mut n = Totals::default();
         step_rows(&mut t.steps, &mut n, id, &events, &layer);
         check_rows(&mut t.checks, &mut n, id, &events, &late);
@@ -592,6 +604,18 @@ fn change_row(
         ("reviews", json!(p.reviews)),
         ("review_first_try", json!(review_first)),
         ("ended", json!(ended)),
+        ("close", json!(state.standing.as_ref().map(|s| s.word()))),
+        (
+            "verdict",
+            json!(p.verdicts.last().map(|v| v.verdict.clone())),
+        ),
+        (
+            "days_to_verdict",
+            match (p.closed_by().and_then(|v| v.ts), p.shipped_at) {
+                (Some(closed), Some(shipped)) => json!((closed - shipped) / 86_400),
+                _ => Value::Null,
+            },
+        ),
         (
             "stop_reason",
             json!(if ended == "stopped" {
@@ -751,6 +775,7 @@ pub fn summary(t: &Tables) -> Vec<String> {
     check_evidence(&mut out, t);
     hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
+    close_lines(&mut out, &changes);
     trust_lines(&mut out, t);
     role_costs(&mut out, t);
     engine_costs(&mut out, t);
@@ -1015,6 +1040,24 @@ fn ask_lines(out: &mut Vec<String>, t: &Tables) {
             ));
         }
     }
+}
+
+/// What is in use and what the person said of it: a close that never says no is worth a look.
+fn close_lines(out: &mut Vec<String>, changes: &[&Row]) {
+    let count =
+        |column: &str, word: &str| changes.iter().filter(|r| r[column] == json!(word)).count();
+    let verdicts = ["yes", "not-yet", "no"].map(|v| count("verdict", v));
+    if count("close", "waiting") + count("close", "quiet") + verdicts.iter().sum::<usize>() == 0 {
+        return;
+    }
+    out.push(format!(
+        "in use: {} waiting for a verdict, {} closing by themselves; last verdicts: {} yes, {} not yet, {} no",
+        count("close", "waiting"),
+        count("close", "quiet"),
+        verdicts[0],
+        verdicts[1],
+        verdicts[2]
+    ));
 }
 
 /// How far the logs can be trusted: times that look written afterwards, and what verify finds.

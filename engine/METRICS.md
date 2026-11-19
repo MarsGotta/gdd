@@ -43,6 +43,9 @@ The schema is `gdd-metrics/1`. A column that can't be known is `null` (empty in 
 | gates_runs, gates_first_try | count, bool | the first `gates` step passed |
 | reviews, review_first_try | count, bool | the first `review` said `pass` |
 | ended | `shipped`, `stopped` or `open` | a `ship` step; or a next step stopped for a reason other than waiting for the person |
+| close | `waiting`, `quiet`, `closed` or null | once it shipped: it waits for a person's verdict; it promised nothing and its days in the blueprint's `closing.days` haven't gone by; or a `yes` or a `no` closed it, or it closed by itself. Null before the ship |
+| verdict | `yes`, `not-yet`, `no` or null | the last `close` event |
+| days_to_verdict | days or null | from the `ship` step to the `yes` or `no` that closed it |
 | stop_reason | code | `cap-spent`, `review-stop`, `seal-broken`, `cannot` |
 | next | step | the next step the tool derives |
 | tokens | tokens | the sum of the steps' `report.tokens` |

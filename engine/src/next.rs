@@ -216,6 +216,7 @@ pub fn follow_up(id: &str, of: &str, version: i64) -> String {
         "brief" | "change" | "blueprint" | "gates" | "debt" => format!(
             "gdd approve {id} --of {of} --version {version} --who <person> --where <conversation, commit or pull request> <files>"
         ),
+        "close" => crate::closing::verdict_command(id),
         "waiver" => format!(
             "gdd waiver {id} --who <person> --check <check or limit> --why \"<reason>\" --backlog <item> [--limit <cap> --to <n>], only if they chose what the question would loosen. To keep the limit or check: gdd answer {id} \"<their words>\""
         ),
@@ -249,15 +250,12 @@ pub(crate) fn next_step(
     p: &Progress,
     lim: &Limits,
     git: &GitView,
+    named: Option<i64>,
     now: i64,
 ) -> Next {
     let kind = p.kind.unwrap_or(LogKind::Change);
-    if let Some((line, w)) = &p.shipped {
-        return n(
-            "done",
-            format!("it shipped ({w}), line {line}: its log is closed"),
-            "",
-        );
+    if p.shipped.is_some() {
+        return crate::closing::next(id, bp, p, named, now);
     }
     // An open question waits first, whatever it is about.
     if let Some(a) = p.open_ask() {

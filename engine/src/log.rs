@@ -230,7 +230,7 @@ enum Need {
 
 type Field = (&'static str, T, Need);
 
-pub const EVENTS: [&str; 7] = [
+pub const EVENTS: [&str; 8] = [
     "approval",
     "waiver",
     "ask",
@@ -238,12 +238,13 @@ pub const EVENTS: [&str; 7] = [
     "answer",
     "correction",
     "seal",
+    "close",
 ];
 pub const STEPS: [&str; 10] = [
     "prepare", "reading", "brief", "checks", "build", "gates", "review", "ship", "harden", "exam",
 ];
 pub const APPROVAL_OF: [&str; 5] = ["brief", "change", "blueprint", "gates", "debt"];
-pub const ASK_OF: [&str; 9] = [
+pub const ASK_OF: [&str; 10] = [
     "brief",
     "change",
     "blueprint",
@@ -253,6 +254,7 @@ pub const ASK_OF: [&str; 9] = [
     "decision",
     "levels",
     "stop",
+    "close",
 ];
 
 const REPORT: [Field; 11] = [
@@ -307,6 +309,14 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("why", Str, Writes),
             ("files", Hashes, May),
         ],
+        ("close", _) => vec![
+            ("verdict", OneOf(&crate::closing::VERDICTS), Must),
+            ("who", Str, Must),
+            ("where", Str, Must),
+            ("saw", Str, Must),
+            ("then", Str, May),
+            ("ask", Int, May),
+        ],
         ("correction", _) => vec![
             ("line", Int, Must),
             ("what", Str, Must),
@@ -318,6 +328,7 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("files", Hashes, Must),
             ("seal", StrOrNull, Writes),
             ("request", Str, May),
+            ("closing", Obj, May),
         ],
         ("step", "checks") => vec![("seal", Obj, Must), ("color", Obj, May)],
         ("step", "build") => vec![("claims", Arr, Writes), ("decisions", Arr, May)],

@@ -280,6 +280,10 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
         }
         lines.push(format!("read: {file}"));
     }
+    if let Some(line) = brief.get("closing").and_then(crate::closing::approval_line) {
+        found = true;
+        lines.push(line);
+    }
     if !found {
         return;
     }
@@ -412,6 +416,32 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 ),
             ));
         }
+        // How the change closes is in its brief, sealed with it. A brief the log already holds
+        // with this content was written before the layer asked for it, and keeps what it had.
+        let brief_file = format!("gdd/briefs/{id}.md");
+        let mut closing = None;
+        if let Some(f) = a
+            .files
+            .iter()
+            .find(|f| f.trim_start_matches("./") == brief_file)
+        {
+            let text = std::fs::read_to_string(ctx.root.join(f)).unwrap_or_default();
+            match crate::closing::read(&text) {
+                Ok(c) => closing = Some(c),
+                Err(_) if logged(f) => closing = l.state.progress.closing.clone(),
+                Err(e) => {
+                    let (files, retry) = retry_commands();
+                    return Err(Fail::refuse(
+                        "closing-form",
+                        format!("{f} doesn't say how the change closes: {e}"),
+                        format!(
+                            "Add to {f}, in the person's words:\n{}\nThen run these commands.\ngdd seal {id} {files}\n{retry}",
+                            crate::closing::FORM
+                        ),
+                    ));
+                }
+            }
+        }
         let mut files = Map::new();
         for f in a.files {
             let h = git::hash_object(&ctx.root, f).map_err(|_| {
@@ -525,6 +555,9 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             .filter(|r| !r.is_empty())
         {
             ev["request"] = json!(r);
+        }
+        if let Some(c) = closing {
+            ev["closing"] = c;
         }
         let line = write(&l, id, &ev)?;
         out.say(format!(

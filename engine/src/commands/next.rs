@@ -213,6 +213,8 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
     let now = time::now();
     let mut open = vec![];
     let mut under_way = vec![];
+    let mut in_use = vec![];
+    let named = crate::closing::named(&project.read_log("blueprint"));
     // A setup or first brief can be refused twice before it writes its first event.
     let ids: std::collections::BTreeSet<_> = project
         .log_ids()
@@ -240,6 +242,7 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
                 bp,
                 &e,
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
+                None,
                 now,
             );
             stop_repeating(&mut s, &e, repeated);
@@ -252,6 +255,11 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
                 Some(b) => format!("under way: {lid}, stopped ({b}): {}", s.next.command),
                 None => format!("under way: {lid}, next {}: {}", s.next.step, s.next.command),
             });
+        } else if matches!(
+            crate::closing::standing(&p, bp, named.get(&lid).copied(), now),
+            Some(crate::closing::Standing::Waiting { .. })
+        ) {
+            in_use.push((p.shipped_at.unwrap_or(now), lid.clone(), p));
         }
     }
     open.sort();
@@ -266,4 +274,27 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
         json!(open.iter().map(|(t, lid, of, what)| json!({"id": lid, "of": of, "what": what, "seconds": now - t})).collect::<Vec<_>>()),
     );
     out.fact("under_way", json!(under_way));
+    // What is in use and nobody has closed, oldest first. It stops nothing.
+    in_use.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+    for (since, lid, p) in &in_use {
+        let looked = p.verdicts.last().map_or(String::new(), |v| {
+            format!(
+                ", looked at {} ago: {}",
+                time::waited(now - v.ts.unwrap_or(now)),
+                v.verdict
+            )
+        });
+        out.say(format!(
+            "in use, waiting for a verdict: {lid}, {}{looked}; {}",
+            time::waited(now - since),
+            crate::closing::expected(p)
+        ));
+    }
+    if !in_use.is_empty() {
+        out.say("What is in use stops nothing, and Close never starts by itself: say in one line of your summary what waits. When the person asks to look at one, load gdd-close and run gdd close <id>.");
+    }
+    out.fact(
+        "in_use",
+        json!(in_use.iter().map(|(since, lid, p)| json!({"id": lid, "seconds": now - since, "closing": p.closing})).collect::<Vec<_>>()),
+    );
 }

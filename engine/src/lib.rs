@@ -9,6 +9,7 @@
 
 pub mod backlog;
 pub mod blueprint;
+pub mod closing;
 pub mod color;
 pub mod commands;
 pub mod gates;

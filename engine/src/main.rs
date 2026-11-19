@@ -75,6 +75,23 @@ enum Cmd {
         #[arg(long)]
         to: Option<i64>,
     },
+    /// What a change in use was expected to give; with --verdict, the person's verdict on it.
+    Close {
+        id: String,
+        /// yes, not-yet or no.
+        #[arg(long)]
+        verdict: Option<String>,
+        #[arg(long)]
+        who: Option<String>,
+        #[arg(long = "where")]
+        place: Option<String>,
+        /// What they saw, in their words.
+        #[arg(long)]
+        saw: Option<String>,
+        /// What comes next, when they already said it: a backlog item, harden or none.
+        #[arg(long)]
+        then: Option<String>,
+    },
     /// Correct a line of a log with a new event; --void takes that line out of the change's state.
     Correct {
         id: String,
@@ -300,6 +317,28 @@ fn main() {
         Cmd::Log { id, event } => ("log", Some(id.clone()), c::log_event(&ctx, id, event)),
         Cmd::Ask { id, of, what } => ("ask", Some(id.clone()), c::ask(&ctx, id, of, what)),
         Cmd::Answer { id, words } => ("answer", Some(id.clone()), c::answer(&ctx, id, words)),
+        Cmd::Close {
+            id,
+            verdict,
+            who,
+            place,
+            saw,
+            then,
+        } => (
+            "close",
+            Some(id.clone()),
+            c::close(
+                &ctx,
+                id,
+                &c::CloseArgs {
+                    verdict: verdict.as_deref(),
+                    who: who.as_deref(),
+                    place: place.as_deref(),
+                    saw: saw.as_deref(),
+                    then: then.as_deref(),
+                },
+            ),
+        ),
         Cmd::Approve {
             id,
             of,
