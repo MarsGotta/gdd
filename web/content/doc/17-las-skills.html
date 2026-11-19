@@ -24,7 +24,7 @@
 <p>En Antigravity clonas el repositorio e instalas el plugin desde su carpeta.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
 <p>Si prefieres tenerlas dentro de tu proyecto, copia las siete carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex.</p>
-<p>Van por la versión 0.13. Para saber si han entrado, y para actualizarlas más adelante, cada agente tiene sus comandos:</p>
+<p>Van por la versión 0.14. Para saber si han entrado, y para actualizarlas más adelante, cada agente tiene sus comandos:</p>
 <table>
 <thead><tr><th>Agente</th><th>Para comprobarlo</th><th>Lo que deberías ver</th><th>Para actualizarlas</th></tr></thead>
 <tbody>
@@ -60,5 +60,5 @@
 <p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas, el encargo de cada cambio con sus escenarios y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>
 <p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. La capa hace que el orden y el registro no dependan de la memoria del agente, pero no cambia eso. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás, norma, plataforma o motor (<a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
-<p>Tampoco llegan todavía al final del recorrido. Desde la versión 0.11 del Manifiesto, encargar empieza por las reglas de lo que el cambio toca, y un cambio no se cierra hasta que alguien mira si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). Las skills aún se quedan en que el cambio entra. Mientras tanto, esas dos cosas las haces tú: al pedir el cambio dices qué esperas de él, y cuando ya está en uso vuelves a mirarlo.</p>
+<p>Tampoco llegan todavía al final del recorrido. Desde la versión 0.14, encargar empieza por las reglas de lo que el cambio toca: tu agente las escribe encima de los escenarios, marca las que ha supuesto él y te las enseña para que las apruebes o las corrijas. Lo que aún no hacen es cerrar. Se quedan en que el cambio entra, y un cambio no se cierra hasta que alguien mira si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). Mientras tanto, eso lo haces tú: al pedir el cambio dices qué esperas de él, y cuando ya está en uso vuelves a mirarlo.</p>
 <p class="sigue">Con skills o a mano, lo delicado sigue siendo lo delicado. Qué cambia cuando lo que tocas es el cobro lo cuento en <a href="doc:un-caso-delicado">Un caso delicado</a>.</p>

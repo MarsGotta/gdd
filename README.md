@@ -126,7 +126,7 @@ The [guide to the skills](skills/README.md) goes through each step in full, with
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.11, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.13. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.14. They install as a plugin on Claude Code, Codex and Antigravity.
 - [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.11: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 

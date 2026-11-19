@@ -4,7 +4,7 @@ You ask your agent for a filter by instrument in your songbook. One agent writes
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
 
-This is version 0.11, with contract `gdd/1`.
+This is version 0.14, with contract `gdd/1`.
 
 ## The four moments
 
@@ -29,6 +29,8 @@ flowchart LR
 ```
 
 Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. If the same step fails twice for the same reason and nothing has changed, your agent tells you what is blocked and proposes one way forward. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check, and for the day a gate stops adding anything, so that it gets relaxed or retired. The two keep the balance.
+
+The [Manifesto](../manifesto/) counts a fifth moment, Close, between Execute and Harden: a change isn't closed when it's in, but when someone has looked at whether it helped. The skills don't do that yet. They stop when the change is in, so for now closing is yours: when you ask for a change, say what you expect from it, and once it's in use, come back and look.
 
 | Step | You say | You end up with |
 |---|---|---|
