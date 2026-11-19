@@ -100,8 +100,4 @@ What a grader can't check, `evals/check_runs.py` checks after the run, on runs k
 
 With the standard model, a role case takes about half a minute and 0.10 USD a run, a red review a little more, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. A case that ends before anyone builds, such as a brief or a limit that ran out, costs about 0.15 USD, and a Prepare case about 0.50 USD, because it tries each level. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
 
-On 19 November 2026 the standard model on Claude Code 2.1.327 passed 51 of 108 runs on 0.14.0. Of the 36 cases, 11 passed all three times, 12 never passed and 13 varied. These counts describe the graders in that measurement. A pass on one run says little. Run a case several times before trusting it, and keep the rate, not the best run.
-
-Read the traces, not only the scores. Most of what these runs changed in the skills came from a trace that a passing grader didn't see, and half of the last failures were the graders' own: some judges were asked about evidence outside the final message, so the cases use patterns wherever they can.
-
-What they don't cover yet: `gdd-harden` has a case for a removal and none for a failure that slipped through, `gdd-checks` has a case of its own only for a yellow brief, and none of them has anything that needs a person to answer in the middle, such as a brief that goes back for approval. So the blueprint the second Prepare case starts from is the shop's, not the one the first case wrote.
+Run each case several times and keep the pass rate across all runs. Read the traces alongside the scores.

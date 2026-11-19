@@ -56,9 +56,9 @@ graders:
     tool: Bash
     input_match: '\bgit\s+(?:(?:-C\s+(?:\\"[^"\\]+\\"|[^\s;"|&]+)|--no-pager)\s+)*(?:diff-tree|show|diff|log)\s+(?:[^;&|"\\]|\\")*--name-(?:only|status)\b'
   - name: previews-the-checks-on-real-changes
-    type: tool_used
-    tool: Bash
-    input_match: '\bdiff-tree\b(?:[^"\\]|\\.)*?\bgdd(?:\\")?\s+color\s+(?:--[\w-]+\s+)*?--paths\b\s+(?:\\")?\$(?:[\w{(])'
+    type: regex
+    target: trace
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\bdiff-tree\b(?:[^"\\]|\\.)*?(?:\bgdd(?:\\")?\s+color\s+(?:--[\w-]+\s+)*?--paths\s+(?:\\")?\$[\w{(]|\bxargs\s+(?:-\S+\s+)*(?:[\w./-]+/)?gdd\s+color\s+--paths\b)(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:\\"color\\":\\"(?:green|yellow|red)\\"|(?:^|\\n|(?<="content":"))\s*(?:\d+\s+)?(?:green|yellow|red)(?=\s|\\n|"|$))'
     weight: 2
   - name: checks-the-draft-zones
     type: tool_used
@@ -98,6 +98,6 @@ graders:
     match: not_contains
   - name: records-the-question-before-sending
     type: regex
-    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace

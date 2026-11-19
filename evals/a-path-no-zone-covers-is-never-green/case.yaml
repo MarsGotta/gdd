@@ -78,7 +78,7 @@ graders:
     weight: 3
   - name: says-it-as-its-own-judgment
     type: regex
-    pattern: '\bI(?:.ve| have)? (?:treated|judged|rated|took|am treating)\b'
+    pattern: '\bI(?:.ve| have)? (?:treated|judged|rated|took|am treating)\b|\bI.m treating\b'
     flags: i
     weight: 3
   - name: proposes-a-place-in-the-plan
@@ -88,12 +88,12 @@ graders:
     weight: 3
   - name: says-nothing-is-built-yet
     type: regex
-    pattern: '\b(?:isn.t|not|nothing)\b[^.\n]{0,30}\b(?:created|built)\b'
+    pattern: '\b(?:(?:haven.t|hasn.t|isn.t|wasn.t|not|nothing|no \w+)\s+(?:(?:has|have|was|is|gets?|been|yet|even|actually)\s+)*(?:created|built|written|made|started)\b|before (?:anything|it|the \w+) is (?:built|created|written)\b)'
     flags: i
     weight: 3
   - name: keeps-the-risk-decision
     type: llm
-    criteria: Does the agent take responsibility for classifying the uncovered path without asking the owner to classify it?
+    criteria: Does the message avoid asking the owner to choose the risk level of the change? Asking them to approve the brief is fine.
     weight: 3
   - name: explains-why-building-waits
     type: llm
@@ -124,6 +124,11 @@ graders:
     match: not_contains
   - name: records-the-question-before-sending
     type: regex
-    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace
+  - name: uses-the-longer-message-only-for-brief-approval
+    type: regex
+    pattern: '(?:^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])+){0,98}(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+)?(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*"|"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+[a-z0-9-]+\s+--of\s+brief\b(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+))'
     flags: m
     target: trace

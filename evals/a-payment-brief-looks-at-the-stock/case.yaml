@@ -97,8 +97,9 @@ graders:
     criteria: Does each new or changed payment rule occupy its own line in the approval message?
     weight: 3
   - name: marks-its-assumptions
-    type: llm
-    criteria: Does the agent identify its own choices as assumptions?
+    type: regex
+    pattern: '\b(?:he (?:supuesto|fijado|elegido|decidido|asumido)|supuse|asum[ií]|decid[ií]|eleg[ií]|supuestos? m[ií]os?|mis (?:suposiciones|supuestos|decisiones|elecciones)|(?:decisi[óo]n|elecci[óo]n) m[ií]a|son m[ií][oa]s|(?:la|lo|las|los) he (?:elegido|decidido|fijado|supuesto) yo|I (?:assumed|chose|decided|picked|set(?! (?:up\b|(?:it|them|these|those) up\b)))|my (?:own )?(?:assumptions?|choices?|decisions?|proposals?))(?![a-zñáéíóú])'
+    flags: i
     weight: 3
   - name: proposes-stock-timing
     type: llm
@@ -130,6 +131,6 @@ graders:
     match: not_contains
   - name: records-the-question-before-sending
     type: regex
-    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace

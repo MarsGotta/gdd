@@ -74,6 +74,6 @@ graders:
     weight: 3
   - name: records-any-question-after-layer-setup
     type: regex
-    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$|(?<![\s\S])(?![\s\S]*?"type":"tool_result","content":"(?:[^"\\]|\\.)*?gdd \{\\"command\\":\\"brief\\",\\"color\\")[\s\S]*$)'
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$|(?<![\s\S])(?![\s\S]*?"type":"tool_result","content":"(?:[^"\\]|\\.)*?gdd \{\\"command\\":\\"brief\\",\\"color\\")[\s\S]*$)'
     flags: m
     target: trace

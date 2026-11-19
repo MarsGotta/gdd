@@ -80,7 +80,7 @@ graders:
     weight: 3
   - name: estimates-each-part-on-its-line
     type: regex
-    pattern: '(?:^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$|^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$)'
+    pattern: '(?:^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|an?|una?|one|two|three|half|media|a few|a couple of)\s*(?:min(?:ute|uto)?s?|h(?:ours?|oras?|rs?)?|d[ií]as?|days?|weeks?|semanas?)(?![a-zñ]))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|an?|una?|one|two|three|half|media|a few|a couple of)\s*(?:min(?:ute|uto)?s?|h(?:ours?|oras?|rs?)?|d[ií]as?|days?|weeks?|semanas?)(?![a-zñ]))[^\n]+$|^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|an?|una?|one|two|three|half|media|a few|a couple of)\s*(?:min(?:ute|uto)?s?|h(?:ours?|oras?|rs?)?|d[ií]as?|days?|weeks?|semanas?)(?![a-zñ]))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|an?|una?|one|two|three|half|media|a few|a couple of)\s*(?:min(?:ute|uto)?s?|h(?:ours?|oras?|rs?)?|d[ií]as?|days?|weeks?|semanas?)(?![a-zñ]))[^\n]+$)'
     flags: im
     weight: 3
   - name: proposes-two-usable-outcomes
@@ -105,6 +105,6 @@ graders:
     weight: 2
   - name: records-the-question-before-sending
     type: regex
-    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace

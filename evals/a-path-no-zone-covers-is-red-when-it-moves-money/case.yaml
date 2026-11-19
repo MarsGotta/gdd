@@ -56,12 +56,13 @@ graders:
     match: not_contains
     weight: 3
   - name: gives-money-as-the-reason
-    type: llm
-    criteria: Does the answer explain the high risk by connecting the refund script to the money the payments zone protects?
+    type: regex
+    pattern: '(?<!\b(?:not|never|\w+n[\x27’]t)\s+)\b(?:mov(?:e[sd]?|ing)|return(?:s|ing)?|refund(?:s|ing)?|transfer(?:s|ring)?|send(?:s|ing)?|handl(?:es?|ing)|affect(?:s|ing)?|involv(?:es?|ing)|touch(?:es|ing)?|risk(?:s|ing)?)\s+(?:(?:real|actual|the|your|their|customers?[\x27’]?s?)\s+)*(?:money|funds)\b|\b(?:money|funds) (?:changes? hands|(?:is |are |would be )?(?:involved|at (?:risk|stake)|on the line))\b|\b(?:risk|red)\b[ \t]*[:–—][ \t]*(?:real )?money\b'
+    flags: i
     weight: 3
   - name: says-nothing-is-built-yet
     type: regex
-    pattern: '\b(?:haven.t|isn.t|not|nothing)\b[^.\n]{0,30}\b(?:created|built)\b'
+    pattern: '\b(?:(?:haven.t|hasn.t|isn.t|wasn.t|not|nothing|no \w+)\s+(?:(?:has|have|was|is|gets?|been|yet|even|actually)\s+)*(?:created|built|written|made|started)\b|before (?:anything|it|the \w+) is (?:built|created|written)\b)'
     flags: i
     weight: 3
   - name: launches-no-builder
@@ -89,11 +90,11 @@ graders:
     match: not_contains
   - name: records-any-question-before-sending
     type: regex
-    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$)'
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$)'
     flags: m
     target: trace
   - name: uses-the-longer-message-only-for-brief-approval
     type: regex
-    pattern: '(?:^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])+){0,98}(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+)?(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*"|"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+[a-z0-9-]+\s+--of\s+brief\b(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+))'
+    pattern: '(?:^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])+){0,98}(?:(?:[^\s"\\]|\\(?![tnrf]|u000[bB]).)+)?(?:[^\S\r\n]|\\[tnrf]|\\u000[bB])*"|"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+[a-z0-9-]+\s+--of\s+brief\b(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+))'
     flags: m
     target: trace

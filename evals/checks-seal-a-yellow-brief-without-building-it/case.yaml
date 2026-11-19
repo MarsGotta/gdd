@@ -111,7 +111,7 @@ graders:
     weight: 3
   - name: tests-only-the-sealed-scenarios
     type: llm
-    criteria: Does every reported test exercise behavior requested by an empty-cart scenario? Further examples of the same behavior count.
+    criteria: An empty cart says "Your cart is empty". A cart with items shows their count and total, for example "2 items, 7.50". Does every reported new test exercise one of these two behaviors? Further examples of either behavior count.
     weight: 3
   - name: lists-gaps-under-missing
     type: llm

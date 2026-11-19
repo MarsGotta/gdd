@@ -110,7 +110,7 @@ graders:
     weight: 2
   - name: says-what-it-found-or-that-it-could-not
     type: regex
-    pattern: '(?:couldn.t|could not|wasn.t able to|unable to|can.t|cannot)\s+(?:open|reach|look|confirm|check|read|fetch|access)\b|\bfrom memory\b|\b(?:comes?|came|taken|took)\s+from\b[^.\n]*\b(?:guid\w+|standard|source|page|document\w*)\b'
+    pattern: '(?:couldn.t|could not|wasn.t able to|unable to|can.t|cannot)\s+(?:open|reach|look|confirm|check|read|fetch|access)\b[^.\n]*\b(?:sources?|(?:outside|external|payment|card) (?:pages?|sites?|documents?)|guid(?:e|ance|elines?)|standards?|rulebooks?|PCI)\b|\b(?:rules?|proposals?)\b[^.\n]{0,80}\bfrom memory\b|\b(?:comes?|came|taken|took|drawn|based)\b[^.\n]{0,60}\b(?:from|on)\b[^.\n]*\b(?:guid\w+|standard|source|page|document\w*|PCI|rulebook)\b'
     flags: i
     weight: 2
   - name: distinguishes-sources-from-proposals
@@ -119,7 +119,7 @@ graders:
     weight: 2
   - name: uses-no-word-of-the-tools-or-the-place
     type: regex
-    pattern: '\b(?:sandbox|network|internet|linters?|gitleaks|ruff|mutmut|unittest|pytest|git|repositor(?:y|ies)|CODEOWNERS)\b'
+    pattern: '\b(?:sandbox|network|internet|lint(?:ers?)?|gitleaks|ruff|mutmut|unittest|pytest|git|repositor(?:y|ies)|CODEOWNERS)\b'
     flags: i
     match: not_contains
     weight: 2
@@ -146,6 +146,6 @@ graders:
     weight: 1
   - name: records-the-question-before-sending
     type: regex
-    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace
