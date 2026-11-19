@@ -109,6 +109,13 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
         if !s.limits.stop.is_empty() {
             out.say(format!("no room left: {}", s.limits.stop.join(", ")));
         }
+        if s.next
+            .command
+            .starts_with(&format!("gdd ask {id} --of brief "))
+            || s.next.step == "wait" && s.progress.open_ask().is_some_and(|a| a.of == "brief")
+        {
+            brief::show_approval(&l, out);
+        }
         out.next = Some(s.next.clone());
         out.fact("state", s.facts());
         if s.next

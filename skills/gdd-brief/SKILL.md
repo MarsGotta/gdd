@@ -86,7 +86,7 @@ Write the brief and its scenarios in your own copy, the one the person has open,
 
 Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. These name the brief rule that needs correction, or the scenario missing its rule. Other additions cite a constitution or zone rule or a loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
-If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the step the layer printed. Ask only when approval is due. Use one message under 150 words in their language:
+If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. When approval is due, put each sealed line it prints in one message under 150 words in their language.
 
     <What the change will do, in their words.>
     <Each new or changed rule the person gave in their own words, one per line.>

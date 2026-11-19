@@ -59,6 +59,8 @@ After:
     I assumed that halfway values round up, so 2.5 shows as 3.
     You can read the cases in `features/rounding.feature`. Shall I use these rules?
 
+When you ask again, give each sealed rule or scenario that `gdd next <id>` prints its own line in their words. Mark your choices as yours.
+
 **They ask for more.** Then give it, as long as it takes, still in their words.
 
 ## When the builder made a product choice

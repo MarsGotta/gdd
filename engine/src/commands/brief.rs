@@ -1,6 +1,7 @@
 //! The brief step: the color of a change, written before anyone builds.
 
 use super::*;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub struct BriefArgs<'a> {
     pub paths: &'a [String],
@@ -85,16 +86,22 @@ struct Scenario<'a> {
     line: usize,
     title: &'a str,
     block: Vec<&'a str>,
-    under_rule: bool,
+    rule: Option<usize>,
     has_id: bool,
     whens: usize,
 }
 
-fn scenarios(text: &str) -> Vec<Scenario<'_>> {
-    let mut result = Vec::new();
+#[derive(Default)]
+struct Feature<'a> {
+    rules: BTreeMap<usize, (&'static str, &'a str)>,
+    scenarios: Vec<Scenario<'a>>,
+}
+
+fn feature(text: &str) -> Feature<'_> {
+    let mut result = Feature::default();
     let mut current: Option<&mut Scenario> = None;
     let mut tags: Vec<&str> = Vec::new();
-    let mut under_rule = false;
+    let mut rule = None;
     for (i, line) in text.lines().map(str::trim).enumerate() {
         if line.is_empty() {
             continue;
@@ -112,17 +119,30 @@ fn scenarios(text: &str) -> Vec<Scenario<'_>> {
                 .filter_map(|tag| tag.strip_prefix("@id:"))
                 .any(crate::valid_id);
             tags.push(line);
-            result.push(Scenario {
+            result.scenarios.push(Scenario {
                 line: i + 1,
                 title: line,
                 block: std::mem::take(&mut tags),
-                under_rule,
+                rule,
                 has_id,
                 whens: 0,
             });
-            current = result.last_mut();
+            current = result.scenarios.last_mut();
         } else if matches!(heading, Some("Feature" | "Rule")) {
-            under_rule = heading == Some("Rule");
+            rule = None;
+            if heading == Some("Rule") {
+                let label = tags
+                    .iter()
+                    .flat_map(|t| t.split_whitespace())
+                    .find_map(|t| match t {
+                        "@assumed" => Some("yours"),
+                        "@question" => Some("later"),
+                        _ => None,
+                    })
+                    .unwrap_or("rule");
+                result.rules.insert(i + 1, (label, line));
+                rule = Some(i + 1);
+            }
             current = None;
         } else if let Some(s) = current.as_mut() {
             let word = line.split_whitespace().next().unwrap_or("");
@@ -134,6 +154,28 @@ fn scenarios(text: &str) -> Vec<Scenario<'_>> {
         tags.clear();
     }
     result
+}
+
+fn changed_feature<'a>(text: &'a str, original: &str) -> Feature<'a> {
+    let old = feature(original);
+    let mut copies = HashMap::new();
+    for s in old.scenarios {
+        *copies.entry(s.block).or_insert(0usize) += 1;
+    }
+    let mut changed = feature(text);
+    changed.scenarios.retain(|s| {
+        if let Some(count) = copies.get_mut(&s.block).filter(|n| **n > 0) {
+            *count -= 1;
+            return false;
+        }
+        true
+    });
+    let touched: HashSet<_> = changed.scenarios.iter().filter_map(|s| s.rule).collect();
+    let old_rules: HashSet<_> = old.rules.values().map(|(_, heading)| *heading).collect();
+    changed
+        .rules
+        .retain(|line, (_, heading)| touched.contains(line) || !old_rules.contains(heading));
+    changed
 }
 
 fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec<String>) -> R<()> {
@@ -151,19 +193,13 @@ fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec
         return Ok(());
     }
     let original = git::show(&ctx.root, base, file).unwrap_or_default();
-    let mut copies = std::collections::HashMap::new();
-    for s in scenarios(&original) {
-        *copies.entry(s.block).or_insert(0usize) += 1;
+    let changed = changed_feature(&text, &original);
+    if changed.scenarios.is_empty() {
+        out.say(format!("{file} has no new or changed scenarios."));
     }
-    let mut changed = false;
-    for s in scenarios(&text) {
-        if let Some(count) = copies.get_mut(&s.block).filter(|n| **n > 0) {
-            *count -= 1;
-            continue;
-        }
-        changed = true;
+    for s in changed.scenarios {
         let mut missing = Vec::new();
-        if !s.under_rule {
+        if s.rule.is_none() {
             missing.push("Add a Rule: above this scenario.".into());
         }
         if !s.has_id {
@@ -177,10 +213,53 @@ fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec
             faults.push(format!("{file}:{}: {}  {reasons}", s.line, s.title));
         }
     }
-    if !changed {
-        out.say(format!("{file} has no new or changed scenarios."));
-    }
     Ok(())
+}
+
+const APPROVAL_WORD_LIMIT: usize = 150;
+
+pub(super) fn show_approval(l: &Loaded, out: &mut Out) {
+    let p = &l.state.progress;
+    let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
+        return;
+    };
+    let (Some(seal), Some(files)) = (brief["seal"].as_str(), brief["files"].as_object()) else {
+        return;
+    };
+    let root = &l.project.root;
+    let base = p.base.as_deref();
+    let mut lines = Vec::new();
+    let mut words = 0;
+    for file in files.keys().filter(|f| f.ends_with(".feature")) {
+        let Some(text) = git::show(root, seal, file) else {
+            continue;
+        };
+        let original = base
+            .and_then(|b| git::show(root, b, file))
+            .unwrap_or_default();
+        let changed = changed_feature(&text, &original);
+        let mut headings = changed.rules;
+        for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
+            headings.insert(s.line, ("no rule", s.title));
+        }
+        for (label, heading) in headings.into_values() {
+            let title = heading.split_once(':').unwrap().1.trim();
+            words += title.split_whitespace().count();
+            lines.push(format!("{label}: {title}"));
+        }
+        lines.push(format!("read: {file}"));
+    }
+    if lines.is_empty() {
+        return;
+    }
+    out.say("Their yes covers these lines. Give each its own line in their words and language. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
+    out.lines.extend(lines);
+    if words < APPROVAL_WORD_LIMIT {
+        let unit = if words == 1 { "word" } else { "words" };
+        out.say(format!("These lines use {words} {unit}. Keep the whole message under {APPROVAL_WORD_LIMIT} words."));
+    } else {
+        out.say(format!("These lines use {words} words. Shorten the lines without dropping any. Add only where to read them and the question."));
+    }
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and

@@ -16,6 +16,7 @@ What it checks:
     contract, and the skills the orchestrator runs itself carry none;
   - the command of the seal check is the same in the contract, in the
     blueprint's template and in gdd-review;
+  - the brief's approval message and the layer use the same word limit;
   - each SKILL.md has front matter that parses as YAML (this needs PyYAML, and
     without it the check fails instead of passing unchecked), a name equal to
     its folder, a description in the third person, the MIT license, a version
@@ -53,6 +54,7 @@ and writes only with --write, into skills/*/assets.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -165,6 +167,8 @@ def words(text):
 
 def layer():
     """Build the layer and return its path, or None, saying why, when it can't be built here."""
+    if binary := os.environ.get("GDD_BIN"):
+        return binary
     if shutil.which("cargo") is None or shutil.which("sh") is None:
         print("scripts/check_skills.py: no Rust toolchain here, so the layer's commands the skills name weren't checked")
         return None
@@ -233,6 +237,12 @@ def main():
             problem(skill, "missing")
             continue
         fields, body = front_matter(skill)
+        if name == "gdd-brief":
+            source = (ENGINE / "src/commands/brief.rs").read_text(encoding="utf-8")
+            limit = re.search(r"^const APPROVAL_WORD_LIMIT: usize = (\d+);$", source, re.M)
+            if not limit or not all(term in body for term in
+                                    (f"under {limit[1]} words", f"At {limit[1]} or more")):
+                problem(skill, "the approval message and its shortening instruction must use the layer's word limit")
         if fields.get("name") != name:
             problem(skill, f"name is {fields.get('name')!r}, not {name!r}", 2)
         description = fields.get("description", "")

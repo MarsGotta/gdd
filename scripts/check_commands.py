@@ -23,6 +23,7 @@ something that slipped through once:
   - the search for rule tags sees a feature that isn't tracked yet, and the
     search for the tests of a scenario doesn't take another id that begins
     the same;
+  - the brief approval question shows the sealed rules again when it is open;
   - the zones tried on the history look at the window they say, find the
     commits of a zone, the ones no zone covers and the ones that fixed
     something, whatever the case of the word;
@@ -47,6 +48,7 @@ names its case. This check is for this repository: no project installs it.
 """
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -286,6 +288,8 @@ BUILD_REPORT = "Fixed the typo.\n\n```gdd-report\nskill: gdd-build 0.11.0\nresul
 
 def build_layer():
     """Build the layer from engine/ and return its path, or None when there's no Rust toolchain."""
+    if binary := os.environ.get("GDD_BIN"):
+        return binary
     if shutil.which("cargo") is None:
         print("scripts/check_commands.py: no Rust toolchain here, so the cases of the layer were skipped")
         return None
@@ -370,6 +374,21 @@ def layer_cases(binary):
         expect("the changes sent back by a reviewer don't depend on spaces", back == {"a": 1, "b": 1}, str(back))
         found = {c: [r["finding"] for r in tables["findings"] if r["change"] == c] for c in ("a", "b")}
         expect("the findings of a review don't depend on spaces", found == {"a": ["f1"], "b": ["f1"]}, str(found))
+
+        feature = "features/lines.feature"
+        write(repo, feature, "Feature: Lines\n@assumed\nRule: Keep blank lines\n")
+        git(repo, "config", "user.name", "check")
+        git(repo, "config", "user.email", "check@example.com")
+        for args in [("seal", "lines", feature), ("brief", "lines", feature, "--paths", "src/ui/b.js")]:
+            result = gdd(repo, *args)
+            expect(f"the approval fixture can run {args[0]}", result.returncode == 0, result.stdout)
+        ask = command("gdd-brief/SKILL.md", r'gdd ask <id> --of brief "<[^"]+>"')
+        args = shlex.split(ask.replace("<id>", "lines"))
+        args[-1] = "Keep blank lines?"
+        for invocation in [args[1:], ["next", "lines"]]:
+            result = gdd(repo, *invocation)
+            expect(f"{invocation[0]} shows the sealed assumption and its file",
+                   result.returncode == 0 and f"yours: Keep blank lines\nread: {feature}\n" in result.stdout, result.stdout)
 
     # Every command the orchestrator's table gives parses, with its flags.
     text = (SKILLS / "gdd/SKILL.md").read_text(encoding="utf-8")

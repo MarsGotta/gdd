@@ -489,6 +489,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 99. **Check scenario form when the brief is recorded.** In three runs per case, more serious findings could take all three places in the reader's report and leave a scenario's form unreported. The layer checks for a preceding rule, a valid scenario id and one action. The reader judges the values, the scope of each rule and which assumptions need a tag.
 
+100. **Print what the person needs to see.** When asking for brief approval again, the orchestrator loaded `gdd-brief` in 0 of 3 runs. It named the files and left out the rules and its assumptions. The layer prints what the person needs to see from the sealed version. The agent puts each line in the person's words.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

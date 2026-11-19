@@ -1,0 +1,185 @@
+//! What the person sees when asked to approve a sealed brief.
+mod common;
+use common::*;
+use serde_json::json;
+
+const FILE: &str = "features/lines.feature";
+const LOG: &str = "gdd/log/lines.jsonl";
+const PATH: &str = "src/core/app.txt";
+const LINES: &str = "rule: Keep the title\nyours: Wrap long lines\nlater: Who can edit?\nread: features/lines.feature";
+const RULES: &str = "Rule: Keep the title
+  @id:one
+  Scenario: Read one title
+    When I open it
+  @id:two
+  Scenario: Read another title
+    When I open another
+@source @assumed
+Rule: Wrap long lines
+@question
+Rule: Who can edit?
+";
+
+fn ok(r: &Repo, args: &[&str]) -> Run {
+    let result = r.gdd(args);
+    assert_eq!(result.code, 0, "{}", result.out);
+    result
+}
+
+fn record(r: &Repo, rules: &str) {
+    r.write(FILE, &format!("Feature: Lines\n{rules}"));
+    ok(r, &["seal", "lines", FILE]);
+    ok(r, &["brief", "lines", FILE, "--paths", PATH]);
+}
+
+fn approval_lines(result: &Run) -> String {
+    result
+        .out
+        .lines()
+        .filter(|line| {
+            ["rule: ", "yours: ", "later: ", "no rule: ", "read: "]
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn next_shows_only_the_changed_rules_once_in_file_order() {
+    let r = Repo::new();
+    let old = "Rule: Keep the old spelling\n@id:old\nScenario: Old spelling\nWhen I read it\n";
+    r.write(
+        FILE,
+        &format!("Feature: Lines\n{old}Rule: Keep the title\n"),
+    );
+    r.commit("Existing rules");
+    record(&r, &format!("{old}{RULES}"));
+    let next = ok(&r, &["next", "lines"]);
+    assert_eq!(approval_lines(&next), LINES);
+    let (before, after) = next.out.split_once(LINES).unwrap();
+    assert!(after.starts_with("\nThese lines use 9 words."));
+    for guidance in [
+        "yes covers",
+        "own line",
+        "words and language",
+        "your choice",
+        "each file",
+        "one question",
+    ] {
+        assert!(before.contains(guidance), "{before}");
+    }
+}
+
+#[test]
+fn next_repeats_the_lines_while_the_brief_question_is_open() {
+    let r = Repo::new();
+    record(&r, RULES);
+    ok(&r, &["ask", "lines", "--of", "brief", "Use these rules?"]);
+    let next = ok(&r, &["next", "lines"]);
+    assert!(next.has("gdd-brief"));
+    assert_eq!(approval_lines(&next), LINES);
+}
+
+#[test]
+fn ask_shows_the_lines_only_for_a_brief_question() {
+    let r = Repo::new();
+    record(&r, RULES);
+    let ask = |kind| ok(&r, &["ask", "lines", "--of", kind, "Use these rules?"]);
+    assert_eq!(approval_lines(&ask("decision")), "");
+    assert_eq!(approval_lines(&ok(&r, &["next", "lines"])), "");
+    ok(&r, &["answer", "lines", "Yes"]);
+    let brief = ask("brief");
+    assert_eq!(approval_lines(&brief), LINES);
+    assert!(brief.out.find("wrote the ask").unwrap() < brief.out.find(LINES).unwrap());
+}
+
+#[test]
+fn approval_reads_the_recorded_version_after_the_seal_and_working_copy_move() {
+    let r = Repo::new();
+    record(&r, &RULES.replace("Keep the title", "First version"));
+    record(&r, RULES);
+    r.write(FILE, "Rule: A newer seal\n");
+    ok(&r, &["seal", "lines", FILE]);
+    r.write(FILE, "Rule: A draft\n");
+    assert_eq!(approval_lines(&ok(&r, &["next", "lines"])), LINES);
+}
+
+#[test]
+fn a_legacy_brief_shows_only_changed_orphans_and_names_each_file() {
+    let r = Repo::new();
+    let old = "Feature: Lines\nScenario: Keep this\nWhen I read it\n";
+    r.write(FILE, old);
+    let base = r.commit("Existing scenario");
+    let text = format!("{old}Scenario Outline: Read: <n> lines\nWhen I open it\n{RULES}");
+    let other = "features/more lines.feature";
+    let seal = r.commit_on(
+        "gdd-seal/lines",
+        Some(&base),
+        &[
+            (FILE, &text),
+            (other, "Feature: More lines\nExample: Another line\n"),
+        ],
+        "Legacy brief",
+    );
+    let blob = |path| r.git(&["rev-parse", &format!("{seal}:{path}")]);
+    let log = json!({"contract":"gdd/1","ts":"2026-01-01T00:00:00Z","brief":"lines","event":"step",
+        "step":"brief","version":1,"report":{"skill":"gdd-brief","result":"yellow"},"color":{"color":"yellow","base":base},
+        "seal":seal,"files":{FILE:blob(FILE), other:blob(other)}});
+    r.write(LOG, &format!("{log}\n"));
+    let next = ok(&r, &["next", "lines"]);
+    assert_eq!(
+        approval_lines(&next),
+        format!("no rule: Read: <n> lines\n{LINES}\nno rule: Another line\nread: {other}")
+    );
+    assert!(next.has("These lines use 14 words."));
+}
+
+fn word_count(words: usize) -> Run {
+    let r = Repo::new();
+    record(&r, &format!("Rule: {}\n", vec!["word"; words].join(" ")));
+    ok(&r, &["next", "lines"])
+}
+
+#[test]
+fn at_149_words_the_whole_message_must_stay_under_the_limit() {
+    assert!(word_count(149).has("149 words. Keep the whole message under 150 words."));
+}
+
+#[test]
+fn at_150_words_shorten_every_line_that_needs_it_and_keep_them_all() {
+    assert!(word_count(150).has("150 words. Shorten the lines without dropping any. Add only where to read them and the question."));
+}
+
+#[test]
+fn approval_needs_both_a_seal_and_a_feature_to_print_any_lines() {
+    let r = Repo::new();
+    record(&r, RULES);
+    let mut brief = r.log_lines("lines").pop().unwrap();
+    assert_eq!(approval_lines(&ok(&r, &["next", "lines"])), LINES);
+    brief["seal"] = json!(null);
+    r.write(LOG, &format!("{brief}\n"));
+
+    let green = BLUEPRINT.replace(
+        "checks: [seal, tests, slow, review]",
+        "checks: [brief-approval, seal, tests, slow, review]",
+    );
+    r.write("gdd/blueprint.md", &green);
+    let file = "gdd/briefs/green.md";
+    r.write(file, "Keep the spelling.\n");
+    ok(&r, &["seal", "green", file]);
+    ok(&r, &["brief", "green", file, "--paths", "src/ui/page.txt"]);
+
+    for id in ["lines", "green"] {
+        let next = ok(&r, &["next", id]);
+        assert!(next.has(&format!("run: gdd ask {id} --of brief")));
+        for result in [
+            next,
+            ok(&r, &["ask", id, "--of", "brief", "Use these rules?"]),
+            ok(&r, &["next", id]),
+        ] {
+            assert_eq!(approval_lines(&result), "");
+            assert!(!result.has("yes covers") && !result.has("These lines use"));
+        }
+    }
+}

@@ -223,6 +223,9 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
         out.say(format!(
             "wrote the ask, line {line}: send the message now, and the wait counts from here"
         ));
+        if of == "brief" {
+            brief::show_approval(&l, out);
+        }
         let then = if ev["limits"].is_array() {
             crate::next::limit_reply(id)
         } else {
