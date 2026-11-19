@@ -53,6 +53,7 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
                 .map(|n| n as i64);
             stash.push((id.clone(), entries, journal, cg, scenarios));
         }
+        let named = crate::closing::named(&project.read_log("blueprint"));
         let inputs: Vec<metrics::Input> = stash
             .iter()
             .map(|(id, e, j, g, s)| metrics::Input {
@@ -63,7 +64,7 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
                 scenarios: *s,
             })
             .collect();
-        let mut t = metrics::tables(&bp, &inputs, time::now());
+        let mut t = metrics::tables(&bp, &inputs, &named, time::now());
         // Journals of ids with no log of their own, such as blueprint.engine.jsonl, or a call
         // refused before its change wrote anything: every call of the layer is in `engine`.
         if a.ids.is_empty() {
@@ -80,6 +81,7 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
                             git: Default::default(),
                             scenarios: None,
                         }],
+                        &named,
                         time::now(),
                     );
                     t.engine.extend(more.engine);

@@ -101,10 +101,10 @@ FNR == NR {
   if (match($0, /"ts" *: *"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
     t = secs(substr($0, RSTART + RLENGTH - 19, 19))
     if (first == "") first = t
-    if (waiting) { waited += t - asked; waiting = 0 }
+    if (waiting && shipped == "") { waited += t - asked; waiting = 0 }
   }
   if ($0 ~ /"step" *: *"ship"/ && t >= 0) shipped = t
-  if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
+  if ($0 ~ /"event" *: *"ask"/ && t >= 0 && shipped == "") { asked = t; waiting = 1 }
   if ($0 ~ /"event" *: *"waiver"/ && match($0, /"limit" *: *"[a-z_]+"/)) {
     cap = substr($0, RSTART, RLENGTH); sub(/^"limit" *: *"/, "", cap); sub(/"$/, "", cap)
     if (match($0, /"to" *: *"?[0-9]+/)) { v = substr($0, RSTART, RLENGTH); sub(/^"to" *: *"?/, "", v); raised[cap] = v + 0 }

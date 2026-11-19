@@ -291,8 +291,6 @@ impl Blueprint {
             .collect()
     }
 
-    /// A blueprint from before 0.5 may say that what no zone covers counts as red. That is prose of
-    /// its body, not a field, so it is read from the words.
     /// The days in use after which a change that promised nothing closes by itself. A blueprint
     /// without them was written before version 0.16 and reads as before: such a change is closed
     /// when it ships.
@@ -302,9 +300,14 @@ impl Blueprint {
 
     /// Who gives the verdict on a change in use, when the blueprint names someone.
     pub fn closing_who(&self) -> Option<String> {
-        s(&self.front["closing"]["who"]).filter(|w| !w.trim().is_empty() && !w.starts_with('<'))
+        self.front["closing"]["who"]
+            .as_str()
+            .filter(|w| !w.trim().is_empty() && !w.starts_with('<'))
+            .map(str::to_string)
     }
 
+    /// A blueprint from before 0.5 may say that what no zone covers counts as red. That is prose of
+    /// its body, not a field, so it is read from the words.
     pub fn uncovered_is_red(&self) -> bool {
         let body = self.body.to_lowercase();
         body.contains("no zone covers counts as red")
@@ -319,6 +322,16 @@ impl Blueprint {
             Some(crate::CONTRACT) => {}
             Some(other) => p.push(format!("its contract is {other}, not {}", crate::CONTRACT)),
             None => p.push("it names no contract".into()),
+        }
+        let closing = &self.front["closing"];
+        if !closing.is_null() {
+            let days = &closing["days"];
+            if !closing.is_object() || !days.is_null() && whole(days).is_none() {
+                p.push("closing.days is not a whole number of days: what promised nothing closes when it ships".into());
+            }
+            if !closing["who"].is_null() && self.closing_who().is_none() {
+                p.push("closing.who names nobody: the change's author gives the verdict".into());
+            }
         }
         let colors = self.color_names();
         for c in &colors {

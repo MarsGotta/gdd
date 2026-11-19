@@ -131,6 +131,8 @@ pub struct Progress {
     pub approvals: Vec<(usize, String, BTreeMap<String, String>)>,
     /// Paths that defined what had to pass when the brief was last approved.
     approved_paths: Vec<String>,
+    /// How the change closed when the brief was last approved.
+    approved_closing: Option<Value>,
     pub checks_done: bool,
     pub checks_stopped: i64,
     pub checks_line: Option<usize>,
@@ -295,6 +297,9 @@ impl Progress {
         let Some(brief_line) = self.brief_line else {
             return false;
         };
+        if self.closing != self.approved_closing {
+            return false;
+        }
         let mut briefs = self.approvals.iter().filter(|a| a.1 == "brief");
         if self.brief_files.is_empty() {
             return briefs.any(|a| a.0 > brief_line);
@@ -330,7 +335,9 @@ impl Progress {
 
     /// The verdict that closed the change: a yes or a no. A not-yet leaves it in use.
     pub fn closed_by(&self) -> Option<&Verdict> {
-        self.verdicts.iter().find(|v| v.verdict != "not-yet")
+        self.verdicts
+            .iter()
+            .find(|v| matches!(v.verdict.as_str(), "yes" | "no"))
     }
 
     /// Take one event, in the order of the log.
@@ -397,6 +404,7 @@ impl Progress {
                 let of = str_of(v, "of");
                 if of == "brief" {
                     self.approved_paths = self.requirements().map(|(p, _)| p.clone()).collect();
+                    self.approved_closing = self.closing.clone();
                 }
                 self.approvals.push((line, of.into(), hashes(&v["files"])));
             }
@@ -943,8 +951,8 @@ pub fn derive(
         (Some(g), None) if g.passed => g.ran.clone(),
         _ => vec![],
     };
-    let next = crate::next::next_step(id, bp, &p, &lim, &git, named, now);
     let standing = crate::closing::standing(&p, bp, named, now);
+    let next = crate::next::next_step(id, bp, &p, &lim, &git, standing.as_ref(), now);
     State {
         id: id.into(),
         standing,

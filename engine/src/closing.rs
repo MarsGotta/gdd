@@ -8,7 +8,7 @@ use crate::state::{LogKind, Next, Progress};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-const DAY: i64 = 86_400;
+pub const DAY: i64 = 86_400;
 
 /// The three verdicts of a `close` event. Only `yes` and `no` close the change.
 pub const VERDICTS: [&str; 3] = ["yes", "not-yet", "no"];
@@ -17,9 +17,19 @@ pub const VERDICTS: [&str; 3] = ["yes", "not-yet", "no"];
 pub const FORM: &str = "## Closing it\n\nExpected: <what changes for whoever uses it>\nSignal: <what will show it, from where the builder can't write>\nWhere: <where it will be looked at>\n\nor, when the change promises nothing to whoever uses the product, the single line:\n\nNothing to close: <why>";
 
 /// What a brief's `## Closing it` section says: the three lines, or why there is nothing to
-/// close. An error says what is missing.
+/// close. An error says what is missing. A section quoted inside a fenced block doesn't count.
 pub fn read(body: &str) -> Result<Value, String> {
-    let section = crate::project::section(body, "Closing it")
+    let mut fenced = false;
+    let unfenced: String = body
+        .lines()
+        .filter(|l| {
+            let mark = l.trim_start().starts_with("```") || l.trim_start().starts_with("~~~");
+            fenced ^= mark;
+            !fenced && !mark
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let section = crate::project::section(&unfenced, "Closing it")
         .ok_or("it has no `## Closing it` section, or the section is empty")?;
     let value = |label: &str| {
         section
@@ -39,6 +49,21 @@ pub fn read(body: &str) -> Result<Value, String> {
             "its `## Closing it` needs Expected:, Signal: and Where:, each filled in, or the single line `Nothing to close: <why>`".into(),
         ),
     }
+}
+
+/// Whether a closing is one `read` gives: the three lines, or why there is nothing to close.
+pub fn is_form(closing: &Value) -> bool {
+    let text = |k: &str| closing[k].as_str().is_some_and(|v| !v.trim().is_empty());
+    closing.as_object().is_some_and(|m| match m.len() {
+        1 => text("nothing"),
+        3 => ["expected", "signal", "where"].iter().all(|k| text(k)),
+        _ => false,
+    })
+}
+
+/// What the brief expected of the change, when it promised something.
+pub fn expected(p: &Progress) -> Option<&str> {
+    p.closing.as_ref()?.get("expected")?.as_str()
 }
 
 /// The line of a brief's closing a person approves with the rest, or `None` when it has none.
@@ -73,9 +98,9 @@ pub fn named(blueprint_log: &[Entry]) -> BTreeMap<String, i64> {
 pub enum Standing {
     /// A person's verdict closed it, or it closed by itself: how.
     Closed(String),
-    /// It waits for a person's verdict: it promised something, or (`named`) a hardening record
-    /// named it before it closed by itself.
-    Waiting { named: bool },
+    /// It waits for a person's verdict, and why: what its brief expected, or what was recorded
+    /// against a change that promised nothing before it closed by itself.
+    Waiting(String),
     /// It promised nothing: it closes by itself at this time unless something is recorded against it.
     Quiet(i64),
 }
@@ -85,7 +110,7 @@ impl Standing {
     pub fn word(&self) -> &'static str {
         match self {
             Standing::Closed(_) => "closed",
-            Standing::Waiting { .. } => "waiting",
+            Standing::Waiting(_) => "waiting",
             Standing::Quiet(_) => "quiet",
         }
     }
@@ -106,19 +131,26 @@ pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> O
             v.who, v.verdict, v.line
         )));
     }
-    if p.closing
-        .as_ref()
-        .is_some_and(|c| c["expected"].is_string())
-    {
-        return Some(Standing::Waiting { named: false });
+    if let Some(e) = expected(p) {
+        return Some(Standing::Waiting(format!("expected: {e}")));
     }
-    let until = p
-        .shipped_at
-        .unwrap_or(now)
-        .saturating_add(bp.closing_days().saturating_mul(DAY));
-    // Named before its days went by: with no days, nothing is.
-    Some(if named.is_some_and(|t| t < until) {
-        Standing::Waiting { named: true }
+    // What promised nothing waits once someone looked at it or asked about it.
+    if let Some(v) = p.verdicts.last() {
+        return Some(Standing::Waiting(format!(
+            "it promised nothing, and {} said not yet",
+            v.who
+        )));
+    }
+    if p.open_ask().is_some_and(|a| a.of == "close") {
+        return Some(Standing::Waiting(
+            "it promised nothing, and the person was asked whether it helped".into(),
+        ));
+    }
+    let shipped = p.shipped_at.unwrap_or(now);
+    let until = shipped.saturating_add(bp.closing_days().saturating_mul(DAY));
+    // Named once it was in use and before its days went by: with no days, nothing is.
+    Some(if named.is_some_and(|t| shipped <= t && t < until) {
+        Standing::Waiting("a hardening record names it, so it no longer closes by itself".into())
     } else if now >= until {
         Standing::Closed("by itself, with nothing recorded against it".into())
     } else {
@@ -126,24 +158,35 @@ pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> O
     })
 }
 
-/// The command that records the person's verdict.
-pub fn verdict_command(id: &str) -> String {
+/// Who looked last and what they said, when someone did.
+pub fn last_look(p: &Progress, now: i64) -> Option<String> {
+    p.verdicts.last().map(|v| {
+        format!(
+            "{} looked {} ago and said {}",
+            v.who,
+            crate::time::waited(now - v.ts.unwrap_or(now)),
+            v.verdict
+        )
+    })
+}
+
+/// What the orchestrator does about a change that waits for a verdict: nothing, until asked.
+pub fn waits_note(id: &str) -> String {
     format!(
-        "gdd close {id} --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw \"<what they saw, in their words>\""
+        "It stops nothing, and Close never starts by itself: say in one line of your summary that it waits, with no question and no offer to look. When the person asks to look at it, load gdd-close and run gdd close {id}"
     )
 }
 
-/// What the brief expected, or why the change waits without having promised anything.
-pub fn expected(p: &Progress) -> String {
-    match p.closing.as_ref().and_then(|c| c["expected"].as_str()) {
-        Some(e) => format!("expected: {e}"),
-        None => "a hardening record names it, so it no longer closes by itself".into(),
-    }
+/// The command that records the person's verdict.
+pub fn verdict_command(id: &str) -> String {
+    format!(
+        "gdd close {id} --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw \"<what they saw: their words, or what you showed them>\""
+    )
 }
 
 /// The next step of a change that shipped. Close never starts by itself: a change that waits
 /// for a verdict names no command, and stops nothing.
-pub fn next(id: &str, bp: &Blueprint, p: &Progress, named: Option<i64>, now: i64) -> Next {
+pub fn next(id: &str, p: &Progress, standing: Option<&Standing>, now: i64) -> Next {
     let (line, place) = p.shipped.clone().unwrap_or_default();
     let shipped = format!("it shipped ({place}), line {line}");
     let rest = |step: &str, say: String| Next {
@@ -166,23 +209,15 @@ pub fn next(id: &str, bp: &Blueprint, p: &Progress, named: Option<i64>, now: i64
             blocked: Some("needs-person".into()),
         };
     }
-    match standing(p, bp, named, now) {
-        Some(Standing::Waiting { .. }) => {
+    match standing {
+        Some(Standing::Waiting(why)) => {
             let in_use = crate::time::waited(now - p.shipped_at.unwrap_or(now));
-            let looked = match p.verdicts.last() {
-                Some(v) => format!(
-                    "; {} looked {} ago and said {}",
-                    v.who,
-                    crate::time::waited(now - v.ts.unwrap_or(now)),
-                    v.verdict
-                ),
-                None => String::new(),
-            };
+            let looked = last_look(p, now).map_or(String::new(), |l| format!("; {l}"));
             rest(
-                "close",
+                "in-use",
                 format!(
-                    "{shipped}: in use for {in_use}, with no verdict that closes it{looked}; {}. It stops nothing, and Close never starts by itself: say in one line of your summary that it waits. When the person asks to look, load gdd-close and run gdd close {id}",
-                    expected(p)
+                    "{shipped}: in use for {in_use}, with no verdict that closes it{looked}; {why}. {}",
+                    waits_note(id)
                 ),
             )
         }
@@ -194,7 +229,7 @@ pub fn next(id: &str, bp: &Blueprint, p: &Progress, named: Option<i64>, now: i64
             ),
         ),
         Some(Standing::Closed(how)) => rest("done", format!("{shipped}: closed, {how}")),
-        None => rest("done", format!("{shipped}: its log is closed")),
+        None => rest("done", shipped),
     }
 }
 
@@ -225,5 +260,26 @@ mod tests {
                 .is_err()
         );
         assert!(read("## Closing it\n\nNothing to close:\n").is_err());
+        // A section quoted in a fence is an example, not the brief's own.
+        let quoted = "## Request\n\n```\n## Closing it\n\nNothing to close: x\n```\n";
+        assert!(read(quoted).is_err());
+        let after = format!("{quoted}\n## Closing it\n\nExpected: a\nSignal: b\nWhere: c\n");
+        assert_eq!(read(&after).unwrap()["where"], "c");
+    }
+
+    #[test]
+    fn a_closing_has_one_of_the_two_forms() {
+        assert!(is_form(&json!({"nothing": "a rename"})));
+        assert!(is_form(
+            &json!({"expected": "a", "signal": "b", "where": "c"})
+        ));
+        for bad in [
+            json!({}),
+            json!({"expected": 1}),
+            json!({"nothing": " "}),
+            json!("x"),
+        ] {
+            assert!(!is_form(&bad), "{bad}");
+        }
     }
 }

@@ -85,7 +85,7 @@ enum Cmd {
         who: Option<String>,
         #[arg(long = "where")]
         place: Option<String>,
-        /// What they saw, in their words.
+        /// What they saw: their words, or what you showed them when they only answered.
         #[arg(long)]
         saw: Option<String>,
         /// What comes next, when they already said it: a backlog item, harden or none.

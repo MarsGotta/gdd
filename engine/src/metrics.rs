@@ -107,8 +107,9 @@ fn cap_keys() -> [(&'static str, &'static str, &'static str); 6] {
     ]
 }
 
-/// Build every table from the changes given.
-pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
+/// Build every table from the changes given. `named` is when a hardening record first named
+/// each change, from the blueprint's log, which may not be among the inputs.
+pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, i64>, now: i64) -> Tables {
     let late: Vec<String> = bp
         .checks()
         .into_iter()
@@ -116,11 +117,6 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], now: i64) -> Tables {
         .map(|c| c.id)
         .collect();
     let mut t = Tables::default();
-    let named = inputs
-        .iter()
-        .find(|i| i.id == "blueprint")
-        .map(|i| crate::closing::named(i.entries))
-        .unwrap_or_default();
     for input in inputs {
         let id = input.id;
         let events = log::events(input.entries);
@@ -612,7 +608,7 @@ fn change_row(
         (
             "days_to_verdict",
             match (p.closed_by().and_then(|v| v.ts), p.shipped_at) {
-                (Some(closed), Some(shipped)) => json!((closed - shipped) / 86_400),
+                (Some(closed), Some(shipped)) => json!((closed - shipped) / crate::closing::DAY),
                 _ => Value::Null,
             },
         ),
@@ -1046,7 +1042,7 @@ fn ask_lines(out: &mut Vec<String>, t: &Tables) {
 fn close_lines(out: &mut Vec<String>, changes: &[&Row]) {
     let count =
         |column: &str, word: &str| changes.iter().filter(|r| r[column] == json!(word)).count();
-    let verdicts = ["yes", "not-yet", "no"].map(|v| count("verdict", v));
+    let verdicts = crate::closing::VERDICTS.map(|v| count("verdict", v));
     if count("close", "waiting") + count("close", "quiet") + verdicts.iter().sum::<usize>() == 0 {
         return;
     }

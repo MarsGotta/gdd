@@ -30,11 +30,37 @@ fn in_use(l: &Loaded, id: &str) -> R<Standing> {
     }
 }
 
+/// A line of the person's, as a flag gives it: one line, and no placeholder left in it.
+fn one_line(flag: &str, value: Option<&str>) -> R<Option<String>> {
+    let Some(value) = value.map(str::trim) else {
+        return Ok(None);
+    };
+    if value.is_empty() || value.contains('\n') || value.starts_with('<') {
+        return Err(Fail::usage(format!(
+            "{flag} is one line, with no placeholder left in it"
+        )));
+    }
+    Ok(Some(value.to_string()))
+}
+
+/// Who gives the verdict: whoever the blueprint names, or the change's author.
+fn verdict_owner(l: &Loaded) -> String {
+    l.bp.closing_who()
+        .unwrap_or_else(|| "the change's author".into())
+}
+
 /// Without a verdict: what the brief expected and how to gather what is seen. With one: the
 /// `close` event, in the person's words.
 pub fn close(ctx: &Ctx, id: &str, a: &CloseArgs) -> Out {
     let Some(verdict) = a.verdict else {
-        return run("close", |out| look(&load(ctx, id)?, id, out));
+        return run("close", |out| {
+            if a.who.or(a.place).or(a.saw).or(a.then).is_some() {
+                return Err(Fail::usage(
+                    "--who, --where, --saw and --then go with --verdict: without it, gdd close only shows what to look at",
+                ));
+            }
+            look(&load(ctx, id)?, id, out)
+        });
     };
     run_change(ctx, id, "close", |out| {
         if !closing::VERDICTS.contains(&verdict) {
@@ -49,15 +75,14 @@ pub fn close(ctx: &Ctx, id: &str, a: &CloseArgs) -> Out {
             ("--where", "where", a.place),
             ("--saw", "saw", a.saw),
         ] {
-            let value = value.map(str::trim).unwrap_or_default();
-            if value.is_empty() || value.contains('\n') || value.starts_with('<') {
+            let Some(value) = one_line(flag, value)? else {
                 return Err(Fail::usage(format!(
-                    "{flag} is one line: who gave the verdict, where they gave it, and what they saw, in their words"
+                    "{flag} is missing: who gave the verdict, where, and what they saw"
                 )));
-            }
+            };
             fields.push((key, json!(value)));
         }
-        if let Some(then) = a.then.map(str::trim).filter(|t| !t.is_empty()) {
+        if let Some(then) = one_line("--then", a.then)? {
             fields.push(("then", json!(then)));
         }
         let l = load(ctx, id)?;
@@ -70,14 +95,14 @@ pub fn close(ctx: &Ctx, id: &str, a: &CloseArgs) -> Out {
         out.say(match verdict {
             "yes" => format!("wrote their yes, line {line}: {id} is closed"),
             "no" => format!(
-                "wrote their no, line {line}: {id} is closed, and its log is not opened again"
+                "wrote their no, line {line}: {id} is closed, and nothing more is built on it"
             ),
             _ => format!(
                 "wrote their not yet, line {line}: {id} stays in use and in sight. Nothing else to do, and don't ask again until they come back to it"
             ),
         });
         if verdict == "no" {
-            out.say("A no has two ways out. Propose the one you'd take, for a yes:");
+            out.say("A no has two ways out. Propose the one you'd take, for a yes, and do nothing before it:");
             out.say("  it works as written but didn't help: a new request in the backlog (gdd backlog add <item> --what \"<what the person gets>\" --color <color>), or nothing, if they accept it as it is");
             out.say("  it broke a rule or did harm: the fix is a normal change (load gdd-brief), and a hardening proposal, because a gate should have caught it (load gdd-harden)");
         }
@@ -96,50 +121,68 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
         "{id}: in use for {}",
         time::waited(now - p.shipped_at.unwrap_or(now))
     ));
-    let who =
-        l.bp.closing_who()
-            .unwrap_or_else(|| "the person who owns the change".into());
-    if let Standing::Quiet(until) = standing {
-        let why = p.closing.as_ref().map_or("", |c| str_of(c, "nothing"));
-        out.say(format!(
-            "nothing to close{}{why}: it closes by itself in {} unless something is recorded against it",
-            if why.is_empty() { "" } else { ", " },
-            time::waited(until - now)
-        ));
-        out.say(format!(
-            "{who} can still give a verdict: {}",
-            closing::verdict_command(id)
-        ));
+    let who = verdict_owner(l);
+    out.fact("closing", p.closing.clone().unwrap_or(Value::Null));
+    if let Some(look) = closing::last_look(p, now) {
+        out.say(look);
+    }
+    // A question already out waits for its answer: nothing to gather or ask again.
+    if p.open_ask().is_some_and(|a| a.of == "close") {
+        out.next = Some(l.state.next.clone());
         return Ok(());
     }
-    match p.closing.as_ref().filter(|c| c["expected"].is_string()) {
-        Some(c) => {
-            for key in ["expected", "signal", "where"] {
-                out.say(format!("{key}: {}", str_of(c, key)));
-            }
+    let why = match standing {
+        Standing::Quiet(until) => {
+            let why = p.closing.as_ref().map_or("", |c| str_of(c, "nothing"));
+            out.say(format!(
+                "nothing to close{}{why}: it closes by itself in {} unless something is recorded against it",
+                if why.is_empty() { "" } else { ", " },
+                time::waited(until - now)
+            ));
+            out.say(format!(
+                "{who} can still give a verdict: {}",
+                closing::verdict_command(id)
+            ));
+            return Ok(());
         }
-        None => out.say(closing::expected(p)),
-    }
-    for v in &p.verdicts {
+        Standing::Waiting(why) => why,
+        Standing::Closed(_) => unreachable!("in_use refuses a closed change"),
+    };
+    let Some(c) = p
+        .closing
+        .as_ref()
+        .filter(|_| closing::expected(p).is_some())
+    else {
+        // It promised nothing: there is no signal to gather, only the person to ask.
+        out.say(format!("{why}: there is nothing written to gather."));
         out.say(format!(
-            "{} looked {} ago and said {}",
-            v.who,
-            time::waited(now - v.ts.unwrap_or(now)),
-            v.verdict
+            "The verdict belongs to {who}, never to you: ask whether it helped, propose no verdict."
         ));
+        out.next = Some(ask_step(
+            id,
+            "<why it waits>. Did it help: yes, not yet or no?",
+        ));
+        return Ok(());
+    };
+    for key in ["expected", "signal", "where"] {
+        out.say(format!("{key}: {}", str_of(c, key)));
     }
     out.say("Gather what is seen there, each fact with its source and its date. Never from the builder's report, the change's own tests or anything the change wrote about itself. If you can't reach that place, say so and ask the person to look.");
     out.say(format!(
         "The verdict belongs to {who}, never to you: put what was expected next to what is seen, propose no verdict, and ask."
     ));
-    out.fact("closing", p.closing.clone().unwrap_or(Value::Null));
-    out.next = Some(state::Next {
-        step: "ask".into(),
-        say: "once you have gathered it, record the question and send your message".into(),
-        command: format!(
-            "gdd ask {id} --of close \"<what was expected>. <What is seen, and from where>. Did it help: yes, not yet or no?\""
-        ),
-        blocked: None,
-    });
+    out.next = Some(ask_step(
+        id,
+        "<what was expected>. <What is seen, with where and when>. <What couldn't be seen, if anything>. Did it help: yes, not yet or no?",
+    ));
     Ok(())
+}
+
+fn ask_step(id: &str, question: &str) -> state::Next {
+    state::Next {
+        step: "ask".into(),
+        say: "record the question, then send your message".into(),
+        command: format!("gdd ask {id} --of close \"{question}\""),
+        blocked: None,
+    }
 }

@@ -5,6 +5,7 @@ use serde_json::json;
 
 const FILE: &str = "features/shape.feature";
 const LOG: &str = "gdd/log/form.jsonl";
+const MD: &str = "gdd/briefs/form.md";
 const RULE: &str = "Rule: The output fits on one line";
 const LEGACY: &str = "Feature: Output\n  Scenario: Original\n    Then I see one line\n";
 const VALID: &str =
@@ -12,12 +13,12 @@ const VALID: &str =
 
 fn seal(r: &Repo, file: &str, text: &str) {
     r.write(file, text);
-    let result = r.gdd(&["seal", "form", file]);
+    let result = r.gdd(&["seal", "form", &brief_md(r, "form"), file]);
     assert_eq!(result.code, 0, "{}", result.out);
 }
 
 fn brief(r: &Repo) -> Run {
-    r.gdd(&["brief", "form", FILE, "--paths", "src/ui/page.txt"])
+    r.gdd(&["brief", "form", MD, FILE, "--paths", "src/ui/page.txt"])
 }
 
 fn refused(r: &Repo, args: &[&str]) -> Run {
@@ -30,7 +31,10 @@ fn refused(r: &Repo, args: &[&str]) -> Run {
 }
 
 fn reject(r: &Repo) -> Run {
-    refused(r, &["brief", "form", FILE, "--paths", "src/ui/page.txt"])
+    refused(
+        r,
+        &["brief", "form", MD, FILE, "--paths", "src/ui/page.txt"],
+    )
 }
 
 fn written(r: &Repo, result: &Run) {
@@ -325,7 +329,10 @@ fn a_file_that_is_not_utf8_is_still_read() {
     std::fs::create_dir_all(r.path("features")).unwrap();
     let text = b"Feature: Caf\xe9\n@id:x\nScenario: No rule\nWhen I read it\n";
     std::fs::write(r.path(FILE), text).unwrap();
-    assert_eq!(r.gdd(&["seal", "form", FILE]).code, 0);
+    assert_eq!(
+        r.gdd(&["seal", "form", &brief_md(&r, "form"), FILE]).code,
+        0
+    );
     diagnostic(
         &reject(&r),
         "features/shape.feature:3: Scenario: No rule",

@@ -41,9 +41,17 @@ fn merged_and_shipped(r: &Repo, id: &str) {
     assert_eq!(rv.code, 0, "{}", rv.out);
     let s = r.gdd(&["ship", id, "--merge"]);
     assert_eq!(s.code, 0, "{}", s.out);
-    // What the ship says next is that it is in use, with no command to run.
-    assert_eq!(s.facts["next"], "close", "{}", s.out);
+    // What the ship says next is that it is in use, with no command to run, and what waits.
+    assert_eq!(s.facts["next"], "in-use", "{}", s.out);
     assert_eq!(s.facts["next_command"], "", "{}", s.out);
+    assert!(
+        s.has(&format!(
+            "in use, waiting for a verdict: {id}, 0 minutes; expected: "
+        )),
+        "{}",
+        s.out
+    );
+    assert!(s.has("with no question and no offer to look"), "{}", s.out);
 }
 
 /// A yellow change whose brief says `closing`, through every step and in the main branch.
@@ -97,7 +105,7 @@ fn green_shipped(r: &Repo, id: &str) {
     r.commit_on(
         &format!("work/{id}"),
         Some("main"),
-        &[("src/ui/page.txt", "a better page\n")],
+        &[("src/ui/page.txt", &format!("a better page, by {id}\n"))],
         "Fix the page",
     );
     let built = r.report(id, "build", &report_block("gdd-build", "done"), &[]);
@@ -199,7 +207,7 @@ fn a_change_that_promised_something_waits_for_a_verdict_and_stops_nothing() {
     yellow_shipped(&r, "y1", THREE);
     let n = r.gdd(&["next", "y1"]);
     assert_eq!(n.code, 0, "{}", n.out);
-    assert_eq!(n.facts["state"]["next"]["step"], "close", "{}", n.out);
+    assert_eq!(n.facts["state"]["next"]["step"], "in-use", "{}", n.out);
     assert_eq!(n.facts["state"]["close"], "waiting");
     // Close never starts by itself: the step names no command to run.
     assert_eq!(n.facts["state"]["next"]["command"], "");
@@ -264,7 +272,7 @@ fn the_person_gives_the_verdict_and_only_a_yes_or_a_no_closes() {
     // A not-yet keeps it in use and in sight.
     let not_yet = verdict(&r, "y1", "not-yet", "Too early: one week of messages");
     assert_eq!(not_yet.code, 0, "{}", not_yet.out);
-    assert_eq!(not_yet.facts["next"], "close", "{}", not_yet.out);
+    assert_eq!(not_yet.facts["next"], "in-use", "{}", not_yet.out);
     let event = r.log_lines("y1").pop().unwrap();
     assert_eq!(event["event"], "close");
     assert_eq!(event["verdict"], "not-yet");
@@ -272,7 +280,7 @@ fn the_person_gives_the_verdict_and_only_a_yes_or_a_no_closes() {
     assert_eq!(event["ask"], asked);
     let n = r.gdd(&["next"]);
     assert!(
-        n.has("in use, waiting for a verdict: y1, 0 minutes, looked at 0 minutes ago: not-yet"),
+        n.has("in use, waiting for a verdict: y1, 0 minutes, Person looked 0 minutes ago and said not-yet"),
         "{}",
         n.out
     );
@@ -513,5 +521,282 @@ fn only_a_change_is_closed() {
         assert_eq!(ask.facts["refused"], "out-of-order", "{}", ask.out);
         assert_eq!(verdict(&r, id, "yes", "It looks fine").code, 1);
         assert!(!r.path(&format!("gdd/log/{id}.jsonl")).is_file());
+    }
+}
+
+#[test]
+fn how_it_closes_is_part_of_what_the_person_approved() {
+    let r = Repo::new();
+    assert_eq!(brief_with(&r, "y1", THREE).code, 0);
+    let approve = |r: &Repo| {
+        r.gdd(&[
+            "approve",
+            "y1",
+            "--of",
+            "brief",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            "features/y1.feature",
+        ])
+    };
+    assert_eq!(approve(&r).code, 0);
+    assert_eq!(r.gdd(&["next", "y1"]).facts["state"]["approved"], true);
+    // Promising nothing instead, once approved, asks for the yes again and shows the new line.
+    let b = brief_with(&r, "y1", "Nothing to close: nobody would notice");
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert_eq!(b.facts["next"], "ask", "{}", b.out);
+    assert!(
+        b.has("closes: nothing to close, nobody would notice"),
+        "{}",
+        b.out
+    );
+    // A brief step that names no file keeps what the last one said.
+    assert_eq!(approve(&r).code, 0);
+    let again = r.gdd(&["brief", "y1", "--paths", "src/core/app.txt"]);
+    assert_eq!(again.code, 0, "{}", again.out);
+    assert_eq!(
+        r.log_lines("y1").pop().unwrap()["closing"]["nothing"],
+        "nobody would notice"
+    );
+}
+
+#[test]
+fn a_first_brief_with_files_needs_the_brief_that_says_how_it_closes() {
+    let r = Repo::new();
+    let (other, feature) = ("gdd/briefs/y1-brief.md", "features/y1.feature");
+    r.write_as_it_is(other, &brief_text("y1", THREE));
+    r.write(feature, &ok_feature("y1"));
+    assert_eq!(r.gdd(&["seal", "y1", other, feature]).code, 0);
+    for files in [vec![feature], vec![other, feature]] {
+        let mut args = vec!["brief", "y1"];
+        args.extend(files);
+        args.extend(["--paths", "src/core/app.txt"]);
+        let b = r.gdd(&args);
+        assert_eq!(b.facts["refused"], "closing-form", "{}", b.out);
+        assert!(b.has("gdd seal y1 gdd/briefs/y1.md"), "{}", b.out);
+    }
+}
+
+#[test]
+fn where_no_approval_is_due_the_person_still_hears_how_it_closes() {
+    let r = Repo::with(&BLUEPRINT.replace(
+        "checks: [brief-approval, seal, tests, slow, review]",
+        "checks: [seal, tests, slow, review]",
+    ));
+    let b = brief_with(&r, "y1", "Nothing to close: it only renames a file");
+    assert_eq!(b.code, 0, "{}", b.out);
+    assert!(
+        b.has("Tell the person what will close it, in a line: closes: nothing to close, it only renames a file"),
+        "{}",
+        b.out
+    );
+}
+
+#[test]
+fn the_wait_for_a_verdict_is_no_work_on_the_change() {
+    let r = Repo::new();
+    yellow_shipped(&r, "y1", THREE);
+    let before = r.gdd(&["limits", "y1"]).out;
+    let later = in_days(2);
+    let ask = r.gdd_env(
+        &["ask", "y1", "--of", "close", "Did it help?"],
+        &[("GDD_NOW", &later)],
+    );
+    assert_eq!(ask.code, 0, "{}", ask.out);
+    let yes = r.gdd_env(
+        &[
+            "close",
+            "y1",
+            "--verdict",
+            "yes",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            "--saw",
+            "Fewer messages",
+        ],
+        &[("GDD_NOW", &in_days(3))],
+    );
+    assert_eq!(yes.code, 0, "{}", yes.out);
+    let after = r
+        .gdd_env(&["limits", "y1"], &[("GDD_NOW", &in_days(3))])
+        .out;
+    let minutes = |out: &str| {
+        out.lines()
+            .find(|l| l.starts_with("minutes"))
+            .map(str::to_string)
+    };
+    assert_eq!(minutes(&after), minutes(&before), "{after}");
+}
+
+#[test]
+fn the_answer_to_whether_it_helped_is_a_verdict() {
+    let r = Repo::new();
+    yellow_shipped(&r, "y1", THREE);
+    assert_eq!(
+        r.gdd(&["ask", "y1", "--of", "close", "Did it help?"]).code,
+        0
+    );
+    let answer = r.gdd(&["answer", "y1", "no, nobody uses it"]);
+    assert_eq!(answer.facts["refused"], "verdict", "{}", answer.out);
+    assert!(answer.has("gdd close y1 --verdict"), "{}", answer.out);
+    // Looking again while the question is out names the verdict, not a second question.
+    let look = r.gdd(&["close", "y1"]);
+    assert_eq!(look.code, 0, "{}", look.out);
+    assert!(look.has("run: gdd close y1 --verdict"), "{}", look.out);
+    assert!(!look.has("--of close"), "{}", look.out);
+}
+
+#[test]
+fn what_promised_nothing_waits_once_someone_looked_or_asked() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    assert_eq!(verdict(&r, "g1", "not-yet", "Too early to say").code, 0);
+    let later = in_days(8);
+    let n = r.gdd_env(&["next", "g1"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "waiting", "{}", n.out);
+    assert!(
+        n.has("it promised nothing, and Person said not yet"),
+        "{}",
+        n.out
+    );
+    green_shipped(&r, "g2");
+    assert_eq!(
+        r.gdd(&["ask", "g2", "--of", "close", "Did it help?"]).code,
+        0
+    );
+    let n = r.gdd_env(&["next", "g2"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "waiting", "{}", n.out);
+    assert_eq!(n.facts["state"]["next"]["step"], "wait", "{}", n.out);
+    let no = r.gdd_env(
+        &[
+            "close",
+            "g2",
+            "--verdict",
+            "no",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            "--saw",
+            "It broke the page",
+        ],
+        &[("GDD_NOW", &later)],
+    );
+    assert_eq!(no.code, 0, "{}", no.out);
+}
+
+#[test]
+fn a_hardening_record_from_before_the_ship_names_nothing_in_use() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    let h = r.gdd_env(
+        &[
+            "step",
+            "blueprint",
+            "harden",
+            "--change",
+            "g1",
+            "--crack",
+            "found in review",
+            "--proposal",
+            "a check",
+        ],
+        &[("GDD_NOW", &in_days(-1))],
+    );
+    assert_eq!(h.code, 0, "{}", h.out);
+    let n = r.gdd_env(&["next", "g1"], &[("GDD_NOW", &in_days(8))]);
+    assert_eq!(n.facts["state"]["close"], "closed", "{}", n.out);
+}
+
+#[test]
+fn a_change_named_by_hardening_has_nothing_to_gather_and_metrics_see_it() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    let h = r.gdd(&[
+        "step",
+        "blueprint",
+        "harden",
+        "--change",
+        "g1",
+        "--crack",
+        "no check read the page",
+        "--proposal",
+        "a check that reads the page",
+    ]);
+    assert_eq!(h.code, 0, "{}", h.out);
+    let look = r.gdd(&["close", "g1"]);
+    assert!(
+        look.has("there is nothing written to gather"),
+        "{}",
+        look.out
+    );
+    assert!(look.has("run: gdd ask g1 --of close"), "{}", look.out);
+    assert!(!look.has("Gather what is seen"), "{}", look.out);
+    for args in [vec!["metrics", "g1"], vec!["metrics", "--all"]] {
+        let m = r.gdd(&args);
+        let compact = m.out.replace(": ", ":");
+        assert!(compact.contains("\"close\":\"waiting\""), "{args:?}: {}", m.out);
+    }
+    // Voiding the record that named it is said by verify.
+    let void = r.gdd(&[
+        "correct",
+        "blueprint",
+        "--line",
+        "1",
+        "--void",
+        "wrong change",
+    ]);
+    assert_eq!(void.code, 0, "{}", void.out);
+    assert!(
+        r.gdd(&["verify", "blueprint"])
+            .has("a hardening record that names g1")
+    );
+}
+
+#[test]
+fn only_a_yes_or_a_no_closes_and_the_flags_say_what_they_hold() {
+    let r = Repo::new();
+    yellow_shipped(&r, "y1", THREE);
+    let mut log = r.read("gdd/log/y1.jsonl");
+    log.push_str(&format!(
+        "{{\"contract\":\"gdd/1\",\"ts\":\"{}\",\"brief\":\"y1\",\"event\":\"close\",\"verdict\":\"maybe\",\"who\":\"Person\",\"where\":\"conversation\",\"saw\":\"x\"}}\n",
+        in_days(0)
+    ));
+    r.write("gdd/log/y1.jsonl", &log);
+    assert_eq!(r.gdd(&["next", "y1"]).facts["state"]["close"], "waiting");
+    let then = r.gdd(&[
+        "close",
+        "y1",
+        "--verdict",
+        "no",
+        "--who",
+        "Person",
+        "--where",
+        "conversation",
+        "--saw",
+        "Nobody uses it",
+        "--then",
+        "<the backlog item>",
+    ]);
+    assert_eq!(then.code, 2, "{}", then.out);
+    let stray = r.gdd(&["close", "y1", "--who", "Person", "--saw", "Nobody uses it"]);
+    assert_eq!(stray.code, 2, "{}", stray.out);
+}
+
+#[test]
+fn an_unreadable_closing_in_the_blueprint_is_said() {
+    for closing in [
+        "closing:\n  days: 7 days\n",
+        "closing:\n  days: -3\n",
+        "closing: 7\n",
+        "closing:\n  who: [Mar, Ana]\n",
+    ] {
+        let r = Repo::with(&BLUEPRINT.replace("context: []", &format!("{closing}context: []")));
+        let n = r.gdd(&["next"]);
+        assert!(n.has("the blueprint: closing."), "{closing}: {}", n.out);
     }
 }

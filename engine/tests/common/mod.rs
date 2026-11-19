@@ -419,6 +419,15 @@ pub fn sealed_report(checks: &[&str]) -> String {
     )
 }
 
+/// The brief of a change that says nothing but that it has nothing to close.
+pub fn brief_md(r: &Repo, id: &str) -> String {
+    let path = format!("gdd/briefs/{id}.md");
+    if !r.path(&path).is_file() {
+        r.write(&path, &format!("# {id}\n"));
+    }
+    path
+}
+
 pub fn ok_feature(id: &str) -> String {
     format!(
         "Feature: Ok\n  Rule: The app reports its status\n    @brief:{id} @id:{id}-1\n    Scenario: It says ok\n      Given the app\n      When I read its status\n      Then it says ok\n"

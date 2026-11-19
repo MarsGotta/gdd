@@ -262,6 +262,13 @@ pub fn answer(ctx: &Ctx, id: &str, words: &str) -> Out {
                 "gdd waiting",
             ));
         };
+        if a.of == "close" {
+            return Err(Fail::refuse(
+                "verdict",
+                "an answer to whether a change helped is a verdict: yes, not yet or no, in their words. Anything else leaves the question open",
+                crate::closing::verdict_command(id),
+            ));
+        }
         if a.spent_limit
             && matches!(
                 words
@@ -498,12 +505,12 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
         if void {
             // Nothing that judged a change stops counting once it shipped. A verdict written
             // wrong is the exception: voiding it leaves the change in use, waiting for the right one.
-            let is_close = l
+            let target = l
                 .entries
                 .iter()
                 .find(|e| e.line == line)
-                .and_then(|e| e.event())
-                .is_some_and(|v| log::kind(v) == "close");
+                .and_then(|e| e.event());
+            let is_close = target.is_some_and(|v| log::kind(v) == "close");
             if l.state.progress.shipped.is_some() && !is_close {
                 return Err(Fail::refuse(
                     "out-of-order",
@@ -514,11 +521,6 @@ pub fn correct(ctx: &Ctx, id: &str, line: usize, what: &str, void: bool) -> Out 
                 ));
             }
             // A line that sent the change back is never voided: that would waive it.
-            let target = l
-                .entries
-                .iter()
-                .find(|e| e.line == line)
-                .and_then(|e| e.event());
             if let Some(why) = target.and_then(log::never_voided) {
                 return Err(Fail::refuse(
                     "never-voided",

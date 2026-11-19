@@ -396,7 +396,9 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
         }
         // A file the log already holds with this content stays valid: only what is new is checked.
         let logged = |f: &String| {
-            git::hash_object(&ctx.root, f).ok().as_ref() == l.state.progress.brief_files.get(f)
+            let held = &l.state.progress.brief_files;
+            let had = held.get(f).or_else(|| held.get(f.trim_start_matches("./")));
+            git::hash_object(&ctx.root, f).ok().as_ref() == had
         };
         let mut faults = Vec::new();
         for file in a
@@ -415,32 +417,6 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                     "Fix the listed scenarios and run these commands.\ngdd seal {id} {files}\n{retry}"
                 ),
             ));
-        }
-        // How the change closes is in its brief, sealed with it. A brief the log already holds
-        // with this content was written before the layer asked for it, and keeps what it had.
-        let brief_file = format!("gdd/briefs/{id}.md");
-        let mut closing = None;
-        if let Some(f) = a
-            .files
-            .iter()
-            .find(|f| f.trim_start_matches("./") == brief_file)
-        {
-            let text = std::fs::read_to_string(ctx.root.join(f)).unwrap_or_default();
-            match crate::closing::read(&text) {
-                Ok(c) => closing = Some(c),
-                Err(_) if logged(f) => closing = l.state.progress.closing.clone(),
-                Err(e) => {
-                    let (files, retry) = retry_commands();
-                    return Err(Fail::refuse(
-                        "closing-form",
-                        format!("{f} doesn't say how the change closes: {e}"),
-                        format!(
-                            "Add to {f}, in the person's words:\n{}\nThen run these commands.\ngdd seal {id} {files}\n{retry}",
-                            crate::closing::FORM
-                        ),
-                    ));
-                }
-            }
         }
         let mut files = Map::new();
         for f in a.files {
@@ -479,6 +455,34 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 format!("gdd seal {id} {}", a.files.join(" ")),
             ));
         }
+        let closing = match closing_of(ctx, &l, id, a.files, logged) {
+            Ok(c) => c,
+            Err(why) => {
+                let brief = format!("gdd/briefs/{id}.md");
+                let (mut files, mut retry) = retry_commands();
+                if !a.files.iter().any(|f| f.trim_start_matches("./") == brief) {
+                    files = format!("{brief} {files}");
+                    retry = retry.replacen(
+                        &format!("gdd brief {id} "),
+                        &format!("gdd brief {id} {brief} "),
+                        1,
+                    );
+                }
+                return Err(Fail::refuse(
+                    "closing-form",
+                    why,
+                    format!(
+                        "Add to {brief}, in the person's words:\n{}\nThen run these commands.\ngdd seal {id} {files}\n{retry}",
+                        crate::closing::FORM
+                    ),
+                ));
+            }
+        };
+        // Where no approval is due, the person hears what will close it all the same.
+        let closes = closing
+            .as_ref()
+            .filter(|_| !l.bp.color_asks(&c.color, "brief-approval"))
+            .and_then(crate::closing::approval_line);
         let version = if l.state.progress.brief_line.is_some() {
             let prev = l.state.progress.version.unwrap_or(1);
             if files.is_empty() { prev } else { prev + 1 }
@@ -576,10 +580,45 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             ));
         }
         out.say(format!("wrote the brief step, line {line}"));
+        if let Some(closes) = closes {
+            out.say(format!(
+                "Tell the person what will close it, in a line: {closes}"
+            ));
+        }
         out.fact("color", json!(c.color));
         out.fact("line", line);
         Ok(())
     })
+}
+
+/// How the change closes, from its brief file as sealed. A brief the log already holds with this
+/// content was written before the layer asked for it, and keeps what it had, and so does a brief
+/// step that names no brief file. A first brief with files and without the brief is refused:
+/// nothing would say how a change that promised something closes.
+fn closing_of(
+    ctx: &Ctx,
+    l: &Loaded,
+    id: &str,
+    files: &[String],
+    logged: impl Fn(&String) -> bool,
+) -> Result<Option<Value>, String> {
+    let brief = format!("gdd/briefs/{id}.md");
+    let kept = l.state.progress.closing.clone();
+    let Some(f) = files.iter().find(|f| f.trim_start_matches("./") == brief) else {
+        // A brief logged with files and no closing was written before the layer asked for one.
+        if files.is_empty() || kept.is_some() || l.state.progress.has_brief() {
+            return Ok(kept);
+        }
+        return Err(format!(
+            "the brief step names no {brief}, which says how the change closes"
+        ));
+    };
+    let text = std::fs::read_to_string(ctx.root.join(f)).unwrap_or_default();
+    match crate::closing::read(&text) {
+        Ok(c) => Ok(Some(c)),
+        Err(_) if logged(f) => Ok(kept),
+        Err(e) => Err(format!("{f} doesn't say how the change closes: {e}")),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

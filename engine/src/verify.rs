@@ -111,6 +111,16 @@ fn voids(f: &mut Findings, entries: &[Entry]) {
         };
         if let Some(why) = log::never_voided(target) {
             f.push(e.line, "error", "void", format!("it voids line {n}, {why}"));
+        } else if log::is_step(target, "harden") && target["change"].is_string() {
+            f.push(
+                e.line,
+                "warning",
+                "void",
+                format!(
+                    "it voids line {n}, a hardening record that names {}: a change of it that promised nothing may close by itself now",
+                    str_of(target, "change")
+                ),
+            );
         } else if matches!(step(target), "gates" | "review") {
             f.push(
                 e.line,

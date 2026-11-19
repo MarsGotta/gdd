@@ -128,9 +128,16 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
         ctx.head.as_deref(),
         &entries,
     );
-    let named = crate::closing::named(&project.read_log("blueprint"))
-        .get(id)
-        .copied();
+    let shipped = entries
+        .iter()
+        .any(|e| e.event().is_some_and(|v| log::is_step(v, "ship")));
+    let named = if shipped {
+        crate::closing::named(&project.read_log("blueprint"))
+            .get(id)
+            .copied()
+    } else {
+        None
+    };
     let state = state::derive(id, &bp, &entries, gv, named, time::now());
     Ok(Loaded {
         project,

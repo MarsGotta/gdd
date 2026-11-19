@@ -7,6 +7,7 @@ const FILE: &str = "features/lines.feature";
 const LOG: &str = "gdd/log/lines.jsonl";
 const PATH: &str = "src/core/app.txt";
 const LINES: &str = "rule: Keep the title\nyours: Wrap long lines\nlater: Who can edit?\nread: features/lines.feature";
+const CLOSES: &str = "closes: nothing to close, it promises nothing to whoever uses it";
 const RULES: &str = "Rule: Keep the title
   @id:one
   Scenario: Read one title
@@ -28,8 +29,18 @@ fn ok(r: &Repo, args: &[&str]) -> Run {
 
 fn record(r: &Repo, rules: &str) {
     r.write(FILE, &format!("Feature: Lines\n{rules}"));
-    ok(r, &["seal", "lines", FILE]);
-    ok(r, &["brief", "lines", FILE, "--paths", PATH]);
+    ok(r, &["seal", "lines", &brief_md(r, "lines"), FILE]);
+    ok(
+        r,
+        &[
+            "brief",
+            "lines",
+            "gdd/briefs/lines.md",
+            FILE,
+            "--paths",
+            PATH,
+        ],
+    );
 }
 
 fn approval_lines(result: &Run) -> String {
@@ -58,6 +69,8 @@ fn next_shows_only_the_changed_rules_once_in_file_order() {
     let next = ok(&r, &["next", "lines"]);
     assert_eq!(approval_lines(&next), LINES);
     let (before, after) = next.out.split_once(LINES).unwrap();
+    // How the change closes comes last of what the yes covers.
+    let after = after.trim_start().strip_prefix(CLOSES).unwrap_or_default();
     assert!(after.trim_start().starts_with("next: "), "{after}");
     for guidance in [
         "yes covers",
@@ -100,7 +113,7 @@ fn approval_reads_the_recorded_version_after_the_seal_and_working_copy_move() {
     record(&r, &RULES.replace("Keep the title", "First version"));
     record(&r, RULES);
     r.write(FILE, "Rule: A newer seal\n");
-    ok(&r, &["seal", "lines", FILE]);
+    ok(&r, &["seal", "lines", &brief_md(&r, "lines"), FILE]);
     r.write(FILE, "Rule: A draft\n");
     assert_eq!(approval_lines(&ok(&r, &["next", "lines"])), LINES);
 }
@@ -221,13 +234,26 @@ fn an_old_rule_is_shown_when_only_the_examples_of_its_scenario_change() {
 fn the_command_that_leaves_the_approval_next_shows_the_lines() {
     let r = Repo::new();
     r.write(FILE, &format!("Feature: Lines\n{RULES}"));
-    let seal = ok(&r, &["seal", "lines", FILE]);
+    let seal = ok(&r, &["seal", "lines", &brief_md(&r, "lines"), FILE]);
     assert_eq!(approval_lines(&seal), "");
-    let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
+    let brief = ok(
+        &r,
+        &[
+            "brief",
+            "lines",
+            "gdd/briefs/lines.md",
+            FILE,
+            "--paths",
+            PATH,
+        ],
+    );
     assert_eq!(approval_lines(&brief), LINES);
     // The lines are the last thing said before the next step, and no count follows them.
     let said = brief.out.split("\nnext: ").next().unwrap();
-    assert!(said.trim_end().ends_with(LINES), "{said}");
+    assert!(
+        said.trim_end().ends_with(&format!("{LINES}\n{CLOSES}")),
+        "{said}"
+    );
 }
 
 #[test]
@@ -244,15 +270,31 @@ fn ask_shows_the_lines_once() {
 }
 
 #[test]
-fn a_file_with_no_rule_the_layer_can_read_shows_no_lines() {
+fn a_file_with_no_rule_the_layer_can_read_shows_only_how_it_closes() {
     let r = Repo::new();
     r.write(
         FILE,
         "# language: es\nCaracterística: Líneas\nRegla: Mantén el título\n",
     );
-    ok(&r, &["seal", "lines", FILE]);
-    let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
-    assert!(!brief.has("yes covers"), "{}", brief.out);
+    ok(&r, &["seal", "lines", &brief_md(&r, "lines"), FILE]);
+    let brief = ok(
+        &r,
+        &[
+            "brief",
+            "lines",
+            "gdd/briefs/lines.md",
+            FILE,
+            "--paths",
+            PATH,
+        ],
+    );
+    assert_eq!(
+        approval_lines(&brief),
+        "read: features/lines.feature",
+        "{}",
+        brief.out
+    );
+    assert!(brief.has(CLOSES), "{}", brief.out);
 }
 
 #[test]
@@ -261,9 +303,19 @@ fn a_new_seal_shows_no_lines_until_its_brief_is_recorded() {
     record(&r, RULES);
     let whole = RULES.replace("Keep the title", "Keep the whole title");
     r.write(FILE, &format!("Feature: Lines\n{whole}"));
-    let seal = ok(&r, &["seal", "lines", FILE]);
+    let seal = ok(&r, &["seal", "lines", &brief_md(&r, "lines"), FILE]);
     assert_eq!(approval_lines(&seal), "");
-    let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
+    let brief = ok(
+        &r,
+        &[
+            "brief",
+            "lines",
+            "gdd/briefs/lines.md",
+            FILE,
+            "--paths",
+            PATH,
+        ],
+    );
     assert_eq!(
         approval_lines(&brief),
         LINES.replace("Keep the title", "Keep the whole title")

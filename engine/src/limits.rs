@@ -175,12 +175,13 @@ impl Tally {
             if self.first.is_none() {
                 self.first = Some(t);
             }
-            if self.waiting {
+            if self.waiting && self.shipped.is_none() {
                 self.waited += t - self.asked;
                 self.waiting = false;
             }
         }
         if kind(v) == "ask"
+            && self.shipped.is_none()
             && let Some(t) = t
         {
             self.asked = t;

@@ -581,6 +581,19 @@ pub fn shape(v: &Value, writing: bool) -> (Vec<String>, Vec<String>) {
             }
         }
     }
+    if let Some(c) = obj
+        .get("closing")
+        .filter(|_| event == "step" && step == "brief")
+        && !crate::closing::is_form(c)
+    {
+        let msg = "closing is neither the three lines, expected, signal and where, nor nothing"
+            .to_string();
+        if writing {
+            a.errors.push(msg)
+        } else {
+            a.warnings.push(msg)
+        }
+    }
     if event == "step"
         && step == "brief"
         && let Some(c) = obj.get("color").filter(|c| c.is_object())

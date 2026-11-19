@@ -250,12 +250,12 @@ pub(crate) fn next_step(
     p: &Progress,
     lim: &Limits,
     git: &GitView,
-    named: Option<i64>,
+    standing: Option<&crate::closing::Standing>,
     now: i64,
 ) -> Next {
     let kind = p.kind.unwrap_or(LogKind::Change);
     if p.shipped.is_some() {
-        return crate::closing::next(id, bp, p, named, now);
+        return crate::closing::next(id, p, standing, now);
     }
     // An open question waits first, whatever it is about.
     if let Some(a) = p.open_ask() {

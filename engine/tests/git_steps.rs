@@ -57,11 +57,12 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
         "features/c1.feature",
         "Feature: The page and the app change together\n",
     );
-    assert_eq!(r.gdd(&["seal", "c1", "features/c1.feature"]).code, 0);
+    let md = brief_md(&r, "c1");
+    assert_eq!(r.gdd(&["seal", "c1", &md, "features/c1.feature"]).code, 0);
     let command = next["command"]
         .as_str()
         .unwrap()
-        .replace("<files>", "features/c1.feature")
+        .replace("<files>", "gdd/briefs/c1.md features/c1.feature")
         .replace("<path>...", "src/ui/page.txt src/core/app.txt")
         .replace("<what raised it>", "the app also changed");
     let raised = r.named(&command);
@@ -220,7 +221,8 @@ fn a_sealed_file_cannot_be_a_change_path() {
     let r = Repo::new();
     let file = "features/title.feature";
     r.write(file, "Feature: Titles\n");
-    assert_eq!(r.gdd(&["seal", "title", file]).code, 0);
+    let md = brief_md(&r, "title");
+    assert_eq!(r.gdd(&["seal", "title", &md, file]).code, 0);
     let wrong = r.gdd(&[
         "brief",
         "title",
@@ -236,7 +238,7 @@ fn a_sealed_file_cannot_be_a_change_path() {
     assert!(wrong.has("gdd brief title features/title.feature --paths src/core/app.txt --color red --why 'shared titles'"));
     assert_eq!(r.log_lines("title").len(), 1);
     assert_eq!(
-        r.gdd(&["brief", "title", file, "--paths", "src/core/app.txt"])
+        r.gdd(&["brief", "title", &md, file, "--paths", "src/core/app.txt"])
             .code,
         0
     );

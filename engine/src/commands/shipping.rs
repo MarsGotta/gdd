@@ -578,7 +578,7 @@ fn write_ship(
     let ev = new_event(id, "step", &time::now_string(), m);
     let line = write(l, id, &ev)?;
     out.say(format!(
-        "{} is in {main}: wrote the ship step, line {line}; the log of {id} is closed",
+        "{} is in {main}: wrote the ship step, line {line}",
         git::short(head)
     ));
     let path = l.project.path("gdd/backlog.md");
@@ -634,6 +634,7 @@ fn write_ship(
         }
         out.fact("decisions", json!(decisions));
     }
+    super::next::say_in_use(&l.project, &l.bp, time::now(), out);
     Ok(line)
 }
 
