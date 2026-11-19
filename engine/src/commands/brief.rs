@@ -234,7 +234,23 @@ fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec
 
 const APPROVAL_WORD_LIMIT: usize = 150;
 
-pub(super) fn show_approval(l: &Loaded, out: &mut Out) {
+/// Whether the person's yes to the brief is what the change waits for: the next step asks for it,
+/// or its question is already open.
+fn approval_is_due(l: &Loaded, id: &str) -> bool {
+    let s = &l.state;
+    s.next
+        .command
+        .starts_with(&format!("gdd ask {id} --of brief "))
+        || s.next.step == "wait" && s.progress.open_ask().is_some_and(|a| a.of == "brief")
+}
+
+/// What a yes to the brief covers, from the sealed version the log names: a line for each rule the
+/// change adds or changes, and where to read them. It goes in the facts too, because an agent that
+/// keeps only the end of the output still reads those.
+pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
+    if !approval_is_due(l, id) {
+        return;
+    }
     let p = &l.state.progress;
     let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
         return;
@@ -265,16 +281,18 @@ pub(super) fn show_approval(l: &Loaded, out: &mut Out) {
         }
         lines.push(format!("read: {file}"));
     }
-    if lines.is_empty() {
+    if words == 0 {
         return;
     }
     out.say("Their yes covers these lines. Give each its own line in their words and language. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
-    out.lines.extend(lines);
+    out.lines.extend(lines.iter().cloned());
+    out.fact("yes_covers", lines);
+    // The last line is the one an agent reads when it cuts the output, so the rule goes there too.
     if words < APPROVAL_WORD_LIMIT {
         let unit = if words == 1 { "word" } else { "words" };
-        out.say(format!("These lines use {words} {unit}. Keep the whole message under {APPROVAL_WORD_LIMIT} words."));
+        out.say(format!("These lines use {words} {unit}. Give each its own line and keep the whole message under {APPROVAL_WORD_LIMIT} words."));
     } else {
-        out.say(format!("These lines use {words} words. Shorten the lines without dropping any. Add only where to read them and the question."));
+        out.say(format!("These lines use {words} words, {APPROVAL_WORD_LIMIT} or more on their own. Give each its own line: shorten them, and never drop or merge one."));
     }
 }
 

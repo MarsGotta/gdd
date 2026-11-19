@@ -487,9 +487,9 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 98. **Put the instruction where the agent reads it.** In three runs of 36 cases, 11 passed every time, 12 never passed and 13 varied. Agents followed the message template but missed instructions beneath it or in a reference. Put what they must always do in the skill body and in the prompt or next step the layer prints.
 
-99. **Check scenario form when the brief is recorded.** In three runs per case, more serious findings could take all three places in the reader's report and leave a scenario's form unreported. The layer checks for a preceding rule, a valid scenario id and one action. The reader judges the values, the scope of each rule and which assumptions need a tag.
+99. **Check scenario form when the brief is recorded.** In three runs per case, more serious findings could take all three places in the reader's report and leave a scenario's form unreported. The layer checks for a preceding rule, a valid scenario id and exactly one `When` step. The reader judges the values, the scope of each rule and which assumptions need a tag.
 
-100. **Print what the person needs to see.** When asking for brief approval again, the orchestrator loaded `gdd-brief` in 0 of 3 runs. It named the files and left out the rules and its assumptions. The layer prints what the person needs to see from the sealed version. The agent puts each line in the person's words.
+100. **Print what the person needs to see.** When asking for brief approval again, the orchestrator loaded `gdd-brief` in 0 of 3 runs. It named the files and left out the rules and its assumptions. The layer prints what the person needs to see from the sealed version. The agent puts each line in the person's words. A first trial printed the lines only when the question was recorded: the agent had already written its message, kept the last lines of the output and read only the word count, and to fit it merged several rules into one sentence. So the lines come with the step that asks for the approval and in the command's facts, and the word count asks for a line each and never for fewer lines.
 
 ## Still open
 
