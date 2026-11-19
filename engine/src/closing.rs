@@ -152,7 +152,7 @@ pub fn next(id: &str, bp: &Blueprint, p: &Progress, named: Option<i64>, now: i64
         return Next {
             step: "wait".into(),
             say: format!(
-                "waiting for the person's verdict since line {} ({waited}): {}. It stops nothing, and only their words are a verdict",
+                "waiting for the person's verdict since line {} ({waited}). It stops nothing, and only their words are a verdict: {}",
                 a.line, a.what
             ),
             command: verdict_command(id),

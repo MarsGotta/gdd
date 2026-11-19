@@ -1,0 +1,84 @@
+schema_version: "1.1"
+name: a-no-closes-and-leaves-its-way-out
+description: "A shop whose cart is in use, with the question of whether it served already asked. The owner answers that it didn't: it works, and it wasn't what was needed. The orchestrator records their no with who gave it and what they saw, leaves the cart's log closed, and proposes one way out for a yes, a new request, without treating it as a failure of the checks."
+tags: [orchestrator, close, person]
+runs: 3
+execution:
+  max_turns: 60
+  timeout_seconds: 1200
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    No, no ha servido: casi nadie mete más de un producto en el carrito. El carrito funciona bien, pero no era lo que hacía falta.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: records-their-no
+    type: regex
+    target: { source: file, path: gdd/log/cart.jsonl }
+    pattern: '"event"\s*:\s*"close"\s*,\s*"verdict"\s*:\s*"no"'
+    weight: 3
+  - name: keeps-who-said-it-and-what-they-saw
+    type: regex
+    target: { source: file, path: gdd/log/cart.jsonl }
+    pattern: '"event"\s*:\s*"close"[^\n]*"who"\s*:\s*"[^"<]+"[^\n]*"saw"\s*:\s*"[^"<]+"'
+    weight: 2
+  - name: answers-the-question-that-was-open
+    type: regex
+    target: { source: file, path: gdd/log/cart.jsonl }
+    pattern: '"event"\s*:\s*"close"[^\n]*"ask"\s*:\s*\d+'
+  - name: does-not-open-the-cart-again
+    type: regex
+    target: { source: file, path: gdd/log/cart.jsonl }
+    pattern: '"event"\s*:\s*"close"[\s\S]*"step"\s*:\s*"(?:brief|checks|build)"'
+    match: not_contains
+    weight: 3
+  - name: builds-nothing
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-(?:build|checks)'
+    min: 0
+    max: 0
+    weight: 2
+  - name: proposes-one-way-out
+    type: llm
+    criteria: Does the message propose one next step for the owner to accept with a yes, such as a new request, without reopening the cart change?
+    weight: 3
+  - name: treats-it-as-not-serving-and-not-as-a-failure
+    type: llm
+    criteria: Does the message treat the cart as something that works as written but didn't serve, rather than as a failure the checks should have caught?
+    weight: 2
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 2
+  - name: stays-under-100-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){99}\S'
+    match: not_contains
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:(?!git clone|worktree add|mktemp|\$TMPDIR)(?:[^"\\]|\\.))*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2

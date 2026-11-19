@@ -24,6 +24,9 @@
 #                        their gates, a constitution that says nothing is sold without stock, and orders a later
 #                        item of the backlog
 #              draft     the catalog shop with a draft brief for paying by card that says nothing about stock
+#              inuse     the catalog shop whose cart said in its brief how it would close: it is in use, nobody
+#                        gave a verdict, and the export of carts it named is there to look at
+#              verdict   the same shop, with the question of whether the cart served already asked and waiting
 #              slow      the prepared project with a check that drives the shop, which runs before the review
 #              redreview a red change in payments, built and through its gates, ready to review
 #              style     a yellow change that works, built with the same code written twice, ready to review
@@ -51,8 +54,8 @@ variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
   base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt) ;;
-  stocked|idea|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|idea|catalog|draft|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
+  stocked|idea|catalog|draft|inuse|verdict|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|idea|catalog|draft|inuse|verdict|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
 esac
 
 layer() { # prints the path of the layer's binary, or says on stderr why there is none
@@ -534,9 +537,14 @@ EOF
 }
 
 shipped_logs() { # the logs of the catalog and the cart, each through every step a yellow change takes
-  python3 - "$(g rev-parse HEAD)" <<'EOF'
+  python3 - "$(g rev-parse HEAD)" "$variant" <<'EOF'
 import json, pathlib, subprocess, sys
 shop = sys.argv[1]
+# What the cart's brief said would close it, in the shops where it said so.
+CLOSING = {"expected": "one cart in five holds two or more products",
+           "signal": "the carts with two or more products, of all the carts of a week",
+           "where": "exports/carts.csv, the export of carts the owner downloads from the hosting panel every Monday"}
+in_use = sys.argv[2] in ("inuse", "verdict")
 TESTS = "python3 -m unittest discover -s tests -q"
 LINT = "python3 -m py_compile src/catalog.py src/cart.py"
 
@@ -563,7 +571,8 @@ for day, change, paths, zones, test in [("02", "catalog", ["src/catalog.py", "da
     seal = f"git diff --exit-code {shop} HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude {test} ':(exclude)gdd/log' ':(exclude)gdd/backlog.md'"
     lines = [
         event("step", step="brief", version=1, report=report("gdd-brief", 1, "yellow"),
-              color={"on": "planned", "base": shop, "paths": paths, **color}, files=files, seal=None),
+              color={"on": "planned", "base": shop, "paths": paths, **color}, files=files, seal=None,
+              **({"closing": CLOSING} if in_use and change == "cart" else {})),
         event("ask", of="brief", what="Approve what it has to do"),
         event("approval", who="Mar", of="brief", version=1, files=files, where="conversation"),
         event("step", step="checks", report=report("gdd-checks", 1, "sealed"),
@@ -1273,7 +1282,8 @@ for path, pairs in {
     file.write_text(text)
 EOF
 fi
-if [ "$variant" = catalog ] || [ "$variant" = draft ]; then
+case "$variant" in catalog|draft|inuse|verdict) with_catalog=1 ;; *) with_catalog="" ;; esac
+if [ -n "$with_catalog" ]; then
   catalog_shop
 fi
 if [ "$variant" = plain ] || [ "$variant" = history ] || [ "$variant" = stocked ]; then
@@ -1317,6 +1327,29 @@ if [ "$variant" = idea ]; then
 EOF
   printf '# The Cat Shop\n\nA shop for cat products, still to be built: so far there is only the list of what it will sell, in data/products.json.\n' > AGENTS.md
 fi
+# The cart's brief says how it closes, and the export it named is in the shop.
+if [ "$variant" = inuse ] || [ "$variant" = verdict ]; then
+  python3 - <<'EOF'
+import pathlib
+brief = pathlib.Path("gdd/briefs/cart.md")
+closing = """## Closing it
+
+Expected: one cart in five holds two or more products
+Signal: the carts with two or more products, of all the carts of a week
+Where: exports/carts.csv, the export of carts the owner downloads from the hosting panel every Monday
+
+"""
+text = brief.read_text()
+assert text.count("## What changes") == 1
+brief.write_text(text.replace("## What changes", closing + "## What changes"))
+EOF
+  mkdir -p exports
+  cat > exports/carts.csv <<'EOF'
+week_starting,carts,carts_with_two_or_more_products
+2026-11-02,40,3
+2026-11-09,52,4
+EOF
+fi
 g add -A
 g commit -q -m "The shop"
 if [ "$variant" = history ]; then
@@ -1340,8 +1373,20 @@ if [ "$variant" = history ]; then
   commit_on src/texts/empty-cart.txt "Fix a typo in the empty cart"
   for i in 1 2 3; do commit_on notes/ideas.md "Note an idea, $i"; done
 fi
-if [ "$variant" = catalog ] || [ "$variant" = draft ]; then
+if [ -n "$with_catalog" ]; then
   shipped_logs
+fi
+if [ "$variant" = verdict ]; then
+  # The question of whether the cart served, asked a day ago and not answered yet.
+  python3 - <<'EOF'
+import json, time
+asked = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400))
+what = ("One cart in five was expected to hold two or more products. The export of carts shows 3 of 40 "
+        "and 4 of 52 in its two weeks. Did it serve: yes, not yet or no?")
+with open("gdd/log/cart.jsonl", "a") as log:
+    log.write(json.dumps({"contract": "gdd/1", "ts": asked, "brief": "cart", "event": "ask", "of": "close", "what": what},
+                         separators=(",", ":")) + "\n")
+EOF
 fi
 base="$(g rev-parse HEAD)"
 

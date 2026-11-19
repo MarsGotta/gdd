@@ -130,7 +130,7 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
     }
     out.say("Gather what is seen there, each fact with its source and its date. Never from the builder's report, the change's own tests or anything the change wrote about itself. If you can't reach that place, say so and ask the person to look.");
     out.say(format!(
-        "The verdict is {who}'s, never yours: put what was expected next to what is seen, propose no verdict, and ask."
+        "The verdict belongs to {who}, never to you: put what was expected next to what is seen, propose no verdict, and ask."
     ));
     out.fact("closing", p.closing.clone().unwrap_or(Value::Null));
     out.next = Some(state::Next {

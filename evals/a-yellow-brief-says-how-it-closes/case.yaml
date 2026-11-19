@@ -1,0 +1,98 @@
+schema_version: "1.1"
+name: a-yellow-brief-says-how-it-closes
+description: "A shop prepared with the template's defaults. Asked for the catalog in pages so that people get to see more products, the orchestrator briefs a yellow change whose sealed brief says how it will close, with what is expected, the signal and where it will be looked at, the layer keeps those lines in the brief step, and the approval message tells the owner what will close it. Nothing is built before the yes."
+tags: [orchestrator, brief, close]
+runs: 3
+execution:
+  max_turns: 60
+  timeout_seconds: 1200
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Que el catálogo se vea por páginas: veinte productos en cada una. Lo que busco es que la gente llegue a ver más productos y no solo los primeros. Lo demás decídelo tú.
+context:
+  scaffold_script: scaffold.sh
+graders:
+
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: logs-it-as-yellow
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"step"\s*:\s*"brief"[^\n]*"result"\s*:\s*"yellow"'
+    weight: 2
+  - name: the-brief-says-how-it-closes
+    type: regex
+    target: { source: file, path: gdd/briefs/catalog-pages.md }
+    pattern: '^## Closing it[ \t]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Expected:[ \t]*[^<\s][^\n]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Signal:[ \t]*[^<\s][^\n]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Where:[ \t]*[^<\s]'
+    flags: m
+    weight: 3
+  - name: the-layer-keeps-the-three-lines
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"step"\s*:\s*"brief"[^\n]*"closing"\s*:\s*\{[^}]*"expected"\s*:\s*"[^"]+"[^}]*"signal"\s*:\s*"[^"]+"[^}]*"where"\s*:\s*"[^"]+"'
+    weight: 3
+  - name: the-signal-is-not-the-builders-own
+    type: regex
+    target: { source: file, path: gdd/briefs/catalog-pages.md }
+    pattern: '^(?:Signal|Where):[^\n]*\b(?:tests?|gates?|the builder|its report|the build|unit|lint)\b'
+    flags: im
+    match: not_contains
+    weight: 2
+  - name: the-message-says-what-closes-it
+    type: llm
+    criteria: Does the message tell the owner what will be looked at later to know whether the change served?
+    weight: 3
+  - name: asks-to-approve-the-brief
+    type: llm
+    criteria: Would answering yes approve what the change will do before building begins?
+    weight: 2
+  - name: builds-nothing-before-the-approval
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-(?:build|checks)'
+    min: 0
+    max: 0
+    weight: 3
+  - name: logs-that-it-waits-for-the-person
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"event"\s*:\s*"ask"\s*,\s*"of"\s*:\s*"brief"'
+    weight: 2
+  - name: records-no-approval-it-was-not-given
+    type: regex
+    target: { source: file, path: gdd/log/catalog-pages.jsonl }
+    pattern: '"event"\s*:\s*"approval"'
+    match: not_contains
+    weight: 2
+  - name: stays-under-150-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){149}\S'
+    match: not_contains
+    weight: 2
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:(?!git clone|worktree add|mktemp|\$TMPDIR)(?:[^"\\]|\\.))*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
