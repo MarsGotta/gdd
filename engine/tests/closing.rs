@@ -739,7 +739,11 @@ fn a_change_named_by_hardening_has_nothing_to_gather_and_metrics_see_it() {
     for args in [vec!["metrics", "g1"], vec!["metrics", "--all"]] {
         let m = r.gdd(&args);
         let compact = m.out.replace(": ", ":");
-        assert!(compact.contains("\"close\":\"waiting\""), "{args:?}: {}", m.out);
+        assert!(
+            compact.contains("\"close\":\"waiting\""),
+            "{args:?}: {}",
+            m.out
+        );
     }
     // Voiding the record that named it is said by verify.
     let void = r.gdd(&[
