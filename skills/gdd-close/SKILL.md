@@ -43,7 +43,7 @@ Propose no verdict and don't lean the facts toward one. This is the one question
 
 ## The verdict
 
-Only a person's own words are a verdict: the change's author's, or those of whoever the blueprint's `closing` names. Silence, "go on", thanks or an answer about something else are not one: the change keeps waiting, and `gdd answer` doesn't take it. If they say "you decide", tell them in one line that this one is theirs, and leave it waiting.
+Only a person's own words are a verdict: the change's author's, or those of whoever the blueprint's `closing` names. Silence, "go on", thanks or an answer about something else are not one: the change keeps waiting, and `gdd answer` doesn't take it. If they say "you decide", tell them in one line, in their product's words, that this one is theirs: never name the method or its rules. Then leave it waiting.
 
 Record it at once, in their words, with the command the layer printed: `gdd close <id> --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw "<what they saw: their words, or what you showed them>"`.
 
