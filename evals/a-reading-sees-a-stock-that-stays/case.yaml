@@ -1,0 +1,69 @@
+schema_version: "1.1"
+name: a-reading-sees-a-stock-that-stays
+description: "The draft payment brief has a scenario that says what the catalog shows after a payment: the same stock as before. The reading runs nothing, answers fix, and one of its numbered findings asks to change the rule that leaves the stock as it was."
+tags: [role, review, brief]
+runs: 3
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    You were launched by the GDD orchestrator to read a brief before anyone builds it. Load the `gdd-review` skill and follow it.
+
+    The draft is `gdd/briefs/card-payment.md`, with its scenarios in `features/card-payment.feature`, here in my copy and not sealed yet. The base is the tip of `main`. Nobody has built anything.
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: loads-its-skill
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-review"'
+  - name: opens-how-a-brief-is-read
+    type: regex
+    target: trace
+    pattern: 'Reading a brief before anyone builds it'
+    weight: 2
+  - name: answers-fix
+    type: regex
+    pattern: '^\s*fix\b'
+    weight: 3
+  - name: a-numbered-finding-names-the-stock
+    type: regex
+    pattern: '^\W{0,4}f[1-3]\b[^\n]*\b(?:stock|existencias|inventory)\b'
+    flags: mi
+    weight: 3
+  - name: asks-to-change-the-rule-that-keeps-the-stock
+    type: llm
+    criteria: Does a numbered finding ask to change the rule that leaves the stock as it was after a payment?
+    weight: 3
+  - name: runs-nothing
+    type: tool_used
+    tool: Bash
+    input_match: 'unittest|python3 -m|\bnode\b'
+    min: 0
+    max: 0
+    weight: 2
+  - name: builds-nothing
+    type: regex
+    target: files
+    pattern: 'src/pay/'
+    match: not_contains
+  # First reading or review: no previous findings and no reviewed stamp in this prompt.
+  - name: ends-with-its-report
+    type: regex
+    pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'

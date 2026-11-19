@@ -1,0 +1,67 @@
+schema_version: "1.1"
+name: a-brief-keeps-what-is-usual
+description: "A shop with its catalog and its cart built, asked for customer accounts. The orchestrator briefs the change without an assumption that accounts are lost when the shop restarts: either a scenario says an account still works after a restart, or it proposes leaving that out as a part. Accounts are red, so nothing is built before the person approves, and the run ends with one question."
+tags: [orchestrator, brief, person]
+runs: 3
+execution:
+  max_turns: 80
+  timeout_seconds: 1800
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, TodoWrite, Bash, Write, Edit]
+  append_system_prompt: |
+    This project's AGENTS.md says:
+
+        ## GDD
+
+        This project uses Gate-Driven Development (contract gdd/1): a change is done when its gates pass, not when an agent says so.
+
+        - No role given? Load the `gdd` skill first.
+        - Edit only what your role owns: never a sealed check, and never `gdd/`, `features/` or the agents' own files (`AGENTS.md`, skills, settings) unless your role writes them.
+        - Get through gates with facts: the command, its exit code and its last lines.
+        - When something doesn't fit, stop and say why.
+
+        Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/briefs/` changes, `features/` their scenarios, `gdd/context/` references.
+
+        @gdd/constitution.md
+  prompt: |
+    Que los clientes puedan crearse una cuenta y entrar con ella.
+context:
+  scaffold_script: scaffold.sh
+graders:
+  - name: loads-gdd
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
+  - name: asks-the-seven-questions
+    type: regex
+    target: trace
+    pattern: 'The paths say where a change lands'
+  - name: assumes-no-account-is-lost
+    type: regex
+    target: trace
+    pattern: '@assumed(?:\\n[ \t]*)+Rule:(?=(?:[^"\\]|\\[^n])*?\b(?:accounts?|cuentas?)\b)(?:[^"\\]|\\[^n])*?\b(?:in memory|en memoria|are lost|is lost|se pierden?|are forgotten|se olvidan?|until (?:the shop|it) restarts|hasta que (?:la tienda )?se reinici\w*|no sobreviven?|don.t survive)\b'
+    flags: i
+    match: not_contains
+    weight: 3
+  - name: keeps-accounts-across-a-restart-or-proposes-a-part
+    type: regex
+    target: trace
+    pattern: '"file_path":"[^"]*features/[\w./-]+\.feature","(?:old_string":"(?:[^"\\]|\\.)*","new_string|content)":"(?:[^"\\]|\\.)*?\b(?:restart\w*|reinici\w*|starts? (?:up )?again|arranca de nuevo|vuelve a arrancar)\b|"command":"(?:[^"\\]|\\.)*?>[ \t]*\S*features/[\w./-]+\.feature(?:[^"\\]|\\.)*?\b(?:restart\w*|reinici\w*|starts? (?:up )?again|arranca de nuevo|vuelve a arrancar)\b|\bask\s+(?:[^"\\]|\\.)*?--of\s+decision\b'
+    flags: i
+    weight: 3
+  - name: builds-nothing-before-the-approval
+    type: tool_used
+    tool: Agent
+    input_match: 'gdd-(?:build|checks)'
+    min: 0
+    max: 0
+    weight: 3
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 2
+  - name: writes-no-line-of-the-log-by-hand
+    type: regex
+    target: trace
+    pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:(?!git clone|worktree add|mktemp|\$TMPDIR)(?:[^"\\]|\\.))*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
+    match: not_contains
+    weight: 2
