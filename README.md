@@ -25,7 +25,14 @@ flowchart LR
 
 ## Install
 
-You need a git repository and an agent that loads skills: Claude Code, Codex or Antigravity. The skills install as a plugin, with a command or two.
+What you need:
+
+- **A git repository,** with git 2.38 or later.
+- **An agent that loads skills:** Claude Code, Codex or Antigravity.
+- **[Rust](https://rustup.rs) 1.89 or later,** to build the layer, `gdd`: once in each copy of your project, and in your CI. The first build downloads what it depends on from crates.io, so it needs the network that once.
+- **macOS or Linux.** Nobody has tried it on Windows yet.
+
+The skills install as a plugin, with a command or two.
 
 **Claude Code** (2.1.275 or later), inside a session:
 
@@ -121,6 +128,22 @@ Fixing it is a change like any other, through step 3. Hardening is the other hal
 It goes the other way too. When a gate stops adding anything, say which one, and your agent reads the logs for what it caught and what it cost, and proposes relaxing or retiring it.
 
 The [guide to the skills](skills/README.md) goes through each step in full, with what happens inside and the files you end up with.
+
+## The five moments, and what holds each one up
+
+Those steps are the method's five moments, seen from your side. What carries each one is written down, so it doesn't rest on your agent remembering what to do: a skill it loads for that moment, the files it leaves in your repository, and the layer, which refuses what comes out of order. One moment has no skill yet, and the table says which.
+
+| Moment | What it's for | What holds it up |
+|---|---|---|
+| **1. Prepare.** At the start, and again when a gate is missing, isn't needed or is badly defined | It has two parts. First the blueprint: what can never happen in your product, what is delicate, which gates you need and where a person approves. Then the gates it defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. No change starts until they hold. | `gdd-prepare` writes the blueprint and the constitution with you. `gdd-checks` sets up the standing checks and `gdd-review` tries them. It all stays in `gdd/blueprint.md`, `gdd/constitution.md` and `gdd/gates/`. |
+| **2. Brief.** On every change, before it starts | What has to be true gets written down before anyone builds: the rules the change touches, a few scenarios and a first estimate of its risk. | `gdd-brief` writes the rules, the scenarios and the color, in `features/` and `gdd/briefs/`. On red, `gdd-review` reads the brief before you approve it. `gdd-checks` writes a test for each scenario, sees it fail and seals it. The layer refuses a scenario with no rule above it, and it lets nobody build before your yes, where your blueprint asks for one. |
+| **3. Execute.** On every change | An agent builds the change and gets through the gates without touching what judges it. A reviewer that heard none of it tries to make it fail, and the risk is worked out again from what was touched. | `gdd-build` builds. The layer runs the gates from the seal, counts the limits and writes the log in `gdd/log/`. `gdd-review` reviews with a clean context. Your CI, once you set it up, checks every log and runs the gates again where no agent writes. |
+| **4. Close.** Once the change is in use | You look at whether it helped, against what you expected when you asked for it. | No skill yet: for now it's yours. `.gdd/gdd metrics` and `gdd/log/` tell you how the change went. |
+| **5. Harden.** When something slips through or repeats, and when a gate stops adding anything | What slipped through becomes one more check. What no longer adds anything gets relaxed or retired. Both change the blueprint, so you approve them, or your team does. | `gdd-harden` finds which gate should have caught it and proposes the check, or reads the logs for what a gate caught and what it cost. `gdd-checks` builds the check. |
+
+Under all five there are two things more. `gdd`, the skill your agent loads on its own when you ask for a change, knows what comes next and who gets launched. And the layer, `.gdd/gdd`, keeps the order, the limits and the log, so that none of it depends on an agent's memory.
+
+How far that holds depends on where your gates run. With the skills alone, the agent not touching what judges it is a rule it is told and then checked on. With protected branches and your CI, your platform enforces it. The guide says [what the skills don't guarantee](skills/README.md#what-they-dont-guarantee).
 
 ## What's in this repository
 

@@ -41,9 +41,10 @@ The [Manifesto](../manifesto/) counts a fifth moment, Close, between Execute and
 
 ## Before you start
 
-- **A git repository.** The skills use what it already has, such as its tests, its linter or its CI.
+- **A git repository,** with git 2.38 or later. The skills use what it already has, such as its tests, its linter or its CI.
 - **An agent that loads skills.** Claude Code, Codex or Antigravity.
-- **[Rust](https://rustup.rs) 1.89 or later,** to build the layer, once in each copy of your project and in your CI. Without it nothing gets built, and your agent tells you so in one line.
+- **[Rust](https://rustup.rs) 1.89 or later,** to build the layer, once in each copy of your project and in your CI. Without it nothing gets built, and your agent tells you so in one line. The first build downloads what the layer depends on from crates.io, so it needs the network that once.
+- **macOS or Linux.** Nobody has tried it on Windows yet.
 - **You, or your team.** GDD works on your own or with a team. With a team, the team approves the blueprint and anything that loosens it, as its `CODEOWNERS` say, and the author of a change approves what has to pass for it. On your own, you are both.
 - **Your agent's deepest model, for Prepare, Harden and the brief of a red change.** If it can't tell it is on it, the orchestrator says so once and goes on with your yes.
 - **Protected branches, if your platform has them.** The skills work without them, but then nothing stops the agent from touching what judges it ([what they don't guarantee](#what-they-dont-guarantee)).
