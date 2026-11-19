@@ -16,7 +16,7 @@ Set it up from that `engine/` folder as it is, never from source you changed. Wh
 
 ## When it can't be built
 
-Without a Rust toolchain nothing builds, and the skills don't work by hand: tell the person in one line what it takes, and stop. "GDD needs a small tool built with Rust, which this computer doesn't have yet: install it from rustup.rs and I'll go on. Shall I wait?" Never write the log yourself meanwhile.
+Without a working Rust toolchain nothing builds, and the skills don't work by hand: tell the person in one line what it takes, and stop. That line is the whole message: what is missing and the one step that gets it. Leave out the error text, what else is on the path and what you tried. "GDD needs a small tool built with Rust, which this computer doesn't have yet: install it from rustup.rs and I'll go on. Shall I wait?" Never write the log yourself meanwhile.
 
 ## What CI runs
 

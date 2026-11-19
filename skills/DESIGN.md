@@ -485,6 +485,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 97. **A pass says what the reviewer read.** Only a pass lets a change ship. Refusing a fix can lose a finding. Refusing a pass costs one more report. When the layer runs the reviewer it knows what it sent, so a reviewer that forgets the line costs nothing. On a report by hand the layer can't tell who wrote the line: there the rule rests on nobody but its role editing a report.
 
+98. **Put the instruction where the agent reads it.** In three runs of 36 cases, 11 passed every time, 12 never passed and 13 varied. Agents followed the message template but missed instructions beneath it or in a reference. Put what they must always do in the skill body and in the prompt or next step the layer prints.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

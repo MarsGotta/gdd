@@ -152,7 +152,7 @@ pub fn cap_spent(id: &str, lim: &Limits) -> Next {
     };
     let delegated = if log_kind(id) == LogKind::Change {
         format!(
-            "If they delegated and other work can go on, leave the change for later without asking. Tell them what is left, keep or add the item in the backlog and use gdd brief {id} --stop \"<what is left>\". Otherwise use the waiver question below. "
+            "If they delegated and other work can go on, defer it. Say what works and what is left. Send no question or offer. When gdd next names an independent backlog item, other work can go on. Give no reason for refusing another attempt. To defer, keep or add the item in the backlog and use gdd brief {id} --stop \"<what is left>\". Otherwise use the waiver question below. "
         )
     } else {
         String::new()

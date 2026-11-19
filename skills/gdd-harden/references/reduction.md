@@ -13,4 +13,4 @@ If their builders left no counts, say so. The gate results tell you what happene
 
 Filled in for a lint check:
 
-`--catches "Last 12 changes, 14 gate runs, no failures after the builders finished. The builders left no counts." --cost "28 seconds in total. Tokens and wait were unmeasured."`
+`--catches "Last 8 changes, 11 gate runs, no failures after the builders finished. The builders left no counts." --cost "33 seconds in total. Tokens and wait were unmeasured."`

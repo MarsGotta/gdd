@@ -6,7 +6,8 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
     Please read:
     - `gdd/blueprint.md`: <what it is for, in a line>
-    - `gdd/constitution.md`: <the rules of their product, for them to put in their own words>
+    - `gdd/constitution.md`: <the rules of their product, one of them quoted>. Put them in your own words.
+    - `gdd/gates/`: what the checks must prove. Please correct any <red zone> rule that doesn't fit.
     - <each other file you wrote, the ones that go together in one line>
 
     Before you say yes:
@@ -17,7 +18,7 @@ Copy it, fill it in and send nothing else: under 200 words, in the person's lang
 
     Do you approve them as they are?
 
-Everything this skill tells you to say to the person before the approval goes under "Before you say yes". Keep it to four lines at most. The first two are the trial of the blueprint, one line each, also when it found nothing: never fold them to make room. Combine other caveats that belong together, including anything that comes from memory because you couldn't look it up. What they asked for by name gets its answer in the line of the file that holds it. No other headings and no other lists.
+Everything this skill tells you to say to the person before the approval goes under "Before you say yes", in the template's four lines and in that order. Lines 1 and 2 are the trial of the blueprint: each stays on its own line, also when it found nothing, and carries nothing else. Line 4 always says what isn't set up or tried yet. Any other caveat, including anything that comes from memory because you couldn't look it up, joins line 3 or line 4: it never replaces a line and never adds a fifth. What they asked for by name, and what you decided about it, gets its answer in the line of the file that holds it. No other headings and no other lists.
 
 Filled in for a birdwatching diary:
 

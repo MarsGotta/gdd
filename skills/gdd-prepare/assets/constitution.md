@@ -8,7 +8,7 @@ What every agent needs at every gate and can't work out from the code. It goes i
 
 ## Commands
 
-Gates run these same commands, locally and in CI.
+Gates run these same commands, locally and in CI. Each row holds its whole command, never a pointer to another file.
 
 | What | Command |
 |---|---|

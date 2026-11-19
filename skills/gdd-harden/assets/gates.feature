@@ -1,8 +1,9 @@
 @zone:<zone>
 Feature: <Zone> gates
 
-  # Repeat for each rule. For a proposed red zone rule, tag both scenarios with
-  # the reviewer check id and add the machine check tag wherever there is a test.
+  # Repeat for each rule, always with both scenarios. For a proposed red zone rule, tag both
+  # with the reviewer check id, and add a machine check's tag to each one a test or a scan
+  # could observe, even before that test is written.
   Rule: <what must never happen here, in the person's words>
 
     @check:<check id>
