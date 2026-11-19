@@ -2,42 +2,45 @@
 
 You ask your agent for a filter by instrument in your songbook. One agent writes down with you what has to pass, another builds the checks, a third does the work, and a reviewer that heard none of it runs the change and tries to make it fail. You hear about it when it needs you, and when it's in.
 
-That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
+That's a lot to explain every time, so it's written down once, in eight skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
 
-This is version 0.15, with contract `gdd/1`.
+This is version 0.16, with contract `gdd/1`.
 
-## The four moments
+## The five moments
 
 ```mermaid
 flowchart LR
-    accTitle: The four moments of GDD
-    accDescr: Prepare happens once, with you. Every change goes through Brief and Execute before it reaches your main branch. When something slips through, Harden adds one more check, which every later change in that zone has to pass, and when a gate no longer adds anything, it proposes relaxing or retiring it.
+    accTitle: The five moments of GDD
+    accDescr: Prepare happens once, with you. Every change goes through Brief and Execute before it reaches your main branch. Once it is in use, Close waits for your verdict on whether it helped, and holds nothing up. When something slips through, Harden adds one more check, which every later change in that zone has to pass, and when a gate no longer adds anything, it proposes relaxing or retiring it.
     P["Prepare<br/>once, with you"]
     B["Brief<br/>what has to pass"]
     E["Execute<br/>build, gates, review"]
     M(["Your main branch"])
+    C["Close<br/>your verdict"]
     H["Harden<br/>with you"]
     P --> B --> E --> M
+    M -. "once it is in use" .-> C
     M -. "something slipped through" .-> H
     H -. "one check more, or one less" .-> E
     %% An empty node keeps the right side free: GitHub draws its zoom buttons there
     H ~~~ Z["zoom buttons"]
     classDef you fill:#0969da,stroke:#0969da,color:#ffffff
     classDef room fill:none,stroke:none,color:transparent
-    class P,H you
+    class P,C,H you
     class Z room
 ```
 
 Prepare happens once, in a conversation with you. From then on every change goes through Brief and Execute, and it comes to you when it needs you: an approval your blueprint asks for, a decision nobody has made, a limit that ran out. If the same step fails twice for the same reason and nothing has changed, your agent tells you what is blocked and proposes one way forward. Harden is for the day something gets past every gate, or keeps repeating, so that what it would have taken to catch it stays as a check, and for the day a gate stops adding anything, so that it gets relaxed or retired. The two keep the balance.
 
-The [Manifesto](../manifesto/) counts a fifth moment, Close, between Execute and Harden: a change isn't closed when it's in, but when someone has looked at whether it helped. The skills don't do that yet. They stop when the change is in, so for now closing is yours: when you ask for a change, say what you expect from it, and once it's in use, come back and look.
+Close comes between Execute and Harden, as in the [Manifesto](../manifesto/): a change isn't closed when it's in, but when someone has looked at whether it helped. Its brief says, before anyone builds, what you expect from it, what will show it and where to look. Once it's in use it waits in sight, however long, and holds nothing up. When you come back to it, your agent gathers what can be seen and asks you. The verdict is yours, or belongs to whoever your blueprint names: yes, not yet or no.
 
 | Step | You say | You end up with |
 |---|---|---|
-| [1. Install the skills](#1-install-the-skills) | A command or two | The seven skills in your agent |
+| [1. Install the skills](#1-install-the-skills) | A command or two | The eight skills in your agent |
 | [2. Prepare your project](#2-prepare-your-project) | "Set GDD up in this project" | A blueprint you approved, with the gates your project needs |
 | [3. Ask for a change](#3-ask-for-a-change) | The change, in your own words | The change on your main branch, and a log of how it got there |
-| [4. Harden what slipped through](#4-harden-what-slipped-through) | What got through, what keeps repeating, or the gate that no longer adds anything | A check that catches it from then on, or a gate relaxed or retired |
+| [4. Close a change in use](#4-close-a-change-in-use) | Which change to look at, or whether it helped | Your verdict in its log: yes, not yet or no |
+| [5. Harden what slipped through](#5-harden-what-slipped-through) | What got through, what keeps repeating, or the gate that no longer adds anything | A check that catches it from then on, or a gate relaxed or retired |
 
 ## Before you start
 
@@ -73,7 +76,7 @@ git clone https://github.com/MarsGotta/gdd
 agy plugin install gdd
 ```
 
-**By hand,** if you'd rather keep them inside your project: copy the seven folders whose names start with `gdd` into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well. Then build the layer from a clone of this repository, `sh engine/build.sh`, and copy the binary it prints to `.gdd/gdd` in your project, with `.gdd/` in its `.gitignore`.
+**By hand,** if you'd rather keep them inside your project: copy the eight folders whose names start with `gdd` into `.claude/skills/` for Claude Code, or `.agents/skills/` for Codex. For Claude Code, copy the subagents in [adapters/](adapters/) to `.claude/agents/` as well. Then build the layer from a clone of this repository, `sh engine/build.sh`, and copy the binary it prints to `.gdd/gdd` in your project, with `.gdd/` in its `.gitignore`.
 
 Then check it's there:
 
@@ -81,7 +84,7 @@ Then check it's there:
 |---|---|---|
 | Claude Code | `claude plugin list` | `gdd@gdd`, enabled |
 | Codex | `codex plugin list` | `gdd@gdd`, installed and enabled |
-| Antigravity | `agy plugin list` | `gdd`, enabled, with 7 skills |
+| Antigravity | `agy plugin list` | `gdd`, enabled, with 8 skills |
 
 From a plugin, the names carry its prefix on Claude Code and Codex: `gdd:gdd`, `gdd:gdd-build` and so on. You rarely type them, because `gdd` loads by itself and launches the rest.
 
@@ -178,7 +181,7 @@ sequenceDiagram
 
 1. **Brief.** The orchestrator starts with the rules for what you asked to change. It reads the existing rules, what the change leaves behind, the features it touches and what waits. It writes each new or changed rule in the capability's feature file, then puts the scenarios that check it underneath, including the bad cases. Each scenario gives one action and concrete values. The agent marks its own product choices `@assumed`. If the change can leave a question for later, it writes `@question` with no scenarios. The paths set the floor of the risk estimate and judgment can raise it. On red, and on yellow if the change alters another zone's data, a reviewer reads the brief before approval. The reviewer flags each scenario that still needs clarification to write a test. A reading can propose up to three additions, including corrections to the form of rules and scenarios. A form correction names the rule in your brief or the scenario missing its rule. Each other addition is tied to a constitution or zone rule or to money or data someone could lose. Other observations stay in the log. A brief with nothing blocking it passes.
 
-   The brief opens with your request, the feature files to read, what waits and how to undo the change. Details for the roles follow. Where your blueprint asks for approval, you see each new or changed rule on its own line, then each assumption the agent made, any open question and the technical decisions that concern you. On red you also see the product rules it touches and up to three things it leaves out. The scenarios are in the files you approve. Each scenario without a rule above it also gets its own line in the message. The message stays under 150 words and ends with one question a yes answers. Approval stands while what has to pass stays the same. Where the blueprint asks for no approval, the agent tells you what the change will do.
+   The brief opens with your request, how the change closes ([step 4](#4-close-a-change-in-use)), the feature files to read, what waits and how to undo the change. Details for the roles follow. Where your blueprint asks for approval, you see each new or changed rule on its own line, then each assumption the agent made, any open question, what closes it and the technical decisions that concern you. On red you also see the product rules it touches and up to three things it leaves out. The scenarios are in the files you approve. Each scenario without a rule above it also gets its own line in the message. The message stays under 150 words and ends with one question a yes answers. Approval stands while what has to pass stays the same. Where the blueprint asks for no approval, the agent tells you what the change will do.
 2. **Checks.** Another agent, never the one that will build, writes the tests of the change from those scenarios, one test for each. Before sealing, it reads each test, names a wrong solution that would fail its assertions and strengthens any test that would let that solution through. For each thing created, used up or ended, and each value changed in another zone, the test checks the outcome from the other part of the product named in its scenario. It sees each test fail for the right reason, and on red it also sees each one pass and breaks it once on purpose, then seals them. The layer asks for the proofs the color needs. When only the brief’s prose changes, the layer reuses the proofs that still cover the revised plan and asks for any missing runs. It tests only what the scenarios ask for and sends anything missing back to the brief. Only then is anything built. A green change has no brief and no scenarios and skips this step: it goes on with the checks that already exist.
 3. **Build.** The builder and the checks agent use their own project worktrees. If git cannot add one, the role follows `gdd/references/role-clone.md`. The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its checks were made. It reports each product choice the brief left open so the reviewer can check it against the written rules.
 4. **Gates.** The layer checks the exact change commit away from the builder, in CI or in a throwaway worktree. If git cannot add that worktree, the gates run in a fresh temporary clone. What takes longer runs once, when the rest pass. On `guarantee: rule` that copy is the best there is and it isn't out of the builder's reach, and the orchestrator says so in its summary. What the builder reports is a claim. A failing check sends the change back with its command, exit code and last lines. A fix goes to the same agent with the seal tip and what the last builder tried. When every finding names a test sealed for this change, the checks agent corrects the tests and the builder merges the new seal. At the round limit the builder can only merge the seal. If the product is unchanged the merge uses no build round. A product edit needs your agreement to another attempt. The builder gets product findings and findings without a file, with their citations and notes. For mixed findings the checks agent corrects the named sealed tests first. Builders and checks agents read the end of saved command output and reuse files they already read. The step records how much input the round read when the environment measures it. The first round in a new Codex session counts in full. Later rounds charge the measured difference.
@@ -203,7 +206,7 @@ Two commands read the trail for you: `.gdd/gdd waiting` lists every question wai
 **You end up with** the change on your main branch and its trail next to it:
 
 ```text
-gdd/briefs/<id>.md               what had to pass, on yellow and red
+gdd/briefs/<id>.md               what had to pass and how it closes, on yellow and red
 features/<capability>.feature    its rules and their scenarios
 gdd/log/<id>.jsonl               everything that happened, one event per line, with who approved what
 gdd/log/<id>.engine.jsonl        the layer's journal: each time it was called, and what it refused
@@ -234,7 +237,23 @@ The rounded blue steps are where a person approves. This is the proportion the b
 
 Each color also sets the level of the agents that work on it, light for green and standard for yellow and red, and its own limits, and your blueprint says which model each level is in each agent you work from, by the name that agent launches it with. Taking the approval of the brief off yellow, or adding a check to a color, is for you or your team to decide.
 
-## 4. Harden what slipped through
+## 4. Close a change in use
+
+**You say** which change you want to look at, or whether it helped. Closing never starts by itself: a change in use waits in sight, however long, and the next one doesn't wait for it.
+
+**What the brief wrote.** Three lines you approved with the rest, before anyone built: what you expected to change for whoever uses it, the signal that would show it, from where the builder can't write, and where to look. A change that promises nothing to whoever uses your product says `Nothing to close` and why. A green change with no brief file promises nothing either. If you took a request in parts, the three lines go once, in the part that puts it in use.
+
+**What waits.** When a request ends, the summary carries one line saying what is in use and waits for a verdict, with no question. `.gdd/gdd next` lists it, with how long it has been in use and what was expected.
+
+**What happens when you ask.** The orchestrator loads `gdd-close` and goes to the place the brief named. It gathers what it sees there, each fact with its source and its date, never from the builder's report or the change's own tests. If it can't reach that place, it says so and you look. Then it puts what you expected next to what is seen and asks whether it helped: yes, not yet or no. It proposes no verdict. This one is yours, or belongs to whoever your blueprint names, and telling it to decide doesn't hand it over.
+
+- **Yes.** The change is closed.
+- **Not yet.** It stays in use and in sight, and your agent doesn't ask again until you come back to it.
+- **No.** It is closed too, and its log is not opened again. Your agent proposes one of two ways out, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if you accept it as it is. If it broke a rule or did harm: the fix is a normal change, through step 3, and a hardening proposal, through step 5, because a gate should have caught it.
+
+What promised nothing closes by itself once the days in your blueprint's `closing` go by with nothing recorded against it, 7 in the template. If a hardening record names it before that, it waits for your verdict like the rest. Which changes promise nothing, and who gives the verdict, are in your blueprint, for you or your team to decide. A blueprint from before version 0.16 has no `closing`: there, a change that promised nothing is closed when it ships.
+
+## 5. Harden what slipped through
 
 **You say** which failure got through and where you found it, or what keeps repeating: the same finding, the same stop, the same reason for raising a color. Fixing it is a normal change, through step 3. Hardening is the other half: what it would have taken to catch it stays as a check. Or you say which gate is in the way, and the orchestrator reads the logs for what it caught and what it cost.
 
@@ -290,16 +309,17 @@ A fix never goes into a looser check. When a check looks wrong, only whoever wro
 
 ## Reference
 
-### The seven skills
+### The eight skills
 
 | Skill | Who loads it | Moment | What it leaves |
 |---|---|---|---|
-| `gdd` | The orchestrator, on its own, when you ask for any change | All four | What comes next, and who gets launched |
+| `gdd` | The orchestrator, on its own, when you ask for any change | All five | What comes next, and who gets launched |
 | `gdd-prepare` | The orchestrator, with you | Prepare | The blueprint, with the gates the project needs, and the constitution |
 | `gdd-brief` | The orchestrator | Brief | Rules, scenarios and the expected risk |
 | `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden | The checks, each seen failing for the right reason |
 | `gdd-build` | The agent that goes through the gate | Execute | The change, and the facts that prove it |
 | `gdd-review` | The reviewer, with a clean context | Brief on red, and Execute | What a brief leaves out, before anyone builds; then its verdict, and the risk worked out again |
+| `gdd-close` | The orchestrator, when you ask about a change in use | Close | What can be seen against what the brief expected, and your verdict in the log |
 | `gdd-harden` | The orchestrator, with you | Harden | The crack and the check that would have caught it, or the proposal to retire a gate |
 
 What was decided about them, and why, is in [DESIGN.md](DESIGN.md). Every file they leave in your repository, with its template, is in [CONTRACT.md](CONTRACT.md): an engine will read and write those same files, so what you set up today will still serve you later. The mapping of each role to its skill, for each agent, is in [adapters/](adapters/).

@@ -10,7 +10,7 @@ They let an agent apply GDD in any project with what the project already has (te
 
 1. **No scripts.** GDD is an open method, so the skills are instructions only. They use the tools a project already has and install nothing.
 2. **The core of any engine.** The skills say what has to happen and who decides. An engine, T-minus or any other, loads them as its core and only adds how it does things: computing the color, sealing checks, launching agents. Never the other way round: if an engine needs the method to change, the change happens here.
-3. **One skill per role, plus an entry skill.** Engines launch agents by role, and each agent loads only the skill of its role. An entry skill guides the four moments: Prepare, Brief, Execute and Harden.
+3. **One skill per role, plus an entry skill.** Engines launch agents by role, and each agent loads only the skill of its role. An entry skill guides the five moments: Prepare, Brief, Execute, Close and Harden.
 4. **No models or providers.** The skills recommend by what a task needs, never by name:
 
    | Level | What it means | For |
@@ -30,16 +30,17 @@ They let an agent apply GDD in any project with what the project already has (te
 
    The constitution holds only what applies everywhere. A rule that belongs to one zone goes into that zone's context in the blueprint, so it reaches only the gates that need it. An engine does this split on its own. Without one, the orchestrator does it when it launches each agent, and its skill has to teach it how.
 6. **Everything in English.**
-7. **Seven skills.** One entry skill and six more, each for one role in one moment:
+7. **Eight skills.** One entry skill and seven more, each for one role in one moment:
 
    | Skill | Who loads it | Moment | Reads | Leaves | Level |
    |---|---|---|---|---|---|
-   | `gdd` (entry) | The orchestrator | Guides all four | The request, the blueprint and where each brief stands | What comes next, who is launched and with which context | standard |
+   | `gdd` (entry) | The orchestrator | Guides all five | The request, the blueprint and where each brief stands | What comes next, who is launched and with which context | standard |
    | `gdd-prepare` | The orchestrator, with the person, at the start or when the project changes | Prepare | The repository and what it already has (tests, CI) | The blueprint with its standing checks, the constitution, the GDD block in AGENTS.md and the protections (branches, CODEOWNERS) | deep |
    | `gdd-brief` | The orchestrator, for each change | Brief | The request and the blueprint | The brief: the scenarios that say what has to pass, the expected color and the gates with their context | standard |
    | `gdd-checks` | Another agent, never the one that builds | Brief, and after Prepare and Harden | The brief, or the standing checks to set up | Checks that fail for the right reason, proof that they can pass, and their seal | by color |
    | `gdd-build` | The agent that passes the gate | Execute | The brief and the sealed checks | The change and the facts that prove it | by color |
    | `gdd-review` | The reviewer, with a clean context | Execute | The change, the blueprint and the checks, never the conversation | The verdict and the recomputed color, with the evidence of the checks it ran itself | by color, on the blueprint's `reviewer` models where it has them |
+   | `gdd-close` | The orchestrator, when the person asks about a change in use | Close | What the brief expected, and what can be seen where it said to look | What is seen next to what was expected, and the person's verdict in the log | standard |
    | `gdd-harden` | The orchestrator, with the person, when something slips through or a gate adds nothing | Harden | What slipped through and its brief, or the logs of the gate | The crack, the scenario that would have caught it and the blueprint change, or the removal, for the person to approve | deep |
 
    Building is split in two. `gdd-prepare` decides with the person which gates the project needs and the standing checks that demonstrate them, one list for the whole project, but sets up nothing. `gdd-checks` builds both kinds of checks: after preparing, the project's standing checks, once, and after hardening, the check of a gate a zone was given (decision 33); when briefing, the checks of each change. `gdd-review` then tries each new standing check on purpose, once, and no change starts until they hold.
@@ -490,6 +491,10 @@ The website tells a change in six steps, the ones of its delicate case. They are
 99. **Check scenario form when the brief is recorded.** In three runs per case, more serious findings could take all three places in the reader's report and leave a scenario's form unreported. The layer checks for a preceding rule, a valid scenario id and exactly one `When` step. The reader judges the values, the scope of each rule and which assumptions need a tag.
 
 100. **Print what the person needs to see.** When asking for brief approval again, the orchestrator loaded `gdd-brief` in 0 of 3 runs. It named the files and left out the rules and its assumptions. The layer prints what the person needs to see from the sealed version. The agent puts each line in the person's words. The lines come with the step that asks for the approval, because by the time the question is recorded the message is already written. Two trials also printed a word count under the lines. In both, the agent got under 150 words by merging several rules into one sentence, and in one run it rewrote the sealed rules to make them shorter: each rule had its own line in 3 of 3 runs before the count and in 0 of 6 with it. So the layer prints no count.
+
+101. **A change closes on a person's verdict, against what its brief expected.** On 19 November 2026 the author approved the proposal, and since 0.16 Close is the fifth moment in the skills and the layer. The orchestrator does it itself, as it does Prepare, Brief and Harden (decision 25). The brief says how the change closes before anyone builds, because a signal chosen once the result is in sight gets read in its favor. The layer writes no state for a change in use: it derives "in use, not closed" from the log, and it stops nothing. The person answers when they come back, as with an approval, and no source defends closing a change only because time went by. What promised nothing closes by itself after the blueprint's days, unless a hardening record names it first. A verdict written wrong is the one line of a shipped change that a correction may void (decision 59).
+
+    The agent gathers what is seen and proposes no verdict. This is the one question of GDD with no proposal, because a proposed yes is the agent saying it helped. What must always happen is printed by the layer, because agents follow what the layer prints and skip what only a skill says (decision 98). The step after a ship names no command to run, so Close never starts by itself: a command printed under `run:` gets executed whatever the prose says. `gdd close <id>` prints what to gather and the question. Three skills at the 14,500-byte limit, `gdd`, `gdd-brief` and `gdd-prepare`, gained their lines by trimming others without dropping a rule. Whether closing by value works can't be measured in the eval cases, because it needs real use.
 
 ## Still open
 

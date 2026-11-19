@@ -60,7 +60,7 @@ Then check it's there, and come back to the same table when you want a newer ver
 |---|---|---|
 | Claude Code | `claude plugin list` shows `gdd@gdd`, enabled | `claude plugin marketplace update gdd`, then `claude plugin update gdd@gdd` |
 | Codex | `codex plugin list` shows `gdd@gdd`, installed and enabled | `codex plugin marketplace upgrade gdd`, then `codex plugin add gdd@gdd` |
-| Antigravity | `agy plugin list` shows `gdd`, enabled, with 7 skills | `git pull` in your clone, then `agy plugin install gdd` again |
+| Antigravity | `agy plugin list` shows `gdd`, enabled, with 8 skills | `git pull` in your clone, then `agy plugin install gdd` again |
 
 If you'd rather keep the skills inside your project, [copy them by hand](skills/README.md#1-install-the-skills).
 
@@ -131,14 +131,14 @@ The [guide to the skills](skills/README.md) goes through each step in full, with
 
 ## The five moments, and what holds each one up
 
-Those steps are the method's five moments, seen from your side. What carries each one is written down, so it doesn't rest on your agent remembering what to do: a skill it loads for that moment, the files it leaves in your repository, and the layer, which refuses what comes out of order. One moment has no skill yet, and the table says which.
+Those steps are the method's five moments, seen from your side. What carries each one is written down, so it doesn't rest on your agent remembering what to do: a skill it loads for that moment, the files it leaves in your repository, and the layer, which refuses what comes out of order.
 
 | Moment | What it's for | What holds it up |
 |---|---|---|
 | **1. Prepare.** At the start, and again when a gate is missing, isn't needed or is badly defined | It has two parts. First the blueprint: what can never happen in your product, what is delicate, which gates you need and where a person approves. Then the gates it defined get built. You build them, or your team does, with the agents and tools you use, and you try to beat them on purpose. No change starts until they hold. | `gdd-prepare` writes the blueprint and the constitution with you. `gdd-checks` sets up the standing checks and `gdd-review` tries them. It all stays in `gdd/blueprint.md`, `gdd/constitution.md` and `gdd/gates/`. |
 | **2. Brief.** On every change, before it starts | What has to be true gets written down before anyone builds: the rules the change touches, a few scenarios and a first estimate of its risk. | `gdd-brief` writes the rules, the scenarios and the color, in `features/` and `gdd/briefs/`. On red, `gdd-review` reads the brief before you approve it. `gdd-checks` writes a test for each scenario, sees it fail and seals it. The layer refuses a scenario with no rule above it, and it lets nobody build before your yes, where your blueprint asks for one. |
 | **3. Execute.** On every change | An agent builds the change and gets through the gates without touching what judges it. A reviewer that heard none of it tries to make it fail, and the risk is worked out again from what was touched. | `gdd-build` builds. The layer runs the gates from the seal, counts the limits and writes the log in `gdd/log/`. `gdd-review` reviews with a clean context. Your CI, once you set it up, checks every log and runs the gates again where no agent writes. |
-| **4. Close.** Once the change is in use | You look at whether it helped, against what you expected when you asked for it. | No skill yet: for now it's yours. `.gdd/gdd metrics` and `gdd/log/` tell you how the change went. |
+| **4. Close.** Once the change is in use | You look at whether it helped, against what its brief expected before anyone built it. The verdict is yours, or belongs to whoever your blueprint names: yes, not yet or no. | `gdd-brief` writes in the brief what is expected, the signal that will show it and where to look. The layer keeps what is in use in sight, with how long it has waited, and holds nothing up. When you ask, `gdd-close` gathers what can be seen there, proposes no verdict, and the layer records yours in `gdd/log/`. |
 | **5. Harden.** When something slips through or repeats, and when a gate stops adding anything | What slipped through becomes one more check. What no longer adds anything gets relaxed or retired. Both change the blueprint, so you approve them, or your team does. | `gdd-harden` finds which gate should have caught it and proposes the check, or reads the logs for what a gate caught and what it cost. `gdd-checks` builds the check. |
 
 Under all five there are two things more. `gdd`, the skill your agent loads on its own when you ask for a change, knows what comes next and who gets launched. And the layer, `.gdd/gdd`, keeps the order, the limits and the log, so that none of it depends on an agent's memory.
@@ -149,7 +149,7 @@ How far that holds depends on where your gates run. With the skills alone, the a
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.11, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.15. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.16. They install as a plugin on Claude Code, Codex and Antigravity.
 - [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.11: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
 

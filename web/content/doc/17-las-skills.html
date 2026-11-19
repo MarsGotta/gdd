@@ -1,7 +1,7 @@
 <h1>Las skills</h1>
-<p>Has puesto tu primera puerta a mano y funciona. El siguiente cambio lo quieres dejar entero en manos de tus agentes: que uno escriba los escenarios contigo, que otro escriba los casos, que un tercero construya y que alguien que no ha visto nada de eso lo revise. Es mucho que explicar cada vez, así que está escrito una sola vez, en siete skills.</p>
-<p>Una skill es un archivo de instrucciones que tu agente carga cuando le hace falta. Las de GDD usan lo que tu proyecto ya tiene, sus tests, su linter, su CI y git. Lo único que traen para ejecutar es <a href="#capa">la capa</a>, un comando pequeño que lleva la cuenta de cada cambio, y un par de guiones que te ofrecen al preparar y que, si los aceptas, pasan a ser de tu proyecto. Hay una de entrada, <code>gdd</code>, que reparte el trabajo, y seis más, una por papel.</p>
-<h2 id="las-siete">Las siete</h2>
+<p>Has puesto tu primera puerta a mano y funciona. El siguiente cambio lo quieres dejar entero en manos de tus agentes: que uno escriba los escenarios contigo, que otro escriba los casos, que un tercero construya y que alguien que no ha visto nada de eso lo revise. Es mucho que explicar cada vez, así que está escrito una sola vez, en ocho skills.</p>
+<p>Una skill es un archivo de instrucciones que tu agente carga cuando le hace falta. Las de GDD usan lo que tu proyecto ya tiene, sus tests, su linter, su CI y git. Lo único que traen para ejecutar es <a href="#capa">la capa</a>, un comando pequeño que lleva la cuenta de cada cambio, y un par de guiones que te ofrecen al preparar y que, si los aceptas, pasan a ser de tu proyecto. Hay una de entrada, <code>gdd</code>, que reparte el trabajo, y siete más, una por papel.</p>
+<h2 id="las-siete">Las ocho</h2>
 <table>
 <thead><tr><th>Skill</th><th>Quién la carga</th><th>Qué deja</th></tr></thead>
 <tbody>
@@ -11,26 +11,27 @@
 <tr><td><code>gdd-checks</code></td><td>Otro agente, nunca el que construye</td><td>Las comprobaciones de serie y los casos de cada cambio, vistos fallar por la razón correcta.</td></tr>
 <tr><td><code>gdd-build</code></td><td>El agente que pasa la puerta</td><td>El cambio, y los hechos que lo prueban.</td></tr>
 <tr><td><code>gdd-review</code></td><td>El vigilante, con el contexto limpio</td><td>Su veredicto, y el riesgo recalculado.</td></tr>
+<tr><td><code>gdd-close</code></td><td>El orquestador, cuando preguntas por un cambio que ya está en uso</td><td>Lo que se ve, al lado de lo que el encargo esperaba, y tu veredicto en el registro.</td></tr>
 <tr><td><code>gdd-harden</code></td><td>El orquestador, contigo, cuando algo se cuela o una puerta deja de aportar</td><td>La grieta y la comprobación que la habría cazado, o la propuesta de retirar la que sobra.</td></tr>
 </tbody>
 </table>
 <p>Quien escribe los casos, quien construye y quien revisa trabajan cada uno en un agente distinto, que empieza sin la conversación de los otros: recibe lo que dejaron escrito, no cómo llegaron a ello. Así el vigilante juzga el cambio que tiene delante, sin haber oído cómo se hizo (<a href="doc:las-piezas">Las piezas y los roles</a>).</p>
 <h2 id="instalar">Cómo se instalan</h2>
-<p>Necesitas un repositorio de git, con git 2.38 o posterior, y un agente que cargue skills. En tres de ellos, Claude Code, Codex y Antigravity, las siete entran de una vez, como un plugin que no ejecuta nada por su cuenta.</p>
+<p>Necesitas un repositorio de git, con git 2.38 o posterior, y un agente que cargue skills. En tres de ellos, Claude Code, Codex y Antigravity, las ocho entran de una vez, como un plugin que no ejecuta nada por su cuenta.</p>
 <p>En Claude Code lo escribes dentro del agente. Trae también tres subagentes, uno por cada papel que trabaja en un agente propio.</p>
 <pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
 <p>En Codex son dos pasos en la terminal: añades el repositorio de GDD como origen de plugins y lo instalas desde él.</p>
 <pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
 <p>En Antigravity clonas el repositorio e instalas el plugin desde su carpeta.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
-<p>Si prefieres tenerlas dentro de tu proyecto, copia las siete carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex.</p>
-<p>Van por la versión 0.15. Para saber si han entrado, y para actualizarlas más adelante, cada agente tiene sus comandos:</p>
+<p>Si prefieres tenerlas dentro de tu proyecto, copia las ocho carpetas cuyo nombre empieza por <code>gdd</code> del <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repositorio</a> a <code>.claude/skills/</code> en Claude Code o a <code>.agents/skills/</code> en Codex.</p>
+<p>Van por la versión 0.16. Para saber si han entrado, y para actualizarlas más adelante, cada agente tiene sus comandos:</p>
 <table>
 <thead><tr><th>Agente</th><th>Para comprobarlo</th><th>Lo que deberías ver</th><th>Para actualizarlas</th></tr></thead>
 <tbody>
 <tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, activo.</td><td><code>claude plugin marketplace update gdd</code> y después <code>claude plugin update gdd@gdd</code>.</td></tr>
 <tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, instalado y activo.</td><td><code>codex plugin marketplace upgrade gdd</code> y después <code>codex plugin add gdd@gdd</code>.</td></tr>
-<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, activo, con 7 skills.</td><td><code>git pull</code> en la carpeta que clonaste y después, otra vez, <code>agy plugin install gdd</code>.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, activo, con 8 skills.</td><td><code>git pull</code> en la carpeta que clonaste y después, otra vez, <code>agy plugin install gdd</code>.</td></tr>
 </tbody>
 </table>
 <h2 id="capa">La capa</h2>
@@ -60,5 +61,5 @@
 <p>Todo queda en archivos que puedes leer, en una carpeta <code>gdd/</code>: el plano, las puertas, el encargo de cada cambio con sus escenarios y un registro de lo que pasó, con quién aprobó qué. Esos archivos se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
 <h2 id="limites">Lo que no garantizan</h2>
 <p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. La capa hace que el orden y el registro no dependan de la memoria del agente, pero no cambia eso. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás, norma, plataforma o motor (<a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
-<p>Tampoco llegan todavía al final del recorrido. Desde la versión 0.14, encargar empieza por las reglas de lo que el cambio toca: tu agente las escribe encima de los escenarios, marca las que ha supuesto él y te las enseña para que las apruebes o las corrijas. Desde la 0.15, la capa no deja registrar un encargo con un escenario sin su regla encima, y le da a tu agente, desde lo sellado, las reglas que tiene que enseñarte antes de pedirte el sí. Lo que aún no hacen es cerrar. Se quedan en que el cambio entra, y un cambio no se cierra hasta que alguien mira si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). Mientras tanto, eso lo haces tú: al pedir el cambio dices qué esperas de él, y cuando ya está en uso vuelves a mirarlo.</p>
+<p>El recorrido sí lo hacen ya entero. Desde la versión 0.14, encargar empieza por las reglas de lo que el cambio toca: tu agente las escribe encima de los escenarios, marca las que ha supuesto él y te las enseña para que las apruebes o las corrijas. Desde la 0.15, la capa no deja registrar un encargo con un escenario sin su regla encima, y le da a tu agente, desde lo sellado, las reglas que tiene que enseñarte antes de pedirte el sí. Y desde la 0.16 llegan hasta el cierre, porque un cambio no está cerrado hasta que alguien mira si sirvió (<a href="doc:los-momentos#cerrar">Los cinco momentos</a>). El encargo dice, antes de que nadie construya, qué esperas del cambio, con qué señal se sabrá y dónde se mirará. Cuando ya está en uso, el cambio espera a la vista, con el tiempo que lleva, y no frena lo siguiente. Cuando vuelves a él, tu agente reúne lo que se ve y lo pone al lado de lo que esperabas, sin proponerte la respuesta. El veredicto es tuyo, o de quien responda del producto en tu equipo: sí, todavía no o no.</p>
 <p class="sigue">Con skills o a mano, lo delicado sigue siendo lo delicado. Qué cambia cuando lo que tocas es el cobro lo cuento en <a href="doc:un-caso-delicado">Un caso delicado</a>.</p>

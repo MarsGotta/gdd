@@ -1,7 +1,7 @@
 <h1>The skills</h1>
-<p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another writes the cases, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in seven skills.</p>
-<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones use what your project already has, its tests, its linter, its CI and git. The only things they bring that run are <a href="#capa">the layer</a>, a small command that keeps the count of every change, and a couple of scripts they offer you when preparing, which become your project's if you accept them. One is the entry skill, <code>gdd</code>, which hands out the work, and there are six more, one per role.</p>
-<h2 id="las-siete">The seven</h2>
+<p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another writes the cases, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in eight skills.</p>
+<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones use what your project already has, its tests, its linter, its CI and git. The only things they bring that run are <a href="#capa">the layer</a>, a small command that keeps the count of every change, and a couple of scripts they offer you when preparing, which become your project's if you accept them. One is the entry skill, <code>gdd</code>, which hands out the work, and there are seven more, one per role.</p>
+<h2 id="las-siete">The eight</h2>
 <table>
 <thead><tr><th>Skill</th><th>Who loads it</th><th>What it leaves</th></tr></thead>
 <tbody>
@@ -11,26 +11,27 @@
 <tr><td><code>gdd-checks</code></td><td>Another agent, never the one that builds</td><td>The standing checks and the cases of each change, each seen failing for the right reason.</td></tr>
 <tr><td><code>gdd-build</code></td><td>The agent that goes through the gate</td><td>The change, and the facts that prove it.</td></tr>
 <tr><td><code>gdd-review</code></td><td>The reviewer, with a clean context</td><td>Its verdict, and the risk worked out again.</td></tr>
+<tr><td><code>gdd-close</code></td><td>The orchestrator, when you ask about a change that is already in use</td><td>What can be seen, next to what the brief expected, and your verdict in the log.</td></tr>
 <tr><td><code>gdd-harden</code></td><td>The orchestrator, with you, when something slips through or a gate stops adding anything</td><td>The crack and the check that would have caught it, or the proposal to retire the one you don't need.</td></tr>
 </tbody>
 </table>
 <p>Whoever writes the cases, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
 <h2 id="instalar">How to install them</h2>
-<p>You need a git repository, with git 2.38 or later, and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin that runs nothing of its own.</p>
+<p>You need a git repository, with git 2.38 or later, and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the eight come in at once, as a plugin that runs nothing of its own.</p>
 <p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>
 <pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
 <p>On Codex it takes two steps in the terminal: you add the GDD repository as a source of plugins and install it from there.</p>
 <pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
 <p>On Antigravity you clone the repository and install the plugin from its folder.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
-<p>If you'd rather keep them inside your project, copy the seven folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
-<p>They're at version 0.15. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
+<p>If you'd rather keep them inside your project, copy the eight folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
+<p>They're at version 0.16. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
 <table>
 <thead><tr><th>Agent</th><th>To check</th><th>What you should see</th><th>To update them</th></tr></thead>
 <tbody>
 <tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, enabled.</td><td><code>claude plugin marketplace update gdd</code>, then <code>claude plugin update gdd@gdd</code>.</td></tr>
 <tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, installed and enabled.</td><td><code>codex plugin marketplace upgrade gdd</code>, then <code>codex plugin add gdd@gdd</code>.</td></tr>
-<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 7 skills.</td><td><code>git pull</code> in the folder you cloned, then <code>agy plugin install gdd</code> again.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 8 skills.</td><td><code>git pull</code> in the folder you cloned, then <code>agy plugin install gdd</code> again.</td></tr>
 </tbody>
 </table>
 <h2 id="capa">The layer</h2>
@@ -60,5 +61,5 @@
 <p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates, the brief of each change with its scenarios and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>
 <p>What they don't give you is a guarantee. Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. The layer keeps the order and the log from depending on the agent's memory, but it doesn't change that. With protected branches and the permissions of your platform you get a good part of the way, and your blueprint says which of the three degrees you're at, rule, platform or engine (<a href="doc:como-se-engana-una-puerta#grados">How a gate gets fooled</a>). Only an engine gives the full guarantee, and what's missing without one is in <a href="doc:el-motor">The engine</a>.</p>
-<p>They don't reach the end of the path yet, either. From version 0.14, Brief starts with the rules of what the change touches: your agent writes them above the scenarios, marks the ones it assumed itself and shows them to you to approve or correct. From version 0.15, the layer won't record a brief with a scenario that has no rule above it, and it gives your agent, from what was sealed, the rules it has to show you before asking for your yes. What they don't do yet is close. They stop when the change is in, and a change isn't closed until someone looks at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). Until then, you do that yourself: when you ask for the change you say what you expect from it, and once it's in use you come back and look.</p>
+<p>They do cover the whole path by now. From version 0.14, Brief starts with the rules of what the change touches: your agent writes them above the scenarios, marks the ones it assumed itself and shows them to you to approve or correct. From version 0.15, the layer won't record a brief with a scenario that has no rule above it, and it gives your agent, from what was sealed, the rules it has to show you before asking for your yes. And from version 0.16 they reach Close, because a change isn't closed until someone looks at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). The brief says, before anyone builds, what you expect from the change, what signal will tell and where it will be looked at. Once it's in use, the change waits in plain sight, with how long it has been there, and it doesn't hold up what comes next. When you come back to it, your agent gathers what can be seen and puts it next to what you expected, without proposing an answer. The verdict is yours, or belongs to whoever answers for the product on your team: yes, not yet or no.</p>
 <p class="sigue">With skills or by hand, what is delicate stays delicate. What changes when the thing you touch is payment, I tell in <a href="doc:un-caso-delicado">A delicate case</a>.</p>
