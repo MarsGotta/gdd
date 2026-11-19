@@ -287,7 +287,7 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !found {
         return;
     }
-    out.say("Their yes covers these lines. Give each its own line in their words and language. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
+    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
     out.lines.extend(lines);
 }
 

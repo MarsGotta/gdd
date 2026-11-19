@@ -76,6 +76,7 @@ fn next_shows_only_the_changed_rules_once_in_file_order() {
         "yes covers",
         "own line",
         "words and language",
+        "what closes it too",
         "your choice",
         "each file",
         "one question",

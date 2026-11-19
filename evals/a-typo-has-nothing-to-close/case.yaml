@@ -46,7 +46,7 @@ graders:
   - name: ships-it
     type: regex
     target: trace
-    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ship[\\"][^\n]*?[\\"]{1,8}next[\\"]{1,8}:[\\"]{1,8}(?:done|in-use)[\\"]'
+    pattern: 'is in main: wrote the ship step, line \d+'
     weight: 2
   - name: starts-no-close
     type: regex

@@ -78,7 +78,7 @@ graders:
     weight: 3
   - name: proposes-no-verdict
     type: llm
-    criteria: Does the message leave the verdict to the owner, without saying or suggesting whether the cart helped?
+    criteria: Does the message leave the verdict to the owner, giving what was expected and what is seen without saying or recommending whether the cart helped?
     weight: 3
   - name: says-the-verdict-is-the-owners
     type: llm
