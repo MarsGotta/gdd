@@ -144,10 +144,10 @@ fn a_setup_log_gets_a_fix_round_after_its_trials_stop() {
     let rv = r.report(
         id,
         "review",
-        &report_text(
-            "gdd-review",
-            "pass",
-            "pass\nCOLOR: yellow\nIt rejects a broken app and passes the real one.",
+        &r.review_pass(
+            id,
+            "yellow",
+            "It rejects a broken app and passes the real one.",
         ),
         &[],
     );
@@ -1091,11 +1091,7 @@ fn a_change_ships_its_own_log_and_not_one_still_under_way() {
     let rv = r.report(
         "g1",
         "review",
-        &report_text(
-            "gdd-review",
-            "pass",
-            "pass\nCOLOR: green\nIt shows the page.",
-        ),
+        &r.review_pass("g1", "green", "It shows the page."),
         &[],
     );
     assert_eq!(rv.code, 0, "{}", rv.out);

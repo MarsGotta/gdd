@@ -505,7 +505,7 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
     s.push("Use these results to diagnose the fix. Run the required checks on the fix.".into());
 }
 
-fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
+fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> (String, Option<String>) {
     let p = &l.state.progress;
     let mut s = vec![];
     let setup = log_kind(id) == LogKind::Setup;
@@ -528,9 +528,12 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
     } else {
         change_prompt(&mut s, &x);
     }
-    if role == "review"
-        && let Some((stamp, _)) = review_stamp(l)
-    {
+    let reviewed = if role == "review" {
+        review_stamp(l).map(|(stamp, _)| stamp)
+    } else {
+        None
+    };
+    if let Some(stamp) = &reviewed {
         s.push(format!(
             "Copy this line into your gdd-report block: reviewed: {stamp}"
         ));
@@ -585,7 +588,7 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> String {
         _ => {}
     }
     s.push("End your last message with its gdd-report block, filled in.".into());
-    s.join("\n")
+    (s.join("\n"), reviewed)
 }
 
 #[derive(Debug, Clone)]
@@ -690,13 +693,14 @@ struct Launched<'a> {
     env: &'a str,
     level: &'a str,
     model: &'a str,
+    reviewed: Option<String>,
 }
 
 /// Run the role's command, journal what was seen of it and write its step from its last message.
 fn run_role(
     ctx: &Ctx,
     l: &Loaded,
-    who: &Launched,
+    who: Launched,
     a: &LaunchArgs,
     argv: &[String],
     runs: &Path,
@@ -708,7 +712,8 @@ fn run_role(
         env,
         level,
         model,
-    } = *who;
+        reviewed,
+    } = who;
     let adapter = match &a.adapter {
         Some(n) => Adapter::by_name(n).ok_or(Fail::usage("--adapter is claude, codex or plain"))?,
         None => Adapter::of_program(&argv[0]),
@@ -801,6 +806,7 @@ fn run_role(
             .unwrap_or_else(|| "none".into())
     ));
     let ra = ReportArgs {
+        launch_reviewed: reviewed,
         model: Some(model.to_string()),
         level: Some(level.to_string()),
         seconds: Some(seen.seconds),
@@ -835,7 +841,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
-        let prompt = prompt_for(&l, id, role, &level);
+        let (prompt, reviewed) = prompt_for(&l, id, role, &level);
         let template = a
             .command
             .clone()
@@ -890,7 +896,8 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
             env: &env,
             level: &level,
             model: &model,
+            reviewed,
         };
-        run_role(ctx, &l, &who, a, &argv, &runs, out)
+        run_role(ctx, &l, who, a, &argv, &runs, out)
     })
 }

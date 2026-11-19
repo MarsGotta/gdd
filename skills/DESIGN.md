@@ -483,6 +483,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 96. **Gate clones use the project's branch refs.** The fallback clone lost the seal's local branch and interpreted the project's local main as origin/main. A team's comparison could then use a different base from the worktree. Copy both sets of refs after detaching the head. A local clone can use hardlinks, as the sandbox probe confirmed. Its git configuration is still its own.
 
+97. **A pass says what the reviewer read.** Only a pass lets a change ship. Refusing a fix can lose a finding. Refusing a pass costs one more report.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

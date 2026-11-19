@@ -29,7 +29,7 @@ fn green_ready(r: &Repo, id: &str) -> String {
     assert_eq!(b.code, 0, "{}", b.out);
     let g = r.gdd(&["gates", id]);
     assert_eq!(g.code, 0, "{}", g.out);
-    let rv = r.report(id, "review", &review_text("pass", "green", ""), &[]);
+    let rv = r.report(id, "review", &r.review_pass(id, "green", ""), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     assert_eq!(r.gdd(&["next", id]).facts["state"]["next"]["step"], "ship");
     built
@@ -920,7 +920,7 @@ fn what_the_reviewer_sent_back_is_not_judged_again_or_voided() {
     assert_eq!(r.gdd(&["answer", "y7", "yes"]).code, 0);
     assert_eq!(r.report("y7", "build", &built, &[]).code, 0);
     assert_eq!(r.gdd(&["gates", "y7"]).code, 0);
-    let pass = r.report("y7", "review", &review_text("pass", "yellow", ""), &[]);
+    let pass = r.report("y7", "review", &r.review_pass("y7", "yellow", ""), &[]);
     assert_eq!(pass.code, 0, "{}", pass.out);
     assert_eq!(
         r.gdd(&["next", "y7"]).facts["state"]["next"]["step"],

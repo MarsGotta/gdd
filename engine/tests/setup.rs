@@ -130,14 +130,24 @@ fn the_standing_checks_of_the_prepared_shop_from_start_to_ship() {
             .unwrap()
             .contains("Try the new standing checks on gdd-seal/standing-checks")
     );
-    let f = write(
-        &tmp.path().join("review.txt"),
-        &report_text(
-            "gdd-review",
-            "pass",
-            "pass\nCOLOR: yellow\nEach check rejected its bad case and passed without it.\nLATER:\n- the secret scan could be faster",
-        ),
+    let text = report_text(
+        "gdd-review",
+        "pass",
+        "pass\nCOLOR: yellow\nEach check rejected its bad case and passed without it.\nLATER:\n- the secret scan could be faster",
     );
+    let f = write(&tmp.path().join("review.txt"), &text);
+    let missing = gdd(&["report", id, "review", &f]);
+    assert_eq!(
+        missing.facts["refused"], "missing-reviewed",
+        "{}",
+        missing.out
+    );
+    let seal = checks["seal"]["commit"].as_str().unwrap();
+    assert_eq!(
+        l.reviewed(),
+        format!("{seal} (gates line 0, branch {seal})")
+    );
+    std::fs::write(&f, l.with_reviewed(&text)).unwrap();
     let rv = gdd(&["report", id, "review", &f]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     let review = rv.facts["next"].clone();
@@ -194,11 +204,7 @@ fn a_zones_own_gate_with_the_persons_review_by_pull_request() {
     let r2 = r.report(
         id,
         "review",
-        &report_text(
-            "gdd-review",
-            "pass",
-            "pass\nCOLOR: red\nThe check rejects 9.95 in src/pay.",
-        ),
+        &r.review_pass(id, "red", "The check rejects 9.95 in src/pay."),
         &[],
     );
     assert_eq!(r2.code, 0, "{}", r2.out);

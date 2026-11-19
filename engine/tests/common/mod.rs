@@ -24,6 +24,22 @@ impl Run {
     pub fn has(&self, s: &str) -> bool {
         self.out.contains(s)
     }
+
+    pub fn reviewed(&self) -> &str {
+        self.facts["prompt"]
+            .as_str()
+            .expect(&self.out)
+            .lines()
+            .find_map(|s| s.strip_prefix("Copy this line into your gdd-report block: reviewed: "))
+            .expect(&self.out)
+    }
+
+    pub fn with_reviewed(&self, text: &str) -> String {
+        text.replace(
+            "caught: none",
+            &format!("caught: none\nreviewed: {}", self.reviewed()),
+        )
+    }
 }
 
 /// Keep a command's git to the repository's own configuration: no test passes or fails because
@@ -348,6 +364,11 @@ impl Repo {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect()
+    }
+
+    pub fn review_pass(&self, id: &str, color: &str, extra: &str) -> String {
+        let launch = self.gdd(&["launch", id, "review"]);
+        launch.with_reviewed(&review_text("pass", color, extra))
     }
 }
 

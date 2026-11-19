@@ -74,7 +74,7 @@ fn a_green_change_from_brief_to_ship() {
         vec!["seal", "tests", "slow"],
         "the slow check runs last, and only because src/ui was touched"
     );
-    let rv = r.report("g1", "review", &review_text("pass", "green", ""), &[]);
+    let rv = r.report("g1", "review", &r.review_pass("g1", "green", ""), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     same_as_next(&r, "g1", &rv);
     assert_eq!(rv.facts["next"], "ship", "{}", rv.out);
@@ -139,7 +139,12 @@ fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
     assert_eq!(r.gdd(&["gates", id]).facts["next"], "review");
     let launch = r.gdd(&["launch", id, "review"]);
     let prompt = launch.facts["prompt"].as_str().unwrap();
-    let reviewed = r.report(id, "review", &review_text("pass", "green", ""), &[]);
+    let reviewed = r.report(
+        id,
+        "review",
+        &launch.with_reviewed(&review_text("pass", "green", "")),
+        &[],
+    );
     assert_eq!(reviewed.facts["next"], "ship", "{}", reviewed.out);
     let shipped = r.gdd(&["ship", id, "--merge"]);
     assert_eq!(shipped.facts["next"], "done", "{}", shipped.out);
@@ -416,7 +421,7 @@ fn a_yellow_change_waits_for_a_yes_and_goes_through_a_fix_round() {
     let rv = r.report(
         "y1",
         "review",
-        &review_text("pass", "yellow", "")
+        &r.review_pass("y1", "yellow", "")
             .replace("caught: none", "closed: f1=minor f2=intended\ncaught: none"),
         &["--closed", "f1=fixed"],
     );
@@ -1384,6 +1389,82 @@ fn a_fix_survives_formatting_of_the_reviewed_line() {
 }
 
 #[test]
+fn a_manual_pass_requires_the_reviewed_line_from_its_prompt() {
+    let r = Repo::new();
+    let head = gated_change(&r, "stamp", "");
+    let launch = r.gdd(&["launch", "stamp", "review"]);
+    let pass = review_text("pass", "yellow", "");
+    let before = r.read("gdd/log/stamp.jsonl");
+    for field in [
+        "",
+        "reviewed:",
+        "reviewed: none",
+        "reviewed: <copy the value from the prompt's reviewed: line, or omit this line if none>",
+        &format!("reviewed: {}", &head[..7]),
+    ] {
+        let text = pass.replace("caught: none", &format!("caught: none\n{field}"));
+        let refused = r.report("stamp", "review", &text, &[]);
+        assert_eq!(refused.code, 1, "{field}: {}", refused.out);
+        assert_eq!(
+            refused.facts["refused"], "missing-reviewed",
+            "{field}: {}",
+            refused.out
+        );
+        assert!(
+            refused.has(launch.reviewed()) && refused.has("gdd launch stamp review"),
+            "{}",
+            refused.out
+        );
+        assert_eq!(r.read("gdd/log/stamp.jsonl"), before);
+    }
+    r.commit_on(
+        "work/stamp",
+        None,
+        &[("src/core/app.txt", "ok later")],
+        "Later",
+    );
+    let refused = r.report("stamp", "review", &pass, &[]);
+    assert_eq!(
+        refused.facts["refused"], "missing-reviewed",
+        "{}",
+        refused.out
+    );
+    assert!(refused.has("gdd gates stamp, then gdd launch stamp review"));
+    assert_eq!(r.read("gdd/log/stamp.jsonl"), before);
+}
+
+#[test]
+fn a_manual_pass_without_a_stamp_keeps_the_previous_behavior() {
+    let r = Repo::new();
+    let head = gated_change(&r, "stamp", "");
+    r.git(&["branch", "-m", "work/stamp", "archived"]);
+    let pass = review_text("pass", "yellow", "");
+    let explicit = pass.replace("caught: none", &format!("caught: none\nreviewed: {head}"));
+    let stale = r.report("stamp", "review", &explicit, &[]);
+    assert_eq!(stale.facts["refused"], "stale-review", "{}", stale.out);
+    assert!(stale.has("current: none"));
+    let written = r.report("stamp", "review", &pass, &[]);
+    assert_eq!(written.code, 0, "{}", written.out);
+    assert_eq!(r.log_lines("stamp").last().unwrap()["verdict"], "pass");
+}
+
+#[test]
+fn a_manual_pass_accepts_the_prompt_value_or_the_commit_it_still_represents() {
+    let r = Repo::new();
+    let head = gated_change(&r, "stamp", "");
+    let before = r.read("gdd/log/stamp.jsonl");
+    let launch = r.gdd(&["launch", "stamp", "review"]);
+    for value in [launch.reviewed(), &head] {
+        r.write("gdd/log/stamp.jsonl", &before);
+        let pass = review_text("pass", "yellow", "")
+            .replace("caught: none", &format!("caught: none\nreviewed: {value}"));
+        let written = r.report("stamp", "review", &pass, &[]);
+        assert_eq!(written.facts["next"], "ship", "{}", written.out);
+        assert_eq!(r.log_lines("stamp").last().unwrap()["verdict"], "pass");
+    }
+}
+
+#[test]
 fn a_review_cannot_report_against_a_later_branch_or_gate_run() {
     let r = Repo::new();
     let gated = gated_change(&r, "snapshot", "");
@@ -1633,7 +1714,12 @@ fn later_builds_keep_the_last_known_product_choices() {
                 .unwrap()
                 .contains("Use eight entries.")
         );
-        let pass = r.report("choices", "review", &review_text("pass", "yellow", ""), &[]);
+        let pass = r.report(
+            "choices",
+            "review",
+            &r.review_pass("choices", "yellow", ""),
+            &[],
+        );
         assert_eq!(pass.facts["next"], "ship");
         let shipped = r.gdd(&["ship", "choices", "--merge"]);
         assert_eq!(
@@ -2097,7 +2183,12 @@ fn the_review_block_closes_findings_in_manual_and_run_reports() {
                 &format!("'{cmd}' exec --json -m <model>"),
             ])
         } else {
-            r.report("closed", "review", &text, &[])
+            r.report(
+                "closed",
+                "review",
+                &r.gdd(&["launch", "closed", "review"]).with_reviewed(&text),
+                &[],
+            )
         };
         assert_eq!(pass.facts["next"], "ship", "{}", pass.out);
         assert_eq!(
@@ -2448,8 +2539,13 @@ fn a_large_change_gets_its_review_and_a_size_note_without_a_waiver() {
     let note = "540 lines, above the expected 400";
     assert!(review.facts["prompt"].as_str().unwrap().contains(note));
     assert_eq!(
-        r.report(id, "review", &review_text("pass", "green", ""), &[])
-            .code,
+        r.report(
+            id,
+            "review",
+            &review.with_reviewed(&review_text("pass", "green", "")),
+            &[]
+        )
+        .code,
         0
     );
     assert!(

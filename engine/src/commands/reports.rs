@@ -14,6 +14,7 @@ pub struct ReportArgs {
     pub proofs: Option<String>,
     pub claims: Option<String>,
     pub closed: Option<String>,
+    pub launch_reviewed: Option<String>,
     pub went: Vec<(String, String)>,
 }
 
@@ -764,22 +765,42 @@ fn report_review(
         out.say(format!("fix missing citations ({missing}): end each numbered finding with | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>"));
         m.insert("uncited".into(), json!(r.uncited));
     }
-    if let Some(read) = &r.reviewed {
+    let launch_review = || {
+        if l.state.next.step == "gates" {
+            format!("gdd gates {id}, then gdd launch {id} review")
+        } else {
+            format!("gdd launch {id} review")
+        }
+    };
+    let read = if verdict == "pass" {
+        r.reviewed.as_ref().or(a.launch_reviewed.as_ref())
+    } else {
+        r.reviewed.as_ref()
+    };
+    if let Some(read) = read {
         let (current, bare_commit) = review_stamp(l).unwrap_or_else(|| ("none".into(), None));
         if !read.eq_ignore_ascii_case(&current)
             && !bare_commit.is_some_and(|head| read.eq_ignore_ascii_case(head))
         {
-            let next = if l.state.next.step == "gates" {
-                format!("gdd gates {id}, then ")
-            } else {
-                String::new()
-            };
             return Err(Fail::refuse(
                 "stale-review",
                 format!("reviewed: {read}\ncurrent: {current}"),
-                format!("{next}gdd launch {id} review"),
+                launch_review(),
             ));
         }
+    } else if verdict == "pass"
+        && let Some((current, _)) = review_stamp(l)
+    {
+        return Err(Fail::refuse(
+            "missing-reviewed",
+            format!(
+                "This pass is missing the reviewed: line with the commit the reviewer read.\ncurrent: {current}"
+            ),
+            format!(
+                "Ask the reviewer who wrote it to resend it with the line from its prompt, or run {}",
+                launch_review()
+            ),
+        ));
     }
     let head = review_head(l).map(str::to_owned);
     // What a setup log's trial judges is all it sealed, from where its seal was cut.

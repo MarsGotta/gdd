@@ -39,12 +39,7 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
     // The review step records the touched color, and the next step is back to Brief.
     r.report("c1", "build", &report_block("gdd-build", "done"), &[]);
     r.gdd(&["gates", "c1"]);
-    let rv = r.report(
-        "c1",
-        "review",
-        &format!("pass\nCOLOR: green\n{}", report_block("gdd-review", "pass")),
-        &[],
-    );
+    let rv = r.report("c1", "review", &r.review_pass("c1", "green", ""), &[]);
     assert_eq!(rv.code, 0, "{}", rv.out);
     let review = r
         .log_lines("c1")

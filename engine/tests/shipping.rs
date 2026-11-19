@@ -140,7 +140,7 @@ fn bookkeeping_and_a_local_merge() {
         r.report(
             id,
             "review",
-            &review_text("pass", "yellow", "LATER:\n- the text could be shorter\n"),
+            &r.review_pass(id, "yellow", "LATER:\n- the text could be shorter\n"),
             &[]
         )
         .code,
@@ -261,7 +261,7 @@ fn a_fresh_review_after_bookkeeping_can_run_on_the_head_it_will_judge() {
     let id = "y1";
     yellow_through_gates(&r, id);
     let pass = review_text("pass", "yellow", "");
-    let review = r.report(id, "review", &pass, &[]);
+    let review = r.report(id, "review", &r.review_pass(id, "yellow", ""), &[]);
     assert_eq!(review.code, 0, "{}", review.out);
     assert_eq!(r.gdd(&["ship", id, "--bookkeeping"]).code, 0);
     let line = review.facts["line"].to_string();
@@ -296,7 +296,11 @@ fn a_fresh_review_after_bookkeeping_can_run_on_the_head_it_will_judge() {
         launch.out
     );
     assert_ne!(gated, r.git(&["rev-parse", "work/y1"]));
-    assert_eq!(r.report(id, "review", &pass, &[]).facts["next"], "ship");
+    assert_eq!(
+        r.report(id, "review", &launch.with_reviewed(&pass), &[])
+            .facts["next"],
+        "ship"
+    );
 }
 
 #[test]
@@ -305,7 +309,7 @@ fn a_merge_of_main_that_touches_none_of_its_files_asks_for_the_gates_not_a_revie
     let id = "m1";
     yellow_through_gates(&r, id);
     assert_eq!(
-        r.report(id, "review", &review_text("pass", "yellow", ""), &[])
+        r.report(id, "review", &r.review_pass(id, "yellow", ""), &[])
             .code,
         0
     );
@@ -378,7 +382,7 @@ fn a_merge_of_main_that_touches_its_files_asks_for_a_review_again() {
     );
     r.report("m2", "build", &report_block("gdd-build", "done"), &[]);
     assert_eq!(r.gdd(&["gates", "m2"]).code, 0);
-    r.report("m2", "review", &review_text("pass", "green", ""), &[]);
+    r.report("m2", "review", &r.review_pass("m2", "green", ""), &[]);
     // Main changes the first line of the same file: it merges cleanly, and touches the change's file.
     r.write("src/ui/three.txt", "ONE\ntwo\nthree\n");
     r.commit("Another change, same file");
@@ -1113,7 +1117,7 @@ fn two_green_changes(r: &Repo) {
         );
         r.report(id, "build", &report_block("gdd-build", "done"), &[]);
         assert_eq!(r.gdd(&["gates", id]).code, 0);
-        r.report(id, "review", &review_text("pass", "green", ""), &[]);
+        r.report(id, "review", &r.review_pass(id, "green", ""), &[]);
     }
 }
 

@@ -424,6 +424,7 @@ fn main() {
                         closed: (!closed.is_empty()).then(|| closed.join(",")),
                         went: pairs(went),
                         codex_thread: None,
+                        launch_reviewed: None,
                     },
                 ),
                 Err(e) => gdd::Out::new("report").with_fail(gdd::Fail::missing(

@@ -62,7 +62,7 @@ The second line is `COLOR: <color>`, with the zones it touched, anything no zone
 
 ## Report
 
-End your last message with this block, filled in. `result` is your verdict.
+End your last message with this block, filled in. `result` is your verdict. If your prompt includes a `reviewed:` line, the layer refuses a `pass` reported by hand without its commit.
 
 ```gdd-report
 skill: gdd-review 0.14.0

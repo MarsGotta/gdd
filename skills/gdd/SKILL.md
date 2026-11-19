@@ -73,7 +73,7 @@ Start each role in a new session or subagent. Return a fix to the agent that mad
 - **What it gets** is the prompt the layer wrote, as it is, on the model it names: one launched without naming it runs on yours. If the layer can't find your environment or a model in the blueprint, stop and ask: never use another.
 - **What it never gets.** The builder never gets the log, the hidden examples, the throwaway implementation that proved a check can pass, or the conversation where its checks were made. The reviewer never gets the builder's conversation.
 - **If you can't launch agents,** give the person one line to open the session themselves, on that model, with that prompt.
-- **The report is the canary.** If the layer refuses a role's report because its `gdd-report` block is missing, the step didn't happen: launch it again, once.
+- If the layer refuses a report, open `references/fix-round.md`. Without a `gdd-report` block the step didn't happen, so launch the role again once.
 
 ## The person
 

@@ -94,6 +94,71 @@ fn a_fake_role_that_starts_and_reports() {
     );
 }
 
+fn run_review(r: &Repo, body: &str) -> Run {
+    let s = script(r, "review.sh", body);
+    r.gdd(&[
+        "launch",
+        "l1",
+        "review",
+        "--run",
+        "--command",
+        &format!("sh '{s}' <model>"),
+    ])
+}
+
+#[test]
+fn a_run_with_no_reviewed_line_checks_only_a_pass_against_its_launch() {
+    for verdict in ["pass", "fix", "stop"] {
+        let r = ready_for_review();
+        let moved = r.commit_on(
+            "later",
+            Some("work/l1"),
+            &[("src/ui/page.txt", "later")],
+            "Later",
+        );
+        let before = r.read("gdd/log/l1.jsonl");
+        let text = review_text(
+            verdict,
+            "green",
+            "f1 page is blank | request: show the page",
+        );
+        let result = run_review(
+            &r,
+            &format!("git branch -f work/l1 later || exit 1\ncat <<'END'\n{text}\nEND"),
+        );
+        if verdict == "pass" {
+            assert_eq!(result.facts["refused"], "stale-review", "{}", result.out);
+            assert!(
+                result.has(&format!("reviewed: {}\ncurrent:", result.reviewed())),
+                "{}",
+                result.out
+            );
+            assert!(
+                result.has(&format!("branch {moved})"))
+                    && result.has("gdd gates l1, then gdd launch l1 review"),
+                "{}",
+                result.out
+            );
+            assert_eq!(r.read("gdd/log/l1.jsonl"), before);
+        } else {
+            assert_eq!(result.code, 0, "{}", result.out);
+            assert_eq!(r.log_lines("l1").last().unwrap()["verdict"], verdict);
+        }
+    }
+}
+
+#[test]
+fn a_reviewers_own_commit_takes_precedence_over_the_launch() {
+    let r = ready_for_review();
+    let other = "a".repeat(40);
+    let result = run_review(
+        &r,
+        &PASS.replace("caught: none", &format!("caught: none\\nreviewed: {other}")),
+    );
+    assert_eq!(result.facts["refused"], "stale-review", "{}", result.out);
+    assert!(result.has(&format!("reviewed: {other}")));
+}
+
 #[test]
 fn a_role_that_never_writes_is_reported_as_not_started() {
     let r = ready_for_review();

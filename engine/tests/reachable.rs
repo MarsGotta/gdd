@@ -123,7 +123,15 @@ struct Roles {
 }
 
 impl Roles {
-    fn report(&mut self, r: &Repo, path: &str, state: &Value, step: &str, choices: &mut Choices) {
+    fn report(
+        &mut self,
+        r: &Repo,
+        path: &str,
+        state: &Value,
+        step: &str,
+        choices: &mut Choices,
+        launch: &Run,
+    ) {
         if self.bad_reports > 0 && (self.consecutive_refusals > 0 || choices.pick(2) == 0) {
             self.bad_reports -= 1;
             let refused = r.report("example", step, "no role output", &[]);
@@ -157,11 +165,11 @@ impl Roles {
             "review" => {
                 let verdict = ["pass", "fix", "stop"][self.send_back as usize];
                 self.send_back = 0;
-                review_text(
+                launch.with_reviewed(&review_text(
                     verdict,
                     state["color"].as_str().unwrap(),
                     "f1 example:1 The result is missing | @id:example-1",
-                )
+                ))
             }
             _ => unreachable!(),
         };
@@ -226,8 +234,9 @@ fn walk_change(path: &str, choices: &mut Choices, visited: &mut BTreeSet<String>
             "checks" | "reading" | "build" | "review" => {
                 assert!(next["blocked"].is_null());
                 assert!(command.starts_with(&format!("gdd launch example {step}")));
-                follow(&r, command);
-                roles.report(&r, path, state, step, choices);
+                let launch = r.named(command);
+                assert_eq!(launch.code, 0, "{}", launch.out);
+                roles.report(&r, path, state, step, choices, &launch);
             }
             "gates" => follow(&r, command),
             "ship" => {
