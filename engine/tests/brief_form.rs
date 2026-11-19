@@ -1,6 +1,7 @@
 //! Check the form of a brief through the public CLI and its change log.
 mod common;
 use common::*;
+use serde_json::json;
 
 const FILE: &str = "features/shape.feature";
 const LOG: &str = "gdd/log/form.jsonl";
@@ -275,5 +276,123 @@ fn the_second_brief_compares_the_scenario_with_the_original_base() {
         &reject(&r),
         "features/shape.feature:4: Scenario: One line",
         "Rule:",
+    );
+}
+
+#[test]
+fn a_doc_string_is_text_and_a_comment_leaves_the_tags_with_their_scenario() {
+    let r = Repo::new();
+    let text = "When it is ready\nExample: one line\n@all\nFeature: text";
+    seal(
+        &r,
+        FILE,
+        &format!(
+            "Feature: Output\n{RULE}\n@id:one-line\n# the smallest case\nScenario: One line\nWhen I read the output\nThen I see\n\"\"\"\n{text}\n\"\"\"\n@id:two\nScenario: Another\nWhen I read it\n"
+        ),
+    );
+    written(&r, &brief(&r));
+    seal(
+        &r,
+        FILE,
+        "Feature: Output\nBackground:\nGiven the note\n```\nRule: only text\n```\n@id:one-line\nScenario: One line\nWhen I read it\n",
+    );
+    diagnostic(
+        &reject(&r),
+        "features/shape.feature:8: Scenario: One line",
+        "Rule:",
+    );
+}
+
+#[test]
+fn an_old_scenario_changes_when_its_examples_or_a_later_step_change() {
+    let r = Repo::new();
+    let old = "Feature: Output\nScenario Outline: Width\nWhen I set <n> columns\nAnd I wait\n@wide\nExamples:\n| n | lines |\n| 80 | 1 |\n";
+    r.write(FILE, old);
+    r.commit("Existing scenario");
+    for (before, after) in [("| 80 | 1 |", "| 80 | 3 |"), ("And I wait", "And I leave")] {
+        seal(&r, FILE, &old.replace(before, after));
+        diagnostic(
+            &reject(&r),
+            "features/shape.feature:2: Scenario Outline: Width",
+            "Rule:",
+        );
+    }
+}
+
+#[test]
+fn a_file_that_is_not_utf8_is_still_read() {
+    let r = Repo::new();
+    std::fs::create_dir_all(r.path("features")).unwrap();
+    let text = b"Feature: Caf\xe9\n@id:x\nScenario: No rule\nWhen I read it\n";
+    std::fs::write(r.path(FILE), text).unwrap();
+    assert_eq!(r.gdd(&["seal", "form", FILE]).code, 0);
+    diagnostic(
+        &reject(&r),
+        "features/shape.feature:3: Scenario: No rule",
+        "Rule:",
+    );
+}
+
+#[test]
+fn a_file_the_log_already_holds_is_checked_again_only_when_it_changes() {
+    // A brief from before the layer checked its form gets one more path and keeps its seal.
+    let r = Repo::new();
+    let base = r.git(&["rev-parse", "HEAD"]);
+    let text = "Feature: Output\n@brief:form @id:old-1\nScenario: Briefed before\nWhen I read it\n";
+    let sealed = r.commit_on(
+        "gdd-seal/form",
+        Some(&base),
+        &[(FILE, text)],
+        "An older brief",
+    );
+    let blob = r.git(&["rev-parse", &format!("{sealed}:{FILE}")]);
+    let log = json!({"contract":"gdd/1","ts":"2026-01-01T00:00:00Z","brief":"form","event":"step",
+        "step":"brief","version":1,"report":{"skill":"gdd-brief","result":"green"},
+        "color":{"color":"green","base":base},"seal":sealed,"files":{FILE:blob}});
+    r.write(LOG, &format!("{log}\n"));
+    r.write(FILE, text);
+    let again = [
+        "brief",
+        "form",
+        FILE,
+        "--paths",
+        "src/ui/page.txt",
+        "src/ui/b.txt",
+    ];
+    written(&r, &r.gdd(&again));
+    seal(
+        &r,
+        FILE,
+        &text.replace("When I read it", "When I read it twice"),
+    );
+    diagnostic(
+        &reject(&r),
+        "features/shape.feature:3: Scenario: Briefed before",
+        "Rule:",
+    );
+}
+
+#[test]
+fn only_a_feature_file_and_only_its_own_headings_are_read() {
+    let r = Repo::new();
+    // A brief that quotes a scenario is not a feature file.
+    let md = "gdd/briefs/form.md";
+    r.write(md, "# Shape\n\nScenario: quoted in the brief\n");
+    // The steps under a later rule belong to no scenario, and a comment is no language header.
+    seal(
+        &r,
+        FILE,
+        &format!(
+            "Feature: Output\n# language: es\n{RULE}\n{VALID}Rule: It starts once\nBackground:\nWhen the app starts\n"
+        ),
+    );
+    let s = r.gdd(&["seal", "form", md, FILE]);
+    assert_eq!(s.code, 0, "{}", s.out);
+    let result = r.gdd(&["brief", "form", md, FILE, "--paths", "src/ui/page.txt"]);
+    written(&r, &result);
+    assert!(
+        !result.has("cannot check") && !result.has(md),
+        "{}",
+        result.out
     );
 }

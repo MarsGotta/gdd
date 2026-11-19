@@ -97,18 +97,33 @@ struct Feature<'a> {
     scenarios: Vec<Scenario<'a>>,
 }
 
+/// The rules and the scenarios of a feature file, read line by line. A scenario's block is its
+/// tags, its heading and every line under it, without indentation, blank lines or comments.
 fn feature(text: &str) -> Feature<'_> {
     let mut result = Feature::default();
     let mut current: Option<&mut Scenario> = None;
     let mut tags: Vec<&str> = Vec::new();
     let mut rule = None;
+    let mut fence = None;
     for (i, line) in text.lines().map(str::trim).enumerate() {
-        if line.is_empty() {
+        // A doc string is the text of its step: no line in it is a heading, a tag or a step.
+        let mark = ["\"\"\"", "```"].into_iter().find(|m| line.starts_with(m));
+        if fence.is_some() || mark.is_some() {
+            if fence.is_none() {
+                fence = mark;
+            } else if fence == mark {
+                fence = None;
+            }
+            if let Some(s) = current.as_mut() {
+                s.block.push(line);
+            }
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
         if line.starts_with('@') {
             tags.push(line);
-            current = None;
             continue;
         }
         let heading = line.split_once(':').map(|(key, _)| key);
@@ -145,11 +160,10 @@ fn feature(text: &str) -> Feature<'_> {
             }
             current = None;
         } else if let Some(s) = current.as_mut() {
-            let word = line.split_whitespace().next().unwrap_or("");
-            if matches!(word, "Given" | "When" | "Then" | "And" | "But") {
-                s.block.push(line);
-                s.whens += usize::from(word == "When");
-            }
+            // Steps, tables and examples, with the tags of the examples.
+            s.block.append(&mut tags);
+            s.block.push(line);
+            s.whens += usize::from(line.split_whitespace().next() == Some("When"));
         }
         tags.clear();
     }
@@ -179,8 +193,10 @@ fn changed_feature<'a>(text: &'a str, original: &str) -> Feature<'a> {
 }
 
 fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec<String>) -> R<()> {
-    let text = std::fs::read_to_string(ctx.root.join(file))
-        .map_err(|e| crate::out::io(Path::new(file), e))?;
+    // An old file can be in another encoding, and git gives the base the same way.
+    let bytes =
+        std::fs::read(ctx.root.join(file)).map_err(|e| crate::out::io(Path::new(file), e))?;
+    let text = String::from_utf8_lossy(&bytes);
     let language = text
         .lines()
         .map(str::trim)
@@ -365,8 +381,16 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 c.color
             ));
         }
+        // A file the log already holds with this content stays valid: only what is new is checked.
+        let logged = |f: &String| {
+            git::hash_object(&ctx.root, f).ok().as_ref() == l.state.progress.brief_files.get(f)
+        };
         let mut faults = Vec::new();
-        for file in a.files.iter().filter(|f| f.ends_with(".feature")) {
+        for file in a
+            .files
+            .iter()
+            .filter(|f| f.ends_with(".feature") && !logged(f))
+        {
             check_form(ctx, &base, file, out, &mut faults)?;
         }
         if !faults.is_empty() {

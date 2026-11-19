@@ -202,3 +202,29 @@ fn a_seal_written_by_hand_as_a_git_option_writes_no_file() {
         .any(|e| e.file_name().to_string_lossy().starts_with("planted"));
     assert!(!written, "git took the seal as an option and wrote a file");
 }
+
+#[test]
+fn a_comment_keeps_an_assumption_yours_and_a_doc_string_adds_no_rule() {
+    let r = Repo::new();
+    record(
+        &r,
+        "@assumed\n# nobody said how long\nRule: Wrap long lines\n@id:one\nScenario: Wrap\nWhen I read\n\"\"\"\nRule: only text\n\"\"\"\n",
+    );
+    assert_eq!(
+        approval_lines(&ok(&r, &["next", "lines"])),
+        format!("yours: Wrap long lines\nread: {FILE}")
+    );
+}
+
+#[test]
+fn an_old_rule_is_shown_when_only_the_examples_of_its_scenario_change() {
+    let r = Repo::new();
+    let old = "Rule: Keep the width\n@id:one\nScenario Outline: Width\nWhen I set <n>\nExamples:\n| n |\n| 80 |\n";
+    r.write(FILE, &format!("Feature: Lines\n{old}"));
+    r.commit("Existing rule");
+    record(&r, &old.replace("| 80 |", "| 72 |"));
+    assert_eq!(
+        approval_lines(&ok(&r, &["next", "lines"])),
+        format!("rule: Keep the width\nread: {FILE}")
+    );
+}

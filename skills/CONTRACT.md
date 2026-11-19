@@ -645,7 +645,7 @@ backlog: <item id>
 
 Read the capability's existing rules first. Write only rules the change adds or changes. Under each, place the scenarios that check it, with one `When` and concrete values. In an older file without rules, keep untouched top-level scenarios before the first rule and group only new or changed scenarios. Existing files and logs remain valid. The checks role writes one test per scenario before the build. Only scenarios carry `@brief:<id> @id:<capability>-<n>`. The layer counts the brief's front matter `scenarios` list when present and otherwise counts matching `@brief:<id>` tags in its feature files.
 
-`gdd brief` compares the scenarios in each listed English feature file with the change's base. It refuses the brief unless every new or changed scenario has a `Rule:` above it, a valid `@id:<id>` tag and exactly one `When` step. The reader judges whether each rule covers one behavior, whether the values are concrete and where `@assumed` belongs.
+`gdd brief` compares the scenarios in each listed English feature file with the change's base. It refuses the brief unless every new or changed scenario has a `Rule:` above it, a valid `@id:<id>` tag and exactly one `When` step. A file the log already holds with the same content is not checked again. The reader judges whether each rule covers one behavior, whether the values are concrete and where `@assumed` belongs.
 
 Put `@assumed` above a rule the agent chose, including an excluded limit. Approval leaves the tag in place. The tag records who chose it and the log records approval. Remove the tag in a new version only when the person corrects the rule or states it in their own words. Reserve `@question` for a question this change can leave unanswered. It has no scenarios.
 
