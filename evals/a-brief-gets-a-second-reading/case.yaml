@@ -112,7 +112,7 @@ graders:
     weight: 3
   - name: finds-the-scenarios-without-a-rule
     type: regex
-    pattern: '\bno (?:parent )?rules?[:\x60* ]+(?:above|over)\b|\b(?:without|lacks?|missing) (?:a|any|its|their) (?:parent )?rule\b|\b(?:not|never|aren[\x27’]t) (?:grouped |placed |nested )?under a rule\b|\b(?:put|place|group) (?:each|every|the(?: three)?|these) scenarios? under (?:a|its|their) rule\b'
+    pattern: '\bno (?:parent )?rules?[:\x60* ]+(?:above|over)\b|\b(?:without|lacks?|missing) (?:a|any|its|their) (?:parent )?rule\b|\b(?:not|never|aren[\x27’]t) (?:grouped |placed |nested )?under a rule\b|\b(?:put|place|group) (?:each|every|the(?: three)?|these) scenarios? under (?:a|its|their) rule\b|\b(?:none|neither) of (?:the|these|its)(?: \w+)? scenarios? ha(?:s|ve) a (?:parent )?rule\b'
     flags: i
     weight: 3
   - name: keeps-clarifications-under-missing
