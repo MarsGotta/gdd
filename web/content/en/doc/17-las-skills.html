@@ -16,7 +16,7 @@
 </table>
 <p>Whoever writes the cases, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
 <h2 id="instalar">How to install them</h2>
-<p>You need a git repository and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin that runs nothing of its own.</p>
+<p>You need a git repository, with git 2.38 or later, and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the seven come in at once, as a plugin that runs nothing of its own.</p>
 <p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>
 <pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
 <p>On Codex it takes two steps in the terminal: you add the GDD repository as a source of plugins and install it from there.</p>
@@ -24,7 +24,7 @@
 <p>On Antigravity you clone the repository and install the plugin from its folder.</p>
 <pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
 <p>If you'd rather keep them inside your project, copy the seven folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
-<p>They're at version 0.14. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
+<p>They're at version 0.15. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
 <table>
 <thead><tr><th>Agent</th><th>To check</th><th>What you should see</th><th>To update them</th></tr></thead>
 <tbody>
@@ -35,7 +35,7 @@
 </table>
 <h2 id="capa">The layer</h2>
 <p>With the skills comes <code>gdd</code>, a small command I call the layer. It keeps the order of every change, counts its limits and writes its log, so your agent doesn't keep that count from memory. If the agent tries a step out of order, the layer refuses and tells it which one is next.</p>
-<p>It comes as source, in the plugin's <code>engine/</code> folder. The first time your project needs it, your agent builds it and leaves it at <code>.gdd/gdd</code>, which git ignores. Building it takes <a href="https://rustup.rs">Rust</a> 1.89 or later: if you don't have it, your agent tells you in one line and waits. Your CI builds the same command, to check every change's log out of the agents' reach.</p>
+<p>It comes as source, in the plugin's <code>engine/</code> folder. The first time your project needs it, your agent builds it and leaves it at <code>.gdd/gdd</code>, which git ignores. Building it takes <a href="https://rustup.rs">Rust</a> 1.89 or later: if you don't have it, your agent tells you in one line and waits. The first build downloads what it depends on from crates.io, so it needs the network that once. It works on macOS and Linux; nobody has tried it on Windows yet. Your CI builds the same command, to check every change's log out of the agents' reach.</p>
 <p>You don't have to use it yourself, but two commands are worth knowing, from your project's folder:</p>
 <pre data-copiar><code data-fuente="capa-ordenes.txt"></code></pre>
 <p>The first lists every question waiting for you, oldest first, with how long it has waited. The second says how your changes went: how they ended, how long each took without the waits for you, how often the gates and the reviewer passed them the first time, and what each check costs.</p>
@@ -60,5 +60,5 @@
 <p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates, the brief of each change with its scenarios and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
 <h2 id="limites">What they don't guarantee</h2>
 <p>What they don't give you is a guarantee. Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. The layer keeps the order and the log from depending on the agent's memory, but it doesn't change that. With protected branches and the permissions of your platform you get a good part of the way, and your blueprint says which of the three degrees you're at, rule, platform or engine (<a href="doc:como-se-engana-una-puerta#grados">How a gate gets fooled</a>). Only an engine gives the full guarantee, and what's missing without one is in <a href="doc:el-motor">The engine</a>.</p>
-<p>They don't reach the end of the path yet, either. From version 0.14, Brief starts with the rules of what the change touches: your agent writes them above the scenarios, marks the ones it assumed itself and shows them to you to approve or correct. What they don't do yet is close. They stop when the change is in, and a change isn't closed until someone looks at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). Until then, you do that yourself: when you ask for the change you say what you expect from it, and once it's in use you come back and look.</p>
+<p>They don't reach the end of the path yet, either. From version 0.14, Brief starts with the rules of what the change touches: your agent writes them above the scenarios, marks the ones it assumed itself and shows them to you to approve or correct. From version 0.15, the layer won't record a brief with a scenario that has no rule above it, and it gives your agent, from what was sealed, the rules it has to show you before asking for your yes. What they don't do yet is close. They stop when the change is in, and a change isn't closed until someone looks at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). Until then, you do that yourself: when you ask for the change you say what you expect from it, and once it's in use you come back and look.</p>
 <p class="sigue">With skills or by hand, what is delicate stays delicate. What changes when the thing you touch is payment, I tell in <a href="doc:un-caso-delicado">A delicate case</a>.</p>
