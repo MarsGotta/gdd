@@ -23,7 +23,7 @@ execution:
 
         @gdd/constitution.md
   prompt: |
-    Did the discount code we shipped two weeks ago help? Have a look.
+    Did the cart we shipped help? Have a look.
 context:
   scaffold_script: scaffold.sh
 graders:

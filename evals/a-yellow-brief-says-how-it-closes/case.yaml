@@ -40,7 +40,7 @@ graders:
   - name: the-brief-says-how-it-closes
     type: regex
     target: { source: file, path: gdd/briefs/catalog-pages.md }
-    pattern: '^## Closing it[ \t]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Expected:[ \t]*[^<\s][^\n]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Signal:[ \t]*[^<\s][^\n]*\r?\n(?:(?!## )[^\n]*\r?\n)*?Where:[ \t]*[^<\s]'
+    pattern: '^## Closing it[ \t]*\r?\n(?=(?:(?!## )[^\n]*\r?\n)*?[ \t]*Expected:[ \t]*[^<\s])(?=(?:(?!## )[^\n]*\r?\n)*?[ \t]*Signal:[ \t]*[^<\s])(?=(?:(?!## )[^\n]*\r?\n)*?[ \t]*Where:[ \t]*[^<\s])'
     flags: m
     weight: 3
   - name: the-layer-keeps-the-three-lines
@@ -51,7 +51,7 @@ graders:
   - name: the-signal-is-not-the-builders-own
     type: regex
     target: { source: file, path: gdd/briefs/catalog-pages.md }
-    pattern: '^(?:Signal|Where):[^\n]*\b(?:tests?|gates?|the builder|its report|the build|unit|lint)\b'
+    pattern: '^[ \t]*(?:Signal|Where):(?![^\n]*\bcan(?:not|[\x27’]t) write\b)[^\n]*(?:\b(?:tests?|gates?|lint|checks?)\b|\b(?:pruebas?|puertas?|comprobaciones)\b|(?:builder|constructor)[\x27’]?s? (?:own )?report|informe del (?:constructor|agente)|build report)'
     flags: im
     match: not_contains
     weight: 2

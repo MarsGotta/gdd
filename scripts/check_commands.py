@@ -375,11 +375,12 @@ def layer_cases(binary):
         found = {c: [r["finding"] for r in tables["findings"] if r["change"] == c] for c in ("a", "b")}
         expect("the findings of a review don't depend on spaces", found == {"a": ["f1"], "b": ["f1"]}, str(found))
 
-        feature = "features/lines.feature"
+        feature, brief = "features/lines.feature", "gdd/briefs/lines.md"
         write(repo, feature, "Feature: Lines\n@assumed\nRule: Keep blank lines\n")
+        write(repo, brief, "# Lines\n\n## Closing it\n\nNothing to close: it keeps the text as it is\n")
         git(repo, "config", "user.name", "check")
         git(repo, "config", "user.email", "check@example.com")
-        for args in [("seal", "lines", feature), ("brief", "lines", feature, "--paths", "src/ui/b.js")]:
+        for args in [("seal", "lines", brief, feature), ("brief", "lines", brief, feature, "--paths", "src/ui/b.js")]:
             result = gdd(repo, *args)
             expect(f"the approval fixture can run {args[0]}", result.returncode == 0, result.stdout)
         ask = command("gdd-brief/SKILL.md", r'gdd ask <id> --of brief "<[^"]+>"')

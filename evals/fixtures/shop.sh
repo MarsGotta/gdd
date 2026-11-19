@@ -1058,7 +1058,7 @@ if [ "$variant" = spent ] || [ "$variant" = finished ]; then
 # of gdd-checks after the first. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
 # when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait
-# for a person, from an ask to the event after it. A tier of checks past its seconds in a run of the
+# for a person, from an ask to the event after it, and stop at the ship. A tier of checks past its seconds in a run of the
 # gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
 # layer counts the builder's lines from git. Size is a notice for review and never enters stop.
 #
@@ -1146,10 +1146,10 @@ FNR == NR {
   if (match($0, /"ts" *: *"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
     t = secs(substr($0, RSTART + RLENGTH - 19, 19))
     if (first == "") first = t
-    if (waiting) { waited += t - asked; waiting = 0 }
+    if (waiting && shipped == "") { waited += t - asked; waiting = 0 }
   }
   if ($0 ~ /"step" *: *"ship"/ && t >= 0) shipped = t
-  if ($0 ~ /"event" *: *"ask"/ && t >= 0) { asked = t; waiting = 1 }
+  if ($0 ~ /"event" *: *"ask"/ && t >= 0 && shipped == "") { asked = t; waiting = 1 }
   if ($0 ~ /"event" *: *"waiver"/ && match($0, /"limit" *: *"[a-z_]+"/)) {
     cap = substr($0, RSTART, RLENGTH); sub(/^"limit" *: *"/, "", cap); sub(/"$/, "", cap)
     if (match($0, /"to" *: *"?[0-9]+/)) { v = substr($0, RSTART, RLENGTH); sub(/^"to" *: *"?/, "", v); raised[cap] = v + 0 }

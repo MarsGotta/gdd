@@ -11,13 +11,13 @@ metadata:
 
 Getting through its gates leaves a change built. It is closed when someone has looked at whether it helped, against what its brief said before anyone built it. The agent says "it helped", and something else checks if that is true: you gather what can be seen, and the verdict is the person's, never yours. You do it yourself, as the orchestrator, in your conversation with the person.
 
-It never starts by itself. A change in use waits in sight, however long, and stops nothing: no deadline closes it, nothing cancels it, and the next request doesn't wait for it. `gdd next` lists what waits. Say it in one line of your summary, with no question, and start only when the person asks to look at one or tells you whether it helped.
+It never starts by itself. A change in use waits in sight, however long, and stops nothing: no deadline closes it, nothing cancels it, and the next request doesn't wait for it. `gdd next` and every ship list what waits. Say it in one line of your summary, with no question and no offer to look, and start only when the person asks to look at one or tells you whether it helped.
 
 In every command below, run the project's `.gdd/gdd` first. Use `gdd` on the path only if `.gdd/gdd` is unavailable and `gdd --version` names the GDD layer.
 
 ## What was expected
 
-Run `gdd close <id>`. It writes nothing. It prints the three lines the person approved with the brief (what was expected, the signal that would show it and where to look), how long the change has been in use and any earlier look. Use them as they are: never reword them into something easier to meet, and never add a signal the brief didn't name, because a signal chosen once the result is in sight gets read in its favor.
+Run `gdd close <id>`. It writes nothing. It prints the three lines the person approved with the brief (what was expected, the signal that would show it and where to look), how long the change has been in use and any earlier look. A change that promised nothing and waits, because someone looked or a hardening record names it, has nothing written to gather: ask the person, with what the layer prints. Use them as they are: never reword them into something easier to meet, and never add a signal the brief didn't name, because a signal chosen once the result is in sight gets read in its favor.
 
 ## Gathering what is seen
 
@@ -43,13 +43,13 @@ Propose no verdict and don't lean the facts toward one. This is the one question
 
 ## The verdict
 
-Only the person's own words are a verdict, or those of whoever the blueprint names. Silence, "go on", thanks or an answer about something else are not one: the change keeps waiting. If they say "you decide", tell them in one line that this one is theirs, and leave it waiting.
+Only a person's own words are a verdict: the change's author's, or those of whoever the blueprint's `closing` names. Silence, "go on", thanks or an answer about something else are not one: the change keeps waiting, and `gdd answer` doesn't take it. If they say "you decide", tell them in one line that this one is theirs, and leave it waiting.
 
-Record it at once, in their words, with the command the layer printed: `gdd close <id> --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw "<what they saw>"`.
+Record it at once, in their words, with the command the layer printed: `gdd close <id> --verdict <yes, not-yet or no> --who <person> --where <conversation, commit or pull request> --saw "<what they saw: their words, or what you showed them>"`.
 
 - **Yes.** It is closed. Nothing else to do.
 - **Not yet.** It stays in use and in sight. Don't ask again until they come back to it.
-- **No.** It is closed too, and its log is not opened again. The layer prints two ways out, and you propose the one you'd take, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if they accept it as it is. If it broke a rule or did harm: the fix is a normal change through `gdd-brief`, and a hardening proposal through `gdd-harden`, because a gate should have caught it. Add `--then <the backlog item, harden or none>` when they already said which.
+- **No.** It is closed too, and nothing more is built on it. The layer prints two ways out, and you propose the one you'd take, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if they accept it as it is. If it broke a rule or did harm: the fix is a normal change through `gdd-brief`, and a hardening proposal through `gdd-harden`, because a gate should have caught it. Add `--then <the backlog item, harden or none>` when they already said which.
 
 A verdict you recorded wrong is corrected with `gdd correct <id> --line <n> --void "<what was wrong>"`, and the change waits again.
 

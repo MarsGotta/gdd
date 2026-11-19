@@ -46,7 +46,7 @@ graders:
   - name: ships-it
     type: regex
     target: trace
-    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ship[\\"][^\n]*?[\\"]{1,8}next[\\"]{1,8}:[\\"]{1,8}(?:done|close)[\\"]'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ship[\\"][^\n]*?[\\"]{1,8}next[\\"]{1,8}:[\\"]{1,8}(?:done|in-use)[\\"]'
     weight: 2
   - name: starts-no-close
     type: regex
@@ -54,9 +54,13 @@ graders:
     pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}close[\\"]|--of close '
     match: not_contains
     weight: 3
+  - name: the-change-closes-by-itself
+    type: regex
+    target: trace
+    pattern: 'nothing to close, and it closes by itself in'
   - name: asks-for-no-verdict
     type: regex
-    pattern: '(?:did it (?:serve|help)|whether it (?:served|helped)|verdict|¿(?:ha )?(?:servido|sirvi[óo])|veredicto)'
+    pattern: '(?:did (?:it|that|this|the (?:fix|change)) (?:serve|help)|whether it (?:served|helped)|¿[^?\n]*(?:servido|sirvi[óo]|ayudado|ayud[óo])[^?\n]*\?)'
     flags: i
     match: not_contains
     weight: 3

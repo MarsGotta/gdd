@@ -45,7 +45,7 @@ graders:
   - name: reads-the-export-the-brief-named
     type: regex
     target: trace
-    pattern: '"name":"(?:Read|Bash)","input":\{[^}]*exports/carts\.csv'
+    pattern: 'carts_with_two_or_more_products|2026-11-02,40,3'
     weight: 3
   - name: records-the-question
     type: regex
@@ -60,7 +60,7 @@ graders:
     weight: 3
   - name: gives-the-figures-of-the-export
     type: regex
-    pattern: '^(?=[\s\S]*\b40\b)(?=[\s\S]*\b52\b)(?=[\s\S]*\b3\b)(?=[\s\S]*\b4\b)'
+    pattern: '^(?:(?=[\s\S]*\b3\b\D{1,15}\b40\b)(?=[\s\S]*\b4\b\D{1,15}\b52\b)|(?=[\s\S]*\b7\b\D{1,15}\b92\b))'
     weight: 2
   - name: says-where-the-figures-come-from
     type: regex
@@ -69,7 +69,7 @@ graders:
     weight: 2
   - name: gives-their-dates
     type: regex
-    pattern: '(?:2026-11-0[29]|\b[29] (?:de )?nov|\bnov(?:iembre|ember)\b|\b(?:weeks?|semanas?)\b)'
+    pattern: '(?:2026-11-0[29]|\b0?[29] (?:de )?nov|\bnov(?:iembre|ember)?\.? 0?[29]\b|\b0?[29]/11\b)'
     flags: i
   - name: ends-on-the-question-with-its-three-answers
     type: regex

@@ -109,9 +109,10 @@ It doesn't cover what the method keeps for a person, because nobody else can giv
 - approving the blueprint, and what has to pass for a change when its color asks for it;
 - a rule of their product they'd have an answer for: rounding, a limit, sequence, or how to handle a zero or empty value;
 - loosening anything: recording debt, quarantining or removing a check, lowering a color, raising a limit or going on past one;
-- what can't be undone.
+- what can't be undone;
+- whether a change in use helped, which `gdd-close` asks without proposing an answer.
 
-Ask an open product question only when you have no grounds to propose a rule. For each of these four decisions, come back once with what you propose and one question a yes answers. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
+Ask an open product question only when you have no grounds to propose a rule. For each of the first four decisions, come back once with what you propose and one question a yes answers. If your proposal loosens anything, name what it loosens, what was spent and what more buys. "Go on" answers nothing, and neither does "approved, the rest you decide". For a spent cap, use the rule above. Without that yes nothing gets looser: take the way that keeps what has to pass as it is, even when it is the long one, and tell them in a line what it will cost.
 
 Use the product question allowance in `gdd-brief` for open questions you have no grounds to answer. A proposed answer goes in an `@assumed` rule. When the person delegates or no question remains, use the usual rule in their field and state it so they can correct it: "I assumed a day in your calendar starts at local midnight." Where the blueprint asks for approval, one yes covers the rules and all your assumptions.
 

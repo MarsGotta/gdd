@@ -12,4 +12,4 @@ Unless they asked for parts, one outcome with several details is one thing: prop
 
 Without a clear yes, brief the whole request as one change. That includes a no, “you decide” or no answer. Don't ask about parts again. Never split a request on your own or split a change already under way.
 
-With their yes, each part gets its own brief and approval and goes through its gates. Splitting doesn't lower the risk. Each part takes the color of what it touches, leaves the product working and can be undone on its own. Put anything that delivers nothing yet behind a switch. Turning it on is a separate change at the risk level of what it turns on.
+With their yes, each part gets its own brief and approval and goes through its gates. The part that puts the request in use says how it closes. Each other part says `Nothing to close: a part of <the request>, which <id> closes`. Splitting doesn't lower the risk. Each part takes the color of what it touches, leaves the product working and can be undone on its own. Put anything that delivers nothing yet behind a switch. Turning it on is a separate change at the risk level of what it turns on.

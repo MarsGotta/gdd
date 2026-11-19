@@ -249,7 +249,7 @@ Each color also sets the level of the agents that work on it, light for green an
 
 - **Yes.** The change is closed.
 - **Not yet.** It stays in use and in sight, and your agent doesn't ask again until you come back to it.
-- **No.** It is closed too, and its log is not opened again. Your agent proposes one of two ways out, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if you accept it as it is. If it broke a rule or did harm: the fix is a normal change, through step 3, and a hardening proposal, through step 5, because a gate should have caught it.
+- **No.** It is closed too, and nothing more is built on it. Your agent proposes one of two ways out, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if you accept it as it is. If it broke a rule or did harm: the fix is a normal change, through step 3, and a hardening proposal, through step 5, because a gate should have caught it.
 
 What promised nothing closes by itself once the days in your blueprint's `closing` go by with nothing recorded against it, 7 in the template. If a hardening record names it before that, it waits for your verdict like the rest. Which changes promise nothing, and who gives the verdict, are in your blueprint, for you or your team to decide. A blueprint from before version 0.16 has no `closing`: there, a change that promised nothing is closed when it ships.
 

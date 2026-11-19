@@ -103,6 +103,6 @@ What a grader can't check, `evals/check_runs.py` checks after the run, on runs k
 
 ## What they cost, and how to read them
 
-With the standard model, a role case takes about half a minute and 0.10 USD a run, a red review a little more, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. A case that ends before anyone builds, such as a brief or a limit that ran out, costs about 0.15 USD, and a Prepare case about 0.50 USD, because it tries each level. The twenty requests that check when `gdd` loads cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
+With the standard model, a role case takes about half a minute and 0.10 USD a run, a red review a little more, and the green change, with its builder and its reviewer, about two minutes and 0.25 USD. A case that ends before anyone builds, such as a brief or a limit that ran out, costs about 0.15 USD, and a Prepare case about 0.50 USD, because it tries each level. The requests that check when `gdd` loads, twenty when they were measured, cost 0.10 USD on the light model, 1.31 on the standard one and 3.08 on the deep one.
 
 Run each case several times and keep the pass rate across all runs. Read the traces alongside the scores.

@@ -52,6 +52,12 @@ graders:
     pattern: '"event"\s*:\s*"close"[\s\S]*"step"\s*:\s*"(?:brief|checks|build)"'
     match: not_contains
     weight: 3
+  - name: starts-nothing-before-the-yes
+    type: regex
+    target: trace
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}(?:backlog|brief|seal)[\\"]'
+    match: not_contains
+    weight: 3
   - name: builds-nothing
     type: tool_used
     tool: Agent

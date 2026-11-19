@@ -13,7 +13,7 @@
 # of gdd-checks after the first. Rounds, minutes, tokens and the runs of the checks that run
 # before the review have no room left when what was used reaches the cap; the checks and the review,
 # when the times they sent the change back pass fix_rounds_per_gate. Minutes leave out every wait
-# for a person, from an ask to the event after it. A tier of checks past its seconds in a run of the
+# for a person, from an ask to the event after it, and stop at the ship. A tier of checks past its seconds in a run of the
 # gates stops nothing: it counts as it came out, and goes to the backlog for hardening. The
 # layer counts the builder's lines from git. Size is a notice for review and never enters stop.
 #

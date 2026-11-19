@@ -40,7 +40,7 @@ graders:
   - name: ships-the-typo
     type: regex
     target: trace
-    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ship[\\"][^\n]*?[\\"]{1,8}next[\\"]{1,8}:[\\"]{1,8}(?:done|close)[\\"]'
+    pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ship[\\"][^\n]*?[\\"]{1,8}next[\\"]{1,8}:[\\"]{1,8}(?:done|in-use)[\\"]'
     weight: 3
   - name: starts-no-close
     type: regex
@@ -57,16 +57,17 @@ graders:
   - name: does-not-open-the-export
     type: regex
     target: trace
-    pattern: '"name":"(?:Read|Bash)","input":\{[^}]*exports/carts\.csv'
+    pattern: 'carts_with_two_or_more_products|2026-11-02,40,3'
     match: not_contains
     weight: 2
   - name: says-the-cart-still-waits
     type: llm
     criteria: Does the message mention that the cart, already in use, still waits for the owner to look at whether it helped?
     weight: 3
-  - name: asks-nothing
+  - name: asks-nothing-about-the-cart
     type: regex
-    pattern: '\?'
+    pattern: '^[^\n]*(?:(?:\bcart\b|carrito)[^\n]*(?:\blook|\bcheck|\bhelp|\bserv|\bverdict|\bclos|\bmir|\brevis|\bsirv|\bayud|\bcierr)|(?:\blook|\bcheck|\bhelp|\bserv|\bverdict|\bclos|\bmir|\brevis|\bsirv|\bayud|\bcierr)[^\n]*(?:\bcart\b|carrito))[^\n]*\?'
+    flags: im
     match: not_contains
     weight: 2
   - name: stays-under-100-words

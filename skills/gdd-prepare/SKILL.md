@@ -23,7 +23,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 - **Research** before you propose, in a new project or when the person leaves it to you: open `references/research.md` and look up what is usual in the sector.
 - **Open each reference by itself:** several in one command come back cut.
 - **Ask which models do the work:** propose one for each level, from what each of the person's environments offers, and try each before it counts, as `references/levels.md` says.
-- **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change passes what it skipped afterwards.
+- **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
 - **Ask what the gates may cost them:** how long they'd wait for a change, and how often they'd stop to approve something. The first sets the `limits`, the second which colors carry an approval. If they leave it to you, keep the template's.
 
 ## What's already there
