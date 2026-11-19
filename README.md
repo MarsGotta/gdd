@@ -1,8 +1,14 @@
 # Gate-Driven Development
 
-Add gates to your project and automate with AI agents without losing quality.
+[![Checks](https://github.com/MarsGotta/gdd/actions/workflows/checks.yml/badge.svg)](https://github.com/MarsGotta/gdd/actions/workflows/checks.yml)
+[![Version](https://img.shields.io/github/v/tag/MarsGotta/gdd?sort=semver&label=version)](https://github.com/MarsGotta/gdd/tags)
+[![License](https://img.shields.io/badge/license-MIT%20and%20CC%20BY%204.0-blue)](#license)
+
+**Add gates to your project and automate with AI agents without losing quality.**
 
 Your agent says "done." The gate checks if it's true.
+
+**[Documentation](https://gate-driven.dev/en/docs/)** · **[Manifesto](https://gate-driven.dev/en/manifesto/)** · **[Guide to the skills](skills/README.md)** · **[En español](https://gate-driven.dev/documentacion/)**
 
 You ask your agent for something, it works for a while and tells you it's done. You try it, and it isn't. GDD is the method I use so that the agent's word doesn't open anything: before it starts, you decide what it has to prove, and checks it can't touch decide whether it did.
 
@@ -23,9 +29,47 @@ flowchart LR
     class Z room
 ```
 
+## Why GDD
+
+Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself.
+
+- **What has to pass is written before anyone builds.** Your agent writes the rules of the change in plain words, with a few scenarios under each one, and where your blueprint asks for it you approve them before there is any code.
+- **Whoever builds doesn't judge.** Another agent turns each scenario into a test and seals it. The builder works without that conversation, and a reviewer that heard none of it runs the change and tries to make it fail.
+- **You're asked where the risk is.** When you set GDD up, what is delicate in your project gets a color, green, yellow or red, and the color of what a change touches decides how much of it reaches you.
+- **The bookkeeping isn't in any agent's memory.** A small command, the layer, keeps the order of every change, counts its limits, writes its log and refuses what comes out of order. Your CI, once you set it up, checks every log where no agent writes.
+- **It runs on what your project already has.** Your tests, your linter, your CI and git. There's nothing to sign up for.
+- **Gates grow and shrink.** What slips through becomes one more check, and a gate that stops adding anything gets relaxed or retired.
+
+## Quick start
+
+1. [Install the plugin](#install) for your agent.
+2. Open your agent in your project's folder, on its deepest model, and say:
+
+   ```
+   Set GDD up in this project
+   ```
+
+   If the project is new, add what you're going to build. Your agent proposes what is delicate in your project (the zones, each with its color), what every change has to prove (the gates) and which model does each kind of work, in `gdd/blueprint.md`. Read it, you or your team, and say yes or what to change. Then it sets up the checks your blueprint names and tries to beat each one on purpose. Nothing gets built before that.
+
+3. Ask for changes in your own words:
+
+   ```
+   Add a filter by size to the catalog
+   ```
+
+4. When something gets past every gate, say what it was:
+
+   ```
+   The size filter is lost on page 2, and no check caught it
+   ```
+
+   Fixing it is a change like any other. Your agent also finds which gate should have caught it and proposes the check that would have. Once you approve it, every change in that zone passes it.
+
+You never call a skill by name: in a project with a blueprint, your agent loads `gdd` on its own when you ask for a change. Where it needs you it asks one thing at a time, with what it would do, so that a yes is enough.
+
 ## Install
 
-What you need:
+**What you need:**
 
 - **A git repository,** with git 2.38 or later.
 - **An agent that loads skills:** Claude Code, Codex or Antigravity.
@@ -64,33 +108,11 @@ Then check it's there, and come back to the same table when you want a newer ver
 
 If you'd rather keep the skills inside your project, [copy them by hand](skills/README.md#1-install-the-skills).
 
-**The layer.** The plugin also brings `gdd`, a small command that keeps the order of every change, counts its limits and writes its log, so your agent doesn't keep that bookkeeping from memory. It comes as source, in the plugin's `engine/` folder, and the first time your project needs it your agent builds it and leaves it at `.gdd/gdd`, which git ignores. Building it takes [Rust](https://rustup.rs) 1.89 or later: if you don't have it, your agent tells you in one line and waits. Your CI builds the same command, to check every change's log out of the agents' reach.
+**The layer.** The plugin also brings `gdd`, a small command that keeps the order of every change, counts its limits and writes its log, so your agent doesn't keep that bookkeeping from memory. It comes as source, in the plugin's `engine/` folder, and the first time your project needs it your agent builds it and leaves it at `.gdd/gdd`, which git ignores. If you don't have Rust, your agent tells you in one line and waits. Your CI builds the same command, to check every change's log out of the agents' reach.
 
-## Use it, step by step
+## What a change looks like
 
-Open your agent in your project's folder. From here on you ask for things in your own words, and where your agent needs you it asks one thing at a time, with what it would do, so that a yes is enough. Two commands are worth knowing, and they're in step 5.
-
-### 1. Set it up, once
-
-```
-Set GDD up in this project
-```
-
-Use your agent's deepest model for this step. If the project is new, add in the same message what you're going to build.
-
-Your agent looks at what's there and proposes what is delicate in your project (the zones, each with a color: green, yellow or red), what every change has to prove (the gates) and which model does each kind of work. It writes all of it in `gdd/blueprint.md` and a few files next to it, and then it stops and asks you, or your team, to read them and approve. Answer yes, or say what to change. Nothing gets built before that.
-
-### 2. Let it set up the checks
-
-You don't ask for this one. Before your first change, your agent sets up the checks your blueprint names, usually your tests, your linter and a scan that keeps secrets out of the repository. Then it tries each one on purpose, to see it reject something done wrong. No change starts until they hold. If your project has no code yet, that is only the scan for secrets and the check that nothing that judges was touched: the others start with the first change that brings them something to judge.
-
-### 3. Ask for a change
-
-```
-Add a filter by size to the catalog
-```
-
-One agent writes down what it has to do, another builds the checks, a third builds it, and a reviewer that heard none of it tries to make it fail. How much of that you see depends on the color of what the change touches. Where a person approves is your decision when you set GDD up, and this is how the skills propose it:
+Every change gets the color of the most delicate thing it touches, and the color decides what you do. Where a person approves is your decision when you set GDD up, and this is how the skills propose it:
 
 | The change touches | For example | What you do |
 |---|---|---|
@@ -98,40 +120,71 @@ One agent writes down what it has to do, another builds the checks, a third buil
 | Something yellow | A filter in the catalog | You approve what it has to do, in a short message, before anyone builds |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
-### 4. Answer when it asks
+**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words: each new or changed rule on its own line, its own assumptions marked as its own, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
 
-- **It wants your approval of what a change has to do,** where your blueprint asks for it. In under 150 words the agent gives each new or changed rule its own line, marks its assumptions and names the files in `features/` where you can read the cases. Say yes or correct a rule.
-- **It found a decision nobody has made.** Answer it, or tell it to decide. It then decides how the work gets done and stops asking about that, and a rule of your product it takes from what is usual in your sector and tells you as an assumption. What loosens a check or can't be undone stays with you.
-- **Something stopped the change.** A check that fails, a limit that ran out. It tells you what happened and the one way out it would take. The guide has [every case](skills/README.md#when-it-stops).
+> You'll see only the products that come in the size you pick.
+>
+> I assumed sizes are listed from small to large, not in alphabetical order.
+>
+> We'll know it helped if fewer people leave the catalog without opening a product, in the shop's visit records.
+>
+> You can read the cases in `features/catalog.feature`. Shall I go ahead with these rules?
 
-### 5. Read what happened
+Say yes, or correct a rule. The file holds the same rules, each with the scenarios that will become its tests:
 
-When a change is in, you get what changed in your product and one line per gate, passed or failed. The whole trail stays in `gdd/log/`, one event per line, with who approved what.
+```gherkin
+Feature: Catalog
 
-Two commands read it for you, from your project's folder:
+  Rule: Picking a size shows only the products that come in it
 
+    @brief:size-filter @id:catalog-4
+    Scenario: A jacket only in L is hidden when you pick M
+      Given a T-shirt in sizes S and M, and a jacket only in L
+      When the customer picks size M
+      Then the T-shirt is listed and the jacket is not
+
+  @assumed
+  Rule: Sizes are listed from small to large
+
+    @brief:size-filter @id:catalog-5
+    Scenario: The size list follows the size chart
+      Given products in sizes L, S and M
+      When the customer opens the size filter
+      Then the sizes read S, M, L
 ```
-.gdd/gdd waiting
-.gdd/gdd metrics --all --summary
+
+Each scenario sits under its rule, has an `@id` and takes one action, and the layer refuses a brief whose new scenarios don't.
+
+**What you hear.** When the change is in, you get what changed in your product and one line per gate, passed or failed. In your agent's own words it could look like this:
+
+```text
+brief     yellow: it touches catalog/. Two rules, one of them assumed
+checks    sealed, each one seen failing first
+seal      passed
+tests     failed, round 1: the jacket still listed under M
+tests     passed, round 2
+lint      passed
+review    pass, yellow
 ```
 
-The first lists every question waiting for you, oldest first, and how long it has waited. The second says how your changes went: how they ended, how long each took without the waits for you, how often the gates and the reviewer passed them the first time, what each check costs and what the agents spent.
+**What waits.** Once it's in use, a change that promised you something waits in sight, however long, until you say whether it helped: yes, not yet or no. It holds nothing up, and your agent only mentions it in a line. When you ask, it looks where the brief said and brings you what it sees, without deciding for you.
 
-### 6. Harden
+**What stays.** The whole trail stays in your repository, next to your code:
 
+```text
+gdd/blueprint.md                 your zones, their colors and their gates, as you approved them
+features/<capability>.feature    the rules of your product and their scenarios
+gdd/briefs/<id>.md               what had to pass for each change, on yellow and red
+gdd/log/<id>.jsonl               everything that happened, one event per line, with who approved what
 ```
-The size filter is lost on page 2, and no check caught it
-```
 
-Fixing it is a change like any other, through step 3. Hardening is the other half: your agent finds which gate should have caught it and proposes the check that would have. You approve it, and from then on every change in that zone passes it.
+**When it needs you.** Besides an approval, your agent comes to you with a decision nobody has made, or with something that stopped the change, such as a check that keeps failing or a limit that ran out. Answer, or tell it to decide: it then decides how the work gets done, and any rule of your product it takes from what is usual in your sector, it tells you as an assumption. What loosens a check or can't be undone stays with you. The guide has [every case](skills/README.md#when-it-stops).
 
-It goes the other way too. When a gate stops adding anything, say which one, and your agent reads the logs for what it caught and what it cost, and proposes relaxing or retiring it.
-
-The [guide to the skills](skills/README.md) goes through each step in full, with what happens inside and the files you end up with.
+Two commands read the trail for you, from your project's folder. `.gdd/gdd waiting` lists every question waiting for you, oldest first. `.gdd/gdd metrics --all --summary` says how your changes went: how they ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, and what each check and each agent cost.
 
 ## The five moments, and what holds each one up
 
-Those steps are the method's five moments, seen from your side. What carries each one is written down, so it doesn't rest on your agent remembering what to do: a skill it loads for that moment, the files it leaves in your repository, and the layer, which refuses what comes out of order.
+Underneath, every change goes through the method's five moments. What carries each one is written down, so it doesn't rest on your agent remembering what to do: a skill it loads for that moment, the files it leaves in your repository, and the layer, which refuses what comes out of order.
 
 | Moment | What it's for | What holds it up |
 |---|---|---|
@@ -145,15 +198,34 @@ Under all five there are two things more. `gdd`, the skill your agent loads on i
 
 How far that holds depends on where your gates run. With the skills alone, the agent not touching what judges it is a rule it is told and then checked on. With protected branches and your CI, your platform enforces it. The guide says [what the skills don't guarantee](skills/README.md#what-they-dont-guarantee).
 
+## Status
+
+- **Version 0.16, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
+- **Each of the five moments has a skill.** Close waits for your verdict once a change is in use, and holds nothing up.
+- **The engine that enforces the method,** [T-minus](https://github.com/MarsGotta/t-minus), has its own repository and is still in development.
+
+## Documentation
+
+| If you want to | Read |
+|---|---|
+| Understand the idea, told as an escape room | [The idea](https://gate-driven.dev/en/docs/the-idea/) |
+| Follow four changes to an online shop, with nothing to install | [Hands on](https://gate-driven.dev/en/docs/hands-on/) |
+| Start with what you already have: CI, tests, `CODEOWNERS` | [Start today](https://gate-driven.dev/en/docs/start-today/) |
+| See when each thing happens | [The five moments](https://gate-driven.dev/en/docs/the-moments/) |
+| Learn how a gate gets fooled, and what stops it | [How a gate gets fooled](https://gate-driven.dev/en/docs/how-a-gate-gets-fooled/) |
+| Compare it with TDD | [What about TDD?](https://gate-driven.dev/en/docs/and-tdd/) |
+| Go through every step of the skills, and what happens inside | [The guide to the skills](skills/README.md) |
+| Look up the files the skills leave, and their templates | [CONTRACT.md](skills/CONTRACT.md) |
+| Know why the skills are the way they are | [DESIGN.md](skills/DESIGN.md) |
+| Read the reference for everything else | [The Manifesto](https://gate-driven.dev/en/manifesto/), version 0.11 |
+
 ## What's in this repository
 
 - [`manifesto/`](manifesto/): the Manifesto, version 0.11, in English and Spanish. If anything else contradicts it, the Manifesto wins.
 - [`web/`](web/): the source of [gate-driven.dev](https://gate-driven.dev), where the whole method is explained in both languages.
-- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. This is version 0.16. They install as a plugin on Claude Code, Codex and Antigravity.
+- [`skills/`](skills/): skills for your coding agent, so you can apply GDD in your own project without an engine. They install as a plugin on Claude Code, Codex and Antigravity.
 - [`engine/`](engine/): the layer, `gdd`, which the skills need from version 0.11: it keeps the order, the accounting and the evidence of every change, and the agents keep the judgment. It isn't an engine in the method's sense: while an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.
 - [`evals/`](evals/): scenarios that check, with a real model, how an agent behaves with those skills.
-
-The engine that enforces the method is [T-minus](https://github.com/MarsGotta/t-minus). It has its own repository and it's still in development.
 
 ## License
 
