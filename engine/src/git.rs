@@ -227,9 +227,11 @@ pub fn changed_by(root: &Path, commit: &str) -> Result<Vec<String>, String> {
     diff_names(root, &format!("{commit}^1"), commit)
 }
 
+/// The text of a path at a commit, or `None`. The commit can come from a log someone wrote by
+/// hand: it goes after `--end-of-options`, so one that starts with a dash is never an option.
 pub fn show(root: &Path, commit: &str, path: &str) -> Option<String> {
     let spec = format!("{commit}:{path}");
-    let o = run(root, &["show", &spec]).ok()?;
+    let o = run(root, &["show", "--end-of-options", &spec]).ok()?;
     o.status
         .success()
         .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
@@ -238,7 +240,7 @@ pub fn show(root: &Path, commit: &str, path: &str) -> Option<String> {
 /// The bytes of a path at a commit, or `None`.
 pub fn blob_bytes(root: &Path, commit: &str, path: &str) -> Option<Vec<u8>> {
     let spec = format!("{commit}:{path}");
-    let o = run(root, &["cat-file", "blob", &spec]).ok()?;
+    let o = run(root, &["cat-file", "blob", "--end-of-options", &spec]).ok()?;
     o.status.success().then_some(o.stdout)
 }
 

@@ -183,3 +183,22 @@ fn approval_needs_both_a_seal_and_a_feature_to_print_any_lines() {
         }
     }
 }
+
+#[test]
+fn a_seal_written_by_hand_as_a_git_option_writes_no_file() {
+    let r = Repo::new();
+    record(&r, RULES);
+    let mut brief = r.log_lines("lines").pop().unwrap();
+    let planted = r.path("planted");
+    brief["seal"] = json!(format!("--output={}", planted.display()));
+    brief["files"] = json!({"x.feature": brief["files"][FILE]});
+    r.write(LOG, &format!("{brief}\n"));
+
+    let next = r.gdd(&["next", "lines"]);
+    assert_eq!(approval_lines(&next), "", "{}", next.out);
+    let written = std::fs::read_dir(&r.root)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .any(|e| e.file_name().to_string_lossy().starts_with("planted"));
+    assert!(!written, "git took the seal as an option and wrote a file");
+}
