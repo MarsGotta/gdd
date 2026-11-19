@@ -40,7 +40,7 @@ graders:
   - name: a-scenario-looks-at-the-stock
     type: regex
     target: trace
-    pattern: '(?:Scenario|Escenario):(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\b(?:pay(?:s|ing|ment)?|paid|charg(?:e[ds]?|ing)|pag(?:a|o|ado))\b(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*(?:Then|And|Entonces|Y)\s+(?=[^"\\\n]*\b(?:catalog\w*|catálogo|cart|carrito|buyer|customer|cliente|comprador))[^"\\\n]*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b'
+    pattern: '(?:Scenario|Escenario):(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\b(?:pay(?:s|ing|ment)?|paid|charg(?:e[ds]?|ing)|pag(?:a|o|ado))\b(?:(?!\\n[ \t]*(?:Rule:|Scenario:|Escenario:|@)|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*(?:Then|And|Entonces|Y)\s+(?=(?:[^"\\\n]|\\[^n\n])*\b(?:catalog\w*|catálogo|(?:another|other|second|next) (?:buyer|customer|shopper|cart)|(?:otr[oa]|segund[oa]|siguiente) (?:cliente|comprador\w*|carrito)))(?:[^"\\\n]|\\[^n\n])*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b'
     flags: i
     weight: 3
   - name: puts-the-sealed-files-before-the-paths
@@ -59,7 +59,7 @@ graders:
       (?:[^"\\\n]|\\[^n\n])*)*(?:\\n[ \t]*)+(?:When|Cuando)
       (?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:Then|Entonces|And|Y|But|Pero)
       (?:[^"\\\n]|\\[^n\n])*)*(?:\\n[ \t]*)+(?:Then|Entonces|And|Y)
-      (?=[^"\\]*\b(?:catalog\w*|catálogo|cart|carrito|buyer|customer|cliente|comprador)\b)(?=[^"\\]*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b)[^"\\]*\b(?:\d+|one|two|three|no|zero|none|uno|una|dos|tres|cero)\b(?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:And|Y|But|Pero)
+      (?=(?:[^"\\\n]|\\[^n\n])*\b(?:catalog\w*|catálogo|(?:another|other|second|next) (?:buyer|customer|shopper|cart)|(?:otr[oa]|segund[oa]|siguiente) (?:cliente|comprador\w*|carrito))\b)(?=(?:[^"\\\n]|\\[^n\n])*\b(?:stock|inventar\w*|existencias|left|remaining|available|fewer|disponibles?|quedan?)\b)(?:[^"\\\n]|\\[^n\n])*\b(?:\d+|one|two|three|no|zero|none|uno|una|dos|tres|cero)\b(?:[^"\\\n]|\\[^n\n])*(?:(?:\\n[ \t]*)+(?:And|Y|But|Pero)
       (?:[^"\\\n]|\\[^n\n])*)*(?=(?:\\n[ \t]*)*(?:@|Rule:|Scenario:|Escenario:|[\w-]+(?=\\n|")|(?<!\\)"))
     flags: i
     weight: 3
@@ -80,13 +80,37 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: proposes-the-shop-rule-in-the-approval
+  - name: asks-to-approve-the-brief
     type: llm
-    criteria: The person gets one brief approval question. It gives each new or changed rule in a line and identifies each assumption the agent made, including when payment takes an item out of stock. It points to the feature files and states any question left for later. One yes covers the change.
+    criteria: Would answering yes approve what the change will do before building begins?
+    weight: 3
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 3
+  - name: names-the-feature-file
+    type: regex
+    pattern: '\bfeatures/[\w./-]+\.feature\b'
+    weight: 3
+  - name: gives-each-rule-its-own-line
+    type: llm
+    criteria: Does each new or changed payment rule occupy its own line in the approval message?
+    weight: 3
+  - name: marks-its-assumptions
+    type: llm
+    criteria: Does the agent identify its own choices as assumptions?
+    weight: 3
+  - name: proposes-stock-timing
+    type: llm
+    criteria: Does the owner learn when the agent proposes that payment take an item out of stock?
+    weight: 3
+  - name: states-outstanding-questions
+    type: llm
+    criteria: Are any unresolved product questions identified for later decision?
     weight: 3
   - name: tells-what-it-wont-do-as-a-consequence
     type: llm
-    criteria: The answer explains when payment changes what is available to another buyer, or describes an owner-visible consequence of a separate limit, such as the lack of an order history. Saying only that two buyers could still pay for the last item does not settle the stock rule.
+    criteria: Does each stated limit explain a consequence the owner or customer will notice? Leaving two buyers able to pay for the last unit does not settle the stock rule.
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -100,3 +124,12 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: stays-under-150-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){149}\S'
+    match: not_contains
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

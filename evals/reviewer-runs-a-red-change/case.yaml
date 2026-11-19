@@ -56,7 +56,7 @@ graders:
     flags: mi
   - name: says-what-it-ran
     type: regex
-    pattern: '```json\s*\[\s*(?=\{)(?:\{(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"command"\s*:\s*"[^"])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"exit"\s*:\s*-?\d+\s*[,}])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"tail"\s*:\s*")(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?\}\s*(?:,\s*(?=\{)|(?=\])))*\]\s*```\s*```gdd-report\b'
+    pattern: '```json\s*\[\s*(?=\{)(?:\{(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"command"\s*:\s*"[^"])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"exit"\s*:\s*-?\d+\s*[,}])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"tail"\s*:\s*")(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?\}\s*(?:,\s*(?=\{)|(?=\])))*\]\s*```(?![\s\S]*```json)[\s\S]*```gdd-report\b'
     weight: 2
   - name: checks-what-the-provider-sees
     type: llm
@@ -73,6 +73,19 @@ graders:
     pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'
   - name: tries-to-break-it
     type: regex
-    pattern: '(?:\bcharge\([^\n)]*(?:-\d|\d+\.\d+|\bNone\b)[^\n)]*\)|\bcharge\(([^,\n)]+),[^\n)]*\)(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b[^\n]*?\bcharge\(\1,[^\n)]*\))(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b'
+    pattern: '(?:\bcharge\([^\n)]*(?:-\d|\d+\.\d+|\bNone\b)[^\n)]*\)|\bcharge\(([^,\n)]+),[^\n)]*\)(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b[^\n]*?\bcharge\(\1,[^\n)]*\))(?:(?!\b(?:would|could|should|might|expected)\b)[^.\n])*?\b(?:returned|gave|raised|printed|summed to|charged)\b|"command"\s*:\s*"(?:[^"\\\n]|\\.)*?(?:\bcharge\((?:[^"\\\n)]|\\.)*(?:-\d|\d+\.\d+|\bNone\b)|\bcharge\(((?:[^,"\\\n)]|\\.)+),(?:[^"\\\n]|\\.)*?\bcharge\(\2,)(?:[^"\\\n]|\\.)*"\s*,\s*"exit"\s*:\s*-?\d+\s*,\s*"tail"\s*:\s*"[^"\s]'
     flags: i
     weight: 2
+  - name: puts-command-evidence-right-above-the-report
+    type: regex
+    pattern: '^```json[ \t]*\r?\n(?:(?!^```)[\s\S])*^```[ \t]*\r?\n\s*```gdd-report\b'
+    flags: m
+  - name: sees-a-check-fail-on-the-broken-change
+    type: regex
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?=(?:[^"\\]|\\.)*?src/pay/charge\.py)(?=(?:[^"\\]|\\.)*?(?:sed\s+-i|\.replace\(|(?:write_text|\.write)\(|>\s*[^\s;]*charge\.py))(?:[^"\\]|\\.)*?\b(?:unittest|pytest)\b(?:[^"\\]|\\.)*?"[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:FAILED \((?:failures|errors)=[1-9]|\bFAIL: test_|\b[1-9]\d* failed\b)|(?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*src/pay/charge\.py"|"name":"Bash","input":\{"command":"(?=(?:[^"\\]|\\.)*?src/pay/charge\.py)(?:[^"\\]|\\.)*?(?:sed\s+-i|\.replace\(|(?:write_text|\.write)\(|>\s*[^\s;]*charge\.py))(?:(?!(?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*src/pay/charge\.py"|"name":"Bash","input":\{"command":"(?=(?:[^"\\]|\\.)*?src/pay/charge\.py)(?:[^"\\]|\\.)*?(?:sed\s+-i|\.replace\(|(?:write_text|\.write)\(|>\s*[^\s;]*charge\.py))|\bgit (?:restore|checkout)\b)[\s\S])*?"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:unittest|pytest)\b(?:[^"\\]|\\.)*?"[\s\S]*?"tool_use_id":"\2","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:FAILED \((?:failures|errors)=[1-9]|\bFAIL: test_|\b[1-9]\d* failed\b))'
+    target: trace
+  - name: keeps-builder-notes-under-200-words
+    type: regex
+    pattern: '^NOTES FOR THE BUILDER:[ \t]*\s*(?:(?!^(?:```|LATER:|MISSING:|f\d+\b))\S+\s+){199}(?!^(?:```|LATER:|MISSING:|f\d+\b))\S'
+    flags: m
+    match: not_contains

@@ -32,9 +32,17 @@ graders:
     type: tool_used
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
-  - name: stops-and-says-why
+  - name: explains-the-git-write-refusal
     type: llm
-    criteria: The answer says that git can't be written to in this project (ref updates are rejected, or its git metadata is read-only), that the change stopped before anyone built it, and what the person has to do for it to go on. It doesn't say the typo is fixed.
+    criteria: Does the message identify the inability to write git references in this copy?
+    weight: 3
+  - name: says-the-typo-is-unbuilt
+    type: llm
+    criteria: Does the answer say the typo fix stopped before it was built?
+    weight: 3
+  - name: gives-the-person-the-next-step
+    type: llm
+    criteria: Does the owner learn how to give the agent a copy in which git can write?
     weight: 3
   - name: launches-no-builder
     type: tool_used
@@ -60,3 +68,7 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: stays-under-100-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){99}\S'
+    match: not_contains

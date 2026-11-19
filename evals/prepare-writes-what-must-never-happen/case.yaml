@@ -74,10 +74,10 @@ graders:
     target: trace
     pattern: >-
       (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:\\n[ \t]*)+Feature:
-      (?:[^"\\\n]|\\(?!n).)*(?:(?:\\n[ \t]*)+Rule:
+      (?:[^"\\\n]|\\(?!n).)*(?:(?:\\n[ \t]*)+#[^\n"\\]*(?:\\(?!n)[^\n"\\]*)*)*(?:(?:\\n[ \t]*)+Rule:
       (?=[^"\\]*\b(?:charg\w*|pay\w*|paid|amount|total|price|stock|cart|order|buyer|customer|card|key|secret|refund\w*|receipt|money|provider|cents?)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
-      [^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
-      (?![^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)[^"\\]*\b(?:pass(?:es)?|accept(?:s|ed)?|through|same|kept|only|exactly|once|one|no|never|unpaid|paid|still|charg\w*|receives?|remain\w*|cents?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?){3,5}(?=\\n(?:[\w-]+(?:\\n|")|")|(?<!\\)")
+      [^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|refus\w*|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges|(?:names?|naming|with)[^"\\]{0,20}\b(?:file|line))\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
+      (?![^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|refus\w*|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges|(?:names?|naming|with)[^"\\]{0,20}\b(?:file|line))\b)[^"\\]*\b(?:pass(?:es)?|accept(?:s|ed)?|through|same|kept|only|exactly|once|one|no|never|unpaid|paid|still|charg\w*|receives?|remain\w*|cents?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?){3,5}(?=\\n(?:[\w-]+(?:\\n|")|")|(?<!\\)")
     flags: i
     weight: 2
   - name: proposes-distinct-payment-rules
@@ -152,3 +152,12 @@ graders:
     target: { source: file, path: gdd/log/blueprint.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
     weight: 1
+  - name: stays-under-200-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){199}\S'
+    match: not_contains
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

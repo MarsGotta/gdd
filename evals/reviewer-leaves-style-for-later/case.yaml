@@ -64,3 +64,12 @@ graders:
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'
+  - name: puts-command-evidence-right-above-the-report
+    type: regex
+    pattern: '^```json[ \t]*\r?\n(?:(?!^```)[\s\S])*^```[ \t]*\r?\n\s*```gdd-report\b'
+    flags: m
+  - name: keeps-builder-notes-under-200-words
+    type: regex
+    pattern: '^NOTES FOR THE BUILDER:[ \t]*\s*(?:(?!^(?:```|LATER:|MISSING:|f\d+\b))\S+\s+){199}(?!^(?:```|LATER:|MISSING:|f\d+\b))\S'
+    flags: m
+    match: not_contains

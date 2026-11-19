@@ -64,10 +64,9 @@ graders:
     min: 0
     max: 0
     weight: 2
-  - name: asks-in-under-a-hundred-words
+  - name: stays-under-100-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:(?:[^"\\\s]|\\[^ntr])+(?:\s|\\[ntr])+){99}(?:[^"\\\s]|\\[^ntr])'
+    pattern: '^\s*(?:\S+\s+){99}\S'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method
@@ -75,9 +74,22 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: proposes-the-parts-and-waits-for-a-yes
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 3
+  - name: estimates-each-part-on-its-line
+    type: regex
+    pattern: '(?:^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$|^(?=[^\n]*(?:tarjeta|card|pagos?|payments?))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$\n[\s\S]*?^(?=[^\n]*(?:cuenta|account))(?=[^\n]*(?:\d+(?:[–-]\d+)?|una?|one|two|half|media)\s*(?:min|hour|hora|día|day|week|semana))[^\n]+$)'
+    flags: im
+    weight: 3
+  - name: proposes-two-usable-outcomes
     type: llm
-    criteria: The answer proposes accounts and card payments as two things customers could use separately. The order is free. Each gets one line with what customers could do and a rough time estimate. The first delivers something the person could try. It ends with one question whose yes accepts those parts. It presents both parts as a proposal awaiting that decision. It does not ask the person to approve a brief or say that work on a part has started. Saying each part will have its own approval later is fine.
+    criteria: Are accounts and card payment proposed as independently usable parts, with something the owner can try from the first part?
+    weight: 3
+  - name: waits-for-the-parts-decision
+    type: llm
+    criteria: Does the message await a yes to those parts before briefing or starting either one?
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -91,3 +103,8 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

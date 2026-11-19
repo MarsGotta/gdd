@@ -60,9 +60,44 @@ graders:
     pattern: 'docs'
     match: not_contains
     weight: 3
-  - name: tells-the-person-what-it-judged
+  - name: says-the-plan-does-not-cover-it
+    type: regex
+    pattern: 'docs/?`?[^.\n]{0,60}\b(?:isn.t|is not|not)\b[^.\n]{0,40}\b(?:cover\w*|zone|plan)|\b(?:nothing|no zone)\b[^.\n]{0,40}\bcovers?\b[^.\n]{0,20}docs|doesn.t cover[^.\n]{0,20}docs'
+    flags: i
+    weight: 3
+  - name: says-medium-risk
+    type: regex
+    pattern: '\b(?:medium[- ]risk|yellow)\b'
+    flags: i
+    weight: 3
+  - name: never-says-high-risk
+    type: regex
+    pattern: '\bhigh[- ]risk\b|\bred\b'
+    flags: i
+    match: not_contains
+    weight: 3
+  - name: says-it-as-its-own-judgment
+    type: regex
+    pattern: '\bI(?:.ve| have)? (?:treated|judged|rated|took|am treating)\b'
+    flags: i
+    weight: 3
+  - name: proposes-a-place-in-the-plan
+    type: regex
+    pattern: '\b(?:propos\w+|suggest\w*|added)\b[^.\n]{0,80}\b(?:zone|place)\b'
+    flags: i
+    weight: 3
+  - name: says-nothing-is-built-yet
+    type: regex
+    pattern: '\b(?:isn.t|not|nothing)\b[^.\n]{0,30}\b(?:created|built)\b'
+    flags: i
+    weight: 3
+  - name: keeps-the-risk-decision
     type: llm
-    criteria: The answer tells the person in plain language that the plan does not cover docs/ yet. It says it treated this change as medium risk (or yellow) and proposes adding the path to the plan for the person to decide. It does not call the change high risk or ask the person to classify it before going on. It says nothing has been built yet because the plan calls for the person to approve what this change will do first.
+    criteria: Does the agent take responsibility for classifying the uncovered path without asking the owner to classify it?
+    weight: 3
+  - name: explains-why-building-waits
+    type: llm
+    criteria: Does the owner learn that the brief needs approval before building?
     weight: 3
   - name: launches-no-builder
     type: tool_used
@@ -83,3 +118,12 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: stays-under-150-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){149}\S'
+    match: not_contains
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

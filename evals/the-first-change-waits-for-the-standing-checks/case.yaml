@@ -122,9 +122,25 @@ graders:
     target: { source: file, path: src/texts/footer.txt }
     pattern: 'Copyright 2026'
     weight: 3
-  - name: tells-the-person-both-things
+  - name: says-the-footer-is-fixed
+    type: regex
+    pattern: '\b(?:footer|typo|copyright|copyrigth)\b[^.\n]{0,110}(?<!not )(?<!never )\b(?:fixed|correct(?:ed)?|now (?:says|reads|shows)|replaced|instead)\b|\b(?:fixed|corrected|changed|replaced)\b[^.\n]{0,80}\b(?:typo|footer|copyrigth)\b'
+    flags: i
+    weight: 2
+  - name: says-it-is-in
+    type: regex
+    pattern: '(?<!not )(?<!never )\b(?:it.s|(?:the )?(?:change|fix|typo|correction) (?:is|was)) (?:in(?=[.!?,\s]*$|[.!?,]|\s+(?:the shop|your shop|production|`?main)\b)|live\b)|(?<!not )(?<!never )\b(?:has been|is|was|I) (?:merged|shipped)\b|(?<!not )(?<!never )(?<!to )\bmerged (?:it |the fix )?(?:into|to) (?:the |`)?main\b'
+    flags: i
+    weight: 2
+  - name: asks-for-no-shipping-approval
+    type: regex
+    pattern: '(?:^|[.!?\n])[^.!?\n]*(?:(?:do you approve|may I|shall I|should I|can I|quieres que|apruebas)[^?!.\n]*(?:ship|merge|release|publish|suba|publique|integre)|(?:approve|apruebas) (?:it|this change|el cambio))[^?!.\n]*\?'
+    flags: im
+    match: not_contains
+    weight: 2
+  - name: reports-setting-up-the-standing-checks-first
     type: llm
-    criteria: The answer says the typo is fixed and merged or shipped. It says the project's standing checks were set up first. It does not ask the person to approve the change. Listing points left for later is fine.
+    criteria: Does the owner learn that the standing checks were set up before the typo was fixed?
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -143,3 +159,12 @@ graders:
     target: { source: file, path: gdd/log/standing-checks.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"ship"'
     weight: 2
+  - name: stays-under-100-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){99}\S'
+    match: not_contains
+  - name: records-any-question-before-sending
+    type: regex
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$)'
+    flags: m
+    target: trace

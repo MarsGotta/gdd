@@ -78,10 +78,9 @@ graders:
     min: 0
     max: 0
     weight: 2
-  - name: asks-in-under-a-hundred-and-fifty-words
+  - name: stays-under-150-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:[^"\\]|\\.){1100,}"'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method
@@ -90,8 +89,10 @@ graders:
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
   - name: proposes-no-parts
-    type: llm
-    criteria: The answer treats the request as one change. It does not propose doing it in parts, list parts with how long each takes, or ask whether to split it. It asks the person to approve one brief covering payment by card through the test provider.
+    type: regex
+    pattern: '\b(?:en|in|como|as) (?:dos|tres|two|three|\d+) (?:partes|cambios|pasos|entregas|parts|changes|steps)\b|\b(?:divid\w+|split\w*)\b'
+    flags: i
+    match: not_contains
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -105,3 +106,14 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: asks-to-approve-the-brief
+    type: llm
+    criteria: Would answering yes approve what the change will do before building begins?
+  - name: covers-card-payment-through-the-test-provider
+    type: llm
+    criteria: Would the brief the owner is asked to approve cover the full card payment through the test provider?
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

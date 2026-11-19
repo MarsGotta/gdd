@@ -104,10 +104,9 @@ graders:
     target: { source: file, path: gdd/log/catalog-pages.jsonl }
     pattern: '"event"\s*:\s*"ask"\s*,\s*"of"\s*:\s*"brief"'
     weight: 2
-  - name: asks-in-under-150-words
+  - name: stays-under-150-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:(?:[^"\\\s]|\\[^ntr])+(?:\s|\\[ntr])+){149}'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
     weight: 2
   - name: the-message-says-twenty-a-page
@@ -120,9 +119,33 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: asks-for-a-yes
+  - name: asks-to-approve-the-brief
     type: llm
-    criteria: The answer asks the person to approve what the change for the catalog in pages has to do before anything is built. It gives each added or changed rule in plain words on its own line, including twenty products a page. It follows with any assumptions on separate lines marked as the agent's, any question left for later and any technical decisions relevant to the owner. It names the feature file and ends with one question a yes answers. It does not say that anything was built or shipped.
+    criteria: Would answering yes approve what the change will do before building begins?
+    weight: 3
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 3
+  - name: names-the-feature-file
+    type: regex
+    pattern: '\bfeatures/[\w./-]+\.feature\b'
+    weight: 3
+  - name: gives-each-rule-its-own-line
+    type: llm
+    criteria: Does each new or changed pagination rule occupy its own line in the approval message?
+    weight: 3
+  - name: marks-assumptions-on-separate-lines
+    type: llm
+    criteria: Is each assumption presented on a separate line as the agent’s own choice?
+    weight: 3
+  - name: states-outstanding-questions
+    type: llm
+    criteria: Are any product questions deferred by the message identified for later decision?
+    weight: 3
+  - name: states-owner-relevant-technical-decisions
+    type: llm
+    criteria: Are the implementation choices that affect the owner made explicit?
     weight: 3
   - name: records-no-approval-it-was-not-given
     type: regex
@@ -159,3 +182,15 @@ graders:
     target: { source: file, path: gdd/log/catalog-pages.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"brief"[\s\S]*"wrote"\s*:\s*\{[^}]*"event"\s*:\s*"ask"'
     weight: 2
+  - name: claims-no-build-or-shipment
+    type: llm
+    criteria: Does the owner learn that the catalog change is still unbuilt?
+  - name: separates-page-size-from-the-missing-page-rule
+    type: regex
+    pattern: '^(?![^\n]*(?:inexistente|no existe|out.of.range|nonexistent|doesn.t exist|does not exist))(?=[^\n]*(?:(?:twenty|veinte|20)\s+(?:products?|productos?)|(?:products?|productos?)\s+(?:per|por) (?:page|página)[^\n]{0,12}(?:twenty|veinte|20)))[^\n]*$\n[\s\S]*?^(?![^\n]*(?:(?:twenty|veinte|20)\s+(?:products?|productos?)|(?:products?|productos?)\s+(?:per|por) (?:page|página)[^\n]{0,12}(?:twenty|veinte|20)))(?=[^\n]*(?:inexistente|no existe|out.of.range|nonexistent|doesn.t exist|does not exist))[^\n]*(?:primera|first)|^(?![^\n]*(?:(?:twenty|veinte|20)\s+(?:products?|productos?)|(?:products?|productos?)\s+(?:per|por) (?:page|página)[^\n]{0,12}(?:twenty|veinte|20)))(?=[^\n]*(?:inexistente|no existe|out.of.range|nonexistent|doesn.t exist|does not exist))[^\n]*(?:primera|first)[^\n]*$\n[\s\S]*?^(?![^\n]*(?:inexistente|no existe|out.of.range|nonexistent|doesn.t exist|does not exist))(?=[^\n]*(?:(?:twenty|veinte|20)\s+(?:products?|productos?)|(?:products?|productos?)\s+(?:per|por) (?:page|página)[^\n]{0,12}(?:twenty|veinte|20)))'
+    flags: im
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

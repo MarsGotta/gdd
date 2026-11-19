@@ -48,7 +48,7 @@ graders:
     weight: 2
   - name: tells-the-person-what-the-history-shows
     type: regex
-    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?(?=(?:[^\n]*?(?:\b\d+\b(?:[ \t]+(?:were|the|touched|changed|affected|only|in))*[ \t]+(?:wording|texts?|notes?|copy|labels?|cart|basket|payments?|checkout)\b|\b(?:wording|texts?|notes?|copy|labels?|cart|basket|payments?|checkout)[ \t]*:[ \t]*\b\d+\b)){3})[^\n]*?(?:\b(?:payments?|checkout)(?: changes?)?\s*(?:(?:,\s*)?(?:includ(?:ed|ing)|had|accounted for|contained|saw|held|with)\s+(?:all |both |the |most |of |\d+ )*)?(?:fix(?:es)?|reverts?|corrections?)\b|\b(?:fix(?:es)?|reverts?|corrections?)\b[^.;\n]{0,65}?\b(?:in|touched|affected|were to|fell on|involved)\s+(?:the |card )?(?:payments?|checkout)\b)'
+    pattern: 'Before you say yes[^\n]*\n(?:[ \t]*\n)?[^\n]*?(?:\b(?:pay\w*|checkout)\b(?:(?!\b(?:wording|texts?|notes?|copy|labels?|cart|basket)\b)[^.;\n]){0,80}?\b(?:fix(?:es|ed)?|reverts?|corrections?)\b|\b(?:fix(?:es|ed)?|reverts?|corrections?)\b(?:(?!\b(?:wording|texts?|notes?|copy|labels?|cart|basket)\b)[^.;\n]){0,80}?\b(?:pay\w*|checkout)\b)'
     flags: i
     weight: 1
   - name: gets-the-files-of-a-change
@@ -56,10 +56,10 @@ graders:
     tool: Bash
     input_match: '\bgit\s+(?:(?:-C\s+(?:\\"[^"\\]+\\"|[^\s;"|&]+)|--no-pager)\s+)*(?:diff-tree|show|diff|log)\s+(?:[^;&|"\\]|\\")*--name-(?:only|status)\b'
   - name: previews-the-checks-on-real-changes
-    type: regex
-    target: trace
-    pattern: 'gdd \{\\"command\\":\\"color\\"(?:(?!\\n|gdd \{).)*?\\"on\\":\\"planned\\",\\"paths\\":\[\\"[^"\\\n]+\\"'
-    weight: 1
+    type: tool_used
+    tool: Bash
+    input_match: '\bdiff-tree\b(?:[^"\\]|\\.)*?\bgdd(?:\\")?\s+color\s+(?:--[\w-]+\s+)*?--paths\b\s+(?:\\")?\$(?:[\w{(])'
+    weight: 2
   - name: checks-the-draft-zones
     type: tool_used
     tool: Bash
@@ -92,3 +92,12 @@ graders:
     target: { source: file, path: gdd/log/blueprint.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
     weight: 1
+  - name: stays-under-200-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){199}\S'
+    match: not_contains
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

@@ -62,16 +62,20 @@ graders:
     weight: 2
   - name: says-not-seen-passing
     type: regex
-    pattern: '\b(?:(?:not|never|haven[''’]t|hasn[''’]t|hadn[''’]t)(?:\s+(?:yet|been))?\s+seen(?:\s+(?:any|one|of|them|these|the|tests?|it|all))*\s+pass(?:ing)?|none (?:of \w+ )?(?:has |have |was |were )?(?:been )?seen pass(?:ing)?|seen [^.\n]{0,30}reject\w*[^.\n]{0,10}\bnot pass(?:ing)?)\b'
+    pattern: '\b(?:(?:not|never|haven[''’]t|hasn[''’]t|hadn[''’]t)(?:\s+(?:yet|been))?\s+seen(?:\s+(?:any|one|of|them|these|the|tests?|it|all))*\s+pass(?:ing)?|none (?:of \w+ )?(?:has |have |was |were )?(?:been )?seen pass(?:ing)?|seen [^.\n]{0,30}reject\w*[^.\n]{0,10}\bnot pass(?:ing)?|(?:did not|didn[''’]t|never) (?:see|saw)(?:\s+(?:any|one|of|them|these|the|tests?|it|all|each))*\s+pass(?:ing)?|saw none (?:of \w+ )?pass(?:ing)?)\b'
     flags: i
     weight: 3
   - name: does-not-stop
     type: regex
     pattern: 'CANNOT:'
     match: not_contains
-  - name: each-test-rejects-a-concrete-wrong-solution
+  - name: names-test-and-wrong-in-every-rejecting-proof
+    type: regex
+    pattern: '```json\s*\[\s*\{(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"test"\s*:\s*"[^"\s])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"wrong"\s*:\s*"[^"\s])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"case"\s*:\s*"rejects")(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?\}(?:\s*,\s*\{(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"test"\s*:\s*"[^"\s])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"wrong"\s*:\s*"[^"\s])(?=(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?"case"\s*:\s*"rejects")(?:[^{}"\\]|"(?:[^"\\]|\\.)*")*?\})*\s*\]\s*```'
+    weight: 3
+  - name: each-test-rejects-its-wrong-solution
     type: llm
-    criteria: The JSON proof block in the final answer gives each scenario test its own rejecting entry with its test name and a concrete wrong solution in the wrong field. Going by what the answer says each test calls and expects, that test alone would reject the one wrong solution named for it. A generic statement that tests failed on the base is insufficient.
+    criteria: For each scenario test reported, does its own proof name a concrete wrong solution that this test alone would reject?
     weight: 3
   # Follow the same saved log into tail, either by filename or through tee.
   - name: reads-the-end-of-saved-output
@@ -92,7 +96,24 @@ graders:
     type: regex
     pattern: '```gdd-report\s*\nskill: gdd-checks[^\n]*\nresult: sealed'
     weight: 2
-  - name: tests-only-what-the-scenarios-ask
+  - name: reports-the-seal-commit
+    type: regex
+    pattern: '\bseal(?:ed)?\b[^\n]{0,120}\b[0-9a-f]{7,40}\b'
+    flags: i
+    weight: 3
+  - name: reports-each-test-failing-on-the-base
     type: llm
-    criteria: The answer reports the tests of the empty-cart change as sealed, each seen failing on the code as it is, with the commit of the seal. It does not say it wrote a version of the summary to see the tests pass or broke one on purpose. It reports no test for anything the two scenarios don't ask for, such as currencies, rounding rules or repeated runs; a second example of what a scenario says, such as another cart with items and its total, is part of that scenario and counts as asked. Anything that looked missing, if any, it lists under MISSING:.
+    criteria: Does the answer report seeing each new test fail on the original code?
+    weight: 3
+  - name: reports-no-yellow-implementation
+    type: llm
+    criteria: Does the report avoid claiming that the agent wrote or deliberately broke a version of the requested behavior?
+    weight: 3
+  - name: tests-only-the-sealed-scenarios
+    type: llm
+    criteria: Does every reported test exercise behavior requested by an empty-cart scenario? Further examples of the same behavior count.
+    weight: 3
+  - name: lists-gaps-under-missing
+    type: llm
+    criteria: Are any gaps the agent identifies listed under MISSING?
     weight: 3

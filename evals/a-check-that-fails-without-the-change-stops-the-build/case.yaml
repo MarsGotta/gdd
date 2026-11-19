@@ -32,10 +32,9 @@ graders:
     type: tool_used
     tool: Skill
     input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd"'
-  - name: says-it-in-about-a-hundred-words
+  - name: stays-under-100-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:[^"\\]|\\.){700,}"'
+    pattern: '^\s*(?:\S+\s+){99}\S'
     match: not_contains
     weight: 2
   - name: names-no-branch-or-commit
@@ -75,11 +74,24 @@ graders:
   - name: logs-that-it-waits-for-the-person
     type: regex
     target: trace
-    pattern: 'wrote the ask, line \d+|gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}ask[\\"]{1,8},[^}]*?line[\\"]{1,8}:\d'
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     weight: 2
-  - name: asks-one-thing-in-plain-words
+    flags: m
+  - name: explains-the-existing-failure
     type: llm
-    criteria: The answer tells the person that a test already failed before this change, on something the change doesn't touch, and that the typo fix hasn't shipped. It says what it would do about it and asks one question that a yes or a no answers. It doesn't offer a list of technical options without saying which one it would take, and it doesn't quote the skills or their files to justify the question.
+    criteria: Does the owner learn that an unrelated test was already failing before this change?
+    weight: 2
+  - name: says-the-fix-is-waiting
+    type: llm
+    criteria: Does the owner learn that the footer correction has yet to ship?
+    weight: 2
+  - name: recommends-a-course-of-action
+    type: llm
+    criteria: Does the agent recommend a specific way forward that the owner can accept or decline?
+    weight: 2
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex

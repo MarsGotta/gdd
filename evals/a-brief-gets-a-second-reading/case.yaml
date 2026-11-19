@@ -68,15 +68,66 @@ graders:
   - name: ends-with-its-report
     type: regex
     pattern: '```gdd-report[ \t]*\r?\nskill: gdd-review\b[^\n]*\nresult:[ \t]*\S[^\n]*\ncaught:[ \t]*\S[^\n]*\nclosed:[ \t]*\r?\n(?:reviewed:(?![^\r\n]*(?<![A-Fa-f0-9])[A-Fa-f0-9]{40}(?![A-Fa-f0-9]))[^\r\n]*\r?\n)?```\s*$'
-  - name: finds-what-paying-does-to-the-stock
+  - name: identifies-the-risk-to-stock
     type: llm
-    criteria: The answer finds that the shop could sell stock it no longer has. It asks for the stock rule and a scenario beneath it showing what another buyer sees afterwards in the catalog or cart. Stock timing proposed by the agent is an assumption. It ties the proposed correction to the constitution's rule that nothing is sold without stock, or to the money a customer would lose.
+    criteria: Does the reading explain why this omission could sell stock the shop no longer has?
     weight: 2
-  - name: catches-what-the-checks-role-would-need
+  - name: requests-the-stock-rule-with-its-scenario
     type: llm
-    criteria: The reading names card-payment-2 and explains what its test would need to observe when a payment is declined, such as no charge and the message shown to the customer. It gives the orchestrator a concrete correction before approval.
+    criteria: Does a numbered finding require a stock rule with a scenario beneath it showing what another buyer sees after payment?
     weight: 2
-  - name: limits-the-additions
+  - name: marks-proposed-stock-timing-as-assumed
     type: llm
-    criteria: The reading proposes at most three additions in total. The reading identifies the new scenarios that lack a parent rule. That form finding counts toward the three and needs no separate risk. Other form corrections name the affected brief rule. Each other addition cites a rule of the constitution or a named zone, or says what money or data could be lost. Count the actual additions even if several share a numbered line. Clarifications needed to test existing scenarios are unnumbered under MISSING. Further suggestions may go under LATER without counting as proposed corrections for this brief.
+    criteria: Is timing chosen by the reader explicitly proposed as an assumed rule?
+    weight: 2
+  - name: grounds-the-stock-correction
+    type: llm
+    criteria: Does the stock finding cite the constitution’s stock rule or explain the money a customer could lose?
+    weight: 2
+  - name: names-the-declined-card-scenario
+    type: regex
+    pattern: '\bcard-payment-2\b'
+    weight: 2
+  - name: clarifies-the-declined-card-outcome
+    type: llm
+    criteria: Does the reader ask for a concrete observable outcome so the declined-card test can be written?
+    weight: 2
+  - name: numbers-at-most-three
+    type: regex
+    pattern: '(?:^[ \t]*(?:[-*][ \t]+)?\**f\d+\b[\s\S]*?){4}|^[ \t]*(?:[-*][ \t]+)?\**f(?:[4-9]|\d{2,})\b'
+    flags: mi
+    match: not_contains
     weight: 3
+  - name: gives-each-finding-one-line
+    type: regex
+    pattern: '^[ \t]*(?:[-*][ \t]+)?\**f\d+\b[^\n]*(?:\n[ \t]*)+\n?[ \t]*(?:[-*•][ \t]+|\d+[.)][ \t]+)'
+    flags: mi
+    match: not_contains
+    weight: 3
+  - name: cites-what-each-finding-protects
+    type: regex
+    pattern: '^[ \t]*(?:[-*][ \t]+)?\**f\d+\b(?![^\n]*(?:\s\|\s|\b(?:rule|scenario)s?\s+(?:[`"“‘]|\d)|@id:[\w-]+|\b(?:money|data)\b))[^\n]*$'
+    flags: mi
+    match: not_contains
+    weight: 3
+  - name: finds-the-scenarios-without-a-rule
+    type: regex
+    pattern: '\bno (?:parent )?rules? above\b|\b(?:without|lacks?|missing) (?:a|any|its|their) (?:parent )?rule\b|\bunder a rule\b'
+    flags: i
+    weight: 3
+  - name: keeps-clarifications-under-missing
+    type: regex
+    pattern: '^MISSING:[ \t]*\n(?:[ \t]*[-*] [^\n]+\n?)+'
+    flags: m
+    weight: 3
+  - name: asks-one-correction-per-finding
+    type: llm
+    criteria: Does each numbered finding ask for exactly one correction? A rule with its scenario counts as one correction.
+    weight: 3
+  - name: grounds-each-addition
+    type: llm
+    criteria: Does each numbered addition identify what it protects? Form corrections name the affected rule or scenario. Other additions name a constitution or zone rule, or the money or data at risk.
+    weight: 3
+  - name: separates-test-clarifications
+    type: llm
+    criteria: Are gaps in the testability of existing scenarios confined to unnumbered MISSING entries, apart from cross-references to a numbered form finding?

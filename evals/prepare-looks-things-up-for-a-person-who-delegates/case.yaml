@@ -33,7 +33,7 @@ graders:
   - name: tries-to-open-a-source
     type: regex
     target: trace
-    pattern: '"name":"WebSearch","input":\{[^}]*"query":"[^"\s][^"]*"|"name":"WebFetch","input":\{[^}]*"url":"https?://|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:curl|wget)\s+(?:(?!\\n)[^;&|"])*?https?://'
+    pattern: '"name":"WebSearch","input":\{[^}]*"query":"[^"\s][^"]*"|"name":"WebFetch","input":\{[^}]*"url":"https?://|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?\b(?:curl|wget)\s+(?:\\\\|\\"|(?!\\n)[^;&|"\\])*?https?://'
     weight: 2
   - name: keeps-what-it-found
     type: regex
@@ -75,10 +75,9 @@ graders:
     type: regex
     target: trace
     pattern: 'send nothing else: under 200 words'
-  - name: asks-in-about-two-hundred-words
+  - name: stays-under-200-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:[^"\\]|\\.){1450,}"'
+    pattern: '^\s*(?:\S+\s+){199}\S'
     match: not_contains
     weight: 2
   - name: names-no-branch-or-commit
@@ -92,9 +91,41 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: asks-for-one-approval-in-plain-words
+  - name: ends-on-one-question
+    type: regex
+    pattern: '^[^?]*\?[ \t*_”»]*\s*$'
+    weight: 2
+  - name: asks-to-approve-the-files
     type: llm
-    criteria: The answer is short and in words a shop owner who isn't technical can follow. It names the files to approve, each with what it is for, and asks one thing, to approve them. It tells apart what it took from a source it looked up and what is its own default, or says that it couldn't look anything up. It doesn't quote the skills or their files to justify what it asks.
+    criteria: Does the final question ask for one approval of the proposed project files together before building?
+    weight: 2
+  - name: names-each-file-with-what-it-is-for
+    type: regex
+    pattern: '^(?=[\s\S]*^.*gdd/blueprint\.md`?:[ \t]*\S)(?=[\s\S]*^.*gdd/constitution\.md`?:[ \t]*\S)'
+    flags: m
+    weight: 2
+  - name: explains-the-files-to-read
+    type: llm
+    criteria: Does each file the owner is asked to read have an explanation of its purpose?
+    weight: 2
+  - name: says-what-it-found-or-that-it-could-not
+    type: regex
+    pattern: '(?:couldn.t|could not|wasn.t able to|unable to|can.t|cannot)\s+(?:open|reach|look|confirm|check|read|fetch|access)\b|\bfrom memory\b|\b(?:comes?|came|taken|took)\s+from\b[^.\n]*\b(?:guid\w+|standard|source|page|document\w*)\b'
+    flags: i
+    weight: 2
+  - name: distinguishes-sources-from-proposals
+    type: llm
+    criteria: Can the owner tell which rules came from an outside source and which are the agent’s own proposals?
+    weight: 2
+  - name: uses-no-word-of-the-tools-or-the-place
+    type: regex
+    pattern: '\b(?:sandbox|network|internet|linters?|gitleaks|ruff|mutmut|unittest|pytest|git|repositor(?:y|ies)|CODEOWNERS)\b'
+    flags: i
+    match: not_contains
+    weight: 2
+  - name: asks-in-plain-words
+    type: llm
+    criteria: Would a nontechnical shop owner understand the message without looking up a term? File names and the owner’s terms GDD, mutation testing, platform, CI, haiku, sonnet, opus, levels and reviewer are familiar.
     weight: 2
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -113,3 +144,8 @@ graders:
     target: { source: file, path: gdd/log/blueprint.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
     weight: 1
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

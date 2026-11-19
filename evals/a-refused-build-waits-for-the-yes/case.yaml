@@ -67,10 +67,9 @@ graders:
     pattern: '"name":"(?:Write|Edit|MultiEdit)","input":\{(?:[^{}"]|"(?:[^"\\]|\\.)*")*?"file_path":"[^"]*gdd/log/|"name":"Bash","input":\{"command":"(?:(?!git clone|worktree add|mktemp|\$TMPDIR)(?:[^"\\]|\\.))*?(?:>>?\s*|\btee\s+(?:-a\s+)?|\bsed\s+-i[^|;&"]*?)[^\s"\\|;&<>]*gdd/log/[\w.-]+\.jsonl'
     match: not_contains
     weight: 2
-  - name: asks-in-under-150-words
+  - name: stays-under-150-words
     type: regex
-    target: trace
-    pattern: '"result":"(?:(?:[^"\\\s]|\\[^ntr])+(?:\s|\\[ntr])+){149}'
+    pattern: '^\s*(?:\S+\s+){149}\S'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method
@@ -78,9 +77,32 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: asks-for-the-yes-first
+  - name: loads-gdd-brief-to-ask-again
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?gdd-brief"'
+    weight: 3
+  - name: gives-each-scenario-its-line
+    type: regex
+    pattern: '(?:^[^\n]*(?:vac[ií]o|empty)[^\n]*(?:dice|muestra|says|shows|reads|Your cart is empty)[^\n]*$\n[\s\S]*?^(?=[^\n]*(?:art[ií]culos|items|productos))(?=[^\n]*(?:cu[aá]ntos|cantidad|n[uú]mero|count|\d+\s+(?:items|art[ií]culos)))[^\n]*(?:total|7[.,]50)[^\n]*$|^(?=[^\n]*(?:art[ií]culos|items|productos))(?=[^\n]*(?:cu[aá]ntos|cantidad|n[uú]mero|count|\d+\s+(?:items|art[ií]culos)))[^\n]*(?:total|7[.,]50)[^\n]*$\n[\s\S]*?^[^\n]*(?:vac[ií]o|empty)[^\n]*(?:dice|muestra|says|shows|reads|Your cart is empty)[^\n]*$)'
+    flags: mi
+    weight: 3
+  - name: names-the-feature-file
+    type: regex
+    pattern: 'features/empty-cart\.feature'
+    weight: 3
+  - name: marks-its-own-decision
+    type: regex
+    pattern: '(?:\b(?:decid[ií]|eleg[ií]|supuse|asum[ií]|he (?:supuesto|decidido|elegido)|I (?:assumed|chose|decided))(?![a-z])|(?:supuestos? m[ií]os?|mis suposiciones|my assumptions?))[^?!\n]*(?:\n[ \t*_:-]*[-•*]?[ \t]*)?[^?!\n]*(?:(?:dos|two|2) decimales?|(?:two|2) decimal places|2 digits after the decimal)'
+    flags: i
+    weight: 3
+  - name: ends-on-the-question
+    type: regex
+    pattern: '\?[ \t*_”»]*\s*$'
+    weight: 3
+  - name: claims-no-build-and-no-approval
     type: llm
-    criteria: The answer tells the person that the message for the empty cart won't be built until they approve what it has to do, and asks for that approval. It gives each of the two sealed scenarios in plain words on its own line (an empty cart says it is empty, and a cart with items shows their count and total). It marks any assumptions the agent made and names the feature file the owner can read. The older file can be approved as sealed. It ends on one question a yes answers. It does not say anything was built or started, and it does not take the person's message as that approval.
+    criteria: Does the message make clear that building still awaits the owner’s approval?
     weight: 3
   - name: the-log-gets-no-role-before-the-yes
     type: regex
@@ -94,3 +116,17 @@ graders:
     pattern: 'gdd \{[\\"]{1,8}command[\\"]{1,8}:[\\"]{1,8}report[\\"]{1,8}[^}]*?needs-approval'
     match: not_contains
     weight: 2
+  - name: asks-only-one-question
+    type: regex
+    pattern: '^[^?]*\?[^?]*$'
+  - name: asks-to-approve-the-brief
+    type: llm
+    criteria: Would answering yes approve what the change will do before building begins?
+  - name: uses-the-owners-words
+    type: llm
+    criteria: Could the owner understand the two empty-cart scenarios without technical knowledge? The owner calls the plan a brief.
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

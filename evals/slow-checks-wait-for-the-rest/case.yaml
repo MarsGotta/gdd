@@ -65,9 +65,27 @@ graders:
     input_match: 'gdd-review'
     min: 1
     max: 2
-  - name: tells-the-person-briefly
-    type: llm
-    criteria: The answer tells the person that the typo is fixed and shipped and that its gates passed, the check that drives the shop among them, and it does not ask the person to approve the change.
+  - name: says-the-footer-is-fixed
+    type: regex
+    pattern: '\b(?:footer|typo|copyright|copyrigth)\b[^.\n]{0,110}(?<!not )(?<!never )\b(?:fixed|correct(?:ed)?|now (?:says|reads|shows)|replaced|instead)\b|\b(?:fixed|corrected|changed|replaced)\b[^.\n]{0,80}\b(?:typo|footer|copyrigth)\b'
+    flags: i
+  - name: says-it-is-in
+    type: regex
+    pattern: '(?<!not )(?<!never )\b(?:it.s|(?:the )?(?:change|fix|typo|correction) (?:is|was)) (?:in(?=[.!?,\s]*$|[.!?,]|\s+(?:the shop|your shop|production|`?main)\b)|live\b)|(?<!not )(?<!never )\b(?:has been|is|was|I) (?:merged|shipped)\b|(?<!not )(?<!never )(?<!to )\bmerged (?:it |the fix )?(?:into|to) (?:the |`)?main\b'
+    flags: i
+  - name: says-the-gates-passed
+    type: regex
+    pattern: '(?:\b(?:all|gates?|checks?|seal|lint|tests?)\b[^.\n]{0,95}?(?<!not )(?<!never )(?<!failed to )\bpass(?:ed|es)?\b|\bpass(?:ed|es)? (?:all |the )*(?:checks|gates|tests)\b)'
+    flags: i
+  - name: asks-for-no-shipping-approval
+    type: regex
+    pattern: '(?:^|[.!?\n])[^.!?\n]*(?:(?:do you approve|may I|shall I|should I|can I|quieres que|apruebas)[^?!.\n]*(?:ship|merge|release|publish|suba|publique|integre)|(?:approve|apruebas) (?:it|this change|el cambio))[^?!.\n]*\?'
+    flags: im
+    match: not_contains
+  - name: reports-the-end-to-end-check
+    type: regex
+    pattern: '\b(?:e2e|end.to.end|browser|drives the shop)\b[^.\n]{0,70}(?<!not )\bpass(?:ed|es)?\b'
+    flags: i
   - name: writes-no-line-of-the-log-by-hand
     type: regex
     target: trace
@@ -80,3 +98,12 @@ graders:
     pattern: '^gdd/log/[a-z0-9-]+\.jsonl(?=\n|$)|(?:^|\n)(?!gdd/log/([a-z0-9-]+)\.engine\.jsonl\ngdd/log/\1\.jsonl(?:\n|$))[^\n]*\ngdd/log/[a-z0-9-]+\.jsonl(?=\n|$)'
     match: not_contains
     weight: 2
+  - name: stays-under-100-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){99}\S'
+    match: not_contains
+  - name: records-any-question-before-sending
+    type: regex
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$)'
+    flags: m
+    target: trace

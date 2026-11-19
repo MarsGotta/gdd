@@ -80,10 +80,10 @@ graders:
     target: trace
     pattern: >-
       (?:"name":"(?:Write|Edit)","input":\{"file_path":"[^"]*?|"name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?>>?[ \t]*(?:\\?["'])?(?:[^\s"\\;|&<>]*/)?)gdd/gates/(pay[\w-]*|billing|money|checkout)\.feature(?:","(?:old_string":"(?:[^"\\]|\\.)*",")?(?:content|new_string)":"|(?:\\?["'])?[ \t]+<<-?[ \t]*[\w'\\\"-]+\\n|(?:\\?["'])?\\n)[ \t]*@zone:\1\b(?:\\n[ \t]*)+Feature:
-      (?:[^"\\\n]|\\(?!n).)*(?:(?:\\n[ \t]*)+Rule:
+      (?:[^"\\\n]|\\(?!n).)*(?:(?:\\n[ \t]*)+#[^\n"\\]*(?:\\(?!n)[^\n"\\]*)*)*(?:(?:\\n[ \t]*)+Rule:
       (?=[^"\\]*\b(?:charg\w*|pay\w*|paid|amount|total|price|stock|cart|order|buyer|customer|card|key|secret|refund\w*|receipt|money|provider|cents?)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
-      [^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
-      (?![^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges)\b)[^"\\]*\b(?:pass(?:es)?|accept(?:s|ed)?|through|same|kept|only|exactly|once|one|no|never|unpaid|paid|still|charg\w*|receives?|remain\w*|cents?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?){3,5}(?=\\n(?:[\w-]+(?:\\n|")|")|(?<!\\)")
+      [^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|refus\w*|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges|(?:names?|naming|with)[^"\\]{0,20}\b(?:file|line))\b)(?=(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?\\n[ \t]*Scenario:(?:[^"\\\n]|\\(?!n).)*(?:\\n[ \t]*(?:(?:Given|When|And|But) (?:[^"\\\n]|\\(?!n).)*)?)*\\n[ \t]*Then
+      (?![^"\\]*\b(?:breach|violat\w*|fail(?:s|ed)?|reject(?:s|ed)?|refus\w*|stops?|block(?:s|ed)?|(?:buyer|customer) is charged twice|two charges|(?:names?|naming|with)[^"\\]{0,20}\b(?:file|line))\b)[^"\\]*\b(?:pass(?:es)?|accept(?:s|ed)?|through|same|kept|only|exactly|once|one|no|never|unpaid|paid|still|charg\w*|receives?|remain\w*|cents?)\b)(?:(?!\\n[ \t]*Rule:|\\n[\w-]+(?:\\n|")|(?<!\\)").)*?){3,5}(?=\\n(?:[\w-]+(?:\\n|")|")|(?<!\\)")
     flags: i
     weight: 2
   - name: proposes-distinct-payment-rules
@@ -178,7 +178,7 @@ graders:
   - name: checks-whether-the-cli-can-launch-a-role
     type: tool_used
     tool: Bash
-    input_match: '(?:\b(?:command\s+-v|which|type(?:\s+-[a-zA-Z]+)?)\s+claude\b|\bclaude\s+(?:-p\b|--(?:print|model|help|version|output-format)\b))'
+    input_match: '(?:\b(?:command\s+-v|which)\s+(?:[\w./-]+\s+)*claude\b|\btype(?:\s+-[a-zA-Z]+)?\s+claude\b|\bclaude\s+(?:-p\b|--(?:print|model|help|version|output-format)\b))'
   # A probe can be a Claude CLI call or a model-selected Agent call when the CLI is unavailable.
   # When a shell loop supplies the model at runtime, accept a usage result only when it names a single model.
   - name: tries-the-light-level
@@ -231,9 +231,21 @@ graders:
     pattern: 'gdd/gates/[^\n]*\b(?:correct (?:it|them|any|the|my|a)|(?:you (?:to|can|may|should)|please) correct)\b'
     flags: i
     weight: 2
-  - name: asks-the-person-to-approve
+  - name: names-the-files-to-approve
+    type: regex
+    pattern: '^(?=[\s\S]*\bgdd/blueprint\.md\b)(?=[\s\S]*\bgdd/constitution\.md\b)'
+    weight: 3
+  - name: asks-to-approve-the-files
     type: llm
-    criteria: The answer names the blueprint and the other files to read and asks the person to approve them together before building starts. It tells them what checks still need to be set up or tried and when. Asking “Do you approve them as they are?” after listing the files covers the blueprint. It does not say the project is ready for changes now.
+    criteria: Does the final question ask for one approval of the proposed project files together before building?
+    weight: 3
+  - name: waits-for-approval-before-changes
+    type: llm
+    criteria: Is it clear that the project still awaits approval before changes can begin?
+    weight: 3
+  - name: explains-what-remains-to-set-up
+    type: llm
+    criteria: Does the owner learn when the checks still awaiting setup or trial will be tried?
     weight: 3
   - name: writes-no-line-of-the-log-by-hand
     type: regex
@@ -252,3 +264,12 @@ graders:
     target: { source: file, path: gdd/log/blueprint.engine.jsonl }
     pattern: '"wrote"\s*:\s*\{[^}]*"step"\s*:\s*"prepare"'
     weight: 1
+  - name: stays-under-200-words
+    type: regex
+    pattern: '^\s*(?:\S+\s+){199}\S'
+    match: not_contains
+  - name: records-the-question-before-sending
+    type: regex
+    pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
+    flags: m
+    target: trace

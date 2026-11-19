@@ -60,7 +60,20 @@ graders:
     target: trace
     pattern: '"result":"(?:[^"\\]|\\.)*?(?:SKILL\.md|references/|skills/gdd)'
     match: not_contains
-  - name: sets-it-up-or-says-what-it-needs
+  - name: reports-the-outcome-with-the-layer
     type: llm
-    criteria: The answer does one of two things. Either it tells the person that the footer typo is fixed and in, with the checks that passed, once the project's GDD tool was set up, or it tells them that the GDD tool this project needs isn't installed in this copy, what it takes to get it (such as building it, or installing Rust), and that nothing was changed or shipped meanwhile. It does not say the typo went in while also saying the tool is missing, and it does not offer to go on without the tool.
+    criteria: Does the owner learn whether the footer was fixed and shipped through the installed layer or remains unchanged because the layer is unavailable?
     weight: 3
+  - name: names-the-next-step-or-passed-checks
+    type: llm
+    criteria: Does a blocked owner learn how to obtain the missing layer, or a successful owner learn which checks passed?
+    weight: 3
+  - name: offers-no-manual-bypass
+    type: llm
+    criteria: Does the answer keep the layer as a prerequisite for changing the shop?
+    weight: 3
+  - name: records-any-question-after-layer-setup
+    type: regex
+    pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:(?:[\w.-]+/)*\.?gdd/gdd|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$|(?<![\s\S])(?![\s\S]*?"type":"tool_result","content":"(?:[^"\\]|\\.)*?gdd \{\\"command\\":\\"brief\\",\\"color\\")[\s\S]*$)'
+    flags: m
+    target: trace
