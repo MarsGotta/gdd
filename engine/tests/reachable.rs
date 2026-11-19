@@ -37,9 +37,11 @@ fn brief_with_supplied_file(r: &Repo) {
         "gdd/briefs/example.md",
         "# Accept the supplied quantities\n",
     );
-    let mut feature = String::from("Feature: Supplied quantities\n");
+    let mut feature = String::from(
+        "Feature: Supplied quantities\n  Rule: Each supplied quantity appears on the receipt\n",
+    );
     for i in 1..=11 {
-        feature.push_str(&format!("\n  @brief:example @id:example-{i}\n  Scenario: Quantity {i}\n    Given {i} items\n    Then the receipt lists {i} items\n"));
+        feature.push_str(&format!("\n    @brief:example @id:example-{i}\n    Scenario: Quantity {i}\n      Given {i} items\n      When I read the receipt\n      Then the receipt lists {i} items\n"));
     }
     r.write("features/example.feature", &feature);
     follow(

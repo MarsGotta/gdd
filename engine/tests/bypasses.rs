@@ -48,10 +48,7 @@ fn yellow_sealed(r: &Repo, id: &str) -> String {
         &format!("gdd/briefs/{id}.md"),
         &format!("---\ncontract: gdd/1\nid: {id}\nversion: 1\n---\n\n# Ok\n"),
     );
-    r.write(
-        &format!("features/{id}.feature"),
-        &format!("Feature: Ok\n\n  @brief:{id} @id:{id}-1\n  Scenario: It says ok\n"),
-    );
+    r.write(&format!("features/{id}.feature"), &ok_feature(id));
     let files = [
         format!("gdd/briefs/{id}.md"),
         format!("features/{id}.feature"),

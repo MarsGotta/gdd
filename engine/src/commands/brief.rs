@@ -81,6 +81,108 @@ pub(super) fn pending_standing_checks(ctx: &Ctx) -> R<Option<state::Next>> {
     )
 }
 
+struct Scenario<'a> {
+    line: usize,
+    title: &'a str,
+    block: Vec<&'a str>,
+    under_rule: bool,
+    has_id: bool,
+    whens: usize,
+}
+
+fn scenarios(text: &str) -> Vec<Scenario<'_>> {
+    let mut result = Vec::new();
+    let mut current: Option<&mut Scenario> = None;
+    let mut tags: Vec<&str> = Vec::new();
+    let mut under_rule = false;
+    for (i, line) in text.lines().map(str::trim).enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('@') {
+            tags.push(line);
+            current = None;
+            continue;
+        }
+        let heading = line.split_once(':').map(|(key, _)| key);
+        if matches!(heading, Some("Scenario" | "Scenario Outline" | "Example")) {
+            let has_id = tags
+                .iter()
+                .flat_map(|tag| tag.split_whitespace())
+                .filter_map(|tag| tag.strip_prefix("@id:"))
+                .any(crate::valid_id);
+            tags.push(line);
+            result.push(Scenario {
+                line: i + 1,
+                title: line,
+                block: std::mem::take(&mut tags),
+                under_rule,
+                has_id,
+                whens: 0,
+            });
+            current = result.last_mut();
+        } else if matches!(heading, Some("Feature" | "Rule")) {
+            under_rule = heading == Some("Rule");
+            current = None;
+        } else if let Some(s) = current.as_mut() {
+            let word = line.split_whitespace().next().unwrap_or("");
+            if matches!(word, "Given" | "When" | "Then" | "And" | "But") {
+                s.block.push(line);
+                s.whens += usize::from(word == "When");
+            }
+        }
+        tags.clear();
+    }
+    result
+}
+
+fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec<String>) -> R<()> {
+    let text = std::fs::read_to_string(ctx.root.join(file))
+        .map_err(|e| crate::out::io(Path::new(file), e))?;
+    let language = text
+        .lines()
+        .map(str::trim)
+        .take_while(|line| line.is_empty() || line.starts_with('#'))
+        .find_map(|line| line.strip_prefix("# language:"));
+    if let Some(lang) = language.map(str::trim).filter(|lang| *lang != "en") {
+        out.say(format!(
+            "The layer cannot check the form of {file} because its language is {lang}."
+        ));
+        return Ok(());
+    }
+    let original = git::show(&ctx.root, base, file).unwrap_or_default();
+    let mut copies = std::collections::HashMap::new();
+    for s in scenarios(&original) {
+        *copies.entry(s.block).or_insert(0usize) += 1;
+    }
+    let mut changed = false;
+    for s in scenarios(&text) {
+        if let Some(count) = copies.get_mut(&s.block).filter(|n| **n > 0) {
+            *count -= 1;
+            continue;
+        }
+        changed = true;
+        let mut missing = Vec::new();
+        if !s.under_rule {
+            missing.push("Add a Rule: above this scenario.".into());
+        }
+        if !s.has_id {
+            missing.push("Add a valid @id:<id> tag.".into());
+        }
+        if s.whens != 1 {
+            missing.push(format!("Use exactly one When step (found {}).", s.whens));
+        }
+        if !missing.is_empty() {
+            let reasons = missing.join(" ");
+            faults.push(format!("{file}:{}: {}  {reasons}", s.line, s.title));
+        }
+    }
+    if !changed {
+        out.say(format!("{file} has no new or changed scenarios."));
+    }
+    Ok(())
+}
+
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
 /// the seal's tip, which must hold those same files.
 pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
@@ -132,11 +234,11 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 .sealed
                 .contains_key(f.trim_start_matches("./"))
         });
-        if let Some(&f) = sealed.first() {
+        let retry_commands = || {
             let files = a
                 .files
                 .iter()
-                .chain(sealed)
+                .chain(sealed.iter().copied())
                 .map(|p| gates::quote(p))
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -162,12 +264,15 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                     command.push_str(&format!(" {flag} {}", gates::quote(value)));
                 }
             }
+            (files, command)
+        };
+        if let Some(&f) = sealed.first() {
             return Err(Fail::refuse(
                 "sealed-path",
                 format!(
                     "{f} is sealed for {id}: it judges the change and is not one of its paths. What follows --paths counts as a path"
                 ),
-                command,
+                retry_commands().1,
             ));
         }
         let logged = l.state.progress.color.clone();
@@ -179,6 +284,20 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
             out.say(format!(
                 "the color is {}, not {asked}: judgment can raise the floor, never lower it",
                 c.color
+            ));
+        }
+        let mut faults = Vec::new();
+        for file in a.files.iter().filter(|f| f.ends_with(".feature")) {
+            check_form(ctx, &base, file, out, &mut faults)?;
+        }
+        if !faults.is_empty() {
+            let (files, retry) = retry_commands();
+            return Err(Fail::refuse(
+                "scenario-form",
+                format!("Some scenarios need a correction.\n{}", faults.join("\n")),
+                format!(
+                    "Fix the listed scenarios and run these commands.\ngdd seal {id} {files}\n{retry}"
+                ),
             ));
         }
         let mut files = Map::new();

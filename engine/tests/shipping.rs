@@ -18,10 +18,7 @@ fn yellow_brief(r: &Repo, id: &str) {
         &format!("gdd/briefs/{id}.md"),
         &format!("---\ncontract: gdd/1\nid: {id}\nversion: 1\nscenarios: [{id}-1]\nbacklog: y1\n---\n\n# A yellow change\n\n## What changes\n\nThe app says ok.\n\n## What it won't do yet\n\nNothing.\n\n## Undoing it\n\nRevert the merge.\n"),
     );
-    r.write(
-        &format!("features/{id}.feature"),
-        &format!("Feature: Ok\n\n  @brief:{id} @id:{id}-1\n  Scenario: It says ok\n"),
-    );
+    r.write(&format!("features/{id}.feature"), &ok_feature(id));
     let files = [
         format!("gdd/briefs/{id}.md"),
         format!("features/{id}.feature"),
@@ -651,7 +648,8 @@ fn a_change_that_turns_red_after_a_build_gets_its_new_brief_read() {
         .read("gdd/briefs/t1.md")
         .replace("version: 1", "version: 2");
     r.write("gdd/briefs/t1.md", &brief);
-    let scenarios = r.read("features/t1.feature") + "\n  Scenario: It takes the payment\n";
+    let scenarios = r.read("features/t1.feature")
+        + "\n  Rule: The payment can be submitted\n    @brief:t1 @id:t1-2\n    Scenario: It takes the payment\n      When I submit it\n      Then it is accepted\n";
     r.write("features/t1.feature", &scenarios);
     let files = ["gdd/briefs/t1.md", "features/t1.feature"];
     assert_eq!(r.gdd(&["seal", "t1", files[0], files[1]]).code, 0);
@@ -1214,7 +1212,7 @@ fn stock_checks_ready(r: &Repo, id: &str, color: &str, path: &str) {
             "---\nid: {id}\nversion: 1\ncolor: {color}\nscenarios: [last-unit, cancelled]\n---\n"
         ),
     );
-    r.write(&feature, &format!("Feature: Stock\n\n  @brief:{id} @id:last-unit\n  Scenario: Sell the last unit\n\n  @brief:{id} @id:cancelled\n  Scenario: Cancel a reservation\n"));
+    r.write(&feature, &format!("Feature: Stock\n  Rule: The count reflects available units\n    @brief:{id} @id:last-unit\n    Scenario: Sell the last unit\n      When I sell the last unit\n      Then none remain\n\n    @brief:{id} @id:cancelled\n    Scenario: Cancel a reservation\n      When I cancel the reservation\n      Then the unit is available again\n"));
     for args in [
         vec!["seal", id, &brief, &feature],
         vec!["brief", id, &brief, &feature, "--paths", path],

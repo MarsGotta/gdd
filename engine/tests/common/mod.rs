@@ -408,10 +408,16 @@ pub fn sealed_report(checks: &[&str]) -> String {
     )
 }
 
+pub fn ok_feature(id: &str) -> String {
+    format!(
+        "Feature: Ok\n  Rule: The app reports its status\n    @brief:{id} @id:{id}-1\n    Scenario: It says ok\n      Given the app\n      When I read its status\n      Then it says ok\n"
+    )
+}
+
 /// A yellow change with its brief and its scenario, sealed and logged: it waits for the person's yes.
 pub fn yellow_brief(r: &Repo, id: &str, path: &str) {
     r.write(&format!("gdd/briefs/{id}.md"), &format!("---\ncontract: gdd/1\nid: {id}\nversion: 1\ncolor: yellow\nzones: [core]\ntouches:\n  - '{path}'\nscenarios: [{id}-1]\nbacklog: {id}\n---\n\n# A yellow change\n\n## Request\n\n\"Make it ok.\"\n\n## What changes\n\nThe app says ok.\n\n## What it won't do yet\n\nNothing else.\n\n## Undoing it\n\nRevert the merge.\n"));
-    r.write(&format!("features/{id}.feature"), &format!("Feature: Ok\n\n  @brief:{id} @id:{id}-1\n  Scenario: It says ok\n    Given the app\n    Then it says ok\n"));
+    r.write(&format!("features/{id}.feature"), &ok_feature(id));
     let s = r.gdd(&[
         "seal",
         id,

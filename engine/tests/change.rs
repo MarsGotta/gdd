@@ -454,7 +454,7 @@ fn a_red_change_stops_on_a_reviewers_stop() {
     );
     r.write(
         "features/r1.feature",
-        "Feature: Pay\n\n  @brief:r1 @id:r1-1\n  Scenario: x\n",
+        "Feature: Pay\n  Rule: The result is visible\n    @brief:r1 @id:r1-1\n    Scenario: x\n      When I read the result\n      Then I see it\n",
     );
     r.gdd(&["seal", "r1", "gdd/briefs/r1.md", "features/r1.feature"]);
     let b = r.gdd(&[
@@ -843,7 +843,7 @@ fn a_new_scenario_needs_the_role_to_seal_again() {
     let r = Repo::new();
     checked(&r, "y7");
     let f = r.read("features/y7.feature")
-        + "\n  @brief:y7 @id:y7-2\n  Scenario: It refuses a bad value\n    Given the app\n    Then it refuses\n";
+        + "\n  Rule: The app refuses invalid input\n    @brief:y7 @id:y7-2\n    Scenario: It refuses a bad value\n      Given the app\n      When I enter a bad value\n      Then it refuses\n";
     r.write("features/y7.feature", &f);
     new_version(&r, "y7", &["gdd/briefs/y7.md", "features/y7.feature"], &[]);
     approved(&r, "y7");
@@ -1042,7 +1042,7 @@ fn a_scenario_changed_on_main_needs_the_role_to_seal_again() {
     r.commit("The brief lands on main as it is");
     assert_eq!(r.gdd(&["seal", "yp", "--merge-main"]).code, 0);
     let f = r.read("features/yp.feature")
-        + "\n  @brief:yp @id:yp-2\n  Scenario: It refuses a bad value\n    Given the app\n    Then it refuses\n";
+        + "\n  Rule: The app refuses invalid input\n    @brief:yp @id:yp-2\n    Scenario: It refuses a bad value\n      Given the app\n      When I enter a bad value\n      Then it refuses\n";
     r.write("features/yp.feature", &f);
     r.commit("A scenario changed on main");
     assert_eq!(r.gdd(&["seal", "yp", "--merge-main"]).code, 0);

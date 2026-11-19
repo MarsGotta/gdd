@@ -487,6 +487,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 98. **Put the instruction where the agent reads it.** In three runs of 36 cases, 11 passed every time, 12 never passed and 13 varied. Agents followed the message template but missed instructions beneath it or in a reference. Put what they must always do in the skill body and in the prompt or next step the layer prints.
 
+99. **Check scenario form when the brief is recorded.** In three runs per case, more serious findings could take all three places in the reader's report and leave a scenario's form unreported. The layer checks for a preceding rule, a valid scenario id and one action. The reader judges the values, the scope of each rule and which assumptions need a tag.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.
