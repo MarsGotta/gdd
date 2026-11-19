@@ -82,7 +82,13 @@ When you tell the person the change is in, give each reported choice one line in
 
 ## When a limit stops the work
 
-If they delegated and other work can go on, defer it. Say what works and what is left. Send no question or offer. When gdd next names an independent backlog item, other work can go on. Give no reason for refusing another attempt. To defer, keep or add the item in the backlog and use `gdd brief <id> --stop "<what is left>"`. Otherwise use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
+If they delegated and other work can go on, defer it: say what works and what is left and end the message there, with no question, no offer of another attempt and no word on who could allow one. Other work can go on when `gdd next`, run without an id, names a backlog item that doesn't need this one. To defer, keep or add the item in the backlog and use `gdd brief <id> --stop "<what is left>"`. Otherwise use one `gdd ask <id> --of waiver` in their language. Say what works, what is missing, which allowance another attempt would extend, how much was used and what one more could achieve. Log that whole offer in the question you send, so their reply names a specific choice. When other work can go on, propose leaving this for later. Never offer to split a change when a cap runs out.
+
+When they delegated and other work can go on, the message asks nothing:
+
+    Your songbook shows the lyrics. The chords still come out a line too low, so I've left them for later and gone on with the index.
+
+Otherwise it asks once:
 
     Your songbook shows the lyrics. I still need to check the chords. I've used both tries we agreed on. One more would let me fix and check the chords. I'd leave that for later. Yes?
 

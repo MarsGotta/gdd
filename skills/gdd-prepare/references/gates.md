@@ -6,7 +6,7 @@ Open this before you propose any gate. Which gates a project needs is the person
 
 Read the sector sources as `references/research.md` describes and follow this project's data through the zone. Propose three to five losses the person would recognize. For example, a voice recorder might erase the first part when you pause, show a recording as saved when the disk was full, or overwrite yesterday's recording when you start today's. Choose what fits the zone and the product. The person can correct the rules with the blueprint.
 
-Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one can observe them. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Place their tests in the backlog as described under Gates in `gdd-prepare`. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
+Put each proposal in its own `Rule:` in the zone's feature. Tag the bad and good scenarios for the reviewer and also for a machine check wherever one could observe them, even before its test is written. Link the file from the zone's `gates` field so the reviewer answers each rule whenever a change touches it. In a new product the rules can be read from day one. Place their tests in the backlog as described under Gates in `gdd-prepare`. A yellow or green zone gets its own gates only when the person asks or hardening gives it one.
 
 ## What the project already has
 
