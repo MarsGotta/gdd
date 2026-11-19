@@ -2,7 +2,7 @@
 
 A level is a model, by the name the agents' environment launches it with, never a description of how much it reasons. The person decides the levels, and you propose first. A blueprint that says light while everything runs on the deep model measures nothing, so each level is tried before it counts.
 
-How much a role reasons goes in `launch`, not in the level. Where the environment takes a reasoning effort, propose the one the person's own sessions run with, the same for every level, so that no role runs on the environment's default.
+How much a role reasons goes in `launch`, not in the level. Where the environment takes a reasoning effort, propose the one the person's own sessions run with, the same for every level, so that no role runs on the environment's default. If you can't tell which one that is, propose the middle one the environment offers, never a higher one.
 
 ## See what there is
 
@@ -17,6 +17,8 @@ For each environment, one model for each level, with a line on what it's for and
 - light: the cheapest that does mechanical work well, for green changes;
 - standard: the provider's everyday model, for yellow changes and for building red ones;
 - deep: its most capable, for preparing, hardening and the brief of a red change.
+
+Check the order against the provider's own prices: deep costs the most and light the least. A cheaper model on a higher level is a mistake, whatever its name suggests.
 
 Leave previews and experimental models out, unless the person asks for one.
 

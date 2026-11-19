@@ -3,7 +3,7 @@ name: gdd-close
 description: Closes a change of a Gate-Driven Development (GDD) project once it is in use, by gathering what can be seen against what its brief expected and recording the person's verdict, a yes, a not yet or a no. Loaded by the GDD orchestrator when the person asks to look at a change in use or says whether it helped. Not for a change that hasn't shipped, and never to give the verdict itself.
 license: MIT
 metadata:
-  version: "0.17.0"
+  version: "0.17.1"
   contract: gdd/1
 ---
 
