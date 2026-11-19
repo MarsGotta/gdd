@@ -120,7 +120,7 @@ Every change gets the color of the most delicate thing it touches, and the color
 | Something yellow | A filter in the catalog | You approve what it has to do, in a short message, before anyone builds |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
-**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words: each new or changed rule on its own line, its own assumptions marked as its own, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
+**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words, or 200 on red: each new or changed rule on its own line, its own assumptions marked as its own, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
 
 > You'll see only the products that come in the size you pick.
 >
@@ -200,7 +200,7 @@ How far that holds depends on where your gates run. With the skills alone, the a
 
 ## Status
 
-- **Version 0.16, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
+- **Version 0.17, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
 - **Each of the five moments has a skill.** Close waits for your verdict once a change is in use, and holds nothing up.
 - **The engine that enforces the method,** [T-minus](https://github.com/MarsGotta/t-minus), has its own repository and is still in development.
 

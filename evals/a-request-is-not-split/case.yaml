@@ -78,9 +78,9 @@ graders:
     min: 0
     max: 0
     weight: 2
-  - name: stays-under-150-words
+  - name: stays-under-200-words
     type: regex
-    pattern: '^\s*(?:\S+\s+){149}\S'
+    pattern: '^\s*(?:\S+\s+){199}\S'
     match: not_contains
     weight: 2
   - name: names-no-file-of-the-method

@@ -2,6 +2,16 @@
 
 What every agent needs at every gate and can't work out from the code. It goes into every call, so keep it short. A rule that matters in only one zone goes to that zone's context in the blueprint.
 
+## The product
+
+Five lines, each marked as seen or as assumed. "Not known yet" is an answer, and it stays in sight until someone knows.
+
+- **Who it is for:** <a person you could name, and what they are trying to do>
+- **What happens to them today:** <what they do without it, and what that costs them>
+- **What the first version leaves out:** <what waits, as a consequence they can weigh>
+- **How we'll know it serves:** <the signal that it helps, and the one that would make us stop>
+- **The biggest doubt:** <what would change the plan if it turned out wrong>
+
 ## Stack
 
 - <languages, frameworks and their versions>

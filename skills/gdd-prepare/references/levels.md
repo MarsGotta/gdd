@@ -2,6 +2,8 @@
 
 A level is a model, by the name the agents' environment launches it with, never a description of how much it reasons. The person decides the levels, and you propose first. A blueprint that says light while everything runs on the deep model measures nothing, so each level is tried before it counts.
 
+How much a role reasons goes in `launch`, not in the level. Where the environment takes a reasoning effort, propose the one the person's own sessions run with, the same for every level, so that no role runs on the environment's default.
+
 ## See what there is
 
 - **The environments.** The one you run in, and any other the person works from: look for their commands on the path, and ask which ones the project will be worked from. Each goes in the blueprint by the name of its command.
@@ -24,11 +26,11 @@ Ask for a yes to the whole proposal, so that a person who can't choose a model c
 
 ## Try each one
 
-A level counts once you've seen it launch. Before you start, tell the person how many sessions the try opens, and on which accounts. Then, for each level of each environment, and for the reviewer's, launch a role the way a change will launch it, its skill named, with nothing to do but end with its report, and look at which model ran: what the environment reports for that session. Where it reports nothing, the level hasn't been seen: log what the role says it is as its own word, and tell the person in the approval's line on what you couldn't confirm, without a model's name.
+A level counts once you've seen it launch. Before you start, tell the person how many sessions the try opens, and on which accounts. Then, for each level of each environment, and for the reviewer's, launch a role the way a change will launch it, its skill named, with nothing to do but end with its report, and look at which model ran, and with which effort where the environment says: what it reports for that session. Where it reports nothing, the level hasn't been seen: log what the role says it is as its own word, and tell the person in the approval's line on what you couldn't confirm, without a model's name.
 
-- **Try the command line first.** If it starts a fresh role on the agreed model, put that command in `launch` with `<model>` where the name goes. Include the JSON output flag when available. For example, `codex exec --json -m <model>` takes the prompt last. On a change, `gdd launch <id> <role> --run` waits, writes the step and records its seconds and the tokens the environment reports.
+- **Try the command line first.** If it starts a fresh role on the agreed model, put that command in `launch` with `<model>` where the name goes. Include the JSON output flag when available. For example, `codex exec --json -m <model> -c model_reasoning_effort=medium` takes the prompt last. On a change, `gdd launch <id> <role> --run` waits, writes the step and records its seconds and the tokens the environment reports.
 - For the try, close standard input (`< /dev/null`) and check within a minute that the session wrote something. The layer does both on a change. Keep the sandbox and permission settings unless the person asks to change them.
-- **If the command line cannot launch that model here,** try the agent tool with its model field. Write that route in `launch` only if it starts the agreed model. An alias and the full name it stands for count as the same model.
+- **If the command line cannot launch that model here,** try the agent tool with its model field, and its reasoning effort field where it has one. Write that route in `launch` only if it starts the agreed model. An alias and the full name it stands for count as the same model.
 - **Neither works:** every role there runs on the orchestrator's own model, whichever it is that day. Tell the person and ask what to write: nothing goes in `levels` that they didn't say yes to.
 
 Record each try in the `--levels` of `gdd step blueprint prepare`, as `{"environment","level","launch","model"}`: how it was launched and the model that ran.

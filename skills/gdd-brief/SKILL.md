@@ -3,7 +3,7 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.16.1"
+  version: "0.17.0"
   contract: gdd/1
 ---
 
@@ -34,7 +34,7 @@ After the seven questions below, put each scenario under the rule it checks. Eac
 2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you give its reason to `gdd brief` with `--color <color> --why "<reason>"`. By default, a change that adds behavior someone would see is at least yellow, wherever its paths fall. Correcting a text adds none, and behind a switch that is off nobody sees it yet. What can't be undone is never green: deleting data, a migration with no way back, anything sent outside.
 3. **What no zone covers.** Judge it against what the blueprint marks as delicate, and why: red if it does what a red zone does, or feeds one, and yellow if it doesn't, and ask only when you can't tell which. The request was the yes: brief it at that color with `--color` and `--why`, even at the floor, and add the pathspec or zone you'd propose to the backlog with `gdd backlog add`, without asking. Tell the person in one line what you judged, never as the plan's rule, "The plan doesn't cover the guide yet. I treated the change as medium risk and proposed a place for guides in the plan", and go on. The blueprint changes only when they approve it, with `gdd-prepare`, and until then every change that touches the path is judged again.
 
-The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up, so a low one saves nothing. "It's just a small change" isn't a color either: what can go wrong decides it.
+The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up. "It's just a small change" isn't a color either: what can go wrong decides it.
 
 On green there's no brief file, unless the blueprint's green asks for `brief-approval`: run `gdd brief <id> --paths <path>... --why "<reason>" --request "<their words>"`, which writes the `brief` step with them, and the change goes on with the existing checks. On yellow or red, write the brief.
 
@@ -86,7 +86,7 @@ Write the brief and its scenarios in your own copy, the one the person has open,
 
 Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. These name the brief rule that needs correction, or the scenario missing its rule. Other additions cite a constitution or zone rule or a loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
-If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. Ask only when approval is due: put each line it prints in one message under 150 words in their language.
+If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. Ask only when approval is due: put each line it prints in one message in their language, under 150 words on yellow and 200 on red.
 
     <What the change will do, in their words.>
     <Each new or changed rule the person gave in their own words, one per line.>
@@ -111,6 +111,6 @@ Example for a photo gallery:
 >
 > You can read the cases in `features/albums.feature`. Shall I go ahead with these rules?
 
-Count the words with a command. At 150 or more, cut what the shape omits (the reading, the backlog). Shorten lines without dropping a rule. Check each added or changed rule appears once, including each assumption, that what closes it has its line, and each scenario without a rule has its own line. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
+Count the words with a command. At the limit or more, cut what the shape omits (the reading, the backlog). Shorten lines without dropping a rule. Check each added or changed rule appears once, including each assumption, that what closes it has its line, and each scenario without a rule has its own line. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
 
 If the person edits their copy, you revise a logged brief, or a change comes back (an agent stopped or its color rose), open `references/brief-versions.md`.

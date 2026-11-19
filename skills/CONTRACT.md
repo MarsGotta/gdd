@@ -93,6 +93,16 @@ Map: `gdd/blueprint.md` zones and gates, `gdd/gates/` their scenarios, `gdd/brie
 
 What every agent needs at every gate and can't work out from the code. It goes into every call, so keep it short. A rule that matters in only one zone goes to that zone's context in the blueprint.
 
+## The product
+
+Five lines, each marked as seen or as assumed. "Not known yet" is an answer, and it stays in sight until someone knows.
+
+- **Who it is for:** <a person you could name, and what they are trying to do>
+- **What happens to them today:** <what they do without it, and what that costs them>
+- **What the first version leaves out:** <what waits, as a consequence they can weigh>
+- **How we'll know it serves:** <the signal that it helps, and the one that would make us stop>
+- **The biggest doubt:** <what would change the plan if it turned out wrong>
+
 ## Stack
 
 - <languages, frameworks and their versions>
@@ -334,7 +344,7 @@ END {
 The front matter is what agents read; the diagram and the table are for the person. Its fields:
 
 - `guarantee`: how far out of the builder's reach the checks are: `rule`, `platform` or `engine`. The person sets it when preparing, after the probe.
-- `levels`: for each agents' environment the project is worked from, named by its command, the model it uses for each level, by the name that environment launches it with, and in `launch` how a role gets its model there: the tested command with `<model>` for `gdd launch <id> <role> --run`, or the agent tool with its model field where no command can launch the agreed model. The reviewer runs at the level of the change, on the same family of models: `reviewer` holds its models only when they are of another family, once one was seen to work when preparing. The person decides them when preparing, from what each environment offers, and a level counts once it has been seen to launch. The skills never name one. A blueprint with the three levels directly under `levels` was written before version 0.4: they belong to the environment it was prepared in.
+- `levels`: for each agents' environment the project is worked from, named by its command, the model it uses for each level, by the name that environment launches it with, and in `launch` how a role gets its model there, with the reasoning effort where the environment takes one: the tested command with `<model>` for `gdd launch <id> <role> --run`, or the agent tool with its model field where no command can launch the agreed model. The reviewer runs at the level of the change, on the same family of models: `reviewer` holds its models only when they are of another family, once one was seen to work when preparing. The person decides them when preparing, from what each environment offers, and a level counts once it has been seen to launch. The skills never name one. A blueprint with the three levels directly under `levels` was written before version 0.4: they belong to the environment it was prepared in.
 - `limits`: what holds for a change of any color, which the project's `gdd/limits.sh` counts from the log when it has one. The layer counts the builder's added and removed lines between `<start>` and the change's head, leaving out bookkeeping. Above `lines_per_change`, it gives the size to the reviewer and the orchestrator mentions it in one line of the summary. Size alone never stops work or takes a waiver. `seconds_each_round` is how long the checks that run each round may take together, and `seconds_before_review` the ones that run before the review: a check that takes longer than its tier allows moves to the one before the review, and a run past it counts as it came out and goes to the backlog for hardening, never cut off. The cap on tokens has no default, and applies only where the agents' environment reports them. The caps of one change are in each color's own `limits`, and a cap written directly here, as in blueprints from before 0.10, holds for every color that doesn't set its own. The template's values are a start: the team sets its own when preparing, and corrects them with what its logs show.
 - `gates`: the gates of the project, the same for every change: each one's id, the feature that specifies it (`spec`) and the checks that demonstrate it. A gate is passed when every check of it that applies has passed. A blueprint without `gates` was written before version 0.6 and reads as before: its checks are its gates.
 - `checks`: every standing check, one list for the whole project and never one for each zone, with its type (`machine`, `reviewer` or `person`) and, for machine checks, the exact command from the constitution. The command of `seal` is the same in every project, and takes `<start>` and the sealed paths from the log of each change. A check may also say what counts as passing when exit 0 isn't all of it (`passes`), the bad case to plant to see it fail (`breaks`), the pathspecs a change has to touch for it to apply (`when`), and `cases: each change` when its cases are written for every change with a brief. It may say when it runs (`runs`): `each round`, or `before review`, once the rest pass, for what takes too long to pay for in every fix round. A check without `runs` runs each round, as before 0.10, so a blueprint without it reads as it did. Where a check applies, and on what, is decided here and in `colors`: no change relaxes one.
@@ -356,7 +366,7 @@ contract: gdd/1
 guarantee: <rule, platform or engine>
 levels:  # one block for each agents' environment the project is worked from
   <environment, by the name of its command>:
-    launch: <tested command with <model>, or how the agent tool selects the model if no such command works here>
+    launch: <tested command with <model> and, where the environment takes one, the reasoning effort; or how the agent tool selects them if no such command works here>
     light: <model for little reasoning, cheap and fast, by the name that environment launches it with>
     standard: <model for normal reasoning>
     deep: <model for the most reasoning>

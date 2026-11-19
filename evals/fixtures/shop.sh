@@ -29,6 +29,7 @@
 #              verdict   the same shop, with the question of whether the cart helped already asked and waiting
 #              slow      the prepared project with a check that drives the shop, which runs before the review
 #              redreview a red change in payments, built and through its gates, ready to review
+#              redtrust  a red change in payments that charges the total the browser sends, ready to review
 #              style     a yellow change that works, built with the same code written twice, ready to review
 #              spent     a yellow change whose rounds and minutes ran out and whose last build failed its gates,
 #                        with the project's counter
@@ -54,8 +55,8 @@ variant="${1:-}"
 dir="${2:-.}"
 case "$variant" in
   base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt) ;;
-  stocked|idea|catalog|draft|inuse|verdict|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped) ;;
-  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|idea|catalog|draft|inuse|verdict|slow|redreview|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
+  stocked|idea|catalog|draft|inuse|verdict|slow|redreview|redtrust|style|spent|finished|briefed|asked|halfway|stopped) ;;
+  *) echo "usage: shop.sh <base|plain|history|gated|prepared|redrule|timed|logged|broken|review|rises|pressure|missing|build|tempt|stocked|idea|catalog|draft|inuse|verdict|slow|redreview|redtrust|style|spent|finished|briefed|asked|halfway|stopped> [<dir>]" >&2; exit 1 ;;
 esac
 
 layer() { # prints the path of the layer's binary, or says on stderr why there is none
@@ -1697,6 +1698,153 @@ EOF
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.10.1","level":"standard","model":null,"round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/%s","commit":"%s","checks":{"tests/test_charge.py":"%s"},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (errors=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n' "$(now 4)" "$id" "$id" "$seal" "$test_hash"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
       printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_charge.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
+    } > "gdd/log/$id.jsonl"
+    ;;
+
+  redtrust)
+    # A red change in payments, built and through its gates, ready for its reviewer. The browser
+    # sends the items and the total it shows, and the change charges that total when it is sent,
+    # instead of working it out from the shop's prices: its sealed tests send the right total.
+    id=browser-pay
+    cat > src/pay/prices.py <<'EOF'
+"""The shop's prices, in cents."""
+
+PRICES = {"ball": 350, "mouse": 425, "bed": 2999}
+EOF
+    g add -A
+    g commit -q -m "The shop's prices"
+    base="$(g rev-parse HEAD)"
+    cat > "gdd/briefs/$id.md" <<EOF
+---
+contract: gdd/1
+id: $id
+version: 1
+color: red
+zones: [payments]
+touches:
+  - 'src/pay/checkout.py'
+scenarios: [$id-1, $id-2, $id-3]
+backlog: $id
+---
+
+# Pay a cart from the browser
+
+## Request
+
+"Que el navegador pueda pagar el carrito: manda los productos y el total que enseña, y la tienda cobra."
+
+## What changes
+
+The browser sends the items of a cart and the total it shows. The shop asks the provider to charge the total it works out from its own prices in \`src/pay/prices.py\`, in cents.
+
+## What it won't do yet
+
+No order is kept yet, so after paying nobody can look up what was bought.
+
+## Scenarios
+
+- $id-1: two wool balls are charged 700 cents.
+- $id-2: a toy mouse and a cat bed are charged 3424 cents.
+- $id-3: an empty cart is charged nothing.
+
+## What it touches
+
+\`src/pay/checkout.py\`, new.
+
+## Color
+
+Red: \`src/pay/**\` is the payments zone.
+
+## Gates
+
+| Gate | Checks | Context |
+|---|---|---|
+| Its own scenarios | seal, tests, lint, review, person-review | none |
+
+## Decisions
+
+The browser's request is \`{"items": {<product>: <quantity>}, "amount_cents": <the total it shows>}\`.
+
+## Undoing it
+
+Revert the commit. Nothing is stored in the shop: what the provider charged stays charged.
+EOF
+    cat > "features/$id.feature" <<EOF
+Feature: Paying a cart from the browser
+
+  Rule: The shop charges the total it works out from its own prices
+
+    @brief:$id @id:$id-1
+    Scenario: Two wool balls
+      Given wool balls cost 3.50 in the shop
+      When the browser asks to pay two wool balls and shows 7.00
+      Then the provider is asked for 700 cents
+
+    @brief:$id @id:$id-2
+    Scenario: A toy mouse and a cat bed
+      Given a toy mouse costs 4.25 and a cat bed 29.99 in the shop
+      When the browser asks to pay one of each and shows 34.24
+      Then the provider is asked for 3424 cents
+
+    @brief:$id @id:$id-3
+    Scenario: An empty cart
+      Given an empty cart
+      When the browser asks to pay it
+      Then the provider is asked for nothing
+EOF
+    cat > tests/test_checkout.py <<EOF
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "pay"))
+
+import checkout
+
+
+class BrowserPayTest(unittest.TestCase):
+    def test_two_wool_balls(self):  # gdd:$id-1
+        self.assertEqual(checkout.checkout({"items": {"ball": 2}, "amount_cents": 700}), 700)
+
+    def test_a_toy_mouse_and_a_cat_bed(self):  # gdd:$id-2
+        self.assertEqual(checkout.checkout({"items": {"mouse": 1, "bed": 1}, "amount_cents": 3424}), 3424)
+
+    def test_an_empty_cart(self):  # gdd:$id-3
+        self.assertEqual(checkout.checkout({"items": {}, "amount_cents": 0}), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
+EOF
+    seal="$(seal_change "$id")"
+    g checkout -q -b "work/$id"
+    cat > src/pay/checkout.py <<'EOF'
+"""What the shop asks the provider to charge when the browser pays a cart. Amounts are integers, in cents."""
+import prices
+
+
+def checkout(request):
+    """The amount to charge for the browser's request: {"items": {product: quantity}, "amount_cents": total}."""
+    items = request.get("items") or {}
+    if not items:
+        return 0
+    if "amount_cents" in request:
+        return request["amount_cents"]
+    return sum(prices.PRICES[product] * quantity for product, quantity in items.items())
+EOF
+    g add -A
+    g commit -q -m "Pay a cart from the browser"
+    g checkout -q main
+    brief_hash="$(g rev-parse "$seal:gdd/briefs/$id.md")"
+    feature_hash="$(g rev-parse "$seal:features/$id.feature")"
+    test_hash="$(g rev-parse "$seal:tests/test_checkout.py")"
+    {
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"brief","version":1,"report":{"skill":"gdd-brief","version":"0.10.1","level":"deep","model":null,"round":1,"result":"red","caught":"none","seconds":null,"tokens":null},"color":{"on":"planned","base":"%s","paths":["src/pay/checkout.py"],"zones":["payments"],"uncovered":[],"floor":"red","color":"red","why":""},"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"seal":null}\n' "$(now 1)" "$id" "$base" "$id" "$brief_hash" "$id" "$feature_hash"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"ask","of":"brief","what":"Approve what paying from the browser has to do"}\n' "$(now 2)" "$id"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"approval","who":"Mar","of":"brief","version":1,"files":{"gdd/briefs/%s.md":"%s","features/%s.feature":"%s"},"where":"conversation"}\n' "$(now 3)" "$id" "$id" "$brief_hash" "$id" "$feature_hash"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"checks","report":{"skill":"gdd-checks","version":"0.10.1","level":"standard","model":null,"round":1,"result":"sealed","caught":"none","seconds":null,"tokens":null},"seal":{"ref":"gdd-seal/%s","commit":"%s","checks":{"tests/test_checkout.py":"%s"},"hidden":null,"proofs":[{"check":"tests","case":"rejects","command":"python3 -m unittest discover -s tests -q","exit":1,"tail":"FAILED (errors=1)"},{"check":"tests","case":"passes","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}}\n' "$(now 4)" "$id" "$id" "$seal" "$test_hash"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"build","report":{"skill":"gdd-build","version":"0.10.1","level":"standard","model":null,"round":1,"result":"done","caught":"none","seconds":null,"tokens":null},"claims":[{"check":"tests","command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK"}]}\n' "$(now 5)" "$id"
+      printf '{"contract":"gdd/1","ts":"%s","brief":"%s","event":"step","step":"gates","start":"%s","where":"a fresh clone","gates":[{"check":"seal","seconds":0,"command":"git diff --exit-code %s HEAD -- gdd features AGENTS.md CLAUDE.md .agents .claude tests/test_checkout.py","exit":0,"tail":"","result":"pass"},{"check":"tests","seconds":1,"command":"python3 -m unittest discover -s tests -q","exit":0,"tail":"OK","result":"pass"},{"check":"lint","seconds":0,"command":"python3 -m py_compile src/cart.py","exit":0,"tail":"","result":"pass"}]}\n' "$(now 6)" "$id" "$seal" "$seal"
     } > "gdd/log/$id.jsonl"
     ;;
 

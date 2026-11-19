@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: reviewer-tries-the-plain-ways-first
-description: "A red change in payments, built and through its gates: the charge takes its prices from whoever calls it and keeps what it charged only in memory. The reviewer opens the full review, tries a price of its own and a restart, and asks for a fix that says the amount can differ from the cart and a cart can be charged again after a restart."
+description: "A red change in payments, built and through its gates, that keeps what it charged only in memory. The reviewer opens the full review, tries a restart, and asks for a fix that says a cart can be charged again after the shop restarts."
 tags: [role, review]
 runs: 3
 execution:
@@ -43,14 +43,10 @@ graders:
     type: regex
     pattern: '^\s*fix\b'
     weight: 3
-  - name: finds-the-amount-comes-from-the-caller
-    type: llm
-    criteria: Does a numbered finding say that the amount charged comes from the prices whoever calls the charge passes in, so a cart can be charged something other than its total?
-    weight: 3
   - name: finds-a-second-charge-after-a-restart
     type: llm
     criteria: Does a numbered finding say that a cart can be charged again once the shop restarts, because what was charged is kept only in memory?
-    weight: 2
+    weight: 3
   # First reading or review: no previous findings and no reviewed stamp in this prompt.
   - name: ends-with-its-report
     type: regex
