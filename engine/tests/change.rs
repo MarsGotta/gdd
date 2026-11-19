@@ -115,7 +115,7 @@ fn a_green_change_from_brief_to_ship() {
 }
 
 fn build_report(field: &str) -> String {
-    format!("```gdd-report\nskill: gdd-build 0.14.0\nresult: done\ncaught: none\n{field}```")
+    format!("```gdd-report\nskill: gdd-build 0.14.1\nresult: done\ncaught: none\n{field}```")
 }
 
 fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
@@ -2442,7 +2442,7 @@ fn a_checks_stop_that_names_nothing_is_refused() {
     approved(&r, "yx");
     for (attempt, vague) in [
         "CANNOT: I could not prove the checks for all eleven scenarios",
-        "CANNOT: gdd-seal/yx stays at 4575d37, version 0.14.0",
+        "CANNOT: gdd-seal/yx stays at 4575d37, version 0.14.1",
     ]
     .iter()
     .enumerate()
