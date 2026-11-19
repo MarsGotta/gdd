@@ -18,6 +18,8 @@ Set it up from that `engine/` folder as it is, never from source you changed. Wh
 
 Without a working Rust toolchain nothing builds, and the skills don't work by hand: tell the person in one line what it takes, and stop. That line is the whole message: what is missing and the one step that gets it. Leave out the error text, what else is on the path and what you tried. "GDD needs a small tool built with Rust, which this computer doesn't have yet: install it from rustup.rs and I'll go on. Shall I wait?" Never write the log yourself meanwhile.
 
+The first build downloads what the layer depends on, once for each computer. Where it can't reach the network, say so the same way, in one line with the one step that gets it, and stop. Never fetch a built binary from anywhere else. "GDD's small tool has to download its parts once and I have no network here: run `sh <plugin>/engine/build.sh` in your terminal and I'll go on. Shall I wait?"
+
 ## What CI runs
 
 On `rule`, the layer is within the reach of the agents that run it, like any file of the repository. What keeps it honest is CI, where no agent writes:
@@ -29,4 +31,4 @@ The gates run in a fresh copy of the repository, which holds only what git holds
 
 A job that runs in a container often checks the repository out as another user, and git then refuses to read it. The layer refuses every command there, `verify` included, instead of going on without git, and names the line that marks the folder as safe: put it in the job, before the layer runs (`git config --global --add safe.directory "$PWD"`). Neither command writes a commit, so CI needs no name and email in git. A copy that seals or ships does, and where git has none the layer stops and asks whose they are: never make them up.
 
-CI builds the layer from the same source, with `cargo install --locked --git https://github.com/MarsGotta/gdd gdd`. Both go in the protections you give the person to apply, as required checks of the main branch, because setting them up takes their credentials.
+CI builds the layer from the same source and the same version, with `cargo install --locked --git https://github.com/MarsGotta/gdd --tag v<version> gdd`, where `<version>` is the `version` in this skill's front matter: each version of the skills has its tag there. Both go in the protections you give the person to apply, as required checks of the main branch, because setting them up takes their credentials.
