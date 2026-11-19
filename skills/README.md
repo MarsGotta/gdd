@@ -4,7 +4,7 @@ You ask your agent for a filter by instrument in your songbook. One agent writes
 
 That's a lot to explain every time, so it's written down once, in seven skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
 
-This is version 0.14, with contract `gdd/1`.
+This is version 0.15, with contract `gdd/1`.
 
 ## The four moments
 
