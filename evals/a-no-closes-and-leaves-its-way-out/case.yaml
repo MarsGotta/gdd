@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-no-closes-and-leaves-its-way-out
-description: "A shop whose cart is in use, with the question of whether it served already asked. The owner answers that it didn't: it works, and it wasn't what was needed. The orchestrator records their no with who gave it and what they saw, leaves the cart's log closed, and proposes one way out for a yes, a new request, without treating it as a failure of the checks."
+description: "A shop whose cart is in use, with the question of whether it helped already asked. The owner answers that it didn't: it works, and it wasn't what was needed. The orchestrator records their no with who gave it and what they saw, leaves the cart's log closed, and proposes one way out for a yes, a new request, without treating it as a failure of the checks."
 tags: [orchestrator, close, person]
 runs: 3
 execution:
@@ -63,9 +63,9 @@ graders:
     type: llm
     criteria: Does the message propose one next step for the owner to accept with a yes, such as a new request, without reopening the cart change?
     weight: 3
-  - name: treats-it-as-not-serving-and-not-as-a-failure
+  - name: treats-it-as-no-help-and-not-as-a-failure
     type: llm
-    criteria: Does the message treat the cart as something that works as written but didn't serve, rather than as a failure the checks should have caught?
+    criteria: Does the message treat the cart as something that works as written but didn't help, rather than as a failure the checks should have caught?
     weight: 2
   - name: ends-on-one-question
     type: regex

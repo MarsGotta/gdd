@@ -26,7 +26,7 @@
 #              draft     the catalog shop with a draft brief for paying by card that says nothing about stock
 #              inuse     the catalog shop whose cart said in its brief how it would close: it is in use, nobody
 #                        gave a verdict, and the export of carts it named is there to look at
-#              verdict   the same shop, with the question of whether the cart served already asked and waiting
+#              verdict   the same shop, with the question of whether the cart helped already asked and waiting
 #              slow      the prepared project with a check that drives the shop, which runs before the review
 #              redreview a red change in payments, built and through its gates, ready to review
 #              style     a yellow change that works, built with the same code written twice, ready to review
@@ -1377,12 +1377,12 @@ if [ -n "$with_catalog" ]; then
   shipped_logs
 fi
 if [ "$variant" = verdict ]; then
-  # The question of whether the cart served, asked a day ago and not answered yet.
+  # The question of whether the cart helped, asked a day ago and not answered yet.
   python3 - <<'EOF'
 import json, time
 asked = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 86400))
 what = ("One cart in five was expected to hold two or more products. The export of carts shows 3 of 40 "
-        "and 4 of 52 in its two weeks. Did it serve: yes, not yet or no?")
+        "and 4 of 52 in its two weeks. Did it help: yes, not yet or no?")
 with open("gdd/log/cart.jsonl", "a") as log:
     log.write(json.dumps({"contract": "gdd/1", "ts": asked, "brief": "cart", "event": "ask", "of": "close", "what": what},
                          separators=(",", ":")) + "\n")

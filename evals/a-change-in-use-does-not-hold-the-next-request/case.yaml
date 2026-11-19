@@ -62,7 +62,7 @@ graders:
     weight: 2
   - name: says-the-cart-still-waits
     type: llm
-    criteria: Does the message mention that the cart, already in use, still waits for the owner to look at whether it served?
+    criteria: Does the message mention that the cart, already in use, still waits for the owner to look at whether it helped?
     weight: 3
   - name: asks-nothing
     type: regex

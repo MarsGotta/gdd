@@ -252,7 +252,7 @@ fn the_person_gives_the_verdict_and_only_a_yes_or_a_no_closes() {
         "y1",
         "--of",
         "close",
-        "Fewer messages were expected. The inbox has 3 this week and 9 the week before. Did it serve: yes, not yet or no?",
+        "Fewer messages were expected. The inbox has 3 this week and 9 the week before. Did it help: yes, not yet or no?",
     ]);
     assert_eq!(ask.code, 0, "{}", ask.out);
     assert!(ask.has("gdd close y1 --verdict"), "{}", ask.out);
@@ -285,7 +285,7 @@ fn the_person_gives_the_verdict_and_only_a_yes_or_a_no_closes() {
     assert!(n.has("closed, Person said yes"), "{}", n.out);
     let again = verdict(&r, "y1", "no", "On second thought");
     assert_eq!(again.facts["refused"], "out-of-order", "{}", again.out);
-    let ask = r.gdd(&["ask", "y1", "--of", "close", "Did it serve?"]);
+    let ask = r.gdd(&["ask", "y1", "--of", "close", "Did it help?"]);
     assert_eq!(ask.facts["refused"], "out-of-order", "{}", ask.out);
     assert!(!r.gdd(&["next"]).has("in use, waiting"));
     assert_eq!(r.gdd(&["verify", "y1"]).facts["errors"], 0);
@@ -330,7 +330,7 @@ fn a_verdict_needs_a_change_in_use_a_person_and_what_they_saw() {
     );
     let early = verdict(&r, "g1", "yes", "It looks fine");
     assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
-    let ask = r.gdd(&["ask", "g1", "--of", "close", "Did it serve?"]);
+    let ask = r.gdd(&["ask", "g1", "--of", "close", "Did it help?"]);
     assert_eq!(ask.facts["refused"], "out-of-order", "{}", ask.out);
     assert_eq!(r.gdd(&["close", "g1"]).facts["refused"], "out-of-order");
     yellow_shipped(&r, "y1", THREE);
@@ -501,4 +501,17 @@ fn verify_finds_a_verdict_written_before_the_change_shipped() {
     let v = r.gdd(&["verify", "g1", "--no-git"]);
     assert_eq!(v.code, 1, "{}", v.out);
     assert!(v.has("a verdict before the change shipped"), "{}", v.out);
+}
+
+#[test]
+fn only_a_change_is_closed() {
+    let r = repo_with_days();
+    for id in ["standing-checks", "blueprint"] {
+        let look = r.gdd(&["close", id]);
+        assert_eq!(look.facts["refused"], "out-of-order", "{}", look.out);
+        let ask = r.gdd(&["ask", id, "--of", "close", "Did it help?"]);
+        assert_eq!(ask.facts["refused"], "out-of-order", "{}", ask.out);
+        assert_eq!(verdict(&r, id, "yes", "It looks fine").code, 1);
+        assert!(!r.path(&format!("gdd/log/{id}.jsonl")).is_file());
+    }
 }

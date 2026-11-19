@@ -4,7 +4,7 @@
 
 use crate::blueprint::Blueprint;
 use crate::log::{self, Entry, str_of};
-use crate::state::{Next, Progress};
+use crate::state::{LogKind, Next, Progress};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -91,11 +91,15 @@ impl Standing {
     }
 }
 
-/// Where a change stands at Close, or `None` before it ships. `named` is when a hardening record
+/// Where a change stands at Close, or `None` before it ships and for a log that is no change:
+/// setting up checks promises nothing to anyone and has nothing to close. `named` is when a hardening record
 /// first named it. A log from before the layer knew Close has no closing, and a blueprint without
 /// `closing.days` gives no days: that change reads as before, closed when it shipped.
 pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> Option<Standing> {
     p.shipped.as_ref()?;
+    if p.kind != Some(LogKind::Change) {
+        return None;
+    }
     if let Some(v) = p.closed_by() {
         return Some(Standing::Closed(format!(
             "{} said {}, line {}",
@@ -108,7 +112,10 @@ pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> O
     {
         return Some(Standing::Waiting { named: false });
     }
-    let until = p.shipped_at.unwrap_or(now) + bp.closing_days() * DAY;
+    let until = p
+        .shipped_at
+        .unwrap_or(now)
+        .saturating_add(bp.closing_days().saturating_mul(DAY));
     // Named before its days went by: with no days, nothing is.
     Some(if named.is_some_and(|t| t < until) {
         Standing::Waiting { named: true }
@@ -187,7 +194,7 @@ pub fn next(id: &str, bp: &Blueprint, p: &Progress, named: Option<i64>, now: i64
             ),
         ),
         Some(Standing::Closed(how)) => rest("done", format!("{shipped}: closed, {how}")),
-        None => rest("done", shipped),
+        None => rest("done", format!("{shipped}: its log is closed")),
     }
 }
 

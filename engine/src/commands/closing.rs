@@ -18,7 +18,7 @@ fn in_use(l: &Loaded, id: &str) -> R<Standing> {
     match l.state.standing.clone() {
         None => Err(Fail::refuse(
             "out-of-order",
-            format!("{id} hasn't shipped: a change is closed once it is in use"),
+            format!("{id} isn't a change in use: a change is closed once it has shipped"),
             way_on(l, id),
         )),
         Some(Standing::Closed(how)) => Err(Fail::refuse(
@@ -78,7 +78,7 @@ pub fn close(ctx: &Ctx, id: &str, a: &CloseArgs) -> Out {
         });
         if verdict == "no" {
             out.say("A no has two ways out. Propose the one you'd take, for a yes:");
-            out.say("  it works as written but didn't serve: a new request in the backlog (gdd backlog add <item> --what \"<what the person gets>\" --color <color>), or nothing, if they accept it as it is");
+            out.say("  it works as written but didn't help: a new request in the backlog (gdd backlog add <item> --what \"<what the person gets>\" --color <color>), or nothing, if they accept it as it is");
             out.say("  it broke a rule or did harm: the fix is a normal change (load gdd-brief), and a hardening proposal, because a gate should have caught it (load gdd-harden)");
         }
         out.fact("line", line);
@@ -137,7 +137,7 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
         step: "ask".into(),
         say: "once you have gathered it, record the question and send your message".into(),
         command: format!(
-            "gdd ask {id} --of close \"<what was expected>. <What is seen, and from where>. Did it serve: yes, not yet or no?\""
+            "gdd ask {id} --of close \"<what was expected>. <What is seen, and from where>. Did it help: yes, not yet or no?\""
         ),
         blocked: None,
     });

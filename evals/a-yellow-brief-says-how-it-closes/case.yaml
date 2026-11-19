@@ -57,7 +57,7 @@ graders:
     weight: 2
   - name: the-message-says-what-closes-it
     type: llm
-    criteria: Does the message tell the owner what will be looked at later to know whether the change served?
+    criteria: Does the message tell the owner what will be looked at later to know whether the change helped?
     weight: 3
   - name: asks-to-approve-the-brief
     type: llm

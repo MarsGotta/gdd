@@ -78,11 +78,11 @@ graders:
     weight: 3
   - name: proposes-no-verdict
     type: llm
-    criteria: Does the message leave the verdict to the owner, without saying or suggesting whether the cart served?
+    criteria: Does the message leave the verdict to the owner, without saying or suggesting whether the cart helped?
     weight: 3
   - name: says-the-verdict-is-the-owners
     type: llm
-    criteria: Does the owner learn that deciding whether the cart served is theirs and not the assistant's?
+    criteria: Does the owner learn that deciding whether the cart helped is theirs and not the assistant's?
     weight: 2
   - name: leaves-out-how-the-build-went
     type: regex

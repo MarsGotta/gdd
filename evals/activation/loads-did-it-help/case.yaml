@@ -1,5 +1,5 @@
 schema_version: "1.1"
-name: gdd-loads-did-it-serve
+name: gdd-loads-did-it-help
 description: A request that changes the project, or asks how a change stands. The entry skill has to load.
 tags: [activation, loads]
 runs: 3

@@ -175,7 +175,7 @@ fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
             Some(_) => Ok(()),
             None => Err(Fail::refuse(
                 "out-of-order",
-                format!("{id} hasn't shipped: the verdict is asked once it is in use"),
+                format!("{id} isn't a change in use: the verdict is asked once it has shipped"),
                 way_on(l, id),
             )),
         },

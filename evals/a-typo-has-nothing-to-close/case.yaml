@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-typo-has-nothing-to-close
-description: "A typo in a green zone. The orchestrator takes it through its gates with no brief file, writes no lines about what would close it, ships it, and asks the person nothing about whether it served: a change that promises nothing to whoever uses the shop closes by itself."
+description: "A typo in a green zone. The orchestrator takes it through its gates with no brief file, writes no lines about what would close it, ships it, and asks the person nothing about whether it helped: a change that promises nothing to whoever uses the shop closes by itself."
 tags: [orchestrator, green, close]
 runs: 3
 execution:
