@@ -237,12 +237,6 @@ def main():
             problem(skill, "missing")
             continue
         fields, body = front_matter(skill)
-        if name == "gdd-brief":
-            source = (ENGINE / "src/commands/brief.rs").read_text(encoding="utf-8")
-            limit = re.search(r"^const APPROVAL_WORD_LIMIT: usize = (\d+);$", source, re.M)
-            if not limit or not all(term in body for term in
-                                    (f"under {limit[1]} words", f"At {limit[1]} or more")):
-                problem(skill, "the approval message and its shortening instruction must use the layer's word limit")
         if fields.get("name") != name:
             problem(skill, f"name is {fields.get('name')!r}, not {name!r}", 2)
         description = fields.get("description", "")

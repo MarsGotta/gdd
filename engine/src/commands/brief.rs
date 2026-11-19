@@ -233,8 +233,6 @@ fn check_form(ctx: &Ctx, base: &str, file: &str, out: &mut Out, faults: &mut Vec
     Ok(())
 }
 
-const APPROVAL_WORD_LIMIT: usize = 150;
-
 /// Whether the person's yes to the brief is what the change waits for: the next step asks for it,
 /// or its question is already open.
 fn approval_is_due(l: &Loaded, id: &str) -> bool {
@@ -246,8 +244,8 @@ fn approval_is_due(l: &Loaded, id: &str) -> bool {
 }
 
 /// What a yes to the brief covers, from the sealed version the log names: a line for each rule the
-/// change adds or changes, and where to read them. It goes in the facts too, because an agent that
-/// keeps only the end of the output still reads those.
+/// change adds or changes, and where to read them. No word count goes with them: with one, agents
+/// merged rules to fit it.
 pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !approval_is_due(l, id) {
         return;
@@ -262,7 +260,7 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     let root = &l.project.root;
     let base = p.base.as_deref();
     let mut lines = Vec::new();
-    let mut words = 0;
+    let mut found = false;
     for file in files.keys().filter(|f| f.ends_with(".feature")) {
         let Some(text) = git::show(root, seal, file) else {
             continue;
@@ -277,24 +275,16 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
         }
         for (label, heading) in headings.into_values() {
             let title = heading.split_once(':').unwrap().1.trim();
-            words += title.split_whitespace().count();
+            found = true;
             lines.push(format!("{label}: {title}"));
         }
         lines.push(format!("read: {file}"));
     }
-    if words == 0 {
+    if !found {
         return;
     }
     out.say("Their yes covers these lines. Give each its own line in their words and language. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
-    out.lines.extend(lines.iter().cloned());
-    out.fact("yes_covers", lines);
-    // The last line is the one an agent reads when it cuts the output, so the rule goes there too.
-    if words < APPROVAL_WORD_LIMIT {
-        let unit = if words == 1 { "word" } else { "words" };
-        out.say(format!("These lines use {words} {unit}. Give each its own line and keep the whole message under {APPROVAL_WORD_LIMIT} words."));
-    } else {
-        out.say(format!("These lines use {words} words, {APPROVAL_WORD_LIMIT} or more on their own. Give each its own line: shorten them, and never drop or merge one."));
-    }
+    out.lines.extend(lines);
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and

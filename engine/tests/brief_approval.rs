@@ -58,7 +58,7 @@ fn next_shows_only_the_changed_rules_once_in_file_order() {
     let next = ok(&r, &["next", "lines"]);
     assert_eq!(approval_lines(&next), LINES);
     let (before, after) = next.out.split_once(LINES).unwrap();
-    assert!(after.starts_with("\nThese lines use 9 words."));
+    assert!(after.trim_start().starts_with("next: "), "{after}");
     for guidance in [
         "yes covers",
         "own line",
@@ -132,28 +132,6 @@ fn a_legacy_brief_shows_only_changed_orphans_and_names_each_file() {
         approval_lines(&next),
         format!("no rule: Read: <n> lines\n{LINES}\nno rule: Another line\nread: {other}")
     );
-    assert!(next.has("These lines use 14 words."));
-}
-
-fn word_count(words: usize) -> Run {
-    let r = Repo::new();
-    record(&r, &format!("Rule: {}\n", vec!["word"; words].join(" ")));
-    ok(&r, &["next", "lines"])
-}
-
-#[test]
-fn at_149_words_the_whole_message_must_stay_under_the_limit() {
-    assert!(
-        word_count(149)
-            .has("149 words. Give each its own line and keep the whole message under 150 words.")
-    );
-}
-
-#[test]
-fn at_150_words_each_line_stays_and_none_is_merged() {
-    assert!(word_count(150).has(
-        "150 words, 150 or more on their own. Give each its own line: shorten them, and never drop or merge one."
-    ));
 }
 
 #[test]
@@ -184,7 +162,7 @@ fn approval_needs_both_a_seal_and_a_feature_to_print_any_lines() {
             ok(&r, &["next", id]),
         ] {
             assert_eq!(approval_lines(&result), "");
-            assert!(!result.has("yes covers") && !result.has("These lines use"));
+            assert!(!result.has("yes covers"));
         }
     }
 }
@@ -235,27 +213,16 @@ fn an_old_rule_is_shown_when_only_the_examples_of_its_scenario_change() {
 }
 
 #[test]
-fn the_command_that_leaves_the_approval_next_shows_the_lines_and_carries_them_in_its_facts() {
+fn the_command_that_leaves_the_approval_next_shows_the_lines() {
     let r = Repo::new();
     r.write(FILE, &format!("Feature: Lines\n{RULES}"));
     let seal = ok(&r, &["seal", "lines", FILE]);
     assert_eq!(approval_lines(&seal), "");
     let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
     assert_eq!(approval_lines(&brief), LINES);
-    let facts: Vec<&str> = brief.facts["yes_covers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|line| line.as_str())
-        .collect();
-    assert_eq!(facts.join("\n"), LINES);
-    // An agent that keeps only the end of the output still reads the rule about the lines.
+    // The lines are the last thing said before the next step, and no count follows them.
     let said = brief.out.split("\nnext: ").next().unwrap();
-    assert!(
-        said.trim_end()
-            .ends_with("Give each its own line and keep the whole message under 150 words."),
-        "{said}"
-    );
+    assert!(said.trim_end().ends_with(LINES), "{said}");
 }
 
 #[test]
@@ -280,12 +247,7 @@ fn a_file_with_no_rule_the_layer_can_read_shows_no_lines() {
     );
     ok(&r, &["seal", "lines", FILE]);
     let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
-    assert!(
-        !brief.has("yes covers") && !brief.has("These lines use"),
-        "{}",
-        brief.out
-    );
-    assert!(brief.facts.get("yes_covers").is_none());
+    assert!(!brief.has("yes covers"), "{}", brief.out);
 }
 
 #[test]
@@ -296,7 +258,6 @@ fn a_new_seal_shows_no_lines_until_its_brief_is_recorded() {
     r.write(FILE, &format!("Feature: Lines\n{whole}"));
     let seal = ok(&r, &["seal", "lines", FILE]);
     assert_eq!(approval_lines(&seal), "");
-    assert!(seal.facts.get("yes_covers").is_none());
     let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
     assert_eq!(
         approval_lines(&brief),
