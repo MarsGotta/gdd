@@ -338,8 +338,11 @@ fn run_change<F: FnOnce(&mut Out) -> R<()>>(ctx: &Ctx, id: &str, command: &str, 
                     ));
                 }
                 // Whatever command left the approval as the next step, the agent writes its
-                // message from what that command printed.
-                brief::show_approval(&l, id, &mut out);
+                // message from what that command printed. A seal comes before its brief: the
+                // lines the log holds then are the ones of the version before.
+                if command != "seal" {
+                    brief::show_approval(&l, id, &mut out);
+                }
                 let next = l.state.next;
                 if id == "blueprint" && next.step == "done" {
                     return out;

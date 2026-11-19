@@ -396,3 +396,14 @@ fn only_a_feature_file_and_only_its_own_headings_are_read() {
         result.out
     );
 }
+
+#[test]
+fn a_rule_with_no_text_is_no_rule() {
+    let r = Repo::new();
+    seal(&r, FILE, &format!("Rule:  \n{VALID}"));
+    diagnostic(
+        &reject(&r),
+        "features/shape.feature:4: Scenario: One line",
+        "Rule:",
+    );
+}

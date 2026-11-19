@@ -287,3 +287,19 @@ fn a_file_with_no_rule_the_layer_can_read_shows_no_lines() {
     );
     assert!(brief.facts.get("yes_covers").is_none());
 }
+
+#[test]
+fn a_new_seal_shows_no_lines_until_its_brief_is_recorded() {
+    let r = Repo::new();
+    record(&r, RULES);
+    let whole = RULES.replace("Keep the title", "Keep the whole title");
+    r.write(FILE, &format!("Feature: Lines\n{whole}"));
+    let seal = ok(&r, &["seal", "lines", FILE]);
+    assert_eq!(approval_lines(&seal), "");
+    assert!(seal.facts.get("yes_covers").is_none());
+    let brief = ok(&r, &["brief", "lines", FILE, "--paths", PATH]);
+    assert_eq!(
+        approval_lines(&brief),
+        LINES.replace("Keep the title", "Keep the whole title")
+    );
+}

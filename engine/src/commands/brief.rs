@@ -145,7 +145,8 @@ fn feature(text: &str) -> Feature<'_> {
             current = result.scenarios.last_mut();
         } else if matches!(heading, Some("Feature" | "Rule")) {
             rule = None;
-            if heading == Some("Rule") {
+            // A rule with no text is no rule: there is nothing in it to approve.
+            if heading == Some("Rule") && line != "Rule:" {
                 let label = tags
                     .iter()
                     .flat_map(|t| t.split_whitespace())
