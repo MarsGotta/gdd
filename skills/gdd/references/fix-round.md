@@ -1,7 +1,5 @@
 # Returning a fix to its agent
 
-Never add or change a line in a role's report. If the layer refuses it for a missing line, ask the role that wrote it to send the complete report again, or launch the role again.
-
 If every finding names a test sealed for this change, resume the checks agent with the findings. Then resume the builder to merge the corrected seal and run the required checks. If the product matches the reviewed version, this merge uses no build round. The gates run and a fresh reviewer checks only the corrected tests. If no finding names a test sealed for this change, resume the builder with the whole review. For mixed findings, the layer names `checks` first to correct the named tests. Then resume the builder to merge the seal and address the rest, including findings without a file. If the checks agent answers `CANNOT:` to findings confined to its tests, the builder takes every finding in a normal fix round: run what the layer prints. Only the checks agent or a person edits a sealed test.
 
 Send the prompt from `gdd launch <id> <role>` to the last builder or checks agent for this change and role. It gives the seal tip, what sent the change back and what the last builder tried. When the reviewer returns the change, the prompt keeps that review’s findings and citations in full, along with its notes for the builder. A command’s output may show only its end. The agent can run it again if it needs more.

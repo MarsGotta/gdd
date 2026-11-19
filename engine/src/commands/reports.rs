@@ -788,18 +788,21 @@ fn report_review(
                 launch_review(),
             ));
         }
-    } else if verdict == "pass"
-        && let Some((current, _)) = review_stamp(l)
-    {
+    } else if verdict == "pass" && review_head(l).is_some() {
+        // Only its reviewer can say what it read, so the refusal doesn't print the value to copy.
+        // While the gates are pending, the line of its prompt is stale already.
+        let way = if l.state.next.step == "gates" {
+            launch_review()
+        } else {
+            format!(
+                "Ask the reviewer who wrote it to send its whole report again with the reviewed: line from its prompt, or run {}",
+                launch_review()
+            )
+        };
         return Err(Fail::refuse(
             "missing-reviewed",
-            format!(
-                "This pass is missing the reviewed: line with the commit the reviewer read.\ncurrent: {current}"
-            ),
-            format!(
-                "Ask the reviewer who wrote it to resend it with the line from its prompt, or run {}",
-                launch_review()
-            ),
+            "This pass doesn't say what its reviewer read: its reviewed: line is missing or has no commit.",
+            way,
         ));
     }
     let head = review_head(l).map(str::to_owned);

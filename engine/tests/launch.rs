@@ -148,6 +148,21 @@ fn a_run_with_no_reviewed_line_checks_only_a_pass_against_its_launch() {
 }
 
 #[test]
+fn a_run_pass_is_stale_when_the_gates_pass_again_while_it_runs() {
+    let r = ready_for_review();
+    let text = review_text("pass", "green", "");
+    let result = run_review(
+        &r,
+        &format!(
+            "'{BIN}' --root '{}' gates l1 >/dev/null 2>&1 || exit 7\ncat <<'END'\n{text}\nEND",
+            r.root.display()
+        ),
+    );
+    assert_eq!(result.facts["refused"], "stale-review", "{}", result.out);
+    assert!(r.log_lines("l1").iter().all(|e| e["step"] != "review"));
+}
+
+#[test]
 fn a_reviewers_own_commit_takes_precedence_over_the_launch() {
     let r = ready_for_review();
     let other = "a".repeat(40);

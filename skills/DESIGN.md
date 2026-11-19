@@ -483,7 +483,7 @@ The website tells a change in six steps, the ones of its delicate case. They are
 
 96. **Gate clones use the project's branch refs.** The fallback clone lost the seal's local branch and interpreted the project's local main as origin/main. A team's comparison could then use a different base from the worktree. Copy both sets of refs after detaching the head. A local clone can use hardlinks, as the sandbox probe confirmed. Its git configuration is still its own.
 
-97. **A pass says what the reviewer read.** Only a pass lets a change ship. Refusing a fix can lose a finding. Refusing a pass costs one more report.
+97. **A pass says what the reviewer read.** Only a pass lets a change ship. Refusing a fix can lose a finding. Refusing a pass costs one more report. When the layer runs the reviewer it knows what it sent, so a reviewer that forgets the line costs nothing. On a report by hand the layer can't tell who wrote the line: there the rule rests on nobody but its role editing a report.
 
 ## Still open
 

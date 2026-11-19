@@ -1410,8 +1410,11 @@ fn a_manual_pass_requires_the_reviewed_line_from_its_prompt() {
             "{field}: {}",
             refused.out
         );
+        // It names the way on and not the value: only the reviewer can say what it read.
         assert!(
-            refused.has(launch.reviewed()) && refused.has("gdd launch stamp review"),
+            !refused.has(launch.reviewed())
+                && refused.has("Ask the reviewer")
+                && refused.has("gdd launch stamp review"),
             "{}",
             refused.out
         );
@@ -1429,12 +1432,18 @@ fn a_manual_pass_requires_the_reviewed_line_from_its_prompt() {
         "{}",
         refused.out
     );
-    assert!(refused.has("gdd gates stamp, then gdd launch stamp review"));
+    // With the gates pending, the line of its prompt is stale already: only a fresh review helps.
+    assert!(
+        refused.has("gdd gates stamp, then gdd launch stamp review")
+            && !refused.has("Ask the reviewer"),
+        "{}",
+        refused.out
+    );
     assert_eq!(r.read("gdd/log/stamp.jsonl"), before);
 }
 
 #[test]
-fn a_manual_pass_without_a_stamp_keeps_the_previous_behavior() {
+fn a_manual_pass_needs_its_line_when_the_layer_finds_no_branch() {
     let r = Repo::new();
     let head = gated_change(&r, "stamp", "");
     r.git(&["branch", "-m", "work/stamp", "archived"]);
@@ -1443,9 +1452,57 @@ fn a_manual_pass_without_a_stamp_keeps_the_previous_behavior() {
     let stale = r.report("stamp", "review", &explicit, &[]);
     assert_eq!(stale.facts["refused"], "stale-review", "{}", stale.out);
     assert!(stale.has("current: none"));
-    let written = r.report("stamp", "review", &pass, &[]);
+    let before = r.read("gdd/log/stamp.jsonl");
+    let refused = r.report("stamp", "review", &pass, &[]);
+    assert_eq!(
+        refused.facts["refused"], "missing-reviewed",
+        "{}",
+        refused.out
+    );
+    assert_eq!(r.read("gdd/log/stamp.jsonl"), before);
+    // A fix is never lost to this: it is still written (decision 76).
+    let fix = review_text("fix", "yellow", "f1 title is blank | @id:stamp-1");
+    let written = r.report("stamp", "review", &fix, &[]);
     assert_eq!(written.code, 0, "{}", written.out);
-    assert_eq!(r.log_lines("stamp").last().unwrap()["verdict"], "pass");
+    assert_eq!(r.log_lines("stamp").last().unwrap()["verdict"], "fix");
+}
+
+#[test]
+fn a_pass_nobody_read_is_refused_when_the_report_hides_the_branch() {
+    let r = Repo::new();
+    gated_change(&r, "hidden", "");
+    assert_eq!(r.gdd(&["launch", "hidden", "review"]).code, 0);
+    let later = r.commit_on(
+        "work/hidden",
+        None,
+        &[("src/core/app.txt", "ok later")],
+        "Edit the product",
+    );
+    assert_eq!(r.gdd(&["gates", "hidden"]).code, 0);
+    let pass = review_text("pass", "yellow", "");
+    let before = r.read("gdd/log/hidden.jsonl");
+    // The report names a branch that isn't there.
+    let refused = r.report("hidden", "review", &pass, &["--branch", "nope"]);
+    assert_eq!(
+        refused.facts["refused"], "missing-reviewed",
+        "{}",
+        refused.out
+    );
+    // The change's branch is renamed away for the report and back afterwards.
+    r.git(&["branch", "-m", "work/hidden", "away"]);
+    let refused = r.report("hidden", "review", &pass, &[]);
+    r.git(&["branch", "-m", "away", "work/hidden"]);
+    assert_eq!(
+        refused.facts["refused"], "missing-reviewed",
+        "{}",
+        refused.out
+    );
+    assert_eq!(r.read("gdd/log/hidden.jsonl"), before);
+    assert_ne!(r.gdd(&["ship", "hidden", "--merge"]).code, 0);
+    assert!(!git_ok(
+        &r.root,
+        &["merge-base", "--is-ancestor", &later, "main"]
+    ));
 }
 
 #[test]
