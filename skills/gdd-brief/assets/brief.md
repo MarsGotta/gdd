@@ -16,6 +16,13 @@ backlog: <item id>
 
 <The person's words.>
 
+## Closing it
+
+Expected: <what changes for whoever uses it, in the person's words>
+Signal: <what will show it, from where the builder can't write>
+Where: <where it will be looked at>
+<Or, when the change promises nothing to whoever uses the product, as the blueprint's Closing says, only this line: Nothing to close: <why>>
+
 ## Rules
 
 <Link each features/<capability>.feature file that holds the rules for this change.>

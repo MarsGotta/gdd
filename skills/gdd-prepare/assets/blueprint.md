@@ -95,6 +95,9 @@ zones:
       - ':(glob)<pattern>'
     # gates: gdd/gates/<zone>.feature   # include for the red zone rules approved with the blueprint, or whenever the zone has its own gates
 # hidden: <where the hidden examples live, when a color asks for them>
+closing:
+  who: <who gives the verdict on a change in use, such as its author or whoever answers for the product>
+  days: 7  # in use with nothing recorded against it, a change that promised nothing closes by itself
 context:
   - file: gdd/context/<file>
     for: [<zone or zone/Rule>]
@@ -127,6 +130,10 @@ Where a person approves is this project's decision. `brief-approval` on yellow a
 ## Emergencies
 
 <What an urgent change may skip, who opens that gate and what it may never skip. A person opens it, it's written to the log as a waiver, and the change goes through what it skipped afterwards.>
+
+## Closing
+
+<Which changes promise nothing to whoever uses the product and close by themselves, such as one nobody using it would notice. Every other change says in its brief what is expected of it, and waits in sight for the verdict, without a deadline and without stopping the next one.>
 
 ## Baseline
 

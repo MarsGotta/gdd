@@ -3,7 +3,7 @@ name: gdd-prepare
 description: Prepares a repository for Gate-Driven Development (GDD) with the person, from an idea in a sentence or from existing code. Loaded by the GDD orchestrator (`gdd`, which loads first) when there is no blueprint yet, when a change touches paths no zone covers, or when the project changes shape (a new stack, a new delicate area, a new external service). Not for briefing or building a single change.
 license: MIT
 metadata:
-  version: "0.15.0"
+  version: "0.16.0"
   contract: gdd/1
 ---
 
@@ -19,12 +19,12 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 - **Propose first, ask afterwards.** "For a project like this, these are the usual zones and gates; correct what doesn't fit." A blank page makes the person design the method for you.
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
-- **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specifications. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
+- **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specs. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
 - **Research** before you propose, in a new project or when the person leaves it to you: open `references/research.md` and look up what is usual in the sector.
 - **Open each reference by itself:** several in one command come back cut.
 - **Ask which models do the work:** propose one for each level, from what each of the person's environments offers, and try each before it counts, as `references/levels.md` says.
-- **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change goes through what it skipped afterwards.
-- **Ask what the gates may cost them:** how long they'd wait for a change, and how often they want to be stopped to approve something. The first sets the `limits`, the second which colors carry an approval. If they leave it to you, keep the template's.
+- **Ask about emergencies before one happens:** what an urgent change may skip, who opens that gate and what it may never skip. It goes in the blueprint, and the change passes what it skipped afterwards.
+- **Ask what the gates may cost them:** how long they'd wait for a change, and how often they'd stop to approve something. The first sets the `limits`, the second which colors carry an approval. If they leave it to you, keep the template's.
 
 ## What's already there
 
@@ -60,7 +60,7 @@ What each color asks for goes in the blueprint's `colors`, and the template carr
 | File | From | Notes |
 |---|---|---|
 | `gdd/constitution.md` | `assets/constitution.md` | The stack, which is the one the request names when it names one, the exact commands to build, test, lint and scan for secrets, which every gate and CI run as they are, and how a change ships. Then what must never happen in the product, whichever part a change touches, from its data, one for each amount, quantity or state its records keep, and what you looked up, in the person's words, three to seven, for them to correct: every brief is checked against them, and a rule left in a zone's context is never seen by a change outside it. How one zone's code is written goes to its context. |
-| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram and what an emergency may skip. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
+| `gdd/blueprint.md` | `assets/blueprint.md` | Levels, limits, checks, colors, zones and context, with its diagram, what an emergency may skip and how a change closes. Each level is a model by the name the agents' environment launches it with, never a description of how much it reasons. |
 | `.gdd/gdd` | `references/layer.md` | The layer, set up before any step is logged. |
 | `gdd/check.sh`, `gdd/limits.sh` | `assets/check.sh`, `assets/limits.sh` | A runner that times each check, unless the person says no: the constitution's commands go through it, `seal` apart. And the counter of what `limits` caps. |
 | `gdd/gates/<gate>.feature` | `assets/gate.feature` | One per project gate. Use `assets/gates.feature` for a zone's own rules. |

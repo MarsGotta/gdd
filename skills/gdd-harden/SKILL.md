@@ -3,7 +3,7 @@ name: gdd-harden
 description: Hardens a Gate-Driven Development (GDD) project in both directions, adding a check after something slipped through its gates or keeps repeating, and relaxing or retiring a gate that adds nothing. Loaded by the GDD orchestrator, with the person, when a failure gets past the gates, when the logs show it coming back, or when a gate costs more than it catches. Not for fixing the failure itself.
 license: MIT
 metadata:
-  version: "0.15.0"
+  version: "0.16.0"
   contract: gdd/1
 ---
 
@@ -15,7 +15,7 @@ In every command below, run the project's `.gdd/gdd` first. Use `gdd` on the pat
 
 ## What counts
 
-- **What slips through:** a failure that got through every gate and was found later, by a person, in production, or by a reviewer where a machine check should have caught it.
+- **What slips through:** a failure that got through every gate and was found later, by a person, in production, at Close when the person's no says it broke a rule or did harm, or by a reviewer where a machine check should have caught it.
 - **What repeats:** the same finding, the same stop or the same reason for raising a color, in several logs.
 - **What no longer adds anything:** a check, a question of the reviewer's or a row of its exam that the person says is in the way, or that reaches the figure the blueprint gives for simplifying. Go to Reading the logs, and then to what you propose.
 
@@ -74,4 +74,4 @@ Retiring a gate, or a question of the reviewer's, that no longer adds anything, 
 
 - A check that shows up as unstable three times or more gets a small change of its own that makes it stable without weakening it: no higher timeouts, no skipping.
 
-Record the proposal with `gdd step blueprint harden --result <proposed or approved> --change <id or none> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<blueprint change>"`. Give `--action` (`strengthen`, `relax` or `retire`), `--expected-check` and `--caught-by` when known. Use `none` when there was no check or no defect. Omit an unknown attribution so the log records the gap.
+Naming the change in `--change` keeps one that promised nothing from closing by itself: it waits for the person's verdict. Record the proposal with `gdd step blueprint harden --result <proposed or approved> --change <id or none> --crack "<where>" --scenario "<file and Rule, or none>" --proposal "<blueprint change>"`. Give `--action` (`strengthen`, `relax` or `retire`), `--expected-check` and `--caught-by` when known. Use `none` when there was no check or no defect. Omit an unknown attribution so the log records the gap.

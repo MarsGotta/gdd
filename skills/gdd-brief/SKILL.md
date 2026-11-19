@@ -3,13 +3,13 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.15.0"
+  version: "0.16.0"
   contract: gdd/1
 ---
 
 # Briefing a change
 
-Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, in your conversation with the person. The brief of a red change needs the deep level, as `gdd` says.
+Gates come first. If you decide what to check once the result is in sight, you end up checking what the agent did and not what was needed, so everything here happens before anyone builds. You do it yourself, as the orchestrator, with the person. The brief of a red change needs the deep level, as `gdd` says.
 
 **One request, one change, unless it asks for several things.** When the person asks for parts, or for things they could use separately, such as two backlog items, open `references/proposing-parts.md`, in this skill's folder, and propose parts once, before any brief. Without a clear yes, brief the whole request, however large, and never ask about parts again. Unless they asked for parts, one outcome with several details is one thing: propose nothing. Never count lines, zones or scenarios to decide.
 
@@ -26,7 +26,7 @@ Write one behavior per `Rule:` line. Say who acts, under what condition and what
         When you set it to 30 seconds
         Then you see "Choose a shorter time"
 
-After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios: an implementation detail ties the builder's hands and proves little. The builder decides how to produce the outcome.
+After the seven questions below, put each scenario under the rule it checks. Each has one `When`, concrete values and one definite outcome. Spell out what someone sees in place of "correct", "adequate" or "A or B". Cover bad cases too. A few scenarios suffice on yellow. On red cover every case that matters. Keep implementation details out of scenarios: they tie the builder's hands and prove little. The builder decides how to produce the outcome.
 
 ## The color: git sets the floor, and judgment can only raise it
 
@@ -34,7 +34,7 @@ After the seven questions below, put each scenario under the rule it checks. Eac
 2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you give its reason to `gdd brief` with `--color <color> --why "<reason>"`. By default, a change that adds behavior someone would see is at least yellow, wherever its paths fall. Correcting a text adds none, and behind a switch that is off nobody sees it yet. What can't be undone is never green: deleting data, a migration with no way back, anything sent outside.
 3. **What no zone covers.** Judge it against what the blueprint marks as delicate, and why: red if it does what a red zone does, or feeds one, and yellow if it doesn't, and ask only when you can't tell which. The request was the yes: brief it at that color with `--color` and `--why`, even at the floor, and add the pathspec or zone you'd propose to the backlog with `gdd backlog add`, without asking. Tell the person in one line what you judged, never as the plan's rule, "The plan doesn't cover the guide yet. I treated the change as medium risk and proposed a place for guides in the plan", and go on. The blueprint changes only when they approve it, with `gdd-prepare`, and until then every change that touches the path is judged again.
 
-The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up, so a low one saves nothing. "It's just a small change" isn't a color either: the size doesn't matter; what can go wrong does.
+The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up, so a low one saves nothing. "It's just a small change" isn't a color either: what can go wrong decides it.
 
 On green there's no brief file, unless the blueprint's green asks for `brief-approval`: run `gdd brief <id> --paths <path>... --why "<reason>" --request "<their words>"`, which writes the `brief` step with them, and the change goes on with the existing checks. On yellow or red, write the brief.
 
@@ -56,7 +56,7 @@ Each answer ends up in a rule, a scenario, a technical decision, a path or a lin
 
 Use `assets/scenarios.feature`. Tag each scenario with `@brief:<id> @id:<capability>-<n>`. Both tags belong to the scenario alone. These Gherkin use cases come before the build: `gdd-checks` writes a test from each, sees it fail and seals it.
 
-Use `assets/brief.md`, in this skill's folder, never an older brief as the model. On yellow, five sections suffice: Request, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
+Use `assets/brief.md`, in this skill's folder, never an older brief as the model. On yellow, six sections suffice: Request, Closing it, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
 
 - **What it touches.** Include:
   - the twins: a document and its translation, a feature and its reference page;
@@ -93,6 +93,7 @@ If this color omits `brief-approval`, tell the person in one line what the chang
     <Then each assumption you added or changed, one per line, marked as yours.>
     <Each scenario without a rule above it, one per line in the person's words.>
     <Any open question, left for later.>
+    <What closes it, in one line.>
     <Technical decisions that matter to them, marked as yours.>
     <On red: product rules it touches and up to three things it won't do yet, each as a consequence.>
     <Any disputed addition they need to decide, and why.>
