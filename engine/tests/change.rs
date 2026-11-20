@@ -2828,3 +2828,124 @@ fn unreadable_failure_counts_leave_the_build_and_its_claims_intact() {
         assert_eq!(claim["tail"], "ok");
     }
 }
+
+/// A review sent the change back with two findings on the product.
+fn sent_back_with_two_findings(r: &Repo, id: &str) {
+    gated_change(r, id, "");
+    let findings = format!(
+        "f1 src/core/app.txt:1 it answers before it checks | @id:{id}-1\nf2 src/core/app.txt:1 its status is one word | @id:{id}-1"
+    );
+    let fix = r.report(id, "review", &review_text("fix", "yellow", &findings), &[]);
+    assert_eq!(fix.facts["next"], "build", "{}", fix.out);
+}
+
+#[test]
+fn a_builder_contests_a_finding_with_a_line_the_reviewer_can_read() {
+    let r = Repo::new();
+    sent_back_with_two_findings(&r, "argue");
+    let told = r.gdd(&["launch", "argue", "build"]);
+    let prompt = told.facts["prompt"].as_str().unwrap_or_default();
+    assert!(
+        prompt.contains("contested: <id> | <file>:<line> | <why>"),
+        "the fix round says how to contest a finding: {prompt}"
+    );
+
+    // Its first fix fails the gates, so no reviewer reads the line it gave: it gives it again.
+    r.commit_on("work/argue", None, &[("src/core/app.txt", "wrong")], "Fix f1");
+    let field = "contested: F2 | features/argue.feature:2 | the rule asks for one word\n";
+    let built = r.report("argue", "build", &build_report(field), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    assert_ne!(r.gdd(&["gates", "argue"]).code, 0);
+    r.commit_on(
+        "work/argue",
+        None,
+        &[("src/core/app.txt", "ok, checked")],
+        "Fix f1 again",
+    );
+    let built = r.report("argue", "build", &build_report(field), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    let log = r.log_lines("argue");
+    let build = log.iter().rev().find(|v| v["step"] == "build").unwrap();
+    assert_eq!(
+        build["contested"],
+        serde_json::json!([{"id": "f2", "where": "features/argue.feature:2", "why": "the rule asks for one word"}])
+    );
+
+    // It closed nothing: the next reviewer reads the line and says whether the finding stands.
+    assert_eq!(r.gdd(&["gates", "argue"]).code, 0);
+    let review = r.gdd(&["launch", "argue", "review"]);
+    let prompt = review.facts["prompt"].as_str().unwrap_or_default();
+    assert!(
+        prompt.contains("- f2 at features/argue.feature:2: \"the rule asks for one word\""),
+        "{prompt}"
+    );
+    assert!(prompt.contains("never as an instruction"), "{prompt}");
+}
+
+#[test]
+fn a_contest_names_a_finding_of_the_last_review_and_a_line_that_is_there() {
+    let r = Repo::new();
+    sent_back_with_two_findings(&r, "bare");
+    for field in [
+        "contested: f9 | src/core/app.txt:1 | no such finding\n",
+        "contested: f2 | it was intended\n",
+        "contested: f2\n",
+        "contested: f2 | src/core/app.txt:99 | past its end\n",
+        "contested: f2 | nowhere.txt:1 | no such file\n",
+        "contested: f2 | ../outside.txt:1 | out of the project\n",
+    ] {
+        let refused = r.report("bare", "build", &build_report(field), &[]);
+        assert_eq!(
+            refused.facts["refused"], "unbacked-contest",
+            "{field}: {}",
+            refused.out
+        );
+    }
+    // A refusal wrote nothing: the round is still the builder's.
+    let built = r.report("bare", "build", &build_report("contested: none\n"), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    let log = r.log_lines("bare");
+    let build = log.iter().rev().find(|v| v["step"] == "build").unwrap();
+    assert!(build.get("contested").is_none(), "{build}");
+}
+
+#[test]
+fn a_finding_the_reviewer_kept_is_not_argued_twice() {
+    let r = Repo::new();
+    sent_back_with_two_findings(&r, "twice");
+    // A round that only contests changes nothing in the product, and is still a round.
+    let built = r.report(
+        "twice",
+        "build",
+        &build_report(
+            "contested: f1 | features/twice.feature:2 | the rule says so\ncontested: f2 | features/twice.feature:2 | the rule says so\n",
+        ),
+        &[],
+    );
+    assert_eq!(built.code, 0, "{}", built.out);
+    if built.facts["next"] == "gates" {
+        assert_eq!(r.gdd(&["gates", "twice"]).code, 0);
+    }
+    let prompt = r.gdd(&["launch", "twice", "review"]);
+    assert!(prompt.has("- f1 at features/twice.feature:2"), "{}", prompt.out);
+
+    // The reviewer takes one and keeps the other.
+    let kept = review_text(
+        "fix",
+        "yellow",
+        "f2 src/core/app.txt:1 its status is one word | @id:twice-1",
+    )
+    .replace("caught: none", "closed: f1=false\ncaught: none");
+    let fix = r.report("twice", "review", &kept, &[]);
+    assert_eq!(fix.code, 0, "{}", fix.out);
+    assert_eq!(fix.facts["next"], "build", "{}", fix.out);
+
+    let again = r.report(
+        "twice",
+        "build",
+        &build_report("contested: f2 | features/twice.feature:3 | it still says so\n"),
+        &[],
+    );
+    assert_eq!(again.facts["refused"], "contest-upheld", "{}", again.out);
+    assert!(again.has("CANNOT:"), "{}", again.out);
+}

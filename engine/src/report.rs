@@ -90,6 +90,8 @@ pub struct RoleReport {
     pub result: String,
     pub caught: String,
     pub decisions: Option<Vec<String>>,
+    /// A builder's `contested:` lines, as it gave them: `<finding> | <file>:<line> | <why>`.
+    pub contested: Vec<String>,
     /// The reason and what would unblock it, when the role stopped with `CANNOT:`.
     pub cannot: Option<(String, String)>,
     /// The reviewer's first word: `pass`, `fix` or `stop`.
@@ -408,6 +410,11 @@ pub(crate) fn parse_with_blueprint(
     if choices.peek().is_some() {
         r.decisions = Some(bounded_lines(choices));
     }
+    r.contested = fields
+        .iter()
+        .filter(|(k, v)| k == "contested" && !v.is_empty() && !v.eq_ignore_ascii_case("none"))
+        .map(|(_, v)| v.clone())
+        .collect();
     let closed: Vec<_> = fields
         .iter()
         .filter(|(k, _)| k == "closed")

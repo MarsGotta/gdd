@@ -735,6 +735,9 @@ fn report_build(
     if let Some(decisions) = &r.decisions {
         m.insert("decisions".into(), json!(decisions));
     }
+    if !r.contested.is_empty() {
+        m.insert("contested".into(), Value::Array(contests(l, r)?));
+    }
     Ok(())
 }
 
@@ -1080,19 +1083,83 @@ fn report_reading(
 /// commit its brief was sealed at or, for a brief with no seal, its base. Only with neither, the
 /// working copy.
 fn readable_line(ctx: &Ctx, l: &Loaded, at: &str) -> Option<String> {
-    let (file, n) = at.rsplit_once(':')?;
-    let (file, n) = (color::clean_path(file).ok()?, n.parse::<usize>().ok()?);
     let p = &l.state.progress;
     let read = p
         .brief_line
         .and_then(|i| l.entries[i - 1].event())
         .and_then(|b| b["seal"].as_str().map(str::to_owned))
         .or_else(|| p.base.clone());
-    let bytes = match read {
-        Some(commit) => git::blob_bytes(&ctx.root, &commit, &file)?,
-        None => std::fs::read(ctx.root.join(&file)).ok()?,
+    line_in(&ctx.root, read.as_deref(), at)
+}
+
+/// `<file>:<n>`, when that file has a line there that isn't blank: at a commit, or in the
+/// working copy where there is none.
+fn line_in(root: &Path, commit: Option<&str>, at: &str) -> Option<String> {
+    let (file, n) = at.rsplit_once(':')?;
+    let (file, n) = (color::clean_path(file).ok()?, n.parse::<usize>().ok()?);
+    let bytes = match commit {
+        Some(commit) => git::blob_bytes(root, commit, &file)?,
+        None => std::fs::read(root.join(&file)).ok()?,
     };
     let text = String::from_utf8_lossy(&bytes);
     let line = text.lines().nth(n.checked_sub(1)?)?;
     (!line.trim().is_empty()).then(|| format!("{file}:{n}"))
+}
+
+/// What a build contests of the review that sent the change back. The reviewer backs each
+/// finding, and the builder backs each disagreement with a line the reviewer can read. It closes
+/// nothing: whether the finding stands is the next reviewer's to say, or a person's (decision 115).
+fn contests(l: &Loaded, r: &RoleReport) -> R<Vec<Value>> {
+    let events = log::events(&l.entries);
+    let found = |v: &Value, key: &str, id: &str| {
+        v[key]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["id"] == id))
+    };
+    let review = events.iter().rev().find(|(_, v)| step(v) == "review");
+    let how = "contested: <id> | <file>:<line> | <why>, with a line of the change or of its brief that answers the finding. That it was intended is no line. Or fix it";
+    let mut contested = vec![];
+    for raw in &r.contested {
+        let mut parts = raw.splitn(3, '|').map(str::trim);
+        let id = parts.next().unwrap_or_default().to_ascii_lowercase();
+        let (at, why) = (
+            parts.next().unwrap_or_default(),
+            parts.next().unwrap_or_default(),
+        );
+        if !review.is_some_and(|(_, v)| found(v, "findings", &id)) {
+            return Err(Fail::refuse(
+                "unbacked-contest",
+                format!("{id} is no finding of the last review: {raw}"),
+                how,
+            ));
+        }
+        // A finding the reviewer kept after reading the builder's line isn't argued twice. A
+        // contest no reviewer has read yet, because the gates failed after it, is said again.
+        if events.iter().any(|(n, v)| {
+            review.is_some_and(|(read, _)| n < read)
+                && step(v) == "build"
+                && found(v, "contested", &id)
+        }) {
+            return Err(Fail::refuse(
+                "contest-upheld",
+                format!("the reviewer read the line given for {id} and kept the finding"),
+                "fix it, or stop with CANNOT: and say what the person should decide",
+            ));
+        }
+        let line = l
+            .state
+            .git
+            .head
+            .as_deref()
+            .and_then(|head| line_in(&l.project.root, Some(head), at));
+        let Some(line) = line else {
+            return Err(Fail::refuse(
+                "unbacked-contest",
+                format!("{id} is contested without a line the reviewer can read: {raw}"),
+                format!("{how}. If only the person can answer it, stop with CANNOT:"),
+            ));
+        };
+        contested.push(json!({"id": id, "where": line, "why": why}));
+    }
+    Ok(contested)
 }
