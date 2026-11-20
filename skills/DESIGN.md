@@ -537,6 +537,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
     - A revert counts even when it was reverted in turn. The first design cancelled one with the other, and a review found three ordinary histories where that went wrong: a second revert after a reapply, a revert that came in through a merge, and a commit that only quoted the line. Counting every revert is simpler and errs toward a question to the person: the change did go out once.
     - It is a signal, not a guarantee, and it only adds waiting. An undoing written by hand leaves no line, and neither does a fix with another change on top, so a count of zero says little and is no evidence for a reduction. A commit that quotes the line for another change's commit makes that change wait for a look it didn't need.
 
+119. **The same question to the person, asked again, is a crack too.** Hardening looked at three things that repeat in the logs: a finding, a stop and a reason for raising a color. A question the person answers in one change and is asked again in the next wasn't one of them, though the `asks` table of `gdd metrics` already holds each question's words. `gdd-harden` now counts it as something that repeats, and proposes where the answer goes so the next change reads it without asking: a rule of its capability, through a normal change, or the blueprint. Never the constitution: a line there costs at every gate and checks nothing. Nothing changes in the layer.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

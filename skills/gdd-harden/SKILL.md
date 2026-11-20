@@ -16,7 +16,7 @@ In every command below, run the project's `.gdd/gdd` first. Use `gdd` on the pat
 ## What counts
 
 - **What slips through:** a failure that got through every gate and was found later, by a person, in production, at Close when the person's no says it broke a rule or did harm, or by a reviewer where a machine check should have caught it.
-- **What repeats:** the same finding, the same stop or the same reason for raising a color, in several logs.
+- **What repeats:** the same finding, the same stop, the same reason for raising a color or the same question to the person, in several logs.
 - **What no longer adds anything:** a check, a question of the reviewer's or a row of its exam that the person says is in the way, or that reaches the figure the blueprint gives for simplifying. Go to Reading the logs, and then to what you propose.
 
 For a failure, before anything else, ask someone who knows that part of the product to confirm it is real and where it was.
@@ -38,6 +38,7 @@ Read the brief and the log of the change that let it through (`gdd/log/<id>.json
 - **The check.** If a machine can check it, it goes to the blueprint and `gdd-checks` builds it, climbing the ladder from what the stack already brings, and its bad case goes under `Rule: It closes` in the feature of its gate. If no machine can, its scenario is tagged with the reviewer's check, and it becomes a question of the reviewer's exam.
 - **Mutation testing, or a threshold of coverage,** when the tests proved weak: a reviewer found one that passed without its behavior, or a failure got past tests that ran its lines. Propose it for the color where that happened, before the review, at its tool's own default, looked up on the tool's own page and never from memory, and never the highest.
 - **A pathspec or a zone,** when the same reason for raising a color keeps coming back: what judgment finds today, git checks tomorrow.
+- **A rule, when the person keeps being asked the same thing.** Their answer becomes a rule of its capability in `features/<capability>.feature`, through a normal change, so the next change reads it without asking. Propose it in their words, and never decide the answer for them.
 - **A reduction or removal,** with the same evidence as an addition. When a check, a question of the reviewer's or a row of its exam reaches the figure the blueprint says would make the team simplify, plant its bad case and see it still rejected, and then propose relaxing or retiring it: how often it ran, what it caught, what it cost and what it would let through from then on. Open `references/reduction.md` when proposing either change so the evidence goes into its record.
 - **Never a paragraph.** A new line in the constitution or in `AGENTS.md` costs at every gate and checks nothing.
 
@@ -58,6 +59,7 @@ What to look for:
 - **Per gate:** how often it failed in the gates and how often the builder saw it fail. Read the reasons for skips, the confirmed defects and the measurements behind the cost: the seconds of its checks in `checks`, the seconds and the tokens of the reviewer's reports in `steps`, and the wait after each `ask` in `asks`. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
 - **Per color:** how many of its shipped changes the main branch reverted later, in `undone` of `changes` and in the summary. Ask why each one was reverted: when it was for a failure, that failure slipped through, and you find its crack like any other. None reverted says little: the layer sees the line `git revert` writes, not an undoing by hand or a fix with another change on top.
+- **Per question:** what was asked where `kind` is `decision`, in `what` of `asks`. The same one in several changes is a question the project hasn't answered where agents read. An approval or a close is asked every time by design.
 - **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
 - **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
 - **Per reviewer:** how many of its findings ended as `false` or `minor`, in `findings`. That is its noise.
