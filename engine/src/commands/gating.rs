@@ -280,11 +280,35 @@ fn plan_for(
     let (hit, _) = color::sort_paths(&ctx.root, &l.bp, &touched)
         .map_err(|e| Fail::missing("the zones of the paths it touched", e))?;
     for z in l.bp.zones() {
-        if let (true, Some(file)) = (hit.contains_key(&z.id), &z.gates)
-            && let Some(text) = git::show(&ctx.root, start, file)
-        {
-            zone_checks.extend(gates::zone_gate_checks(&text));
-        }
+        let (true, Some(file)) = (hit.contains_key(&z.id), &z.gates) else {
+            continue;
+        };
+        // A gates file that isn't there would leave the zone's own checks out without a word.
+        let Some(text) = git::blob_bytes(&ctx.root, start, file) else {
+            let main = git::main_branch(&ctx.root);
+            let fix = if git::blob_bytes(&ctx.root, &git::branch_ref(&main), file).is_none() {
+                "write it, or take the zone's gates field out of the blueprint, with the person's yes".to_string()
+            } else if l.state.git.seal_tip.is_some() {
+                format!(
+                    "it reached {main} after the change started: gdd seal {id} --merge-main, then merge the seal into the change's branch"
+                )
+            } else {
+                format!(
+                    "it reached {main} after the change started: merge {main} into the change's branch"
+                )
+            };
+            return Err(Fail::refuse(
+                "bad-blueprint",
+                format!(
+                    "the change touches zone {}, whose gates file {file} isn't in its start {}: the zone's own checks would never run",
+                    z.id,
+                    git::short(start)
+                ),
+                fix,
+            ));
+        };
+        let text = String::from_utf8_lossy(&text);
+        zone_checks.extend(gates::zone_gate_checks(&text));
     }
     let plan = gates::plan(&l.bp, &color, &touched_by, &zone_checks);
     // A check whose `runs` is neither tier would be left out without a word, and the gates

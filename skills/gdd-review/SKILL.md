@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.19.0"
+  version: "0.20.0"
   contract: gdd/1
 ---
 
@@ -58,7 +58,7 @@ The first line of your answer is exactly one of these words, with nothing before
 - `fix`: give each numbered finding its own citation on the same line. After ` | `, put the scenario's tag (`@id:<scenario>`), `zone <name>: <rule>`, `constitution: <rule>`, `request: <the person's words>` or `check <id>`. On red, end it with ` | ran: <the command from your json block that shows it fail>`. For example, `f1 tests/playlist:42 the test passes even when skipping a track restarts it | @id:playlist-1`, and on red `... | @id:playlist-1 | ran: sh try-skip.sh`. If all findings name tests sealed for this change, `gdd-checks` corrects them and the builder merges the seal. If none do, the builder takes the fix. For mixed findings, `gdd-checks` corrects the named tests first, then the builder merges the seal and handles the rest, including findings without a file. Your fix holds the change. The layer sends back a fix with a finding uncited, or on red without its run, and you send your whole report again. Put anything minor, and anything you can't tie to one of those sources, under `LATER:` for the backlog, without a number: every numbered line holds the change. A failure that needs two faults at once, such as a write that fails while the service restarts, goes there too, unless the brief or a zone rule asks for that case. Under `NOTES FOR THE BUILDER:`, give the corrections in under 200 words, without writing the solution.
 - `stop`: it can't go in like this: it touched what judges it, or it opens what it shouldn't, runs foreign code, exposes a secret, loses data or breaks an existing project.
 
-The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then a line for each thing you read or ran and what came out. A command goes as you typed it, with its exit code and its last line: `sh test-playlist.sh`, exit 0, “12 passed”. On red, whatever the verdict, that is a line for the run, each break, each attack and the way back: `git revert --no-edit HEAD`, exit 0, “1 file changed, 1 insertion(+), 1 deletion(-)”. Then what fails, with its file and line. On red, a `pass` that doesn't say what you ran doesn't count. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
+The second line is `COLOR: <color>`, with the zones it touched, anything no zone covers and, if it rose, why. Then a line for each thing you read or ran and what came out. A command goes as you typed it, with its exit code and its last line: `sh test-playlist.sh`, exit 0, “12 passed”. On red, whatever the verdict, that is a line for the run, each break, each attack and the way back: `git revert --no-edit HEAD`, exit 0, “1 file changed, 1 insertion(+), 1 deletion(-)”. Then what fails, with its file and line. On red, the layer sends back a `pass` without the json block of what you ran. Number your findings, a line each: `f1 <file>:<line> <what>`. Ask for `fix` only for errors that matter: an agent fixes every nitpick it gets, and each one opens another round.
 
 ## Report
 
@@ -67,7 +67,7 @@ End your last message with this block, filled in. `result` is your verdict. If y
 Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{"command":"<command>","exit":0,"tail":"<its last lines>"}].
 
 ```gdd-report
-skill: gdd-review 0.19.0
+skill: gdd-review 0.20.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 closed:

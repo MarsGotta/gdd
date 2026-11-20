@@ -39,7 +39,9 @@
 <thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
 <tbody>
 <tr><td>La capa rechaza un paso</td><td>Un paso fuera de orden, un archivo que cambió después de sellarse o un tope sin margen.</td><td>Nada: dice por qué y qué ejecutar en su lugar, y tu agente lo hace.</td></tr>
-<tr><td>La capa devuelve el informe del vigilante</td><td>Un fallo de su <code>fix</code> no trae cita o, en rojo, la orden que lo reproduce.</td><td>Nada: tu agente se lo devuelve al mismo vigilante, que lo completa.</td></tr>
+<tr><td>La capa devuelve el informe del vigilante</td><td>Un fallo de su <code>fix</code> no trae cita o, en rojo, la orden que lo reproduce. O, en rojo, su <code>pass</code> no dice qué ejecutó.</td><td>Nada: tu agente se lo devuelve al mismo vigilante, que lo completa.</td></tr>
+<tr><td>La capa no registra la lectura del encargo</td><td>Tu agente descartó un hallazgo sin citar la línea que lo responde.</td><td>Nada: tu agente cita la línea o, si la respuesta solo la sabes tú, te lo pregunta.</td></tr>
+<tr><td>Las puertas no corren por el archivo de puertas de una zona</td><td>El plano nombra un archivo de puertas que no estaba cuando empezó el cambio.</td><td>Si ya está en tu rama principal, nada: tu agente lo trae al cambio. Si no, decides tú si se escribe o se quita del plano.</td></tr>
 <tr><td>La capa rechaza un encargo por la forma de un escenario</td><td>Un escenario nuevo o cambiado no tiene una regla encima, un <code>@id</code> o una sola acción.</td><td>Nada: tu agente lo corrige y vuelve a sellar.</td></tr>
 <tr><td>No está la capa</td><td>Cada copia del proyecto compila la suya, y esta no ha podido.</td><td>Instala Rust, y tu agente sigue.</td></tr>
 <tr><td>Tu agente dice que git no puede escribir en esta copia</td><td>Git no le deja escribir una rama en la carpeta donde está.</td><td>Ábrelo en una copia donde git pueda escribir, y sigue.</td></tr>

@@ -7,6 +7,13 @@
 <li><strong>Your CI.</strong> It builds the version of the layer it names, with <code>--tag v&lt;version&gt;</code>. Change the version there to the new one, so your CI checks with the same layer your agents use.</li>
 </ol>
 <p>What updating never touches: your blueprint, your gates, your briefs, your scenarios and your logs. The contract is still <code>gdd/1</code>.</p>
+<h2 id="v0-20">0.20, November 20, 2026</h2>
+<ul>
+<li>On red, the reviewer has to say what it ran to pass a change. A <code>pass</code> with no command and its exit code goes back to the same reviewer, as an unbacked <code>fix</code> does.</li>
+<li>Your agent, who wrote the brief, can drop a finding of its reading only by citing the line that answers it, in what the reader had. Without one, the layer suggests asking you.</li>
+<li>If the blueprint names a gates file for a zone and that file wasn't there when the change started, the gates don't run and the layer says why. Before, that zone's checks were skipped without a word.</li>
+</ul>
+<p><strong>What you have to do:</strong> as with every version, change the layer's tag in your CI.</p>
 <h2 id="v0-19">0.19, November 20, 2026</h2>
 <ul>
 <li>The reviewer has to back what it asks to fix. Each finding of a <code>fix</code> carries its citation and, on red, the command that reproduces it. If one is missing, the layer sends the report back to the same reviewer, never to a new one.</li>

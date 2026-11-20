@@ -3,7 +3,7 @@ name: gdd-brief
 description: Fixes what has to pass for one change in a Gate-Driven Development (GDD) project before anyone builds it, with a first estimate of its risk. Loaded by the GDD orchestrator for every change, and when one comes back because it doesn't fit its brief or its color rose. Not for setting up a project, writing checks or building.
 license: MIT
 metadata:
-  version: "0.19.0"
+  version: "0.20.0"
   contract: gdd/1
 ---
 
@@ -84,7 +84,7 @@ Always in this order: write, `gdd seal`, `gdd brief`, the reading where the colo
 
 Write the brief and its scenarios in your own copy, the one the person has open, at the paths they will have in the project, and seal them from there with `gdd seal <id> <files>`, which commits them on `gdd-seal/<id>` without touching your copy. A file the person handed over that git doesn't track goes in the seal too. Then `gdd brief <id> <files> --paths <path>...` writes the `brief` step with that commit and each file's hash: exactly what has to pass. The seal is what judges, and their copy is what they read.
 
-Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. These name the brief rule that needs correction, or the scenario missing its rule. Other additions cite a constitution or zone rule or a loss of money or data. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
+Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. Drop one only with the line, in what the reader could read, that answers it: `f3=dropped:<file>:<line>`. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
 If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. Ask only when approval is due: put each line it prints in one message in their language, under 150 words on yellow and 200 on red.
 

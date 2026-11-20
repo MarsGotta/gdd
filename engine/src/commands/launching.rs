@@ -92,7 +92,7 @@ fn returned_role(p: &state::Progress, role: &str, sent_back: bool) -> bool {
 /// What the layer said the last report of the change's reviewer lacked, when it sent it back and
 /// nothing was written since: that reviewer's session still holds what it found, and a fresh one
 /// would start over.
-pub(super) fn review_sent_back(root: &Path, id: &str) -> Option<Vec<String>> {
+pub(super) fn review_sent_back(root: &Path, id: &str) -> Option<(String, Vec<String>)> {
     crate::journal::sent_back(&Project::open(root).journal_path(id))
 }
 
@@ -535,7 +535,7 @@ fn prompt_for(
     id: &str,
     role: &str,
     level: &str,
-    sent_back: Option<&[String]>,
+    sent_back: Option<&(String, Vec<String>)>,
 ) -> (String, Option<String>) {
     let p = &l.state.progress;
     let mut s = vec![];
@@ -648,12 +648,12 @@ fn prompt_for(
             }
         }
         "review" => {
-            if let Some(lacks) = sent_back {
+            if let Some((why, lacks)) = sent_back {
                 s.push("The layer sent your last report back. What it lacked:".into());
                 s.extend(lacks.iter().map(|x| format!("- {x}")));
                 s.push(format!(
                     "{} Send your whole report again.",
-                    super::reports::BACKED_FIX
+                    super::reports::backed(why)
                 ));
             }
             s.push(
@@ -661,7 +661,10 @@ fn prompt_for(
                     .into(),
             );
             // Where the reviewer runs the change, a finding it sends back shows how it fails.
-            if !setup && p.color.as_deref() == Some("red") && sent_back.is_none() {
+            if !setup
+                && p.color.as_deref() == Some("red")
+                && sent_back.is_none_or(|(why, _)| why == "unbacked-pass")
+            {
                 s.push("In a fix, end each numbered finding after its citation with | ran: <the command of that json block that shows it fail>.".into());
             }
         }
@@ -901,7 +904,7 @@ fn run_role(
     let written = write_report(ctx, l, id, role, &said.text, &ra, out);
     // A report sent back goes to the reviewer who wrote it, and its session is the way there.
     if let (Err(f), Some(session)) = (&written, &said.session_id)
-        && f.reason == "unbacked-fix"
+        && matches!(f.reason.as_str(), "unbacked-fix" | "unbacked-pass")
     {
         out.say(format!("session of that reviewer: {session}"));
         out.fact("session_id", session.as_str());
@@ -933,7 +936,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
-        let (prompt, reviewed) = prompt_for(&l, id, role, &level, sent_back.as_deref());
+        let (prompt, reviewed) = prompt_for(&l, id, role, &level, sent_back.as_ref());
         let template = a
             .command
             .clone()

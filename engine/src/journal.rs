@@ -160,22 +160,27 @@ fn attempts(journal: &str) -> impl Iterator<Item = Value> + '_ {
         })
 }
 
-/// What each finding lacked when the layer last sent a reviewer's report back, while nothing was
-/// written since: a resume that didn't start, or another refusal after it, keeps the report out.
-pub(crate) fn sent_back(path: &Path) -> Option<Vec<String>> {
+/// Why the layer last sent a reviewer's report back, `unbacked-fix` or `unbacked-pass`, and what
+/// it lacked, while nothing was written since: a resume that didn't start, or another refusal
+/// after it, keeps the report out.
+pub(crate) fn sent_back(path: &Path) -> Option<(String, Vec<String>)> {
     let journal = std::fs::read_to_string(path).ok()?;
     let refusal = attempts(&journal)
         .take_while(|j| !j["wrote"].is_object())
-        .find(|j| j["refused"] == "unbacked-fix")?;
-    Some(
-        refusal["unbacked"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect(),
-    )
+        .find(|j| {
+            matches!(
+                j["refused"].as_str(),
+                Some("unbacked-fix" | "unbacked-pass")
+            )
+        })?;
+    let lacks = refusal["unbacked"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    Some((refusal["refused"].as_str()?.to_owned(), lacks))
 }
 
 /// The same refusal twice in a row, at the same refs: the attempt and its reason.

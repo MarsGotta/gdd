@@ -1,6 +1,6 @@
 [package]
 name = "gdd"
-version = "0.19.0"
+version = "0.20.0"
 edition = "2024"
 rust-version = "1.89"
 description = "The deterministic layer of Gate-Driven Development (contract gdd/1): order, accounting and evidence for changes built by coding agents."

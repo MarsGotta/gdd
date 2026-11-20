@@ -39,7 +39,9 @@
 <thead><tr><th>You see</th><th>Why</th><th>What you do</th></tr></thead>
 <tbody>
 <tr><td>The layer refuses a step</td><td>A step out of order, a file that changed after it was sealed or a cap with no room left.</td><td>Nothing: it says why and what to run instead, and your agent does that.</td></tr>
-<tr><td>The layer sends the reviewer's report back</td><td>A finding of its <code>fix</code> has no citation or, on red, no command that reproduces it.</td><td>Nothing: your agent hands it back to the same reviewer, who completes it.</td></tr>
+<tr><td>The layer sends the reviewer's report back</td><td>A finding of its <code>fix</code> has no citation or, on red, no command that reproduces it. Or, on red, its <code>pass</code> doesn't say what it ran.</td><td>Nothing: your agent hands it back to the same reviewer, who completes it.</td></tr>
+<tr><td>The layer doesn't record the reading of a brief</td><td>Your agent dropped a finding without citing the line that answers it.</td><td>Nothing: your agent cites the line or, if only you know the answer, asks you.</td></tr>
+<tr><td>The gates don't run because of a zone's gates file</td><td>The blueprint names a gates file that wasn't there when the change started.</td><td>If it's already on your main branch, nothing: your agent brings it into the change. If not, you decide whether it gets written or taken out of the blueprint.</td></tr>
 <tr><td>The layer refuses a brief over the form of a scenario</td><td>A new or changed scenario has no rule above it, no <code>@id</code> or more than one action.</td><td>Nothing: your agent corrects it and seals again.</td></tr>
 <tr><td>The layer isn't there</td><td>Every copy of the project builds its own, and this one couldn't.</td><td>Install Rust, and your agent goes on.</td></tr>
 <tr><td>Your agent says git can't write in this copy</td><td>Git won't let it write a branch in the folder it's in.</td><td>Open it in a copy where git can write, and it goes on.</td></tr>

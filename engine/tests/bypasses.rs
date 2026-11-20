@@ -1121,6 +1121,121 @@ fn gates_that_failed_dont_run_again_on_a_fix_nobody_reported() {
     assert_eq!(v.facts["errors"], 0, "{}", v.out);
 }
 
+/// A zone's gates file that isn't there is no way to drop the zone's own checks: the gates ran
+/// without them and never said so. Once the file reaches the change's start, they run.
+#[test]
+fn a_zone_whose_gates_file_is_missing_is_never_left_out_without_a_word() {
+    let bp = BLUEPRINT
+        .replace(
+            "  - id: core\n    color: yellow\n",
+            "  - id: core\n    color: yellow\n    gates: gdd/gates/core.feature\n",
+        )
+        .replace(
+            "  - id: review\n",
+            "  - id: zone-only\n    type: machine\n    command: sh -c 'echo the zone check ran; exit 1'\n    runs: each round\n  - id: review\n",
+        );
+    assert_ne!(bp, BLUEPRINT, "the blueprint of the tests changed shape");
+    let r = Repo::with(&bp);
+    let seal = yellow_sealed(&r, "y1");
+    r.commit_on(
+        "work/y1",
+        Some(&seal),
+        &[("src/core/app.txt", "built\n")],
+        "Build",
+    );
+    let b = r.report("y1", "build", &report_block("gdd-build", "done"), &[]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    let g = r.gdd(&["gates", "y1"]);
+    assert_eq!(g.facts["refused"], "bad-blueprint", "{}", g.out);
+    assert!(
+        g.has("core") && g.has("gdd/gates/core.feature"),
+        "{}",
+        g.out
+    );
+    assert!(!g.has("--merge-main"), "the file is nowhere: {}", g.out);
+    assert!(
+        r.log_lines("y1").iter().all(|e| e["step"] != "gates"),
+        "no gates step was written"
+    );
+
+    // The file lands on the main branch after the change started: it reaches the seal.
+    r.write(
+        "gdd/gates/core.feature",
+        "@check:zone-only\nFeature: Core\n",
+    );
+    r.commit("The core's own gate");
+    let g = r.gdd(&["gates", "y1"]);
+    assert_eq!(g.facts["refused"], "bad-blueprint", "{}", g.out);
+    assert!(g.has("gdd seal y1 --merge-main"), "{}", g.out);
+    let m = r.gdd(&["seal", "y1", "--merge-main"]);
+    assert_eq!(m.code, 0, "{}", m.out);
+    let tree = r.git(&["merge-tree", "--write-tree", "work/y1", "gdd-seal/y1"]);
+    let merge = r.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        "work/y1",
+        "-p",
+        "gdd-seal/y1",
+        "-m",
+        "Take the seal in",
+    ]);
+    r.git(&["branch", "-f", "work/y1", &merge]);
+    let g = r.gdd(&["gates", "y1"]);
+    assert!(g.facts["refused"].is_null(), "{}", g.out);
+    assert_eq!(g.code, 1, "the zone's own check ran and failed: {}", g.out);
+    let failed: Vec<&str> = g.facts["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["result"] == "fail")
+        .map(|c| c["check"].as_str().unwrap())
+        .collect();
+    assert!(failed.contains(&"zone-only"), "{}", g.out);
+}
+
+/// A change with no seal takes the main branch in on its own branch, and then its zone's checks run.
+#[test]
+fn a_change_with_no_seal_is_told_to_take_the_main_branch_in() {
+    let bp = BLUEPRINT.replace(
+        "  - id: ui\n    color: green\n",
+        "  - id: ui\n    color: green\n    gates: gdd/gates/ui.feature\n",
+    );
+    let r = Repo::with(&bp);
+    let base = r.git(&["rev-parse", "main"]);
+    assert_eq!(
+        r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code,
+        0
+    );
+    r.commit_on(
+        "work/g1",
+        Some(&base),
+        &[("src/ui/page.txt", "a new page\n")],
+        "Build",
+    );
+    r.report("g1", "build", &report_block("gdd-build", "done"), &[]);
+    r.write("gdd/gates/ui.feature", "Feature: UI\n");
+    r.commit("The UI's own gate");
+    let g = r.gdd(&["gates", "g1"]);
+    assert_eq!(g.facts["refused"], "bad-blueprint", "{}", g.out);
+    assert!(g.has("merge main into the change's branch"), "{}", g.out);
+    assert!(!g.has("gdd seal"), "{}", g.out);
+    let tree = r.git(&["merge-tree", "--write-tree", "work/g1", "main"]);
+    let merge = r.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        "work/g1",
+        "-p",
+        "main",
+        "-m",
+        "Take main in",
+    ]);
+    r.git(&["branch", "-f", "work/g1", &merge]);
+    let g = r.gdd(&["gates", "g1"]);
+    assert!(g.facts["refused"].is_null(), "{}", g.out);
+}
+
 /// A slip of the pen in the blueprint is no way to drop a check: one whose `runs` was neither
 /// tier was planned, never run and never named, and the gates passed without it.
 #[test]

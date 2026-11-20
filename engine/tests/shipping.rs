@@ -587,6 +587,51 @@ fn red_through_gates(r: &Repo, id: &str) {
     assert_eq!(g.code, 0, "{}", g.out);
 }
 
+/// What a reviewer on red ran, the json block right above its report.
+const RAN: &str =
+    "```json\n[{\"command\":\"sh tests/r1.sh\",\"exit\":0,\"tail\":\"1 passed\"}]\n```";
+
+/// On red the reviewer runs the change: a pass that ran nothing didn't look, and goes back to the
+/// reviewer who wrote it, never to a fresh one.
+#[test]
+fn a_red_pass_that_ran_nothing_goes_back_to_its_reviewer() {
+    let r = Repo::new();
+    red_through_gates(&r, "r1");
+    let empty = "```json\n[{\"command\":\"\",\"exit\":0}, {\"command\":\"sh tests/r1.sh\"}]\n```";
+    let blind = r.report("r1", "review", &r.review_pass("r1", "red", empty), &[]);
+    assert_eq!(blind.facts["refused"], "unbacked-pass", "{}", blind.out);
+    assert!(
+        blind.has("a pass on red with no json block of the commands it ran"),
+        "{}",
+        blind.out
+    );
+    assert!(!r.log_lines("r1").iter().any(|e| e["step"] == "review"));
+    let fresh = r.gdd(&["launch", "r1", "review", "--run"]);
+    assert_eq!(fresh.facts["refused"], "resume-required", "{}", fresh.out);
+    let again = r.gdd(&["launch", "r1", "review"]);
+    let prompt = again.facts["prompt"].as_str().unwrap();
+    assert!(
+        prompt.contains("On red, a pass gives, right above the gdd-report block, the json block"),
+        "{prompt}"
+    );
+    assert!(
+        !prompt.contains("Each numbered finding of a fix"),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("| ran: <the command of that json block"),
+        "{prompt}"
+    );
+    let pass = r.report(
+        "r1",
+        "review",
+        &again.with_reviewed(&review_text("pass", "red", RAN)),
+        &[],
+    );
+    assert_eq!(pass.code, 0, "{}", pass.out);
+    assert_eq!(r.log_lines("r1").last().unwrap()["ran"][0]["exit"], 0);
+}
+
 #[test]
 fn on_red_each_finding_of_a_fix_names_the_run_that_shows_it() {
     let r = Repo::new();
@@ -651,7 +696,7 @@ fn a_person_who_approves_gets_the_reviewers_evidence() {
     let pass = r.report(
         "r1",
         "review",
-        &launch.with_reviewed(&review_text("pass", "red", evidence)),
+        &launch.with_reviewed(&review_text("pass", "red", &format!("{evidence}\n{RAN}"))),
         &[],
     );
     assert_eq!(pass.code, 0, "{}", pass.out);
@@ -693,7 +738,7 @@ fn a_person_who_approves_gets_the_reviewers_evidence() {
 fn missing_evidence_stops_nothing_and_is_asked_only_where_a_person_approves() {
     let r = Repo::new();
     red_through_gates(&r, "r1");
-    let pass = r.review_pass("r1", "red", "");
+    let pass = r.review_pass("r1", "red", RAN);
     assert_eq!(r.report("r1", "review", &pass, &[]).code, 0);
     let next = r.gdd(&["next", "r1"]);
     assert_eq!(next.facts["state"]["next"]["step"], "ask", "{}", next.out);
@@ -823,7 +868,7 @@ fn the_evidence_is_bounded_quoted_and_fenced() {
     let pass = r.report(
         "r1",
         "review",
-        &launch.with_reviewed(&review_text("pass", "red", &evidence)),
+        &launch.with_reviewed(&review_text("pass", "red", &format!("{evidence}\n{RAN}"))),
         &[],
     );
     assert_eq!(pass.code, 0, "{}", pass.out);
@@ -937,6 +982,43 @@ fn a_reading_records_the_gaps_in_existing_scenarios() {
     assert_eq!(reading["findings"], serde_json::json!([]));
 }
 
+/// A drop names a line of what the reader read, with something on it: not one sealed after the
+/// reading, nor a blank one.
+#[test]
+fn a_drop_names_a_line_the_reader_had() {
+    let r = Repo::new();
+    r.write("gdd/briefs/r1.md", "---\nversion: 1\n---\n\n# Pay\n");
+    r.write("features/r1.feature", "Feature: Pay\n");
+    r.gdd(&["seal", "r1", "gdd/briefs/r1.md", "features/r1.feature"]);
+    let b = r.gdd(&[
+        "brief",
+        "r1",
+        "gdd/briefs/r1.md",
+        "features/r1.feature",
+        "--paths",
+        "src/pay/pay.txt",
+    ]);
+    assert_eq!(b.code, 0, "{}", b.out);
+    r.gdd(&["launch", "r1", "reading"]);
+    r.write("gdd/briefs/why.md", "f1 is wrong\n");
+    assert_eq!(r.gdd(&["seal", "r1", "gdd/briefs/why.md"]).code, 0);
+    let reading = review_text("fix", "red", "f1 charging twice loses money");
+    for at in ["gdd/briefs/why.md:1", "gdd/briefs/r1.md:4"] {
+        let went = format!("f1=dropped:{at}");
+        let rd = r.report("r1", "reading", &reading, &["--went", &went]);
+        assert_eq!(rd.facts["refused"], "unbacked-drop", "{at}: {}", rd.out);
+    }
+    let rd = r.report(
+        "r1",
+        "reading",
+        &reading,
+        &["--went", "f1=dropped:./gdd/briefs/r1.md:5"],
+    );
+    assert_eq!(rd.code, 0, "{}", rd.out);
+    let logged = r.log_lines("r1").pop().unwrap();
+    assert_eq!(logged["findings"][0]["refuted_by"], "gdd/briefs/r1.md:5");
+}
+
 #[test]
 fn a_red_brief_is_read_before_the_person_is_asked() {
     let r = Repo::new();
@@ -974,15 +1056,44 @@ fn a_red_brief_is_read_before_the_person_is_asked() {
         "{}",
         excess.out
     );
+    let reading = reading.replace("f4 ", "LATER:\n");
+    let before = r.log_lines("r1").len();
+    // The author drops a finding only with the line that answers it, one the reader could read.
+    for (went, refused) in [
+        ("f1=brief,f2=dropped", "unbacked-drop"),
+        ("f2=dropped:gdd/briefs/r1.md:999", "unbacked-drop"),
+        ("f2=dropped:nowhere.md:1", "unbacked-drop"),
+        ("f2=dropped:../r1.md:1", "unbacked-drop"),
+        ("f2=dropped:gdd:1", "unbacked-drop"),
+        ("f2=dropped:gdd/briefs/r1.md: 1", "unbacked-drop"),
+        ("f1=brief,f2", ""),
+        ("f2=droped", ""),
+        ("f9=brief", ""),
+        ("f1=brief,f1=person", ""),
+    ] {
+        let rd = r.report("r1", "reading", &reading, &["--went", went]);
+        assert_ne!(rd.code, 0, "{went}: {}", rd.out);
+        if !refused.is_empty() {
+            assert_eq!(rd.facts["refused"], refused, "{went}: {}", rd.out);
+            assert!(rd.has("--went f2=person"), "{}", rd.out);
+        }
+        assert_eq!(
+            r.log_lines("r1").len(),
+            before,
+            "{went}: nothing was written"
+        );
+    }
     let rd = r.report(
         "r1",
         "reading",
-        &reading.replace("f4 ", "LATER:\n"),
-        &["--went", "f1=brief,f2=person"],
+        &reading,
+        &["--went", "f1=brief,f2=dropped:gdd/briefs/r1.md:1"],
     );
     assert_eq!(rd.code, 0, "{}", rd.out);
     let lines = r.log_lines("r1");
     let logged = lines.last().unwrap();
+    assert_eq!(logged["findings"][1]["went"], "dropped");
+    assert_eq!(logged["findings"][1]["refuted_by"], "gdd/briefs/r1.md:1");
     assert_eq!(logged["findings"][2]["went"], "log");
     assert_eq!(logged["later"][0], "a timeout can lose the receipt");
     assert_eq!(r.gdd(&["next", "r1"]).facts["state"]["next"]["step"], "ask");

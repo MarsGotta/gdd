@@ -282,9 +282,9 @@ enum BacklogCmd {
 
 fn pairs(v: &[String]) -> Vec<(String, String)> {
     v.iter()
-        .filter_map(|x| {
-            x.split_once('=')
-                .map(|(a, b)| (a.to_string(), b.to_string()))
+        .map(|x| {
+            let (a, b) = x.split_once('=').unwrap_or((x, ""));
+            (a.to_string(), b.to_string())
         })
         .collect()
 }

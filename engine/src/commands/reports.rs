@@ -201,7 +201,7 @@ pub(super) fn write_report(
         "checks" if !stopped => report_checks(ctx, l, id, a, &r, out, &mut m)?,
         "build" => report_build(l, id, a, &r, &mut m)?,
         "review" => report_review(ctx, l, id, a, &r, out, &mut m)?,
-        "reading" => report_reading(a, &r, &mut m)?,
+        "reading" => report_reading(ctx, l, a, &r, &mut m)?,
         _ => {}
     }
     if matches!(st, "review" | "reading") && !r.later.is_empty() {
@@ -752,16 +752,31 @@ fn commands_ran(r: &RoleReport) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// The words of the refusal that sends a fix back, for the orchestrator and for the reviewer's
-/// prompt when it is resumed.
-pub(super) const BACKED_FIX: &str = "Each numbered finding of a fix ends with its citation: | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>. On red, after it, | ran: <the command of your json block that shows it fail>.";
+/// The words of the refusal that sends a report back, `unbacked-fix` or `unbacked-pass`, for the
+/// orchestrator and for the reviewer's prompt when it is resumed.
+pub(super) fn backed(reason: &str) -> &'static str {
+    if reason == "unbacked-pass" {
+        BACKED_PASS
+    } else {
+        BACKED_FIX
+    }
+}
+
+const BACKED_FIX: &str = "Each numbered finding of a fix ends with its citation: | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>. On red, after it, | ran: <the command of your json block that shows it fail>.";
+
+const BACKED_PASS: &str = "On red, a pass gives, right above the gdd-report block, the json block of each command it ran, with its exit code and last lines.";
+
+/// Whether the reviewer runs the change: on a red change, not on the setup of checks.
+fn runs_the_change(l: &Loaded, id: &str) -> bool {
+    log_kind(id) == LogKind::Change && l.state.progress.color.as_deref() == Some("red")
+}
 
 /// What each finding of a fix lacks to back it, a line each. A fix holds the change for what its
 /// findings say: each one cites its source and, on red, where the reviewer runs the change, names
 /// the command of its json block that shows it fail. One that isn't goes back to the reviewer who
 /// wrote it, never to a fresh one, which could miss what this one found (decision 107).
 fn unbacked(l: &Loaded, id: &str, r: &RoleReport) -> Vec<String> {
-    let red = log_kind(id) == LogKind::Change && l.state.progress.color.as_deref() == Some("red");
+    let red = runs_the_change(l, id);
     let ran: Vec<String> = commands_ran(r)
         .iter()
         .map(|x| report::plain_command(str_of(x, "command")))
@@ -893,21 +908,35 @@ fn report_review(
     // A color that rose sends the change back to Brief whatever its findings say: it is recorded.
     let rank = |c: Option<&str>| c.and_then(crate::color_rank);
     let rose = rank(colorobj["color"].as_str()) > rank(p.color.as_deref());
-    let lacks = if verdict == "fix" && !rose {
-        unbacked(l, id, r)
+    let ran = commands_ran(r);
+    // On red the reviewer runs the change: a pass that ran nothing didn't look (decision 112).
+    let ran_one = ran
+        .iter()
+        .any(|x| !str_of(x, "command").trim().is_empty() && x["exit"].is_i64());
+    let back = if verdict == "fix" && !rose {
+        Some(("unbacked-fix", unbacked(l, id, r)))
+    } else if verdict == "pass" && !ran_one && runs_the_change(l, id) {
+        Some((
+            "unbacked-pass",
+            vec![
+                "a pass on red with no json block of the commands it ran and their exit codes"
+                    .into(),
+            ],
+        ))
     } else {
-        vec![]
+        None
     };
-    if !lacks.is_empty() {
+    if let Some((reason, lacks)) = back.filter(|(_, lacks)| !lacks.is_empty()) {
         // The journal keeps them, and the resumed reviewer's prompt repeats them.
         let mut journal = out.journal.take().unwrap_or_else(|| json!({}));
         journal["unbacked"] = json!(lacks);
         out.journal = Some(journal);
         return Err(Fail::refuse(
-            "unbacked-fix",
+            reason,
             format!(
-                "this fix goes back to the reviewer who wrote it:\n- {}\n{BACKED_FIX}",
-                lacks.join("\n- ")
+                "this {verdict} goes back to the reviewer who wrote it:\n- {}\n{}",
+                lacks.join("\n- "),
+                backed(reason)
             ),
             format!(
                 "send these lines to that reviewer, in its own session, for its whole report again: gdd launch {id} review --run --command \"<the command that resumes it>\", or by hand, then gdd report {id} review <file>. Never a fresh reviewer, which would start over"
@@ -916,7 +945,6 @@ fn report_review(
     }
     m.insert("color".into(), colorobj);
     m.insert("verdict".into(), json!(verdict));
-    let ran = commands_ran(r);
     if ran.is_empty() {
         out.say("its last message has no json block of what it ran: the log can't show it");
     }
@@ -983,8 +1011,16 @@ fn closed_findings(text: &str, previous: &[Value]) -> Option<Vec<Value>> {
     Some(closed)
 }
 
-/// What a reading of a brief adds: its findings, and where each one went.
-fn report_reading(a: &ReportArgs, r: &RoleReport, m: &mut Map<String, Value>) -> R<()> {
+/// What a reading of a brief adds: its findings, and where each one went. The orchestrator who
+/// wrote the brief drops a finding only with the line that answers it, one the reader could read:
+/// the reader backs each finding, and the author each drop (decision 111).
+fn report_reading(
+    ctx: &Ctx,
+    l: &Loaded,
+    a: &ReportArgs,
+    r: &RoleReport,
+    m: &mut Map<String, Value>,
+) -> R<()> {
     if r.findings.len() > 3 {
         return Err(Fail::refuse(
             "too-many-additions",
@@ -995,16 +1031,68 @@ fn report_reading(a: &ReportArgs, r: &RoleReport, m: &mut Map<String, Value>) ->
     if !r.missing.is_empty() {
         m.insert("missing".into(), json!(r.missing));
     }
+    let mut went: BTreeMap<&str, (&str, Option<String>)> = BTreeMap::new();
+    for (k, w) in &a.went {
+        if !r.findings.iter().any(|f| f.id == *k) || went.contains_key(k.as_str()) {
+            return Err(Fail::usage(format!(
+                "--went {k}={w}: give each numbered finding of the reading once"
+            )));
+        }
+        let to = if matches!(w.as_str(), "brief" | "person" | "log") {
+            (w.as_str(), None)
+        } else if w == "dropped" || w.starts_with("dropped:") {
+            let line = w
+                .strip_prefix("dropped:")
+                .and_then(|at| readable_line(ctx, l, at));
+            let Some(line) = line else {
+                return Err(Fail::refuse(
+                    "unbacked-drop",
+                    format!(
+                        "{k} is dropped without a line the reader could read that answers it: {w}"
+                    ),
+                    format!(
+                        "--went {k}=dropped:<file>:<line>, a line of the sealed brief or of the project; if only the person knows the answer, --went {k}=person"
+                    ),
+                ));
+            };
+            ("dropped", Some(line))
+        } else {
+            return Err(Fail::usage(format!(
+                "--went {k}={w}: a finding goes to brief, person, log or dropped:<file>:<line>"
+            )));
+        };
+        went.insert(k, to);
+    }
     let mut findings = vec![];
     for (i, f) in r.findings.iter().enumerate() {
-        let went = a
-            .went
-            .iter()
-            .find(|(k, _)| *k == f.id)
-            .map(|(_, w)| w.as_str())
-            .unwrap_or("log");
-        findings.push(json!({"id": f.id, "question": i + 1, "what": f.what, "went": went}));
+        let (to, by) = went.get(f.id.as_str()).cloned().unwrap_or(("log", None));
+        let mut finding = json!({"id": f.id, "question": i + 1, "what": f.what, "went": to});
+        if let Some(by) = by {
+            finding["refuted_by"] = json!(by);
+        }
+        findings.push(finding);
     }
     m.insert("findings".into(), json!(findings));
     Ok(())
+}
+
+/// `<file>:<line>` as `file:n`, when that line holds something in what the reader read: the
+/// commit its brief was sealed at or, for a brief with no seal, its base. Only with neither, the
+/// working copy.
+fn readable_line(ctx: &Ctx, l: &Loaded, at: &str) -> Option<String> {
+    let (file, n) = at.rsplit_once(':')?;
+    let (file, n) = (color::clean_path(file).ok()?, n.parse::<usize>().ok()?);
+    let p = &l.state.progress;
+    let read = p
+        .brief_line
+        .and_then(|i| l.entries[i - 1].event())
+        .and_then(|b| b["seal"].as_str().map(str::to_owned))
+        .or_else(|| p.base.clone());
+    let bytes = match read {
+        Some(commit) => git::blob_bytes(&ctx.root, &commit, &file)?,
+        None => std::fs::read(ctx.root.join(&file)).ok()?,
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let line = text.lines().nth(n.checked_sub(1)?)?;
+    (!line.trim().is_empty()).then(|| format!("{file}:{n}"))
 }
