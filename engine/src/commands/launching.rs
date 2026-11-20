@@ -182,6 +182,7 @@ struct PromptFor<'a> {
     l: &'a Loaded,
     id: &'a str,
     role: &'a str,
+    part: Option<&'a str>,
     level: &'a str,
     at: &'a str,
     root: &'a Path,
@@ -198,6 +199,7 @@ fn setup_prompt(s: &mut Vec<String>, x: &PromptFor) {
         at,
         root,
         log_path,
+        ..
     } = *x;
     let p = &l.state.progress;
     s.push(format!(
@@ -248,6 +250,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         l,
         id,
         role,
+        part,
         level,
         at,
         root,
@@ -261,6 +264,11 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
     s.push(at.to_string());
     if role == "reading" {
         s.push("You are to read a brief before anyone builds it: follow references/brief.md of the skill.".into());
+        if let Some(part) = part {
+            s.push(format!(
+                "This reading is split in three parts, each with a reader of its own. Yours is `{part}`: do that part alone, as the reference says under \"When the reading is split\". Copy this line into your gdd-report block: part: {part}"
+            ));
+        }
     }
     if let Some(decisions) = &p.decisions
         && !decisions.is_empty()
@@ -585,6 +593,7 @@ fn prompt_for(
     l: &Loaded,
     id: &str,
     role: &str,
+    part: Option<&str>,
     level: &str,
     sent_back: Option<&(String, Vec<String>)>,
 ) -> (String, Option<String>) {
@@ -600,6 +609,7 @@ fn prompt_for(
         l,
         id,
         role,
+        part,
         level,
         at: &at,
         root: &root,
@@ -736,6 +746,29 @@ pub struct LaunchArgs {
     pub start_wait: Duration,
     pub timeout: Option<Duration>,
     pub adapter: Option<String>,
+    pub part: Option<String>,
+}
+
+/// The part of a split reading a launch is for: the one asked for, or the next one nobody read.
+/// None where the color asks for one reading, which reads the brief whole.
+fn reading_part(l: &Loaded, role: &str, asked: Option<&str>) -> R<Option<&'static str>> {
+    let p = &l.state.progress;
+    let split = role == "reading"
+        && p.color
+            .as_deref()
+            .is_some_and(|c| l.bp.color_readings(c) == 3);
+    match asked {
+        Some(_) if !split => Err(Fail::usage(
+            "--part is for the reading of a brief whose color asks for three readings",
+        )),
+        Some(asked) => READING_PARTS
+            .into_iter()
+            .find(|part| *part == asked)
+            .map(Some)
+            .ok_or(Fail::usage("--part is understood, breaks or spare")),
+        None if split => Ok(p.next_part()),
+        None => Ok(None),
+    }
 }
 
 /// What the state lets start: the same rules as the step this launch will write.
@@ -990,7 +1023,8 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
-        let (prompt, reviewed) = prompt_for(&l, id, role, &level, sent_back.as_ref());
+        let part = reading_part(&l, role, a.part.as_deref())?;
+        let (prompt, reviewed) = prompt_for(&l, id, role, part, &level, sent_back.as_ref());
         let template = a
             .command
             .clone()

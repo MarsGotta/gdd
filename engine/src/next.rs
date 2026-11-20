@@ -311,7 +311,8 @@ pub(crate) fn next_step(
     let next = if kind == LogKind::Setup {
         next_in_setup(id, p, lim, git, asks("person-review"), now)
     } else {
-        before_the_build(id, p, lim, &color, asks("brief-approval"), now).unwrap_or_else(|| {
+        let readings = bp.color_readings(&color);
+        before_the_build(id, p, lim, &color, readings, asks("brief-approval"), now).unwrap_or_else(|| {
             from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
         })
     };
@@ -397,6 +398,7 @@ fn before_the_build(
     p: &Progress,
     lim: &Limits,
     color: &str,
+    readings: i64,
     asks_approval: bool,
     now: i64,
 ) -> Option<Next> {
@@ -421,16 +423,18 @@ fn before_the_build(
     }
     if color == "red"
         && p.has_brief()
-        && !p.read_since_red
+        && !p.brief_read(readings)
         && !p.approved()
         && !p.built_since_brief()
         && p.open_ask().is_none()
     {
-        return Some(n(
-            "reading",
-            "a red brief is read before the person approves it: launch gdd-review to read it, then take into a new version what you agree with",
-            format!("gdd launch {id} reading"),
-        ));
+        let say = match p.next_part().filter(|_| readings == 3) {
+            Some(part) => format!(
+                "a red brief is read before the person approves it, here in three parts with a reader each, and `{part}` is next: launch gdd-review to read it, and once the three are in take into a new version what you agree with"
+            ),
+            None => "a red brief is read before the person approves it: launch gdd-review to read it, then take into a new version what you agree with".into(),
+        };
+        return Some(n("reading", say, format!("gdd launch {id} reading")));
     }
     if asks_approval && !p.approved() {
         return Some(approval_step(id, p, color, now));

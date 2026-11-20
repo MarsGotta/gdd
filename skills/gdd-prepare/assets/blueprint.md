@@ -83,6 +83,7 @@ colors:
       runs_before_review: 2
   red:
     checks: [brief-approval, seal, tests, lint, secrets, review, person-review]
+    # readings: 3  # its brief is read in three parts, each by a reader of its own, where one reading is the default
     level: standard  # its brief, like preparing and hardening, takes the deep level
     limits:
       minutes_per_change: 60

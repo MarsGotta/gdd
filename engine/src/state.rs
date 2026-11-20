@@ -169,6 +169,8 @@ pub struct Progress {
     /// The line of the brief step from which the change is red, and whether a reading came after it.
     pub red_since: Option<usize>,
     pub read_since_red: bool,
+    /// The parts of a split reading read since then.
+    pub parts_read: Vec<String>,
     /// The seal's moves the log records with a `seal` event.
     /// Whether the log knows a seal: a `seal` event, a brief step with its seal, or checks sealed.
     pub sealed_any: bool,
@@ -256,6 +258,23 @@ impl Progress {
 
     pub(crate) fn correcting_tests(&self) -> bool {
         self.needs_checks_fix() && self.checks_fix.as_ref().is_some_and(|f| f.tests_only)
+    }
+
+    /// The next part of a split reading nobody has read yet.
+    pub fn next_part(&self) -> Option<&'static str> {
+        crate::blueprint::READING_PARTS
+            .into_iter()
+            .find(|part| !self.parts_read.iter().any(|read| read == part))
+    }
+
+    /// Whether the brief got the reading its color asks for: a whole one, or each of its parts.
+    pub fn brief_read(&self, readings: i64) -> bool {
+        self.read_since_red
+            || if readings == 3 {
+                self.next_part().is_none()
+            } else {
+                !self.parts_read.is_empty()
+            }
     }
 
     pub fn has_brief(&self) -> bool {
@@ -456,6 +475,7 @@ impl Progress {
                     if c == "red" && self.color.as_deref() != Some("red") {
                         self.red_since = Some(line);
                         self.read_since_red = false;
+                        self.parts_read.clear();
                     }
                     self.color = Some(c.into());
                 }
@@ -616,8 +636,10 @@ impl Progress {
             }
             "reading" => {
                 self.readings_n += 1;
-                if self.red_since.is_some_and(|l| l < line) {
-                    self.read_since_red = true;
+                match v["part"].as_str() {
+                    Some(part) => self.parts_read.push(part.into()),
+                    None if self.red_since.is_some_and(|l| l < line) => self.read_since_red = true,
+                    None => {}
                 }
             }
             "ship" => {

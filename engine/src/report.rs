@@ -90,6 +90,10 @@ pub struct RoleReport {
     pub result: String,
     pub caught: String,
     pub decisions: Option<Vec<String>>,
+    /// The part of a split reading of a brief this report is for.
+    pub part: Option<String>,
+    /// What a reader of the brief alone took the change to do, in its words.
+    pub understood: String,
     /// A builder's `contested:` lines, as it gave them: `<finding> | <file>:<line> | <why>`.
     pub contested: Vec<String>,
     /// The reason and what would unblock it, when the role stopped with `CANNOT:`.
@@ -490,6 +494,13 @@ pub(crate) fn parse_with_blueprint(
         "MISSING:",
         &["LATER:", "NOTES FOR THE BUILDER:", "EVIDENCE:"],
     );
+    r.understood = bounded_lines(
+        section(text, "UNDERSTOOD:", &["LATER:", "MISSING:", "COLOR:"])
+            .iter()
+            .map(String::as_str),
+    )
+    .join(" ");
+    r.part = get("part").map(|part| part.trim_matches('`').to_ascii_lowercase());
     match json_block(text) {
         Some(Ok(v)) => {
             if v.as_array()

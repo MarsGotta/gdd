@@ -278,7 +278,20 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !found {
         return;
     }
+    // What a reader who saw only the brief took the change to do goes first: if it isn't what
+    // they asked for, they see it before they say yes.
+    let understood = log::events(&l.entries)
+        .into_iter()
+        .rev()
+        .filter(|(_, v)| step(v) == "reading")
+        .find_map(|(_, v)| v["understood"].as_str());
+    if let Some(understood) = understood {
+        lines.insert(0, format!("understood: {understood}"));
+    }
     out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice and each 'unchecked' as something you took as true without seeing it, name each file, and end with one question they can answer with a yes.");
+    if understood.is_some() {
+        out.say("Give 'understood' first: it is what a reader who saw only the brief took the change to do.");
+    }
     out.lines.extend(lines);
 }
 

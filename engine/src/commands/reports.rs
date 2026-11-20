@@ -237,6 +237,12 @@ pub(super) fn write_report(
     if !r.missing.is_empty() {
         out.say(format!("MISSING, for the brief: {}", r.missing.join("; ")));
     }
+    if st == "reading" && !r.understood.is_empty() {
+        out.say(format!(
+            "UNDERSTOOD, to hold against the request: {}",
+            r.understood
+        ));
+    }
     if evidence {
         out.say(format!(
             "EVIDENCE, for the person who approves: {}",
@@ -1024,6 +1030,44 @@ fn report_reading(
     r: &RoleReport,
     m: &mut Map<String, Value>,
 ) -> R<()> {
+    let p = &l.state.progress;
+    let split = p
+        .color
+        .as_deref()
+        .is_some_and(|c| l.bp.color_readings(c) == 3);
+    match r.part.as_deref() {
+        Some(part) if !READING_PARTS.contains(&part) => {
+            return Err(Fail::refuse(
+                "no-part",
+                format!("{part} is no part of a reading"),
+                "its gdd-report block takes the line its prompt gave: part: understood, breaks or spare",
+            ));
+        }
+        Some(part) if p.parts_read.iter().any(|read| read == part) => {
+            return Err(Fail::refuse(
+                "out-of-order",
+                format!("the part {part} of this brief was already read"),
+                way_on(l, &l.state.id),
+            ));
+        }
+        None if split && !p.read_since_red => {
+            return Err(Fail::refuse(
+                "no-part",
+                "this brief is read in three parts, and the report doesn't say which one it is",
+                format!(
+                    "its gdd-report block takes the line its prompt gave, part: understood, breaks or spare. Launch it again: gdd launch {} reading",
+                    l.state.id
+                ),
+            ));
+        }
+        Some(part) => {
+            m.insert("part".into(), json!(part));
+        }
+        None => {}
+    }
+    if !r.understood.is_empty() {
+        m.insert("understood".into(), json!(r.understood));
+    }
     if r.findings.len() > 3 {
         return Err(Fail::refuse(
             "too-many-additions",

@@ -212,6 +212,9 @@ enum Cmd {
         /// How to read its output: claude, codex or plain (default: by its program).
         #[arg(long)]
         adapter: Option<String>,
+        /// The part of a split reading: understood, breaks or spare (default: the next one unread).
+        #[arg(long)]
+        part: Option<String>,
     },
     /// Describe the merge request from the log, or record the ship once it is in the main branch.
     Ship {
@@ -512,6 +515,7 @@ fn main() {
             start_wait,
             timeout,
             adapter,
+            part,
         } => (
             "launch",
             Some(id.clone()),
@@ -526,6 +530,7 @@ fn main() {
                     start_wait: Duration::from_secs(*start_wait),
                     timeout: timeout.map(Duration::from_secs),
                     adapter: adapter.clone(),
+                    part: part.clone(),
                 },
             ),
         ),

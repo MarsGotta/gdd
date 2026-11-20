@@ -2,7 +2,7 @@
 //! only parses the arguments, prints and journals.
 
 use crate::backlog;
-use crate::blueprint::Blueprint;
+use crate::blueprint::{Blueprint, READING_PARTS};
 use crate::color;
 use crate::gates;
 use crate::git;

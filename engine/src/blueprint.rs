@@ -64,6 +64,10 @@ impl Models {
     }
 }
 
+/// The parts of a split reading of a brief, in the order they are read: what a reader took the
+/// change to do, what it can break, and what it could spare.
+pub const READING_PARTS: [&str; 3] = ["understood", "breaks", "spare"];
+
 /// One agents' environment of `levels`, named by its command.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Environment {
@@ -172,6 +176,15 @@ impl Blueprint {
 
     pub fn color_asks(&self, color: &str, check: &str) -> bool {
         self.color_checks(color).iter().any(|c| c == check)
+    }
+
+    /// How many readings the brief of a color gets before its approval: one, or three when the
+    /// blueprint splits the reading in its parts, each with a reader of its own.
+    pub fn color_readings(&self, color: &str) -> i64 {
+        match whole(&self.front["colors"][color]["readings"]) {
+            Some(3) => 3,
+            _ => 1,
+        }
     }
 
     pub fn color_level(&self, color: &str) -> Option<String> {
