@@ -77,7 +77,8 @@ Translate from Spanish to American English. The reader is a developer or product
 | Las piezas y los roles | The pieces and the roles |
 | Los siete principios | The seven principles |
 | Los cinco momentos | The five moments |
-| Empieza hoy | Start today |
+| Empieza | Get started |
+| Una puerta a mano | A gate by hand |
 | Un caso delicado | A delicate case |
 | El recorrido entero | The whole path |
 | Cómo se engaña una puerta | How a gate gets fooled |
@@ -123,8 +124,8 @@ The site looks these up, so when they appear use exactly this English.
 | Lo comprueban cosas que ya conoces, como tests, linters o una revisión, y el agente no puede tocarlas. | It is checked by things you already know, like tests, linters or a review, and the agent can't touch them. |
 | Cuanto más delicado es el cambio, más comprobaciones tiene que pasar, y solo te llama cuando hace falta tu criterio. | The more delicate the change, the more checks it has to pass, and it only calls you when your judgment is needed. |
 | Nada: pides el cambio y, si pasa las puertas, sale. | Nothing: you ask for the change and, if it passes the gates, it ships. |
-| Leer unos pocos escenarios. | Read a few scenarios. |
-| Leer los escenarios y dar tu aprobación donde haga falta. | Read the scenarios and give your approval where needed. |
+| Aprobar sus reglas antes de que nadie construya. | Approve its rules before anyone builds. |
+| Aprobar sus reglas y revisar el cambio al final. | Approve its rules, and review the change at the end. |
 | Así se pasa: no por lo que dijo el agente, sino por lo que comprobó la puerta. | That is how you get through: not by what the agent said, but by what the gate checked. |
 | Quien cruza la puerta no decide cómo se valida. | Whoever goes through the gate doesn't decide how it's validated. |
 | Decir "hecho" no abre nada. | Saying "done" opens nothing. |

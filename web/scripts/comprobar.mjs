@@ -99,8 +99,8 @@ const propias = new Set([
   'The agent says "done." Saying it opens nothing.',
   'Sale, y a ti no te ha llamado nadie.',
   'It ships, and nobody called you.',
-  'Antes de empezar, te llama: lees unos pocos escenarios.',
-  'Before it starts, it calls you: you read a few scenarios.',
+  'Antes de empezar, te llama: apruebas sus reglas.',
+  'Before it starts, it calls you: you approve its rules.',
   'Pasa, y dice "hecho". Aquí la puerta suma otra comprobación: un vigilante.',
   'It gets through and says "done." Here the gate adds another check: a reviewer.',
   'El vigilante ejecuta el cambio y no funciona. Nadie te llama: el agente lo arregla.',
@@ -319,7 +319,8 @@ for (const [ruta, html] of Object.entries(paginas)) {
   $('p, li, td').each((_, n) => {
     const b = $(n);
     if (b.find('p, li, td').length) return; // only the innermost block
-    const t = norm(b.text());
+    // A version such as 2.1.275 is not a figure that needs a source.
+    const t = norm(b.text()).replace(/\b\d+\.\d+\.\d+\b/g, '');
     if (/[€]|VERANO|SUMMER|£/.test(t) || b.closest('pre, figure, .colarte, .plano').length) return;
     if (/\d[\d.,]*\s?%|\d{1,3}[.,]\d{3}\b|\b\d+[.,]\d+ (veces|times)|(más de (mil|tres millones|cincuenta))|(more than (a thousand|three million|fifty))/.test(t) && !b.find('a[href^="http"]').length && !b.parent().closest('li').find('a[href^="http"]').length) {
       sinFuente.push(`${ruta}: ${t.slice(0, 110)}`);

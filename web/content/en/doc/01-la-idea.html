@@ -13,12 +13,12 @@
 <thead><tr><th>Risk</th><th>For example</th><th>How the gates are set</th><th>What you have to do</th></tr></thead>
 <tbody>
 <tr><td><strong>Green</strong> (low)</td><td>Changing some text</td><td>Machines handle it, and some gate can stay open.</td><td>Nothing: you ask for the change and, if it passes the gates, it ships.</td></tr>
-<tr><td><strong>Yellow</strong> (medium)</td><td>A new filter in a list</td><td>On top of the machines, a reviewer usually looks at it, and a person if you decide so.</td><td>Read a few scenarios.</td></tr>
-<tr><td><strong>Red</strong> (high)</td><td>Something that touches payment</td><td>Some gates stop until you give your approval. I recommend it, and each project configures it.</td><td>Read the scenarios and give your approval where needed.</td></tr>
+<tr><td><strong>Yellow</strong> (medium)</td><td>A new filter in a list</td><td>On top of the machines, a reviewer usually looks at it, and a person if you decide so.</td><td>Approve its rules before anyone builds.</td></tr>
+<tr><td><strong>Red</strong> (high)</td><td>Something that touches payment</td><td>Some gates stop until you give your approval. I recommend it, and each project configures it.</td><td>Approve its rules, and review the change at the end.</td></tr>
 </tbody>
 </table>
 <h2>What you design</h2>
-<p>That is the basis of GDD: <strong>we don't develop the specifications, or the code, or even the tests. We design the gates our agents will go through.</strong></p>
+<p>That is the basis of GDD: <strong>we don't develop code, or even tests. We write what must be true and design the gates our agents go through.</strong></p>
 <p>What you get is a quality product without supervising every step, because what you used to look at yourself is now looked at by the gates, and you're left with the decisions that need someone.</p>
 <p>And the specifications? They don't disappear, but they stay at what can be executed. A long specification is tedious to read, and reading it doesn't ensure the agent will follow it. A Gherkin scenario (the Given, When, Then format) reads fast, uses simple language and can also be executed, and that is the difference from spec-driven development. You don't even have to write it: an agent drafts it, and you read it and correct it.</p>
 <p>I'm not the only one who has gotten here. <a href="https://openai.com/index/harness-engineering/">OpenAI</a> says its engineering work has shifted from writing code to designing the environment, specifying intent and building feedback loops, and it sums that up in two sentences: "Humans steer. Agents execute."</p>

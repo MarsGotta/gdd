@@ -1,65 +1,148 @@
 <h1>The skills</h1>
-<p>You've set up your first gate by hand and it works. The next change you'd like to leave entirely to your agents: one writes the scenarios with you, another writes the cases, a third does the work, and someone who has seen none of that reviews it. That's a lot to explain every time, so it's written down once, in eight skills.</p>
-<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones use what your project already has, its tests, its linter, its CI and git. The only things they bring that run are <a href="#capa">the layer</a>, a small command that keeps the count of every change, and a couple of scripts they offer you when preparing, which become your project's if you accept them. One is the entry skill, <code>gdd</code>, which hands out the work, and there are seven more, one per role.</p>
-<h2 id="las-siete">The eight</h2>
+<p>With the skills installed and your blueprint approved, as <a href="doc:empieza">Get started</a> explains, every change follows the same path. What follows is day to day: what you say at each moment, what reaches you and what you do when something stops.</p>
+<p>A skill is a file of instructions your agent loads when it needs it. The GDD ones use what your project already has, its tests, its linter, its CI and git. The only things they bring that run are <a href="#capa">the layer</a>, a small command that keeps the count of every change, and a couple of scripts they offer you when preparing, which become your project's if you accept them. One is the entry skill, <code>gdd</code>, which hands out the work, and there are seven more, one per moment or role.</p>
+<h2 id="las-ocho">The eight</h2>
 <table>
 <thead><tr><th>Skill</th><th>Who loads it</th><th>What it leaves</th></tr></thead>
 <tbody>
 <tr><td><code>gdd</code></td><td>The orchestrator. It loads by itself when you ask for a change</td><td>What comes next, and who gets launched.</td></tr>
 <tr><td><code>gdd-prepare</code></td><td>The orchestrator, with you</td><td>The blueprint, with the gates your project needs, and the constitution.</td></tr>
-<tr><td><code>gdd-brief</code></td><td>The orchestrator, on every change</td><td>What has to pass, as scenarios, and the expected risk.</td></tr>
+<tr><td><code>gdd-brief</code></td><td>The orchestrator, on every change, green too</td><td>The change's color and, on yellow and red, the rules of what changes, their scenarios and the expected risk.</td></tr>
 <tr><td><code>gdd-checks</code></td><td>Another agent, never the one that builds</td><td>The standing checks and the cases of each change, each seen failing for the right reason.</td></tr>
 <tr><td><code>gdd-build</code></td><td>The agent that goes through the gate</td><td>The change, and the facts that prove it.</td></tr>
-<tr><td><code>gdd-review</code></td><td>The reviewer, with a clean context</td><td>Its verdict, and the risk worked out again.</td></tr>
+<tr><td><code>gdd-review</code></td><td>The reviewer, with a clean context</td><td>On red, what the brief leaves out, before anyone builds. Then its verdict, and the risk worked out again.</td></tr>
 <tr><td><code>gdd-close</code></td><td>The orchestrator, when you ask about a change that is already in use</td><td>What can be seen, next to what the brief expected, and your verdict in the log.</td></tr>
 <tr><td><code>gdd-harden</code></td><td>The orchestrator, with you, when something slips through or a gate stops adding anything</td><td>The crack and the check that would have caught it, or the proposal to retire the one you don't need.</td></tr>
 </tbody>
 </table>
 <p>Whoever writes the cases, whoever builds the change and whoever reviews it each work in a separate agent, which starts without the others' conversation: it gets what they left written, not how they got there. That way the reviewer judges the change in front of it, without having heard how it was made (<a href="doc:las-piezas">The pieces and the roles</a>).</p>
-<h2 id="instalar">How to install them</h2>
-<p>You need a git repository, with git 2.38 or later, and an agent that loads skills. On three of them, Claude Code, Codex and Antigravity, the eight come in at once, as a plugin that runs nothing of its own.</p>
-<p>On Claude Code you type it inside the agent. It also brings three subagents, one for each role that works in an agent of its own.</p>
-<pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
-<p>On Codex it takes two steps in the terminal: you add the GDD repository as a source of plugins and install it from there.</p>
-<pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
-<p>On Antigravity you clone the repository and install the plugin from its folder.</p>
-<pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
-<p>If you'd rather keep them inside your project, copy the eight folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex.</p>
-<p>They're at version 0.18. To find out whether they're in, and to update them later on, each agent has its own commands:</p>
+<h2 id="instalar">Checking and updating them</h2>
+<p>The commands to install them on Claude Code, Codex and Antigravity are in <a href="doc:empieza#instalar">Get started</a>. To find out whether they're in, and to update them later on, each agent has its own, which you type in a terminal:</p>
 <table>
 <thead><tr><th>Agent</th><th>To check</th><th>What you should see</th><th>To update them</th></tr></thead>
 <tbody>
 <tr><td>Claude Code</td><td><code>claude plugin list</code></td><td><code>gdd@gdd</code>, enabled.</td><td><code>claude plugin marketplace update gdd</code>, then <code>claude plugin update gdd@gdd</code>.</td></tr>
 <tr><td>Codex</td><td><code>codex plugin list</code></td><td><code>gdd@gdd</code>, installed and enabled.</td><td><code>codex plugin marketplace upgrade gdd</code>, then <code>codex plugin add gdd@gdd</code>.</td></tr>
-<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 8 skills.</td><td><code>git pull</code> in the folder you cloned, then <code>agy plugin install gdd</code> again.</td></tr>
+<tr><td>Antigravity</td><td><code>agy plugin list</code></td><td><code>gdd</code>, enabled, with 8 skills.</td><td><code>git pull</code> inside the <code>gdd</code> folder you cloned, then, from the folder that holds it, <code>agy plugin install gdd</code> again.</td></tr>
 </tbody>
 </table>
+<p>A session that was already open doesn't load the new version: open another one after updating.</p>
+<p>If you'd rather keep them inside your project, copy the eight folders whose names start with <code>gdd</code> from the <a href="https://github.com/MarsGotta/gdd/tree/main/skills">repository</a> into <code>.claude/skills/</code> on Claude Code or <code>.agents/skills/</code> on Codex. On Claude Code, also copy the subagents in <a href="https://github.com/MarsGotta/gdd/tree/main/skills/adapters/claude-code/agents">adapters/claude-code/agents/</a> into <code>.claude/agents/</code>. Copied by hand, they don't bring the layer: build it from a clone of the repository with <code>sh engine/build.sh</code>, and copy the binary it points you to into <code>.gdd/gdd</code> in your project, with <code>.gdd/</code> in its <code>.gitignore</code>.</p>
 <h2 id="capa">The layer</h2>
 <p>With the skills comes <code>gdd</code>, a small command I call the layer. It keeps the order of every change, counts its limits and writes its log, so your agent doesn't keep that count from memory. If the agent tries a step out of order, the layer refuses and tells it which one is next.</p>
 <p>It comes as source, in the plugin's <code>engine/</code> folder. The first time your project needs it, your agent builds it and leaves it at <code>.gdd/gdd</code>, which git ignores. Building it takes <a href="https://rustup.rs">Rust</a> 1.89 or later: if you don't have it, your agent tells you in one line and waits. The first build downloads what it depends on from crates.io, so it needs the network that once. It works on macOS and Linux; nobody has tried it on Windows yet. Your CI builds the same command, to check every change's log out of the agents' reach.</p>
-<p>You don't have to use it yourself, but two commands are worth knowing, from your project's folder:</p>
+<p>You don't have to use it yourself, but three commands are worth knowing, from your project's folder:</p>
 <pre data-copiar><code data-fuente="capa-ordenes.txt"></code></pre>
-<p>The first lists every question waiting for you, oldest first, with how long it has waited. The second says how your changes went: how they ended, how long each took without the waits for you, how often the gates and the reviewer passed them the first time, and what each check costs.</p>
+<p>The first tells you what comes next in your project: what's under way, the next thing on the list and the changes in use that wait for your verdict. The second lists every question waiting for you, oldest first, with how long it has waited. The third says how your changes went: how they ended, how long each took without the waits for you, how often the gates and the reviewer passed them the first time, and what each check costs.</p>
 <p>The layer isn't an engine. While an agent runs it, it's within the agent's reach, and what keeps it honest is your CI.</p>
-<h2 id="empezar">The first thing you ask for</h2>
-<p>With the skills in, ask your agent to set GDD up in your project, and if you're starting from scratch, tell it in the same message what you're going to build. There's no command to remember, because <code>gdd</code> loads by itself. That first conversation is with you and needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
+<h2 id="empezar">Prepare, more slowly</h2>
+<p>Prepare is the first conversation, and it happens only once. The short version is in <a href="doc:empieza#preparar">Get started</a>; this is what goes on in it. It needs your agent's deepest model: if you aren't on it, it tells you before it starts.</p>
 <ol>
 <li>In a new project, or if you leave the decisions to it, it reads up before it proposes anything, because tools and a sector's rules change faster than a model's memory. It looks up what a project like yours has to protect, what its sector asks for and which tools are current for what you use, and keeps a copy of each source. In what it proposes, it tells apart what comes from a source and what is its own default.</li>
-<li>It proposes the zones of your project and the gates it needs, and you correct what doesn't fit. Each gate is written as a scenario: what it asks at each level of risk and what it rejects. If your project already has history, before you approve it runs the zones over your last commits and tells you how many would have come out of each color. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
+<li>It proposes the zones of your project and the gates it needs, and you correct what doesn't fit. Each gate is written as a short Gherkin feature: what it asks of each color and what it rejects. If your project already has history, before you approve it runs the zones over your last commits and tells you how many would have come out of each color. It asks only what changes a zone or a gate: money, accounts and permissions, personal data, what can't be undone.</li>
 <li>It looks at which agents you have installed and which models each one offers, and proposes which one does the light work, which the standard and which the deep, and which one reviews. You decide, and before it counts it checks that each one starts.</li>
-<li>It prepares the protections with you and tries them. It writes which files ask for your review, and what has to be applied on your platform you apply yourself. Then it tries four things from the environment the building agent will work in, pushing to the main branch among them. If any of them succeeds, your blueprint says so, and the agent not touching what judges it stays a rule.</li>
-<li>You approve the blueprint, or your team does if you work with one, with a commit or a pull request from a person, never from an agent. It asks you in a short message: which files to read and, before you say yes, what doesn't protect anything yet or what it couldn't confirm.</li>
+<li>It prepares the protections with you and tries them. It writes which files ask for your review, and what has to be applied on your platform you apply yourself, including your CI running the layer on every change. Then it tries four things from the environment the building agent will work in, pushing to the main branch among them. If any of them succeeds, your blueprint says so, and the agent not touching what judges it stays a rule.</li>
+<li>You approve the blueprint, or your team does if you work with one: with a commit or a pull request from a person, never from an agent, or with your yes in the conversation if you have no platform. It asks you in a short message: which files to read and, before you say yes, what doesn't protect anything yet or what it couldn't confirm.</li>
 <li>Another agent sets up the standing checks, once for the whole project, and a reviewer tries to fool them and checks that the blueprint asks for what each gate says. One that some colors ask for and others don't, such as mutation testing if you keep it for red, judges only what each change adds or modifies. And if one has to reach a number, it proposes starting from the one its tool gives or your code already reaches, not from the highest. A number nobody can reach doesn't make the gate stricter, it keeps it shut. No change starts until they are on the main branch.</li>
 </ol>
-<p>From there you ask for each change in your own words, and you hear about it when it needs you and when it's in. Every step, with what you say, what happens and what you end up with, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository's guide</a>.</p>
-<p>That same repository holds the tests the skills are checked with, run with a real model.</p>
+<h2 id="pedir">Asking for a change</h2>
+<p>Ask in your own words, without naming any skill: in a project with a blueprint, <code>gdd</code> loads by itself.</p>
+<pre data-copiar><code>Add a size filter to the catalog</code></pre>
+<p>Your agent gives the change the color of the most delicate thing it touches. If it touches something no zone covers, it judges it in that change, tells you why and asks you when it can't tell. If you ask for several things you could use separately, before it writes anything it proposes an order: one line per part, with what you could do with it and roughly how long it would take. Without your yes to the parts, it takes the whole request as one change.</p>
+<h2 id="aprobar">Approving what has to pass</h2>
+<p>On green there's nothing to approve: there's no brief and no scenarios, and the change goes through the checks that already exist. On yellow and red, your agent first writes the rules of what changes, in its capability's file inside <code>features/</code>, and underneath them the scenarios that check them, the bad cases too. On red, and on yellow if the change alters another zone's data, a reviewer reads the brief before it reaches you and says what it leaves out.</p>
+<p>Then, if your blueprint asks for your approval, as the template does on yellow and red, a message reaches you, under 150 words, or 200 on red, ending in one question a yes answers. It brings:</p>
+<ul>
+<li>each new or changed rule, on its own line;</li>
+<li>what your agent assumed on its own, which is marked <code>@assumed</code> in the file;</li>
+<li>what can wait for another change, marked <code>@question</code> and with no scenarios;</li>
+<li>how you'll know whether it helped, and where to look;</li>
+<li>the technical decisions that concern you;</li>
+<li>on red, also the rules of your product it touches and up to three things it leaves out.</li>
+</ul>
+<p>Say yes or correct a rule. You can approve it in the conversation, with a commit of yours or, better on red, in a pull request from <code>gdd-seal/&lt;id&gt;</code>, which you approve and nobody merges: the brief reaches the main branch with the change. Your approval holds while what has to pass stays the same.</p>
+<h2 id="hasta-que-entra">Until it's in</h2>
+<p>You do nothing here, unless something needs you. Three separate agents do the work, with the layer in between:</p>
+<ol>
+<li><strong>The cases.</strong> Another agent, never the one that builds, writes one test per scenario, sees each one fail for the right reason and seals them on <code>gdd-seal/&lt;id&gt;</code>. On red it also sees each one pass and breaks it once on purpose.</li>
+<li><strong>The build.</strong> The builder works on a branch of its own, with the brief and the seal. It never gets the log, or the conversation where its cases were made.</li>
+<li><strong>The gates.</strong> The layer runs the checks on the change's exact commit, away from the builder's copy: in your CI or in a copy of its own, which on the rule degree is still within its reach, and your agent tells you so. If one fails, the change goes back with the command, its exit code and its last lines, and gets fixed in another round, while there are rounds left.</li>
+<li><strong>The reviewer.</strong> An agent that has seen none of the above works out the color again from what was actually touched: it can only go up, and if it does, the change goes back to Brief. On green it checks the color and the seal. On yellow it reads the change against its brief and checks whether the sealed tests are tight enough. On red it also runs the change and tries to make it fail. Its verdict is <code>pass</code>, <code>fix</code> or <code>stop</code>.</li>
+</ol>
+<p>With everything passed, the change is brought up to date with your main branch and the checks run again. On red, with the template, you review the change at the end, in your platform's pull request. No agent approves anything.</p>
+<p>When it's in, you get one line per gate, as in <a href="doc:empieza#puertas">Get started</a>, and each product choice the builder made on a line of its own, so you can correct it if it isn't yours.</p>
 <h2 id="cuando-te-necesita">When it needs you</h2>
 <p>While it works, it talks to you about your product and not about the method, and briefly: one line per gate, passed or failed, and the detail only when something fails, when you have to decide or when you ask for it. When it needs something from you, it asks one thing, with what it would do, so that a yes is enough.</p>
 <p>If you tell it to decide, it decides how the work gets done and stops asking you about that. What stays yours, or your team's, is approving the blueprint and what has to pass, anything that loosens a check and what can't be undone.</p>
 <p>So even if you've told it to decide, it won't record as debt a check that already fails without the change, or put it in quarantine, because that loosens it. Nor does it build anything while the check keeps failing, because no change would get through. It proposes one way out, something like this: "Your footer fix is written but not in yet, because a test of the cart's text already failed before I touched anything. I'd fix that first, on its own, and then both would go in. Is that all right?"</p>
+<h2 id="cerrar">Closing: whether it helped</h2>
+<p>A change isn't closed when it's in, but when someone has looked at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). The brief wrote it down before anyone built: what you expected to change for whoever uses it, what signal will tell and where to look. Closing never starts by itself, and a change in use doesn't hold up the next one.</p>
+<p><code>.gdd/gdd next</code> shows you the changes in use that wait for your verdict, with what was expected from each. When you want to look at one, tell your agent:</p>
+<pre data-copiar><code>Did the size filter help?</code></pre>
+<p>Your agent goes to the place the brief named and gathers what can be seen, each fact with its source and its date, never from the builder's report or the change's own tests. If it can't reach that place, it tells you and you look. Then it puts it next to what you expected and asks you, without proposing an answer. The verdict is yours, or belongs to whoever your blueprint names, even if you've told it to decide:</p>
+<table>
+<thead><tr><th>Verdict</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td>Yes</td><td>The change is closed.</td></tr>
+<tr><td>Not yet</td><td>It stays in use and in sight, and your agent doesn't ask again until you come back to it.</td></tr>
+<tr><td>No</td><td>It's closed and nothing more gets built on it. If it works as written and didn't help, your agent proposes a new request on the list, or nothing if you accept it as it is. If it broke a rule or did harm, the fix is a normal change, and what slipped through goes to <a href="#blindar">Harden</a>.</td></tr>
+</tbody>
+</table>
+<p>What promised nothing to whoever uses your product, like a green change, closes by itself once the days in your blueprint's <code>closing</code> go by with nothing against it, 7 in the template.</p>
+<h2 id="blindar">Harden: one check more, or one less</h2>
+<p>Harden comes on two occasions: when something gets past every gate, or keeps repeating, and when a gate stops adding anything. Both weigh the same. It never starts by itself: a change leaves one proposal at most on the list, which waits for you to take it up between changes.</p>
+<p><strong>When something slips through.</strong> Fixing it is a normal change. Hardening is the other half: what it would have taken to catch it stays as a check. Tell your agent what slipped through and where you saw it, or what keeps repeating:</p>
+<pre data-copiar><code>An expired discount code got through, I saw it in yesterday's orders</code></pre>
+<ol>
+<li>Someone who knows that part of the product confirms the failure is real and that it was there.</li>
+<li>Your agent reads the brief and the log of the change that let it through, and works out which gate should have caught it and what it was missing.</li>
+<li>It proposes the scenario that would have caught it, with its bad case first, and the check that will cover it: a machine check where a machine can tell, a question for the reviewer where none can. Never one more paragraph of instructions, which costs at every gate and checks nothing.</li>
+<li>You approve the change to the blueprint and its gates, or your team does, with a commit or a pull request from a person.</li>
+<li>Another agent sets up the check, and a reviewer tries to fool it before it counts.</li>
+</ol>
+<p><strong>When a gate is too much.</strong> Tell it which one is in your way, and your agent reads in the logs what it has caught and what it has cost. If it no longer adds anything, it proposes relaxing or retiring it with those figures, and you or your team approve it. A new model is no reason to drop a check, because the check judges your product and not the model.</p>
+<h2 id="cuando-se-para">When it stops</h2>
+<table>
+<thead><tr><th>You see</th><th>What it means</th><th>What you do</th></tr></thead>
+<tbody>
+<tr><td>It waits for your approval</td><td>Your blueprint asks for a person there: the brief before anyone builds, or the pull request at the end.</td><td>Read it and approve it. No agent can do that for you.</td></tr>
+<tr><td><code>@assumed</code> above a rule</td><td>Your agent chose that rule.</td><td>Correct it if it isn't yours. When you approve, the tag stays.</td></tr>
+<tr><td><code>@question</code> above a rule</td><td>The answer can wait for another change.</td><td>Nothing for now: the question stays in sight in the file.</td></tr>
+<tr><td>A check fails</td><td>A fix round, with the command, its exit code and its last lines.</td><td>Nothing, unless a limit runs out.</td></tr>
+<tr><td><code>fix</code> from the reviewer</td><td>The sealed tests it names get corrected first, and the builder takes the rest.</td><td>Nothing.</td></tr>
+<tr><td><code>stop</code> from the reviewer</td><td>The change doesn't go in, whatever else the answer says.</td><td>Read why.</td></tr>
+<tr><td>The color rose</td><td>The change touched something more delicate than expected, and it goes back to Brief.</td><td>Approve the new brief, if its color asks for it.</td></tr>
+<tr><td><code>CANNOT:</code> and a reason</td><td>A role stopped because the change doesn't fit as it was briefed.</td><td>Nothing, unless what has to pass changes and its color asks for your approval.</td></tr>
+<tr><td>The seal check fails</td><td>Something that judges the change was touched.</td><td>The change stops, and your agent tells you.</td></tr>
+<tr><td>A limit runs out</td><td>The change used up its attempts, its time or its cost. What's already built still gets judged.</td><td>It tells you what works, what's missing and what one more attempt buys, and proposes a way out.</td></tr>
+<tr><td>A check fails without the change too</td><td>Known debt, or an unstable check. Nothing gets built on top, because nothing would get through.</td><td>It proposes a way out. Recording debt or quarantining a check is for you, or your team, to decide.</td></tr>
+<tr><td>You need to skip a check, in an emergency</td><td>Skipping it loosens it. Your blueprint says beforehand what may be skipped and who opens that gate.</td><td>That person approves it. It goes in the log with who and why, and the change goes through what it skipped afterwards.</td></tr>
+<tr><td>Your agent can't launch other agents</td><td>It gives you one line per role.</td><td>Open a new session with each one, such as <code>/gdd:gdd-build gdd/briefs/&lt;id&gt;.md</code>.</td></tr>
+<tr><td>The layer refuses a step</td><td>A step out of order, a file that changed after it was sealed or a cap with no room left.</td><td>Nothing: it says why and what to run instead, and your agent does that.</td></tr>
+<tr><td>The layer isn't there</td><td>This copy of the project couldn't build it.</td><td>Install Rust, and your agent goes on.</td></tr>
+</tbody>
+</table>
+<p>A fix never goes into a looser check. When one looks wrong, only whoever wrote it or a person corrects it, never the agent that has to pass it.</p>
 <h2 id="repositorio">What they leave in your repository</h2>
-<p>Everything ends up in files you can read, in a <code>gdd/</code> folder: the blueprint, the gates, the brief of each change with its scenarios and a log of what happened, with who approved what. Those files make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
+<p>Everything ends up in files you can read, which make sense without the skills. An engine will read and write the same ones, so what you set up today will still serve you later.</p>
+<table>
+<thead><tr><th>File</th><th>What it holds</th><th>Who writes it</th></tr></thead>
+<tbody>
+<tr><td><code>gdd/blueprint.md</code></td><td>The blueprint: gates, zones, colors, checks, models and limits.</td><td>Your agent when preparing or hardening, with your approval.</td></tr>
+<tr><td><code>gdd/gates/</code></td><td>One feature per gate: what it asks of each color and what it rejects.</td><td>Same as the blueprint.</td></tr>
+<tr><td><code>gdd/constitution.md</code></td><td>The stack, the commands and the rules of your product that hold everywhere.</td><td>Your agent when preparing, in your words.</td></tr>
+<tr><td><code>gdd/check.sh</code> and <code>gdd/limits.sh</code></td><td>How long each check takes, and what a change has left of its limits.</td><td>They come with the skills, if you take them when preparing.</td></tr>
+<tr><td><code>gdd/backlog.md</code></td><td>The list of what's left to build, each item with its expected color.</td><td>Your agents, on every change.</td></tr>
+<tr><td><code>gdd/debt.md</code></td><td>Known debt, with the baseline of each check.</td><td>Your agent, only with your approval.</td></tr>
+<tr><td><code>gdd/briefs/&lt;id&gt;.md</code></td><td>The brief of each yellow or red change: what has to pass and how it closes.</td><td>The orchestrator.</td></tr>
+<tr><td><code>features/&lt;capability&gt;.feature</code></td><td>The rules and their scenarios.</td><td>The orchestrator, and you approve it.</td></tr>
+<tr><td><code>gdd/log/&lt;id&gt;.jsonl</code></td><td>Everything that happened in a change, with who approved what.</td><td>The layer.</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>A GDD block, under 100 words, with the core and the map.</td><td>Your agent when preparing.</td></tr>
+<tr><td><code>CODEOWNERS</code></td><td>What you, or your team, always approve.</td><td>Your agent when preparing.</td></tr>
+<tr><td><code>.gdd/gdd</code></td><td>The built layer. Git ignores it: every copy of the project builds its own.</td><td>Your agent, the first time.</td></tr>
+</tbody>
+</table>
 <h2 id="limites">What they don't guarantee</h2>
 <p>What they don't give you is a guarantee. Without an engine, the agent not touching what judges it is a rule: the skills tell it so and then check that it hasn't, but nothing stops it. The layer keeps the order and the log from depending on the agent's memory, but it doesn't change that. With protected branches and the permissions of your platform you get a good part of the way, and your blueprint says which of the three degrees you're at, rule, platform or engine (<a href="doc:como-se-engana-una-puerta#grados">How a gate gets fooled</a>). Only an engine gives the full guarantee, and what's missing without one is in <a href="doc:el-motor">The engine</a>.</p>
-<p>They do cover the whole path by now. From version 0.14, Brief starts with the rules of what the change touches: your agent writes them above the scenarios, marks the ones it assumed itself and shows them to you to approve or correct. From version 0.15, the layer won't record a brief with a scenario that has no rule above it, and it gives your agent, from what was sealed, the rules it has to show you before asking for your yes. And from version 0.16 they reach Close, because a change isn't closed until someone looks at whether it helped (<a href="doc:los-momentos#cerrar">The five moments</a>). The brief says, before anyone builds, what you expect from the change, what signal will tell and where it will be looked at. Once it's in use, the change waits in plain sight, with how long it has been there, and it doesn't hold up what comes next. When you come back to it, your agent gathers what can be seen and puts it next to what you expected, without proposing an answer. The verdict is yours, or belongs to whoever answers for the product on your team: yes, not yet or no.</p>
-<p class="sigue">With skills or by hand, what is delicate stays delicate. What changes when the thing you touch is payment, I tell in <a href="doc:un-caso-delicado">A delicate case</a>.</p>
+<p>The same guide, with diagrams, is in the <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repository</a>.</p>
+<p class="sigue">If you want to see what's underneath the skills, or put up a gate without them, it's in <a href="doc:empieza-hoy">A gate by hand</a>.</p>

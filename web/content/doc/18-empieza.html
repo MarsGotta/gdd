@@ -1,0 +1,58 @@
+<h1>Empieza</h1>
+<p>De cero a tu primer cambio con GDD, en tu proyecto y con tus agentes, hay cinco pasos. Leerlos te lleva unos diez minutos, y lo demás depende de lo que tarde tu agente. Si prefieres montar una puerta a mano, sin skills, está en <a href="doc:empieza-hoy">Una puerta a mano</a>.</p>
+<h2 id="lo-que-necesitas">Lo que necesitas</h2>
+<ul>
+<li>Un repositorio de git, con git 2.38 o posterior.</li>
+<li>Un agente que cargue skills: Claude Code 2.1.275 o posterior, Codex o Antigravity.</li>
+<li><a href="https://rustup.rs">Rust</a> 1.89 o posterior, para compilar la capa, un comando pequeño que viene con las skills. Se compila una vez en cada copia de tu proyecto, y esa primera vez necesita red.</li>
+<li>macOS o Linux. En Windows no lo ha probado nadie todavía.</li>
+</ul>
+<h2 id="instalar">1. Instala el plugin</h2>
+<p>Las skills entran de una vez, como un plugin que no ejecuta nada por su cuenta. En Claude Code lo escribes dentro de una sesión:</p>
+<pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
+<p>En Codex, en la terminal:</p>
+<pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
+<p>En Antigravity, en la terminal, desde la carpeta donde quieras guardar el repositorio de GDD, no desde dentro de él:</p>
+<pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
+<h2 id="comprobar">2. Comprueba que ha entrado</h2>
+<p>Pide la lista de plugins en una terminal, no dentro de la sesión del agente. En Claude Code, <code>claude plugin list</code> tiene que enseñar algo así, con la versión que tengas:</p>
+<pre><code>❯ gdd@gdd
+  Version: 0.18.0
+  Scope: user
+  Status: ✔ enabled</code></pre>
+<p>En Codex, <code>codex plugin list</code> enseña una línea <code>gdd@gdd  installed, enabled  0.18.0</code>. En Antigravity, <code>agy plugin list</code> enseña <code>gdd (enabled, 0.18.0)</code> con <code>Components: 8 skills</code>.</p>
+<p>Si está en la lista y tu agente no lo nota, cierra la sesión y abre otra: una sesión que ya estaba abierta no carga un plugin nuevo.</p>
+<h2 id="preparar">3. Prepara GDD en tu proyecto</h2>
+<p>Abre tu agente en la carpeta de tu proyecto, con su modelo más capaz, y escribe:</p>
+<pre data-copiar><code>Prepara GDD en este proyecto</code></pre>
+<p>Si el proyecto es nuevo, añade en el mismo mensaje qué vas a construir. No tienes que nombrar ninguna skill: tu agente carga la que toca.</p>
+<p>Tu agente te propone qué es delicado en tu proyecto, las zonas, cada una con su color. También qué tiene que demostrar cada cambio, las puertas, y qué modelo hace cada tipo de trabajo. Lo deja en <code>gdd/blueprint.md</code>, el plano, y en <code>gdd/constitution.md</code>, con lo que nunca debe pasar en tu producto y cinco líneas sobre tu producto, empezando por para quién es. La primera vez compila la capa en <code>.gdd/gdd</code>; si te falta Rust, te lo dice y espera.</p>
+<p>Léelo, tú o tu equipo, y dile qué cambiar o apruébalo: con un commit o una pull request tuya, o con tu sí si no tienes plataforma. Te da también lo que tienes que aplicar tú en tu plataforma, como proteger la rama principal y que tu CI ejecute la capa. Después tu agente monta las comprobaciones que nombra el plano e intenta engañar a cada una a propósito. Ningún cambio empieza hasta que están en la rama principal.</p>
+<h2 id="primer-cambio">4. Pide tu primer cambio</h2>
+<p>Con tus palabras:</p>
+<pre data-copiar><code>Añade un filtro por talla al catálogo</code></pre>
+<p>Tu agente le da al cambio el color de lo más delicado que toca. Si es verde, como el texto de un botón, no te pregunta nada. Si es amarillo o rojo, con la plantilla del plano, antes de que nadie construya te manda las reglas del cambio en un mensaje corto, de menos de 150 palabras, o 200 en rojo:</p>
+<blockquote>
+<p>Verás solo los productos que tengan la talla que elijas.</p>
+<p>He supuesto que las tallas van de pequeña a grande, no por orden alfabético.</p>
+<p>Sabremos si sirvió si menos gente sale del catálogo sin abrir un producto, en las visitas de la tienda.</p>
+<p>Puedes leer los casos en <code>features/catalogo.feature</code>. ¿Sigo con estas reglas?</p>
+</blockquote>
+<p>Di que sí, o corrige una regla. Lo que tu agente decidió por su cuenta va marcado como suyo, para que lo veas.</p>
+<h2 id="puertas">5. Míralo pasar las puertas</h2>
+<p>Cuando el cambio está dentro, te cuenta qué ha cambiado en tu producto y una línea por puerta, pasada o no:</p>
+<pre><code>encargo   amarillo: toca catalogo/. Dos reglas, una supuesta por mí
+casos     sellados, cada uno visto fallar antes
+sello     pasa
+tests     falla, ronda 1: la chaqueta sigue saliendo en la M
+tests     pasa, ronda 2
+lint      pasa
+revisión  pasa, amarillo</code></pre>
+<p>Si un test falla, el agente que construye lo arregla y vuelve a pasar. Tú no haces nada. En rojo, con la plantilla, además revisas tú el cambio al final, en la pull request de tu plataforma si la tienes.</p>
+<h2 id="despues">Y después</h2>
+<ul>
+<li>Cómo se pide, se aprueba, se cierra y se blinda cada cambio, y qué hacer cuando se para: <a href="doc:las-skills">Las skills</a>.</li>
+<li>Por qué funciona así: <a href="doc:la-idea">La idea</a>.</li>
+<li>Qué pasa en cada momento de un cambio: <a href="doc:los-momentos">Los cinco momentos</a>.</li>
+</ul>
+<p class="sigue">Con el primer cambio dentro, lo que viene es el día a día, y está en <a href="doc:las-skills">Las skills</a>.</p>

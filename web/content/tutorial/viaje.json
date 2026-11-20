@@ -58,7 +58,7 @@
     },
     "amarillo": {
       "nombre": "Amarillo",
-      "resumen": "Te llama una vez, al principio, para que leas unos pocos escenarios.",
+      "resumen": "Te llama una vez, al principio, para que apruebes sus reglas.",
       "escenario": {
         "comprobaciones": [
           {
@@ -279,7 +279,7 @@
           "puerta": "escenario",
           "tipo": "tu",
           "texto": "Ahora sí te toca. Lees los escenarios y ves que falta uno: si alguien pulsa dos veces el botón de pagar, se le cobra una sola vez. Eso no lo iba a saber el agente, y por eso importa que lo leas tú. Y apuntas qué esperas: no perder ventas al cambiar de pasarela.",
-          "codigo": "Escenario: pulsar dos veces el botón de pagar\n  Dado un carrito de 40 €\n  Cuando pulso dos veces el botón de pagar\n  Entonces se me cobran 40 € una sola vez",
+          "codigo": "Regla: Pulsar dos veces cobra una sola vez\n\n  @id:pagos-2\n  Escenario: pulsar dos veces el botón de pagar\n    Dado un carrito de 40 €\n    Cuando pulso dos veces el botón de pagar\n    Entonces se me cobran 40 € una sola vez",
           "teToca": "Leer los escenarios y añadir uno"
         },
         {
@@ -380,17 +380,17 @@
         "texto": "El agente hizo lo que le pedimos y las puertas lo comprobaron. Se quedó corto el plano, porque nadie dijo que decidir quién ve qué era delicado, y mira que lo preguntamos: \"¿qué sería grave si sale mal?\"."
       },
       "cerrar": {
-        "veredicto": "Todavía no",
-        "texto": "La página gusta, pero antes hay que arreglar lo que se coló: un cambio que hace daño no se da por bueno. Se queda en uso y sin cerrar hasta que lo de abajo esté dentro."
+        "veredicto": "No",
+        "texto": "La página gusta, pero un cambio que hace daño no se da por bueno: se cierra con un no, no se construye nada más encima, y lo que se coló pasa a Blindar."
       },
       "blindar": {
         "intro": "Aquí llega Blindar, y no basta con arreglar el código:",
         "items": [
-          "`pedidos/` y todo lo que decide quién ve qué entran en la lista de lo delicado. Es un cambio en el plano, así que lo aprueba el equipo.",
+          "`pedidos/` y todo lo que decide quién ve qué entran en la lista de lo delicado. Es un cambio en el plano, así que lo apruebas tú, o tu equipo.",
           "\"Una persona no ve los pedidos de otra\" pasa a ser un escenario que apruebas, con su test, y se queda como comprobación de serie para todos los cambios.",
           "El vigilante lo lleva a partir de ahora en lo que comprueba."
         ],
-        "codigo": "Escenario: una persona no ve los pedidos de otra\n  Dado un pedido de Marta\n  Cuando Luis abre la dirección de ese pedido\n  Entonces no lo ve",
+        "codigo": "Regla: Cada persona ve solo sus pedidos\n\n  @id:pedidos-3\n  Escenario: una persona no ve los pedidos de otra\n    Dado un pedido de Marta\n    Cuando Luis abre la dirección de ese pedido\n    Entonces no lo ve",
         "boton": "Probarlo con otro cambio igual",
         "color": "rojo",
         "paraEn": "testing",

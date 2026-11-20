@@ -37,7 +37,7 @@
     amarillo: {
       base: { p1: 'cerrada', p2: 'cerrada', p3: 'cerrada', agente: 'inicio', llamadas: 0 },
       pasos: [
-        { texto: t('Antes de empezar, te llama: lees unos pocos escenarios.', 'Before it starts, it calls you: you read a few scenarios.'), llamada: 1, llamadas: 1, ms: 3800 },
+        { texto: t('Antes de empezar, te llama: apruebas sus reglas.', 'Before it starts, it calls you: you approve its rules.'), llamada: 1, llamadas: 1, ms: 3800 },
         { texto: t('Pasa, y dice "hecho". Aquí la puerta suma otra comprobación: un vigilante.', 'It gets through and says "done." Here the gate adds another check: a reviewer.'), llamada: 0, p1: 'ganada', agente: 'ante2', globo: true, ms: 4400 },
         { texto: t('El vigilante ejecuta el cambio y no funciona. Nadie te llama: el agente lo arregla.', 'The reviewer runs the change and it does not work. Nobody calls you: the agent fixes it.'), p2: 'rechaza', globo: false, rechazo: t('KO del vigilante', 'Reviewer says no'), agente: 'atras2', ms: 5000 },
         { texto: t('Ahora sí funciona, y el vigilante da su aprobación.', 'Now it works, and the reviewer gives its approval.'), p2: 'ganada', rechazo: '', agente: 'ante2', ms: 3400 },

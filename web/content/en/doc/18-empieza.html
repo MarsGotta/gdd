@@ -1,0 +1,58 @@
+<h1>Get started</h1>
+<p>Going from zero to your first change with GDD, in your project and with your agents, takes five steps. Reading them takes about ten minutes, and the rest depends on how long your agent takes. If you'd rather put up a gate by hand, without the skills, that's in <a href="doc:empieza-hoy">A gate by hand</a>.</p>
+<h2 id="lo-que-necesitas">What you need</h2>
+<ul>
+<li>A git repository, with git 2.38 or later.</li>
+<li>An agent that loads skills: Claude Code 2.1.275 or later, Codex or Antigravity.</li>
+<li><a href="https://rustup.rs">Rust</a> 1.89 or later, to build the layer, a small command that comes with the skills. It gets built once in each copy of your project, and that first time it needs the network.</li>
+<li>macOS or Linux. Nobody has tried it on Windows yet.</li>
+</ul>
+<h2 id="instalar">1. Install the plugin</h2>
+<p>The skills come in at once, as a plugin that runs nothing of its own. On Claude Code you type it inside a session:</p>
+<pre data-copiar><code data-fuente="instalar-claude-code.txt"></code></pre>
+<p>On Codex, in the terminal:</p>
+<pre data-copiar><code data-fuente="instalar-codex.txt"></code></pre>
+<p>On Antigravity, in the terminal, from the folder where you want to keep the GDD repository, not from inside it:</p>
+<pre data-copiar><code data-fuente="instalar-antigravity.txt"></code></pre>
+<h2 id="comprobar">2. Check it's in</h2>
+<p>Ask for the list of plugins in a terminal, not inside the agent's session. On Claude Code, <code>claude plugin list</code> should show something like this, with the version you have:</p>
+<pre><code>❯ gdd@gdd
+  Version: 0.18.0
+  Scope: user
+  Status: ✔ enabled</code></pre>
+<p>On Codex, <code>codex plugin list</code> shows a line <code>gdd@gdd  installed, enabled  0.18.0</code>. On Antigravity, <code>agy plugin list</code> shows <code>gdd (enabled, 0.18.0)</code> with <code>Components: 8 skills</code>.</p>
+<p>If it's on the list and your agent doesn't notice it, close the session and open another: a session that was already open doesn't load a new plugin.</p>
+<h2 id="preparar">3. Set GDD up in your project</h2>
+<p>Open your agent in your project's folder, on its most capable model, and type:</p>
+<pre data-copiar><code>Set GDD up in this project</code></pre>
+<p>If the project is new, add in the same message what you're going to build. You don't have to name any skill: your agent loads the right one.</p>
+<p>Your agent proposes what is delicate in your project, the zones, each with its color. Also what every change has to prove, the gates, and which model does each kind of work. It leaves that in <code>gdd/blueprint.md</code>, the blueprint, and in <code>gdd/constitution.md</code>, with what must never happen in your product and five lines about your product, starting with who it's for. The first time, it builds the layer at <code>.gdd/gdd</code>; if you don't have Rust, it tells you and waits.</p>
+<p>Read it, you or your team, and tell it what to change or approve it: with a commit or a pull request of yours, or with your yes if you have no platform. It also gives you what you have to apply on your platform yourself, such as protecting the main branch and having your CI run the layer. Then your agent sets up the checks the blueprint names and tries to fool each one on purpose. No change starts until they're on the main branch.</p>
+<h2 id="primer-cambio">4. Ask for your first change</h2>
+<p>In your own words:</p>
+<pre data-copiar><code>Add a size filter to the catalog</code></pre>
+<p>Your agent gives the change the color of the most delicate thing it touches. If it's green, like the text on a button, it asks you nothing. If it's yellow or red, with the blueprint's template, before anyone builds it sends you the rules of the change in a short message, under 150 words, or 200 on red:</p>
+<blockquote>
+<p>You'll only see the products that come in the size you pick.</p>
+<p>I've assumed sizes go from small to large, not in alphabetical order.</p>
+<p>We'll know it helped if fewer people leave the catalog without opening a product, in the shop's visit records.</p>
+<p>You can read the scenarios in <code>features/catalog.feature</code>. Shall I go on with these rules?</p>
+</blockquote>
+<p>Say yes, or correct a rule. Whatever your agent decided on its own is marked as its own, so you can see it.</p>
+<h2 id="puertas">5. Watch it go through the gates</h2>
+<p>When the change is in, it tells you what changed in your product and one line per gate, passed or not:</p>
+<pre><code>brief     yellow: it touches catalog/. Two rules, one assumed by me
+cases     sealed, each one seen failing first
+seal      passed
+tests     failed, round 1: the jacket still shows up in M
+tests     passed, round 2
+lint      passed
+review    passed, yellow</code></pre>
+<p>If a test fails, the building agent fixes it and goes through again. You do nothing. On red, with the template, you also review the change at the end, in your platform's pull request if you have one.</p>
+<h2 id="despues">What next</h2>
+<ul>
+<li>How each change is asked for, approved, closed and hardened, and what to do when it stops: <a href="doc:las-skills">The skills</a>.</li>
+<li>Why it works this way: <a href="doc:la-idea">The idea</a>.</li>
+<li>What happens at each moment of a change: <a href="doc:los-momentos">The five moments</a>.</li>
+</ul>
+<p class="sigue">With the first change in, what comes next is day to day, and it's in <a href="doc:las-skills">The skills</a>.</p>

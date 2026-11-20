@@ -180,7 +180,7 @@ gdd/log/<id>.jsonl               everything that happened, one event per line, w
 
 **When it needs you.** Besides an approval, your agent comes to you with a decision nobody has made, or with something that stopped the change, such as a check that keeps failing or a limit that ran out. Answer, or tell it to decide: it then decides how the work gets done, and any rule of your product it takes from what is usual in your sector, it tells you as an assumption. What loosens a check or can't be undone stays with you. The guide has [every case](skills/README.md#when-it-stops).
 
-Two commands read the trail for you, from your project's folder. `.gdd/gdd waiting` lists every question waiting for you, oldest first. `.gdd/gdd metrics --all --summary` says how your changes went: how they ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, and what each check and each agent cost.
+Three commands read the trail for you, from your project's folder. `.gdd/gdd next` says what comes next in your project, including the changes in use that wait for your verdict. `.gdd/gdd waiting` lists every question waiting for you, oldest first. `.gdd/gdd metrics --all --summary` says how your changes went: how they ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, and what each check and each agent cost.
 
 ## The five moments, and what holds each one up
 
@@ -210,7 +210,8 @@ How far that holds depends on where your gates run. With the skills alone, the a
 |---|---|
 | Understand the idea, told as an escape room | [The idea](https://gate-driven.dev/en/docs/the-idea/) |
 | Follow four changes to an online shop, with nothing to install | [Hands on](https://gate-driven.dev/en/docs/hands-on/) |
-| Start with what you already have: CI, tests, `CODEOWNERS` | [Start today](https://gate-driven.dev/en/docs/start-today/) |
+| Start with the skills: install, prepare, first change | [Get started](https://gate-driven.dev/en/docs/get-started/) |
+| Put up a gate by hand: CI, tests, `CODEOWNERS` | [A gate by hand](https://gate-driven.dev/en/docs/start-today/) |
 | See when each thing happens | [The five moments](https://gate-driven.dev/en/docs/the-moments/) |
 | Learn how a gate gets fooled, and what stops it | [How a gate gets fooled](https://gate-driven.dev/en/docs/how-a-gate-gets-fooled/) |
 | Compare it with TDD | [What about TDD?](https://gate-driven.dev/en/docs/and-tdd/) |

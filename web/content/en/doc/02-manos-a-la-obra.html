@@ -50,8 +50,8 @@
 <tr><td>Reviewing</td><td>CI</td><td>CI and another reviewer</td><td>CI, another reviewer and your approval, and you check how it gets undone</td></tr>
 </tbody>
 </table>
-<p>Everything we've decided so far (what's delicate, which gates are needed, with their checks, and what each color asks for) is written in one place, the blueprint. The team approves it, and the agent can't touch it.</p>
-<p>That table is what I would do, and each project configures it its own way: having a person review the change in red is my recommendation, not an obligation, and whether a person approves what has to pass is also up to the blueprint. A gate staying open in green isn't loosening anything either, because it was already in the blueprint. Taking a check off a gate, though, is changing the blueprint, and the team approves it.</p>
+<p>Everything we've decided so far (what's delicate, which gates are needed, with their checks, and what each color asks for) is written in one place, the blueprint. You approve it, or your team does, and the agent can't touch it.</p>
+<p>That table is what I would do, and each project configures it its own way: having a person review the change in red is my recommendation, not an obligation, and whether a person approves what has to pass is also up to the blueprint. A gate staying open in green isn't loosening anything either, because it was already in the blueprint. Taking a check off a gate, though, is changing the blueprint, and you approve it, or your team does.</p>
 <h3>Building it</h3>
 <p>Now we build it with what's at hand:</p>
 <ul>
@@ -60,7 +60,7 @@
 <li><strong>The context</strong>, in the repository: the constitution in the agent's instructions file, the skills and the data schemas. What comes from outside, like the Figma design, reaches it through an MCP server or with the request.</li>
 <li><strong>What the agent can't touch</strong>, protected with the branch and a <code>CODEOWNERS</code>, the GitHub file that says who has to approve what: the tests, CI, the traffic-light script, the constitution and the blueprint. The approved tests also live on a separate branch, and CI compares it with the agent's. That gives you a good part of the guarantee, and only an engine gives you all of it.</li>
 </ul>
-<p>The gates and the context, together, form the agent's environment, which people also call a harness. One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">Start today</a>.</p>
+<p>The gates and the context, together, form the agent's environment, which people also call a harness. One thing is left before you trust it, and that's trying to break it: you give each check a deliberately bad case, and if it lets it through, that check isn't useful yet. The details of how to set it up in your repository are in <a href="doc:empieza-hoy">A gate by hand</a>.</p>
 <h2>The journey: four changes</h2>
 <p>It's all up, so let's ask the agent for four changes, from less to more risk. In each one your job is the same: look at what happened and decide whether the blueprint worked. Before you see the result, think about what color you'd give it.</p>
 <p>Each change goes through two moments: Brief, where we fix what has to pass, and Execute, where the agent goes through the gates. Once it's in use comes Close, where you look at whether it helped. If something slips through, or a gate stops adding anything, the last one comes, Harden.</p>
@@ -70,9 +70,9 @@
 <thead><tr><th>Change</th><th>Color</th><th>What got caught along the way</th><th>What fell to you</th><th>How it closed</th></tr></thead>
 <tbody>
 <tr><td>The text of a button</td><td>Green</td><td>Nothing, it wasn't needed</td><td>Nothing</td><td>By itself, once its week passed</td></tr>
-<tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving three scenarios</td><td>Yes, after ten days</td></tr>
-<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading the scenarios, adding one and approving</td><td>Yes, after the month end</td></tr>
-<tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving three scenarios, and then deciding what changes in the blueprint</td><td>Not yet: first, what slipped through</td></tr>
+<tr><td>A size filter</td><td>Yellow</td><td>A size with no results and the filter lost on the second page</td><td>Approving its rules</td><td>Yes, after ten days</td></tr>
+<tr><td>The payment gateway</td><td>Red</td><td>The two clicks, the changed test and the payment with the gateway down</td><td>Reading its rules, adding a scenario and approving</td><td>Yes, after the month end</td></tr>
+<tr><td>My orders</td><td>Yellow</td><td>Nothing, and it slipped through</td><td>Approving its rules, and then deciding what changes in the blueprint</td><td>No: what slipped through goes to Harden</td></tr>
 </tbody>
 </table>
-<p>The gates were the same four times. What moved is what each change is asked for, what falls to you and how it closes. When you want to set it up in your project, start with <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">your first gate</a>.</p>
+<p>The gates were the same four times. What moved is what each change is asked for, what falls to you and how it closes. When you want to set it up in your project, go to <a href="doc:empieza">Get started</a>, with your agents, or to <a href="doc:empieza-hoy#para-empezar-tu-primera-puerta">a gate by hand</a>.</p>

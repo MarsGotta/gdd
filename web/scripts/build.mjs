@@ -240,6 +240,9 @@ const usar = (i) => {
   PDF = tr(`manifiesto-gdd-${VERSION_TXT}.pdf`, `manifesto-gdd-${VERSION_TXT}.pdf`);
 };
 const TMINUS = 'https://github.com/MarsGotta/t-minus';
+// The skills and the layer carry their own version, apart from the Manifesto's: read it from the plugin,
+// so the site never says a version by hand.
+const SKILLS = JSON.parse(fs.readFileSync(path.join(raiz, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
 const IMAGEN = () => tr('og.png', 'og-en.png');
 
 // The same page in the other language.
@@ -265,7 +268,7 @@ const cabecera = (ruta) => `<header class="cabecera"><div class="contenedor cabe
 const pie = () => `<footer class="pie"><div class="contenedor pie__dentro">
   <div>
     <a class="logo" href="${rutaInicio()}">${marca()}<span>Gate-Driven Development</span></a>
-    <p>${VERSION_TXT}, ${ESTADO_TXT}. ${FIRMA}.</p>
+    <p>${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${tr('Skills y capa', 'Skills and layer')} ${SKILLS}. ${FIRMA}.</p>
     <p>${frase('manifiesto', tr('Este manifiesto es la referencia.', 'This manifesto is the reference.'))}</p>
   </div>
   <div>
@@ -374,8 +377,8 @@ const inicio = () => {
       <h1>${promesa}</h1>
       <p class="heroe__sub">${subtitulo.join(' ')}</p>
       <div class="salidas">
-        <a class="boton" href="#${tr('el-problema', 'the-problem')}">${tr('Cómo funciona', 'How it works')}${icono('abajo', 'flecha')}</a>
-        <a href="${DOCS['empieza-hoy'][idioma].ruta}">${tr('Monta tu primera puerta', 'Build your first gate')}</a>
+        <a class="boton" href="${DOCS.empieza[idioma].ruta}">${tr('Empieza', 'Get started')}</a>
+        <a href="#${tr('el-problema', 'the-problem')}">${tr('Cómo funciona', 'How it works')}${icono('abajo', 'flecha')}</a>
       </div>
     </div>
     <div class="heroe__dibujo">
@@ -429,8 +432,8 @@ const inicio = () => {
     ${plano(tr, {
       pie: `${tr('Tres puertas de ejemplo: en tu proyecto habrá las que hagan falta.', 'Three example gates: your project will have the ones it needs.')} ${interior('manifiesto', tr('Lo que no se puede deshacer nunca es verde.', "What can't be undone is never green."))}`,
       tocaVerde: interior(g, tr('Nada: pides el cambio', 'Nothing: you ask for the change')),
-      tocaAmarillo: interior(g, tr('Leer unos pocos escenarios', 'Read a few scenarios')),
-      tocaRojo: interior(g, tr('Leer los escenarios y dar tu aprobación', 'Read the scenarios and give your approval')),
+      tocaAmarillo: interior(g, tr('Aprobar sus reglas antes', 'Approve its rules before')),
+      tocaRojo: interior(g, tr('Aprobar sus reglas y revisar', 'Approve its rules, and review')),
     })}
     ${puente(tr('donde-seguir', 'where-to-go-next'), tr('Pruébalo en tu proyecto', 'Try it on your project'))}
   </section>`;
@@ -441,12 +444,12 @@ const inicio = () => {
     ['manifiesto', tr('Manifiesto', 'Manifesto'), tr('Una regla, siete principios y cinco momentos, en una página', 'One rule, seven principles and five moments, on one page')],
   ];
   const seguir = seccion(tr('donde-seguir', 'where-to-go-next'), tr('Por dónde seguir', 'Where to go next'), `
-    <p class="grande">${tr('Puedes empezar hoy con lo que ya tienes.', 'You can start today with what you already have.')}</p>
-    <p class="salidas"><a class="boton" href="${DOCS['manos-a-la-obra'][idioma].ruta}">${tr('Manos a la obra', 'Get hands on')}</a><a href="${DOCS['empieza-hoy'][idioma].ruta}">${tr('Monta tu primera puerta', 'Build your first gate')}</a><a href="${DOCS['las-skills'][idioma].ruta}">${DOCS['las-skills'][idioma].menu}</a></p>
+    <p class="grande">${tr('Puedes empezar hoy, con tus agentes o a mano.', 'Start today, with your agents or by hand.')}</p>
+    <p class="salidas"><a class="boton" href="${DOCS.empieza[idioma].ruta}">${tr('Empieza con tus agentes', 'Start with your agents')}</a><a href="${DOCS['manos-a-la-obra'][idioma].ruta}">${tr('Manos a la obra', 'Get hands on')}</a><a href="${DOCS['empieza-hoy'][idioma].ruta}">${DOCS['empieza-hoy'][idioma].menu}</a></p>
     <div class="caminos">
       ${caminos.map(([k, t, d]) => `<a class="camino" href="${DOCS[k][idioma].ruta}"><strong>${t}</strong><span>${d}</span></a>`).join('\n')}
     </div>
-    <p class="nota-version">GDD ${VERSION_TXT}, ${ESTADO_TXT}. ${frase('manifiesto', tr('Esta versión todavía no trae datos propios', "This version doesn't bring its own data yet"))} ${tr('Su motor, <span class="sin-corte">T-minus</span>, está en desarrollo.', 'Its engine, <span class="sin-corte">T-minus</span>, is in development.')}</p>
+    <p class="nota-version">${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${frase('manifiesto', tr('Esta versión todavía no trae datos propios', "This version doesn't bring its own data yet"))} ${tr('Su motor, <span class="sin-corte">T-minus</span>, está en desarrollo.', 'Its engine, <span class="sin-corte">T-minus</span>, is in development.')}</p>
   `);
 
   return documento({
@@ -500,10 +503,19 @@ const paginaDe = (nombre) => {
   });
 };
 
-// The map of the documentation: a short text and the chapters in four parts.
+// The map of the documentation: a short text and the chapters in their parts. Each list of the
+// map starts at the number its first chapter has in the book, so a chapter added or moved never
+// leaves the map counting behind.
 const paginaMapa = () => {
   const doc = DOCS.documentacion[idioma];
-  const { h1, cuerpo } = cuerpoDe('documentacion');
+  const { h1, cuerpo: tal } = cuerpoDe('documentacion');
+  const $m = cheerio.load(tal, null, false);
+  let n = 1;
+  $m('ol.mapa-lista').each((_, ol) => {
+    $m(ol).attr('start', String(n));
+    n += $m(ol).children('li').length;
+  });
+  const cuerpo = $m.html();
   return documento({
     ruta: doc.ruta,
     titulo: doc.titulo,
