@@ -34,6 +34,8 @@ No page writes the version of the skills or the contract by hand. A document wri
 
 Old routes (`/guia/`, `/empieza-hoy/`...) redirect in `dist/_redirects`; the list is also in `estructura.mjs`.
 
+Every page of a document also lives as Markdown, at its address plus `index.html.md` (`scripts/markdown.mjs` turns the built page into it), and `dist/llms.txt` lists them for agents, in English, with the Spanish documentation under Optional. The pages link to their copy with `<link rel="alternate" type="text/markdown">`, and `scripts/comprobar.mjs` fails if a copy is missing or a link leads nowhere.
+
 ## Two languages
 
 Spanish lives at the root and English under `/en/`. Each document has its translation in `content/en/`, with the same structure (`scripts/paridad.mjs` checks it, for example `node scripts/paridad.mjs doc/03-las-piezas`) and the vocabulary of `content/en/GLOSARIO.md`. Words retired from the method are watched by `scripts/comprobar.mjs`, with a short list of exceptions.
@@ -45,7 +47,7 @@ If the English manifesto changes, regenerate its PDF (`content/en/manifesto-gdd-
 ## Layout
 
 - `content/`: the Spanish documents, the diagrams and the PDF. `content/en/`: the same in English.
-- `scripts/build.mjs`: builds the pages. `scripts/partes.mjs`: the blueprint and the drawings.
+- `scripts/build.mjs`: builds the pages, their Markdown copies and `llms.txt`. `scripts/markdown.mjs`: turns a page into Markdown. `scripts/partes.mjs`: the blueprint and the drawings.
 - `src/css`, `src/js`, `src/img`: styles, the interactive pieces (the home blueprint and the Hands-on pieces) and the sharing image.
 - `scripts/estructura.mjs`: the list of documents and chapters, with the kind of each one. `scripts/versiones.mjs`: the versions the pages show. `scripts/huellas.mjs`: regenerates `origen.json`.
 - `dist/`: what gets published.

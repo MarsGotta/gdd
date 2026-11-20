@@ -9,6 +9,7 @@ import esbuild from 'esbuild';
 import { sprite, marca, icono, plano, escena, dibujoTodo, dibujoNada, dibujoSolo, anatomia } from './partes.mjs';
 import { PARTES, TIPOS, DOCS, CAPITULOS, TOTAL, ORDEN, MENU, PIE, REDIRECCIONES } from './estructura.mjs';
 import { SKILLS, CONTRATO, conVersiones } from './versiones.mjs';
+import { aMarkdown } from './markdown.mjs';
 
 const raiz = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(raiz, 'dist');
@@ -294,6 +295,10 @@ const datos = ({ ruta, titulo, descripcion, inicial }) => {
   return `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', ...cuerpo }).replace(/</g, '\\u003c')}</script>`;
 };
 
+// Every page of a document also lives as Markdown, at its address plus index.html.md.
+const RUTAS_MD = new Set(Object.values(DOCS).flatMap((d) => [d.es.ruta, d.en.ruta]));
+const aMd = (ruta) => `${DOMINIO}${ruta}index.html.md`;
+
 const documento = ({ ruta, titulo, descripcion, cuerpo, scripts = [], indexable = true, enlacesCabeza = '' }) => {
   const enEs = idioma === 'es' ? ruta : otraRuta(ruta);
   const enEn = idioma === 'en' ? ruta : otraRuta(ruta);
@@ -301,7 +306,7 @@ const documento = ({ ruta, titulo, descripcion, cuerpo, scripts = [], indexable 
     ? `<link rel="canonical" href="${DOMINIO}${ruta}">
 <link rel="alternate" hreflang="es" href="${DOMINIO}${enEs}">
 <link rel="alternate" hreflang="en" href="${DOMINIO}${enEn}">
-<link rel="alternate" hreflang="x-default" href="${DOMINIO}${enEn}">
+<link rel="alternate" hreflang="x-default" href="${DOMINIO}${enEn}">${RUTAS_MD.has(ruta) ? `\n<link rel="alternate" type="text/markdown" href="${aMd(ruta)}">` : ''}
 ${datos({ ruta, titulo, descripcion, inicial: ruta === rutaInicio() })}`
     : '<meta name="robots" content="noindex">';
   return `<!doctype html>
@@ -597,6 +602,45 @@ for (const [ruta, html] of Object.entries(PAGINAS)) {
   fs.writeFileSync(destino, html);
 }
 
+// --- The same pages as Markdown, and llms.txt, their index for agents ----------------------
+for (const nombre of Object.keys(DOCS)) {
+  for (const i of IDIOMAS) {
+    const { ruta, descripcion } = DOCS[nombre][i];
+    const $ = cheerio.load(PAGINAS[`${ruta.slice(1)}index.html`]);
+    // Links lead to the Markdown copy of a page when there is one, and always to a full address.
+    const enlace = (href) => {
+      if (href.startsWith('#')) return `${aMd(ruta)}${href}`;
+      if (!href.startsWith('/')) return href;
+      const [camino, ancla] = href.split('#');
+      return RUTAS_MD.has(camino) ? `${aMd(camino)}${ancla ? `#${ancla}` : ''}` : `${DOMINIO}${href}`;
+    };
+    const md = `# ${norm($('main h1').first().text())}\n\n> ${descripcion}\n\n${aMarkdown($.html($('main .pagina-cabeza > p')) + $('article.lectura').html(), enlace)}\n`;
+    fs.writeFileSync(path.join(dist, `${ruta.slice(1)}index.html.md`), md);
+  }
+}
+usar('en');
+const resumen = texto('manifiesto', 'Gate-Driven Development (GDD) is a way').split(/(?<=\.) /).slice(0, 2).join(' ');
+const linea = (nombre) => `- [${DOCS[nombre].en.menu}](${aMd(DOCS[nombre].en.ruta)}): ${DOCS[nombre].en.descripcion}`;
+const partes = Object.keys(PARTES).map((p) => `## ${PARTES[p].en}\n\n${CAPITULOS.filter((k) => DOCS[k].capitulo.parte === p).map(linea).join('\n')}`);
+fs.writeFileSync(path.join(dist, 'llms.txt'), `# Gate-Driven Development (GDD)
+
+> ${resumen}
+
+GDD comes with eight skills for Claude Code, Codex and Antigravity, which bring a small command of their own, the layer; it can also be applied by hand. Skills and layer ${SKILLS}, contract ${CONTRATO}, Manifesto ${VERSION_TXT}, ${ESTADO_TXT}. When the documentation and the Manifesto disagree, the Manifesto is the reference.
+
+## The reference
+
+${linea('manifiesto')}
+${linea('documentacion')}
+
+${partes.join('\n\n')}
+
+## Optional
+
+${linea('articulo')}
+- [Gate-Driven Development en español](${aMd(DOCS.documentacion.es.ruta)}): the same documentation in Spanish, the original; each page links to the rest.
+`);
+
 fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/site.css') + (TUTORIAL_CSS ? `\n${leer('src/css/tutorial.css')}` : ''));
 for (const js of ['plano.js', 'sitio.js', ...(TUTORIAL_JS ? ['tutorial.js'] : [])]) {
   fs.copyFileSync(path.join(raiz, 'src/js', js), path.join(dist, 'assets', js));
@@ -623,7 +667,7 @@ fs.writeFileSync(path.join(dist, 'robots.txt'), `User-agent: *\nAllow: /\n\nSite
 const parejas = [['/', '/en/'], ...ORDEN.map((k) => [DOCS[k].es.ruta, DOCS[k].en.ruta])];
 const entrada = (loc, es, en) => `  <url><loc>${DOMINIO}${loc}</loc><lastmod>${FECHA}</lastmod><xhtml:link rel="alternate" hreflang="es" href="${DOMINIO}${es}"/><xhtml:link rel="alternate" hreflang="en" href="${DOMINIO}${en}"/><xhtml:link rel="alternate" hreflang="x-default" href="${DOMINIO}${en}"/></url>`;
 fs.writeFileSync(path.join(dist, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${parejas.flatMap(([es, en]) => [entrada(es, es, en), entrada(en, es, en)]).join('\n')}\n</urlset>\n`);
-fs.writeFileSync(path.join(dist, '_headers'), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n`);
+fs.writeFileSync(path.join(dist, '_headers'), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/*.md\n  X-Robots-Tag: noindex\n\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n`);
 // Old addresses lead to what replaced them, with and without the final slash.
 fs.writeFileSync(path.join(dist, '_redirects'), `${REDIRECCIONES.flatMap(([de, a]) => [`${de}/ ${a} 301`, `${de} ${a} 301`]).join('\n')}\n/manifiesto-gdd-v0.3.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.4.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.5.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.6.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.7.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.8.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.4.pdf /manifesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.5.pdf /manifesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.6.pdf /manifesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.7.pdf /manifesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.8.pdf /manifesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.9.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.9.pdf /manifesto-gdd-v0.11.pdf 301\n/manifiesto-gdd-v0.10.pdf /manifiesto-gdd-v0.11.pdf 301\n/manifesto-gdd-v0.10.pdf /manifesto-gdd-v0.11.pdf 301\n`);
 

@@ -498,6 +498,21 @@ for (const [donde, texto, puerta] of ejemplos) {
 }
 console.log(`Versión de las skills: ${SKILLS}, sin ninguna vieja fuera de Novedades. Escenarios de ejemplo: ${escenarios}, cada uno con su regla, su @id y una acción.`);
 
+// llms.txt and the Markdown copy of each page: every page of a document has one, and no link,
+// in llms.txt or between the copies, leads to a copy that doesn't exist.
+const DOMINIO = 'https://gate-driven.dev';
+const existe = (url) => fs.existsSync(path.join(dist, url.replace(`${DOMINIO}/`, '').split('#')[0]));
+const copias = IDIOMAS.flatMap((i) => Object.values(DOCS[i]).map((ruta) => `${ruta}.md`));
+const llms = fs.existsSync(path.join(dist, 'llms.txt')) ? fs.readFileSync(path.join(dist, 'llms.txt'), 'utf8') : '';
+if (!llms) fallos.push('Falta dist/llms.txt');
+for (const ruta of Object.values(DOCS.en)) if (!llms.includes(`${DOMINIO}${ruta}.md`)) fallos.push(`llms.txt no lleva ${ruta}.md`);
+for (const [donde, texto] of [['llms.txt', llms], ...copias.filter((c) => existe(c)).map((c) => [c, fs.readFileSync(path.join(dist, c), 'utf8')])]) {
+  if (/{{\w+}}/.test(texto)) fallos.push(`${donde}: queda un marcador sin rellenar`);
+  for (const [, url] of texto.matchAll(/\]\((https:\/\/[^)\s]+\.md(?:#[^)\s]*)?)\)/g)) if (url.startsWith(DOMINIO) && !existe(url)) fallos.push(`${donde} lleva a ${url}, que no existe`);
+}
+for (const c of copias) if (!existe(c)) fallos.push(`Falta la copia en Markdown ${c}`);
+console.log(`Para agentes: llms.txt y ${copias.length} copias en Markdown, con sus enlaces.`);
+
 const tam = (dir) => fs.readdirSync(dir).reduce((s, f) => { const p = path.join(dir, f); return s + (fs.statSync(p).isDirectory() ? tam(p) : fs.statSync(p).size); }, 0);
 console.log(`Tamaño total: ${(tam(dist) / 1024).toFixed(0)} KB.`);
 
