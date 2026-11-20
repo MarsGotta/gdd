@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import * as cheerio from 'cheerio';
 import esbuild from 'esbuild';
 import { sprite, marca, icono, plano, escena, dibujoTodo, dibujoNada, dibujoSolo, anatomia } from './partes.mjs';
-import { PARTES, DOCS, CAPITULOS, TOTAL, ORDEN, MENU, PIE, REDIRECCIONES } from './estructura.mjs';
+import { PARTES, TIPOS, DOCS, CAPITULOS, TOTAL, ORDEN, MENU, PIE, REDIRECCIONES } from './estructura.mjs';
+import { SKILLS, CONTRATO, conVersiones } from './versiones.mjs';
 
 const raiz = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(raiz, 'dist');
@@ -70,11 +71,11 @@ const DIAGRAMAS = { es: diagramas('content'), en: diagramas('content/en') };
 const TODOS = { es: {}, en: {} };
 let T = TODOS.es;
 const cargar = (nombre) => {
-  const $ = cheerio.load(leer(`${carpeta()}/${DOCS[nombre].fichero}`), null, false);
+  const $ = cheerio.load(conVersiones(leer(`${carpeta()}/${DOCS[nombre].fichero}`)), null, false);
 
   $('code[data-fuente]').each((_, c) => {
     const f = $(c).attr('data-fuente');
-    $(c).removeAttr('data-fuente').text(leer(`${carpeta()}/codigo/${f}`).replace(/\n$/, ''));
+    $(c).removeAttr('data-fuente').text(conVersiones(leer(`${carpeta()}/codigo/${f}`)).replace(/\n$/, ''));
   });
 
   $('figure[data-pieza]').each((_, f) => {
@@ -240,9 +241,6 @@ const usar = (i) => {
   PDF = tr(`manifiesto-gdd-${VERSION_TXT}.pdf`, `manifesto-gdd-${VERSION_TXT}.pdf`);
 };
 const TMINUS = 'https://github.com/MarsGotta/t-minus';
-// The skills and the layer carry their own version, apart from the Manifesto's: read it from the plugin,
-// so the site never says a version by hand.
-const SKILLS = JSON.parse(fs.readFileSync(path.join(raiz, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
 const IMAGEN = () => tr('og.png', 'og-en.png');
 
 // The same page in the other language.
@@ -268,7 +266,7 @@ const cabecera = (ruta) => `<header class="cabecera"><div class="contenedor cabe
 const pie = () => `<footer class="pie"><div class="contenedor pie__dentro">
   <div>
     <a class="logo" href="${rutaInicio()}">${marca()}<span>Gate-Driven Development</span></a>
-    <p>${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${tr('Skills y capa', 'Skills and layer')} ${SKILLS}. ${FIRMA}.</p>
+    <p>${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${tr('Skills y capa', 'Skills and layer')} ${SKILLS}, ${tr('contrato', 'contract')} <code>${CONTRATO}</code>. ${FIRMA}.</p>
     <p>${frase('manifiesto', tr('Este manifiesto es la referencia.', 'This manifesto is the reference.'))}</p>
   </div>
   <div>
@@ -551,7 +549,7 @@ const vecino = (clave, sentido, n) => {
 
 const paginaCapitulo = (nombre) => {
   const doc = DOCS[nombre][idioma];
-  const { n, parte } = DOCS[nombre].capitulo;
+  const { n, parte, tipo } = DOCS[nombre].capitulo;
   const { h1, cuerpo, entradas, usaTutorial } = cuerpoDe(nombre);
   const antes = n === 1 ? 'documentacion' : CAPITULOS[n - 2];
   const despues = n === TOTAL ? null : CAPITULOS[n];
@@ -563,7 +561,7 @@ const paginaCapitulo = (nombre) => {
     enlacesCabeza: enlaces,
     cuerpo: `<div class="capitulo contenedor">
   ${capitulosNav(nombre, entradas)}
-  <header class="capitulo__cabeza"><p class="capitulo__etiqueta">${tr(`Capítulo ${n} de ${TOTAL}`, `Chapter ${n} of ${TOTAL}`)} · ${PARTES[parte][idioma]}</p><h1>${h1}</h1></header>
+  <header class="capitulo__cabeza"><p class="capitulo__etiqueta">${tr(`Capítulo ${n} de ${TOTAL}`, `Chapter ${n} of ${TOTAL}`)} · ${PARTES[parte][idioma]} · ${TIPOS[tipo][idioma]}</p><h1>${h1}</h1></header>
   <article class="lectura">${cuerpo}</article>
   <nav class="vecinos" aria-label="${tr('Anterior y siguiente', 'Previous and next')}">${vecino(antes, 'anterior')}${despues ? vecino(despues, 'siguiente') : ''}</nav>
 </div>`,

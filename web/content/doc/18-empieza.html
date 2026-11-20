@@ -17,10 +17,10 @@
 <h2 id="comprobar">2. Comprueba que ha entrado</h2>
 <p>Pide la lista de plugins en una terminal, no dentro de la sesión del agente. En Claude Code, <code>claude plugin list</code> tiene que enseñar algo así, con la versión que tengas:</p>
 <pre><code>❯ gdd@gdd
-  Version: 0.18.0
+  Version: {{skills}}
   Scope: user
   Status: ✔ enabled</code></pre>
-<p>En Codex, <code>codex plugin list</code> enseña una línea <code>gdd@gdd  installed, enabled  0.18.0</code>. En Antigravity, <code>agy plugin list</code> enseña <code>gdd (enabled, 0.18.0)</code> con <code>Components: 8 skills</code>.</p>
+<p>En Codex, <code>codex plugin list</code> enseña una línea <code>gdd@gdd  installed, enabled  {{skills}}</code>. En Antigravity, <code>agy plugin list</code> enseña <code>gdd (enabled, {{skills}})</code> con <code>Components: 8 skills</code>.</p>
 <p>Si está en la lista y tu agente no lo nota, cierra la sesión y abre otra: una sesión que ya estaba abierta no carga un plugin nuevo.</p>
 <h2 id="preparar">3. Prepara GDD en tu proyecto</h2>
 <p>Abre tu agente en la carpeta de tu proyecto, con su modelo más capaz, y escribe:</p>

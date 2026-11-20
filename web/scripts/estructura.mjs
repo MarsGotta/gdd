@@ -87,6 +87,23 @@ const CAP = [
     ['Where it comes from', 'Where Gate-Driven Development comes from: ideas and sources', 'The ideas, research and teams that Gate-Driven Development builds on for working with AI agents, with all the sources.']],
 ];
 
+// What a reader comes to each chapter for, in the four kinds Diátaxis names. The chapter's label says it.
+export const TIPOS = {
+  tutorial: { es: 'Tutorial', en: 'Tutorial' },
+  guia: { es: 'Guía práctica', en: 'How-to guide' },
+  referencia: { es: 'Referencia', en: 'Reference' },
+  explicacion: { es: 'Explicación', en: 'Explanation' },
+};
+const TIPO = {
+  'la-idea': 'explicacion', 'manos-a-la-obra': 'tutorial', 'las-piezas': 'explicacion', 'los-principios': 'explicacion',
+  'los-momentos': 'explicacion', empieza: 'tutorial', 'las-skills': 'guia', 'empieza-hoy': 'guia',
+  'un-caso-delicado': 'explicacion', 'el-recorrido-entero': 'explicacion', 'como-se-engana-una-puerta': 'explicacion',
+  'el-nucleo': 'referencia', 'como-se-mide': 'explicacion', 'el-motor': 'explicacion', 'los-kits': 'explicacion',
+  'cuando-se-para': 'guia', 'las-ordenes': 'referencia', 'los-colores': 'referencia', 'los-archivos': 'referencia',
+  glosario: 'referencia', novedades: 'referencia', 'buenas-practicas': 'referencia', 'y-tdd': 'explicacion',
+  'de-donde-viene': 'explicacion',
+};
+
 const cuerpo = (a) => ({ menu: a[0], titulo: a[1], descripcion: a[2] });
 
 export const DOCS = {
@@ -101,9 +118,10 @@ export const DOCS = {
     { ruta: '/en/article/', menu: 'Article', titulo: "You don't persuade AI with words: you put gates on it", descripcion: 'Why GDD was born: the story of a frustration with AI agents, and what I found when I looked into it.' }),
 };
 for (const [n, parte, clave, claveEn, fichero, es, en] of CAP) {
+  if (!TIPOS[TIPO[clave]]) throw new Error(`El capítulo ${clave} no dice de qué tipo es`);
   DOCS[clave] = {
     ...doc(`doc/${fichero}.html`, { ...cuerpo(es), ruta: `/documentacion/${clave}/` }, { ...cuerpo(en), ruta: `/en/docs/${claveEn}/` }),
-    capitulo: { n, parte },
+    capitulo: { n, parte, tipo: TIPO[clave] },
   };
 }
 export const CAPITULOS = CAP.map((c) => c[2]);

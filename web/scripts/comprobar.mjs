@@ -10,6 +10,7 @@ import zlib from 'node:zlib';
 import * as cheerio from 'cheerio';
 import { compara } from './paridad.mjs';
 import { DOCS as ESTRUCTURA, CAPITULOS, TOTAL, REDIRECCIONES } from './estructura.mjs';
+import { SKILLS, conVersiones } from './versiones.mjs';
 
 const raiz = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(raiz, 'dist');
@@ -38,9 +39,9 @@ const BLOQUES = 'h1, h2, h3, p, li, th, td, figcaption, pre';
 
 // Source of a document, with the code files its blocks point at.
 const fuenteDe = (nombre, i = 'es') => {
-  const $ = cheerio.load(fs.readFileSync(path.join(raiz, `${carpeta(i)}/${ESTRUCTURA[nombre].fichero}`), 'utf8'), null, false);
+  const $ = cheerio.load(conVersiones(fs.readFileSync(path.join(raiz, `${carpeta(i)}/${ESTRUCTURA[nombre].fichero}`), 'utf8')), null, false);
   $('code[data-fuente]').each((_, c) => {
-    $(c).text(fs.readFileSync(path.join(raiz, `${carpeta(i)}/codigo`, $(c).attr('data-fuente')), 'utf8').replace(/\n$/, ''));
+    $(c).text(conVersiones(fs.readFileSync(path.join(raiz, `${carpeta(i)}/codigo`, $(c).attr('data-fuente')), 'utf8')).replace(/\n$/, ''));
   });
   return $;
 };
@@ -450,6 +451,52 @@ for (const [ruta, html] of Object.entries(paginas)) {
     if (resto) fallos.push(`${ruta}: queda español en la interfaz: ${resto[0]}`);
   }
 }
+
+// The skills' version: a page shows it through {{skills}}, never by hand, so an old one can't stay
+// behind. What's new is the one page that names old versions, and it needs an entry for this one.
+// Only versions that start with 0 are looked for: from 1.0 on, the patterns need widening.
+const [MAYOR, MENOR] = SKILLS.split('.');
+const NOVEDADES = IDIOMAS.map((i) => DOCS[i].novedades);
+for (const [ruta, html] of Object.entries(paginas)) {
+  if (NOVEDADES.includes(ruta)) continue;
+  const texto = norm(cheerio.load(html)('main').text());
+  for (const v of texto.match(/(?<![\d.])0\.\d+\.\d+\b/g) ?? []) if (v !== SKILLS) fallos.push(`${ruta}: cita la versión ${v}, y las skills van por la ${SKILLS}`);
+  for (const [, v] of texto.matchAll(/\b(?:versión|version|la|skills) (0\.\d+)\b/gi)) if (v !== `${MAYOR}.${MENOR}`) fallos.push(`${ruta}: cita la versión ${v}, y las skills van por la ${MAYOR}.${MENOR}`);
+}
+for (const ruta of NOVEDADES) if (!paginas[ruta]?.includes(`id="v${MAYOR}-${MENOR}"`)) fallos.push(`${ruta}: falta la entrada de la ${MAYOR}.${MENOR}`);
+const guia = fs.readFileSync(path.join(raiz, '..', 'skills', 'README.md'), 'utf8').match(/This is version (\d+\.\d+)/)?.[1] ?? 'ninguna';
+if (guia !== `${MAYOR}.${MENOR}`) fallos.push(`skills/README.md dice la versión ${guia}, y las skills van por la ${MAYOR}.${MENOR}`);
+
+// Every scenario shown as an example keeps the form the layer asks of a brief: a rule above it,
+// an @id and a single action. A gate's feature (puerta-*) has no @id, because the layer only
+// asks for it in a change's features.
+const ESCENARIO = /^(Escenario|Scenario|Esquema del escenario|Scenario Outline|Ejemplo|Example):/;
+const ejemplos = [];
+let escenarios = 0;
+for (const i of IDIOMAS) {
+  const codigo = path.join(raiz, carpeta(i), 'codigo');
+  for (const f of fs.readdirSync(codigo)) ejemplos.push([`${carpeta(i)}/codigo/${f}`, fs.readFileSync(path.join(codigo, f), 'utf8'), f.startsWith('puerta')]);
+  JSON.parse(fs.readFileSync(path.join(raiz, carpeta(i), 'tutorial', 'viaje.json'), 'utf8'), (_, v) => {
+    if (typeof v === 'string' && v.split('\n').some((l) => ESCENARIO.test(l.trim()))) ejemplos.push([`${carpeta(i)}/tutorial/viaje.json`, v, false]);
+    return v;
+  });
+}
+for (const [donde, texto, puerta] of ejemplos) {
+  const lineas = texto.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  lineas.forEach((l, n) => {
+    if (!ESCENARIO.test(l)) return;
+    escenarios += 1;
+    const titulo = l.slice(0, 60);
+    if (!lineas.slice(0, n).some((x) => /^(Regla|Rule): *\S/.test(x))) fallos.push(`${donde}: "${titulo}" no tiene una regla encima`);
+    let k = n; // the tags right above the scenario, one or several lines
+    while (lineas[k - 1]?.startsWith('@')) k -= 1;
+    if (!puerta && !/(^| )@id:[a-z0-9-]+( |$)/.test(lineas.slice(k, n).join(' '))) fallos.push(`${donde}: "${titulo}" no lleva un @id válido`);
+    const fin = lineas.findIndex((x, j) => j > n && (ESCENARIO.test(x) || /^(Regla|Rule):|^@/.test(x)));
+    const acciones = lineas.slice(n + 1, fin < 0 ? undefined : fin).filter((x) => /^(Cuando|When)\b/.test(x)).length;
+    if (acciones !== 1) fallos.push(`${donde}: "${titulo}" tiene ${acciones} acciones, y debe tener una`);
+  });
+}
+console.log(`Versión de las skills: ${SKILLS}, sin ninguna vieja fuera de Novedades. Escenarios de ejemplo: ${escenarios}, cada uno con su regla, su @id y una acción.`);
 
 const tam = (dir) => fs.readdirSync(dir).reduce((s, f) => { const p = path.join(dir, f); return s + (fs.statSync(p).isDirectory() ? tam(p) : fs.statSync(p).size); }, 0);
 console.log(`Tamaño total: ${(tam(dist) / 1024).toFixed(0)} KB.`);

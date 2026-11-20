@@ -17,10 +17,10 @@
 <h2 id="comprobar">2. Check it's in</h2>
 <p>Ask for the list of plugins in a terminal, not inside the agent's session. On Claude Code, <code>claude plugin list</code> should show something like this, with the version you have:</p>
 <pre><code>❯ gdd@gdd
-  Version: 0.18.0
+  Version: {{skills}}
   Scope: user
   Status: ✔ enabled</code></pre>
-<p>On Codex, <code>codex plugin list</code> shows a line <code>gdd@gdd  installed, enabled  0.18.0</code>. On Antigravity, <code>agy plugin list</code> shows <code>gdd (enabled, 0.18.0)</code> with <code>Components: 8 skills</code>.</p>
+<p>On Codex, <code>codex plugin list</code> shows a line <code>gdd@gdd  installed, enabled  {{skills}}</code>. On Antigravity, <code>agy plugin list</code> shows <code>gdd (enabled, {{skills}})</code> with <code>Components: 8 skills</code>.</p>
 <p>If it's on the list and your agent doesn't notice it, close the session and open another: a session that was already open doesn't load a new plugin.</p>
 <h2 id="preparar">3. Set GDD up in your project</h2>
 <p>Open your agent in your project's folder, on its most capable model, and type:</p>
