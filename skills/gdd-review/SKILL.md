@@ -3,7 +3,7 @@ name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
 metadata:
-  version: "0.17.1"
+  version: "0.18.0"
   contract: gdd/1
 ---
 
@@ -67,7 +67,7 @@ End your last message with this block, filled in. `result` is your verdict. If y
 Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{"command":"<command>","exit":0,"tail":"<its last lines>"}].
 
 ```gdd-report
-skill: gdd-review 0.17.1
+skill: gdd-review 0.18.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 closed:

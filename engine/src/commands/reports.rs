@@ -421,7 +421,7 @@ fn reported_proofs(id: &str, a: &ReportArgs, r: &RoleReport) -> R<Vec<Value>> {
 }
 
 /// A check takes proof when it is set up, or when the blueprint asks for cases on this change.
-fn required_proofs(l: &Loaded, id: &str) -> R<BTreeSet<String>> {
+pub(super) fn required_proofs(l: &Loaded, id: &str) -> R<BTreeSet<String>> {
     let p = &l.state.progress;
     let color = p.color.as_deref().unwrap_or("");
     let checks = l.bp.checks();

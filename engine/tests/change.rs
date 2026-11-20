@@ -115,7 +115,7 @@ fn a_green_change_from_brief_to_ship() {
 }
 
 fn build_report(field: &str) -> String {
-    format!("```gdd-report\nskill: gdd-build 0.17.1\nresult: done\ncaught: none\n{field}```")
+    format!("```gdd-report\nskill: gdd-build 0.18.0\nresult: done\ncaught: none\n{field}```")
 }
 
 fn check_build_decisions(field: &str, expected: Option<&[&str]>) {
@@ -792,6 +792,68 @@ fn new_version(r: &Repo, id: &str, files: &[&str], extra: &[&str]) {
     assert_eq!(b.code, 0, "{}", b.out);
 }
 
+/// The checks role is told which checks owe a rejecting proof, and a later round where the proofs
+/// the layer accepted are, to keep those of the tests it doesn't change.
+#[test]
+fn a_later_checks_round_is_pointed_at_the_proofs_it_may_keep() {
+    let r = Repo::new();
+    yellow_brief(&r, "kp", "src/core/app.txt");
+    approved(&r, "kp");
+    let first = r.gdd(&["launch", "kp", "checks"]);
+    let prompt = first.facts["prompt"].as_str().unwrap();
+    assert!(
+        prompt.contains("Each of these checks needs at least one, and only entries under them count: tests."),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("accepted last"), "{prompt}");
+    r.commit_on("gdd-seal/kp", None, &[("tests/kp.sh", "true\n")], "Seal");
+    let c = r.report("kp", "checks", &sealed_report(&["tests"]), &[]);
+    assert_eq!(c.code, 0, "{}", c.out);
+    new_version(&r, "kp", &["gdd/briefs/kp.md", "features/kp.feature"], &[]);
+    let second = r.gdd(&["launch", "kp", "checks"]);
+    let prompt = second.facts["prompt"].as_str().unwrap();
+    let log = r.read("gdd/log/kp.jsonl");
+    let sealed = 1 + log
+        .lines()
+        .position(|l| l.contains(r#""step":"checks""#))
+        .unwrap();
+    let at = serde_json::from_str::<serde_json::Value>(log.lines().nth(sealed - 1).unwrap()).unwrap()
+        ["seal"]["commit"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(prompt.contains("This is round 2 of checks"), "{prompt}");
+    assert!(
+        prompt.contains(&format!(
+            "The proofs the layer accepted last are on line {sealed} of "
+        )) && prompt.contains(&format!("the same now as at {at}")),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("Don't read gdd/log/ beyond a line named here"),
+        "{prompt}"
+    );
+
+    // A color that rose asks for runs the last seal never had: nothing is kept.
+    let red = r.gdd(&[
+        "brief",
+        "kp",
+        "gdd/briefs/kp.md",
+        "features/kp.feature",
+        "--paths",
+        "src/core/app.txt",
+        "--color",
+        "red",
+        "--why",
+        "it turned out to move money",
+    ]);
+    assert_eq!(red.code, 0, "{}", red.out);
+    let rose = r.gdd(&["launch", "kp", "checks"]);
+    let prompt = rose.facts["prompt"].as_str().unwrap();
+    assert!(!prompt.contains("accepted last"), "{prompt}");
+    assert!(prompt.contains("a passing entry for each"), "{prompt}");
+}
+
 fn sealed_nothing(r: &Repo, id: &str) -> Run {
     r.report(id, "checks", &report_block("gdd-checks", "sealed"), &[])
 }
@@ -1175,6 +1237,22 @@ fn a_finding_about_a_check_goes_to_the_checks_role_and_the_builder_is_told_of_th
     let c = r.gdd(&["launch", "y7", "checks"]);
     let prompt = c.facts["prompt"].as_str().unwrap();
     assert!(prompt.contains("The reviewer said fix"), "{prompt}");
+    // It is told which checks owe a rejecting proof, and where the proofs it may keep are.
+    assert!(
+        prompt.contains("Each of these checks needs at least one, and only entries under them count: tests."),
+        "{prompt}"
+    );
+    let log = std::fs::read_to_string(r.path("gdd/log/y7.jsonl")).unwrap();
+    let sealed = 1 + log
+        .lines()
+        .position(|l| l.contains(r#""step":"checks""#))
+        .unwrap();
+    assert!(
+        prompt.contains(&format!(
+            "The proofs the layer accepted last are on line {sealed} of "
+        )) && prompt.contains("gdd/log/y7.jsonl, under seal.proofs"),
+        "{prompt}"
+    );
     assert!(
         prompt.contains("f1 tests/y7.sh:1: the test passes whatever the app says | @id:y7-1"),
         "{prompt}"

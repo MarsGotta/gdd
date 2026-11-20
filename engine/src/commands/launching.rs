@@ -321,7 +321,7 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         .unwrap_or_else(|| format!("work/{id}"));
     match role {
         "checks" => s.push(format!(
-            "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/: what you need is here, and an earlier round's stop isn't yours."
+            "Before sealing, read each scenario test and strengthen it if a wrong solution would pass. Read each effect where its scenario says it can be seen. In each rejecting json proof, name the test in `test` and the wrong solution it rejects in `wrong`. Seal what you write on gdd-seal/{id}, on top of its tip. Don't read gdd/log/ beyond a line named here: what you need is here, and an earlier round's stop isn't yours."
         )),
         "build" => {
             if p.merging_checks_fix() && l.state.limits.line("rounds_per_change", "rounds").is_some_and(|l| l.full) {
@@ -571,6 +571,27 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> (String, Option<
     if round > 1 && matches!(role, "build" | "checks") {
         fix_round_notes(&mut s, l, role, setup);
     }
+    // A later round keeps the proofs of the tests that are as they were sealed: the seal holds none
+    // of the change's code, and a merge of main changes no check (decision 69). Without this, the
+    // role proved only what it changed, the layer refused the report, and the role started again
+    // from nothing. A color that rose asks for runs the last seal never had.
+    let rank = |c: &Option<String>| c.as_deref().and_then(crate::color_rank);
+    if round > 1
+        && role == "checks"
+        && !setup
+        && let Some((line, then)) = &p.checked
+        && rank(&p.color) <= rank(then)
+        && let Some(at) = l
+            .entries
+            .get(line - 1)
+            .and_then(|e| e.event())
+            .and_then(|v| v["seal"]["commit"].as_str())
+    {
+        s.push(format!(
+            "The proofs the layer accepted last are on line {line} of {}, under seal.proofs: the one line of gdd/log/ you read. Copy the entries of the tests that are the same now as at {at}, and run the rest again. A passing entry for a whole check stays only if none of its tests changed.",
+            log_path.display()
+        ));
+    }
     if round > 1 && role == "review" && !setup {
         review_after_fix(&mut s, l);
     }
@@ -581,6 +602,20 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> (String, Option<
             "Before the gdd-report block, give a json block with one claim per check you ran this round. Count every failed run in failures, including a final failure. Use 0 when it never failed. Give the last run's evidence: [{\"check\":\"<check id>\",\"failures\":0,\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
                 .into(),
         ),
+        "checks" => {
+            if let Ok(required) = super::reports::required_proofs(l, id)
+                && !required.is_empty()
+            {
+                let list = required.into_iter().collect::<Vec<_>>().join(", ");
+                s.push(if setup {
+                    format!("In the proofs json, each of these checks needs its rejecting entry and its passing entry: {list}.")
+                } else if p.color.as_deref() == Some("red") {
+                    format!("In the proofs json, give each scenario test its rejecting entry under the check it runs in, and a passing entry for each, or one without `test` for its whole check. Each of these checks needs at least one, and only entries under them count: {list}.")
+                } else {
+                    format!("In the proofs json, give each scenario test its rejecting entry under the check it runs in. Each of these checks needs at least one, and only entries under them count: {list}.")
+                });
+            }
+        }
         "review" => s.push(
             "Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
                 .into(),

@@ -3,7 +3,7 @@ name: gdd-checks
 description: Writes and seals the cases of a change in Gate-Driven Development (GDD), a test for each scenario of its brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
 metadata:
-  version: "0.17.1"
+  version: "0.18.0"
   contract: gdd/1
 ---
 
@@ -85,7 +85,7 @@ Prove each check once, in a throwaway clone in your temporary folder, and here t
 Two kinds of check need more care, because an empty project proves nothing about them:
 
 - **A check that not every color asks,** like `mutation` once hardening adds it. Set it up with the rest, to judge only what a change adds or changes between `<start>` and its head. If it judged the whole code, the first change of that color would answer for everything the lighter ones shipped. Prove it on code: plant a small piece with a weak test inside a commit and watch it fail, then plant the same outside that commit and watch it pass.
-- **A check that closes at a number,** a score or a budget. Take the tool's own default, looked up on its own page and never from memory, or what the code as it is reaches, and report it, so that it goes into the blueprint with the person's yes. The highest number isn't the strictest gate: it's one no change gets through, because some mutants change nothing anyone could observe.
+- **A check that closes at a number,** a score or a budget. Take the tool's own default, looked up on its own page and never from memory, or what the code as it is reaches, and report it, so that it goes into the blueprint with the person's yes. The highest number isn't the strictest gate: it's one no change gets through.
 
 For each approved zone gate with a machine check, do the same for the check of each new `Rule:` in `gdd/gates/<zone>.feature`, built from its scenarios. There, what got past a mature tool in a real change becomes a rule in that tool's own configuration, or a script beside it when it takes none.
 
@@ -108,10 +108,10 @@ Look for checks that can pass for the wrong reason.
 
 End your last message with this block, filled in. `result` is `sealed` or `stopped`. If you can't write a check that holds, start your last message with `CANNOT:` and the reason.
 
-Many scenarios are no reason to stop: write and seal them one after another, and stop only on one you can't check, naming it by its `@id`, or naming the file you need. The layer refuses a stop that names neither. Don't read `gdd/log/`: what you need is in your prompt, and an earlier round's stop isn't yours.
+Many scenarios are no reason to stop: write and seal them one after another, and stop only on one you can't check, naming it by its `@id`, or naming the file you need. The layer refuses a stop that names neither. Don't read `gdd/log/` beyond a line your prompt names: what you need is in your prompt, and an earlier round's stop isn't yours.
 
 ```gdd-report
-skill: gdd-checks 0.17.1
+skill: gdd-checks 0.18.0
 result: <what it leaves, in a word or two>
 caught: <what it caught that others missed, or none>
 ```
