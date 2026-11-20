@@ -215,6 +215,8 @@ How far that holds depends on where your gates run. With the skills alone, the a
 | See when each thing happens | [The five moments](https://gate-driven.dev/en/docs/the-moments/) |
 | Learn how a gate gets fooled, and what stops it | [How a gate gets fooled](https://gate-driven.dev/en/docs/how-a-gate-gets-fooled/) |
 | Compare it with TDD | [What about TDD?](https://gate-driven.dev/en/docs/and-tdd/) |
+| Find out what to do when a change stops | [When it stops](https://gate-driven.dev/en/docs/when-it-stops/) |
+| See what changed in each version, and how to update | [What's new](https://gate-driven.dev/en/docs/whats-new/) |
 | Go through every step of the skills, and what happens inside | [The guide to the skills](skills/README.md) |
 | Look up the files the skills leave, and their templates | [CONTRACT.md](skills/CONTRACT.md) |
 | Know why the skills are the way they are | [DESIGN.md](skills/DESIGN.md) |

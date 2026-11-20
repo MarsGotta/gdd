@@ -1,0 +1,59 @@
+<h1>Las órdenes de la capa</h1>
+<p>La capa lleva el orden y el registro de cada cambio (<a href="doc:las-skills#capa">Las skills</a>), y casi todas sus órdenes las ejecuta tu agente. Estas son las que te sirven a ti, desde la carpeta de tu proyecto. No cambian nada: solo apuntan la llamada en el diario de la capa, en <code>gdd/log/</code>, y ninguna toca tu código ni lo que se aprobó.</p>
+<p>Contestan en inglés. Su última línea, que empieza por <code>gdd {</code>, repite lo mismo para los agentes, y en los ejemplos no está. Los ejemplos salen de una tienda de prueba.</p>
+<h2 id="next">Qué toca ahora: <code>next</code></h2>
+<pre data-copiar><code>.gdd/gdd next</code></pre>
+<p>Te dice cómo está el proyecto: si el plano está aprobado, lo que está en marcha, lo que espera a una persona, los cambios en uso que esperan tu veredicto y lo siguiente de la lista. Con el id de un cambio, <code>.gdd/gdd next &lt;id&gt;</code>, te da su siguiente paso. En una tienda con un cambio en uso:</p>
+<pre><code>the standing checks are set up
+in use, waiting for a verdict: cart, 16 days 23 hours; expected: one cart in five holds two or more products
+next in the backlog: catalog-pages (yellow, todo): The catalog in pages</code></pre>
+<h2 id="waiting">Qué te espera: <code>waiting</code></h2>
+<pre data-copiar><code>.gdd/gdd waiting</code></pre>
+<p>Cada pregunta que espera a una persona, de la más antigua a la más nueva, con el tiempo que lleva esperando, el cambio y la línea de su registro:</p>
+<pre><code>8 minutes empty-cart:2 brief: Approve the brief and its scenarios</code></pre>
+<h2 id="color">Qué color tendría un cambio: <code>color</code></h2>
+<pre data-copiar><code>.gdd/gdd color --paths &lt;rutas&gt;</code></pre>
+<p>Antes de pedir un cambio, te dice el color que tendría por las rutas que va a tocar y qué comprobaciones le pedirá tu plano. Con el id de un cambio, <code>.gdd/gdd color &lt;id&gt;</code>, te da el color de lo que de verdad tocó. Una ruta que no cubre ninguna zona nunca sale verde. La tienda de prueba no tiene escáner de secretos, y por eso no sale:</p>
+<pre><code>planned: yellow (floor yellow)
+  no zone covers: src/cart.js (never green)
+  machine checks that apply: seal, tests, lint
+  reviewer or person: review, brief-approval</code></pre>
+<h2 id="limits">Cuánto le queda a un cambio: <code>limits</code></h2>
+<pre data-copiar><code>.gdd/gdd limits &lt;id&gt;</code></pre>
+<p>Lo que lleva gastado un cambio de cada límite de su color, y qué viene después:</p>
+<pre><code>color yellow
+rounds 0 of 3
+sent back by the checks 0 of 2
+sent back by the review 0 of 2
+minutes 8 of 45
+runs before the review 0 of 2
+seconds of the checks of a round 0 of 120
+seconds of the checks before the review 0 of 600
+the last build passed its gates and is waiting for its review: launch it
+lines 9 of 400</code></pre>
+<h2 id="metrics">Cómo fueron tus cambios: <code>metrics</code></h2>
+<pre data-copiar><code>.gdd/gdd metrics --all --summary</code></pre>
+<p>Cómo acabaron tus cambios, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, qué comprobaciones fallan y cuánto tardan, y cuánto esperaron tus respuestas. Es lo que lees antes de quitar o aflojar una puerta. Algunas de sus líneas:</p>
+<pre><code>2 changes: 2 shipped, 0 stopped, 0 open; 1 setup logs
+minutes of work per change, without waits for a person (median, most):
+  yellow  2 changes: 24, 24
+first try: gates 100% (2 of 2), review 100% (2 of 2)
+questions to the person (asked, median and longest wait in minutes, still open):
+  brief     2, 4, 4, 0
+in use: 1 waiting for a verdict, 0 closing by themselves; last verdicts: 0 yes, 0 not yet, 0 no</code></pre>
+<h2 id="zones">Si tus zonas cubren lo que crees: <code>zones</code></h2>
+<pre data-copiar><code>.gdd/gdd zones</code></pre>
+<p>Cuántos archivos coge cada ruta de cada zona, y avisa de las que no cogen ninguno, de los archivos que no cubre ninguna zona y de las comprobaciones cuyas rutas se saltan una zona. Sirve después de mover carpetas:</p>
+<pre><code>zone payments: :(glob)src/pay/** matches 1 tracked files
+zone judges: :(glob).github/** matches 0 tracked files
+the zone judges's :(glob).github/** matches no tracked file: a path that doesn't exist, or a pattern written wrong</code></pre>
+<h2 id="verify">Que los registros estén enteros: <code>verify</code></h2>
+<pre data-copiar><code>.gdd/gdd verify --all</code></pre>
+<p>Es la que ejecuta tu CI en cada cambio, fuera del alcance de los agentes. Falla, con código de salida 1, si un registro está roto, un hash no coincide o un paso salió de orden. Un aviso no la hace fallar:</p>
+<pre><code>warning gdd/log/standing-checks.jsonl:4: it shipped at "commit", which names no commit git can check (ship-unknown)
+3 logs, 0 errors, 1 warnings</code></pre>
+<h2 id="version">Qué versión tienes: <code>--version</code></h2>
+<pre data-copiar><code>.gdd/gdd --version</code></pre>
+<p>La versión de la capa que hay en tu proyecto. Tiene que ser la de tus skills: si es más vieja, tu agente la compila otra vez.</p>
+<pre><code>gdd 0.18.0</code></pre>
+<p class="sigue">Lo que le pide tu plano a cada color, con los valores de la plantilla, está en <a href="doc:los-colores">Qué pide cada color</a>.</p>

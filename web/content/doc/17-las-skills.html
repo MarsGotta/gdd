@@ -33,10 +33,10 @@
 <p>Viene como código fuente, en la carpeta <code>engine/</code> del plugin. La primera vez que tu proyecto la necesita, tu agente la compila y la deja en <code>.gdd/gdd</code>, que git ignora. Para compilarla hace falta <a href="https://rustup.rs">Rust</a> 1.89 o posterior: si no lo tienes, tu agente te lo dice en una línea y espera. La primera vez descarga de crates.io lo que necesita, así que esa vez le hace falta red. Funciona en macOS y en Linux; en Windows no lo ha probado nadie todavía. Tu CI compila el mismo comando, para comprobar el registro de cada cambio fuera del alcance de los agentes.</p>
 <p>Tú no tienes que usarla, pero hay tres órdenes que te sirven, desde la carpeta de tu proyecto:</p>
 <pre data-copiar><code data-fuente="capa-ordenes.txt"></code></pre>
-<p>La primera te dice qué toca ahora en tu proyecto: lo que está en marcha, lo siguiente de la lista y los cambios en uso que esperan tu veredicto. La segunda enumera cada pregunta que te espera, de la más antigua a la más nueva, con el tiempo que lleva esperando. La tercera cuenta cómo fueron tus cambios: cómo acabaron, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, y qué cuesta cada comprobación.</p>
+<p>La primera te dice qué toca ahora en tu proyecto: lo que está en marcha, lo siguiente de la lista y los cambios en uso que esperan tu veredicto. La segunda enumera cada pregunta que te espera, de la más antigua a la más nueva, con el tiempo que lleva esperando. La tercera cuenta cómo fueron tus cambios: cómo acabaron, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, y qué cuesta cada comprobación. Estas y otras, con un ejemplo de lo que contestan, están en <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>
 <p>La capa no es un motor. Mientras la ejecuta un agente, está a su alcance, y lo que la mantiene honrada es tu CI.</p>
 <h2 id="empezar">Preparar, más despacio</h2>
-<p>Preparar es la primera conversación, y solo se hace una vez. La versión corta está en <a href="doc:empieza#preparar">Empieza</a>; aquí va lo que pasa en ella. Pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
+<p>Preparar es la primera conversación, y solo vuelve cuando el plano se queda corto. La versión corta está en <a href="doc:empieza#preparar">Empieza</a>; aquí va lo que pasa en ella. Pide el modelo más capaz de tu agente: si no estás en él, te lo dice antes de empezar.</p>
 <ol>
 <li>En un proyecto nuevo, o si le dejas a él las decisiones, se documenta antes de proponerte nada, porque las herramientas y las reglas de un sector cambian más deprisa que la memoria de un modelo. Busca qué tiene que proteger un proyecto como el tuyo, qué pide su sector y qué herramientas están al día para lo que usas, y guarda una copia de cada fuente. En lo que te propone, separa lo que sale de una fuente de lo que pone él por defecto.</li>
 <li>Te propone las zonas de tu proyecto y las puertas que le hacen falta, y tú corriges lo que no encaje. Cada puerta queda escrita como una feature corta en Gherkin: qué exige a cada color y qué rechaza. Si tu proyecto ya tiene historial, antes de que apruebes pasa las zonas por tus últimos commits y te dice cuántos habrían salido de cada color. Solo pregunta lo que cambia una zona o una puerta: dinero, cuentas y permisos, datos personales, lo que no se puede deshacer.</li>
@@ -102,46 +102,9 @@
 </ol>
 <p><strong>Cuando una puerta sobra.</strong> Dile cuál te estorba, y tu agente lee en los registros qué ha cazado y cuánto ha costado. Si ya no aporta, te propone aflojarla o retirarla con esas cifras, y lo apruebas tú o tu equipo. Un modelo nuevo no es razón para quitar una comprobación, porque juzga tu producto y no el modelo.</p>
 <h2 id="cuando-se-para">Cuando se para</h2>
-<table>
-<thead><tr><th>Ves</th><th>Qué significa</th><th>Qué haces</th></tr></thead>
-<tbody>
-<tr><td>Espera tu aprobación</td><td>Tu plano pide ahí una persona: el encargo antes de construir, o la pull request al final.</td><td>Léelo y apruébalo. Ningún agente puede hacerlo por ti.</td></tr>
-<tr><td><code>@assumed</code> encima de una regla</td><td>Esa regla la eligió tu agente.</td><td>Corrígela si no es la tuya. Al aprobar, la marca se queda.</td></tr>
-<tr><td><code>@question</code> encima de una regla</td><td>La respuesta puede esperar a otro cambio.</td><td>Nada por ahora: la pregunta queda a la vista en el archivo.</td></tr>
-<tr><td>Falla una comprobación</td><td>Una ronda de arreglo, con la orden, su código de salida y sus últimas líneas.</td><td>Nada, salvo que se acabe un límite.</td></tr>
-<tr><td><code>fix</code> del vigilante</td><td>Se corrigen primero los tests sellados que nombra, y el que construye se lleva el resto.</td><td>Nada.</td></tr>
-<tr><td><code>stop</code> del vigilante</td><td>El cambio no entra, diga lo que diga el resto.</td><td>Lee por qué.</td></tr>
-<tr><td>Sube el color</td><td>El cambio tocó algo más delicado de lo previsto y vuelve al encargo.</td><td>Aprueba el encargo nuevo, si su color lo pide.</td></tr>
-<tr><td><code>CANNOT:</code> y un motivo</td><td>Un papel se ha parado porque el cambio no encaja tal como se encargó.</td><td>Nada, salvo que cambie lo que debe pasar y su color pida tu aprobación.</td></tr>
-<tr><td>Falla la comprobación del sello</td><td>Alguien tocó lo que juzga el cambio.</td><td>El cambio se para y tu agente te lo cuenta.</td></tr>
-<tr><td>Se acaba un límite</td><td>El cambio gastó sus intentos, su tiempo o su coste. Lo que ya está construido se juzga igual.</td><td>Te dice qué funciona, qué falta y qué compra un intento más, y te propone una salida.</td></tr>
-<tr><td>Una comprobación falla también sin el cambio</td><td>Deuda conocida, o una comprobación inestable. No se construye nada encima, porque nada pasaría.</td><td>Te propone una salida. Apuntar deuda o poner una comprobación en cuarentena lo decides tú, o tu equipo.</td></tr>
-<tr><td>Necesitas saltarte una comprobación, por urgencia</td><td>Saltarla es aflojarla. Tu plano dice de antemano qué se puede saltar y quién lo abre.</td><td>Lo aprueba esa persona. Queda en el registro con quién y por qué, y el cambio pasa después lo que se saltó.</td></tr>
-<tr><td>Tu agente no puede lanzar otros</td><td>Te da una línea por papel.</td><td>Abre una sesión nueva con cada una, como <code>/gdd:gdd-build gdd/briefs/&lt;id&gt;.md</code>.</td></tr>
-<tr><td>La capa rechaza un paso</td><td>Un paso fuera de orden, un archivo que cambió después de sellarse o un tope sin margen.</td><td>Nada: dice por qué y qué ejecutar en su lugar, y tu agente lo hace.</td></tr>
-<tr><td>No está la capa</td><td>Esta copia del proyecto no ha podido compilarla.</td><td>Instala Rust, y tu agente sigue.</td></tr>
-</tbody>
-</table>
-<p>Un arreglo nunca va a una comprobación más floja. Cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+<p>Casi siempre tu agente sigue solo y te cuenta en una línea por qué se paró. Qué significa cada cosa que puedes ver, y qué haces tú, está síntoma a síntoma en <a href="doc:cuando-se-para">Cuando se para</a>. Nada se arregla aflojando una comprobación: cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
 <h2 id="repositorio">Qué dejan en tu repositorio</h2>
-<p>Todo queda en archivos que puedes leer y que se entienden sin las skills. Un motor leerá y escribirá los mismos, así que lo que montes hoy te servirá después.</p>
-<table>
-<thead><tr><th>Archivo</th><th>Qué guarda</th><th>Quién lo escribe</th></tr></thead>
-<tbody>
-<tr><td><code>gdd/blueprint.md</code></td><td>El plano: puertas, zonas, colores, comprobaciones, modelos y límites.</td><td>Tu agente al preparar o al blindar, con tu aprobación.</td></tr>
-<tr><td><code>gdd/gates/</code></td><td>Una feature por puerta: qué pide a cada color y qué rechaza.</td><td>Igual que el plano.</td></tr>
-<tr><td><code>gdd/constitution.md</code></td><td>El stack, las órdenes y las reglas de tu producto que valen en todas partes.</td><td>Tu agente al preparar, con tus palabras.</td></tr>
-<tr><td><code>gdd/check.sh</code> y <code>gdd/limits.sh</code></td><td>Lo que tarda cada comprobación, y lo que le queda a un cambio de sus límites.</td><td>Vienen con las skills, si los aceptas al preparar.</td></tr>
-<tr><td><code>gdd/backlog.md</code></td><td>La lista de lo que queda por construir, cada cosa con su color previsto.</td><td>Tus agentes, en cada cambio.</td></tr>
-<tr><td><code>gdd/debt.md</code></td><td>La deuda conocida, con la línea base de cada comprobación.</td><td>Tu agente, solo con tu aprobación.</td></tr>
-<tr><td><code>gdd/briefs/&lt;id&gt;.md</code></td><td>El encargo de cada cambio amarillo o rojo: qué tiene que pasar y cómo se cierra.</td><td>El orquestador.</td></tr>
-<tr><td><code>features/&lt;capacidad&gt;.feature</code></td><td>Las reglas y sus escenarios.</td><td>El orquestador, y tú lo apruebas.</td></tr>
-<tr><td><code>gdd/log/&lt;id&gt;.jsonl</code></td><td>Todo lo que pasó en un cambio, con quién aprobó qué.</td><td>La capa.</td></tr>
-<tr><td><code>AGENTS.md</code></td><td>Un bloque de GDD, de menos de 100 palabras, con el núcleo y el mapa.</td><td>Tu agente al preparar.</td></tr>
-<tr><td><code>CODEOWNERS</code></td><td>Lo que apruebas siempre tú, o tu equipo.</td><td>Tu agente al preparar.</td></tr>
-<tr><td><code>.gdd/gdd</code></td><td>La capa compilada. Git la ignora: cada copia del proyecto compila la suya.</td><td>Tu agente, la primera vez.</td></tr>
-</tbody>
-</table>
+<p>Todo queda en archivos que puedes leer y que se entienden sin las skills: el plano y sus puertas, la constitución, el encargo de cada cambio con sus escenarios y su registro. Cada uno, con quién lo escribe y qué haces tú con él, está en <a href="doc:los-archivos">Lo que deja en tu repositorio</a>.</p>
 <h2 id="limites">Lo que no garantizan</h2>
 <p>Lo que no te dan es una garantía. Sin un motor, que el agente no toque lo que lo juzga es una norma: las skills se lo dicen y después comprueban que no lo haya hecho, pero nada se lo impide. La capa hace que el orden y el registro no dependan de la memoria del agente, pero no cambia eso. Con las ramas protegidas y los permisos de tu plataforma consigues buena parte, y tu plano dice en cuál de los tres grados estás, norma, plataforma o motor (<a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>). La garantía completa solo la da un motor, y lo que falta sin él está en <a href="doc:el-motor">El motor</a>.</p>
 <p>La misma guía, en inglés y con diagramas, está en el <a href="https://github.com/MarsGotta/gdd/tree/main/skills#readme">repositorio</a>.</p>

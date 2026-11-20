@@ -1,0 +1,33 @@
+<h1>What it leaves in your repository</h1>
+<p>Everything GDD does ends up in files you can read, which make sense without the skills. An engine will read and write the same ones, under the same contract, <code>gdd/1</code>, so what you set up today will still serve you later. Every file, with its template, is in the <a href="https://github.com/MarsGotta/gdd/blob/main/skills/CONTRACT.md">contract</a>.</p>
+<h2 id="al-preparar">What Prepare leaves</h2>
+<table>
+<thead><tr><th>File</th><th>What it holds</th><th>Who writes it</th><th>And you</th></tr></thead>
+<tbody>
+<tr><td><code>gdd/blueprint.md</code></td><td>The blueprint: gates, zones, colors, checks, models, limits and who closes.</td><td>Your agent, when preparing and hardening.</td><td>You approve it. Any change to it goes through you, or your team.</td></tr>
+<tr><td><code>gdd/gates/</code></td><td>One feature per gate: what it asks of each color and what it rejects.</td><td>Same as the blueprint.</td><td>Same as the blueprint.</td></tr>
+<tr><td><code>gdd/constitution.md</code></td><td>Five lines about your product and, after them, the stack, the commands and the rules that hold everywhere.</td><td>Your agent when preparing, in your words.</td><td>You approve it, and every brief is checked against it.</td></tr>
+<tr><td><code>gdd/check.sh</code> and <code>gdd/limits.sh</code></td><td>How long each check takes, and what a change has left of its limits.</td><td>They come with the skills, if you take them when preparing.</td><td>They're yours from then on.</td></tr>
+<tr><td><code>gdd/debt.md</code></td><td>Known debt, with the baseline of each check.</td><td>Your agent, never on its own.</td><td>Recording debt loosens a check: you decide it.</td></tr>
+<tr><td><code>gdd/context/</code></td><td>Copies of the sources a gate needs.</td><td>Your agent when preparing.</td><td>You can read them to see where a proposal came from.</td></tr>
+<tr><td><code>AGENTS.md</code></td><td>A GDD block, under 100 words, with the core and the map.</td><td>Your agent when preparing.</td><td>The rest of the file is still yours. If you have a <code>CLAUDE.md</code>, it adds a line <code>@AGENTS.md</code> to it, because Claude Code reads <code>AGENTS.md</code> only when there's none.</td></tr>
+<tr><td><code>CODEOWNERS</code></td><td>What you, or your team, always approve: the blueprint, the gates and the red zones, among others.</td><td>Your agent when preparing.</td><td>It's yours. Your platform enforces it once you apply the protection of the main branch your agent gives you.</td></tr>
+<tr><td><code>gdd/log/blueprint.jsonl</code></td><td>The log of what isn't about one change: approving the blueprint, its gates or its debt, preparing and hardening. Setting up the standing checks goes in <code>gdd/log/standing-checks.jsonl</code>.</td><td>The layer.</td><td>Never by hand.</td></tr>
+<tr><td><code>.gdd/gdd</code></td><td>The built layer. Git ignores it: every copy of the project builds its own.</td><td>Your agent, the first time and whenever the skills are newer.</td><td>Nothing.</td></tr>
+</tbody>
+</table>
+<h2 id="en-cada-cambio">What every change leaves</h2>
+<table>
+<thead><tr><th>File</th><th>What it holds</th><th>Who writes it</th><th>And you</th></tr></thead>
+<tbody>
+<tr><td><code>gdd/briefs/&lt;id&gt;.md</code></td><td>The brief of a yellow or red change: what you asked for, what has to pass, how it closes and how to undo it.</td><td>The orchestrator.</td><td>You approve it, or tell it what to change.</td></tr>
+<tr><td><code>features/&lt;capability&gt;.feature</code></td><td>The rules and their scenarios, with <code>@assumed</code> and <code>@question</code> where they apply.</td><td>The orchestrator.</td><td>You approve it with the brief.</td></tr>
+<tr><td><code>gdd/log/&lt;id&gt;.jsonl</code></td><td>The log: everything that happened in the change, one event per line, with who approved what.</td><td>The layer.</td><td>Never by hand: a mistake gets corrected with a new event.</td></tr>
+<tr><td><code>gdd/log/&lt;id&gt;.engine.jsonl</code></td><td>The layer's journal: each time it was called, and what it refused.</td><td>The layer.</td><td>Nothing.</td></tr>
+<tr><td><code>gdd/backlog.md</code></td><td>What's left to build, each item with its expected color, and at most one hardening proposal per change.</td><td>Your agents, on every change.</td><td>It doesn't ask for your review. You read it when you want to know what's coming.</td></tr>
+<tr><td><code>gdd/exam.md</code></td><td>The changes that got past a reviewer, to examine the next ones with.</td><td>Your agent, when hardening.</td><td>You approve it with the hardening.</td></tr>
+<tr><td>The <code>gdd-seal/&lt;id&gt;</code> branch</td><td>The seal: the brief, its scenarios and its tests, as they were approved.</td><td>The orchestrator and the agent that writes the cases.</td><td>Nobody merges it. On red, you can approve the brief in a pull request from it.</td></tr>
+</tbody>
+</table>
+<p>Updating the skills touches none of these files: the plugin lives in your agent and your files in your project. The only thing that gets rebuilt is the layer, and your agent does it (<a href="doc:novedades#actualizar">What's new</a>).</p>
+<p class="sigue">If any word on these pages doesn't ring a bell, it's in the <a href="doc:glosario">Glossary</a>.</p>

@@ -1,0 +1,59 @@
+<h1>The layer's commands</h1>
+<p>The layer keeps the order and the log of every change (<a href="doc:las-skills#capa">The skills</a>), and your agent runs almost all of its commands. These are the ones that are useful to you, from your project's folder. They change nothing: they only note the call in the layer's journal, in <code>gdd/log/</code>, and none of them touches your code or what was approved.</p>
+<p>Their last line, which starts with <code>gdd {</code>, says the same again for the agents, and the examples leave it out. The examples come from a test shop.</p>
+<h2 id="next">What comes next: <code>next</code></h2>
+<pre data-copiar><code>.gdd/gdd next</code></pre>
+<p>It tells you how the project stands: whether the blueprint is approved, what's under way, what waits for a person, the changes in use that wait for your verdict and the next thing on the list. With a change's id, <code>.gdd/gdd next &lt;id&gt;</code>, it gives you that change's next step. In a shop with a change in use:</p>
+<pre><code>the standing checks are set up
+in use, waiting for a verdict: cart, 16 days 23 hours; expected: one cart in five holds two or more products
+next in the backlog: catalog-pages (yellow, todo): The catalog in pages</code></pre>
+<h2 id="waiting">What waits for you: <code>waiting</code></h2>
+<pre data-copiar><code>.gdd/gdd waiting</code></pre>
+<p>Every question waiting for a person, oldest first, with how long it has waited, the change and the line of its log:</p>
+<pre><code>8 minutes empty-cart:2 brief: Approve the brief and its scenarios</code></pre>
+<h2 id="color">What color a change would get: <code>color</code></h2>
+<pre data-copiar><code>.gdd/gdd color --paths &lt;paths&gt;</code></pre>
+<p>Before you ask for a change, it tells you the color it would get from the paths it will touch, and which checks your blueprint will ask of it. With a change's id, <code>.gdd/gdd color &lt;id&gt;</code>, it gives you the color of what the change actually touched. A path no zone covers never comes out green. The test shop has no secret scan, which is why it doesn't show up:</p>
+<pre><code>planned: yellow (floor yellow)
+  no zone covers: src/cart.js (never green)
+  machine checks that apply: seal, tests, lint
+  reviewer or person: review, brief-approval</code></pre>
+<h2 id="limits">What a change has left: <code>limits</code></h2>
+<pre data-copiar><code>.gdd/gdd limits &lt;id&gt;</code></pre>
+<p>How much of each limit of its color a change has used, and what comes next:</p>
+<pre><code>color yellow
+rounds 0 of 3
+sent back by the checks 0 of 2
+sent back by the review 0 of 2
+minutes 8 of 45
+runs before the review 0 of 2
+seconds of the checks of a round 0 of 120
+seconds of the checks before the review 0 of 600
+the last build passed its gates and is waiting for its review: launch it
+lines 9 of 400</code></pre>
+<h2 id="metrics">How your changes went: <code>metrics</code></h2>
+<pre data-copiar><code>.gdd/gdd metrics --all --summary</code></pre>
+<p>How your changes ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, which checks fail and how long they take, and how long your answers took. It's what you read before you remove or relax a gate. Some of its lines:</p>
+<pre><code>2 changes: 2 shipped, 0 stopped, 0 open; 1 setup logs
+minutes of work per change, without waits for a person (median, most):
+  yellow  2 changes: 24, 24
+first try: gates 100% (2 of 2), review 100% (2 of 2)
+questions to the person (asked, median and longest wait in minutes, still open):
+  brief     2, 4, 4, 0
+in use: 1 waiting for a verdict, 0 closing by themselves; last verdicts: 0 yes, 0 not yet, 0 no</code></pre>
+<h2 id="zones">Whether your zones cover what you think: <code>zones</code></h2>
+<pre data-copiar><code>.gdd/gdd zones</code></pre>
+<p>How many files each path of each zone matches, and a warning for the paths that match none, the files no zone covers and the checks whose paths skip a zone. It helps after you move folders:</p>
+<pre><code>zone payments: :(glob)src/pay/** matches 1 tracked files
+zone judges: :(glob).github/** matches 0 tracked files
+the zone judges's :(glob).github/** matches no tracked file: a path that doesn't exist, or a pattern written wrong</code></pre>
+<h2 id="verify">That the logs are whole: <code>verify</code></h2>
+<pre data-copiar><code>.gdd/gdd verify --all</code></pre>
+<p>It's the one your CI runs on every change, out of the agents' reach. It fails, with exit code 1, if a log is broken, a hash doesn't match or a step came out of order. A warning doesn't make it fail:</p>
+<pre><code>warning gdd/log/standing-checks.jsonl:4: it shipped at "commit", which names no commit git can check (ship-unknown)
+3 logs, 0 errors, 1 warnings</code></pre>
+<h2 id="version">Which version you have: <code>--version</code></h2>
+<pre data-copiar><code>.gdd/gdd --version</code></pre>
+<p>The version of the layer in your project. It has to be your skills' version: if it's older, your agent builds it again.</p>
+<pre><code>gdd 0.18.0</code></pre>
+<p class="sigue">What your blueprint asks of each color, with the template's values, is in <a href="doc:los-colores">What each color asks for</a>.</p>

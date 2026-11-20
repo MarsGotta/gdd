@@ -1,0 +1,41 @@
+<h1>Glossary</h1>
+<p>Every word of GDD in two or three lines, with the chapter where it's told in full. Most carry in parentheses the name the Spanish edition of these pages gives them.</p>
+<h2 id="el-metodo">The method</h2>
+<p id="puerta"><strong>Gate</strong> (<em>puerta</em>). What a change has to get through to go in. It's passed only if all its checks pass, whatever the agent says. <a href="doc:la-idea">The idea</a>.</p>
+<p id="comprobacion"><strong>Check</strong> (<em>comprobación</em>). How a gate is validated. There are three types: machine, such as a test or a linter; reviewer, another agent that reviews; and person, your approval. <a href="doc:las-piezas">The pieces and the roles</a>.</p>
+<p id="comprobaciones-de-serie"><strong>Standing checks</strong> (<em>comprobaciones de serie</em>). The ones set up once for the whole project that every change goes through, such as the seal, the tests or lint. They're tried on purpose before any change starts.</p>
+<p id="momentos"><strong>The five moments.</strong> Prepare (<em>Preparar</em>), at the start and whenever the blueprint falls short; Brief (<em>Encargar</em>) and Execute (<em>Ejecutar</em>), on every change; Close (<em>Cerrar</em>), once it's in use; and Harden (<em>Blindar</em>), when something slips through or a gate is too much. <a href="doc:los-momentos">The five moments</a>.</p>
+<p id="nucleo"><strong>Core</strong> (<em>núcleo</em>). What isn't negotiable in GDD, and what you can demand of any engine that claims to apply it. <a href="doc:el-nucleo">The core</a>.</p>
+<p id="contexto"><strong>Context.</strong> What you give the agent so it can get through a gate. It helps, and it proves nothing. A clean context is what an agent gets without the others' conversation.</p>
+<h2 id="el-proyecto">The project</h2>
+<p id="plano"><strong>Blueprint</strong> (<em>plano</em>). Your project's rules: its gates, its zones, what each color asks for, which model does each job and its limits. You approve it, or your team does. <a href="doc:los-archivos">What it leaves in your repository</a>.</p>
+<p id="constitucion"><strong>Constitution</strong> (<em>constitución</em>). A short document with what must never happen in your product, its stack and its commands. Every agent carries it, at every gate.</p>
+<p id="zona"><strong>Zone</strong> (<em>zona</em>). A set of paths in your project with a color, by how much damage a change there can do. What no zone covers is never green.</p>
+<p id="color"><strong>Color.</strong> Green, yellow or red: the risk of a change, which comes from the most delicate thing it touches. It decides what the change has to prove and who approves it. <a href="doc:los-colores">What each color asks for</a>.</p>
+<p id="limites"><strong>Limits</strong> (<em>límites</em>). What a change of each color can spend: rounds, minutes and cost. When one runs out, no new round starts and your agent proposes a way out.</p>
+<p id="nivel"><strong>Level</strong> (<em>nivel</em>). Light, standard or deep: how much the model doing a job reasons. The blueprint says which model each level is in each agent you use. <a href="doc:los-colores">What each color asks for</a>.</p>
+<p id="deuda"><strong>Debt</strong> (<em>deuda</em>). A check that already fails without the change, recorded with its baseline so it doesn't hold everything up. Recording it loosens the check, so you decide it.</p>
+<h2 id="un-cambio">A change</h2>
+<p id="encargo"><strong>Brief</strong> (<em>encargo</em>). What has to pass for a change, written before anyone builds: the rules, their scenarios, how you'll know it helped and how to undo it. <a href="doc:las-skills#aprobar">The skills</a>.</p>
+<p id="regla"><strong>Rule</strong> (<em>regla</em>). What has to be true in your product, in one sentence. It goes above the scenarios that check it. <code>@assumed</code> marks a rule the agent chose; <code>@question</code>, one that can wait for another change.</p>
+<p id="escenario"><strong>Scenario</strong> (<em>escenario</em>). An example of a rule, in Gherkin, with a single action and concrete values. Each one carries its <code>@id</code> and ends up as a test.</p>
+<p id="sello"><strong>Seal</strong> (<em>sello</em>). The brief, its scenarios and its tests, kept on the <code>gdd-seal/&lt;id&gt;</code> branch before anyone builds. The <code>seal</code> check makes sure nobody touched what judges the change.</p>
+<p id="casos"><strong>Cases.</strong> The tests of a change, one per scenario, which another agent writes and sees failing before anyone builds.</p>
+<p id="ronda"><strong>Round.</strong> One pass of building and going through the gates. If a check fails, the change goes back with what failed, in another round, while there are rounds left.</p>
+<p id="en-uso"><strong>In use</strong> (<em>en uso</em>). A change that's already on your main branch and that nobody has closed yet. It waits in sight, without holding up the next ones.</p>
+<p id="veredicto"><strong>Verdict.</strong> At Close, your answer to whether the change helped: yes, not yet or no. <a href="doc:las-skills#cerrar">The skills</a>.</p>
+<p id="lo-que-se-cuela"><strong>What slips through.</strong> A failure that got past every gate. Harden looks for the crack, what the gate was missing to catch it, and keeps it as a check.</p>
+<h2 id="quien">Who does what</h2>
+<p id="papel"><strong>Role</strong> (<em>papel</em>). Each job in a change that a separate agent does: writing the cases, building and reviewing. Each one starts without the others' conversation.</p>
+<p id="orquestador"><strong>Orchestrator.</strong> The agent that hands out the work, with the <code>gdd</code> skill. It prepares, briefs, closes and hardens with you, and builds nothing. <a href="doc:las-piezas">The pieces and the roles</a>.</p>
+<p id="agente"><strong>Agent</strong>, or the builder (<em>el que construye</em>). The one that makes the change and gets through the gates, on a branch of its own, without seeing the log or how its cases were made.</p>
+<p id="vigilante"><strong>Reviewer</strong> (<em>vigilante</em>). An agent with a clean context that reviews the change: <code>pass</code>, <code>fix</code> or <code>stop</code>. On red, and on yellow when the change alters another zone's data, it also reads the brief before anyone builds.</p>
+<p id="skill"><strong>Skill.</strong> A file of instructions your agent loads when it needs it. GDD comes with eight: an entry skill and seven more, one per moment or role. <a href="doc:las-skills">The skills</a>.</p>
+<h2 id="las-garantias">The guarantees</h2>
+<p id="capa"><strong>Layer</strong> (<em>capa</em>). The <code>gdd</code> command that comes with the skills: it keeps the order of every change, counts its limits and writes its log. It isn't an engine. <a href="doc:las-ordenes">The layer's commands</a>.</p>
+<p id="registro"><strong>Log</strong> (<em>registro</em>). Everything that happened in a change, one event per line, with who approved what. The layer writes it and your CI checks it's whole.</p>
+<p id="grados"><strong>Degrees.</strong> How far what judges the agent is out of its reach: rule (<em>norma</em>), if it's only asked to; platform (<em>plataforma</em>), if your protected branches and permissions stop it; engine (<em>motor</em>), if an engine stops it. <a href="doc:como-se-engana-una-puerta#grados">How a gate gets fooled</a>.</p>
+<p id="motor"><strong>Engine</strong> (<em>motor</em>). What enforces the whole core without depending on the agent obeying. T-minus is the one I'm building, and it's still in development. <a href="doc:el-motor">The engine</a>.</p>
+<p id="ejemplos-ocultos"><strong>Hidden examples.</strong> More examples of the same scenarios, kept where the builder can't read them, to catch a solution tailored to the tests.</p>
+<p id="reglas-ya-hechas"><strong>Ready-made rules.</strong> The gates and standing checks of an area, ready to start from. None has been published yet: they'll come with T-minus. <a href="doc:los-kits">The kits</a>.</p>
+<p class="sigue">What changed in each version of the skills, and what you do when updating, is in <a href="doc:novedades">What's new</a>.</p>

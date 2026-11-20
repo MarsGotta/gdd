@@ -1,0 +1,33 @@
+<h1>What each color asks for</h1>
+<p>A change gets the color of the most delicate thing it touches, and its color decides what it has to prove, who approves it and how much it can spend. These are the values the blueprint's template starts with. Your blueprint decides: you can change any of them, you or your team, and your logs will tell you which ones to change. Removing something loosens a gate, so you approve that too.</p>
+<h2 id="por-color">Color by color</h2>
+<table>
+<thead><tr><th>In the template</th><th>Green</th><th>Yellow</th><th>Red</th></tr></thead>
+<tbody>
+<tr><td>An example</td><td>The text on a button</td><td>A catalog filter</td><td>Payment</td></tr>
+<tr><td>Brief, rules and scenarios</td><td>No</td><td>Yes</td><td>Yes, on the most capable model</td></tr>
+<tr><td>A reviewer reads the brief before anyone builds</td><td>No</td><td>If the change alters another zone's data</td><td>Yes</td></tr>
+<tr><td>You approve what has to pass (<code>brief-approval</code>)</td><td>No</td><td>Yes, in a message under 150 words</td><td>Yes, in a message under 200</td></tr>
+<tr><td>Cases of the change</td><td>No: it goes through the tests that already exist</td><td>One test per scenario, seen failing before anyone builds</td><td>Also seen passing, and broken once on purpose</td></tr>
+<tr><td>Machine checks</td><td>Seal, tests, lint and secrets</td><td>The same</td><td>The same</td></tr>
+<tr><td>Reviewer (<code>review</code>)</td><td>Checks the color and the seal</td><td>Reads the change against its brief</td><td>Also runs it and tries to make it fail</td></tr>
+<tr><td>You review the change at the end (<code>person-review</code>)</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td>Level of the agents</td><td>Light</td><td>Standard</td><td>Standard</td></tr>
+<tr><td>Minutes of work per change, not counting time spent waiting for you</td><td>10</td><td>45</td><td>60</td></tr>
+<tr><td>Rounds per change</td><td>1</td><td>3</td><td>3</td></tr>
+<tr><td>Fix rounds per gate</td><td>1</td><td>2</td><td>2</td></tr>
+<tr><td>Closing</td><td>Closes by itself after 7 days, if nothing says otherwise</td><td>Waits for your verdict, unless it promised nothing</td><td>Waits for your verdict, unless it promised nothing</td></tr>
+</tbody>
+</table>
+<p>If you remove <code>brief-approval</code> from yellow, the brief and its scenarios are still written: your agent tells you in one line what the change will do and doesn't wait for you.</p>
+<h2 id="todos">For every color</h2>
+<ul>
+<li><strong>Two tiers of checks.</strong> Each round, the seal, the tests, lint and secrets, under two minutes together. Then, once before the reviewer, what takes longer, such as a browser test of what the change touches when it touches what a person sees, under ten minutes in all.</li>
+<li><strong>A notice for size.</strong> A change of more than 400 lines goes ahead, but the reviewer knows, and it reaches you in one line.</li>
+<li><strong>When a limit runs out,</strong> no new round starts, but what's already built still goes through its gates and its review.</li>
+<li><strong>What no zone covers is never green.</strong> Your agent judges it in each change, yellow unless it does what a red zone does, and asks you only when it can't tell.</li>
+<li><strong>The gates of each zone.</strong> On top of what its color asks for, a change goes through the gates of the zones it touches, when a zone has its own.</li>
+<li><strong>Mutation and coverage aren't there at the start.</strong> Harden adds them, at their tool's own default, when the tests proved weak. A check that some colors ask for and others don't judges only what the change adds or modifies.</li>
+<li><strong>Hidden examples</strong> are for red to ask for, only from the platform degree up: more examples of the same scenarios, where the builder can't read them.</li>
+</ul>
+<p class="sigue">All of this is written down in files in your repository, and each one is in <a href="doc:los-archivos">What it leaves in your repository</a>.</p>

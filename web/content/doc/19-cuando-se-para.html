@@ -1,0 +1,49 @@
+<h1>Cuando se para</h1>
+<p>Cada fila es algo que ves, por qué pasa y qué haces tú. Casi siempre la respuesta es nada: tu agente sigue solo y te cuenta en una línea por qué se paró. Cuando te toca a ti, te pregunta una sola cosa, con lo que haría él.</p>
+<h2 id="al-instalar">Al instalar</h2>
+<table>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<tbody>
+<tr><td><code>claude plugin list</code> no enseña <code>gdd@gdd</code></td><td>El plugin no llegó a instalarse, o tu Claude Code es anterior a la 2.1.275.</td><td>Actualiza Claude Code a la 2.1.275 o posterior y vuelve a instalarlo con la orden de <a href="doc:empieza#instalar">Empieza</a>.</td></tr>
+<tr><td><code>codex plugin list</code> no enseña <code>gdd@gdd</code></td><td>Falta uno de los dos pasos: añadir el origen o instalar desde él.</td><td>Repite los dos: <code>codex plugin marketplace add MarsGotta/gdd</code> y <code>codex plugin add gdd@gdd</code>.</td></tr>
+<tr><td><code>agy plugin list</code> no enseña <code>gdd</code>, o enseña una versión vieja</td><td>Se instaló desde dentro de la carpeta <code>gdd</code>, o el clon no está al día.</td><td>Haz <code>git pull</code> dentro de la carpeta <code>gdd</code> y, desde la carpeta que la contiene, otra vez <code>agy plugin install gdd</code>.</td></tr>
+<tr><td>Está en la lista, pero tu agente no conoce GDD</td><td>Una sesión que ya estaba abierta no carga un plugin nuevo.</td><td>Cierra la sesión y abre otra.</td></tr>
+<tr><td>Tu agente dice que falta Rust</td><td>La capa se compila con <a href="https://rustup.rs">Rust</a> 1.89 o posterior.</td><td>Instálalo y díselo a tu agente: sigue donde estaba.</td></tr>
+<tr><td>Tu agente dice que no tiene red para compilar la capa</td><td>La primera vez descarga de crates.io lo que necesita.</td><td>Dale red esa vez, o ejecuta tú en tu terminal la orden que te da. Nunca baja una capa ya compilada de otro sitio.</td></tr>
+</tbody>
+</table>
+<p>En todos los casos, compruébalo con la lista de plugins en una terminal, como en <a href="doc:empieza#comprobar">Empieza</a>, y después abre una sesión nueva.</p>
+<h2 id="en-un-cambio">En un cambio</h2>
+<table>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<tbody>
+<tr><td>Espera tu aprobación</td><td>Tu plano pide ahí una persona: el encargo antes de construir, o la pull request al final.</td><td>Léelo y apruébalo. Ningún agente puede hacerlo por ti.</td></tr>
+<tr><td><code>@assumed</code> encima de una regla</td><td>Esa regla la eligió tu agente.</td><td>Corrígela si no es la tuya. Al aprobar, la marca se queda.</td></tr>
+<tr><td><code>@question</code> encima de una regla</td><td>La respuesta puede esperar a otro cambio.</td><td>Nada por ahora: la pregunta queda a la vista en el archivo.</td></tr>
+<tr><td>Falla una comprobación</td><td>Una ronda de arreglo, con la orden, su código de salida y sus últimas líneas.</td><td>Nada, salvo que se acabe un límite.</td></tr>
+<tr><td><code>fix</code> del vigilante</td><td>Se corrigen primero los tests sellados que nombra, y el que construye se lleva el resto.</td><td>Nada.</td></tr>
+<tr><td><code>stop</code> del vigilante</td><td>El cambio no entra, diga lo que diga el resto.</td><td>Lee por qué.</td></tr>
+<tr><td>Sube el color</td><td>El cambio tocó algo más delicado de lo previsto y vuelve al encargo.</td><td>Aprueba el encargo nuevo, si su color lo pide.</td></tr>
+<tr><td><code>CANNOT:</code> y un motivo</td><td>Un papel se ha parado porque el cambio no encaja tal como se encargó.</td><td>Nada, salvo que cambie lo que debe pasar y su color pida tu aprobación.</td></tr>
+<tr><td>Falla la comprobación del sello</td><td>Alguien tocó lo que juzga el cambio.</td><td>El cambio se para y tu agente te lo cuenta.</td></tr>
+<tr><td>Se acaba un límite</td><td>El cambio gastó sus intentos, su tiempo o su coste. Lo que ya está construido se juzga igual.</td><td>Te dice qué funciona, qué falta y qué compra un intento más, y te propone una salida. <code>.gdd/gdd limits &lt;id&gt;</code> te enseña cuánto gastó de cada límite.</td></tr>
+<tr><td>Un cambio es más grande de lo previsto</td><td>Pasa de las líneas que tu plano da como aviso, 400 en la plantilla.</td><td>Nada: el vigilante lo sabe y te llega en una línea.</td></tr>
+<tr><td>Una comprobación falla también sin el cambio</td><td>Deuda que aún no está en <code>gdd/debt.md</code>, o una comprobación inestable. Mientras tanto no se construye nada encima, porque nada pasaría.</td><td>Te propone una salida. Apuntar deuda o poner una comprobación en cuarentena lo decides tú, o tu equipo.</td></tr>
+<tr><td>Necesitas saltarte una comprobación, por urgencia</td><td>Saltarla es aflojarla. Tu plano dice de antemano qué se puede saltar y quién lo abre.</td><td>Lo aprueba esa persona. Queda en el registro con quién y por qué, y el cambio pasa después lo que se saltó.</td></tr>
+<tr><td>Tu agente no puede lanzar otros</td><td>Te da, para cada papel, el modelo y el texto con que abrirlo.</td><td>Abre una sesión nueva para cada papel, con ese modelo y ese texto.</td></tr>
+</tbody>
+</table>
+<p>Nada se arregla aflojando una comprobación. Cuando una parece mal, solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+<h2 id="con-la-capa">Con la capa</h2>
+<table>
+<thead><tr><th>Ves</th><th>Por qué</th><th>Qué haces</th></tr></thead>
+<tbody>
+<tr><td>La capa rechaza un paso</td><td>Un paso fuera de orden, un archivo que cambió después de sellarse o un tope sin margen.</td><td>Nada: dice por qué y qué ejecutar en su lugar, y tu agente lo hace.</td></tr>
+<tr><td>La capa rechaza un encargo por la forma de un escenario</td><td>Un escenario nuevo o cambiado no tiene una regla encima, un <code>@id</code> o una sola acción.</td><td>Nada: tu agente lo corrige y vuelve a sellar.</td></tr>
+<tr><td>No está la capa</td><td>Cada copia del proyecto compila la suya, y esta no ha podido.</td><td>Instala Rust, y tu agente sigue.</td></tr>
+<tr><td>Tu agente dice que git no puede escribir en esta copia</td><td>Git no le deja escribir una rama en la carpeta donde está.</td><td>Ábrelo en una copia donde git pueda escribir, y sigue.</td></tr>
+<tr><td>En tu CI, la capa se niega a todo, también a <code>verify</code></td><td>El trabajo corre en un contenedor que saca el repositorio con otro usuario, y git se niega a leerlo.</td><td>Añade al trabajo, antes de la capa, <code>git config --global --add safe.directory "$PWD"</code>.</td></tr>
+<tr><td><code>gdd verify --all</code> falla en tu CI</td><td>Un registro está roto, un hash no coincide o un paso salió de orden.</td><td>Pásale a tu agente la línea que nombra. Un registro no se edita a mano: se corrige con un evento nuevo, que deja a la vista qué se corrigió.</td></tr>
+</tbody>
+</table>
+<p class="sigue">Muchas de estas respuestas las da la capa, y las órdenes que te sirven a ti están en <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>

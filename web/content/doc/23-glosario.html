@@ -1,0 +1,41 @@
+<h1>Glosario</h1>
+<p>Cada palabra de GDD en dos o tres líneas, con el capítulo donde se cuenta entera. Casi todas llevan entre paréntesis el nombre que les dan las skills y la capa, en inglés.</p>
+<h2 id="el-metodo">El método</h2>
+<p id="puerta"><strong>Puerta</strong> (<em>gate</em>). Lo que un cambio tiene que pasar para entrar. Se pasa solo si pasan todas sus comprobaciones, diga lo que diga el agente. <a href="doc:la-idea">La idea</a>.</p>
+<p id="comprobacion"><strong>Comprobación</strong> (<em>check</em>). Cómo se valida una puerta. Hay tres tipos: de máquina, como un test o un linter; de vigilante, otro agente que revisa; y de persona, tu aprobación. <a href="doc:las-piezas">Las piezas y los roles</a>.</p>
+<p id="comprobaciones-de-serie"><strong>Comprobaciones de serie</strong> (<em>standing checks</em>). Las que se montan una vez para todo el proyecto y pasa cada cambio, como el sello, los tests o el lint. Se prueban a propósito antes de que empiece ningún cambio.</p>
+<p id="momentos"><strong>Los cinco momentos.</strong> Preparar (<em>Prepare</em>), al empezar y cuando el plano se queda corto; Encargar (<em>Brief</em>) y Ejecutar (<em>Execute</em>), en cada cambio; Cerrar (<em>Close</em>), cuando ya está en uso; y Blindar (<em>Harden</em>), cuando algo se cuela o una puerta sobra. <a href="doc:los-momentos">Los cinco momentos</a>.</p>
+<p id="nucleo"><strong>Núcleo</strong> (<em>core</em>). Lo que no se negocia en GDD, y lo que puedes exigir a cualquier motor que diga aplicarlo. <a href="doc:el-nucleo">El núcleo</a>.</p>
+<p id="contexto"><strong>Contexto.</strong> Lo que le das al agente para que pase una puerta. Ayuda, pero no demuestra nada. El contexto limpio es el que recibe un agente sin la conversación de los otros.</p>
+<h2 id="el-proyecto">El proyecto</h2>
+<p id="plano"><strong>Plano</strong> (<em>blueprint</em>). Las reglas de tu proyecto: sus puertas, sus zonas, qué pide cada color, qué modelo hace cada trabajo y sus límites. Lo apruebas tú, o tu equipo. <a href="doc:los-archivos">Lo que deja en tu repositorio</a>.</p>
+<p id="constitucion"><strong>Constitución</strong> (<em>constitution</em>). Un documento corto con lo que nunca debe pasar en tu producto, su stack y sus órdenes. Lo llevan todos los agentes, en cada puerta.</p>
+<p id="zona"><strong>Zona</strong> (<em>zone</em>). Un conjunto de rutas de tu proyecto con un color, según el daño que puede hacer un cambio ahí. Lo que no cubre ninguna zona nunca es verde.</p>
+<p id="color"><strong>Color</strong>. Verde, amarillo o rojo: el riesgo de un cambio, que sale de lo más delicado que toca. Decide qué tiene que demostrar y quién lo aprueba. <a href="doc:los-colores">Qué pide cada color</a>.</p>
+<p id="limites"><strong>Límites</strong> (<em>limits</em>). Lo que puede gastar un cambio de cada color: rondas, minutos y coste. Cuando se acaba uno, no empieza otra ronda y tu agente te propone una salida.</p>
+<p id="nivel"><strong>Nivel</strong> (<em>level</em>). Ligero, normal o profundo: cuánto razona el modelo que hace un trabajo. El plano dice qué modelo es cada nivel en cada agente que usas. <a href="doc:los-colores">Qué pide cada color</a>.</p>
+<p id="deuda"><strong>Deuda</strong> (<em>debt</em>). Una comprobación que ya falla sin el cambio, apuntada con su línea base para que no frene todo. Apuntarla afloja la comprobación, así que la decides tú.</p>
+<h2 id="un-cambio">Un cambio</h2>
+<p id="encargo"><strong>Encargo</strong> (<em>brief</em>). Lo que tiene que pasar para un cambio, escrito antes de construir: las reglas, sus escenarios, cómo se sabrá si sirvió y cómo se deshace. <a href="doc:las-skills#aprobar">Las skills</a>.</p>
+<p id="regla"><strong>Regla</strong> (<em>Rule</em>). Lo que tiene que ser cierto en tu producto, en una frase. Va encima de los escenarios que la comprueban. <code>@assumed</code> marca una regla que eligió el agente; <code>@question</code>, una que puede esperar a otro cambio.</p>
+<p id="escenario"><strong>Escenario</strong> (<em>scenario</em>). Un ejemplo de una regla, en Gherkin, con una sola acción y valores concretos. Cada uno lleva su <code>@id</code> y acaba siendo un test.</p>
+<p id="sello"><strong>Sello</strong> (<em>seal</em>). El encargo, sus escenarios y sus tests, guardados en la rama <code>gdd-seal/&lt;id&gt;</code> antes de construir. La comprobación <code>seal</code> mira que nadie haya tocado lo que juzga el cambio.</p>
+<p id="casos"><strong>Casos.</strong> Los tests de un cambio, uno por escenario, que escribe otro agente y ve fallar antes de que nadie construya.</p>
+<p id="ronda"><strong>Ronda.</strong> Una vuelta de construir y pasar las puertas. Si una comprobación falla, el cambio vuelve con lo que falló, en otra ronda, mientras queden.</p>
+<p id="en-uso"><strong>En uso</strong> (<em>in use</em>). Un cambio que ya está en tu rama principal y que nadie ha cerrado todavía. Espera a la vista, sin frenar los siguientes.</p>
+<p id="veredicto"><strong>Veredicto.</strong> Al cerrar, tu respuesta a si el cambio sirvió: sí, todavía no o no. <a href="doc:las-skills#cerrar">Las skills</a>.</p>
+<p id="lo-que-se-cuela"><strong>Lo que se cuela.</strong> Un fallo que pasó todas las puertas. Blindar busca la grieta, lo que le faltó a la puerta para cazarlo, y lo deja como comprobación.</p>
+<h2 id="quien">Quién hace qué</h2>
+<p id="papel"><strong>Papel</strong> (<em>role</em>). Cada trabajo de un cambio que hace un agente aparte: escribir los casos, construir y revisar. Cada uno empieza sin la conversación de los otros.</p>
+<p id="orquestador"><strong>Orquestador.</strong> El agente que reparte el trabajo, con la skill <code>gdd</code>. Prepara, encarga, cierra y blinda contigo, y no construye nada. <a href="doc:las-piezas">Las piezas y los roles</a>.</p>
+<p id="agente"><strong>Agente</strong>, o el que construye (<em>builder</em>). El que hace el cambio y pasa las puertas, en una rama suya, sin ver el registro ni cómo se hicieron sus casos.</p>
+<p id="vigilante"><strong>Vigilante</strong> (<em>reviewer</em>). Un agente con el contexto limpio que revisa el cambio: <code>pass</code>, <code>fix</code> o <code>stop</code>. En rojo, y en amarillo cuando el cambio altera datos de otra zona, también lee el encargo antes de construir.</p>
+<p id="skill"><strong>Skill.</strong> Un archivo de instrucciones que tu agente carga cuando le hace falta. GDD trae ocho: una de entrada y siete más, una por momento o papel. <a href="doc:las-skills">Las skills</a>.</p>
+<h2 id="las-garantias">Las garantías</h2>
+<p id="capa"><strong>Capa</strong> (<em>layer</em>). El comando <code>gdd</code>, que viene con las skills: lleva el orden de cada cambio, cuenta sus límites y escribe su registro. No es un motor. <a href="doc:las-ordenes">Las órdenes de la capa</a>.</p>
+<p id="registro"><strong>Registro</strong> (<em>log</em>). Todo lo que pasó en un cambio, un evento por línea, con quién aprobó qué. Lo escribe la capa y tu CI comprueba que esté entero.</p>
+<p id="grados"><strong>Grados.</strong> Hasta dónde está fuera del alcance del agente lo que lo juzga: norma (<em>rule</em>), si solo se le pide; plataforma (<em>platform</em>), si lo impiden tus ramas protegidas y tus permisos; motor (<em>engine</em>), si lo impide un motor. <a href="doc:como-se-engana-una-puerta#grados">Cómo se engaña una puerta</a>.</p>
+<p id="motor"><strong>Motor</strong> (<em>engine</em>). Lo que hace cumplir el núcleo entero sin depender de que el agente obedezca. T-minus es el que estoy construyendo, y todavía está en desarrollo. <a href="doc:el-motor">El motor</a>.</p>
+<p id="ejemplos-ocultos"><strong>Ejemplos ocultos.</strong> Más ejemplos de los mismos escenarios, guardados donde el que construye no puede leerlos, para cazar una solución hecha a la medida de los tests.</p>
+<p id="reglas-ya-hechas"><strong>Reglas ya hechas.</strong> Las puertas y comprobaciones de serie de un área, listas para empezar. Todavía no hay ninguna publicada: llegarán con T-minus. <a href="doc:los-kits">Los kits</a>.</p>
+<p class="sigue">Qué ha cambiado en cada versión de las skills, y qué haces al actualizar, está en <a href="doc:novedades">Novedades</a>.</p>
