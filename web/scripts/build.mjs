@@ -25,7 +25,7 @@ const TUTORIAL_JS = fs.existsSync(path.join(raiz, 'src/js/tutorial.js'));
 let tutorial = () => '';
 if (!TUTORIAL_FALTA.includes('scripts/tutorial.mjs')) ({ tutorial } = await import('./tutorial.mjs'));
 const VERSION = createHash('sha256')
-  .update(['src/css/site.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/tutorial.js', 'src/js/sitio.js'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
+  .update(['src/css/tema-gdd.css', 'src/css/site.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/tutorial.js', 'src/js/sitio.js', 'src/js/kimen.js', 'node_modules/@kimen/elements/package.json', 'node_modules/@kimen/tokens/package.json'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
   .digest('hex').slice(0, 10);
 
 // --- Two languages -------------------------------------------------------------------------
@@ -212,8 +212,17 @@ const vestir = (html, { copiar = false } = {}) => {
   }
 
   $('ol:not(.pasos):not(.mapa-lista)').addClass('lista-pasos');
-  $('pre').attr('tabindex', '0');
   if (!copiar) $('pre').removeAttr('data-copiar');
+  // A code block of a document is a Kimen ki-code-block, which copies its code where the document
+  // asks for it (data-copiar). The code stays as text inside it, so the Markdown copy, the checks
+  // and a page without scripts still read it. The pieces of the hands-on chapter keep their pre.
+  $('pre').filter((_, pre) => !$(pre).closest('.tutorial').length).each((_, pre) => {
+    const p = $(pre);
+    const bloque = $('<ki-code-block></ki-code-block>').text(p.text().replace(/\n$/, ''));
+    bloque.attr({ label: tr('Código', 'Code'), 'copy-label': tr('Copiar el código', 'Copy the code'), 'copied-label': tr('Copiado', 'Copied'), 'copy-error-label': tr('No se ha podido copiar: selecciónalo a mano', "Couldn't copy: select it by hand") });
+    if (!p.is('[data-copiar]')) bloque.attr('copyable', 'false');
+    p.replaceWith(bloque);
+  });
 
   let salida = $.html();
   // On the Spanish pages, the sentences quoted in English say so.
@@ -222,7 +231,7 @@ const vestir = (html, { copiar = false } = {}) => {
     .replaceAll('"corrections are cheap, and waiting is expensive"', '"<span lang="en">corrections are cheap, and waiting is expensive</span>"')
     .replaceAll('"the harness is most needed where it is hardest to build"', '"<span lang="en">the harness is most needed where it is hardest to build</span>"');
   // Number and unit stay together. Code stays as written.
-  salida = salida.split(/(<pre[\s\S]*?<\/pre>|<svg[\s\S]*?<\/svg>)/).map((parte) => (/^<(pre|svg)/.test(parte) ? parte : parte.replace(/(\d) (%|€)/g, '$1&nbsp;$2'))).join('');
+  salida = salida.split(/(<pre[\s\S]*?<\/pre>|<ki-code-block[\s\S]*?<\/ki-code-block>|<svg[\s\S]*?<\/svg>)/).map((parte) => (/^<(pre|ki-code-block|svg)/.test(parte) ? parte : parte.replace(/(\d) (%|€)/g, '$1&nbsp;$2'))).join('');
   return salida;
 };
 
@@ -251,18 +260,20 @@ const otraRuta = (ruta) => {
   return k ? DOCS[k][otro].ruta : tr('/en/', '/');
 };
 
-const cabecera = (ruta) => `<header class="cabecera"><div class="contenedor cabecera__dentro">
-  <a class="logo" href="${rutaInicio()}"${ruta === rutaInicio() ? ' aria-current="page"' : ''}>${marca()}<span>Gate-Driven Development</span></a>
-  <nav class="navegacion" aria-label="${tr('Principal', 'Main')}"><ul>
-    ${MENU.map((k) => {
+// The header is Kimen's ki-top-nav, which draws its own banner and navigation landmarks: the
+// brand, the sections and, as actions, the other language and the light or dark switch. Below
+// 48rem, where the row no longer fits, it folds the sections into a menu (Kimen 0.1.1 needs the
+// attribute written: without it the bar never folds).
+const cabecera = (ruta) => `<div class="cabecera"><ki-top-nav class="contenedor" label="${tr('Principal', 'Main')}" navigation-label="${tr('Abrir el menú', 'Open the menu')}" collapse-at="48rem">
+  <a slot="brand" class="logo" href="${rutaInicio()}"${ruta === rutaInicio() ? ' aria-current="page"' : ''}>${marca()}<span>Gate-Driven Development</span></a>
+  ${MENU.map((k) => {
     const r = DOCS[k][idioma].ruta;
     const dentro = k === 'documentacion' && ruta !== r && ruta.startsWith(r);
-    return `<li><a href="${r}"${ruta === r ? ' aria-current="page"' : dentro ? ' aria-current="true"' : ''}>${DOCS[k][idioma].menu}</a></li>`;
-  }).join('\n    ')}
-  </ul></nav>
-  <a class="idioma" href="${otraRuta(ruta)}" hreflang="${tr('en', 'es')}" lang="${tr('en', 'es')}" aria-label="${tr('Read this page in English', 'Lee esta página en español')}">${tr('English', 'Español')}</a>
-  <button type="button" class="tema" data-tema-boton title="${tr('Cambiar entre claro y oscuro', 'Switch between light and dark')}">${icono('tema')}<span class="tema__a-oscuro">${tr('Modo oscuro', 'Dark mode')}</span><span class="tema__a-claro">${tr('Modo claro', 'Light mode')}</span></button>
-</div></header>`;
+    return `<a href="${r}"${ruta === r ? ' aria-current="page"' : dentro ? ' aria-current="true"' : ''}>${DOCS[k][idioma].menu}</a>`;
+  }).join('\n  ')}
+  <a slot="actions" class="idioma" href="${otraRuta(ruta)}" hreflang="${tr('en', 'es')}" lang="${tr('en', 'es')}" aria-label="${tr('Read this page in English', 'Lee esta página en español')}">${tr('English', 'Español')}</a>
+  <ki-icon-button slot="actions" class="tema" variant="quaternary" data-tema-boton label="${tr('Cambiar entre claro y oscuro', 'Switch between light and dark')}">${icono('tema')}</ki-icon-button>
+</ki-top-nav></div>`;
 
 const pie = () => `<footer class="pie"><div class="contenedor pie__dentro">
   <div>
@@ -310,20 +321,21 @@ const documento = ({ ruta, titulo, descripcion, cuerpo, scripts = [], indexable 
 ${datos({ ruta, titulo, descripcion, inicial: ruta === rutaInicio() })}`
     : '<meta name="robots" content="noindex">';
   return `<!doctype html>
-<html lang="${idioma}">
+<html lang="${idioma}" data-ki-theme="gdd">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('tema');if(t==='claro'||t==='oscuro')document.documentElement.dataset.tema=t}catch(e){}</script>
+<script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('tema');if(t==='claro'||t==='oscuro')document.documentElement.dataset.kiColorScheme=t==='oscuro'?'dark':'light'}catch(e){}</script>
 <title>${titulo}</title>
 <meta name="description" content="${descripcion}">
 <meta name="author" content="Marcela Gotta">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#15181b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f9fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12458b" media="(prefers-color-scheme: dark)">
 ${buscadores}
 ${enlacesCabeza}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preload" href="/assets/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kimen.css?v=${VERSION}">
 <link rel="stylesheet" href="/assets/site.css?v=${VERSION}">
 <noscript><style>.plano__eleccion, .plano__avance { display: none; }</style></noscript>
 <meta property="og:type" content="${ruta === rutaInicio() ? 'website' : 'article'}">
@@ -347,6 +359,7 @@ ${cabecera(ruta)}
 ${cuerpo}
 </main>
 ${pie()}
+<script src="/assets/kimen.js?v=${VERSION}" type="module"></script>
 <script src="/assets/sitio.js?v=${VERSION}" defer></script>
 ${scripts.map((s) => `<script src="/assets/${s}?v=${VERSION}" defer></script>`).join('\n')}
 </body>
@@ -641,14 +654,20 @@ ${linea('articulo')}
 - [Gate-Driven Development en español](${aMd(DOCS.documentacion.es.ruta)}): the same documentation in Spanish, the original; each page links to the rest.
 `);
 
-fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/site.css') + (TUTORIAL_CSS ? `\n${leer('src/css/tutorial.css')}` : ''));
+// Kimen's tokens (its default theme, both schemes), then the site's theme, Plano, and the site.
+fs.copyFileSync(path.join(raiz, 'node_modules/@kimen/tokens/dist/css/tokens.css'), path.join(dist, 'assets/kimen.css'));
+fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/tema-gdd.css') + leer('src/css/site.css') + (TUTORIAL_CSS ? `\n${leer('src/css/tutorial.css')}` : ''));
+// The Kimen components the pages use, in one module (src/js/kimen.js).
+esbuild.buildSync({ entryPoints: [path.join(raiz, 'src/js/kimen.js')], bundle: true, minify: true, format: 'esm', target: 'es2022', outfile: path.join(dist, 'assets/kimen.js'), legalComments: 'eof', logLevel: 'warning',
+  // Stencil's lazy loader looks for entry chunks this build never makes: each component is defined directly.
+  logOverride: { 'empty-glob': 'silent' } });
 for (const js of ['plano.js', 'sitio.js', ...(TUTORIAL_JS ? ['tutorial.js'] : [])]) {
   fs.copyFileSync(path.join(raiz, 'src/js', js), path.join(dist, 'assets', js));
 }
 const fuente = (paquete, fichero, salida) => fs.copyFileSync(path.join(raiz, 'node_modules', paquete, 'files', fichero), path.join(dist, 'assets', salida));
-fuente('@fontsource-variable/ibm-plex-sans', 'ibm-plex-sans-latin-wght-normal.woff2', 'plex-sans.woff2');
-fuente('@fontsource-variable/ibm-plex-sans', 'ibm-plex-sans-latin-wght-italic.woff2', 'plex-sans-italic.woff2');
-fuente('@fontsource/ibm-plex-mono', 'ibm-plex-mono-latin-400-normal.woff2', 'plex-mono.woff2');
+fuente('@fontsource-variable/archivo', 'archivo-latin-standard-normal.woff2', 'archivo.woff2');
+fuente('@fontsource-variable/archivo', 'archivo-latin-standard-italic.woff2', 'archivo-italic.woff2');
+fuente('@fontsource-variable/jetbrains-mono', 'jetbrains-mono-latin-wght-normal.woff2', 'jetbrains-mono.woff2');
 
 // The PDF is the manifesto itself, at the version it carries, in each language.
 for (const i of IDIOMAS) {
@@ -662,7 +681,7 @@ for (const imagen of ['og.png', 'og-en.png']) {
   if (fs.existsSync(og)) fs.copyFileSync(og, path.join(dist, imagen));
 }
 
-fs.writeFileSync(path.join(dist, 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>svg{color:#15181b}@media (prefers-color-scheme:dark){svg{color:#eef0f1}}</style><path d="M1 21.500h5M18.500 21.500H23" stroke="currentColor" stroke-width="3" fill="none"/><path d="M6 21.500V4" stroke="currentColor" stroke-width="2.200" fill="none"/><path d="M6 4a15 17.500 0 0 1 12.500 17.500" stroke="currentColor" stroke-width="1.400" fill="none"/></svg>\n`);
+fs.writeFileSync(path.join(dist, 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><style>svg{color:#10192a}@media (prefers-color-scheme:dark){svg{color:#f3f7fc}}</style><path d="M1 21.500h5M18.500 21.500H23" stroke="currentColor" stroke-width="3" fill="none"/><path d="M6 21.500V4" stroke="currentColor" stroke-width="2.200" fill="none"/><path d="M6 4a15 17.500 0 0 1 12.500 17.500" stroke="currentColor" stroke-width="1.400" fill="none"/></svg>\n`);
 fs.writeFileSync(path.join(dist, 'robots.txt'), `User-agent: *\nAllow: /\n\nSitemap: ${DOMINIO}/sitemap.xml\n`);
 const parejas = [['/', '/en/'], ...ORDEN.map((k) => [DOCS[k].es.ruta, DOCS[k].en.ruta])];
 const entrada = (loc, es, en) => `  <url><loc>${DOMINIO}${loc}</loc><lastmod>${FECHA}</lastmod><xhtml:link rel="alternate" hreflang="es" href="${DOMINIO}${es}"/><xhtml:link rel="alternate" hreflang="en" href="${DOMINIO}${en}"/><xhtml:link rel="alternate" hreflang="x-default" href="${DOMINIO}${en}"/></url>`;

@@ -30,11 +30,11 @@ export const aMarkdown = (html, enlace) => {
       case 'h2': case 'h3': return `${'#'.repeat(Number(n.name[1]))} ${enLinea(n).trim()}`;
       case 'p': case 'figcaption': return enLinea(n).trim();
       case 'svg': return $n.attr('aria-label') ? `*${$n.attr('aria-label')}*` : '';
-      case 'pre': return `\`\`\`\n${$n.text().replace(/\n$/, '')}\n\`\`\``;
+      case 'pre': case 'ki-code-block': return `\`\`\`\n${$n.text().replace(/\n$/, '')}\n\`\`\``;
       case 'blockquote': return bloques(n).split('\n').map((l) => `> ${l}`.trimEnd()).join('\n');
       case 'ul': case 'ol': return $n.children('li').map((k, li) => {
         const marca = n.name === 'ol' ? `${Number($n.attr('start') ?? 1) + k}. ` : '- ';
-        const texto = $(li).children('p, ul, ol, pre, table').length ? bloques(li) : enLinea(li).trim();
+        const texto = $(li).children('p, ul, ol, pre, ki-code-block, table').length ? bloques(li) : enLinea(li).trim();
         return marca + texto.split('\n').join(`\n${' '.repeat(marca.length)}`);
       }).get().join('\n');
       case 'table': {

@@ -12,7 +12,7 @@ const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split
   const p = await b.newPage();
   await p.goto('http://localhost:8897/en/manifesto/', { waitUntil: 'networkidle' });
   await p.emulateMedia({ media: 'print' });
-  await p.addStyleTag({ content: '.indice, .saltar, .copiar, .tema, .idioma, .navegacion, .pie { display: none !important; } .con-indice { display: block !important; } .lectura { max-width: none !important; } .pagina-cabeza p:last-of-type { display: none !important; }' });
+  await p.addStyleTag({ content: '.indice, .saltar, .cabecera, .pie { display: none !important; } .con-indice { display: block !important; } .lectura { max-width: none !important; } .pagina-cabeza p:last-of-type { display: none !important; }' });
   // Los enlaces salen como los de la web publicada, no como los del servidor local que la imprime.
   await p.evaluate(() => { document.querySelectorAll('a[href]').forEach((a) => { if (a.origin === location.origin && a.pathname !== location.pathname) a.href = 'https://gate-driven.dev' + a.pathname + a.search + a.hash; }); });
   await p.pdf({ path: raiz + '/content/en/manifesto-gdd-v0.11.pdf', format: 'A4', margin: { top: '20mm', bottom: '20mm', left: '20mm', right: '20mm' }, printBackground: true, displayHeaderFooter: false, tagged: true, outline: true });
@@ -26,13 +26,13 @@ const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split
     plano.querySelectorAll('.puerta').forEach((x) => { x.dataset.estado = { 1: 'ganada', 2: 'ganada', 3: 'cerrada' }[x.dataset.puerta]; });
     plano.querySelector('.plano__agente').style.setProperty('--x', '55.5%');
     plano.querySelector('.plano__nombre').hidden = true; plano.querySelector('.plano__globo').hidden = true;
-    const h = document.createElement('div'); h.style.cssText = 'position:absolute;left:48px;top:40px;font:500 58px/1.1 "IBM Plex Sans";letter-spacing:-.02em;color:#15181b;width:1110px';
+    const h = document.createElement('div'); h.style.cssText = 'position:absolute;left:48px;top:40px;font:600 58px/1.1 "Archivo";font-stretch:90%;letter-spacing:-.018em;color:#10192a;width:1110px';
     h.innerHTML = 'Add gates to your project and automate with AI agents without losing quality.<br>Your agent says "done." The gate checks if it\'s true.';
     h.style.fontSize = '42px';
     const sprite = document.querySelector('.sprite');
     document.body.replaceChildren(sprite, h, figura);
-    document.body.style.cssText = 'margin:0;background:#fff;width:1200px;height:630px;overflow:hidden';
-    document.documentElement.dataset.tema = 'claro';
+    document.body.style.cssText = 'margin:0;background:#f7f9fb;width:1200px;height:630px;overflow:hidden';
+    document.documentElement.dataset.kiColorScheme = 'light';
   });
   await q.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
   await q.waitForTimeout(200);

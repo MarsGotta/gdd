@@ -35,7 +35,7 @@ const DOCS = {
 const IDIOMAS = Object.keys(DOCS);
 const carpeta = (i) => (i === 'en' ? 'content/en' : 'content');
 const rutaDe = (i, nombre) => DOCS[i][nombre].replace('index.html', '');
-const BLOQUES = 'h1, h2, h3, p, li, th, td, figcaption, pre';
+const BLOQUES = 'h1, h2, h3, p, li, th, td, figcaption, pre, ki-code-block';
 
 // Source of a document, with the code files its blocks point at.
 const fuenteDe = (nombre, i = 'es') => {
@@ -322,7 +322,7 @@ for (const [ruta, html] of Object.entries(paginas)) {
     if (b.find('p, li, td').length) return; // only the innermost block
     // A version such as 2.1.275 is not a figure that needs a source.
     const t = norm(b.text()).replace(/\b\d+\.\d+\.\d+\b/g, '');
-    if (/[€]|VERANO|SUMMER|£/.test(t) || b.closest('pre, figure, .colarte, .plano').length) return;
+    if (/[€]|VERANO|SUMMER|£/.test(t) || b.closest('pre, ki-code-block, figure, .colarte, .plano').length) return;
     if (/\d[\d.,]*\s?%|\d{1,3}[.,]\d{3}\b|\b\d+[.,]\d+ (veces|times)|(más de (mil|tres millones|cincuenta))|(more than (a thousand|three million|fifty))/.test(t) && !b.find('a[href^="http"]').length && !b.parent().closest('li').find('a[href^="http"]').length) {
       sinFuente.push(`${ruta}: ${t.slice(0, 110)}`);
     }

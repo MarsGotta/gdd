@@ -1,6 +1,6 @@
 # gate-driven.dev
 
-The website of Gate-Driven Development. A static site with no dependencies in the browser. Every command below runs from this `web/` folder.
+The website of Gate-Driven Development. A static site, dressed with [Kimen](https://kimen.dev/): its tokens (`@kimen/tokens`) under the site's own theme, Plano, and a few of its components (`@kimen/elements`). Every command below runs from this `web/` folder.
 
 ## Publish
 
@@ -49,5 +49,7 @@ If the English manifesto changes, regenerate its PDF (`content/en/manifesto-gdd-
 - `content/`: the Spanish documents, the diagrams and the PDF. `content/en/`: the same in English.
 - `scripts/build.mjs`: builds the pages, their Markdown copies and `llms.txt`. `scripts/markdown.mjs`: turns a page into Markdown. `scripts/partes.mjs`: the blueprint and the drawings.
 - `src/css`, `src/js`, `src/img`: styles, the interactive pieces (the home blueprint and the Hands-on pieces) and the sharing image.
+- `src/css/tema-gdd.css`: Plano, the site's theme for Kimen, opted into with `data-ki-theme="gdd"` on every page. Light is ink on drafting film, dark is its blueprint. It reassigns Kimen's theme and semantic tokens only; `src/css/site.css` names its colours, fonts and corners after those tokens. The fonts, Archivo and JetBrains Mono, are served from `/assets/`, never from a font service.
+- `src/js/kimen.js`: the Kimen components the pages use, bundled by the build into `/assets/kimen.js`. Today the header (`ki-top-nav`, with `ki-icon-button` for light and dark) and the code blocks: every `pre` of a document becomes a `ki-code-block`, with a copy button where the document marks it `data-copiar`. Register a component there before a page uses its tag. Without scripts, each tag still reads as plain markup.
 - `scripts/estructura.mjs`: the list of documents and chapters, with the kind of each one. `scripts/versiones.mjs`: the versions the pages show. `scripts/huellas.mjs`: regenerates `origen.json`.
 - `dist/`: what gets published.

@@ -1,46 +1,35 @@
-// Small conveniences shared by every page: light or dark, copy buttons and the current section in the index.
+// Small conveniences shared by every page: light or dark, and the current section in the index.
+// The code blocks are ki-code-block, which brings its own copy button.
 (() => {
   // The system decides until the reader chooses, and the choice is remembered.
-  // The script in the head of each page applies it before anything is painted.
+  // The script in the head of each page applies it before anything is painted, as
+  // data-ki-color-scheme on <html>, the attribute Kimen's tokens follow.
   const raiz = document.documentElement;
   const t = (es, en) => (raiz.lang === 'en' ? en : es);
   const botonTema = document.querySelector('[data-tema-boton]');
   const sistemaOscuro = window.matchMedia('(prefers-color-scheme: dark)');
-  const esOscuro = () => (raiz.dataset.tema ? raiz.dataset.tema === 'oscuro' : sistemaOscuro.matches);
-  const colorDelNavegador = () => {
-    if (!raiz.dataset.tema) return;
-    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => { meta.content = esOscuro() ? '#15181b' : '#ffffff'; });
+  const esOscuro = () => {
+    const elegido = raiz.dataset.kiColorScheme;
+    return elegido ? elegido === 'dark' : sistemaOscuro.matches;
+  };
+  const decir = () => {
+    botonTema?.setAttribute('label', esOscuro() ? t('Pasar a modo claro', 'Switch to light mode') : t('Pasar a modo oscuro', 'Switch to dark mode'));
+    if (!raiz.dataset.kiColorScheme) return;
+    document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => { meta.content = esOscuro() ? '#12458b' : '#f7f9fb'; });
   };
   botonTema?.addEventListener('click', () => {
     raiz.classList.add('sin-transicion');
-    raiz.dataset.tema = esOscuro() ? 'claro' : 'oscuro';
+    raiz.dataset.kiColorScheme = esOscuro() ? 'light' : 'dark';
     requestAnimationFrame(() => requestAnimationFrame(() => raiz.classList.remove('sin-transicion')));
     try {
-      localStorage.setItem('tema', raiz.dataset.tema);
+      localStorage.setItem('tema', raiz.dataset.kiColorScheme === 'dark' ? 'oscuro' : 'claro');
     } catch {
       // Without storage the choice lasts until the reader changes page.
     }
-    colorDelNavegador();
+    decir();
   });
-  colorDelNavegador();
-
-  document.querySelectorAll('pre[data-copiar]').forEach((pre) => {
-    const boton = document.createElement('button');
-    boton.type = 'button';
-    boton.className = 'copiar';
-    boton.setAttribute('aria-live', 'polite');
-    boton.textContent = t('Copiar', 'Copy');
-    boton.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(pre.querySelector('code').textContent);
-        boton.textContent = t('Copiado', 'Copied');
-      } catch {
-        boton.textContent = t('Selecciónalo a mano', 'Select it by hand');
-      }
-      setTimeout(() => { boton.textContent = t('Copiar', 'Copy'); }, 2000);
-    });
-    pre.append(boton);
-  });
+  sistemaOscuro.addEventListener?.('change', decir);
+  decir();
 
   // The index is open beside the text on wide screens and folded above it on narrow ones.
   const indice = document.querySelector('.indice details, .capitulos details');
