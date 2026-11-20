@@ -18,12 +18,12 @@
   "content/doc/04-los-principios.html": "1aa25765a82be0e0",
   "content/doc/05-los-momentos.html": "295448f3ea22eff7",
   "content/doc/06-empieza-hoy.html": "021afe7cec4fe87e",
-  "content/doc/07-un-caso-delicado.html": "264617182e10959e",
-  "content/doc/08-el-recorrido-entero.html": "287efdf231c4b098",
-  "content/doc/09-como-se-engana-una-puerta.html": "cd671e774ee415f9",
-  "content/doc/10-el-nucleo.html": "d8cfdbce9564c7b0",
-  "content/doc/11-como-se-mide.html": "b322ea156bd2d668",
-  "content/doc/12-el-motor.html": "418c363cd1ad9495",
+  "content/doc/07-un-caso-delicado.html": "4e22ddaa9c2cc65b",
+  "content/doc/08-el-recorrido-entero.html": "c74d0ac9b423e4d3",
+  "content/doc/09-como-se-engana-una-puerta.html": "58be642fa402b152",
+  "content/doc/10-el-nucleo.html": "5a95c1b1aea61185",
+  "content/doc/11-como-se-mide.html": "c2a9933d606d3cf7",
+  "content/doc/12-el-motor.html": "2e94b151939b6e53",
   "content/doc/13-los-kits.html": "b7f29a28f201ef9d",
   "content/doc/14-buenas-practicas.html": "ef90a48d747759ad",
   "content/doc/15-y-tdd.html": "93f3a80adc480e40",
@@ -39,5 +39,5 @@
   "content/manifiesto.html": "8ea61cf66b47c016",
   "content/momentos.jsx": "3895d6dde5b29718",
   "content/recorrido.jsx": "b6517cd0f623ce97",
-  "content/sencillo.jsx": "59d9572f79b55c89"
+  "content/sencillo.jsx": "ad6da78853a87355"
 }

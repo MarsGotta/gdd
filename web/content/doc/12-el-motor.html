@@ -1,31 +1,33 @@
 <h1>El motor</h1>
-<p>Con permisos, protección de ramas, CI y un agente que usa sus propias credenciales ya puedes hacer cumplir buena parte de los siete principios, pero no el <a href="doc:el-nucleo">núcleo</a> entero: es el grado plataforma, el segundo de <a href="doc:como-se-engana-una-puerta#grados">los tres</a>. Lo que se queda fuera es lo que exige que alguien lleve la cuenta de todo el cambio, y eso es lo que hace un motor.</p>
+<p>Con permisos, protección de ramas, CI y un agente que usa sus propias credenciales ya puedes hacer cumplir buena parte de los siete principios, pero no el <a href="doc:el-nucleo">núcleo</a> entero: es el grado plataforma, el segundo de <a href="doc:como-se-engana-una-puerta#grados">los tres</a>. Las skills y su capa llevan ya la cuenta de todo el cambio, pero la capa la ejecuta un agente y está a su alcance. Lo que se queda fuera es lo que exige que esa cuenta la lleve algo que ningún agente pueda tocar, y eso es lo que hace un motor.</p>
 <table>
-<thead><tr><th>Lo que falta</th><th>Por qué</th></tr></thead>
+<thead><tr><th>Lo que falta</th><th>Lo que tienes hoy</th><th>Por qué no basta</th></tr></thead>
 <tbody>
-<tr><td><strong>Límites por cambio</strong></td><td>Cada agente tiene su tope, pero nadie suma los intentos, el tiempo y el coste de todo el cambio.</td></tr>
-<tr><td><strong>Nada se afloja sin aprobación</strong></td><td>Quien administra el repositorio puede quitar la protección de la rama en los ajustes, sin pasar por ninguna puerta.</td></tr>
-<tr><td><strong>Registro completo</strong></td><td>Git y CI guardan quién hizo qué y qué puerta lo juzgó, pero no cuánto costó; medir se queda a mano.</td></tr>
-<tr><td><strong>El orden de las puertas</strong></td><td>CI comprueba al final, pero nada obliga a seguir el orden antes de la PR.</td></tr>
+<tr><td><strong>Límites por cambio</strong></td><td>La capa suma los intentos, el tiempo y los tokens de todo el cambio, y no deja empezar otra ronda cuando se acaba un límite.</td><td>Está al alcance del agente que la ejecuta.</td></tr>
+<tr><td><strong>Nada se afloja sin aprobación</strong></td><td>Si las aplicas en tu plataforma, tus ramas protegidas y tu <code>CODEOWNERS</code> piden una persona para cambiar el plano.</td><td>Quien administra el repositorio puede quitar la protección en los ajustes, sin pasar por ninguna puerta.</td></tr>
+<tr><td><strong>Registro completo</strong></td><td>La capa apunta quién hizo qué, qué puerta lo juzgó, cuánto tardó y, cuando tu agente los da, cuántos tokens gastó, y tu CI comprueba que el registro esté entero y en orden.</td><td>Lo escribe una herramienta al alcance del agente: CI ve si está roto, no si falta algo que nunca se apuntó.</td></tr>
+<tr><td><strong>El orden de las puertas</strong></td><td>La capa rechaza los pasos fuera de orden, y tu CI pasa las puertas sobre el commit exacto.</td><td>La capa se puede saltar. CI no, pero llega al final, antes de fusionar.</td></tr>
 </tbody>
 </table>
 <p>Vale cualquier motor que cumpla esas garantías, también uno escrito por ti. El mío es <a href="https://github.com/MarsGotta/t-minus">T-minus</a>: quiero que imponga el núcleo, que traiga <a href="doc:los-kits">kits</a> y te deje crear los tuyos o cargar los de otros, y que te dé los datos para ver qué mejorar. Todavía está en desarrollo y no hace todo esto, así que lo que sigue es lo que tiene que hacer su versión 1.0, no lo que hace hoy.</p>
-<h2>El mismo recorrido, sin motor y con T-minus</h2>
-<p>Es lo que hicimos en <a href="doc:manos-a-la-obra">Manos a la obra</a>, primero a mano y después como lo hará T-minus.</p>
+<h2>El mismo recorrido: a mano, con las skills y con T-minus</h2>
+<p>Es lo que hicimos en <a href="doc:manos-a-la-obra">Manos a la obra</a>: a mano, con las skills de hoy y como lo hará T-minus.</p>
 <table>
-<thead><tr><th>Paso</th><th>Lo que pide el método</th><th>Sin motor</th><th>Con T-minus</th></tr></thead>
+<thead><tr><th>Paso</th><th>Lo que pide el método</th><th>A mano</th><th>Con las skills</th><th>Con T-minus</th></tr></thead>
 <tbody>
-<tr><td><strong>Preparar</strong></td><td>Fijar las puertas y el contexto, construirlas y ver que cierran, y limitar al agente</td><td>Proteges la rama, le das credenciales justas y escribes la constitución</td><td>Partes de un <a href="doc:los-kits">kit</a>, y te ayuda a redactar la constitución y a elegir el contexto transversal</td></tr>
-<tr><td><strong>Encargar</strong></td><td>Decidir qué debe pasar</td><td>Encargas los escenarios a un agente, los apruebas y encargas los tests a otro modelo</td><td>Un agente redacta los escenarios, tú los apruebas y otro fabrica los tests</td></tr>
-<tr><td><strong>Encargar</strong></td><td>Ver que la puerta cierra</td><td>Los ejecutas y fallan</td><td>Lo comprueba él, y sin eso no sigue</td></tr>
-<tr><td><strong>Ejecutar</strong></td><td>Que el agente no toque las comprobaciones</td><td>Se lo pides y miras el diff, o proteges sus tests con una rama</td><td>No puede tocarlas, están selladas</td></tr>
-<tr><td><strong>Ejecutar</strong></td><td>Pasar la puerta con hechos</td><td>Ejecutas tú, o CI</td><td>Lo ejecuta fuera del alcance del agente y lo registra</td></tr>
-<tr><td><strong>Ejecutar</strong></td><td>Parar si se atasca</td><td>Cuentas tú las rondas</td><td>Cuenta los intentos y, al agotarlos, para y te pregunta</td></tr>
-<tr><td><strong>Ejecutar</strong></td><td>Aprobar solo donde importa</td><td>Decides tú si lo lees</td><td>Calcula el riesgo con lo que se tocó y te avisa si tu <a href="doc:los-momentos#plano">plano</a> lo pide</td></tr>
-<tr><td><strong>Blindar</strong></td><td>Convertir lo que se cuela en comprobación, y retirar la que ya no aporta</td><td>Añades un test, o quitas el que sobra</td><td>Apruebas el escenario y sale otra versión de la comprobación</td></tr>
+<tr><td><strong>Preparar</strong></td><td>Fijar las puertas y el contexto, construirlas y ver que cierran, y limitar al agente</td><td>Proteges la rama, le das credenciales justas y escribes la constitución</td><td>Tu agente te propone zonas, puertas y constitución con sus fuentes y prueba las protecciones que aplicas tú; otro agente monta las comprobaciones de serie y un vigilante intenta engañarlas</td><td>Partirás de un <a href="doc:los-kits">kit</a>, y te ayudará a redactar la constitución y a elegir el contexto transversal</td></tr>
+<tr><td><strong>Encargar</strong></td><td>Decidir qué debe pasar</td><td>Encargas las reglas y los escenarios a un agente, los apruebas y encargas los tests a otro modelo</td><td>Tu agente escribe las reglas y los escenarios, tú los apruebas y otro agente escribe los tests</td><td>Un agente redactará las reglas y los escenarios, tú los aprobarás y otro fabricará los tests</td></tr>
+<tr><td><strong>Encargar</strong></td><td>Ver que la puerta cierra</td><td>Los ejecutas y fallan</td><td>El agente de los casos ve fallar cada test, y la capa no deja seguir sin esa prueba</td><td>Lo comprobará él, y sin eso no seguirá</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Que el agente no toque las comprobaciones</td><td>Se lo pides y miras el diff, o proteges sus tests con una rama</td><td>Se sellan en <code>gdd-seal/&lt;id&gt;</code> y la comprobación <code>seal</code> descubre si se tocaron. Con tu plataforma, no puede escribir en el sello</td><td>No podrá tocarlas: estarán selladas</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Pasar la puerta con hechos</td><td>Ejecutas tú, o CI</td><td>La capa ejecuta las comprobaciones sobre el commit exacto: en tu CI, fuera del alcance del agente, o en una copia aparte, que sigue a su alcance</td><td>Lo ejecutará fuera del alcance del agente y lo registrará</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Parar si se atasca</td><td>Cuentas tú las rondas</td><td>La capa cuenta rondas, minutos y tokens, y al agotarse no empieza otra</td><td>Contará los intentos y, al agotarlos, parará y te preguntará</td></tr>
+<tr><td><strong>Ejecutar</strong></td><td>Aprobar solo donde importa</td><td>Decides tú si lo lees</td><td>La capa calcula el color con lo que se tocó, el vigilante lo repasa y tu plano dice dónde apruebas</td><td>Calculará el riesgo con lo que se tocó y te avisará si tu <a href="doc:los-momentos#plano">plano</a> lo pide</td></tr>
+<tr><td><strong>Cerrar</strong></td><td>Mirar si el cambio sirvió</td><td>Apuntas qué esperas y vuelves a mirarlo</td><td>El encargo dice qué esperas y dónde mirarlo, <code>.gdd/gdd next</code> te enseña los cambios que esperan tu veredicto y tu agente reúne lo que se ve</td><td>Lo mismo, con el registro fuera del alcance de los agentes</td></tr>
+<tr><td><strong>Blindar</strong></td><td>Convertir lo que se cuela en comprobación, y retirar la que ya no aporta</td><td>Añades un test, o quitas el que sobra</td><td>Tu agente busca la grieta y te propone el escenario y la comprobación, o retirar la que sobra; lo apruebas tú, otro agente la monta y un vigilante intenta engañarla</td><td>Aprobarás el escenario y saldrá otra versión de la comprobación</td></tr>
 </tbody>
 </table>
 <p>El método te dice qué hay que hacer, y el motor, con cuánta seguridad se hace.</p>
 <h2>Cuándo hace falta un motor</h2>
-<p>No lo necesitas el primer día. Empieza a hacer falta cuando hay varios agentes o muchos cambios a la vez, cuando tienes que demostrar lo que pasó o medir si GDD <a href="doc:como-se-mide">compensa</a>, o cuando no hay un CI debajo, como suele pasar fuera del software.</p>
+<p>No lo necesitas el primer día. Empieza a hacer falta cuando hay varios agentes o muchos cambios a la vez, cuando tienes que demostrar lo que pasó, o cuando la medida de si GDD <a href="doc:como-se-mide">compensa</a> tiene que ser una prueba que ningún agente haya podido tocar. También cuando no hay un CI debajo, como suele pasar fuera del software.</p>
 <p>Lo que el motor no sustituye son las <a href="doc:buenas-practicas">buenas prácticas</a>, que van aparte: cómo mantener ciertos los principios en cada momento y qué comprobaciones poner en cada parada. Son una propuesta mía, no una norma.</p>
+<p class="sigue">Parte de lo que traerá T-minus son reglas ya hechas para un área. Qué son, y qué traerán, está en <a href="doc:los-kits">Los kits</a>.</p>
