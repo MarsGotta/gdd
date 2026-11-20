@@ -17,5 +17,8 @@ Feature: <capability, as the person names it>
       When <someone takes one action>
       Then <the outcome and where each effect can be seen>
 
+  @unverified
+  Rule: <what this change takes as true of something outside the product, which nobody has checked>
+
   @question
   Rule: <what can a later change decide?>

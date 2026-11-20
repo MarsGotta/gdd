@@ -123,6 +123,17 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
     ));
     let who = verdict_owner(l);
     out.fact("closing", p.closing.clone().unwrap_or(Value::Null));
+    // What nobody had checked when it was briefed is the first thing to look at once it is in use.
+    let unchecked: Vec<String> = brief::sealed_headings(l)
+        .into_iter()
+        .flat_map(|(_, headings)| headings)
+        .filter(|(label, _)| *label == "unchecked")
+        .map(|(_, title)| format!("unchecked: {title}"))
+        .collect();
+    if !unchecked.is_empty() {
+        out.say("The change took these as true of something outside the product, and nobody had checked them. Look at each one first, and say what you saw, with its source and its date:");
+        out.lines.extend(unchecked);
+    }
     if let Some(look) = closing::last_look(p, now) {
         out.say(look);
     }

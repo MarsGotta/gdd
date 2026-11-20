@@ -70,7 +70,7 @@ Use `assets/brief.md`, in this skill's folder, never an older brief as the model
 
 ## Assumptions and open questions
 
-Use a plain `Rule:` only for a rule the person gives in their own words. Put `@assumed` above every rule you choose yourself. State it firmly, including what you leave out: "The only limit is 80 characters per line." Look for a missing number and edges such as empty, twice or midnight. Keep the tag after approval. The tag records who chose the rule. The approval in the log records what the person saw. Remove the tag only when they correct the rule or state it in their own words. Use their wording and update its scenarios. A correction changes what must pass.
+Use a plain `Rule:` only for a rule the person gives in their own words. Put `@assumed` above every rule you choose yourself. Tag an outside fact you haven't seen `@unverified`. State it firmly, including what you leave out: "The only limit is 80 characters per line." Look for a missing number and edges such as empty, twice or midnight. Keep the tag after approval. The tag records who chose the rule. The approval in the log records what the person saw. Remove the tag only when they correct the rule or state it in their own words. Use their wording and update its scenarios. A correction changes what must pass.
 
 Ask about the most consequential unknown you cannot settle. Use an open question: "What happens when time runs out?" None on green, at most one on yellow or two on red. One brief approval covers all your assumptions. For an unknown this change can leave for later, write `@question` above `Rule: <the open question?>` and leave it without scenarios.
 

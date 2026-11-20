@@ -17,7 +17,7 @@ In every command below, run the project's `.gdd/gdd` first. Use `gdd` on the pat
 
 ## What was expected
 
-Run `gdd close <id>`. It writes nothing. It prints the three lines the person approved with the brief (what was expected, the signal that would show it and where to look), how long the change has been in use and any earlier look. A change that promised nothing and waits, because someone looked or a hardening record names it, has nothing written to gather: ask the person, with what the layer prints. Use them as they are: never reword them into something easier to meet, and never add a signal the brief didn't name, because a signal chosen once the result is in sight gets read in its favor.
+Run `gdd close <id>`. It writes nothing. It prints the three lines the person approved with the brief (what was expected, the signal that would show it and where to look), how long the change has been in use and any earlier look. If it lists what the change took as true without checking, each as `unchecked:`, look at those first and say what you saw of each, with its source and its date. A change that promised nothing and waits, because someone looked or a hardening record names it, has nothing written to gather: ask the person, with what the layer prints. Use them as they are: never reword them into something easier to meet, and never add a signal the brief didn't name, because a signal chosen once the result is in sight gets read in its favor.
 
 ## Gathering what is seen
 

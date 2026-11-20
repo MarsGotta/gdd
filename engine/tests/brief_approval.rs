@@ -48,7 +48,7 @@ fn approval_lines(result: &Run) -> String {
         .out
         .lines()
         .filter(|line| {
-            ["rule: ", "yours: ", "later: ", "no rule: ", "read: "]
+            ["rule: ", "yours: ", "later: ", "unchecked: ", "no rule: ", "read: "]
                 .iter()
                 .any(|prefix| line.starts_with(prefix))
         })
@@ -320,5 +320,27 @@ fn a_new_seal_shows_no_lines_until_its_brief_is_recorded() {
     assert_eq!(
         approval_lines(&brief),
         LINES.replace("Keep the title", "Keep the whole title")
+    );
+}
+
+#[test]
+fn what_the_change_takes_as_true_unseen_is_shown_as_unchecked() {
+    let r = Repo::new();
+    record(
+        &r,
+        &format!("{RULES}@unverified\nRule: The carrier answers within a day\n"),
+    );
+    let next = ok(&r, &["next", "lines"]);
+    assert_eq!(
+        approval_lines(&next),
+        LINES.replace(
+            "read: ",
+            "unchecked: The carrier answers within a day\nread: "
+        )
+    );
+    assert!(
+        next.has("each 'unchecked' as something you took as true without seeing it"),
+        "{}",
+        next.out
     );
 }

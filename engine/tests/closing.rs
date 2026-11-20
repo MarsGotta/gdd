@@ -26,12 +26,16 @@ fn brief_text(id: &str, closing: &str) -> String {
 
 /// Seal and log a yellow brief that says `closing`, and return what `gdd brief` said.
 fn brief_with(r: &Repo, id: &str, closing: &str) -> Run {
+    brief_with_rules(r, id, closing, &ok_feature(id))
+}
+
+fn brief_with_rules(r: &Repo, id: &str, closing: &str, rules: &str) -> Run {
     let (md, feature) = (
         format!("gdd/briefs/{id}.md"),
         format!("features/{id}.feature"),
     );
     r.write_as_it_is(&md, &brief_text(id, closing));
-    r.write(&feature, &ok_feature(id));
+    r.write(&feature, rules);
     assert_eq!(r.gdd(&["seal", id, &md, &feature]).code, 0);
     r.gdd(&["brief", id, &md, &feature, "--paths", "src/core/app.txt"])
 }
@@ -56,7 +60,11 @@ fn merged_and_shipped(r: &Repo, id: &str) {
 
 /// A yellow change whose brief says `closing`, through every step and in the main branch.
 fn yellow_shipped(r: &Repo, id: &str, closing: &str) {
-    let b = brief_with(r, id, closing);
+    shipped_with_rules(r, id, closing, &ok_feature(id));
+}
+
+fn shipped_with_rules(r: &Repo, id: &str, closing: &str, rules: &str) {
+    let b = brief_with_rules(r, id, closing, rules);
     assert_eq!(b.code, 0, "{}", b.out);
     let feature = format!("features/{id}.feature");
     let a = r.gdd(&[
@@ -803,4 +811,28 @@ fn an_unreadable_closing_in_the_blueprint_is_said() {
         let n = r.gdd(&["next"]);
         assert!(n.has("the blueprint: closing."), "{closing}: {}", n.out);
     }
+}
+
+#[test]
+fn what_nobody_had_checked_is_the_first_thing_to_look_at() {
+    let r = Repo::new();
+    let rules = format!(
+        "{}\n  @unverified\n  Rule: The carrier answers within a day\n",
+        ok_feature("u1")
+    );
+    shipped_with_rules(&r, "u1", THREE, &rules);
+    let look = r.gdd(&["close", "u1"]);
+    assert_eq!(look.code, 0, "{}", look.out);
+    assert!(look.has("nobody had checked them"), "{}", look.out);
+    assert!(
+        look.has("unchecked: The carrier answers within a day"),
+        "{}",
+        look.out
+    );
+
+    // A change that took nothing on trust says nothing about it.
+    let plain = Repo::new();
+    yellow_shipped(&plain, "y1", THREE);
+    let look = plain.gdd(&["close", "y1"]);
+    assert!(!look.has("unchecked"), "{}", look.out);
 }

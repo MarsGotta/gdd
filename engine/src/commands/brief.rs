@@ -153,6 +153,8 @@ fn feature(text: &str) -> Feature<'_> {
                     .find_map(|t| match t {
                         "@assumed" => Some("yours"),
                         "@question" => Some("later"),
+                        // What the change takes as true of something outside the product.
+                        "@unverified" => Some("unchecked"),
                         _ => None,
                     })
                     .unwrap_or("rule");
@@ -250,31 +252,20 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !approval_is_due(l, id) {
         return;
     }
-    let p = &l.state.progress;
-    let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
+    // A yes covers what was sealed: a brief the log holds without its seal shows nothing.
+    let brief = l
+        .state
+        .progress
+        .brief_line
+        .and_then(|n| l.entries[n - 1].event())
+        .filter(|brief| brief["seal"].is_string() && brief["files"].is_object());
+    let Some(brief) = brief else {
         return;
     };
-    let (Some(seal), Some(files)) = (brief["seal"].as_str(), brief["files"].as_object()) else {
-        return;
-    };
-    let root = &l.project.root;
-    let base = p.base.as_deref();
     let mut lines = Vec::new();
     let mut found = false;
-    for file in files.keys().filter(|f| f.ends_with(".feature")) {
-        let Some(text) = git::show(root, seal, file) else {
-            continue;
-        };
-        let original = base
-            .and_then(|b| git::show(root, b, file))
-            .unwrap_or_default();
-        let changed = changed_feature(&text, &original);
-        let mut headings = changed.rules;
-        for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
-            headings.insert(s.line, ("no rule", s.title));
-        }
-        for (label, heading) in headings.into_values() {
-            let title = heading.split_once(':').unwrap().1.trim();
+    for (file, headings) in sealed_headings(l) {
+        for (label, title) in headings {
             found = true;
             lines.push(format!("{label}: {title}"));
         }
@@ -287,8 +278,43 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !found {
         return;
     }
-    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
+    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice and each 'unchecked' as something you took as true without seeing it, name each file, and end with one question they can answer with a yes.");
     out.lines.extend(lines);
+}
+
+/// The rules a change adds or changes, each with its label, and its new scenarios without a
+/// rule, by feature file: from the sealed version the log names.
+pub(super) fn sealed_headings(l: &Loaded) -> Vec<(String, Vec<(&'static str, String)>)> {
+    let p = &l.state.progress;
+    let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
+        return vec![];
+    };
+    let (Some(seal), Some(files)) = (brief["seal"].as_str(), brief["files"].as_object()) else {
+        return vec![];
+    };
+    let root = &l.project.root;
+    let mut by_file = vec![];
+    for file in files.keys().filter(|f| f.ends_with(".feature")) {
+        let Some(text) = git::show(root, seal, file) else {
+            continue;
+        };
+        let original = p
+            .base
+            .as_deref()
+            .and_then(|b| git::show(root, b, file))
+            .unwrap_or_default();
+        let changed = changed_feature(&text, &original);
+        let mut headings = changed.rules;
+        for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
+            headings.insert(s.line, ("no rule", s.title));
+        }
+        let titled = headings
+            .into_values()
+            .map(|(label, heading)| (label, heading.split_once(':').unwrap().1.trim().to_string()))
+            .collect();
+        by_file.push((file.clone(), titled));
+    }
+    by_file
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
