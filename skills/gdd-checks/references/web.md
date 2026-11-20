@@ -30,7 +30,7 @@ The minimum of `gates.md`, and:
 
 - **Each runner, its own files.** Unit tests and browser tests in separate folders, and each runner given a pattern that takes its folder and leaves out the other's.
 - **Mutation runs the unit tests.** A mutation tool drives a unit runner and doesn't find browser tests. When hardening adds it, it runs the unit tests of the files the change touches.
-- **A port and a build folder for each copy.** Builders and reviewers work in copies side by side, so each takes its port and its build folder from an environment variable, never a fixed one.
+- **A port and a build folder for each copy.** Builders and reviewers work in copies side by side, so each takes its port and its build folder from an environment variable, never a fixed one. The constitution's `Use it` command takes them the same way.
 - **Nothing reloads during a test.** A development server reloads when a file changes, and a test that runs while one is being written fails at random. Browser tests run against the built product, or a server with reloading off.
 - **The test makes what it needs.** A temporary folder, a database, a server: its setup creates them, outside the repository, and removes them.
 - **Options in the runner's own configuration,** not in the environment of the language, each checked against the version the constitution names before it is written down.

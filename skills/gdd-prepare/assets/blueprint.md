@@ -50,6 +50,11 @@ checks:
   #   command: <browser test command from the constitution>
   #   runs: before review
   #   when: [':(glob)<the paths of what a person sees>']  # and add it to the checks of every color
+  # - id: use  # the constitution's Use it command still puts the product in use
+  #   type: machine
+  #   command: <the Use it command from the constitution, then what shows it works, and what stops it if it keeps running>
+  #   breaks: <the bad case to plant to see it fail>
+  #   runs: before review  # and add it to the checks of every color
   # - id: mutation  # not at the start: hardening adds it, or a threshold of coverage, when the tests proved weak
   #   type: machine
   #   command: <mutation command, on what `git diff <start> HEAD` gives and nothing else>

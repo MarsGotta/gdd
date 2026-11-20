@@ -30,6 +30,8 @@ Gates run these same commands, locally and in CI. Each row holds its whole comma
 
 With the project's runner, a command reads `sh gdd/check.sh <check id> -- <command>`.
 
+**Use it:** `<command that puts the product in use from a fresh copy>`
+
 ## How a change ships
 
 <For example: a pull request to the main branch, which a person merges.>
