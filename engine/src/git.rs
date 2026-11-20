@@ -1,6 +1,7 @@
 //! The few git commands the layer needs, each one a small function. A gate clone fetches refs only from the local project.
 //! The layer never pushes or deletes a project branch.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
@@ -455,6 +456,89 @@ pub fn main_branch(root: &Path) -> String {
     "main".into()
 }
 
+/// The commit of the main branch that undid another one, and when.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Undone {
+    pub by: String,
+    pub at: i64,
+}
+
+/// The line `git revert` writes, and so does whatever reverts through it.
+const REVERTS: &str = "This reverts commit ";
+
+/// What the main branch says was undone, read once for the whole project: the commit each revert
+/// names, and the merge that brought each branch in, because a revert names the merge and a log
+/// names the branch's tip. A revert counts even when it was reverted in turn: the change did go
+/// out once. An undoing written by hand leaves no such line, and isn't seen.
+#[derive(Debug, Default)]
+pub struct Reverts {
+    /// The commit each revert names, whole or shortened, and the first revert that named it.
+    by: BTreeMap<String, Undone>,
+    merges: BTreeMap<String, String>,
+}
+
+impl Reverts {
+    /// `None` when git doesn't answer: no repository, or no main branch here.
+    pub fn read(root: &Path) -> Option<Reverts> {
+        let main = main_branch(root);
+        // NUL can't be in a commit message, so nothing a commit says starts another record.
+        let format = "--format=%x00%H %ct%n%B";
+        let grep = ["log", "--fixed-strings", "--grep", REVERTS, format];
+        let log = out(root, &[&grep[..], &[&main, "--"]].concat()).ok()?;
+        let merges = ["rev-list", "--first-parent", "--merges", "--parents"];
+        let merges = out(root, &[&merges[..], &[&main, "--"]].concat()).ok()?;
+        Some(Reverts::parse(&log, &merges))
+    }
+
+    fn parse(log: &str, merges: &str) -> Reverts {
+        let mut r = Reverts::default();
+        // Newest first, so the revert kept for a commit is its first one.
+        for commit in log.split('\0').skip(1) {
+            let (head, body) = commit.split_once('\n').unwrap_or((commit, ""));
+            let Some((by, at)) = head.split_once(' ') else {
+                continue;
+            };
+            let Ok(at) = at.trim().parse::<i64>() else {
+                continue;
+            };
+            for line in body.lines() {
+                let Some(named) = line.trim().strip_prefix(REVERTS) else {
+                    continue;
+                };
+                let sha: String = named.chars().take_while(char::is_ascii_hexdigit).collect();
+                // `git revert --reference` shortens it, never below seven.
+                if sha.len() >= 7 {
+                    r.by.insert(sha, Undone { by: by.into(), at });
+                }
+            }
+        }
+        for line in merges.lines() {
+            let mut shas = line.split(' ');
+            let (Some(merge), Some(_onto)) = (shas.next(), shas.next()) else {
+                continue;
+            };
+            for side in shas {
+                r.merges.insert(side.into(), merge.into());
+            }
+        }
+        r
+    }
+
+    /// The revert of one of these commits, or of the merge that brought it in.
+    pub fn of(&self, commits: &[String]) -> Option<&Undone> {
+        commits
+            .iter()
+            .flat_map(|c| [Some(c), self.merges.get(c)])
+            .flatten()
+            .find_map(|c| {
+                self.by
+                    .iter()
+                    .find(|(named, _)| c.starts_with(named.as_str()))
+            })
+            .map(|(_, undone)| undone)
+    }
+}
+
 /// Whether a working copy is at a commit with nothing changed and nothing untracked.
 pub fn clean_at(dir: &Path, commit: &str) -> Result<(), String> {
     let head = commit_of(dir, "HEAD").ok_or("it is not a git checkout")?;
@@ -512,4 +596,57 @@ pub fn change_branch(root: &Path, id: &str) -> Option<String> {
         .iter()
         .map(|p| format!("{p}/{id}"))
         .find(|b| commit_of(root, &format!("refs/heads/{b}")).is_some())
+}
+
+#[cfg(test)]
+mod reverts {
+    use super::*;
+
+    const A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const M: &str = "cccccccccccccccccccccccccccccccccccccccc";
+
+    fn log(records: &[(&str, i64, &str)]) -> String {
+        let record = |(by, at, body): &(&str, i64, &str)| format!("\0{by} {at}\n{body}\n");
+        records.iter().map(record).collect()
+    }
+
+    #[test]
+    fn a_revert_names_the_commit_or_the_merge_that_brought_it_in() {
+        let merges = format!("{M} {B} {A}");
+        let by_merge = log(&[("r1", 5, &format!("Revert it\n\n{REVERTS}{M}, reversing"))]);
+        let r = Reverts::parse(&by_merge, &merges);
+        assert_eq!(r.of(&[A.into()]).map(|u| u.at), Some(5));
+        assert_eq!(r.of(&[B.into()]), None);
+        // The first revert is the one kept, and a later one of the same commit changes nothing.
+        let twice = log(&[
+            ("r2", 9, &format!("{REVERTS}{A}.")),
+            ("r1", 5, &format!("{REVERTS}{A}.")),
+        ]);
+        let first = Reverts::parse(&twice, "");
+        assert_eq!(first.of(&[A.into()]).map(|u| u.by.as_str()), Some("r1"));
+    }
+
+    #[test]
+    fn a_shortened_or_quoted_line_counts_and_a_message_starts_no_record() {
+        let short = log(&[(
+            "r1",
+            5,
+            &format!("  > {REVERTS}aaaaaaa (the page, 2026-11-20)"),
+        )]);
+        assert_eq!(Reverts::parse(&short, "").of(&[A.into()]), None);
+        let short = log(&[(
+            "r1",
+            5,
+            &format!("  {REVERTS}aaaaaaa (the page, 2026-11-20)"),
+        )]);
+        assert!(Reverts::parse(&short, "").of(&[A.into()]).is_some());
+        // Two reverts in one commit, and a body that tries to look like another record.
+        let body = format!("{REVERTS}{A}.\n\x01zz 7\n{REVERTS}{B}.");
+        let two = Reverts::parse(&log(&[("r1", 5, &body)]), "");
+        for sha in [A, B] {
+            assert_eq!(two.of(&[sha.into()]).map(|u| u.by.as_str()), Some("r1"));
+        }
+        assert_eq!(Reverts::parse("", "").of(&[A.into()]), None);
+    }
 }

@@ -3,6 +3,7 @@
 //! and what the blueprint's log says are given to it.
 
 use crate::blueprint::Blueprint;
+use crate::git::{Reverts, Undone};
 use crate::log::{self, Entry, str_of};
 use crate::state::{LogKind, Next, Progress};
 use serde_json::{Value, json};
@@ -93,6 +94,29 @@ pub fn named(blueprint_log: &[Entry]) -> BTreeMap<String, i64> {
     out
 }
 
+/// The commits a log says hold the change in the main branch: the head its gates passed on, the
+/// head it shipped with, and the commit that holds its content when that head isn't there.
+fn shipped_commits(entries: &[Entry]) -> Vec<String> {
+    let events = log::events(entries);
+    let last = |step: &str, key: &str| {
+        let found = events.iter().rev().find(|(_, v)| log::is_step(v, step));
+        found.and_then(|(_, v)| v[key].as_str().map(String::from))
+    };
+    [
+        last("gates", "head"),
+        last("ship", "head"),
+        last("ship", "in"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
+/// The revert of what a log shipped, when the main branch holds one.
+pub fn undone(reverts: &Reverts, entries: &[Entry]) -> Option<Undone> {
+    reverts.of(&shipped_commits(entries)).cloned()
+}
+
 /// Where a change that shipped stands at Close.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Standing {
@@ -118,9 +142,16 @@ impl Standing {
 
 /// Where a change stands at Close, or `None` before it ships and for a log that is no change:
 /// setting up checks promises nothing to anyone and has nothing to close. `named` is when a hardening record
-/// first named it. A log from before the layer knew Close has no closing, and a blueprint without
+/// first named it, and `undone` the revert of what it shipped, when the main branch holds one.
+/// A log from before the layer knew Close has no closing, and a blueprint without
 /// `closing.days` gives no days: that change reads as before, closed when it shipped.
-pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> Option<Standing> {
+pub fn standing(
+    p: &Progress,
+    bp: &Blueprint,
+    named: Option<i64>,
+    undone: Option<&Undone>,
+    now: i64,
+) -> Option<Standing> {
     p.shipped.as_ref()?;
     if p.kind != Some(LogKind::Change) {
         return None;
@@ -148,8 +179,10 @@ pub fn standing(p: &Progress, bp: &Blueprint, named: Option<i64>, now: i64) -> O
     }
     let shipped = p.shipped_at.unwrap_or(now);
     let until = shipped.saturating_add(bp.closing_days().saturating_mul(DAY));
-    // Named once it was in use and before its days went by: with no days, nothing is.
-    Some(if named.is_some_and(|t| shipped <= t && t < until) {
+    // Undone, or named once it was in use, before its days went by: with no days, nothing is.
+    Some(if until > shipped && undone.is_some_and(|u| u.at < until) {
+        Standing::Waiting("what it shipped was reverted, so it no longer closes by itself".into())
+    } else if named.is_some_and(|t| shipped <= t && t < until) {
         Standing::Waiting("a hardening record names it, so it no longer closes by itself".into())
     } else if now >= until {
         Standing::Closed("by itself, with nothing recorded against it".into())

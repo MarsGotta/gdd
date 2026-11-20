@@ -257,6 +257,7 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
                 &e,
                 GitView::for_log(&ctx.root, &lid, None, None, &e),
                 None,
+                None,
                 now,
             );
             stop_repeating(&mut s, &e, repeated);
@@ -290,10 +291,19 @@ fn show_work_under_way(ctx: &Ctx, project: &Project, bp: &Blueprint, out: &mut O
 pub(super) fn say_in_use(project: &Project, bp: &Blueprint, now: i64, out: &mut Out) {
     let named = crate::closing::named(&project.read_log("blueprint"));
     let mut in_use = vec![];
+    // Git is asked once, and only when something shipped.
+    let mut reverts = None;
     for lid in project.log_ids() {
-        let p = state::Progress::of(&lid, &project.read_log(&lid));
+        let entries = project.read_log(&lid);
+        let p = state::Progress::of(&lid, &entries);
+        let undone = p.shipped.as_ref().and_then(|_| {
+            reverts
+                .get_or_insert_with(|| crate::git::Reverts::read(&project.root))
+                .as_ref()
+                .and_then(|r| crate::closing::undone(r, &entries))
+        });
         if let Some(crate::closing::Standing::Waiting(why)) =
-            crate::closing::standing(&p, bp, named.get(&lid).copied(), now)
+            crate::closing::standing(&p, bp, named.get(&lid).copied(), undone.as_ref(), now)
         {
             in_use.push((p.shipped_at.unwrap_or(now), lid, why, p));
         }

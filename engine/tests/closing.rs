@@ -846,3 +846,140 @@ fn what_nobody_had_checked_is_the_first_thing_to_look_at() {
     let look = plain.gdd(&["close", "y1"]);
     assert!(!look.has("unchecked"), "{}", look.out);
 }
+
+/// Run git with a commit date some days from now, as a revert made later would have.
+fn git_in_days(r: &Repo, days: i64, args: &[&str]) {
+    let date = format!("{} +0000", gdd::time::now() + days * 86_400);
+    let mut c = std::process::Command::new("git");
+    c.arg("-C")
+        .arg(r.path(""))
+        .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .env("GIT_COMMITTER_DATE", &date);
+    let o = own_config(&mut c).output().unwrap();
+    assert!(
+        o.status.success(),
+        "git {args:?}: {}{}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
+}
+
+/// Revert the merge that brought the last change into the main branch.
+fn revert_the_merge(r: &Repo, days: i64) {
+    let merge = r.git(&["log", "--merges", "-1", "--format=%H"]);
+    git_in_days(r, days, &["revert", "--no-edit", "-m", "1", &merge]);
+}
+
+#[test]
+fn a_revert_keeps_what_promised_nothing_from_closing_by_itself() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    revert_the_merge(&r, 0);
+    let later = in_days(8);
+    let n = r.gdd_env(&["next", "g1"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "waiting", "{}", n.out);
+    assert!(n.has("what it shipped was reverted"), "{}", n.out);
+    let all = r.gdd_env(&["next"], &[("GDD_NOW", &later)]);
+    assert!(
+        all.has("in use, waiting for a verdict: g1, 8 days"),
+        "{}",
+        all.out
+    );
+    let look = r.gdd_env(&["close", "g1"], &[("GDD_NOW", &later)]);
+    assert!(
+        look.has("was reverted in the main branch 8 days"),
+        "{}",
+        look.out
+    );
+    assert_eq!(look.facts["undone"], r.git(&["rev-parse", "HEAD"]));
+    let m = r.gdd_env(&["metrics", "--all", "--summary"], &[("GDD_NOW", &later)]);
+    assert!(
+        m.has("shipped and reverted later in the main branch: green 1 of 1"),
+        "{}",
+        m.out
+    );
+}
+
+#[test]
+fn a_revert_counts_even_when_it_was_reverted_in_turn() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    revert_the_merge(&r, 0);
+    let revert = r.git(&["rev-parse", "HEAD"]);
+    git_in_days(&r, 0, &["revert", "--no-edit", &revert]);
+    // The change went out once, whatever came after: the person is asked about it.
+    let later = in_days(8);
+    let n = r.gdd_env(&["next", "g1"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "waiting", "{}", n.out);
+    let m = r.gdd_env(&["metrics", "--all", "--summary"], &[("GDD_NOW", &later)]);
+    assert!(
+        m.has("shipped and reverted later in the main branch: green 1 of 1"),
+        "{}",
+        m.out
+    );
+}
+
+#[test]
+fn with_no_days_in_the_blueprint_a_revert_changes_nothing_at_close() {
+    let r = Repo::new();
+    green_shipped(&r, "g1");
+    let before = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(before.has("main branch: green 0 of 1"), "{}", before.out);
+    // Dated before the ship, so only the lack of days keeps it closed.
+    revert_the_merge(&r, -1);
+    let n = r.gdd(&["next", "g1"]);
+    assert_eq!(n.facts["state"]["close"], "closed", "{}", n.out);
+    let m = r.gdd(&["metrics", "--all", "--summary"]);
+    assert!(m.has("main branch: green 1 of 1"), "{}", m.out);
+    // Where git has no main branch to read, the summary says so and counts nothing.
+    let blind = r.gdd_env(
+        &["metrics", "--all", "--summary"],
+        &[("GDD_MAIN", "no-such-branch")],
+    );
+    assert!(blind.has("main branch: not read from git"), "{}", blind.out);
+}
+
+#[test]
+fn a_revert_after_its_days_leaves_it_closed_and_the_metrics_still_count_it() {
+    let r = repo_with_days();
+    green_shipped(&r, "g1");
+    revert_the_merge(&r, 8);
+    let later = in_days(9);
+    let n = r.gdd_env(&["next", "g1"], &[("GDD_NOW", &later)]);
+    assert_eq!(n.facts["state"]["close"], "closed", "{}", n.out);
+    let m = r.gdd_env(&["metrics", "g1"], &[("GDD_NOW", &later)]);
+    let compact = m.out.replace(": ", ":");
+    assert!(
+        compact.contains(&format!("\"undone\":\"{}\"", r.git(&["rev-parse", "HEAD"]))),
+        "{}",
+        m.out
+    );
+}
+
+#[test]
+fn a_change_that_expected_something_shows_its_revert_with_what_to_look_at() {
+    let r = Repo::new();
+    yellow_shipped(&r, "y1", THREE);
+    assert!(!r.gdd(&["close", "y1"]).has("was reverted"));
+    // The change's log came in with the merge and went on after it, so git stops there: the
+    // person keeps the log and goes on, and the commit still carries the line git writes.
+    r.commit("Record the ship");
+    let merge = r.git(&["log", "--merges", "-1", "--format=%H"]);
+    assert!(!git_ok(
+        &r.path(""),
+        &["revert", "--no-edit", "-m", "1", &merge]
+    ));
+    r.git(&["add", "-A"]);
+    r.git(&["-c", "core.editor=true", "revert", "--continue"]);
+    let look = r.gdd(&["close", "y1"]);
+    assert!(look.has("was reverted in the main branch"), "{}", look.out);
+    assert!(
+        look.has("expected: people find the status at once"),
+        "{}",
+        look.out
+    );
+    // It waited for a verdict before the revert, and it still does.
+    assert_eq!(r.gdd(&["next", "y1"]).facts["state"]["close"], "waiting");
+}

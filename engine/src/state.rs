@@ -4,6 +4,7 @@
 
 use crate::blueprint::Blueprint;
 use crate::closing::Standing;
+use crate::git::Undone;
 use crate::judged::GitView;
 use crate::limits::{self, Limits};
 use crate::log::{self, Entry, kind, result, step, str_of, ts};
@@ -931,6 +932,8 @@ pub struct State {
     pub passed_on_head: Vec<String>,
     /// Where it stands at Close, once it shipped.
     pub standing: Option<Standing>,
+    /// The revert of what it shipped, when the main branch holds one.
+    pub undone: Option<Undone>,
 }
 
 impl State {
@@ -966,6 +969,7 @@ pub fn derive(
     entries: &[Entry],
     git: GitView,
     named: Option<i64>,
+    undone: Option<Undone>,
     now: i64,
 ) -> State {
     let p = Progress::of(id, entries);
@@ -990,11 +994,12 @@ pub fn derive(
         (Some(g), None) if g.passed => g.ran.clone(),
         _ => vec![],
     };
-    let standing = crate::closing::standing(&p, bp, named, now);
+    let standing = crate::closing::standing(&p, bp, named, undone.as_ref(), now);
     let next = crate::next::next_step(id, bp, &p, &lim, &git, standing.as_ref(), now);
     State {
         id: id.into(),
         standing,
+        undone,
         progress: p,
         limits: lim,
         next,

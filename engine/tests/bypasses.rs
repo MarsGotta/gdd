@@ -611,6 +611,25 @@ fn merge_as_the_platform(r: &Repo, branch: &str) {
 }
 
 #[test]
+fn the_revert_of_a_squash_is_the_change_undone() {
+    let r = Repo::new();
+    green_ready(&r, "h3");
+    r.write("src/ui/page.txt", "a better page\n");
+    let squash = r.commit("Squash h3");
+    assert_eq!(r.gdd(&["ship", "h3", "--done", "main"]).code, 0);
+    let undone = |r: &Repo| r.gdd(&["metrics", "h3"]).out.replace(": ", ":");
+    assert!(undone(&r).contains("\"undone\":false"), "{}", undone(&r));
+    // The log names the judged head, and the revert names the squash that holds its content.
+    r.git(&["revert", "--no-edit", &squash]);
+    let revert = r.git(&["rev-parse", "HEAD"]);
+    assert!(
+        undone(&r).contains(&format!("\"undone\":\"{revert}\"")),
+        "{}",
+        undone(&r)
+    );
+}
+
+#[test]
 fn a_squash_that_brings_more_than_was_judged_is_refused() {
     let r = Repo::new();
     green_ready(&r, "q1");

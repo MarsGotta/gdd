@@ -29,6 +29,8 @@ pub struct ChangeGit {
     pub files: Option<i64>,
     pub added: Option<i64>,
     pub deleted: Option<i64>,
+    /// Once it shipped and git was read: the revert of what it shipped, or that there is none.
+    pub reverted: Option<Option<crate::git::Undone>>,
 }
 
 pub struct Input<'a> {
@@ -127,6 +129,7 @@ pub fn tables(bp: &Blueprint, inputs: &[Input], named: &BTreeMap<String, i64>, n
             input.entries,
             GitView::default(),
             named.get(id).copied(),
+            input.git.reverted.clone().flatten(),
             now,
         );
         let mut n = Totals::default();
@@ -604,6 +607,14 @@ fn change_row(
         ("ended", json!(ended)),
         ("close", json!(state.standing.as_ref().map(|s| s.word()))),
         (
+            "undone",
+            match &input.git.reverted {
+                Some(Some(u)) => json!(u.by),
+                Some(None) => json!(false),
+                None => Value::Null,
+            },
+        ),
+        (
             "verdict",
             json!(p.verdicts.last().map(|v| v.verdict.clone())),
         ),
@@ -774,6 +785,7 @@ pub fn summary(t: &Tables) -> Vec<String> {
     hardening_lines(&mut out, t);
     ask_lines(&mut out, t);
     close_lines(&mut out, &changes);
+    undone_lines(&mut out, &changes);
     trust_lines(&mut out, t);
     role_costs(&mut out, t);
     engine_costs(&mut out, t);
@@ -1068,6 +1080,39 @@ fn close_lines(out: &mut Vec<String>, changes: &[&Row]) {
         verdicts[0],
         verdicts[1],
         verdicts[2]
+    ));
+}
+
+/// What shipped and was reverted later in the main branch, by color: where it happens, a gate let
+/// something through. A change git wasn't read for is in neither number.
+fn undone_lines(out: &mut Vec<String>, changes: &[&Row]) {
+    let shipped = |r: &&&Row| r["ended"] == json!("shipped");
+    if !changes.iter().any(|r| shipped(&r)) {
+        return;
+    }
+    let mut by_color: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for r in changes
+        .iter()
+        .filter(shipped)
+        .filter(|r| !r["undone"].is_null())
+    {
+        let n = by_color
+            .entry(r["color"].as_str().unwrap_or("none"))
+            .or_default();
+        n.0 += 1;
+        n.1 += usize::from(r["undone"].is_string());
+    }
+    let each: Vec<String> = by_color
+        .iter()
+        .map(|(color, (shipped, undone))| format!("{color} {undone} of {shipped}"))
+        .collect();
+    out.push(format!(
+        "shipped and reverted later in the main branch: {}",
+        if each.is_empty() {
+            "not read from git".into()
+        } else {
+            each.join(", ")
+        }
     ));
 }
 

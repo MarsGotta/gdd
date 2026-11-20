@@ -57,6 +57,7 @@ What to look for:
 
 - **Per gate:** how often it failed in the gates and how often the builder saw it fail. Read the reasons for skips, the confirmed defects and the measurements behind the cost: the seconds of its checks in `checks`, the seconds and the tokens of the reviewer's reports in `steps`, and the wait after each `ask` in `asks`. If it always fires for the same thing, that thing can be caught earlier.
 - **Per zone:** if its color rises often, it's badly marked; if almost everything comes out red, the blueprint marks too much.
+- **Per color:** how many of its shipped changes the main branch reverted later, in `undone` of `changes` and in the summary. Ask why each one was reverted: when it was for a failure, that failure slipped through, and you find its crack like any other. None reverted says little: the layer sees the line `git revert` writes, not an undoing by hand or a fix with another change on top.
 - **Per approval:** the time from its `ask`. One that comes seconds later is approving blind, and one that waits for hours means nobody was told.
 - **Per change:** the time from its first event to its `ship`, and how many times it asked for a person.
 - **Per reviewer:** how many of its findings ended as `false` or `minor`, in `findings`. That is its noise.

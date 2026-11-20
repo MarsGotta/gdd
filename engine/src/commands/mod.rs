@@ -138,7 +138,12 @@ fn load(ctx: &Ctx, id: &str) -> R<Loaded> {
     } else {
         None
     };
-    let state = state::derive(id, &bp, &entries, gv, named, time::now());
+    // A revert in the main branch counts against a change in use, as a hardening record does.
+    let undone = shipped
+        .then(|| crate::git::Reverts::read(&ctx.root))
+        .flatten()
+        .and_then(|r| crate::closing::undone(&r, &entries));
+    let state = state::derive(id, &bp, &entries, gv, named, undone, time::now());
     Ok(Loaded {
         project,
         bp,

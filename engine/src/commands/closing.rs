@@ -121,6 +121,15 @@ fn look(l: &Loaded, id: &str, out: &mut Out) -> R<()> {
         "{id}: in use for {}",
         time::waited(now - p.shipped_at.unwrap_or(now))
     ));
+    // A revert is something seen, from where whoever built it can't write alone.
+    if let Some(u) = &l.state.undone {
+        out.say(format!(
+            "what it shipped was reverted in the main branch {} ago, in {}: say it to the person with the rest",
+            time::waited(now - u.at),
+            git::short(&u.by)
+        ));
+        out.fact("undone", json!(u.by));
+    }
     let who = verdict_owner(l);
     out.fact("closing", p.closing.clone().unwrap_or(Value::Null));
     // What nobody had checked when it was briefed is the first thing to look at once it is in use.

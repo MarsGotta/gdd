@@ -25,6 +25,7 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
             a.ids.to_vec()
         };
         let use_git = git::is_repo(&ctx.root);
+        let reverts = use_git.then(|| git::Reverts::read(&ctx.root)).flatten();
         let mut stash = vec![];
         for id in &ids {
             check_id(id)?;
@@ -45,8 +46,14 @@ pub fn metrics_cmd(ctx: &Ctx, a: &MetricsArgs) -> Out {
                         files: Some(f),
                         added: Some(ad),
                         deleted: Some(de),
+                        reverted: None,
                     };
                 }
+            }
+            if p.shipped.is_some()
+                && let Some(reverts) = &reverts
+            {
+                cg.reverted = Some(crate::closing::undone(reverts, &entries));
             }
             let scenarios = p
                 .scenario_count(id, |file| std::fs::read_to_string(project.path(file)).ok())
