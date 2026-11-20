@@ -139,10 +139,10 @@ pub(crate) fn attempt(
     json!({"step": step, "seal": git.seal_tip, "head": git.head, "after_line": entries.last().map_or(0, |e| e.line)})
 }
 
-/// A status read or printing a launch prompt between two refused reports is not a new attempt.
-pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
-    let journal = std::fs::read_to_string(path).ok()?;
-    let mut calls = journal
+/// The calls that wrote a line or were refused a step, newest first. A status read or printing a
+/// launch prompt between two refused reports is not a new attempt.
+fn attempts(journal: &str) -> impl Iterator<Item = Value> + '_ {
+    journal
         .lines()
         .rev()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -157,7 +157,31 @@ pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
                         j["command"].as_str(),
                         Some("next" | "limits" | "verify" | "metrics" | "color")
                     ))
-        });
+        })
+}
+
+/// What each finding lacked when the layer last sent a reviewer's report back, while nothing was
+/// written since: a resume that didn't start, or another refusal after it, keeps the report out.
+pub(crate) fn sent_back(path: &Path) -> Option<Vec<String>> {
+    let journal = std::fs::read_to_string(path).ok()?;
+    let refusal = attempts(&journal)
+        .take_while(|j| !j["wrote"].is_object())
+        .find(|j| j["refused"] == "unbacked-fix")?;
+    Some(
+        refusal["unbacked"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// The same refusal twice in a row, at the same refs: the attempt and its reason.
+pub(crate) fn repeated_refusal(path: &Path) -> Option<(Value, String)> {
+    let journal = std::fs::read_to_string(path).ok()?;
+    let mut calls = attempts(&journal);
     let last = calls.next()?;
     let reason = last["refused"].as_str()?;
     let attempt = last.get("attempt")?;

@@ -10,11 +10,46 @@ pub struct Finding {
     pub what: String,
 }
 
+/// The command a finding ends with, `| ran: <command>` in any case, and what comes before it. The
+/// last `| ran:` splits them, since the command itself can hold a pipe.
+pub(crate) fn ran_of(what: &str) -> Option<(&str, &str)> {
+    // ASCII lowercase keeps every byte where it was.
+    let lower = what.to_ascii_lowercase();
+    let (bar, rest) = lower.rmatch_indices('|').find_map(|(i, _)| {
+        lower[i + 1..]
+            .trim_start()
+            .strip_prefix("ran:")
+            .map(|rest| (i, rest))
+    })?;
+    let command = what[what.len() - rest.len()..].trim();
+    (!command.is_empty()).then_some((&what[..bar], command))
+}
+
+/// A command as a finding or a json block gives it, ready to compare: without the quotes or
+/// backticks around it, a trailing stop or "(exit N)", and with single spaces.
+pub(crate) fn plain_command(c: &str) -> String {
+    let c = c.trim().trim_end_matches(['.', ',', ';']).trim_end();
+    let c = match c.rsplit_once('(') {
+        Some((before, note)) if note.starts_with("exit") && note.ends_with(')') => before,
+        _ => c,
+    };
+    c.trim()
+        .trim_end_matches(['.', ',', ';'])
+        .trim()
+        .trim_matches(['`', '"', '\''])
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The reviewer judges whether the cited requirement is broken. The layer checks that the
 /// finding itself gives a source and some words from it.
 fn has_citation(what: &str, blueprint: Option<&Blueprint>) -> bool {
-    if let Some((_, source)) = what.rsplit_once('|')
-        && source
+    // What a finding ran is no source: a command can name the scenario it greps for.
+    let what = ran_of(what).map_or(what, |(rest, _)| rest);
+    // Any segment after the first `|`, so that another one after the citation keeps it.
+    if what.split('|').skip(1).any(|source| {
+        source
             .trim()
             .strip_prefix("check ")
             .and_then(|rest| rest.split_whitespace().next())
@@ -22,7 +57,7 @@ fn has_citation(what: &str, blueprint: Option<&Blueprint>) -> bool {
             .is_some_and(|id| {
                 crate::valid_id(id) && blueprint.is_none_or(|bp| bp.check(id).is_some())
             })
-    {
+    }) {
         return true;
     }
     let mut words = what
@@ -67,6 +102,8 @@ pub struct RoleReport {
     /// Distinct finding numbers without a citation in a fix.
     pub uncited: Vec<String>,
     pub later: Vec<String>,
+    /// What a reviewer left for the person who approves the change, a line each, or why it couldn't.
+    pub evidence: Vec<String>,
     pub notes: String,
     pub missing: Vec<String>,
     /// The JSON list in the last `json` block before the report block: the checks role's proofs.
@@ -240,38 +277,58 @@ fn finding(line: &str) -> Option<Finding> {
     Some(Finding { id, place, what })
 }
 
+/// The lists a report gives a line per item: what is left for later, and the evidence for the
+/// person who approves the change.
+const LISTS: [&str; 2] = ["LATER:", "EVIDENCE:"];
+
+fn list_of<'a>(r: &'a mut RoleReport, header: &str) -> &'a mut Vec<String> {
+    if header == "LATER:" {
+        &mut r.later
+    } else {
+        &mut r.evidence
+    }
+}
+
 /// A numbered line inside LATER belongs to the log. After a blank line it can bind the change.
+/// EVIDENCE ends at a blank line or at a finding, which it would otherwise swallow.
 fn read_findings(lines: &[&str], r: &mut RoleReport, blueprint: Option<&Blueprint>) {
     let mut in_block = false;
-    let mut later_start = None;
+    // The list being read, and how many items it had when its header came.
+    let mut open: Option<(&str, usize)> = None;
     for l in lines {
         if l.trim().starts_with("```") {
             in_block = !in_block;
-            later_start = None;
+            open = None;
             continue;
         }
         if in_block {
             continue;
         }
         let p = plain(l);
-        if let Some(rest) = p.strip_prefix("LATER:") {
-            later_start = Some(r.later.len());
-            if !rest.trim().is_empty() {
-                r.later.push(rest.trim().to_string());
+        if let Some((header, rest)) = LISTS
+            .iter()
+            .find_map(|h| p.strip_prefix(h).map(|rest| (*h, rest.trim())))
+        {
+            let items = list_of(r, header);
+            open = Some((header, items.len()));
+            if !rest.is_empty() {
+                items.push(rest.to_string());
             }
             continue;
         }
-        if let Some(start) = later_start {
-            if (l.trim().is_empty() && r.later.len() > start)
+        if let Some((header, start)) = open {
+            let evidence = header == "EVIDENCE:";
+            let items = list_of(r, header);
+            if (l.trim().is_empty() && (evidence || items.len() > start))
+                || (evidence && finding(l).is_some())
                 || ["NOTES FOR THE BUILDER:", "MISSING:", "COLOR:"]
                     .iter()
                     .any(|h| p.starts_with(h))
             {
-                later_start = None;
+                open = None;
             } else {
                 if !p.is_empty() {
-                    r.later
-                        .push(p.trim_start_matches(['-', '*', ' ']).trim().to_string());
+                    items.push(p.trim_start_matches(['-', '*', ' ']).trim().to_string());
                 }
                 continue;
             }
@@ -290,8 +347,9 @@ fn read_findings(lines: &[&str], r: &mut RoleReport, blueprint: Option<&Blueprin
     }
 }
 
-/// Bound builder text at both entry points: a new report and a list read from an older log.
-pub(crate) fn product_choices<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
+/// Bound a role's lines that reach another agent or a person, the builder's product choices and
+/// the reviewer's evidence, at both entry points: a new report and a list read from a log.
+pub(crate) fn bounded_lines<'a>(values: impl Iterator<Item = &'a str>) -> Vec<String> {
     values
         .filter_map(|value| {
             let clean: String = value
@@ -348,7 +406,7 @@ pub(crate) fn parse_with_blueprint(
         .map(|(_, v)| v.as_str())
         .peekable();
     if choices.peek().is_some() {
-        r.decisions = Some(product_choices(choices));
+        r.decisions = Some(bounded_lines(choices));
     }
     let closed: Vec<_> = fields
         .iter()
@@ -413,8 +471,18 @@ pub(crate) fn parse_with_blueprint(
         }
     }
     read_findings(&lines, &mut r, blueprint);
-    r.notes = section(text, "NOTES FOR THE BUILDER:", &["LATER:", "MISSING:"]).join("\n");
-    r.missing = section(text, "MISSING:", &["LATER:", "NOTES FOR THE BUILDER:"]);
+    r.evidence = bounded_lines(r.evidence.iter().map(String::as_str));
+    r.notes = section(
+        text,
+        "NOTES FOR THE BUILDER:",
+        &["LATER:", "MISSING:", "EVIDENCE:"],
+    )
+    .join("\n");
+    r.missing = section(
+        text,
+        "MISSING:",
+        &["LATER:", "NOTES FOR THE BUILDER:", "EVIDENCE:"],
+    );
     match json_block(text) {
         Some(Ok(v)) => {
             if v.as_array()
@@ -452,6 +520,59 @@ mod tests {
         assert_eq!(r.findings[1].place, "tests/test_cart.py:13");
         assert_eq!(r.later, vec!["the same formatting is written twice"]);
         assert_eq!(r.notes, "Compute 10% for any total.");
+    }
+
+    #[test]
+    fn a_citation_holds_before_what_the_finding_ran() {
+        let t = "fix\nCOLOR: red\nf1 a.py:1 charges twice | check tests | ran: `sh t.sh`\nf2 a.py:2 no total | ran: grep @id:p-1 features\nf3 a.py:3 rounds up | @id:p-2\n```gdd-report\nskill: gdd-review 1\nresult: fix\ncaught: none\n```\n";
+        let r = parse(t).unwrap();
+        assert_eq!(r.uncited, vec!["f2"]);
+        assert_eq!(
+            plain_command(ran_of(&r.findings[0].what).unwrap().1),
+            "sh t.sh"
+        );
+        assert!(ran_of(&r.findings[2].what).is_none());
+    }
+
+    #[test]
+    fn a_run_reads_the_same_whatever_its_quotes_case_or_pipes() {
+        for what in [
+            "it fails | @id:p-1 | ran: \"sh t.sh | tail -3\"",
+            "it fails | @id:p-1 | ran: sh t.sh | tail -3.",
+            "it fails | @id:p-1 | Ran: sh  t.sh | tail -3",
+            "it fails | @id:p-1 | RAN: `sh t.sh | tail -3` (exit 1)",
+        ] {
+            let (rest, command) = ran_of(what).unwrap();
+            assert_eq!(rest.trim(), "it fails | @id:p-1", "{what}");
+            assert_eq!(plain_command(command), "sh t.sh | tail -3", "{what}");
+        }
+    }
+
+    #[test]
+    fn evidence_ends_at_a_blank_line_or_a_finding() {
+        let t = "fix\nCOLOR: red\nEVIDENCE: none, no browser here\nf1 a.py:1 charges twice | @id:p-1\nEVIDENCE:\n- before.png the cart\n\nI ran it.\n```gdd-report\nskill: gdd-review 1\nresult: fix\ncaught: none\n```\n";
+        let r = parse(t).unwrap();
+        assert_eq!(r.findings.len(), 1);
+        assert_eq!(
+            r.evidence,
+            vec!["none, no browser here", "before.png the cart"]
+        );
+    }
+
+    #[test]
+    fn evidence_is_a_list_like_later() {
+        let t = "pass\nCOLOR: red\nEVIDENCE:\n- /p/.gdd/evidence/x/before.png the cart at <start>\n- /p/.gdd/evidence/x/after.png the cart now\nLATER:\n- a duplicated helper\n\nNOTES FOR THE BUILDER:\nnone\n```gdd-report\nskill: gdd-review 1\nresult: pass\ncaught: none\n```\n";
+        let r = parse(t).unwrap();
+        assert_eq!(r.evidence.len(), 2);
+        assert!(r.evidence[1].ends_with("the cart now"));
+        assert_eq!(r.later, vec!["a duplicated helper"]);
+        let why = parse(&t.replace(
+            "EVIDENCE:\n- /p/.gdd/evidence/x/before.png the cart at <start>\n- /p/.gdd/evidence/x/after.png the cart now\n",
+            "MISSING:\n- a gap\nEVIDENCE: none, no browser here\n",
+        ))
+        .unwrap();
+        assert_eq!(why.evidence, vec!["none, no browser here"]);
+        assert_eq!(why.missing, vec!["a gap"]);
     }
 
     #[test]

@@ -39,6 +39,7 @@
 <thead><tr><th>You see</th><th>Why</th><th>What you do</th></tr></thead>
 <tbody>
 <tr><td>The layer refuses a step</td><td>A step out of order, a file that changed after it was sealed or a cap with no room left.</td><td>Nothing: it says why and what to run instead, and your agent does that.</td></tr>
+<tr><td>The layer sends the reviewer's report back</td><td>A finding of its <code>fix</code> has no citation or, on red, no command that reproduces it.</td><td>Nothing: your agent hands it back to the same reviewer, who completes it.</td></tr>
 <tr><td>The layer refuses a brief over the form of a scenario</td><td>A new or changed scenario has no rule above it, no <code>@id</code> or more than one action.</td><td>Nothing: your agent corrects it and seals again.</td></tr>
 <tr><td>The layer isn't there</td><td>Every copy of the project builds its own, and this one couldn't.</td><td>Install Rust, and your agent goes on.</td></tr>
 <tr><td>Your agent says git can't write in this copy</td><td>Git won't let it write a branch in the folder it's in.</td><td>Open it in a copy where git can write, and it goes on.</td></tr>

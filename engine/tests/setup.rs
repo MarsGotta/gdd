@@ -262,6 +262,33 @@ fn a_zones_own_gate_with_the_persons_review_by_pull_request() {
 }
 
 #[test]
+fn a_trials_fix_is_cited_and_names_no_run() {
+    let r = Repo::new();
+    let id = "gates-pay";
+    seal_as_the_checks_role(
+        &r.root,
+        r.dir.path(),
+        id,
+        &[(
+            "gdd/checks/prices.sh",
+            "grep -rn '[0-9]\\.[0-9]' src/pay && exit 1 || exit 0\n",
+        )],
+    );
+    assert_eq!(
+        r.report(id, "checks", &sealed_report(&["prices"]), &[])
+            .code,
+        0
+    );
+    let finding = "f1 gdd/checks/prices.sh:1 a planted 9.95 passes";
+    let uncited = r.report(id, "review", &review_text("fix", "red", finding), &[]);
+    assert_eq!(uncited.facts["refused"], "unbacked-fix", "{}", uncited.out);
+    // A trial isn't a change: on red its findings are cited, and name no run.
+    let cited = format!("{finding} | zone pay: no price has decimals");
+    let written = r.report(id, "review", &review_text("fix", "red", &cited), &[]);
+    assert_eq!(written.code, 0, "{}", written.out);
+}
+
+#[test]
 fn nothing_is_sealed_or_built_where_git_cant_write() {
     let r = Repo::new();
     r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]);

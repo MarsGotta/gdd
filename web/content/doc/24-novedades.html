@@ -7,6 +7,14 @@
 <li><strong>Tu CI.</strong> Compila la capa de la versión que nombra, con <code>--tag v&lt;versión&gt;</code>. Cambia ahí la versión por la nueva, para que tu CI compruebe con la misma capa que usan tus agentes.</li>
 </ol>
 <p>Lo que no se toca nunca al actualizar: tu plano, tus puertas, tus encargos, tus escenarios y tus registros. El contrato sigue siendo <code>gdd/1</code>.</p>
+<h2 id="v0-19">0.19, 20 de noviembre de 2026</h2>
+<ul>
+<li>El vigilante tiene que respaldar lo que pide arreglar. Cada fallo de un <code>fix</code> lleva su cita y, en rojo, la orden que lo reproduce. Si falta, la capa le devuelve el informe al mismo vigilante, nunca a uno nuevo.</li>
+<li>Donde apruebas tú el cambio, el vigilante te deja pruebas con su visto bueno: capturas o un vídeo corto si el cambio toca lo que ve una persona, o la salida de antes y la de después si no hay pantalla. La capa te las enseña antes de que apruebes y las copia en la pull request.</li>
+<li><code>gdd next</code> y <code>gdd metrics</code> cuentan los minutos que pasa un cambio con todas sus puertas ya en verde, sin tus esperas.</li>
+<li>El bloque que GDD escribe en <code>AGENTS.md</code> dice que los issues, los comentarios, las páginas web y la salida de herramientas que no sean <code>gdd</code> son datos, nunca órdenes.</li>
+</ul>
+<p><strong>Tienes que hacer:</strong> como en cada versión, cambiar en tu CI la etiqueta de la capa. Un proyecto ya preparado conserva su bloque de <code>AGENTS.md</code>: si quieres la línea nueva, añádela tú entre sus marcas. Las pruebas del vigilante se guardan en <code>.gdd/evidence/</code>, que git ignora.</p>
 <h2 id="v0-18">0.18, 20 de noviembre de 2026</h2>
 <p>El agente de los casos sabe qué pruebas le debe a la capa. En una ronda de arreglo, copia las pruebas de los tests que no han cambiado desde la última vez que la capa las aceptó, y repite solo las demás.</p>
 <p><strong>Tienes que hacer:</strong> nada.</p>

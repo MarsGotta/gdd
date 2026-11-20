@@ -272,6 +272,28 @@ impl Tally {
     }
 }
 
+/// The minutes a change spent once its gates all passed: from the first `gates` step that failed
+/// nothing since its last brief to the ship, or to `now`, without the waits for a person, counted
+/// as its minutes of work are. None before such a step, and for a brief that stopped. It informs
+/// and caps nothing: in one run a change had its gates passing at 7.8 minutes and shipped at 24.3
+/// with the same product (decision 108). A new brief, after a color that rose, starts it again.
+pub fn minutes_after_gates_passed(events: &[(usize, &Value)], now: i64) -> Option<i64> {
+    let brief = events.iter().rposition(|(_, v)| step(v) == "brief");
+    if brief.is_some_and(|b| result(events[b].1) == "stopped") {
+        return None;
+    }
+    let since = brief.map_or(0, |b| b + 1);
+    let from = since
+        + events[since..]
+            .iter()
+            .position(|(_, v)| step(v) == "gates" && !any_kv(v, "result", "fail"))?;
+    let mut t = Tally::default();
+    for (_, v) in &events[from..] {
+        t.take(v, &[]);
+    }
+    Some(t.minutes(now))
+}
+
 /// Count a change's events up to `now` (the time of the count, or of the end of a closed log).
 #[cfg(test)]
 pub fn count(bp: &Blueprint, events: &[&Value], now: i64) -> Limits {
@@ -567,6 +589,43 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn the_time_after_the_gates_passed_leaves_out_the_waits() {
+        let pass = r#""event":"step","step":"gates","gates":[{"check":"tests","result":"pass"}]"#;
+        let ship = r#""event":"step","step":"ship","where":"main""#;
+        let mut e = vec![ev(0, BRIEF), ev(1, CHECKS), ev(2, BUILD), ev(5, FAIL)];
+        let at = |e: &[Value], minute: i64| {
+            let lines: Vec<(usize, &Value)> = e.iter().enumerate().collect();
+            let now = crate::time::parse("2026-11-10T10:00:00Z").unwrap() + minute * 60;
+            minutes_after_gates_passed(&lines, now)
+        };
+        assert_eq!(at(&e, 9), None);
+        e.extend([ev(6, BUILD), ev(10, pass), ev(14, ASK)]);
+        assert_eq!(at(&e, 40), Some(4), "an open question stops the clock");
+        e.extend([ev(44, APPROVAL), ev(50, ship)]);
+        assert_eq!(
+            at(&e, 90),
+            Some(10),
+            "to the ship, without the 30 minutes waited"
+        );
+        // The color rose and a new brief came: the clock starts at the gates that passed after it.
+        let rebriefed = [
+            ev(0, BRIEF),
+            ev(2, BUILD),
+            ev(3, pass),
+            ev(5, BRIEF),
+            ev(10, CHECKS),
+            ev(50, BUILD),
+            ev(60, pass),
+            ev(62, ship),
+        ];
+        assert_eq!(at(&rebriefed, 90), Some(2));
+        assert_eq!(at(&rebriefed[..5], 90), None);
+        let stopped = r#""event":"step","step":"brief","report":{"result":"stopped"},"stop":{"reason":"dropped"}"#;
+        let dropped = [ev(0, BRIEF), ev(2, BUILD), ev(3, pass), ev(4, stopped)];
+        assert_eq!(at(&dropped, 60 * 24), None, "a dropped change says nothing");
     }
 
     #[test]

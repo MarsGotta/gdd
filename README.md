@@ -200,7 +200,7 @@ How far that holds depends on where your gates run. With the skills alone, the a
 
 ## Status
 
-- **Version 0.18, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
+- **Version 0.19, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
 - **Each of the five moments has a skill.** Close waits for your verdict once a change is in use, and holds nothing up.
 - **The engine that enforces the method,** [T-minus](https://github.com/MarsGotta/t-minus), has its own repository and is still in development.
 

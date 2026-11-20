@@ -167,10 +167,11 @@ impl Roles {
             "review" => {
                 let verdict = ["pass", "fix", "stop"][self.send_back as usize];
                 self.send_back = 0;
+                // On red a finding names the run of its json block that shows it fail.
                 launch.with_reviewed(&review_text(
                     verdict,
                     state["color"].as_str().unwrap(),
-                    "f1 example:1 The result is missing | @id:example-1",
+                    "f1 example:1 The result is missing | @id:example-1 | ran: sh tests/example.sh\n```json\n[{\"command\":\"sh tests/example.sh\",\"exit\":1,\"tail\":\"missing\"}]\n```",
                 ))
             }
             _ => unreachable!(),
@@ -268,6 +269,14 @@ fn each_reachable_step_has_a_way_on() {
     ] {
         assert!(visited.contains(step), "seed missed {step}");
     }
+}
+
+/// The seed that sends a red change back with a fix: its finding names its run.
+#[test]
+fn a_red_fix_in_the_walk_has_a_way_on() {
+    let mut visited = BTreeSet::new();
+    walk_change("src/pay/pay.txt", &mut Choices(5), &mut visited);
+    assert!(visited.contains("ship") || visited.contains("stopped"));
 }
 
 #[test]

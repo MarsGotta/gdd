@@ -149,6 +149,30 @@ pub fn describe(
         }
         None => out.push("No review yet.".into()),
     }
+    // What the reviewer listed under EVIDENCE:, bounded when read, in a fence so that nothing of it
+    // renders as a link, an image or a heading.
+    let evidence = p
+        .last_review
+        .as_ref()
+        .map(|r| r.evidence.as_slice())
+        .unwrap_or_default();
+    if !evidence.is_empty() {
+        let longest = evidence
+            .iter()
+            .flat_map(|e| e.split(|c| c != '`'))
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        let fence = "`".repeat(longest.max(2) + 1);
+        out.push(String::new());
+        out.push("### Evidence".into());
+        out.push(format!(
+            "What the reviewer reported for the person who approves. Its files are in `.gdd/evidence/{id}/` of the copy of the project the review ran from, not in this repository."
+        ));
+        out.push(format!("{fence}text"));
+        out.extend(evidence.iter().cloned());
+        out.push(fence);
+    }
     for (_, v) in events {
         if step(v) == "review" {
             for l in v["later"].as_array().cloned().unwrap_or_default() {

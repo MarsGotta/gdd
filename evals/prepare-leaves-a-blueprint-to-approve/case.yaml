@@ -36,7 +36,7 @@ graders:
   - name: writes-the-block-of-the-agents-file
     type: regex
     target: { source: file, path: AGENTS.md }
-    pattern: 'This project uses Gate-Driven Development \(contract gdd/1\)'
+    pattern: 'Gate-Driven Development \(contract gdd/1\): a change is done when its gates pass'
   - name: gives-the-constitution-a-scan-for-secrets
     type: regex
     target: { source: file, path: gdd/constitution.md }

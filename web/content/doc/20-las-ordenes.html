@@ -3,7 +3,7 @@
 <p>Contestan en inglés. Su última línea, que empieza por <code>gdd {</code>, repite lo mismo para los agentes, y en los ejemplos no está. Los ejemplos salen de una tienda de prueba.</p>
 <h2 id="next">Qué toca ahora: <code>next</code></h2>
 <pre data-copiar><code>.gdd/gdd next</code></pre>
-<p>Te dice cómo está el proyecto: si el plano está aprobado, lo que está en marcha, lo que espera a una persona, los cambios en uso que esperan tu veredicto y lo siguiente de la lista. Con el id de un cambio, <code>.gdd/gdd next &lt;id&gt;</code>, te da su siguiente paso. En una tienda con un cambio en uso:</p>
+<p>Te dice cómo está el proyecto: si el plano está aprobado, lo que está en marcha, lo que espera a una persona, los cambios en uso que esperan tu veredicto y lo siguiente de la lista. Con el id de un cambio, <code>.gdd/gdd next &lt;id&gt;</code>, te da su siguiente paso y, si ya pasó todas sus puertas, cuántos minutos lleva así, sin tus esperas. En una tienda con un cambio en uso:</p>
 <pre><code>the standing checks are set up
 in use, waiting for a verdict: cart, 16 days 23 hours; expected: one cart in five holds two or more products
 next in the backlog: catalog-pages (yellow, todo): The catalog in pages</code></pre>
@@ -33,7 +33,7 @@ the last build passed its gates and is waiting for its review: launch it
 lines 9 of 400</code></pre>
 <h2 id="metrics">Cómo fueron tus cambios: <code>metrics</code></h2>
 <pre data-copiar><code>.gdd/gdd metrics --all --summary</code></pre>
-<p>Cómo acabaron tus cambios, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, qué comprobaciones fallan y cuánto tardan, y cuánto esperaron tus respuestas. Es lo que lees antes de quitar o aflojar una puerta. Algunas de sus líneas:</p>
+<p>Cómo acabaron tus cambios, cuánto tardó cada uno sin contar lo que te esperó a ti, cuántas veces pasaron las puertas y el vigilante a la primera, qué comprobaciones fallan y cuánto tardan, cuánto pasan los cambios con las puertas ya en verde y cuánto esperaron tus respuestas. Es lo que lees antes de quitar o aflojar una puerta. Algunas de sus líneas:</p>
 <pre><code>2 changes: 2 shipped, 0 stopped, 0 open; 1 setup logs
 minutes of work per change, without waits for a person (median, most):
   yellow  2 changes: 24, 24

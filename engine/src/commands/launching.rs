@@ -66,7 +66,11 @@ pub(super) fn prefer_run(ctx: &Ctx, bp: &Blueprint, state: &mut State) {
     }
     let p = &state.progress;
     let role = next.step.as_str();
-    if returned_role(p, role) {
+    if returned_role(
+        p,
+        role,
+        role == "review" && review_sent_back(&ctx.root, &state.id).is_some(),
+    ) {
         return;
     }
     let level = level_of(bp, p, role, None);
@@ -77,8 +81,19 @@ pub(super) fn prefer_run(ctx: &Ctx, bp: &Blueprint, state: &mut State) {
     }
 }
 
-fn returned_role(p: &state::Progress, role: &str) -> bool {
-    (role == "build" && p.builds > 0) || (role == "checks" && p.checks_runs > 0)
+/// A role whose next round goes back to the session that did the work: a build or checks after
+/// the first, and a reviewer whose report the layer sent back.
+fn returned_role(p: &state::Progress, role: &str, sent_back: bool) -> bool {
+    (role == "build" && p.builds > 0)
+        || (role == "checks" && p.checks_runs > 0)
+        || (role == "review" && sent_back)
+}
+
+/// What the layer said the last report of the change's reviewer lacked, when it sent it back and
+/// nothing was written since: that reviewer's session still holds what it found, and a fresh one
+/// would start over.
+pub(super) fn review_sent_back(root: &Path, id: &str) -> Option<Vec<String>> {
+    crate::journal::sent_back(&Project::open(root).journal_path(id))
 }
 
 /// What a setup log sets up, in words for its roles: `standing-checks`, `standing-checks-<check>`
@@ -228,8 +243,8 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
         role,
         level,
         at,
+        root,
         log_path,
-        ..
     } = *x;
     let p = &l.state.progress;
     s.push(format!(
@@ -336,11 +351,21 @@ fn change_prompt(s: &mut Vec<String>, x: &PromptFor) {
                 "Work on branch {branch} {from} and commit there. Use your own worktree inside the project. If git cannot add it, clone the project in your own temporary folder. Copy the project's `user.name` and `user.email` into the clone's git config. If you used a clone, run `git fetch <clone> {branch}:{branch}` from the project before reporting. If git refuses the fetch, stop with CANNOT: and name the branch and the file you were working on. Never force it."
             ));
         }
-        "review" => s.push(format!(
-            "Review the change at {}, in a fresh clone in your temporary folder. Its log is {}.",
-            review_head(l).map(str::to_owned).unwrap_or_else(|| format!("the tip of {branch}")),
-            log_path.display()
-        )),
+        "review" => {
+            s.push(format!(
+                "Review the change at {}, in a fresh clone in your temporary folder. Its log is {}.",
+                review_head(l).map(str::to_owned).unwrap_or_else(|| format!("the tip of {branch}")),
+                log_path.display()
+            ));
+            // An approval is worth what the person saw: they see the change without reading its
+            // code. It helps them, stops nothing, and only a pass needs it (decision 110).
+            if p.color.as_deref().is_some_and(|c| l.bp.color_asks(c, "person-review")) {
+                s.push(format!(
+                    "If you pass it, a person approves this change after you: leave them evidence. If it changes what someone sees, screenshots at <start> and on the change, at desktop and mobile width, or a short video of the flow; if it has no screen, the same input with its output at <start> and on the change. Save it in {}, and list it under EVIDENCE:, a line per file with its path and what it shows; a blank line ends the list. If you can't make it, say why there. Missing evidence is no finding.",
+                    root.join(".gdd/evidence").join(id).display()
+                ));
+            }
+        }
         _ => {}
     }
 }
@@ -505,7 +530,13 @@ fn fix_round_notes(s: &mut Vec<String>, l: &Loaded, role: &str, setup: bool) {
     s.push("Use these results to diagnose the fix. Run the required checks on the fix.".into());
 }
 
-fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> (String, Option<String>) {
+fn prompt_for(
+    l: &Loaded,
+    id: &str,
+    role: &str,
+    level: &str,
+    sent_back: Option<&[String]>,
+) -> (String, Option<String>) {
     let p = &l.state.progress;
     let mut s = vec![];
     let setup = log_kind(id) == LogKind::Setup;
@@ -616,10 +647,24 @@ fn prompt_for(l: &Loaded, id: &str, role: &str, level: &str) -> (String, Option<
                 });
             }
         }
-        "review" => s.push(
-            "Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
-                .into(),
-        ),
+        "review" => {
+            if let Some(lacks) = sent_back {
+                s.push("The layer sent your last report back. What it lacked:".into());
+                s.extend(lacks.iter().map(|x| format!("- {x}")));
+                s.push(format!(
+                    "{} Send your whole report again.",
+                    super::reports::BACKED_FIX
+                ));
+            }
+            s.push(
+                "Nothing comes before the verdict. Right above the gdd-report block, after the rest of your answer, give a json block with each command you ran: [{\"command\":\"<command>\",\"exit\":0,\"tail\":\"<its last lines>\"}]."
+                    .into(),
+            );
+            // Where the reviewer runs the change, a finding it sends back shows how it fails.
+            if !setup && p.color.as_deref() == Some("red") && sent_back.is_none() {
+                s.push("In a fix, end each numbered finding after its citation with | ran: <the command of that json block that shows it fail>.".into());
+            }
+        }
         _ => {}
     }
     s.push("End your last message with its gdd-report block, filled in.".into());
@@ -853,7 +898,15 @@ fn run_role(
     // The role sealed or committed while it ran: its report is judged against the project as it
     // left it, not as it was when it was launched.
     let l = &load_attempt(ctx, id, role, out)?;
-    let (line, _) = write_report(ctx, l, id, role, &said.text, &ra, out)?;
+    let written = write_report(ctx, l, id, role, &said.text, &ra, out);
+    // A report sent back goes to the reviewer who wrote it, and its session is the way there.
+    if let (Err(f), Some(session)) = (&written, &said.session_id)
+        && f.reason == "unbacked-fix"
+    {
+        out.say(format!("session of that reviewer: {session}"));
+        out.fact("session_id", session.as_str());
+    }
+    let (line, _) = written?;
     out.fact("line", line);
     Ok(())
 }
@@ -865,7 +918,11 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let l = load_attempt(ctx, id, role, out)?;
         may_launch(ctx, &l, id, role)?;
-        if a.run && a.command.is_none() && returned_role(&l.state.progress, role) {
+        let sent_back = (role == "review")
+            .then(|| review_sent_back(&ctx.root, id))
+            .flatten();
+        let returned = returned_role(&l.state.progress, role, sent_back.is_some());
+        if a.run && a.command.is_none() && returned {
             return Err(Fail::refuse(
                 "resume-required",
                 format!("the {role} round goes back to the session that did the work"),
@@ -876,7 +933,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         }
         let level = level_of(&l.bp, &l.state.progress, role, a.level.as_deref());
         let (env, model, launch_text) = model_for(&l.bp, &ctx.env, role, &level)?;
-        let (prompt, reviewed) = prompt_for(&l, id, role, &level);
+        let (prompt, reviewed) = prompt_for(&l, id, role, &level, sent_back.as_deref());
         let template = a
             .command
             .clone()
@@ -888,6 +945,11 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         out.fact("model", json!(model));
         out.fact("prompt", json!(prompt));
         let Some(template) = template else {
+            if returned {
+                out.say(format!(
+                    "resume the agent that did this {role}, never a fresh one, with this prompt"
+                ));
+            }
             return say_by_hand(
                 out,
                 id,
@@ -918,7 +980,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
         out.say(format!("prompt: {}", prompt_file.display()));
         out.fact("argv", json!(shown));
         if !a.run {
-            if returned_role(&l.state.progress, role) {
+            if returned {
                 out.say(format!("resume the session that did this {role} with this prompt on {model}. With its command line, use --run --command with that session's id. If you resume it by hand: gdd report {id} {role} <file>"));
             } else {
                 out.say(format!("run it with --run, or launch it yourself and then: gdd report {id} {role} <file>"));

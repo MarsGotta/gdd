@@ -64,6 +64,11 @@ pub(super) fn load_next(ctx: &Ctx, id: &str) -> R<Loaded> {
         &l.entries,
         crate::journal::repeated_refusal(&l.project.journal_path(id)),
     );
+    // A report the layer sent back goes to the reviewer who wrote it, never to a fresh one.
+    if l.state.next.step == "review" && review_sent_back(&ctx.root, id).is_some() {
+        l.state.next.say =
+            "the layer sent the reviewer's report back: resume that reviewer for its whole report again, never a fresh one".into();
+    }
     prefer_run(ctx, &l.bp, &mut l.state);
     Ok(l)
 }
@@ -105,6 +110,16 @@ pub fn next(ctx: &Ctx, id: Option<&str>) -> Out {
                 "passed on this head: {}",
                 s.passed_on_head.join(", ")
             ));
+        }
+        // A fact for the orchestrator, never a stop: time spent once the gates passed.
+        if s.progress.shipped.is_none()
+            && let Some(m) =
+                crate::limits::minutes_after_gates_passed(&log::events(&l.entries), time::now())
+        {
+            out.say(format!(
+                "its gates first all passed {m} minutes ago, without the waits for a person"
+            ));
+            out.fact("minutes_after_gates_passed", m);
         }
         if !s.limits.stop.is_empty() {
             out.say(format!("no room left: {}", s.limits.stop.join(", ")));

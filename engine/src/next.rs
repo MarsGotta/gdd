@@ -194,6 +194,23 @@ fn waiting_or_ask(id: &str, p: &Progress, of: &str, what: &str, then: &str, now:
     )
 }
 
+/// What the passing reviewer reported for the person to look at before they approve the change,
+/// quoted as its words: it helps them and stops nothing (decision 110).
+fn evidence_for_the_person(p: &Progress) -> String {
+    let Some(r) = p.last_review.as_ref().filter(|r| !r.evidence.is_empty()) else {
+        return String::new();
+    };
+    let items: Vec<String> = r
+        .evidence
+        .iter()
+        .map(|e| serde_json::json!(e).to_string())
+        .collect();
+    format!(
+        ". The reviewer reported this evidence for the person to look at, its words quoted: {}",
+        items.join("; ")
+    )
+}
+
 /// The person's reply records either the extra attempt offered or the choice to wait.
 pub(crate) fn limit_reply(id: &str) -> String {
     let grant = format!(
@@ -262,10 +279,10 @@ pub(crate) fn next_step(
         let waited =
             a.ts.map(|t| crate::time::waited(now - t))
                 .unwrap_or_default();
-        let reminder = if a.of == "brief" {
-            ". To ask again, load gdd-brief and send its approval message: each rule or scenario in a line, your assumptions, the feature file, one question"
-        } else {
-            ""
+        let reminder = match a.of.as_str() {
+            "brief" => ". To ask again, load gdd-brief and send its approval message: each rule or scenario in a line, your assumptions, the feature file, one question".into(),
+            "change" => evidence_for_the_person(p),
+            _ => String::new(),
         };
         let then = if a.spent_limit {
             limit_reply(id)
@@ -628,7 +645,10 @@ fn from_the_build_on(
                     id,
                     p,
                     "change",
-                    &format!("the person reviews the change, which {color} asks for"),
+                    &format!(
+                        "the person reviews the change, which {color} asks for{}",
+                        evidence_for_the_person(p)
+                    ),
                     &format!(
                         "gdd approve {id} --of change --version 1 --who <person> --where <pull request or conversation>"
                     ),

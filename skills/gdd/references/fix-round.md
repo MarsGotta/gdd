@@ -13,3 +13,5 @@ gdd launch <id> build --run --command 'codex exec resume --json -m <model> SESSI
 The layer records the round. For Codex it compares the thread counters with the previous step for that role. Keep the session for that role alone so the difference measures its work. If the session has done other work, resume by hand and report only what you can measure for this round.
 
 If the role used an agent tool, resume its handle with the printed prompt on the named model. Start a fresh agent by hand only if the original session cannot resume. After a manual launch, use `gdd report`. Pass measured round counts with `--tokens` for the cap and `--tokens-read` for all input, including cache reads and writes. Leave out any count you cannot measure.
+
+When the layer sends a reviewer's report back (`unbacked-fix`), resume that reviewer the same way, with the session the layer printed for it: a fresh one would start the review over.

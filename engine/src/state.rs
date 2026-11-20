@@ -72,6 +72,8 @@ pub struct Review {
     pub head: Option<String>,
     pub start: Option<String>,
     pub color: Option<String>,
+    /// What it left for the person who approves the change, under `EVIDENCE:`.
+    pub evidence: Vec<String>,
 }
 
 /// Keep the files that were checks when the reviewer returned them. A reseal
@@ -547,7 +549,7 @@ impl Progress {
                 if v["seal_only"] != true
                     && let Some(d) = v["decisions"].as_array()
                 {
-                    self.decisions = Some(crate::report::product_choices(
+                    self.decisions = Some(crate::report::bounded_lines(
                         d.iter().filter_map(Value::as_str),
                     ));
                 }
@@ -602,6 +604,13 @@ impl Progress {
                     head: v["color"]["head"].as_str().map(str::to_string),
                     start: v["color"]["start"].as_str().map(str::to_string),
                     color: v["color"]["color"].as_str().map(str::to_string),
+                    evidence: crate::report::bounded_lines(
+                        v["evidence"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str),
+                    ),
                 });
                 self.stop_told = false;
             }

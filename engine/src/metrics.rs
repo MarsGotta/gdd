@@ -510,6 +510,7 @@ fn change_row(
     let last_ts = events.iter().rev().find_map(|(_, v)| ts(v));
     let first_ts = events.iter().find_map(|(_, v)| ts(v));
     let lim = limits::count_entries(bp, id, input.entries, last_ts.unwrap_or(now));
+    let after_gates = limits::minutes_after_gates_passed(events, last_ts.unwrap_or(now));
     let review_first = events
         .iter()
         .find(|(_, v)| step(v) == "review")
@@ -564,6 +565,7 @@ fn change_row(
                 _ => Value::Null,
             },
         ),
+        ("minutes_after_gates_passed", json!(after_gates)),
         ("builds", json!(lim.builds)),
         ("checks_launches", json!(lim.checks)),
     ]);
@@ -818,6 +820,19 @@ fn work_lines(out: &mut Vec<String>, t: &Tables, changes: &[&Row]) {
                 most
             ));
         }
+    }
+    let after: Vec<f64> = changes
+        .iter()
+        .filter_map(|r| r["minutes_after_gates_passed"].as_f64())
+        .collect();
+    if !after.is_empty() {
+        let most = after.iter().cloned().fold(0.0, f64::max);
+        out.push(format!(
+            "minutes after the gates first all passed, without waits for a person (median, most): {} changes: {:.0}, {:.0}",
+            after.len(),
+            median(after),
+            most
+        ));
     }
 }
 

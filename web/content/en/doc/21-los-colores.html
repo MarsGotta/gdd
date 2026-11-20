@@ -10,8 +10,8 @@
 <tr><td>You approve what has to pass (<code>brief-approval</code>)</td><td>No</td><td>Yes, in a message under 150 words</td><td>Yes, in a message under 200</td></tr>
 <tr><td>Cases of the change</td><td>No: it goes through the tests that already exist</td><td>One test per scenario, seen failing before anyone builds</td><td>Also seen passing, and broken once on purpose</td></tr>
 <tr><td>Machine checks</td><td>Seal, tests, lint and secrets</td><td>The same</td><td>The same</td></tr>
-<tr><td>Reviewer (<code>review</code>)</td><td>Checks the color and the seal</td><td>Reads the change against its brief</td><td>Also runs it and tries to make it fail</td></tr>
-<tr><td>You review the change at the end (<code>person-review</code>)</td><td>No</td><td>No</td><td>Yes</td></tr>
+<tr><td>Reviewer (<code>review</code>)</td><td>Checks the color and the seal</td><td>Reads the change against its brief</td><td>Also runs it, tries to make it fail and reproduces each finding it asks to fix</td></tr>
+<tr><td>You review the change at the end (<code>person-review</code>)</td><td>No</td><td>No</td><td>Yes, with the evidence the reviewer leaves you</td></tr>
 <tr><td>Level of the agents</td><td>Light</td><td>Standard</td><td>Standard</td></tr>
 <tr><td>Minutes of work per change, not counting time spent waiting for you</td><td>10</td><td>45</td><td>60</td></tr>
 <tr><td>Rounds per change</td><td>1</td><td>3</td><td>3</td></tr>

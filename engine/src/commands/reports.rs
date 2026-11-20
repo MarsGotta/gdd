@@ -207,6 +207,11 @@ pub(super) fn write_report(
     if matches!(st, "review" | "reading") && !r.later.is_empty() {
         m.insert("later".into(), json!(r.later));
     }
+    // Evidence is for the person who approves a change that passed.
+    let evidence = st == "review" && result == "pass" && !r.evidence.is_empty();
+    if evidence {
+        m.insert("evidence".into(), json!(r.evidence));
+    }
     let ev = new_event(id, "step", &time::now_string(), m);
     let line = write(l, id, &ev)?;
     out.say(format!(
@@ -231,6 +236,12 @@ pub(super) fn write_report(
     }
     if !r.missing.is_empty() {
         out.say(format!("MISSING, for the brief: {}", r.missing.join("; ")));
+    }
+    if evidence {
+        out.say(format!(
+            "EVIDENCE, for the person who approves: {}",
+            r.evidence.join("; ")
+        ));
     }
     out.fact("result", json!(result));
     out.fact("round", round);
@@ -711,16 +722,7 @@ fn report_build(
     let mut claims = if let Some(path) = &a.claims {
         json_file(path)?
     } else {
-        r.list
-            .as_ref()
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter(|x| x.get("command").is_some_and(|c| c.is_string()))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default()
+        commands_ran(r)
     };
     for claim in &mut claims {
         if let Some(count) = claim.get_mut("failures")
@@ -734,6 +736,72 @@ fn report_build(
         m.insert("decisions".into(), json!(decisions));
     }
     Ok(())
+}
+
+/// What a role ran, from the json block of its last message: its commands, as it gave them.
+fn commands_ran(r: &RoleReport) -> Vec<Value> {
+    r.list
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter(|x| x.get("command").is_some_and(|c| c.is_string()))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The words of the refusal that sends a fix back, for the orchestrator and for the reviewer's
+/// prompt when it is resumed.
+pub(super) const BACKED_FIX: &str = "Each numbered finding of a fix ends with its citation: | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>. On red, after it, | ran: <the command of your json block that shows it fail>.";
+
+/// What each finding of a fix lacks to back it, a line each. A fix holds the change for what its
+/// findings say: each one cites its source and, on red, where the reviewer runs the change, names
+/// the command of its json block that shows it fail. One that isn't goes back to the reviewer who
+/// wrote it, never to a fresh one, which could miss what this one found (decision 107).
+fn unbacked(l: &Loaded, id: &str, r: &RoleReport) -> Vec<String> {
+    let red = log_kind(id) == LogKind::Change && l.state.progress.color.as_deref() == Some("red");
+    let ran: Vec<String> = commands_ran(r)
+        .iter()
+        .map(|x| report::plain_command(str_of(x, "command")))
+        .collect();
+    let mut lacks = vec![];
+    if r.findings.is_empty() {
+        lacks.push("no numbered finding: f1 <file>:<line> <what> | <its citation>".to_string());
+    }
+    for f in &r.findings {
+        let mut what = vec![];
+        if r.uncited.contains(&f.id) {
+            what.push("no citation".to_string());
+        }
+        match report::ran_of(&f.what).map(|(_, c)| report::plain_command(c)) {
+            _ if !red => {}
+            None => what.push("no last | ran: <command>".into()),
+            Some(c) if !ran.contains(&c) => what.push(format!(
+                "its | ran: {c} isn't a command of its json block{}",
+                closest(&ran, &c)
+            )),
+            Some(_) => {}
+        }
+        if !what.is_empty() {
+            lacks.push(format!("{}: {}", f.id, what.join(", and ")));
+        }
+    }
+    lacks
+}
+
+/// The command of the json block that shares the most words with the one a finding named.
+fn closest(ran: &[String], named: &str) -> String {
+    let shared = |c: &&String| {
+        c.split(' ')
+            .filter(|w| named.split(' ').any(|n| n == *w))
+            .count()
+    };
+    match ran.iter().rev().max_by_key(shared) {
+        Some(c) => format!(" (the closest there: {c})"),
+        None => ", which lists none".into(),
+    }
 }
 
 /// What a review step adds: its verdict, the color of what the change touched, what it ran and
@@ -756,15 +824,6 @@ fn report_review(
             format!("launch it again, once: gdd launch {id} review"),
         ));
     };
-    if verdict == "fix" && (r.findings.is_empty() || !r.uncited.is_empty()) {
-        let missing = if r.findings.is_empty() {
-            "no numbered finding".into()
-        } else {
-            r.uncited.join(", ")
-        };
-        out.say(format!("fix missing citations ({missing}): end each numbered finding with | @id:<scenario>, | check <id>, | zone <name>: <rule>, | constitution: <rule> or | request: <the person's words>"));
-        m.insert("uncited".into(), json!(r.uncited));
-    }
     let launch_review = || {
         if l.state.next.step == "gates" {
             format!("gdd gates {id}, then gdd launch {id} review")
@@ -831,20 +890,33 @@ fn report_review(
             json!({"on": "touched", "start": start, "head": head, "zones": [], "uncovered": [], "floor": null, "color": raise, "why": "no git: the reviewer's word"})
         }
     };
+    // A color that rose sends the change back to Brief whatever its findings say: it is recorded.
+    let rank = |c: Option<&str>| c.and_then(crate::color_rank);
+    let rose = rank(colorobj["color"].as_str()) > rank(p.color.as_deref());
+    let lacks = if verdict == "fix" && !rose {
+        unbacked(l, id, r)
+    } else {
+        vec![]
+    };
+    if !lacks.is_empty() {
+        // The journal keeps them, and the resumed reviewer's prompt repeats them.
+        let mut journal = out.journal.take().unwrap_or_else(|| json!({}));
+        journal["unbacked"] = json!(lacks);
+        out.journal = Some(journal);
+        return Err(Fail::refuse(
+            "unbacked-fix",
+            format!(
+                "this fix goes back to the reviewer who wrote it:\n- {}\n{BACKED_FIX}",
+                lacks.join("\n- ")
+            ),
+            format!(
+                "send these lines to that reviewer, in its own session, for its whole report again: gdd launch {id} review --run --command \"<the command that resumes it>\", or by hand, then gdd report {id} review <file>. Never a fresh reviewer, which would start over"
+            ),
+        ));
+    }
     m.insert("color".into(), colorobj);
     m.insert("verdict".into(), json!(verdict));
-    // What it ran, from the json block of its last message: its commands, as it gave them.
-    let ran: Vec<Value> = r
-        .list
-        .as_ref()
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter(|x| x.get("command").is_some_and(|c| c.is_string()))
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
+    let ran = commands_ran(r);
     if ran.is_empty() {
         out.say("its last message has no json block of what it ran: the log can't show it");
     }

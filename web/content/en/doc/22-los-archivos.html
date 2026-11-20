@@ -26,6 +26,7 @@
 <tr><td><code>gdd/log/&lt;id&gt;.engine.jsonl</code></td><td>The layer's journal: each time it was called, and what it refused.</td><td>The layer.</td><td>Nothing.</td></tr>
 <tr><td><code>gdd/backlog.md</code></td><td>What's left to build, each item with its expected color, and at most one hardening proposal per change.</td><td>Your agents, on every change.</td><td>It doesn't ask for your review. You read it when you want to know what's coming.</td></tr>
 <tr><td><code>gdd/exam.md</code></td><td>The changes that got past a reviewer, to examine the next ones with.</td><td>Your agent, when hardening.</td><td>You approve it with the hardening.</td></tr>
+<tr><td><code>.gdd/evidence/&lt;id&gt;/</code></td><td>The evidence the reviewer leaves for whoever approves: screenshots, a video or the output before and after.</td><td>The reviewer, when your blueprint asks for you to review the change.</td><td>You look at it before approving. Git ignores it.</td></tr>
 <tr><td>The <code>gdd-seal/&lt;id&gt;</code> branch</td><td>The seal: the brief, its scenarios and its tests, as they were approved.</td><td>The orchestrator and the agent that writes the cases.</td><td>Nobody merges it. On red, you can approve the brief in a pull request from it.</td></tr>
 </tbody>
 </table>

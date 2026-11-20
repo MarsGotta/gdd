@@ -345,7 +345,9 @@ fn fields_of(event: &str, step: &str) -> Vec<Field> {
             ("ran", Arr, Writes),
             ("findings", Arr, Writes),
             ("closed", Arr, Writes),
+            // Only older logs have it: a fix with an uncited finding is now sent back (decision 107).
             ("uncited", Arr, May),
+            ("evidence", Arr, May),
         ],
         ("step", "reading") => vec![("findings", Arr, Writes), ("missing", Arr, May)],
         ("step", "ship") => vec![
