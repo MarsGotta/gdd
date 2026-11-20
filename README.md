@@ -34,7 +34,7 @@ flowchart LR
 Agents write fast and almost right. If you review everything, you become the slowest step. If you review nothing, the errors reach production. And if the agent can touch what judges it, it learns to approve itself.
 
 - **What has to pass is written before anyone builds.** Your agent writes the rules of the change in plain words, with a few scenarios under each one, and where your blueprint asks for it you approve them before there is any code.
-- **Whoever builds doesn't judge.** Another agent turns each scenario into a test and seals it. The builder works without that conversation, and a reviewer that heard none of it runs the change and tries to make it fail.
+- **Whoever builds doesn't judge.** Another agent turns each scenario into a test and seals it. The builder works without that conversation, and a reviewer that heard none of it reads the change against what has to pass, and on red also runs it and tries to make it fail.
 - **You're asked where the risk is.** When you set GDD up, what is delicate in your project gets a color, green, yellow or red, and the color of what a change touches decides how much of it reaches you.
 - **The bookkeeping isn't in any agent's memory.** A small command, the layer, keeps the order of every change, counts its limits, writes its log and refuses what comes out of order. Your CI, once you set it up, checks every log where no agent writes.
 - **It runs on what your project already has.** Your tests, your linter, your CI and git. There's nothing to sign up for.

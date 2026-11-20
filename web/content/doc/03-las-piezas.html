@@ -13,7 +13,7 @@
 <thead><tr><th>Comprobación</th><th>Cómo se comprueba que sirve</th></tr></thead>
 <tbody>
 <tr><td><strong>De máquina</strong> (tests, linter, Sonar)</td><td>Se le da un caso malo y tiene que rechazarlo.</td></tr>
-<tr><td><strong>De vigilante</strong> (otro agente que ejecuta el cambio)</td><td>Tiene que cazar lo que ya se coló o fallos puestos a propósito.</td></tr>
+<tr><td><strong>De vigilante</strong> (otro agente que revisa el cambio y, donde el riesgo lo pide, lo ejecuta)</td><td>Tiene que cazar lo que ya se coló o fallos puestos a propósito.</td></tr>
 <tr><td><strong>De persona</strong> (tu aprobación)</td><td>Se mide cuánto tarda, para detectar aprobaciones sin leer.</td></tr>
 </tbody>
 </table>
@@ -36,5 +36,5 @@
 <li><strong>El orquestador</strong> recibe el cambio, contrata al agente y aplica tu plano a cada caso. Si lo que le piden son varias cosas, propone partes antes de empezar y el autor decide. Al empezar puedes serlo tú. Si es un agente, le atan las mismas reglas: puede proponer, pero no saltarse una puerta ni cambiar el plano (más en <a href="doc:el-nucleo">El núcleo</a>).</li>
 <li><strong>El agente</strong> es quien juega: hace el trabajo y pasa las puertas.</li>
 <li><strong>Otro agente</strong> construye las comprobaciones que define el plano y escribe los casos de cada cambio, en su propia sesión. También puede hacerlo una persona.</li>
-<li><strong>El vigilante</strong> es otro agente, en su propia sesión y con el contexto limpio: ejecuta el cambio y solo lo da por bueno si ha comprobado que funciona. Nunca es el que hizo el trabajo (el porqué está en <a href="doc:los-principios">Los siete principios</a>).</li>
+<li><strong>El vigilante</strong> es otro agente, en su propia sesión y con el contexto limpio: lee el cambio contra lo que debe pasar y, donde el riesgo lo pide, lo ejecuta y solo lo da por bueno si ha comprobado que funciona. Con las skills, en amarillo lo lee y en rojo, además, lo ejecuta. Nunca es el que hizo el trabajo (el porqué está en <a href="doc:los-principios">Los siete principios</a>).</li>
 </ul>

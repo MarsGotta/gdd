@@ -12,7 +12,7 @@
 <h2>Las piezas</h2>
 <ul>
 <li><strong>Puerta:</strong> lo que hay que demostrar antes de seguir.</li>
-<li><strong>Comprobaciones:</strong> lo que lo demuestra, una o varias, de tres tipos: de máquina (tests, linter, Sonar), de vigilante (otro agente que ejecuta el cambio y solo da el cambio por bueno si comprueba que funciona) y de persona (tu aprobación). Se pasa la puerta solo si pasan todas.</li>
+<li><strong>Comprobaciones:</strong> lo que lo demuestra, una o varias, de tres tipos: de máquina (tests, linter, Sonar), de vigilante (otro agente que revisa el cambio contra lo que debe pasar y, donde el riesgo lo pide, lo ejecuta y solo lo da por bueno si comprueba que funciona) y de persona (tu aprobación). Se pasa la puerta solo si pasan todas.</li>
 <li><strong>Contexto:</strong> lo que le das al agente para que pueda cruzar la puerta, esté en el repositorio o venga de fuera. El agente arranca siempre con el contexto limpio, solo con lo que necesita: el contexto transversal, que vale para todo el flujo (la constitución del proyecto, que son sus reglas, y las herramientas y skills de siempre), y el de su puerta, que puede incluir lo que generó la anterior. Le ayuda a cruzarla, pero no demuestra nada.</li>
 <li><strong>Riesgo:</strong> lo que puede salir mal.</li>
 <li><strong>Plano:</strong> donde queda escrito qué es delicado, qué puertas hacen falta, con sus comprobaciones, y qué pide cada nivel de riesgo. Cuándo se puede rebajar una comprobación, y qué te haría retirar una puerta, también se decide aquí, no en el cambio. Lo apruebas tú, o tu equipo si trabajas con uno, y el agente no lo toca.</li>

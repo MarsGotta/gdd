@@ -12,7 +12,7 @@
 <h2>The pieces</h2>
 <ul>
 <li><strong>Gate:</strong> what has to be proven before moving on.</li>
-<li><strong>Checks:</strong> what proves it, one or several, of three types: machine (tests, linter, Sonar), reviewer (another agent that runs the change and only passes the change if it checks that it works) and person (your approval). You get through the gate only if all of them pass.</li>
+<li><strong>Checks:</strong> what proves it, one or several, of three types: machine (tests, linter, Sonar), reviewer (another agent that reviews the change against what has to pass and, where the risk calls for it, runs it and only passes it if it checks that it works) and person (your approval). You get through the gate only if all of them pass.</li>
 <li><strong>Context:</strong> what you give the agent so it can get through the gate, whether it's in the repository or comes from outside. The agent always starts with a clean context, with only what it needs: the cross-cutting context, which applies to the whole flow (the project's constitution, meaning its rules, and the usual tools and skills), and the context of its gate, which can include what the previous gate generated. It helps it get through, but it proves nothing.</li>
 <li><strong>Risk:</strong> what can go wrong.</li>
 <li><strong>Blueprint:</strong> where it's written down what is delicate, which gates are needed, with their checks, and what each level of risk asks for. When a check can be relaxed, and what would make you retire a gate, is decided here too, not in the change. You approve it, or your team if you work with one, and the agent doesn't touch it.</li>
