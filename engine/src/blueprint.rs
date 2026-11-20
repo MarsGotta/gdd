@@ -45,6 +45,9 @@ pub struct ContextItem {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Models {
     pub launch: Option<String>,
+    /// The launch of a role that only reads, such as the reading of a brief: the same command,
+    /// with what keeps it from writing or running anything.
+    pub read_only: Option<String>,
     pub light: Option<String>,
     pub standard: Option<String>,
     pub deep: Option<String>,
@@ -266,6 +269,7 @@ impl Blueprint {
         };
         let models = |v: &Value| Models {
             launch: s(&v["launch"]),
+            read_only: s(&v["read_only"]),
             light: s(&v["light"]),
             standard: s(&v["standard"]),
             deep: s(&v["deep"]),

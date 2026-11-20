@@ -4,6 +4,7 @@ guarantee: <rule, platform or engine>
 levels:  # one block for each agents' environment the project is worked from
   <environment, by the name of its command>:
     launch: <tested command with <model> and, where the environment takes one, the reasoning effort; or how the agent tool selects them if no such command works here>
+    # read_only: <the same launch, with what keeps a role that only reads from writing or running anything>
     light: <model for little reasoning, cheap and fast, by the name that environment launches it with>
     standard: <model for normal reasoning>
     deep: <model for the most reasoning>

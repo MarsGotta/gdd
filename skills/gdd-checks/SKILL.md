@@ -2,6 +2,7 @@
 name: gdd-checks
 description: Writes and seals the cases of a change in Gate-Driven Development (GDD), a test for each scenario of its brief, or sets up a project's standing checks. Loaded only by the agent the GDD orchestrator launches for it, which never builds that change. Not for writing the change itself.
 license: MIT
+user-invocable: false
 metadata:
   version: "0.20.0"
   contract: gdd/1

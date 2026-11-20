@@ -2,6 +2,7 @@
 name: gdd-review
 description: Reviews a change in a Gate-Driven Development (GDD) project with a clean context, reads its brief before anyone builds it, or tries new standing checks before any change relies on them. Loaded only by the agent the GDD orchestrator launches for it. Never for building or approving, which belongs to people.
 license: MIT
+user-invocable: false
 metadata:
   version: "0.20.0"
   contract: gdd/1

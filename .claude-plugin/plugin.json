@@ -19,6 +19,8 @@
   "agents": [
     "./skills/adapters/claude-code/agents/gdd-build.md",
     "./skills/adapters/claude-code/agents/gdd-checks.md",
-    "./skills/adapters/claude-code/agents/gdd-review.md"
+    "./skills/adapters/claude-code/agents/gdd-read.md",
+    "./skills/adapters/claude-code/agents/gdd-review.md",
+    "./skills/adapters/claude-code/agents/gdd-scout.md"
   ]
 }
