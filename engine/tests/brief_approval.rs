@@ -339,8 +339,12 @@ fn what_the_change_takes_as_true_unseen_is_shown_as_unchecked() {
         )
     );
     assert!(
-        next.has("each 'unchecked' as something you took as true without seeing it"),
+        next.has("Mark each 'unchecked' as something you took as true of the outside without seeing it."),
         "{}",
         next.out
     );
+    // A brief that takes nothing on trust hears nothing about it.
+    let plain = Repo::new();
+    record(&plain, RULES);
+    assert!(!ok(&plain, &["next", "lines"]).has("unchecked"));
 }

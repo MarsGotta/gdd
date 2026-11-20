@@ -201,14 +201,19 @@ fn block(text: &str) -> Option<Vec<(String, String)>> {
             let label = numbered
                 .map_or(key.as_str(), |(_, rest)| rest)
                 .trim_matches(['-', '+', '*', '_', ' ']);
-            if matches!(label, "decision" | "decisions") {
+            if matches!(label, "decision" | "decisions" | "contested") {
                 // A bold label may enclose its colon, as in **decision:**.
                 if let Some(prefix) = key.strip_suffix(label)
                     && let Some(mark) = ["**", "__"].into_iter().find(|m| prefix.ends_with(m))
                 {
                     value = value.strip_prefix(mark).unwrap_or(value);
                 }
-                key = "decision".into();
+                key = if label == "contested" {
+                    "contested"
+                } else {
+                    "decision"
+                }
+                .into();
             }
             out.push((key, value.trim().to_string()));
         }
@@ -497,6 +502,7 @@ pub(crate) fn parse_with_blueprint(
     r.understood = bounded_lines(
         section(text, "UNDERSTOOD:", &["LATER:", "MISSING:", "COLOR:"])
             .iter()
+            .take(2)
             .map(String::as_str),
     )
     .join(" ");

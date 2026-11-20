@@ -15,6 +15,8 @@ pub struct ReportArgs {
     pub claims: Option<String>,
     pub closed: Option<String>,
     pub launch_reviewed: Option<String>,
+    /// The part of a split reading the layer launched, when it ran the reader itself.
+    pub launch_part: Option<String>,
     pub went: Vec<(String, String)>,
 }
 
@@ -1031,11 +1033,11 @@ fn report_reading(
     m: &mut Map<String, Value>,
 ) -> R<()> {
     let p = &l.state.progress;
-    let split = p
-        .color
-        .as_deref()
-        .is_some_and(|c| l.bp.color_readings(c) == 3);
-    match r.part.as_deref() {
+    // While a part is still unread, each report says which one it is, and none is read twice.
+    let waits = p.next_part().is_some()
+        && !p.read_since_red
+        && p.color.as_deref().is_some_and(|c| l.bp.splits_reading(c));
+    match a.launch_part.as_deref().or(r.part.as_deref()) {
         Some(part) if !READING_PARTS.contains(&part) => {
             return Err(Fail::refuse(
                 "no-part",
@@ -1043,14 +1045,14 @@ fn report_reading(
                 "its gdd-report block takes the line its prompt gave: part: understood, breaks or spare",
             ));
         }
-        Some(part) if p.parts_read.iter().any(|read| read == part) => {
+        Some(part) if waits && p.parts_read.iter().any(|read| read == part) => {
             return Err(Fail::refuse(
                 "out-of-order",
                 format!("the part {part} of this brief was already read"),
                 way_on(l, &l.state.id),
             ));
         }
-        None if split && !p.read_since_red => {
+        None if waits => {
             return Err(Fail::refuse(
                 "no-part",
                 "this brief is read in three parts, and the report doesn't say which one it is",
@@ -1150,6 +1152,9 @@ fn line_in(root: &Path, commit: Option<&str>, at: &str) -> Option<String> {
     (!line.trim().is_empty()).then(|| format!("{file}:{n}"))
 }
 
+/// How a builder writes a contest, for its fix round's prompt and for the refusal of one.
+pub(super) const HOW_TO_CONTEST: &str = "contested: <id> | <file>:<line> | <why>, with a line of the change or of its brief that answers the finding, one the reviewer can read. That it was intended is no line";
+
 /// What a build contests of the review that sent the change back. The reviewer backs each
 /// finding, and the builder backs each disagreement with a line the reviewer can read. It closes
 /// nothing: whether the finding stands is the next reviewer's to say, or a person's (decision 115).
@@ -1160,8 +1165,10 @@ fn contests(l: &Loaded, r: &RoleReport) -> R<Vec<Value>> {
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item["id"] == id))
     };
-    let review = events.iter().rev().find(|(_, v)| step(v) == "review");
-    let how = "contested: <id> | <file>:<line> | <why>, with a line of the change or of its brief that answers the finding. That it was intended is no line. Or fix it";
+    let mut reviews = events.iter().rev().filter(|(_, v)| step(v) == "review");
+    let review = reviews.next();
+    let earlier = reviews.next().map_or(0, |(line, _)| *line);
+    let how = format!("{HOW_TO_CONTEST}. Or fix it");
     let mut contested = vec![];
     for raw in &r.contested {
         let mut parts = raw.splitn(3, '|').map(str::trim);
@@ -1177,13 +1184,16 @@ fn contests(l: &Loaded, r: &RoleReport) -> R<Vec<Value>> {
                 how,
             ));
         }
-        // A finding the reviewer kept after reading the builder's line isn't argued twice. A
+        // A finding the last reviewer kept after reading the builder's line isn't argued twice:
+        // it was contested between the last two reviews, and the last one didn't close it. A
         // contest no reviewer has read yet, because the gates failed after it, is said again.
-        if events.iter().any(|(n, v)| {
-            review.is_some_and(|(read, _)| n < read)
-                && step(v) == "build"
-                && found(v, "contested", &id)
-        }) {
+        let read_and_kept = review.is_some_and(|(read, last)| {
+            !found(last, "closed", &id)
+                && events.iter().any(|(n, v)| {
+                    (earlier..*read).contains(n) && step(v) == "build" && found(v, "contested", &id)
+                })
+        });
+        if read_and_kept {
             return Err(Fail::refuse(
                 "contest-upheld",
                 format!("the reviewer read the line given for {id} and kept the finding"),

@@ -467,6 +467,7 @@ fn main() {
                         went: pairs(went),
                         codex_thread: None,
                         launch_reviewed: None,
+                        launch_part: None,
                     },
                 ),
                 Err(e) => gdd::Out::new("report").with_fail(gdd::Fail::missing(

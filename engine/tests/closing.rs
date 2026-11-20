@@ -824,6 +824,16 @@ fn what_nobody_had_checked_is_the_first_thing_to_look_at() {
     let look = r.gdd(&["close", "u1"]);
     assert_eq!(look.code, 0, "{}", look.out);
     assert!(look.has("nobody had checked them"), "{}", look.out);
+    // The brief step keeps it: the seal's commit may be gone by then.
+    let brief = r
+        .log_lines("u1")
+        .into_iter()
+        .find(|v| v["step"] == "brief")
+        .unwrap();
+    assert_eq!(
+        brief["unchecked"],
+        serde_json::json!(["The carrier answers within a day"])
+    );
     assert!(
         look.has("unchecked: The carrier answers within a day"),
         "{}",

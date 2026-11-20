@@ -156,6 +156,8 @@ pub struct Progress {
     pub shipped_at: Option<i64>,
     /// What the last brief step says closes the change: its three lines, or why nothing does.
     pub closing: Option<Value>,
+    /// What the last brief takes as true of the outside without anyone having checked it.
+    pub unchecked: Vec<String>,
     /// Every verdict a person gave once it was in use, in the order of the log.
     pub verdicts: Vec<Verdict>,
     pub last_ts: Option<i64>,
@@ -268,9 +270,9 @@ impl Progress {
     }
 
     /// Whether the brief got the reading its color asks for: a whole one, or each of its parts.
-    pub fn brief_read(&self, readings: i64) -> bool {
+    pub fn brief_read(&self, split: bool) -> bool {
         self.read_since_red
-            || if readings == 3 {
+            || if split {
                 self.next_part().is_none()
             } else {
                 !self.parts_read.is_empty()
@@ -492,6 +494,12 @@ impl Progress {
                 self.why = str_of(&v["color"], "why").to_string();
                 self.brief_files = hashes(&v["files"]);
                 self.closing = v.get("closing").filter(|c| c.is_object()).cloned();
+                self.unchecked = v["unchecked"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|title| title.as_str().map(str::to_string))
+                    .collect();
                 for (p, h) in &self.brief_files {
                     self.sealed.insert(p.clone(), h.clone());
                 }

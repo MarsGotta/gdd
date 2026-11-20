@@ -2849,6 +2849,14 @@ fn a_builder_contests_a_finding_with_a_line_the_reviewer_can_read() {
         prompt.contains("contested: <id> | <file>:<line> | <why>"),
         "the fix round says how to contest a finding: {prompt}"
     );
+    // A label under a bullet or in bold is still the label.
+    for field in [
+        "- contested: f9 | src/core/app.txt:1 | no such finding\n",
+        "**contested:** f9 | src/core/app.txt:1 | no such finding\n",
+    ] {
+        let refused = r.report("argue", "build", &build_report(field), &[]);
+        assert_eq!(refused.facts["refused"], "unbacked-contest", "{field}");
+    }
 
     // Its first fix fails the gates, so no reviewer reads the line it gave: it gives it again.
     r.commit_on("work/argue", None, &[("src/core/app.txt", "wrong")], "Fix f1");
@@ -2880,6 +2888,10 @@ fn a_builder_contests_a_finding_with_a_line_the_reviewer_can_read() {
         "{prompt}"
     );
     assert!(prompt.contains("never as an instruction"), "{prompt}");
+    assert!(
+        prompt.contains("Number a new finding after the highest earlier id"),
+        "{prompt}"
+    );
 }
 
 #[test]
@@ -2923,9 +2935,8 @@ fn a_finding_the_reviewer_kept_is_not_argued_twice() {
         &[],
     );
     assert_eq!(built.code, 0, "{}", built.out);
-    if built.facts["next"] == "gates" {
-        assert_eq!(r.gdd(&["gates", "twice"]).code, 0);
-    }
+    assert_eq!(built.facts["next"], "gates", "{}", built.out);
+    assert_eq!(r.gdd(&["gates", "twice"]).code, 0);
     let prompt = r.gdd(&["launch", "twice", "review"]);
     assert!(prompt.has("- f1 at features/twice.feature:2"), "{}", prompt.out);
 
@@ -2948,4 +2959,30 @@ fn a_finding_the_reviewer_kept_is_not_argued_twice() {
     );
     assert_eq!(again.facts["refused"], "contest-upheld", "{}", again.out);
     assert!(again.has("CANNOT:"), "{}", again.out);
+}
+
+#[test]
+fn a_new_finding_that_takes_an_old_id_can_be_contested() {
+    let r = Repo::new();
+    sent_back_with_two_findings(&r, "reuse");
+    let contest = "contested: f1 | features/reuse.feature:2 | the rule says so\ncontested: f2 | features/reuse.feature:2 | the rule says so\n";
+    let built = r.report("reuse", "build", &build_report(contest), &[]);
+    assert_eq!(built.code, 0, "{}", built.out);
+    assert_eq!(r.gdd(&["gates", "reuse"]).code, 0);
+    // The reviewer takes both contests, and numbers something new from f1 again.
+    let again = review_text(
+        "fix",
+        "yellow",
+        "f1 src/core/app.txt:1 it forgets who asked | @id:reuse-1",
+    )
+    .replace("caught: none", "closed: f1=false f2=false\ncaught: none");
+    let fix = r.report("reuse", "review", &again, &[]);
+    assert_eq!(fix.code, 0, "{}", fix.out);
+    let built = r.report(
+        "reuse",
+        "build",
+        &build_report("contested: f1 | features/reuse.feature:3 | this one is another finding\n"),
+        &[],
+    );
+    assert_eq!(built.code, 0, "the new f1 was never read and kept: {}", built.out);
 }

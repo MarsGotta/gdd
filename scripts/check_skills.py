@@ -29,8 +29,8 @@ What it checks:
     counter in the assets of gdd-prepare, and only gdd can be invoked
     implicitly in Codex;
   - the Claude Code adapters: the plugin names every one and each one exists,
-    is named as its file, preloads a skill that exists, inherits its model
-    and has the tools of its work and no more. The two that only read can't
+    is named as its file, inherits its model, has the tools of its work and
+    no more, and, when it plays a role, preloads its skill, which exists. The two that only read can't
     write or run, and only who judges starts without the project's
     instruction files;
   - eval cases use the contract's GDD block and give no target to an LLM grader;
@@ -84,6 +84,7 @@ READS = {"Read", "Grep", "Glob"}
 WORKS = READS | {"Edit", "Write", "Bash"}
 ONLY_READ = {"gdd-read", "gdd-scout"}  # the reading of a brief and the orchestrator's search write nothing and run nothing
 JUDGES = {"gdd-review", "gdd-read"}  # they start without the project's instruction files: the layer's prompt carries the constitution
+NO_SKILL = {"gdd-scout"}  # the orchestrator's search is no role: its file says all it does
 SHARED = [
     ("gdd-checks/references/scripts.md", "gdd-review/references/scripts.md"),
     ("gdd-prepare/references/web.md", "gdd-checks/references/web.md"),
@@ -164,6 +165,15 @@ def front_matter(path):
         if item:
             fields[item.group(1)] = item.group(2).strip().strip('"')
     return fields, match.group(2)
+
+
+def listed(head, key):
+    """The items of a front matter key, written on its line or as a list beneath it."""
+    inline = re.search(rf"^{key}:[ \t]*(\S[^\n]*)$", head, re.M)
+    if inline:
+        return [item.strip() for item in inline.group(1).strip("[]").split(",") if item.strip()]
+    block = re.search(rf"^{key}:[ \t]*\n((?:[ \t]+-[^\n]*\n?)+)", head, re.M)
+    return re.findall(r"-[ \t]*(\S+)", block.group(1)) if block else []
 
 
 def report_block(body):
@@ -424,30 +434,33 @@ def main():
     # environment enforces holds where a line of a skill only asks.
     manifest = ROOT / ".claude-plugin" / "plugin.json"
     try:
-        listed = {(ROOT / agent).resolve() for agent in json.loads(manifest.read_text(encoding="utf-8")).get("agents", [])}
+        named = {(ROOT / agent).resolve() for agent in json.loads(manifest.read_text(encoding="utf-8")).get("agents", [])}
     except (OSError, ValueError):
-        listed = set()
+        named = set()
         problem(manifest, "its agents can't be read")
-    for path in sorted(listed):
+    for path in sorted(named):
         if not path.is_file():
             problem(manifest, f"names the agent {path.name}, which doesn't exist")
     for path in sorted(ADAPTERS.glob("*.md")):
         fields, _ = front_matter(path)
         head = path.read_text(encoding="utf-8").split("\n---\n")[0]
         name = path.stem
-        if path.resolve() not in listed:
+        if path.resolve() not in named:
             problem(path, "isn't among the agents of .claude-plugin/plugin.json")
         if fields.get("name") != name:
             problem(path, f"its name is {fields.get('name')}, and its file is {name}")
         if fields.get("model") != "inherit":
             problem(path, "its model must be inherit: the blueprint gives each level its model")
-        tools = {tool.strip() for tool in fields.get("tools", "").split(",") if tool.strip()}
+        tools = set(listed(head, "tools"))
         wanted = READS if name in ONLY_READ else WORKS
         if tools != wanted:
             problem(path, f"its tools are {', '.join(sorted(tools))}, and its work takes {', '.join(sorted(wanted))}")
         if bool(re.search(r"^omitClaudeMd:\s*true\s*$", head, re.M)) != (name in JUDGES):
             problem(path, "omitClaudeMd: true is for who judges, and only for them")
-        for skill in re.findall(r"^\s+-\s+(\S+)\s*$", head, re.M):
+        preloaded = listed(head, "skills")
+        if bool(preloaded) == (name in NO_SKILL):
+            problem(path, "a role's adapter preloads its skill, and the orchestrator's search has none")
+        for skill in preloaded:
             if not (SKILLS / skill / "SKILL.md").is_file():
                 problem(path, f"preloads the skill {skill}, which doesn't exist")
 

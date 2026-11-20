@@ -6,9 +6,9 @@ They're optional. Each one maps a role that runs as its own agent to its skill, 
 
 Copy `claude-code/agents/` to `.claude/agents/` in your project. Each subagent preloads its skill, so it starts with its role and nothing else. They say `model: inherit` because the level depends on the change's color: the orchestrator launches each one with the model the blueprint gives that level.
 
-Each one has the tools of its work and no more. The three that write and run have six. Two only read, so they have `Read`, `Grep` and `Glob`: `gdd-read`, which reads a brief before anyone builds it, and `gdd-scout`, which searches the project for the orchestrator while it writes a brief and answers with a list of paths.
+Each one has the tools of its work and no more. The three that write and run have six. Two only read, so they have `Read`, `Grep` and `Glob`: `gdd-read`, which reads a brief before anyone builds it, and `gdd-scout`, which searches the project for the orchestrator while it writes a brief and answers with a list of paths. It is the one with no skill: its file says all it does.
 
-The two that judge, `gdd-review` and `gdd-read`, say `omitClaudeMd: true`: they start without the instruction files of the project and of the person, so nothing reaches them but what they are given. The constitution still does, because the layer writes it in their prompt as it stood at `<start>`. It needs Claude Code 2.1.271 or later.
+The two that judge, `gdd-review` and `gdd-read`, say `omitClaudeMd: true`: they start without the instruction files of the project and of the person, so those don't reach them. They can still read any file of the project. The constitution still does, because the layer quotes it in their prompt, as the main branch had it when the change started. It needs Claude Code 2.1.271 or later.
 
 They don't keep the builder away from what judges it. Claude Code has no permission rule on paths for one subagent alone: those rules live in the project's settings and bind every agent in the session, the orchestrator included. So the builder's limits stay where the method puts them: the `seal` check, the platform's protections and the agent's sandbox.
 

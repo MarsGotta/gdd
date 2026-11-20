@@ -252,20 +252,31 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !approval_is_due(l, id) {
         return;
     }
-    // A yes covers what was sealed: a brief the log holds without its seal shows nothing.
-    let brief = l
-        .state
-        .progress
-        .brief_line
-        .and_then(|n| l.entries[n - 1].event())
-        .filter(|brief| brief["seal"].is_string() && brief["files"].is_object());
-    let Some(brief) = brief else {
+    let p = &l.state.progress;
+    let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
         return;
     };
+    let (Some(seal), Some(files)) = (brief["seal"].as_str(), brief["files"].as_object()) else {
+        return;
+    };
+    let root = &l.project.root;
+    let base = p.base.as_deref();
     let mut lines = Vec::new();
     let mut found = false;
-    for (file, headings) in sealed_headings(l) {
-        for (label, title) in headings {
+    for file in files.keys().filter(|f| f.ends_with(".feature")) {
+        let Some(text) = git::show(root, seal, file) else {
+            continue;
+        };
+        let original = base
+            .and_then(|b| git::show(root, b, file))
+            .unwrap_or_default();
+        let changed = changed_feature(&text, &original);
+        let mut headings = changed.rules;
+        for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
+            headings.insert(s.line, ("no rule", s.title));
+        }
+        for (label, heading) in headings.into_values() {
+            let title = heading.split_once(':').unwrap().1.trim();
             found = true;
             lines.push(format!("{label}: {title}"));
         }
@@ -278,56 +289,22 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !found {
         return;
     }
-    // What a reader who saw only the brief took the change to do goes first: if it isn't what
-    // they asked for, they see it before they say yes.
+    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
+    if lines.iter().any(|line| line.starts_with("unchecked: ")) {
+        out.say("Mark each 'unchecked' as something you took as true of the outside without seeing it.");
+    }
+    // What a reader who saw only the brief took the change to do goes first, and only of the
+    // version they are asked to approve: an earlier reading says nothing of what came after it.
     let understood = log::events(&l.entries)
         .into_iter()
         .rev()
-        .filter(|(_, v)| step(v) == "reading")
+        .filter(|(line, v)| p.brief_line.is_some_and(|b| *line > b) && step(v) == "reading")
         .find_map(|(_, v)| v["understood"].as_str());
     if let Some(understood) = understood {
+        out.say("Give 'understood' first: it is what a reader who saw only the brief took the change to do.");
         lines.insert(0, format!("understood: {understood}"));
     }
-    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice and each 'unchecked' as something you took as true without seeing it, name each file, and end with one question they can answer with a yes.");
-    if understood.is_some() {
-        out.say("Give 'understood' first: it is what a reader who saw only the brief took the change to do.");
-    }
     out.lines.extend(lines);
-}
-
-/// The rules a change adds or changes, each with its label, and its new scenarios without a
-/// rule, by feature file: from the sealed version the log names.
-pub(super) fn sealed_headings(l: &Loaded) -> Vec<(String, Vec<(&'static str, String)>)> {
-    let p = &l.state.progress;
-    let Some(brief) = p.brief_line.and_then(|n| l.entries[n - 1].event()) else {
-        return vec![];
-    };
-    let (Some(seal), Some(files)) = (brief["seal"].as_str(), brief["files"].as_object()) else {
-        return vec![];
-    };
-    let root = &l.project.root;
-    let mut by_file = vec![];
-    for file in files.keys().filter(|f| f.ends_with(".feature")) {
-        let Some(text) = git::show(root, seal, file) else {
-            continue;
-        };
-        let original = p
-            .base
-            .as_deref()
-            .and_then(|b| git::show(root, b, file))
-            .unwrap_or_default();
-        let changed = changed_feature(&text, &original);
-        let mut headings = changed.rules;
-        for s in changed.scenarios.into_iter().filter(|s| s.rule.is_none()) {
-            headings.insert(s.line, ("no rule", s.title));
-        }
-        let titled = headings
-            .into_values()
-            .map(|(label, heading)| (label, heading.split_once(':').unwrap().1.trim().to_string()))
-            .collect();
-        by_file.push((file.clone(), titled));
-    }
-    by_file
 }
 
 /// The `brief` step: the planned color from the paths, the base, the files with their hashes and
@@ -601,6 +578,30 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
         }
         if let Some(c) = closing {
             ev["closing"] = c;
+        }
+        // What it takes as true of the outside without anyone having checked it stays in the
+        // step: the commit of the seal may be gone by the time the change is closed.
+        let unchecked: Vec<String> = if files.is_empty() {
+            l.state.progress.unchecked.clone()
+        } else {
+            a.files
+                .iter()
+                .filter(|f| f.ends_with(".feature"))
+                .flat_map(|file| {
+                    let text = std::fs::read_to_string(ctx.root.join(file)).unwrap_or_default();
+                    let original = git::show(&ctx.root, &base, file).unwrap_or_default();
+                    changed_feature(&text, &original)
+                        .rules
+                        .into_values()
+                        .filter(|(label, _)| *label == "unchecked")
+                        .filter_map(|(_, heading)| heading.split_once(':'))
+                        .map(|(_, title)| title.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+        if !unchecked.is_empty() {
+            ev["unchecked"] = json!(unchecked);
         }
         let line = write(&l, id, &ev)?;
         out.say(format!(

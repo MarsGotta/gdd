@@ -178,13 +178,10 @@ impl Blueprint {
         self.color_checks(color).iter().any(|c| c == check)
     }
 
-    /// How many readings the brief of a color gets before its approval: one, or three when the
-    /// blueprint splits the reading in its parts, each with a reader of its own.
-    pub fn color_readings(&self, color: &str) -> i64 {
-        match whole(&self.front["colors"][color]["readings"]) {
-            Some(3) => 3,
-            _ => 1,
-        }
+    /// Whether a color has the reading of its brief split in its three parts, each with a reader
+    /// of its own: its `readings` is 3. One reading is the default.
+    pub fn splits_reading(&self, color: &str) -> bool {
+        whole(&self.front["colors"][color]["readings"]) == Some(3)
     }
 
     pub fn color_level(&self, color: &str) -> Option<String> {
@@ -355,6 +352,14 @@ impl Blueprint {
             if crate::color_rank(c).is_none() {
                 p.push(format!(
                     "colors has {c:?}, which is not green, yellow or red"
+                ));
+            }
+        }
+        for color in &colors {
+            let readings = &self.front["colors"][color]["readings"];
+            if !readings.is_null() && !matches!(whole(readings), Some(1 | 3)) {
+                p.push(format!(
+                    "color {color} has readings {readings}, which is neither 1 nor 3: its brief gets one reading"
                 ));
             }
         }
