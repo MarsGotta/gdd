@@ -308,7 +308,7 @@ pub(crate) fn next_step(
             a.ts.map(|t| crate::time::waited(now - t))
                 .unwrap_or_default();
         let reminder = match a.of.as_str() {
-            "brief" => ". To ask again, load gdd-brief and send its approval message: each rule or scenario in a line, your assumptions, the feature file, one question".into(),
+            "brief" => ". To ask again, load gdd-brief and send its approval message again, with every line the layer prints for it".into(),
             "change" => evidence_for_the_person(p),
             _ => String::new(),
         };
