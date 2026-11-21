@@ -7,7 +7,6 @@ export const sprite = `<svg class="sprite" aria-hidden="true" width="0" height="
 <symbol id="i-persona" viewBox="0 0 24 24"><circle cx="12" cy="7.5" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c.6-4.600 3.800-7 8-7s7.400 2.400 8 7" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
 <symbol id="i-tema" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></symbol>
 <symbol id="i-cruz" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.4"/></symbol>
-<symbol id="i-abajo" viewBox="0 0 14 14"><path d="M7 1v11M2.500 7.500 7 12l4.500-4.500" stroke="currentColor" stroke-width="1.8" fill="none"/></symbol>
 <symbol id="i-ok" viewBox="0 0 24 24"><path d="m4.500 12.500 5 5L19.500 7" fill="none" stroke="currentColor" stroke-width="2.4"/></symbol>
 <symbol id="i-limite" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3.5 2.5"/><circle cx="12" cy="12" r="2.8" fill="currentColor"/></symbol>
 <symbol id="i-abierta" viewBox="0 0 24 24"><path d="M3 21h3M18 21h3" stroke="currentColor" stroke-width="2.4" fill="none"/><path d="M6 21V5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M6 5a16 16 0 0 1 12 16" stroke="currentColor" stroke-width="1.2" fill="none"/></symbol>
@@ -19,27 +18,6 @@ export const sprite = `<svg class="sprite" aria-hidden="true" width="0" height="
 export const marca = (clase = '') => `<svg class="marca ${clase}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M1 21.500h5M18.500 21.500H23" stroke="currentColor" stroke-width="3" fill="none"/><path d="M6 21.500V4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M6 4a15 17.500 0 0 1 12.500 17.500" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>`;
 
 export const icono = (id, cls = '') => `<svg class="icono ${cls}" aria-hidden="true" focusable="false"><use href="#i-${id}"/></svg>`;
-
-// --- The door of the opening, seen from above: one agent, one lock, one key, in ink. ---
-export const escena = (tr) => `<svg class="escena" viewBox="120 20 510 400" role="img" aria-label="${tr('Un plano visto desde arriba. Un agente llega a una puerta cerrada y dice hecho. La puerta comprueba el trabajo y no le deja pasar. El agente lo arregla, pasa la comprobación, la puerta se abre y pasa.', 'A floor plan seen from above. An agent reaches a closed gate and says done. The gate checks the work and does not let it through. The agent fixes it, passes the check, the gate opens and it goes through.')}" focusable="false">
-  <path class="escena__ruta" d="M130 220H372"/><path class="escena__ruta" d="M388 220H600"/>
-  <path class="escena__muro" d="M380 150V30H620V410H380V290"/>
-  <path class="escena__arco" d="M380 290A140 140 0 0 0 520 150"/>
-  <text x="604" y="62" text-anchor="end">${tr('producción', 'production')}</text>
-  <text x="392" y="136">${tr('puerta', 'gate')}</text>
-  <text x="368" y="354" text-anchor="end">${tr('comprobación', 'check')}</text>
-  <circle class="escena__insignia" cx="350" cy="316" r="16"/>
-  <use href="#i-cerradura" x="339" y="305" width="22" height="22"/>
-  <g class="escena__mal"><circle class="escena__lleno" cx="350" cy="316" r="16"/><use class="escena__sobre" href="#i-cruz" x="339" y="305" width="22" height="22"/></g>
-  <g class="escena__bien"><circle class="escena__lleno" cx="350" cy="316" r="16"/><use class="escena__sobre" href="#i-llave" x="339" y="305" width="22" height="22"/></g>
-  <line class="escena__hoja" x1="380" y1="150" x2="380" y2="290"/>
-  <g class="escena__llave"><use href="#i-llave" x="-14" y="-14" width="28" height="28"/><text x="0" y="-20" text-anchor="middle">${tr('pasa', 'passes')}</text></g>
-  <g class="escena__agente">
-    <circle class="escena__lleno" cx="0" cy="220" r="11"/>
-    <text x="0" y="198" text-anchor="middle">${tr('agente', 'agent')}</text>
-    <g class="escena__globo"><text class="escena__dicho" x="0" y="176" text-anchor="middle">${tr('"hecho"', '"done"')}</text></g>
-  </g>
-</svg>`;
 
 // --- The floor plan: three rooms in a row, three doors and a small office for you. ---
 const Y0 = 60, Y1 = 220, GAP0 = 110, GAP1 = 170, W = 8;
@@ -150,17 +128,6 @@ export const plano = (tr, { pie, tocaVerde, tocaAmarillo, tocaRojo }) => `<figur
   </dl>
   <figcaption>${pie}</figcaption>
 </figure>`;
-
-// --- Three small plans for the problem: a shared corridor drawn three ways. ---
-const pasillo = (interior) => `<svg class="dibujo" viewBox="0 0 300 150" aria-hidden="true" focusable="false"><g class="plano__muros"><rect x="8" y="28" width="284" height="6"/><rect x="8" y="116" width="284" height="6"/>${interior}</g>`;
-const punto = (x, y = 75, clase = 'dibujo__agente') => `<circle class="${clase}" cx="${x}" cy="${y}" r="7"/>`;
-const jambas = '<rect x="187" y="34" width="6" height="18"/><rect x="187" y="98" width="6" height="18"/>';
-
-export const dibujoTodo = `${pasillo(jambas)}${[34, 62, 90, 118, 146].map((x) => punto(x)).join('')}${punto(190, 75, 'dibujo__persona')}</svg>`;
-
-export const dibujoNada = `${pasillo('')}${[26, 72, 118, 164, 210].map((x) => punto(x)).join('')}<use class="dibujo__fallo" href="#i-cruz" x="244" y="63" width="24" height="24"/></svg>`;
-
-export const dibujoSolo = `${pasillo(jambas)}<line class="dibujo__hoja" x1="190" y1="98" x2="236" y2="98"/><path class="dibujo__arco" d="M190 52 A46 46 0 0 1 236 98"/>${punto(128)}<use class="dibujo__objeto" href="#i-cerradura" x="86" y="62" width="26" height="26"/><use class="dibujo__objeto" href="#i-llave" x="144" y="62" width="26" height="26"/></svg>`;
 
 // --- A single door, drawn large, to name its parts. ---
 export const anatomia = (tr) => `<figure class="anatomia">

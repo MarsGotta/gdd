@@ -89,8 +89,8 @@ for (const [i, nombre, ruta] of IDIOMAS.flatMap((x) => Object.entries(DOCS[x]).m
 console.log(`Documentos: ${comprobados} bloques comprobados en ${IDIOMAS.flatMap((x) => Object.keys(DOCS[x])).length} páginas, y ninguno de más.`);
 const todo = norm(textoDeTodos.join(' '));
 
-const TOPE_HEROE = 40;
-const TOPE_INICIO = 300;
+const TOPE_HEROE = 60;
+const TOPE_INICIO = 1600;
 
 // 2. The words of the floor plan and the demo come from the documents, apart from a short list.
 const propias = new Set([
@@ -344,23 +344,34 @@ for (const [ruta, html] of Object.entries(paginas)) {
   if (rotos) fallos.push(`${ruta}: imágenes sin alt`);
 }
 
-// 8. The home stays light and guided: a door, three drawings, four sentences and the floor plan.
+// 8. The home: the landing of the design canvas. Its rooms in order, the hero and the page within
+// their caps, a source for every team it cites, the walkthrough, the manifesto's seven principles
+// and four questions, and no word of the hands-on shop.
 for (const [ruta, secciones, tienda] of [
-  ['/index.html', 'El problema > La idea > El recorrido > Por dónde seguir', /tienda online|VERANO|80 €|pagos\//],
-  ['/en/index.html', 'The problem > The idea > The walkthrough > Where to go next', /online store|online shop|SUMMER|€80|payments\//],
+  ['/index.html', 10, /tienda online|VERANO|80 €|pagos\//],
+  ['/en/index.html', 10, /online store|online shop|SUMMER|€80|payments\//],
 ]) {
   const $ = cheerio.load(paginas[ruta]);
   const main = $('main');
   if (tienda.test(norm(main.text()))) fallos.push(`${ruta} vuelve a hablar de la tienda`);
-  const orden = main.find('h2').map((_, h) => norm($(h).text())).get().join(' > ');
-  if (orden !== secciones) fallos.push(`${ruta} cambia de orden: ${orden}`);
-  if (!main.find('.heroe .escena').length) fallos.push(`${ruta} ha perdido la escena de la puerta`);
-  if (main.find('.tres figure').length !== 3) fallos.push(`${ruta}: el problema ha perdido sus tres dibujos`);
+  const salas = main.find('.g > section').length;
+  if (salas !== secciones) fallos.push(`${ruta}: tiene ${salas} salas y la portada lleva ${secciones}`);
+  if (!main.find('.g-hero h1').length) fallos.push(`${ruta} ha perdido el héroe`);
   if (!main.find('#plano').length) fallos.push(`${ruta} ha perdido el recorrido`);
-  if (main.find('.puente').length !== 3) fallos.push(`${ruta}: alguna sección ya no lleva a la siguiente`);
-  const heroe = norm(main.find('.heroe > div').first().text()).split(' ').length;
+  const equipos = main.find('.g-equipos > li');
+  if (equipos.length < 3 || equipos.filter((_, li) => !$(li).find('a[href^="http"]').length).length) fallos.push(`${ruta}: algún equipo del sector va sin su fuente`);
+  if (main.find('.g-prin li').length !== 7 || main.find('.g-test').last().find('li').length !== 4) fallos.push(`${ruta}: faltan principios o preguntas del manifiesto`);
+  if (main.find('.g-vig figure').length !== 3) fallos.push(`${ruta}: el problema ha perdido sus tres dibujos`);
+  // A figure on the home carries its source in its block, in a caption too, or in the list item or
+  // figure around it.
+  main.find('p, li, figcaption').not('.plano *').each((_, n) => {
+    const b = $(n);
+    if (b.find('p, li').length) return;
+    if (/\d[\d.,]*\s?%|\b\d{1,3}[.,]\d{3}\b/.test(norm(b.text())) && !b.find('a[href^="http"]').length && !b.parent().closest('li').find('a[href^="http"]').length && !b.closest('figure').find('a[href^="http"]').length) fallos.push(`${ruta}: cifra sin fuente: ${norm(b.text()).slice(0, 90)}`);
+  });
+  const heroe = norm(main.find('.g-hero .g-room').text().replace(main.find('.g-hero .g-cta').text(), '')).split(' ').length;
   if (heroe > TOPE_HEROE) fallos.push(`${ruta}: el héroe tiene ${heroe} palabras y el tope es ${TOPE_HEROE}`);
-  main.find('.plano, .relato').remove();
+  main.find('.plano').remove();
   const palabras = norm(main.text()).split(' ').length;
   if (palabras > TOPE_INICIO) fallos.push(`${ruta} tiene ${palabras} palabras y el tope es ${TOPE_INICIO}`);
   console.log(`${ruta}: ${heroe} palabras en el héroe y ${palabras} en toda la página, sin contar el recorrido.`);

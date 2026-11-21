@@ -1,16 +1,3 @@
-// The door of the opening plays by itself, so it can be paused.
-(() => {
-  const heroe = document.querySelector('.heroe');
-  const boton = heroe?.querySelector('[data-heroe-pausa]');
-  if (!boton) return;
-  boton.addEventListener('click', () => {
-    const pausada = heroe.dataset.pausa !== 'si';
-    heroe.dataset.pausa = pausada ? 'si' : 'no';
-    const ingles = document.documentElement.lang === 'en';
-    boton.textContent = pausada ? (ingles ? 'Resume' : 'Seguir') : (ingles ? 'Pause' : 'Pausar');
-  });
-})();
-
 // The floor plan on the home page: one run through the doors for each level of risk.
 // Every step only declares what changes; the state of a step is the sum of those before it.
 (() => {

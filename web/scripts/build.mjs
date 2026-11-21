@@ -6,7 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as cheerio from 'cheerio';
 import esbuild from 'esbuild';
-import { sprite, marca, icono, plano, escena, dibujoTodo, dibujoNada, dibujoSolo, anatomia } from './partes.mjs';
+import { sprite, marca, icono, plano, anatomia } from './partes.mjs';
+import { portada } from './portada.mjs';
 import { PARTES, TIPOS, DOCS, CAPITULOS, TOTAL, ORDEN, MENU, PIE, REDIRECCIONES } from './estructura.mjs';
 import { SKILLS, CONTRATO, conVersiones } from './versiones.mjs';
 import { aMarkdown } from './markdown.mjs';
@@ -25,7 +26,7 @@ const TUTORIAL_JS = fs.existsSync(path.join(raiz, 'src/js/tutorial.js'));
 let tutorial = () => '';
 if (!TUTORIAL_FALTA.includes('scripts/tutorial.mjs')) ({ tutorial } = await import('./tutorial.mjs'));
 const VERSION = createHash('sha256')
-  .update(['src/css/tema-gdd.css', 'src/css/site.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/tutorial.js', 'src/js/sitio.js', 'src/js/kimen.js', 'node_modules/@kimen/elements/package.json', 'node_modules/@kimen/tokens/package.json'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
+  .update(['src/css/tema-gdd.css', 'src/css/site.css', 'src/css/portada.css', 'src/css/tutorial.css', 'src/js/plano.js', 'src/js/portada.js', 'src/js/tutorial.js', 'src/js/sitio.js', 'src/js/kimen.js', 'node_modules/@kimen/elements/package.json', 'node_modules/@kimen/tokens/package.json'].filter((f) => fs.existsSync(path.join(raiz, f))).map(leer).join(''))
   .digest('hex').slice(0, 10);
 
 // --- Two languages -------------------------------------------------------------------------
@@ -264,7 +265,7 @@ const otraRuta = (ruta) => {
 // brand, the sections and, as actions, the other language and the light or dark switch. Below
 // 48rem, where the row no longer fits, it folds the sections into a menu (Kimen 0.1.1 needs the
 // attribute written: without it the bar never folds).
-const cabecera = (ruta) => `<div class="cabecera"><ki-top-nav class="contenedor" label="${tr('Principal', 'Main')}" navigation-label="${tr('Abrir el menú', 'Open the menu')}" collapse-at="48rem">
+const cabecera = (ruta, enPlano = false) => `<div class="cabecera${enPlano ? ' cabecera--plano' : ''}"${enPlano ? ' data-ki-color-scheme="dark"' : ''}><ki-top-nav class="contenedor" label="${tr('Principal', 'Main')}" navigation-label="${tr('Abrir el menú', 'Open the menu')}" collapse-at="48rem">
   <a slot="brand" class="logo" href="${rutaInicio()}"${ruta === rutaInicio() ? ' aria-current="page"' : ''}>${marca()}<span>Gate-Driven Development</span></a>
   ${MENU.map((k) => {
     const r = DOCS[k][idioma].ruta;
@@ -310,7 +311,7 @@ const datos = ({ ruta, titulo, descripcion, inicial }) => {
 const RUTAS_MD = new Set(Object.values(DOCS).flatMap((d) => [d.es.ruta, d.en.ruta]));
 const aMd = (ruta) => `${DOMINIO}${ruta}index.html.md`;
 
-const documento = ({ ruta, titulo, descripcion, cuerpo, scripts = [], indexable = true, enlacesCabeza = '' }) => {
+const documento = ({ ruta, titulo, descripcion, cuerpo, scripts = [], estilos = [], cabeceraPlano = false, indexable = true, enlacesCabeza = '' }) => {
   const enEs = idioma === 'es' ? ruta : otraRuta(ruta);
   const enEn = idioma === 'en' ? ruta : otraRuta(ruta);
   const buscadores = indexable
@@ -329,14 +330,15 @@ ${datos({ ruta, titulo, descripcion, inicial: ruta === rutaInicio() })}`
 <title>${titulo}</title>
 <meta name="description" content="${descripcion}">
 <meta name="author" content="Marcela Gotta">
-<meta name="theme-color" content="#f7f9fb" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#12458b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="${cabeceraPlano ? '#063879' : '#f7f9fb'}" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="${cabeceraPlano ? '#063879' : '#12458b'}" media="(prefers-color-scheme: dark)">
 ${buscadores}
 ${enlacesCabeza}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preload" href="/assets/archivo.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/kimen.css?v=${VERSION}">
 <link rel="stylesheet" href="/assets/site.css?v=${VERSION}">
+${estilos.map((e) => `<link rel="stylesheet" href="/assets/${e}?v=${VERSION}">`).join('\n')}
 <noscript><style>.plano__eleccion, .plano__avance { display: none; }</style></noscript>
 <meta property="og:type" content="${ruta === rutaInicio() ? 'website' : 'article'}">
 <meta property="og:locale" content="${tr('es_ES', 'en_US')}">
@@ -354,7 +356,7 @@ ${enlacesCabeza}
 <body>
 <a class="saltar" href="#contenido">${tr('Saltar al contenido', 'Skip to content')}</a>
 ${sprite}
-${cabecera(ruta)}
+${cabecera(ruta, cabeceraPlano)}
 <main id="contenido">
 ${cuerpo}
 </main>
@@ -367,11 +369,6 @@ ${scripts.map((s) => `<script src="/assets/${s}?v=${VERSION}" defer></script>`).
 `;
 };
 
-const muro = '<div class="muro" aria-hidden="true"></div>';
-const seccion = (id, titulo, cuerpo) => `<section class="seccion contenedor" aria-labelledby="${id}">
-  <div class="seccion__cab"><h2 id="${id}">${titulo}</h2></div>
-  <div class="seccion__cuerpo">${cuerpo}</div>
-</section>`;
 
 const indice = (entradas) => `<nav class="indice" aria-label="${tr('En esta página', 'On this page')}">
   <details>
@@ -381,101 +378,28 @@ const indice = (entradas) => `<nav class="indice" aria-label="${tr('En esta pág
 </nav>`;
 
 // --- The home page ------------------------------------------------------------------------
-const puente = (id, t) => `<a class="puente" href="#${id}">${t}${icono('abajo', 'flecha')}</a>`;
-
-const inicio = () => {
-  const [promesa, ...subtitulo] = texto('manifiesto', tr('Añade puertas a tu proyecto', 'Add gates to your project')).split(/(?<=\.) /);
-  const [p0, p1, p2, p3] = texto('manifiesto', tr('Los agentes escriben rápido', 'Agents write fast')).split(/(?<=\.) /);
-  const g = 'la-idea';
-
-  const portada = `<section class="heroe contenedor">
-    <div>
-      <h1>${promesa}</h1>
-      <p class="heroe__sub">${subtitulo.join(' ')}</p>
-      <div class="salidas">
-        <a class="boton" href="${DOCS.empieza[idioma].ruta}">${tr('Empieza', 'Get started')}</a>
-        <a href="#${tr('el-problema', 'the-problem')}">${tr('Cómo funciona', 'How it works')}${icono('abajo', 'flecha')}</a>
-      </div>
-    </div>
-    <div class="heroe__dibujo">
-      ${escena(tr)}
-      <div class="heroe__pie">
-        <ol class="relato">
-          <li class="relato__1">${tr('El agente dice: "hecho". Decirlo no abre nada.', 'The agent says "done." Saying it opens nothing.')}</li>
-          <li class="relato__2">${tr('La puerta lo comprueba. No pasa, y vuelve.', 'The gate checks it. It fails, and goes back.')}</li>
-          <li class="relato__3">${tr('Lo arregla. Ahora pasa la comprobación.', 'It fixes it. Now it passes the check.')}</li>
-          <li class="relato__4">${tr('La puerta se abre, sin que hayas estado encima.', 'The gate opens, without you standing over it.')}</li>
-        </ol>
-        <button type="button" class="pausa" data-heroe-pausa>${tr('Pausar', 'Pause')}</button>
-      </div>
-    </div>
-  </section>`;
-
-  const problema = seccion(tr('el-problema', 'the-problem'), tr('El problema', 'The problem'), `
-    <p class="grande">${p0}</p>
-    <div class="tres">
-      <figure>${dibujoTodo}<figcaption>${p1}</figcaption></figure>
-      <figure>${dibujoNada}<figcaption>${p2}</figcaption></figure>
-      <figure>${dibujoSolo}<figcaption>${p3}</figcaption></figure>
-    </div>
-    <p class="declaracion">${interior('manifiesto', tr('Al final es una bestia indomable', 'In the end it is an untamable beast'))}</p>
-    ${puente(tr('la-idea', 'the-idea'), tr('Cómo se ponen esas puertas', 'How to set up those gates'))}
-  `);
-
-  const cuatro = [
-    ['persona', tr('Antes de que el agente empiece, decides qué tiene que ser verdad cuando termine.', 'Before the agent starts, you decide what has to be true when it finishes.')],
-    ['cerradura', tr('Lo demuestra algo que ya usas y que él no puede tocar: un test, un linter, una revisión.', "It's proven by something you already use and it can't touch: a test, a linter, a review.")],
-    [null, tr('Si el cambio es una errata, casi ni te enteras. Si toca el cobro, le pides más, y puede que te llame.', 'If the change is a typo, you barely notice. If it touches billing, you ask for more, and it may call you.')],
-    ['llave', tr('Y cuando algo se cuela, añades lo que lo habría parado, y por ahí ya no vuelve a entrar.', "And when something slips through, you add what would have stopped it, and it won't get in that way again.")],
-  ];
-  const base = idioma === 'es'
-    ? interior('manifiesto', 'Esa es la base de GDD:').replace(/^Esa es la base de GDD: /, '').replace('no desarrollamos', 'No desarrollamos')
-    : interior('manifiesto', 'That is the basis of GDD:').replace(/^That is the basis of GDD: /, '').replace("we don't", "We don't");
-  const idea = seccion(tr('la-idea', 'the-idea'), tr('La idea', 'The idea'), `
-    <p class="grande">${tr('Funciona así.', 'It works like this.')}</p>
-    <ul class="cuatro">
-      ${cuatro.map(([ic, t]) => `<li>${ic ? icono(ic, ic === 'persona' ? 'icono--persona' : '') : '<span class="cuatro__lamparas" aria-hidden="true"><span class="lampara lampara--rojo"></span><span class="lampara lampara--amarillo"></span><span class="lampara lampara--verde"></span></span>'}<span>${t}</span></li>`).join('\n')}
-    </ul>
-    <p class="declaracion">${base}</p>
-    ${puente(tr('el-recorrido', 'the-walkthrough'), tr('Míralo en marcha', 'See it in action'))}
-  `);
-
-  const recorrido = `<section class="recorrido contenedor" aria-labelledby="${tr('el-recorrido', 'the-walkthrough')}">
-    <div class="recorrido__cabeza">
-      <h2 id="${tr('el-recorrido', 'the-walkthrough')}">${tr('El recorrido', 'The walkthrough')}</h2>
-      <p class="grande" id="eleccion-titulo">${tr('Elige qué le pides al agente y mira qué cambia.', 'Choose what you ask the agent and see what changes.')}</p>
-    </div>
-    ${plano(tr, {
-      pie: `${tr('Tres puertas de ejemplo: en tu proyecto habrá las que hagan falta.', 'Three example gates: your project will have the ones it needs.')} ${interior('manifiesto', tr('Lo que no se puede deshacer nunca es verde.', "What can't be undone is never green."))}`,
-      tocaVerde: interior(g, tr('Nada: pides el cambio', 'Nothing: you ask for the change')),
-      tocaAmarillo: interior(g, tr('Aprobar sus reglas antes', 'Approve its rules before')),
-      tocaRojo: interior(g, tr('Aprobar sus reglas y revisar', 'Approve its rules, and review')),
-    })}
-    ${puente(tr('donde-seguir', 'where-to-go-next'), tr('Pruébalo en tu proyecto', 'Try it on your project'))}
-  </section>`;
-
-  const caminos = [
-    ['manos-a-la-obra', DOCS['manos-a-la-obra'][idioma].menu, tr('Preparamos cuatro puertas y revisamos cuatro cambios, de menos a más riesgo', 'We prepare four gates and review four changes, from less to more risk')],
-    ['documentacion', DOCS.documentacion[idioma].menu, tr('Empieza por la idea y sigue hasta donde te haga falta', 'Start with the idea and go as far as you need')],
-    ['manifiesto', tr('Manifiesto', 'Manifesto'), tr('Una regla, siete principios y cinco momentos, en una página', 'One rule, seven principles and five moments, on one page')],
-  ];
-  const seguir = seccion(tr('donde-seguir', 'where-to-go-next'), tr('Por dónde seguir', 'Where to go next'), `
-    <p class="grande">${tr('Puedes empezar hoy, con tus agentes o a mano.', 'Start today, with your agents or by hand.')}</p>
-    <p class="salidas"><a class="boton" href="${DOCS.empieza[idioma].ruta}">${tr('Empieza con tus agentes', 'Start with your agents')}</a><a href="${DOCS['manos-a-la-obra'][idioma].ruta}">${tr('Manos a la obra', 'Get hands on')}</a><a href="${DOCS['empieza-hoy'][idioma].ruta}">${DOCS['empieza-hoy'][idioma].menu}</a></p>
-    <div class="caminos">
-      ${caminos.map(([k, t, d]) => `<a class="camino" href="${DOCS[k][idioma].ruta}"><strong>${t}</strong><span>${d}</span></a>`).join('\n')}
-    </div>
-    <p class="nota-version">${tr('Manifiesto', 'Manifesto')} ${VERSION_TXT}, ${ESTADO_TXT}. ${frase('manifiesto', tr('Esta versión todavía no trae datos propios', "This version doesn't bring its own data yet"))} ${tr('Su motor, <span class="sin-corte">T-minus</span>, está en desarrollo.', 'Its engine, <span class="sin-corte">T-minus</span>, is in development.')}</p>
-  `);
-
-  return documento({
-    ruta: rutaInicio(),
-    titulo: tr('Gate-Driven Development: puertas para agentes de IA', 'Gate-Driven Development: quality gates for AI agents'),
-    descripcion: frase('manifiesto', tr('Gate-Driven Development (GDD) es una forma', 'Gate-Driven Development (GDD) is a way')),
-    cuerpo: [portada, muro, problema, muro, idea, muro, recorrido, muro, seguir].join('\n'),
-    scripts: ['plano.js'],
-  });
-};
+// The landing of the design canvas (scripts/portada.mjs), under a dark header that joins its
+// blueprint hero, with the site's own walkthrough of the risk (plano.js).
+const inicio = () => documento({
+  ruta: rutaInicio(),
+  titulo: tr('Gate-Driven Development: puertas para agentes de IA', 'Gate-Driven Development: quality gates for AI agents'),
+  descripcion: frase('manifiesto', tr('Gate-Driven Development (GDD) es una forma', 'Gate-Driven Development (GDD) is a way')),
+  cuerpo: portada({
+    tr,
+    ruta: (k) => DOCS[k][idioma].ruta,
+    menu: (k) => DOCS[k][idioma].menu,
+    texto,
+    frase,
+    interior,
+    manifiesto: T.manifiesto,
+    plano,
+    version: VERSION_TXT,
+    estado: ESTADO_TXT,
+  }),
+  scripts: ['plano.js', 'portada.js'],
+  estilos: ['portada.css'],
+  cabeceraPlano: true,
+});
 
 // --- The pages of the documents -----------------------------------------------------------
 // Shared by every page of text: the body of the document, dressed, and its index of sections.
@@ -661,7 +585,8 @@ fs.writeFileSync(path.join(dist, 'assets/site.css'), leer('src/css/tema-gdd.css'
 esbuild.buildSync({ entryPoints: [path.join(raiz, 'src/js/kimen.js')], bundle: true, minify: true, format: 'esm', target: 'es2022', outfile: path.join(dist, 'assets/kimen.js'), legalComments: 'eof', logLevel: 'warning',
   // Stencil's lazy loader looks for entry chunks this build never makes: each component is defined directly.
   logOverride: { 'empty-glob': 'silent' } });
-for (const js of ['plano.js', 'sitio.js', ...(TUTORIAL_JS ? ['tutorial.js'] : [])]) {
+fs.copyFileSync(path.join(raiz, 'src/css/portada.css'), path.join(dist, 'assets/portada.css'));
+for (const js of ['plano.js', 'portada.js', 'sitio.js', ...(TUTORIAL_JS ? ['tutorial.js'] : [])]) {
   fs.copyFileSync(path.join(raiz, 'src/js', js), path.join(dist, 'assets', js));
 }
 const fuente = (paquete, fichero, salida) => fs.copyFileSync(path.join(raiz, 'node_modules', paquete, 'files', fichero), path.join(dist, 'assets', salida));

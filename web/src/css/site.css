@@ -118,6 +118,10 @@ a:hover { text-decoration-thickness: 2px; }
 .idioma { display: inline-flex; align-items: center; min-height: 44px; font-size: 1rem; text-decoration: none; color: var(--tinta-2); }
 .idioma:hover { color: var(--tinta); text-decoration: underline; }
 
+/* On the home page the header is part of the blueprint: dark, on the hero's sheet, with no wall. */
+.cabecera--plano { background: var(--ki-surface-s0); color: var(--ki-text-high-em); border-bottom: 0; }
+.cabecera--plano ki-top-nav { --ki-top-nav-bg: var(--ki-surface-s0); }
+
 /* The button says what it will do. It only appears when there is a script to do it. */
 .tema { display: none; }
 .js .tema:defined { display: inline-flex; }
@@ -149,89 +153,13 @@ li::marker { color: var(--tinta-3); }
 .prosa > :last-child { margin-bottom: 0; }
 .prosa h3 { margin: 2em 0 .5em; }
 
-/* --- Opening: one line and a drawing. The drawing tells the rest. --- */
-.heroe { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: clamp(32px, 5vw, 72px); align-items: center; padding-block: clamp(32px, 5vw, 64px) clamp(32px, 4vw, 48px); }
-.heroe h1 { font-size: clamp(2.5rem, 1.2rem + 3.6vw, 4rem); line-height: 1.05; letter-spacing: -.026em; }
-.heroe__sub { margin: 24px 0 0; max-width: 30rem; font-size: 1.25rem; line-height: 1.5; color: var(--tinta-2); }
-.heroe__dibujo { display: flex; flex-direction: column; gap: 12px; min-width: 0; width: 100%; max-width: 520px; justify-self: end; }
-.heroe__pie { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; }
-.relato { display: grid; flex: 1; margin: 0; padding: 0; list-style: none; font-family: var(--mono); font-size: .9375rem; line-height: 1.5; }
-.relato li { grid-area: 1 / 1; margin: 0; opacity: 0; }
-.pausa { display: none; min-height: 44px; padding: 0; background: none; border: 0; color: var(--tinta-3); font-family: var(--mono); font-size: .8125rem; cursor: pointer; white-space: nowrap; }
-.js .pausa { display: block; }
-.pausa:hover { color: var(--tinta); text-decoration: underline; }
+/* --- A row of ways on: a button and the links beside it. --- */
 .salidas { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin: 32px 0 0; }
 .salidas > a:not(.boton) { display: inline-flex; align-items: center; min-height: 44px; }
-.flecha { width: 14px; height: 14px; }
 
-/* The scene: 14 seconds, in ink. Colour is kept for the risk. */
-.escena { display: block; width: 100%; height: auto; }
-.escena text { font-family: var(--mono); font-size: 13px; fill: var(--tinta-2); }
-.escena .escena__dicho { fill: var(--tinta); font-size: 15px; }
-.escena use { color: var(--tinta); }
-.escena .escena__sobre { color: var(--papel); }
-.escena__ruta { fill: none; stroke: var(--linea); stroke-width: 2; stroke-dasharray: 2 8; }
-.escena__muro { fill: none; stroke: var(--muro); stroke-width: 8; stroke-linecap: square; }
-.escena__arco { fill: none; stroke: var(--tinta-3); stroke-width: 1.5; stroke-dasharray: 3 5; }
-.escena__insignia { fill: var(--papel); stroke: var(--tinta); stroke-width: 2; }
-.escena__lleno { fill: var(--tinta); }
-.escena__hoja { stroke: var(--tinta); stroke-width: 6; stroke-linecap: round; transform-box: view-box; transform-origin: 380px 150px; }
-.escena__agente, .escena__globo, .escena__hoja, .escena__mal, .escena__bien, .escena__llave, .relato li { animation-duration: 14s; animation-iteration-count: infinite; animation-timing-function: ease-in-out; animation-fill-mode: both; }
-.relato li { animation-timing-function: linear; }
-.heroe[data-pausa="si"] .escena *, .heroe[data-pausa="si"] .relato li { animation-play-state: paused; }
-.escena__agente { animation-name: escena-agente; }
-.escena__globo { animation-name: escena-globo; }
-.escena__hoja { animation-name: escena-abre, escena-sacude; }
-.escena__mal { animation-name: escena-mal; }
-.escena__bien { animation-name: escena-bien; }
-.escena__llave { animation-name: escena-llave; }
-.relato__1 { animation-name: relato-1; }
-.relato__2 { animation-name: relato-2; }
-.relato__3 { animation-name: relato-3; }
-.relato__4 { animation-name: relato-4; }
-@keyframes escena-agente {
-  0% { transform: translateX(170px); opacity: 0; }
-  2% { transform: translateX(170px); opacity: 1; }
-  10%, 26% { transform: translateX(322px); opacity: 1; }
-  34%, 50% { transform: translateX(236px); opacity: 1; }
-  56%, 74% { transform: translateX(322px); opacity: 1; }
-  88%, 96% { transform: translateX(560px); opacity: 1; }
-  100% { transform: translateX(560px); opacity: 0; }
-}
-@keyframes escena-globo { 0%, 11% { opacity: 0; } 13%, 24% { opacity: 1; } 26%, 100% { opacity: 0; } }
-@keyframes escena-abre { 0%, 72% { transform: rotate(0deg); } 80%, 96% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
-@keyframes escena-sacude { 0%, 26%, 32%, 100% { translate: 0 0; } 27%, 29%, 31% { translate: -3px 0; } 28%, 30% { translate: 3px 0; } }
-@keyframes escena-mal { 0%, 26% { opacity: 0; } 27%, 48% { opacity: 1; } 50%, 100% { opacity: 0; } }
-@keyframes escena-bien { 0%, 66% { opacity: 0; } 68%, 96% { opacity: 1; } 100% { opacity: 0; } }
-@keyframes escena-llave {
-  0%, 57% { opacity: 0; transform: translate(300px, 270px); }
-  59%, 61% { opacity: 1; transform: translate(300px, 270px); }
-  67% { opacity: 1; transform: translate(350px, 316px); }
-  69%, 100% { opacity: 0; transform: translate(350px, 316px); }
-}
-@keyframes relato-1 { 0%, 1% { opacity: 0; } 3%, 24% { opacity: 1; } 26%, 100% { opacity: 0; } }
-@keyframes relato-2 { 0%, 25% { opacity: 0; } 27%, 46% { opacity: 1; } 48%, 100% { opacity: 0; } }
-@keyframes relato-3 { 0%, 47% { opacity: 0; } 49%, 71% { opacity: 1; } 73%, 100% { opacity: 0; } }
-@keyframes relato-4 { 0%, 72% { opacity: 0; } 74%, 97% { opacity: 1; } 99%, 100% { opacity: 0; } }
-@media (max-width: 560px) {
-  .escena text { font-size: 17px; }
-  .escena .escena__dicho { font-size: 19px; }
-}
-/* Without movement, or without a script to pause it: the last frame, and the whole story as a list. */
-@media (prefers-reduced-motion: reduce) {
-  .escena *, .relato li { animation: none !important; }
-  .escena__agente { transform: translateX(560px); }
-  .escena__hoja { transform: rotate(-90deg); }
-  .escena__globo, .escena__mal, .escena__llave { opacity: 0; }
-  .escena__bien { opacity: 1; }
-  .relato { display: block; }
-  .relato li { opacity: 1; }
-  .js .pausa { display: none; }
-}
 /* A link that looks like Kimen's primary button: ki-button is for actions, and these navigate. */
 .boton { display: inline-flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 22px; background: var(--ki-surface-primary-med-em); color: var(--ki-text-primary-on-primary); font-weight: 600; text-decoration: none; border-radius: var(--esquina); }
 .boton:hover { background: var(--ki-surface-primary-high-em); color: var(--ki-text-primary-on-primary); }
-.nota-version { font-size: 1rem; color: var(--tinta-3); }
 
 /* --- The floor plan --- */
 .plano { margin: 0; }
@@ -358,38 +286,17 @@ li::marker { color: var(--tinta-3); }
   .plano__detalle { margin-top: 24px; }
 }
 
-/* --- Sections --- */
-.seccion { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 24px clamp(24px, 4vw, 56px); padding-block: clamp(48px, 7vw, 96px); }
+/* --- A wall between the parts of a page --- */
 .muro { max-width: var(--ancho); margin-inline: auto; height: 4px; background: var(--muro); }
 @media (max-width: 1336px) { .muro { margin-inline: var(--gutter); } }
-.seccion__cab h2 { position: sticky; top: 24px; }
-.seccion__cuerpo { min-width: 0; }
-.seccion__cuerpo > * { max-width: var(--medida); }
-.seccion__cuerpo > .tres, .seccion__cuerpo > .hallazgos, .seccion__cuerpo > .tabla, .seccion__cuerpo > .diagrama, .seccion__cuerpo > .pasos, .seccion__cuerpo > .cuatro, .seccion__cuerpo > .caminos { max-width: none; }
-.seccion__cuerpo > .declaracion { max-width: 44rem; }
-.seccion__cuerpo > :last-child { margin-bottom: 0; }
-.seccion__cuerpo > h3 { margin: 2em 0 .6em; }
+
 .pasos > li > * { max-width: var(--medida); }
 .pasos > li > pre { max-width: none; }
 
-.grande { font-size: clamp(1.375rem, 1.2rem + .8vw, 1.75rem); line-height: 1.3; letter-spacing: -.01em; }
-.declaracion { margin: 1.5em 0; font-size: clamp(1.5rem, 1.25rem + 1.15vw, 2.25rem); line-height: 1.18; letter-spacing: -.016em; font-weight: 500; text-wrap: balance; }
-.declaracion strong { font-weight: 500; }
-
-.cuatro { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 20px 32px; margin: 0 0 1.5em; padding: 0; list-style: none; font-size: 1.1875rem; line-height: 1.42; }
-.cuatro li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 0 12px; margin: 0; }
-.cuatro .icono { width: 26px; height: 26px; margin-top: 2px; }
-.cuatro .icono--persona { color: var(--persona); }
-.cuatro__lamparas { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
-.cuatro__lamparas .lampara { width: 8px; height: 8px; }
-
-.tres { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 24px; margin: 8px 0 32px; }
-.tres figure { margin: 0; }
-.tres figcaption { margin-top: 8px; font-size: 1.0625rem; line-height: 1.4; }
 .dibujo { display: block; width: 100%; height: auto; color: var(--tinta); }
 .dibujo__agente { fill: var(--tinta); }
-.dibujo__persona { fill: var(--persona); }
-.dibujo__fallo, .dibujo__objeto { color: var(--tinta); }
+
+.dibujo__objeto { color: var(--tinta); }
 .dibujo__hoja { stroke: var(--tinta); stroke-width: 4; }
 .dibujo__arco { fill: none; stroke: var(--tinta); stroke-width: 1.1; }
 
@@ -521,7 +428,6 @@ li::marker { color: var(--tinta-3); }
 
 .aviso-pagina { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin-top: 20px; }
 
-
 /* --- Footer --- */
 .pie { margin-top: clamp(24px, 4vw, 48px); border-top: 6px solid var(--muro); }
 .pie__dentro { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 24px clamp(24px, 4vw, 56px); padding-block: 28px 44px; font-size: 1rem; line-height: 1.5; color: var(--tinta-2); }
@@ -534,8 +440,8 @@ li::marker { color: var(--tinta-3); }
 
 /* --- Narrow screens --- */
 @media (max-width: 900px) {
-  .seccion { grid-template-columns: minmax(0, 1fr); }
-  .seccion__cab h2 { position: static; }
+  
+  
   .colarte__rejilla { grid-template-columns: minmax(0, 1fr); }
   .con-indice { grid-template-columns: minmax(0, 1fr); }
   .indice { position: static; max-height: none; border-block: 1px solid var(--linea); }
@@ -569,29 +475,13 @@ li::marker { color: var(--tinta-3); }
   ki-code-block::part(header) { display: none; }
 }
 
-/* Home: each section leads to the next, and the floor plan takes the whole width. */
-.puente { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 8px; font-weight: 500; text-decoration: none; }
-.puente:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .18em; }
-.recorrido { padding-block: clamp(48px, 7vw, 96px); }
-.recorrido__cabeza { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 12px clamp(24px, 4vw, 56px); align-items: baseline; margin-bottom: 24px; }
-.recorrido__cabeza .grande { margin: 0; }
-.recorrido .puente { margin-top: 24px; }
-.caminos { display: flex; flex-direction: column; margin-top: 32px; }
-.camino { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 24px; padding-block: 16px; border-top: 1px solid var(--linea); text-decoration: none; }
-.camino:hover strong { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .18em; }
-.camino strong { font-size: 1.25rem; font-weight: 600; }
-.camino span { color: var(--tinta-2); font-size: 1rem; }
-.nota-version { margin: 24px 0 0; font-size: .9375rem; color: var(--tinta-2); }
 .pie__paginas ul { margin: 0; padding: 0; list-style: none; }
 .pie__paginas li { margin: 0; }
 .pie__paginas a { display: inline-flex; align-items: center; min-height: 32px; }
 .lectura .colarte__rejilla { grid-template-columns: minmax(0, 1fr); }
-@media (max-width: 900px) {
-  .recorrido__cabeza { grid-template-columns: minmax(0, 1fr); }
-}
 
 /* --- Documentation: the map, the chapters and the way between them --- */
-.navegacion a[aria-current="true"] { color: var(--tinta); font-weight: 600; }
+
 .mapa { padding-bottom: clamp(40px, 6vw, 80px); }
 .mapa .lectura { max-width: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 clamp(24px, 4vw, 56px); }
 .mapa .lectura > p { grid-column: 1 / -1; max-width: 40rem; }
