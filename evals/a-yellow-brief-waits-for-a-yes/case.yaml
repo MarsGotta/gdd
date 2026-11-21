@@ -1,6 +1,6 @@
 schema_version: "1.1"
 name: a-yellow-brief-waits-for-a-yes
-description: "A shop prepared with the template's defaults, where yellow asks for the person's approval of its brief. Asked to show the catalog in pages, the orchestrator briefs a yellow change with a rule for twenty products a page and a scenario that tests it, launches nobody to write checks or build, and asks for the approval in under 150 words, with each new or changed rule and each assumption on its own line and one question a yes answers. The brief and its scenarios are in the copy the person has open when it asks."
+description: "A shop prepared with the template's defaults, where yellow asks for the person's approval of its brief. Asked to show the catalog in pages, the orchestrator briefs a yellow change with a rule for twenty products a page and a scenario that tests it, launches nobody to write checks or build, and asks for the approval in under 150 words, saying each new or changed rule plainly and each assumption as the agent's own, with one question a yes answers. The brief and its scenarios are in the copy the person has open when it asks."
 tags: [orchestrator, brief, person]
 runs: 3
 execution:
@@ -132,13 +132,13 @@ graders:
     type: regex
     pattern: '\bfeatures/[\w./-]+\.feature\b'
     weight: 3
-  - name: gives-each-rule-its-own-line
+  - name: says-each-rule-plainly
     type: llm
-    criteria: Does each new or changed pagination rule occupy its own line in the approval message?
+    criteria: Could an owner who knows neither the method nor the code tell, from the approval message alone, what each new or changed pagination rule means for customers?
     weight: 3
-  - name: marks-assumptions-on-separate-lines
+  - name: marks-its-assumptions-as-its-own
     type: llm
-    criteria: Is each assumption presented on a separate line as the agent’s own choice?
+    criteria: Does the message say, for each rule the agent chose itself, that it was the agent's choice, so the owner can correct it?
     weight: 3
   - name: states-outstanding-questions
     type: llm
@@ -195,3 +195,7 @@ graders:
     pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace
+  - name: reads-like-a-colleague
+    type: llm
+    criteria: Is the last message written in whole, connected sentences that someone who knows neither the method nor the code would understand, rather than notes, one-line fragments or a list of checks?
+    weight: 2

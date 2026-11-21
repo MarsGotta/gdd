@@ -93,9 +93,9 @@ graders:
     type: regex
     pattern: '\bfeatures/[\w./-]+\.feature\b'
     weight: 3
-  - name: gives-each-rule-its-own-line
+  - name: says-each-rule-plainly
     type: llm
-    criteria: Does each new or changed payment rule occupy its own line in the approval message?
+    criteria: Could an owner who knows neither the method nor the code tell, from the approval message alone, what each new or changed payment rule means for customers?
     weight: 3
   - name: marks-its-assumptions
     type: regex
@@ -135,3 +135,7 @@ graders:
     pattern: '"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)'
     flags: m
     target: trace
+  - name: reads-like-a-colleague
+    type: llm
+    criteria: Is the last message written in whole, connected sentences that someone who knows neither the method nor the code would understand, rather than notes, one-line fragments or a list of checks?
+    weight: 2

@@ -128,3 +128,7 @@ graders:
     pattern: '(?:"id":"([^"]+)","name":"Bash","input":\{"command":"(?:[^"\\]|\\.)*?(?:^|(?<="command":")|(?:\\n|&&|\|\||[;|])\s*|\$\()\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:[^\s"\\]|\\.)*\s+)*(?:(?:\\")?(?:\$\w+|~)?/?(?:[\w.-]+/)*\.?gdd/gdd(?:\\")?|gdd|(?:\\")?\$[A-Za-z_][A-Za-z0-9_]*(?:\\")?)\s+ask\s+(?:[^"\\]|\\.)*?"[^\n]*\n[\s\S]*?"tool_use_id":"\1","type":"tool_result","content":"(?:[^"\\]|\\.)*?(?:wrote the ask, line \d+|gdd \{\\"command\\":\\"ask\\"[^}\n]*?\\"line\\":\d+)|(?<![\s\S])(?![\s\S]*?^(?=[^\n]*"type":"result")[^\n]*?"result":"(?:[^"\\]|\\.)*?[?¿])[\s\S]*$)'
     flags: m
     target: trace
+  - name: reads-like-a-colleague
+    type: llm
+    criteria: Is the last message written in whole, connected sentences that someone who knows neither the method nor the code would understand, rather than notes, one-line fragments or a list of checks?
+    weight: 2

@@ -289,7 +289,7 @@ pub(super) fn show_approval(l: &Loaded, id: &str, out: &mut Out) {
     if !found {
         return;
     }
-    out.say("Their yes covers these lines. Give each its own line in their words and language, what closes it too. Mark each 'yours' as your choice, name each file, and end with one question they can answer with a yes.");
+    out.say("Their yes covers these lines. Tell them all in their words and language, in whole sentences: what they will notice, then what you chose, marking each 'yours' as yours and grouping the technical ones by what they protect while naming each, and what closes it. Name each file, and end with one question they can answer with a yes.");
     if lines.iter().any(|line| line.starts_with("unchecked: ")) {
         out.say("Mark each 'unchecked' as something you took as true of the outside without seeing it.");
     }

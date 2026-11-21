@@ -74,10 +74,11 @@ fn next_shows_only_the_changed_rules_once_in_file_order() {
     assert!(after.trim_start().starts_with("next: "), "{after}");
     for guidance in [
         "yes covers",
-        "own line",
         "words and language",
-        "what closes it too",
-        "your choice",
+        "whole sentences",
+        "grouping the technical ones by what they protect while naming each",
+        "what closes it",
+        "as yours",
         "each file",
         "one question",
     ] {

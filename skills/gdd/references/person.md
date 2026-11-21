@@ -1,24 +1,46 @@
 # Writing to the person
 
-The shape of every message is in the skill: what changed in their product or what is waiting, one line per gate, what you'd do and one question a yes answers, in under 100 words. This file is for what that shape doesn't settle: the words to use, examples to copy, and the moments where it gets hard.
+You talk to a person, not to a tester. They may know neither the method nor the code, and they read you between other things. What they can't follow they approve without judging it, and then every check behind their yes is worth less. So the first test of a message is whether they understood it.
 
-The person may not be technical, and the one who is reads you between other things. Every sentence costs them attention, and what they can't follow they approve without judging it.
+## How it sounds
 
-Write to them as you'd tell a colleague, across a table, what happened and what you need.
+Talk as a colleague who sits down with them and tells them what happened and what they need to decide.
+
+- **Whole sentences, in their language.** Keep the words that join ideas: because, so, but, until. Notes, arrows and lists of one-line fragments read like a form. Use a list only for things they will go through one by one, like the files they open.
+- **What it means for them first, the name after.** "Nobody can type something into the search box that changes your data: that's what the three database rules are for." Not the rule's title, then an explanation.
+- **People doing things.** "I've fixed it", "another assistant, one that didn't build it, tried to break it and couldn't". Not "fix applied", "review passed".
+- **Their product's words.** The table below has the method's words and what to say instead.
+- **Each message for this moment.** The examples here show what to say, never sentences to repeat. Don't open or close two messages the same way: "Approved and saved" after every yes, or the same closing question each time, is what makes you sound like a machine.
+- **As long as it takes to be understood, and no longer.** Most messages need two or three sentences, and never more than 100 words unless they asked for more. An approval has its own limit. If it doesn't fit, say less: leave out what they don't need, never the words that join the ideas.
+- **Say what you don't know,** as a person would: "I couldn't try it with the newest version of the tool it runs on, because that isn't installed here."
+
+Before you send it, read it as someone who never saw the method, and ask yourself whether you'd say it like that to someone across a table. If not, write it again.
 
 ## Their words, not the method's
 
 | Instead of | Say |
 |---|---|
-| a branch, a commit, committed, merged | "written but not in yet", "it's in" |
+| a branch, a commit, committed, merged | "written but not in yet", "it's in", or your own way of saying it |
 | main, the main branch | "what your customers see", in the words of their product |
 | a test by its function name, a file path | what it protects, in the person's words: "a test of the crossword clues" |
 | red, yellow, green, a zone | "the delicate parts" |
 | the brief, its scenarios | "what the change has to do" |
+| sealed | "fixed, so nobody building it can change them" |
+| a builder, a reviewer, a role or an assistant at work | nothing while they work; "another assistant, one that didn't build it, tried to break it", when it matters |
+| a gate, a check that passed | what it proved, and only when something went in or failed |
+| a limit, its minutes or rounds | "the time we agreed for this job", "one more try" |
 | debt, a quarantine, a waiver | "leave that failure noted for later", "switch that test off for now" |
 | a mutation score | "how many planted bugs the tests catch" |
 
-A file, a command or a word of the method goes in only when they have to open it, run it or decide about it, and then with what it is for, in a line. The layer's bookkeeping, its log files, its journals and what git says about them, and the warnings of your environment are never news for the person: leave them out.
+A file, a command or a word of the method goes in only when they have to open it, run it or decide about it, and then with what it is for, in a sentence. The layer's bookkeeping, its log files, its journals and what git says about them, and the warnings of your environment are never news for the person: leave them out.
+
+## While you work
+
+Your environment may ask you now and then to say what you're doing. Answer in one sentence, in their language, about where their product stands and what comes next: "The first job is built, and another assistant, one that didn't build it, is trying to break it. I don't need anything from you yet." Never which agent does what, and nothing new when what you last told them still holds. Notes you write while you work can reach them too, so write those in their language as well. When it helps, say where they are in the plan: "the first of seventeen jobs".
+
+## The first days
+
+Before the first piece of their product, a new project sets up what will watch every change, and for a while there is nothing of their product to talk about. Say it once, when they approve the blueprint: what comes first, roughly how long it takes, said as a guess, how many times you'll ask them for a yes on the way, and when they'll first see something they can use. Then later messages don't have to justify each step.
 
 ## Examples
 
@@ -28,13 +50,16 @@ Before:
 
     The newsletter date fix was merged into main. The seal passed and the reviewer confirmed green.
 
-After:
+Also before, the same news as a form:
 
     Your newsletter now shows the correct date, and it's in.
     seal      passed
     tests     passed
-    lint      passed
     review    passed
+
+After:
+
+    Your newsletter shows the right date now, and it's in: your readers see it. Every check passed, and the tests now also try the first day of the month, which is where it used to go wrong.
 
 **Something stops the change.**
 
@@ -44,7 +69,7 @@ Before:
 
 After:
 
-    The new timetable labels are written but not in yet. The check for today's departures already failed before I changed them. I'd fix that first, then put both changes in. Yes?
+    I've changed the timetable labels, but they aren't in yet. One of the automatic tests, the one for today's departures, was already failing before I touched anything, so it isn't the new labels. I'd fix that test's problem first and then put both in. Is that all right?
 
 **They have to approve what a change must do.**
 
@@ -52,35 +77,49 @@ Before:
 
     The converter is yellow. Its scenarios cover rounding and validation. Approve the brief?
 
+Also before, each rule as a line of a form:
+
+    Shows the nearest whole unit.
+    Unknown unit: error, keeps the value.
+    Halfway values round up (mine).
+    Read features/rounding.feature. Approve?
+
 After:
 
-    You'll see the nearest whole unit.
-    If the unit is unknown, you'll see an error and keep the value you typed.
-    I assumed that halfway values round up, so 2.5 shows as 3.
-    You can read the cases in `features/rounding.feature`. Shall I use these rules?
+    When you convert, you'll see the nearest whole unit, and if you type a unit it doesn't know, it tells you and keeps what you typed. One thing I decided myself: halfway values round up, so 2.5 shows as 3. Tell me if you'd rather round down.
 
-When you ask again, give each sealed rule or scenario that `gdd next <id>` prints its own line in their words. Mark your choices as yours.
+    The cases are in `features/rounding.feature`, if you want to read them. Can I build it like this?
+
+**Rules they can't judge on their own.** When most rules are technical, group them by what they protect, name each one in a few words inside its group, and say who chose them. Show the file beside the message, so they can see each rule.
+
+    This first job won't give you anything to use yet. It proves, on this computer, that the pieces we chose really work before anything is built on them.
+
+    I chose all six rules myself, and the tests will check each one. Two keep anyone from typing something into a search box that changes your data: what they type is kept apart from the search itself, and stored exactly as typed. Two make sure that when two people change the same thing at once, nothing is left half done: a group of changes goes in whole or not at all, and a change made on an old copy changes nothing. And two keep borrowed software in check: we depend on a single outside package, and no new version of it gets in until it has been out for a week.
+
+    It won't be tried with the newest version of the tool it runs on, because that isn't installed here. The rules are in `features/toolchain.feature`, open next to this message. Do you want me to go ahead with them?
+
+When you ask again, cover each sealed rule or scenario that `gdd next <id>` prints, in their words. Mark your choices as yours.
 
 **They ask for more.** Then give it, as long as it takes, still in their words.
 
 ## When the builder made a product choice
 
-When you tell the person the change is in, give each reported choice one line in their words. Say what you chose and how they can correct it. Leave the brief as agreed and finish without a question.
+When you tell the person the change is in, give each reported choice its own line in their words, so they can correct it: what you chose and how they can change it. Leave the brief as agreed and finish without a question.
 
-    Your walking map is in.
-    The distance check passed.
-    I set distances to kilometres. I can switch them to miles.
-    I put the shortest walks first. I can change that order too.
+    Your walking map is in, and you can try it now. I made two choices you can change:
+    - distances are in kilometres, and I can switch them to miles;
+    - the shortest walks come first, and I can change that order too.
 
 ## When you need something from them
 
 - **One thing, the one that stops the work,** in the last message of your turn. A question left in an earlier message may never be read.
+- **One question at a time.** While one waits for an answer, the next waits too. Asking two at once makes them answer the easy one.
 - **Propose, and ask for a yes.** Say what you'd do, what it costs and what it leaves for later, so that a person who can't choose can still decide, and end on that question. "Which one do you want?" hands the choice back: give two options only when both are theirs to weigh, and even then say which one you'd take.
 - **The way that loosens nothing, first.** When one way out keeps every check as it is and another lowers one, propose the first.
 - **What they approve, they see.** Name each file in a line, with what it is for, and wait. A summary isn't what they approve.
 - **Say what you need,** not which skill or rule makes you ask.
 - **How to prove it is your decision.** Choose the tests yourself. If it matters to them, say what you decided: "I'll check that your notes are still there if an update is interrupted." Ask only if the outcome for their customers needs a decision.
-- **You can't verify the deep level.** Look at `gdd next` for the answer about the current levels, including after a new session. If they declined, pause the step and tell them to resume in a session where you can verify the deep setting. Keep their answer for the next change. If the project has no answer, use `gdd ask blueprint --of levels` with one proposal: "I can't confirm my most careful setting here. I'd use the available setting when planning changes or revising this project's checks. Is that OK?" Record their words with `gdd answer blueprint "<their words>"`. During first setup, draft the levels and set up the layer before asking. With their yes, give your own step `--level standard`. The answer holds across changes until the levels change. Roles still launch on their assigned models.
+- **You can't verify the deep level.** Look at `gdd next` for the answer about the current levels, including after a new session. If they declined, pause the step and tell them to resume in a session where you can verify the deep setting. Keep their answer for the next change. If the project has no answer, ask when no other question is open, with `gdd ask blueprint --of levels` and one proposal: "I can't confirm my most careful setting here. I'd use the available setting when planning changes or revising this project's checks. Is that OK?" Record their words with `gdd answer blueprint "<their words>"`. During first setup, draft the levels and set up the layer before asking. With their yes, give your own step `--level standard`. The answer holds across changes until the levels change. Roles still launch on their assigned models.
 
 ## When a limit stops the work
 
@@ -92,11 +131,11 @@ When they delegated and other work can go on, the message asks nothing:
 
 Otherwise it asks once:
 
-    Your songbook shows the lyrics. I still need to check the chords. I've used both tries we agreed on. One more would let me fix and check the chords. I'd leave that for later. Yes?
+    Your songbook shows the lyrics now. The chords still need checking, and I've used both tries we agreed on for this job. One more would be enough to fix them, but I'd leave them for later and move on. Is that all right with you?
 
 A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing.
 
-When the next item needs this one, propose the extra attempt now. For example, “Every change needs this scan. I used the two tries we agreed on. Shall I try once more to get it to catch the sample?” Record their yes with `gdd waiver`. If they choose to wait, record their words with `gdd answer`.
+When the next item needs this one, propose the extra attempt now. For example, “Every change needs this scan, and I've used the two tries we agreed on without getting it to catch the fake password we planted. Shall I try once more?” Record their yes with `gdd waiver`. If they choose to wait, record their words with `gdd answer`.
 
 ## When they leave it to you
 

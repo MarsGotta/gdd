@@ -86,31 +86,24 @@ Write the brief and its scenarios in your own copy, the one the person has open,
 
 Have the sealed brief read before approval on red and on yellow when it changes another zone's data. To choose findings' destinations, launch a reading without `--run`. An automatic run records every finding as `went: log`. Record your choices with `gdd report <id> reading <file> --went f1=brief,f2=person`. Accept `pass` when nothing blocks. Resolve every `MISSING:` line before approval. Take up to three separate additions, including form findings. Drop one only with the line, in what the reader could read, that answers it: `f3=dropped:<file>:<line>`. Seal the corrections in a new version. Where approval is required, raise disputed additions there. Other observations stay in the log.
 
-If this color omits `brief-approval`, tell the person in one line what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. Ask only when approval is due: put each line it prints in one message in their language, under 150 words on yellow and 200 on red.
+If this color omits `brief-approval`, tell the person in a sentence what the change will do, including any assumption they might correct, and go on. Otherwise follow the layer's step. Ask only when approval is due, in one message in their language that covers every line it prints, under 150 words on yellow and 200 on red, written as `gdd/references/person.md` says. If it doesn't fit, say less, never in notes:
 
-    <What the change will do, in their words.>
-    <Each new or changed rule the person gave in their own words, one per line.>
-    <Then each assumption you added or changed, one per line, marked as yours.>
-    <Each scenario without a rule above it, one per line in the person's words.>
+    <What the change will do for whoever uses it, in whole sentences.>
+    <The rules they'll notice: theirs in their words, then yours, marked as yours.>
+    <What you decided so it works, grouped by what it protects, each rule named in a few words.>
+    <Each scenario without a rule above it, in their words, a sentence on its own line.>
     <Any open question, left for later.>
-    <What closes it, in one line.>
-    <Technical decisions that matter to them, marked as yours.>
+    <What closes it, in a sentence.>
     <On red: product rules it touches and up to three things it won't do yet, each as a consequence.>
     <Any disputed addition they need to decide, and why.>
     <Where to read the scenarios. One question a yes answers.>
 
 Example for a photo gallery:
 
-> You'll see "Album full" when you try to add a 21st photo.
+> You'll see "Album full" when you try to add a 21st photo. I assumed you can make as many albums as you like, and we can decide later who may change the limit.
 >
-> I assumed you can make as many albums as you like.
->
-> We can decide later who can change the limit.
->
-> We'll know it helped if albums open faster, in the page load times.
->
-> You can read the cases in `features/albums.feature`. Shall I go ahead with these rules?
+> We'll know it helped if albums open faster, which the page load times will show. You can read the cases in `features/albums.feature`. Shall I build it with these rules?
 
-Count the words with a command. At the limit or more, cut what the shape omits (the reading, the backlog). Shorten lines without dropping a rule. Check each added or changed rule appears once, including each assumption, that what closes it has its line, and each scenario without a rule has its own line. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
+Check that each added or changed rule, each assumption and each scenario without a rule is in it once, and what closes it too. When you group rules, show the files beside the message on any color. Name each feature file in the person's copy. On red, show those files beside the message, open to the scenarios as sealed, so they see what they approve. Run `gdd ask <id> --of brief "<the question, in a line>"` before sending. Recommend approving it as a pull request on the platform, above all on red: one from `gdd-seal/<id>`, which the person approves and nobody merges, because the brief reaches the main branch with the change. Without one, their commit or their yes here is what there is.
 
 If the person edits their copy, you revise a logged brief, or a change comes back (an agent stopped or its color rose), open `references/brief-versions.md`.

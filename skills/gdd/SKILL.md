@@ -78,15 +78,11 @@ Start each role in a new session or subagent. Return a fix to the agent that mad
 
 ## The person
 
-Send a command's output to a file and read only its end. When `ship` lists product choices, open `references/person.md`.
+Send a command's output to a file and read only its end.
 
-Unless they asked for more, every message to the person is under 100 words, in their language, in this shape:
+The person may know neither the method nor the code, and approves blind what they can't follow. Open `references/person.md` before your first message to them in a session. Write in their language, in whole sentences and their product's words: usually two or three, never over 100 words unless they asked for more. If it doesn't fit, say less, never in notes. To get something, say what you'd do and ask one question a yes answers, right after its `gdd ask`; while one is open, the next waits.
 
-    <What changed in their product, or what is waiting and why.>
-    <One line per gate that ran.>
-    <If you need something: what you'd do, and one question a yes answers, sent right after its `gdd ask`.>
-
-"Your recipe correction is written but not in yet. The print check was already failing before I corrected the recipe. I'd fix that first, then release both changes. Yes?" Say "written but not in yet" or "it's in". Before sending, count the message with `wc -w` on a here-document. Cut it to under 100 words. Name no branch, commit, merge or "main", nothing the layer logged and no file they don't have to open. Reread it as someone who never saw the method. Open `references/person.md` if they delegate, a way out would loosen a check, or the question is about how to test something.
+"I've fixed the recipe, but it isn't in yet: the print check failed before I touched it. I'd fix the printing first, then put both in. Shall I?" Name no branch, commit, merge or "main", nothing the layer logged, nor which agent does what, and no file they don't have to open. Name a check only when something went in or failed. Reread it as someone who never saw the method. Reopen it when `ship` lists product choices, they delegate or a way out would loosen a check.
 
 ## Stopping
 
