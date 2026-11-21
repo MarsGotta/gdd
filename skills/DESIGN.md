@@ -546,6 +546,8 @@ The website tells a change in six steps, the ones of its delicate case. They are
     - A project prepared before this has no such line, and each red review will note it under `LATER:` until the person adds it.
     - Not measured: no eval and no exam has run with the line, and the evals' project has none.
 
+121. **The layer names the agent that reads a brief.** Decision 114 gave Claude Code a subagent that only reads, `gdd-read`, and nothing told the orchestrator to use it. A reading loads the reviewer's skill, and the layer's prompt says so (`gdd-review`), so the orchestrator picked the agent by its description. In three runs of the eval where an orchestrator briefs a payment, it launched `gdd-read` twice and `gdd-review`, which can write and run, once. Where it was launched, `gdd-read` used only its three reading tools and returned its report. Now, when `gdd launch <id> reading` can't run the launch itself, the environment is `claude` and the blueprint gives the reading no `read_only`, the layer says which subagent it is, after the prompt and in the fact `agent`. Where the blueprint has a `read_only`, that is the project's answer and the layer adds nothing. A command-line launch isn't touched: there the agent files play no part, and `read_only` is what keeps the reader from writing.
+
 ## Still open
 
 - Which caps hold while the standing checks are set up. Their log has no brief, so only the caps written for every color reach it, and the blueprint's template writes rounds and minutes under each color: there, a trial that keeps sending the checks back is never stopped by a cap.

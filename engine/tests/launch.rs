@@ -996,3 +996,52 @@ fn a_reviewer_of_another_family_reads_with_its_own_launch() {
         reading.out
     );
 }
+
+/// A blueprint worked from Claude Code, where roles are launched with the Agent tool.
+fn from_claude_code(blueprint: &str) -> String {
+    assert!(blueprint.contains("  fake:\n"));
+    blueprint.replace("  fake:\n", "  claude:\n")
+}
+
+#[test]
+fn a_reading_launched_by_hand_from_claude_code_names_the_agent_that_only_reads() {
+    let r = Repo::with(&from_claude_code(BLUEPRINT));
+    yellow_brief(&r, "rd", "src/core/app.txt");
+    let reading = r.gdd(&["launch", "rd", "reading"]);
+    assert_eq!(reading.code, 0, "{}", reading.out);
+    assert_eq!(reading.facts["agent"], "gdd-read", "{}", reading.out);
+    assert!(
+        reading.has("launch it as `gdd-read` (`gdd:gdd-read` when it comes from a plugin)"),
+        "{}",
+        reading.out
+    );
+    // It comes after the prompt, where whoever reads only the end of the output still sees it.
+    let prompt_ends = reading.out.find("then: gdd report rd reading").unwrap();
+    assert!(reading.out.find("launch it as `gdd-read`").unwrap() > prompt_ends);
+    // The layer can't run a launch that is no command, and it still names the agent.
+    let run = r.gdd(&["launch", "rd", "reading", "--run"]);
+    assert_eq!(run.facts["refused"], "not-a-command", "{}", run.out);
+    assert_eq!(run.facts["agent"], "gdd-read", "{}", run.out);
+    // Another role loads the skill its agent is named after: nothing to say.
+    approved(&r, "rd");
+    let checks = r.gdd(&["launch", "rd", "checks"]);
+    assert_eq!(checks.code, 0, "{}", checks.out);
+    assert!(checks.facts["agent"].is_null(), "{}", checks.out);
+}
+
+#[test]
+fn no_agent_is_named_from_another_environment_or_where_the_blueprint_says_how() {
+    let other = Repo::new();
+    yellow_brief(&other, "ot", "src/core/app.txt");
+    let reading = other.gdd(&["launch", "ot", "reading"]);
+    assert_eq!(reading.code, 0, "{}", reading.out);
+    assert!(reading.facts["agent"].is_null(), "{}", reading.out);
+    assert!(!reading.has("gdd-read"), "{}", reading.out);
+    // A launch of its own for the role that only reads is the project's answer.
+    let own = Repo::with(&from_claude_code(&with_read_only()));
+    yellow_brief(&own, "ow", "src/core/app.txt");
+    let reading = own.gdd(&["launch", "ow", "reading"]);
+    assert_eq!(reading.code, 0, "{}", reading.out);
+    assert!(reading.facts["agent"].is_null(), "{}", reading.out);
+    assert!(!reading.has("gdd-read"), "{}", reading.out);
+}

@@ -844,6 +844,17 @@ fn may_launch(ctx: &Ctx, l: &Loaded, id: &str, role: &str) -> R<()> {
     Ok(())
 }
 
+/// The Claude Code subagent that can't write or run anything, for a reading launched by hand
+/// where the blueprint gives it no launch of its own. A reading loads the reviewer's skill, so
+/// nothing else tells whoever launches it which of the two agents it is.
+fn reader_agent(bp: &Blueprint, env: &str, role: &str) -> Option<&'static str> {
+    let has_its_own = bp.environments().iter().any(|e| {
+        let reviewers = e.reviewer.as_ref().and_then(|r| r.read_only.as_ref());
+        e.name == env && (e.models.read_only.is_some() || reviewers.is_some())
+    });
+    (role == "reading" && env == "claude" && !has_its_own).then_some("gdd-read")
+}
+
 /// Without one command to run, the layer says how to launch the role by hand.
 fn say_by_hand(
     out: &mut Out,
@@ -1063,7 +1074,7 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                     "resume the agent that did this {role}, never a fresh one, with this prompt"
                 ));
             }
-            return say_by_hand(
+            let said = say_by_hand(
                 out,
                 id,
                 role,
@@ -1072,6 +1083,13 @@ pub fn launch_cmd(ctx: &Ctx, id: &str, role: &str, a: &LaunchArgs) -> Out {
                 launch_text.as_deref(),
                 a.run,
             );
+            if let Some(agent) = reader_agent(&l.bp, &env, role) {
+                out.say(format!(
+                    "A reading only reads. With Claude Code's subagents, launch it as `{agent}` (`gdd:{agent}` when it comes from a plugin), which can't write or run anything, and not as `gdd-review`. Where it isn't installed, launch it as the blueprint says."
+                ));
+                out.fact("agent", json!(agent));
+            }
+            return said;
         };
         let runs = runs_dir(&ctx.root, id, role, out)?;
         let prompt_file = runs.join("prompt.txt");

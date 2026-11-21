@@ -8,6 +8,8 @@ Copy `claude-code/agents/` to `.claude/agents/` in your project. Each subagent p
 
 Each one has the tools of its work and no more. The three that write and run have six. Two only read, so they have `Read`, `Grep` and `Glob`: `gdd-read`, which reads a brief before anyone builds it, and `gdd-scout`, which searches the project for the orchestrator while it writes a brief and answers with a list of paths. It is the one with no skill: its file says all it does.
 
+A reading loads the same skill as a review, so the skill's name doesn't say which of the two agents to launch. The layer does: where `gdd launch <id> reading` can't run the launch itself and the blueprint gives the reading no `read_only`, it names `gdd-read`.
+
 The two that judge, `gdd-review` and `gdd-read`, say `omitClaudeMd: true`: they start without the instruction files of the project and of the person, so those don't reach them. They can still read any file of the project. The constitution still does, because the layer quotes it in their prompt, as the main branch had it when the change started. It needs Claude Code 2.1.271 or later.
 
 They don't keep the builder away from what judges it. Claude Code has no permission rule on paths for one subagent alone: those rules live in the project's settings and bind every agent in the session, the orchestrator included. So the builder's limits stay where the method puts them: the `seal` check, the platform's protections and the agent's sandbox.
