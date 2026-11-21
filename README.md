@@ -120,7 +120,7 @@ Every change gets the color of the most delicate thing it touches, and the color
 | Something yellow | A filter in the catalog | You approve what it has to do, in a short message, before anyone builds |
 | Something red | Anything that moves money | You approve what it has to do, and you review the change at the end |
 
-**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words, or 200 on red: each new or changed rule on its own line, its own assumptions marked as its own, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
+**What you approve.** On yellow and red, before anyone builds, your agent sends you the rules of the change in under 150 words, or 200 on red, in whole sentences: each new or changed rule, its own assumptions marked as its own, what it took as true without checking, how you'll know it helped, and the file where you can read the cases. For the size filter it could say:
 
 > You'll see only the products that come in the size you pick.
 >
@@ -155,17 +155,9 @@ Feature: Catalog
 
 Each scenario sits under its rule, has an `@id` and takes one action, and the layer refuses a brief whose new scenarios don't.
 
-**What you hear.** When the change is in, you get what changed in your product and one line per gate, passed or failed. In your agent's own words it could look like this:
+**What you hear.** When the change is in, your agent tells you in two or three sentences what changed in your product. The detail of a check only comes if it failed or you ask. For the size filter it could say:
 
-```text
-brief     yellow: it touches catalog/. Two rules, one of them assumed
-checks    sealed, each one seen failing first
-seal      passed
-tests     failed, round 1: the jacket still listed under M
-tests     passed, round 2
-lint      passed
-review    pass, yellow
-```
+> The size filter is in: you'll see only the products that come in the size you pick. Every check passed. The first version still listed the jacket under M, and the tests try that case now.
 
 **What waits.** Once it's in use, a change that promised you something waits in sight, however long, until you say whether it helped: yes, not yet or no. It holds nothing up, and your agent only mentions it in a line. When you ask, it looks where the brief said and brings you what it sees, without deciding for you.
 
@@ -180,7 +172,7 @@ gdd/log/<id>.jsonl               everything that happened, one event per line, w
 
 **When it needs you.** Besides an approval, your agent comes to you with a decision nobody has made, or with something that stopped the change, such as a check that keeps failing or a limit that ran out. Answer, or tell it to decide: it then decides how the work gets done, and any rule of your product it takes from what is usual in your sector, it tells you as an assumption. What loosens a check or can't be undone stays with you. The guide has [every case](skills/README.md#when-it-stops).
 
-Three commands read the trail for you, from your project's folder. `.gdd/gdd next` says what comes next in your project, including the changes in use that wait for your verdict. `.gdd/gdd waiting` lists every question waiting for you, oldest first. `.gdd/gdd metrics --all --summary` says how your changes went: how they ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, and what each check and each agent cost.
+Three commands read the trail for you, from your project's folder. `.gdd/gdd next` says what comes next in your project, including the changes in use that wait for your verdict. `.gdd/gdd waiting` lists every question waiting for you, oldest first. `.gdd/gdd metrics --all --summary` says how your changes went: how they ended, how long each took without the waits for you, how often they got through the gates and the reviewer the first time, how many that shipped were reverted later, and what each check and each agent cost.
 
 ## The five moments, and what holds each one up
 
@@ -200,7 +192,7 @@ How far that holds depends on where your gates run. With the skills alone, the a
 
 ## Status
 
-- **Version 0.20, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
+- **Version 0.21, with contract `gdd/1`.** The contract lists every file the skills leave in your repository, with its format. An engine will read and write those same files, so what you set up today will still serve you later.
 - **Each of the five moments has a skill.** Close waits for your verdict once a change is in use, and holds nothing up.
 - **The engine that enforces the method,** [T-minus](https://github.com/MarsGotta/t-minus), has its own repository and is still in development.
 

@@ -4,7 +4,7 @@ You ask your agent for a filter by instrument in your songbook. One agent writes
 
 That's a lot to explain every time, so it's written down once, in eight skills. A skill is a file of instructions your agent loads when it needs it. They use what your project already has, its tests, its linter, its CI and git, and one command of their own: the layer, `gdd`, which keeps the order of every change, counts its limits and writes its log, so that no agent keeps that bookkeeping from memory. The agents keep the judgment: what to brief, the tests, the code, the review and what they tell you. The layer comes as source with the skills, and your agent builds it in your project the first time it's needed. The two scripts the skills carry are offered to your project when preparing: a small runner, so that the log says what each check took, and a counter of what a change has spent against its limits, which the layer counts the same way. If you take them, they're yours.
 
-This is version 0.20, with contract `gdd/1`.
+This is version 0.21, with contract `gdd/1`.
 
 ## The five moments
 
@@ -114,6 +114,7 @@ Set GDD up in this project
 ```text
 AGENTS.md                    the GDD block: the cross-cutting core, under 100 words, and the map
 .gdd/gdd                     the layer, which git ignores: every copy of the project builds its own
+.gdd/profile.md              a few notes on how you like to work, which git ignores too: yours to read and correct
 CODEOWNERS                   what you or your team always approve
 gdd/
 ├── blueprint.md             gates, zones, colors, checks, levels and limits
@@ -196,7 +197,7 @@ version lost the filter when you went to the second page; it keeps it now, and t
 also try an instrument with no songs. It won't sort by instrument yet.
 ```
 
-Two commands read the trail for you: `.gdd/gdd waiting` lists every question waiting for you, oldest first, and `.gdd/gdd metrics --all --summary` shows which checks failed in the gates, which failures builders reported, which checks were skipped and why. It also shows measured time and tokens by role, gaps in those figures, first-pass reviews, the minutes a change spent after its gates first all passed, fixes missing citations in older logs, questions by kind and layer calls per change.
+Two commands read the trail for you: `.gdd/gdd waiting` lists every question waiting for you, oldest first, and `.gdd/gdd metrics --all --summary` shows which checks failed in the gates, which failures builders reported, which checks were skipped and why. It also shows measured time and tokens by role, gaps in those figures, first-pass reviews, the minutes a change spent after its gates first all passed, fixes missing citations in older logs, questions by kind, layer calls per change and what shipped and was reverted later.
 
 **You end up with** the change on your main branch and its trail next to it:
 
@@ -246,11 +247,11 @@ Each color also sets the level of the agents that work on it, light for green an
 - **Not yet.** It stays in use and in sight, and your agent doesn't ask again until you come back to it.
 - **No.** It is closed too, and nothing more is built on it. Your agent proposes one of two ways out, for a yes. If it works as written and didn't help: a new request in the backlog, or nothing if you accept it as it is. If it broke a rule or did harm: the fix is a normal change, through step 3, and a hardening proposal, through step 5, because a gate should have caught it.
 
-What promised nothing closes by itself once the days in your blueprint's `closing` go by with nothing recorded against it, 7 in the template. If a hardening record names it before that, it waits for your verdict like the rest. Which changes promise nothing, and who gives the verdict, are in your blueprint, for you or your team to decide. A blueprint from before version 0.16 has no `closing`: there, a change that promised nothing is closed when it ships.
+What promised nothing closes by itself once the days in your blueprint's `closing` go by with nothing recorded against it, 7 in the template. If a hardening record names it before that, or your main branch reverts what it shipped, it waits for your verdict like the rest. Which changes promise nothing, and who gives the verdict, are in your blueprint, for you or your team to decide. A blueprint from before version 0.16 has no `closing`: there, a change that promised nothing is closed when it ships.
 
 ## 5. Harden what slipped through
 
-**You say** which failure got through and where you found it, or what keeps repeating: the same finding, the same stop, the same reason for raising a color. Fixing it is a normal change, through step 3. Hardening is the other half: what it would have taken to catch it stays as a check. Or you say which gate is in the way, and the orchestrator reads the logs for what it caught and what it cost.
+**You say** which failure got through and where you found it, or what keeps repeating: the same finding, the same stop, the same reason for raising a color, the same question to you. Fixing it is a normal change, through step 3. Hardening is the other half: what it would have taken to catch it stays as a check. Or you say which gate is in the way, and the orchestrator reads the logs for what it caught and what it cost.
 
 ```mermaid
 flowchart LR
@@ -298,8 +299,8 @@ For each defect, the log names the check that should have caught it and who or w
 | A change is larger than expected | Its size goes to the reviewer and in one line of your summary | Work continues. |
 | A check fails without the change too | Debt not yet in `gdd/debt.md`, or an unstable check. Meanwhile nothing gets built under it, because nothing would get through | It proposes one way out and you say yes or no: recording debt and quarantining a check are decisions for you or your team, never for an agent |
 | You need to skip a check, in an emergency | Skipping a check loosens it. Your blueprint says beforehand what an emergency may skip, and who opens that gate | That person approves it. It's logged as a waiver, with who and why, and the change goes through what it skipped afterwards |
-| Your agent can't launch other agents | It gives you one line per role | Open a new session with it, such as `/gdd:gdd-build gdd/briefs/<id>.md` |
-| The layer refused a step | A step out of order, a file that changed after it was sealed, a cap with no room left | Nothing: it says why and what to run instead, and your agent does that |
+| Your agent can't launch other agents | It gives you one line per role | Open a new session on the model it names and paste that line |
+| The layer refused a step | A step out of order, a file that changed after it was sealed, a cap with no room left, a question still waiting for you | Nothing: it says why and what to run instead, and your agent does that |
 | The layer isn't there | Each copy of the project builds its own, and this one couldn't | Install Rust, and your agent goes on |
 
 A fix never goes into a looser check. When a check looks wrong, only whoever wrote it or a person corrects it, never the agent that has to pass it.
