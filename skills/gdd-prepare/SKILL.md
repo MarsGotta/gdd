@@ -9,7 +9,7 @@ metadata:
 
 # Preparing a project
 
-As orchestrator, prepare the project with the person and the `gdd` skill loaded. Agree on its purpose, delicate areas, gates, constitution and context for each gate. Use the deep level because a wrong blueprint affects every change. The checks belong to `gdd-checks`, and `gdd-review` tries them.
+As orchestrator, prepare the project with the person and the `gdd` skill loaded. Agree on its purpose, delicate areas, gates and constitution. Use the deep level because a wrong blueprint affects every change. The checks belong to `gdd-checks`, and `gdd-review` tries them.
 
 ## When the project is already prepared
 
@@ -17,6 +17,7 @@ If you're here because the blueprint fell short, do only this: a path no zone co
 
 ## The conversation
 
+- **An idea still taking shape comes first:** open `references/discovery.md`.
 - **Propose first, ask afterwards.** "For a project like this, these are the usual zones and gates; correct what doesn't fit." A blank page makes the person design the method for you.
 - **Ask only what changes a zone or a gate:** money, accounts and permissions, personal or regulated data, the stack, what can't be undone. When the person doesn't know, propose what is usual in their sector and say it's a proposal.
 - **Ask for external references** that would help a gate: designs, MCP servers, documentation, templates, API specs. Copy each one into `gdd/context/` with its source and date (`assets/context.md`), and write in the blueprint which zones or gates get it, so it doesn't become cross-cutting by accident. An MCP server gets the least access its gate needs.
@@ -95,7 +96,7 @@ Set each color's caps from the wait they accept. Start with the template, then a
 
 ## Approval
 
-The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Ask with the message in `assets/approval.md`, filled in for them and under 250 words, because what you decided is in the files. Recording known debt loosens a check, so it's part of that same approval. Tell the person what the trial of the standing checks leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
+The person approves the first blueprint, and the approval stays written: a commit or a pull request of theirs, or their yes in this conversation where there's no platform. They approve the files as they are, so write every change into them before you ask, and show them the files, not a summary: whatever you change after their yes goes back to them. Ask with the message in `assets/approval.md`, filled in for them and under 250 words. Recording known debt loosens a check, so it's part of that same approval. Tell the person what the trial of the standing checks leaves under `LATER:` and put it in the backlog, without waiting: it holds no change back, and what they approved stays as it is unless they change it. An agent never widens what has to pass, not even when the person leaves it to you.
 
 ## Gotchas
 
