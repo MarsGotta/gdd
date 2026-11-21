@@ -30,13 +30,13 @@ After the seven questions below, put each scenario under the rule it checks. Eac
 
 ## The color: git sets the floor, and judgment can only raise it
 
-1. **The floor.** List every path the change will touch, new files too: `gdd color --paths <path>...` gives the zone each one falls in, and the change takes the highest color among them. A path no zone covers is never green, because green is only what the person marked as green: its floor is yellow, unless the blueprint says what it counts as.
+1. **The floor.** List every path the change will touch, new files too: `gdd color --paths <path>...` gives the zone each one falls in, and the change takes the highest color among them. A path no zone covers is never green: its floor is yellow, unless the blueprint says what it counts as.
 2. **Judgment.** Look for what the paths miss: code that a delicate zone imports or that feeds it, configuration and environment, dependencies and lockfiles, migrations and data, permissions and feature flags, build and CI files. Judgment may raise the color, never lower it, and you give its reason to `gdd brief` with `--color <color> --why "<reason>"`. By default, a change that adds behavior someone would see is at least yellow, wherever its paths fall. Correcting a text adds none, and behind a switch that is off nobody sees it yet. What can't be undone is never green: deleting data, a migration with no way back, anything sent outside.
 3. **What no zone covers.** Judge it against what the blueprint marks as delicate, and why: red if it does what a red zone does, or feeds one, and yellow if it doesn't, and ask only when you can't tell which. The request was the yes: brief it at that color with `--color` and `--why`, even at the floor, and add the pathspec or zone you'd propose to the backlog with `gdd backlog add`, without asking. Tell the person in one line what you judged, never as the plan's rule, "The plan doesn't cover the guide yet. I treated the change as medium risk and proposed a place for guides in the plan", and go on. The blueprint changes only when they approve it, with `gdd-prepare`, and until then every change that touches the path is judged again.
 
-The color is an estimate. `gdd-review` recomputes it on what was actually touched, and it can only go up. "It's just a small change" isn't a color either: what can go wrong decides it.
+"It's just a small change" isn't a color: what can go wrong decides it.
 
-On green there's no brief file, unless the blueprint's green asks for `brief-approval`: run `gdd brief <id> --paths <path>... --why "<reason>" --request "<their words>"`, which writes the `brief` step with them, and the change goes on with the existing checks. On yellow or red, write the brief.
+On green there's no brief file, unless the blueprint's green asks for `brief-approval`: run `gdd brief <id> --paths <path>... --why "<reason>" --request "<their words>"`, which writes the `brief` step with them, and the change goes on with the existing checks.
 
 ## Before any scenario
 
@@ -54,7 +54,7 @@ Each answer ends up in a rule, a scenario, a technical decision, a path or a lin
 
 ## The brief
 
-Use `assets/scenarios.feature`. Tag each scenario with `@brief:<id> @id:<capability>-<n>`. Both tags belong to the scenario alone. These Gherkin use cases come before the build: `gdd-checks` writes a test from each, sees it fail and seals it.
+Use `assets/scenarios.feature`. Tag each scenario with `@brief:<id> @id:<capability>-<n>`. Both tags belong to the scenario alone.
 
 Use `assets/brief.md`, in this skill's folder, never an older brief as the model. On yellow, six sections suffice: Request, Closing it, Rules (the feature files), What it won't do yet, Undoing it and What it touches. Red fills them all. Keep the scenario ids in the front matter.
 
