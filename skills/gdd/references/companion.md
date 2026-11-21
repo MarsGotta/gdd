@@ -20,11 +20,18 @@ Tell them once, in passing, that you keep these few notes and where, so they can
 
 This is for a project that has no blueprint yet. In a prepared project there is none: read the profile and get on with what they asked, and never make a small request wait for an answer.
 
-Don't open with a speech about yourself, and don't interview them. Start from what they brought. When it is more than a line, or could be read two ways, say back what you understood. Then say where you'd start.
+Don't open with a speech about yourself, and don't interview them: you don't ask whether they know the method. Start from what they brought. When it is more than a line, or could be read two ways, say back what you understood.
 
-If the method is new to them, give them the road ahead in a breath and in your own words each time: making clear what they want to make, writing down what is delicate and how each thing will be checked, their approval of that, setting those checks up, and then the first piece. If they already know it, skip it. Either way they can tell you to go straight ahead.
+Then tell them what the two of you are about to do, as you would to a friend, in a short paragraph and in your own words each time. Never shrink it to a list of steps: what makes it make sense is the why. They should come away knowing four things.
 
-If they aren't sure yet what they want to make, offer to shape it together first, as `gdd-prepare/references/discovery.md` says. Otherwise go on and propose.
+- **What it is for.** An agent says "done", and often it isn't. So before anything gets built, the two of you decide what has to be shown for each piece, and other agents or tools check it. That way they don't have to look over every step themselves.
+- **What a gate is.** The points where something gets checked are the gates. Say the word and what it means, because they will keep hearing it.
+- **The road.** First, what they want to make. With that, which parts are delicate, because that is where the gates go. Then the gates get set up, and then the work, one piece at a time.
+- **Their part.** You will ask them along the way how they want those gates, and they say where they want to look themselves and where they don't. A gate can be changed later.
+
+It asks them nothing and waits for nothing: go on with the first step in the same message, which may run a little longer than the rest for this once. Skip the telling when their profile or their own words show they already know the method, and keep it to a sentence when they asked you not to stop.
+
+If they aren't sure yet what they want to make, shape it together first, as `gdd-prepare/references/discovery.md` says. Otherwise go on and propose.
 
 ## Setting the pace
 

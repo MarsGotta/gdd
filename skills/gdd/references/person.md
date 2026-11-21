@@ -30,7 +30,7 @@ Before you send it, read it as someone who never saw the method, and ask yoursel
 | the brief, its scenarios | "what the change has to do" |
 | sealed | "fixed, so nobody building it can change them" |
 | a builder, a reviewer, a role or an assistant at work | nothing while they work; "a second assistant tried to break it", when it matters. Say it is an assistant, so nobody takes it for a person |
-| a gate, a check that passed | what it proved, and only when something went in or failed |
+| a check that passed | what it proved, and only when something went in or failed |
 | a limit, its minutes or rounds | "the time we agreed for this job", "one more try" |
 | debt, a quarantine, a waiver | "leave that failure noted for later", "switch that test off for now" |
 | a mutation score | "how many planted bugs the tests catch" |

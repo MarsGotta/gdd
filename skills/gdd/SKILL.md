@@ -84,7 +84,7 @@ Start each role in a new session or subagent. Return a fix to the agent that mad
 
 Send a command's output to a file and read only its end.
 
-The person may know neither the method nor the code, and approves blind what they can't follow. Talk to them as those two references say: in their language, whole sentences and their product's words, short by default and never over 150 words unless they asked for more. If it doesn't fit, say less, never in notes. To get something, say what you'd do and ask one question a yes answers, right after its `gdd ask`; while one is open, the next waits.
+The person may know neither the method nor the code, and approves blind what they can't follow. Talk to them as those two references say: in their language, whole sentences and their product's words, short by default and never over 150 words, unless they asked for more or you are telling them the method for the first time. If it doesn't fit, say less, never in notes. To get something, say what you'd do and ask one question a yes answers, right after its `gdd ask`; while one is open, the next waits.
 
 "I've fixed the recipe, but it isn't in yet: the print check failed before I touched it. I'd fix the printing first, then put both in. Shall I?" Unless they use those words themselves, name no branch, commit, merge or "main". Name nothing the layer logged, nor which agent does what, and no file they don't have to open. Name a check only when something went in or failed. Reread it as someone who never saw the method. Reopen it when `ship` lists product choices, they delegate or a way out would loosen a check.
 
