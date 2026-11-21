@@ -983,3 +983,19 @@ fn a_change_that_expected_something_shows_its_revert_with_what_to_look_at() {
     // It waited for a verdict before the revert, and it still does.
     assert_eq!(r.gdd(&["next", "y1"]).facts["state"]["close"], "waiting");
 }
+
+#[test]
+fn the_question_about_a_change_in_use_is_the_only_one_in_its_log() {
+    let r = Repo::new();
+    yellow_shipped(&r, "y1", THREE);
+    assert_eq!(r.gdd(&["ask", "y1", "--of", "close", "Did it help?"]).code, 0);
+    // Another question in that log would end it without a verdict.
+    let other = r.gdd(&["ask", "y1", "--of", "decision", "Keep the colours?"]);
+    assert_eq!(other.facts["refused"], "one-question", "{}", other.out);
+    assert_eq!(r.gdd(&["next", "y1"]).facts["state"]["close"], "waiting");
+    // In another log it holds nothing back and isn't named, because it stops nothing.
+    assert_eq!(r.gdd(&["brief", "g2", "--paths", "src/ui/page.txt"]).code, 0);
+    let next = r.gdd(&["ask", "g2", "--of", "decision", "Two decimals?"]);
+    assert_eq!(next.code, 0, "{}", next.out);
+    assert_eq!(next.facts["also_waiting"], serde_json::json!([]));
+}

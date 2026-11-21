@@ -77,7 +77,11 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
         "--color",
         "green",
     ]);
-    assert_eq!(b.facts["color"], "red", "{}", b.out);
+    assert!(b.has("the color is red, not green"), "{}", b.out);
+    // And a red change needs its brief: the step with no files is refused, so nothing is logged
+    // at the lower color either.
+    assert_eq!(b.facts["refused"], "no-brief", "{}", b.out);
+    assert!(r.log_lines("c2").is_empty(), "{:?}", r.log_lines("c2"));
 }
 
 #[test]

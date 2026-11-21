@@ -2986,3 +2986,82 @@ fn a_new_finding_that_takes_an_old_id_can_be_contested() {
     );
     assert_eq!(built.code, 0, "the new f1 was never read and kept: {}", built.out);
 }
+
+#[test]
+fn a_second_question_in_a_log_waits_for_the_answer_to_the_first() {
+    let r = Repo::new();
+    assert_eq!(r.gdd(&["brief", "q1", "--paths", "src/ui/page.txt"]).code, 0);
+    let first = r.gdd(&["ask", "q1", "--of", "decision", "Two decimals?"]);
+    assert_eq!(first.code, 0, "{}", first.out);
+    assert_eq!(first.facts["also_waiting"], serde_json::json!([]));
+    let lines = r.log_lines("q1").len();
+    // Another question would end the first without an answer.
+    let second = r.gdd(&["ask", "q1", "--of", "stop", "Shall I stop?"]);
+    assert_eq!(second.facts["refused"], "one-question", "{}", second.out);
+    assert!(second.has("(decision): Two decimals?"), "{}", second.out);
+    assert_eq!(r.log_lines("q1").len(), lines);
+    // The same question, asked again, takes the place of the first.
+    let again = r.gdd(&["ask", "q1", "--of", "decision", "Two decimals, or three?"]);
+    assert_eq!(again.code, 0, "{}", again.out);
+    // Once they answer, the next one can be asked.
+    assert_eq!(r.gdd(&["answer", "q1", "Two"]).code, 0);
+    let next = r.gdd(&["ask", "q1", "--of", "stop", "Shall I stop?"]);
+    assert_eq!(next.code, 0, "{}", next.out);
+}
+
+#[test]
+fn a_question_that_waits_in_another_log_is_named_and_holds_nothing_back() {
+    let r = Repo::new();
+    for id in ["o1", "o2"] {
+        assert_eq!(r.gdd(&["brief", id, "--paths", "src/ui/page.txt"]).code, 0);
+    }
+    assert_eq!(r.gdd(&["ask", "o1", "--of", "decision", "Two decimals?"]).code, 0);
+    // A new request doesn't wait for an old question, but the person hears one at a time.
+    let other = r.gdd(&["ask", "o2", "--of", "change", "Does it go in?"]);
+    assert_eq!(other.code, 0, "{}", other.out);
+    assert!(
+        other.has("another question still waits for the person, in o1 (decision): Two decimals?"),
+        "{}",
+        other.out
+    );
+    assert_eq!(
+        other.facts["also_waiting"],
+        serde_json::json!(["o1 (decision): Two decimals?"])
+    );
+}
+
+#[test]
+fn a_change_above_green_needs_its_brief_and_scenarios() {
+    let r = Repo::new();
+    // Yellow by its path, and no brief: nobody would write its checks.
+    let bare = r.gdd(&["brief", "y1", "--paths", "src/core/app.txt"]);
+    assert_eq!(bare.facts["refused"], "no-brief", "{}", bare.out);
+    assert!(bare.has("y1 is yellow"), "{}", bare.out);
+    assert!(r.log_lines("y1").is_empty());
+    // With its brief and scenarios sealed, it is logged.
+    yellow_brief(&r, "y1", "src/core/app.txt");
+    // A later step that names no file keeps the brief it has, and so its checks step.
+    let held = r.log_lines("y1").pop().unwrap()["files"].clone();
+    let later = r.gdd(&["brief", "y1", "--paths", "src/core/app.txt"]);
+    assert_eq!(later.code, 0, "{}", later.out);
+    let step = r.log_lines("y1").pop().unwrap();
+    assert_eq!(step["files"], held);
+    assert!(step["files"]["features/y1.feature"].is_string(), "{step}");
+    // Approved, what comes next is still its checks, never the build.
+    approved(&r, "y1");
+    let next = r.gdd(&["next", "y1"]);
+    assert_eq!(next.facts["state"]["next"]["step"], "checks", "{}", next.out);
+    // The way out keeps what was asked: a color raised by judgment isn't lost on the way.
+    let raised = r.gdd(&[
+        "brief", "m1", "--paths", "src/ui/page.txt", "--color", "red", "--why", "money",
+    ]);
+    assert_eq!(raised.facts["refused"], "no-brief", "{}", raised.out);
+    assert!(raised.has("m1 is red"), "{}", raised.out);
+    assert!(
+        raised.has("--paths src/ui/page.txt --color red --why money"),
+        "{}",
+        raised.out
+    );
+    // Green needs none.
+    assert_eq!(r.gdd(&["brief", "g1", "--paths", "src/ui/page.txt"]).code, 0);
+}

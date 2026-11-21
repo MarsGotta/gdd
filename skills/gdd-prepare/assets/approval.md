@@ -2,7 +2,7 @@
 
 It is often the first long message the person gets from you, and the one where they decide whether to trust the plan. Write it for them, in their language and their words, as the `gdd` skill's reference on writing to the person says: whole sentences, never notes. Keep it under 250 words: if it doesn't fit, leave out what is in the files, never the words that join the ideas.
 
-    Your project is ready for you to approve. Nothing is final and nothing gets built until you do.
+    Your project is ready for you to approve. Nothing is final and nothing gets built until you do. <One sentence that tells the plan itself: what gets the most care and why.>
 
     Please read:
     - `gdd/blueprint.md`: <what it is for, in a sentence>
@@ -18,11 +18,13 @@ It is often the first long message the person gets from you, and the one where t
 
     <One question a yes answers that approves these files as they are.>
 
+A person who gets a wall of file names and caveats skips it and approves blind. So the plan comes first, in one plain sentence, and lines 3 and 4 are things they can picture, each with what it means for them or what you'll do about it. What they can do nothing about, and that changes no decision of theirs, stays in the files.
+
 Everything this skill tells you to say to the person before the approval goes under "Before you say yes", in those four lines and in that order, each one or two whole sentences on its own line. Lines 1 and 2 are the trial of the blueprint: each stays on its own line, also when it found nothing, and carries nothing else. Line 4 always says what isn't set up or tried yet. Any other caveat, including anything that comes from memory because you couldn't look it up, joins line 3 or line 4: it never replaces a line and never adds a fifth. What they asked for by name, and what you decided about it, gets its answer in the line of the file that holds it. No other headings and no other lists.
 
 Filled in for a birdwatching diary:
 
-    Your plan is ready, and nothing gets built until you say yes.
+    Your plan is ready, and nothing gets built until you say yes. In short: whatever touches who can see a sighting gets the most care, with its own tests and a second assistant that tries to break it, and a label gets the least.
 
     Please read:
     - `gdd/blueprint.md`: how carefully each kind of change is checked, with the extra review you asked for on sharing.
@@ -31,7 +33,7 @@ Filled in for a birdwatching diary:
     - `gdd/backlog.md`: the first changes, in order.
 
     Before you say yes:
-    - Of your last 25 changes, 10 changed labels, 9 changed how you record sightings and 6 changed who can see them, including both privacy fixes, so sharing gets the most care.
+    - Of your last 25 changes, 10 changed labels, 9 changed how you record sightings and 6 changed who can see them, including both privacy fixes.
     - Two of them touched sharing settings the plan had missed, and the revised plan tests those too.
     - The privacy rule comes from your guidance; the other rules are my proposals.
     - Nothing yet stops an assistant from weakening those tests, so the first thing I do is lock them and check the lock holds. I'd guess an hour and one more yes from you before I start on the diary.

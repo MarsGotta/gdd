@@ -1157,10 +1157,14 @@ fn a_change_that_turns_red_after_a_build_gets_its_new_brief_read() {
 
 #[test]
 fn ask_names_the_command_its_answer_takes() {
-    let r = Repo::new();
-    r.gdd(&["brief", "a1", "--paths", "src/ui/page.txt"]);
+    // One question at a time in a log, so each kind gets a project with nothing waiting.
+    let asked = |of: &str| {
+        let r = Repo::new();
+        r.gdd(&["brief", "a1", "--paths", "src/ui/page.txt"]);
+        r.gdd(&["ask", "a1", "--of", of, "Yes?"])
+    };
     for of in ["blueprint", "gates", "debt", "brief", "change"] {
-        let a = r.gdd(&["ask", "a1", "--of", of, "Yes?"]);
+        let a = asked(of);
         assert!(
             a.facts["then"]
                 .as_str()
@@ -1171,7 +1175,7 @@ fn ask_names_the_command_its_answer_takes() {
         );
     }
     for of in ["decision", "stop"] {
-        let a = r.gdd(&["ask", "a1", "--of", of, "Yes?"]);
+        let a = asked(of);
         assert!(
             a.facts["then"]
                 .as_str()
@@ -1181,7 +1185,7 @@ fn ask_names_the_command_its_answer_takes() {
             a.out
         );
     }
-    let a = r.gdd(&["ask", "a1", "--of", "waiver", "Yes?"]);
+    let a = asked("waiver");
     assert!(
         a.facts["then"]
             .as_str()

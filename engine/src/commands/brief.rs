@@ -471,6 +471,25 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                 format!("gdd seal {id} {}", a.files.join(" ")),
             ));
         }
+        // Above green, a change with no brief has no scenarios, so nobody would write its checks.
+        if c.color != "green" && files.is_empty() && !l.state.progress.has_brief() {
+            let named = "<the brief and its scenarios>";
+            let retry = retry_commands().1.replacen(
+                &format!("gdd brief {id} "),
+                &format!("gdd brief {id} {named}"),
+                1,
+            );
+            return Err(Fail::refuse(
+                "no-brief",
+                format!(
+                    "{id} is {}: a change above green needs its brief and its scenarios, written and sealed before this step",
+                    c.color
+                ),
+                format!(
+                    "Write gdd/briefs/{id}.md and its scenarios as gdd-brief says, then run these commands.\ngdd seal {id} {named}\n{retry}"
+                ),
+            ));
+        }
         let closing = match closing_of(ctx, &l, id, a.files, logged) {
             Ok(c) => c,
             Err(why) => {
@@ -533,6 +552,14 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
         } else {
             json!(seal_tip)
         };
+        // A step that names no file keeps the brief the change has: writing none would drop its
+        // scenarios, and with them the checks step.
+        let kept_files = if files.is_empty() {
+            let held = &l.state.progress.brief_files;
+            held.iter().map(|(f, h)| (f.clone(), json!(h))).collect()
+        } else {
+            files.clone()
+        };
         let mut ev = new_event(
             id,
             "step",
@@ -557,7 +584,7 @@ pub fn brief(ctx: &Ctx, id: &str, a: &BriefArgs) -> Out {
                     ),
                 ),
                 ("color", colorobj),
-                ("files", Value::Object(files.clone())),
+                ("files", Value::Object(kept_files)),
                 ("seal", seal_field),
             ]),
         );

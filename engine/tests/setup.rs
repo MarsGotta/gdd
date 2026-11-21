@@ -344,7 +344,8 @@ fn no_question_about_a_brief_before_there_is_one() {
     }
     // A question about a rule of the product is how a brief starts.
     for of in ["decision", "stop", "waiver"] {
-        assert_eq!(r.gdd(&["ask", "n1", "--of", of, "Two decimals?"]).code, 0);
+        let id = format!("n-{of}");
+        assert_eq!(r.gdd(&["ask", &id, "--of", of, "Two decimals?"]).code, 0);
     }
     assert_eq!(
         r.gdd(&[

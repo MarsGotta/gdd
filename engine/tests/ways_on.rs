@@ -281,10 +281,7 @@ fn deferred_standing_checks_name_how_to_resume() {
 #[test]
 fn an_open_brief_ask_names_the_approval_message() {
     let r = Repo::new();
-    assert_eq!(
-        r.gdd(&["brief", "yes", "--paths", "src/core/app.txt"]).code,
-        0
-    );
+    yellow_brief(&r, "yes", "src/core/app.txt");
     assert_eq!(r.gdd(&["ask", "yes", "--of", "brief", "Approve?"]).code, 0);
     let next = next_of(&r, "yes");
     assert!(next.has("load gdd-brief and send its approval message"));

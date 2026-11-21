@@ -159,6 +159,27 @@ fn check_levels_question(l: &Loaded, id: &str) -> R<()> {
 fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
     let p = &l.state.progress;
     let kind = log_kind(id);
+    check_kind(l, id, of, kind)?;
+    // One question at a time in a log: another kind would end the first without an answer.
+    // The same kind asked again takes its place.
+    match p.open_ask().filter(|a| a.of != of) {
+        Some(open) => Err(Fail::refuse(
+            "one-question",
+            format!(
+                "a question already waits for the person here ({}): {}",
+                open.of, open.what
+            ),
+            format!(
+                "one question at a time: record their answer first, with what its gdd ask printed or, when they said something else, gdd answer {id} \"<their words>\". Then ask this one"
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// What each kind of question needs before it can be asked.
+fn check_kind(l: &Loaded, id: &str, of: &str, kind: LogKind) -> R<()> {
+    let p = &l.state.progress;
     match of {
         "levels" => check_levels_question(l, id),
         "decision" | "waiver" if p.open_ask().is_some_and(|a| a.spent_limit) => Err(Fail::refuse(
@@ -209,6 +230,16 @@ fn check_question(l: &Loaded, id: &str, of: &str) -> R<()> {
     }
 }
 
+/// The questions that wait in other logs, to name them: a new request doesn't wait for an old
+/// question, but the person hears one at a time. The one about a change in use stops nothing and
+/// may wait for days, so it isn't named.
+fn waiting_elsewhere(ctx: &Ctx, id: &str) -> Vec<(String, state::Ask)> {
+    super::waiting::open_questions(&Project::open(&ctx.root))
+        .into_iter()
+        .filter(|(other, a)| other != id && a.of != "close")
+        .collect()
+}
+
 pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
     run_change(ctx, id, "ask", |out| {
         if !log::ASK_OF.contains(&of) {
@@ -222,6 +253,7 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
         }
         let l = load(ctx, id)?;
         check_question(&l, id, of)?;
+        let elsewhere = waiting_elsewhere(ctx, id);
         let mut ev = new_event(
             id,
             "ask",
@@ -246,8 +278,17 @@ pub fn ask(ctx: &Ctx, id: &str, of: &str, what: &str) -> Out {
             crate::next::follow_up(id, of, l.state.progress.version.unwrap_or(1))
         };
         out.say(format!("when they answer: {then}"));
+        let mut also = vec![];
+        for (other, a) in &elsewhere {
+            out.say(format!(
+                "another question still waits for the person, in {other} ({}): {}. One question in a message: send this one alone and say in a line that the other still waits. If they answered it already, record it: gdd answer {other} \"<their words>\"",
+                a.of, a.what
+            ));
+            also.push(format!("{other} ({}): {}", a.of, a.what));
+        }
         out.fact("then", json!(then));
         out.fact("line", line);
+        out.fact("also_waiting", json!(also));
         Ok(())
     })
 }
