@@ -53,6 +53,10 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
     let n = r.gdd(&["next", "c1"]);
     let next = &n.facts["state"]["next"];
     assert_eq!(next["step"], "brief");
+    // It passed, and it still doesn't ship at the color it was briefed at.
+    let early = r.gdd(&["ship", "c1", "--merge"]);
+    assert_eq!(early.facts["refused"], "out-of-order", "{}", early.out);
+    assert!(early.has("higher than green: back to Brief"), "{}", early.out);
     r.write(
         "features/c1.feature",
         "Feature: The page and the app change together\n",
@@ -82,6 +86,145 @@ fn color_rises_and_what_no_zone_covers_is_never_green() {
     // at the lower color either.
     assert_eq!(b.facts["refused"], "no-brief", "{}", b.out);
     assert!(r.log_lines("c2").is_empty(), "{:?}", r.log_lines("c2"));
+}
+
+/// A change briefed green whose build also touched a yellow path, reviewed with `verdict`.
+fn reviewed_at_a_higher_color(r: &Repo, verdict: &str) {
+    r.gdd(&["brief", "c1", "--paths", "src/ui/page.txt"]);
+    let base = r.git(&["rev-parse", "main"]);
+    r.commit_on(
+        "work/c1",
+        Some(&base),
+        &[("src/ui/page.txt", "x\n"), ("src/core/app.txt", "ok too\n")],
+        "Both",
+    );
+    r.report("c1", "build", &report_block("gdd-build", "done"), &[]);
+    r.gdd(&["gates", "c1"]);
+    let launch = r.gdd(&["launch", "c1", "review"]);
+    let found = if verdict == "pass" {
+        ""
+    } else {
+        "f1 src/core/app.txt:1 the app changed and nothing covers it | request: page\n"
+    };
+    let text = launch.with_reviewed(&review_text(verdict, "green", found));
+    let rv = r.report("c1", "review", &text, &[]);
+    assert_eq!(rv.code, 0, "{verdict}: {}", rv.out);
+}
+
+#[test]
+fn a_color_that_rose_goes_back_to_brief_whatever_the_verdict() {
+    for verdict in ["fix", "stop"] {
+        let r = Repo::new();
+        reviewed_at_a_higher_color(&r, verdict);
+        if verdict == "stop" {
+            // A stop is told first, and the person answers it.
+            let n = r.gdd(&["next", "c1"]);
+            assert_eq!(n.facts["state"]["next"]["blocked"], "review-stop", "{}", n.out);
+            assert_eq!(r.gdd(&["ask", "c1", "--of", "stop", "It stopped."]).code, 0);
+            assert_eq!(r.gdd(&["answer", "c1", "Fix it."]).code, 0);
+        }
+        // Not a fix round: the color comes first.
+        let n = r.gdd(&["next", "c1"]);
+        let next = &n.facts["state"]["next"];
+        assert_eq!(next["step"], "brief", "{verdict}: {}", n.out);
+        assert!(n.has("the reviewer found yellow, higher than green"), "{}", n.out);
+        // After a stop, it also says how a change the person dropped ends.
+        assert_eq!(n.has("gdd brief c1 --stop"), verdict == "stop", "{}", n.out);
+        // The new brief, its approval and its checks: the judging starts over at yellow.
+        r.write("features/c1.feature", &ok_feature("c1"));
+        let md = brief_md(&r, "c1");
+        assert_eq!(r.gdd(&["seal", "c1", &md, "features/c1.feature"]).code, 0);
+        let command = next["command"]
+            .as_str()
+            .unwrap()
+            .replace("<files>", "gdd/briefs/c1.md features/c1.feature")
+            .replace("<path>...", "src/ui/page.txt src/core/app.txt")
+            .replace("<what raised it>", "the app also changed");
+        let raised = r.named(&command);
+        assert_eq!(raised.code, 0, "{verdict}: {}", raised.out);
+        assert_eq!(raised.facts["color"], "yellow");
+        let yes = r.gdd(&[
+            "approve",
+            "c1",
+            "--of",
+            "brief",
+            "--who",
+            "Person",
+            "--where",
+            "conversation",
+            "gdd/briefs/c1.md",
+            "features/c1.feature",
+        ]);
+        assert_eq!(yes.code, 0, "{verdict}: {}", yes.out);
+        r.commit_on(
+            "gdd-seal/c1",
+            None,
+            &[("tests/c1.sh", "true # gdd:c1-1\n")],
+            "Seal",
+        );
+        let sealed = r.report("c1", "checks", &sealed_report(&["tests"]), &[]);
+        assert_eq!(sealed.code, 0, "{verdict}: {}", sealed.out);
+        let n = r.gdd(&["next", "c1"]);
+        assert_eq!(n.facts["state"]["next"]["step"], "build", "{verdict}: {}", n.out);
+        assert_eq!(n.facts["state"]["color"], "yellow", "{verdict}: {}", n.out);
+    }
+}
+
+#[test]
+fn a_color_that_rose_comes_before_a_round_for_gates_that_failed_later() {
+    let r = Repo::new();
+    reviewed_at_a_higher_color(&r, "pass");
+    // The branch moves after the review and its gates fail: still the brief, not a fix round.
+    r.commit_on("work/c1", None, &[("src/core/app.txt", "no\n")], "Break");
+    let g = r.gdd(&["gates", "c1"]);
+    assert!(g.has("tests      FAIL"), "{}", g.out);
+    let n = r.gdd(&["next", "c1"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "brief", "{}", n.out);
+}
+
+#[test]
+fn a_color_that_rose_comes_before_the_findings_about_a_check() {
+    let r = Repo::new();
+    yellow_brief(&r, "y8", "src/core/app.txt");
+    r.gdd(&[
+        "approve",
+        "y8",
+        "--of",
+        "brief",
+        "--who",
+        "Person",
+        "--where",
+        "conversation",
+        "gdd/briefs/y8.md",
+        "features/y8.feature",
+    ]);
+    r.commit_on(
+        "gdd-seal/y8",
+        None,
+        &[("tests/y8.sh", "true # gdd:y8-1\n")],
+        "Seal",
+    );
+    r.report("y8", "checks", &sealed_report(&["tests"]), &[]);
+    let start = r.git(&["rev-parse", "gdd-seal/y8"]);
+    // The build also touched a red path.
+    r.commit_on(
+        "work/y8",
+        Some(&start),
+        &[("src/core/app.txt", "it says ok\n"), ("src/pay/pay.txt", "x\n")],
+        "Round 1",
+    );
+    assert_eq!(r.report("y8", "build", &report_block("gdd-build", "done"), &[]).code, 0);
+    assert_eq!(r.gdd(&["gates", "y8"]).code, 0);
+    // Its only finding names a sealed test, which would go to the checks agent.
+    let found = "f1 tests/y8.sh:1 the test passes whatever the app says | @id:y8-1\n";
+    let rv = r.report("y8", "review", &review_text("fix", "yellow", found), &[]);
+    assert_eq!(rv.code, 0, "{}", rv.out);
+    let review = r.log_lines("y8").into_iter().rfind(|e| e["step"] == "review").unwrap();
+    assert_eq!(review["fix_role"], "checks", "{review}");
+    assert_eq!(review["color"]["color"], "red", "{review}");
+    let n = r.gdd(&["next", "y8"]);
+    assert_eq!(n.facts["state"]["next"]["step"], "brief", "{}", n.out);
+    assert!(n.has("the reviewer found red, higher than yellow"), "{}", n.out);
 }
 
 #[test]

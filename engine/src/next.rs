@@ -59,6 +59,34 @@ fn setup_checks(id: &str, p: &Progress, lim: &Limits, say: &str) -> Next {
     n("checks", say, format!("gdd launch {id} checks"))
 }
 
+/// A review that found a color above the brief's sends the change back to Brief, whatever its
+/// verdict and whatever came after it: no fix round starts at the lower color. What the person
+/// has to hear comes first, a stop or a seal that broke, each told where its own step says.
+fn color_rose(id: &str, p: &Progress, color: &str) -> Option<Next> {
+    let r = p.last_review.as_ref()?;
+    let found = r.color.as_deref()?;
+    let stop = r.verdict == "stop";
+    let untold = (stop && !p.stop_told)
+        || (p.last_gates.as_ref().is_some_and(GatesRun::seal_failed) && !p.seal_told);
+    if untold || crate::color_rank(found) <= crate::color_rank(color) {
+        return None;
+    }
+    let dropped = if stop {
+        format!("; if the person dropped it: gdd brief {id} --stop \"<their words>\"")
+    } else {
+        String::new()
+    };
+    Some(n(
+        "brief",
+        format!(
+            "the reviewer found {found}, higher than {color}: back to Brief, and gdd-checks adds its cases{dropped}"
+        ),
+        format!(
+            "gdd brief {id} <files> --color {found} --why \"<what raised it>\" --paths <path>..."
+        ),
+    ))
+}
+
 /// What comes after the reviewer sent a change back: a stop goes to the person first, and then,
 /// as after a `fix`, a fix round.
 fn review_sent_back(id: &str, p: &Progress, lim: &Limits, verdict: &str) -> Next {
@@ -312,9 +340,11 @@ pub(crate) fn next_step(
         next_in_setup(id, p, lim, git, asks("person-review"), now)
     } else {
         let split = bp.splits_reading(&color);
-        before_the_build(id, p, lim, &color, split, asks("brief-approval"), now).unwrap_or_else(|| {
-            from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
-        })
+        color_rose(id, p, &color)
+            .or_else(|| before_the_build(id, p, lim, &color, split, asks("brief-approval"), now))
+            .unwrap_or_else(|| {
+                from_the_build_on(id, p, lim, git, &color, asks("person-review"), now)
+            })
     };
     if next.blocked.as_deref() == Some("cap-spent") && p.limit_deferred {
         let say = format!(
@@ -631,19 +661,6 @@ fn from_the_build_on(
     match r.verdict.as_str() {
         v @ ("stop" | "fix") => review_sent_back(id, p, lim, v),
         _ => {
-            if let Some(rc) = &r.color
-                && crate::color_rank(rc) > crate::color_rank(color)
-            {
-                return n(
-                    "brief",
-                    format!(
-                        "the reviewer found {rc}, higher than {color}: back to Brief, and gdd-checks adds its cases"
-                    ),
-                    format!(
-                        "gdd brief {id} <files> --color {rc} --why \"<what raised it>\" --paths <path>..."
-                    ),
-                );
-            }
             if person_reviews && !p.person_reviewed() {
                 return waiting_or_ask(
                     id,
