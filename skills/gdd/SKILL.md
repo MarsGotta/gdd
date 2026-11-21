@@ -17,22 +17,21 @@ As orchestrator you launch each role and decide what each step needs. You don't 
 
 ## The layer keeps the order
 
-The layer keeps each change's order, counts and evidence. Run `.gdd/gdd --version` first, alone. Without it, use a `gdd` on the path whose `--version` names the layer, never GNU's `dd`. If neither runs, set it up as `gdd-prepare/references/layer.md` says, in the folder next to this skill's, and if you can't, tell the person in one line what it needs and stop. You keep the judgment.
+The layer keeps each change's order, counts and evidence, and you keep the judgment. Run `.gdd/gdd --version` first, alone. Without it, use a `gdd` on the path whose `--version` names the layer, never GNU's `dd`. If neither runs, set it up as `gdd-prepare/references/layer.md` says, in the folder next to this skill's, and if you can't, tell the person in one line what it needs and stop.
 
-- **Run the command the layer prints.** You don't choose the order or skip a step it names. Read `gdd next <id>` at the start, after compaction, when unsure or after work outside the layer. Use `gdd next` if a blueprint write gives no next step.
-- **Only the layer writes `gdd/log/`.** Never append or edit a line there yourself: each command below writes its own.
-- **After a refusal, read its remedy and run `gdd next <id>` before retrying.** When it names a decision, ask what it proposes in the person's words. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch it or build your own, even with a yes.
+- **`gdd next <id>` names the step, the command that runs it and what to do when something fails, is refused or runs out of room.** Read it at the start, after each step, after compaction, when unsure and after work outside the layer, and do what it says. You don't choose the order or skip a step it names. Use `gdd next` if a blueprint write gives no next step.
+- **Only the layer writes `gdd/log/`.** Never append or edit a line there yourself: each command writes its own.
+- **A refusal comes with its remedy.** Read it and run `gdd next <id>` before retrying. When it names a decision, ask what it proposes in the person's words. A refusal is never a reason to go around it, to write the log by hand or to run the checks yourself. Never patch the layer or build your own, even with a yes.
 - **Wait once for a role or a long command.** Set the longest wait the tool allows. If a role allows an hour, request 3,600,000 ms. If a command returns a handle, wait on it for the tool's maximum. Both return when done. Renew only if the wait expires. Short waits reread the conversation.
 - Read the lines above the final JSON.
 
+What `gdd next` doesn't hand you:
+
 | When | Run |
 |---|---|
-| A change starts | Load `gdd-brief`, for every change, a typo too: it ends in `gdd seal` and `gdd brief` |
-| You send the person a question | `gdd ask <id> --of <brief, change, blueprint, waiver, decision, levels, stop or close> "<the question, in a line>"`, at that moment |
-| They answer | What `gdd ask` printed for that kind: `gdd approve` with the files they saw, `gdd waiver` or `gdd answer` |
-| A role is next | `gdd launch <id> <role> --run` runs a fresh role and records it. For manual launches or finding destinations, omit `--run` and use the given model and prompt. |
+| You send the person a question | `gdd ask <id> --of <brief, change, blueprint, waiver, decision, levels, stop or close> "<the question, in a line>"`, at that moment. It prints what records their answer |
+| A role is next | `gdd launch <id> <role> --run` runs a fresh role and records it. For manual launches or finding destinations, omit `--run` and use the given model and prompt |
 | A manually launched role ends | `gdd report <id> <step> <file>`, its last message whole in the file: `--model`, `--seconds`, `--tokens` and `--tokens-read` when measured, `--closed f1=fixed` for findings a later round settles |
-| The gates are next | `gdd gates <id>`: it runs them on the change's commit, out of the builder's reach, and writes what ran |
 | Something is left for later | `gdd backlog add <item> --what "<what the person gets>" --color <color>` |
 | Your own `prepare`, `harden` or `exam` | `gdd step blueprint <that step>`, with the flags its skill gives |
 | A line of a log is wrong | `gdd correct <id> --line <n> "<what was wrong>"`, with `--void` when it must not count |
@@ -57,19 +56,15 @@ The layer keeps each change's order, counts and evidence. Run `.gdd/gdd --versio
 
 Prepare, Brief, Close and Harden are yours: load the skill, whose folder is next to this one, and do it here. You run at the standard level, and preparing, hardening and a red brief need the deep one: if you can't verify it, use the person's answer for this project's current levels from `gdd next`. If none, open `references/person.md` before asking once for the project.
 
-## A change, step by step
+## A change
 
-The layer names each step. You still decide:
+Follow `gdd next <id>` from the brief to the ship. It runs the gates, sends a fix to whoever made it and takes a color that rose back to Brief. What stays yours at each step:
 
-1. **Brief.** Use `gdd-brief` even for a typo or an uncovered path. Pick an id (lowercase, digits, hyphens), judge the paths and write the brief and scenarios on yellow and red. While the layer says the change waits for the person's approval, nothing is built, whoever asks: load `gdd-brief` and send its approval message again.
-2. **Checks.** A role of its own, never the builder. Its `MISSING:` lines go to the brief. A change with no brief has no such step.
-3. **Build.** A role of its own, on a branch that starts at `<start>`, the commit the layer gives that holds everything that judges the change. Whenever the seal moves (revised brief, new checks, merge from main), merge its tip into the change branch before anyone continues. The builder resolves any conflict first in its next round.
-4. **Gates.** The layer runs them. If the `seal` check fails, what judges was touched: nothing else counts, the change stops and you tell the person. Any other check that fails opens a fix round, and the layer gives the builder what failed. A check with a baseline in `gdd/debt.md` passes when its number isn't above it. On `rule`, say in your summary that the gates ran within the builder's reach.
-5. **Review.** A role with a clean context, for every change, green too. On red a `pass` says what it ran.
-   - `stop`: the change doesn't go in, whatever else it says. Tell the person why. A reviewer's `stop` is never waived: it gets a fix and a new review.
-   - A `COLOR:` higher than the one logged at Brief: the change goes back to Brief, as `gdd-brief` says for a color that rose, and `gdd-checks` adds its cases from the base.
-   - `fix`: if all findings name tests sealed for this change, resume `gdd-checks`, then the builder to merge the seal. If none do, resume the builder. If only some do, send those to `gdd-checks` first and the rest to the builder. `LATER:` goes to the backlog.
-6. **Ship.** Bring it up to date first: `gdd seal <id> --merge-main` and the seal's tip merged into the change's branch, or the main branch merged into it when nothing was sealed, then read `gdd next <id>`. If their brief copy changed, open `gdd-brief/references/brief-versions.md` to preserve the correction. Never commit its brief files on main yourself: undo your copy first (`git restore` one main has, remove a new one), so main brings the files from the change. The log, the journals and the backlog are your bookkeeping: they live in your copy, off every change's branch, and the layer commits them on top of the change. Ship it as the constitution says, the way the layer names, unasked: the request was the yes. By pull request, `--bookkeeping` before the person's review, when its color has one, `--describe` for its description and `--done <where>` once merged; by a local merge, `--merge`. Never ship what is still waiting for a person, and land changes one at a time. Once it's in, remove the copies its roles made.
+- **Brief.** Load `gdd-brief` for every change, a typo or an uncovered path too, and pick its id (lowercase, digits, hyphens). While the change waits for the person's approval nothing is built, whoever asks: send the approval message of `gdd-brief` again.
+- **Checks.** Its `MISSING:` lines go to the brief.
+- **Gates.** A check with a baseline in `gdd/debt.md` passes when its number isn't above it. On `rule`, say in your summary that the gates ran within the builder's reach.
+- **Review.** The reviewer answers `pass`, `fix` or `stop`, and may give a `COLOR:` higher than the brief's. `LATER:` goes to the backlog. After a `stop`, tell the person why.
+- **Ship.** Bring it up to date first: `gdd seal <id> --merge-main` and the seal's tip merged into the change's branch, or the main branch merged into it when nothing was sealed, then read `gdd next <id>`. If their brief copy changed, open `gdd-brief/references/brief-versions.md` to preserve the correction. Never commit its brief files on main yourself: undo your copy first (`git restore` one main has, remove a new one), so main brings the files from the change. The log, the journals and the backlog are your bookkeeping: they live in your copy, off every change's branch, and the layer commits them on top of the change. Ship it as the constitution says, the way the layer names, unasked: the request was the yes. By pull request, `--bookkeeping` before the person's review, when its color has one, `--describe` for its description and `--done <where>` once merged; by a local merge, `--merge`. Land changes one at a time, and once one is in, remove the copies its roles made.
 
 ## Launching each role
 
@@ -90,9 +85,8 @@ The person may know neither the method nor the code, and approves blind what the
 
 ## Stopping
 
-- **Limits.** The layer counts limits, including lines, before each round and gate run. `gdd limits <id>` shows what is left. Above `lines_per_change`, keep going. The reviewer gets the size. Say once in the summary: "The change was larger than expected at <number> lines." A check past its seconds still counts and goes to the backlog. Spent attempts, time or cost stop new rounds. At the round limit only the seal merge is free. A finished build still gets its gates and review. For a spent cap, open `references/person.md`. Never offer parts here. If they delegated and other work can go on, defer it: say what works and what is left, with no question or offer. Otherwise, if other work needs this one, say what waits, propose one more attempt now and record their yes with `gdd waiver`; if not, propose leaving it for later and say what another try buys. Ask once. Retry only when something changed.
-- **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason. If `gdd-checks` stops on returned test findings, the builder takes them all. For other stops, a check that looks wrong goes to `gdd-checks` or the person: only they correct a check. Other reasons go back to `gdd-brief` for a new version, and then `gdd-checks` brings the checks up to it. The fix is in the brief or in the check, never in a looser check.
-- **Nothing changed.** If the layer refuses a build's report because it left nothing, send it back once, as the layer says; a second time, tell the person.
+- **Limits.** The layer counts them, lines too, and `gdd next <id>` says what to do when one runs out: follow it, and open `references/person.md` for the words. `gdd limits <id>` shows what is left. Above `lines_per_change`, keep going and say once in the summary: "The change was larger than expected at <number> lines." A check past its seconds still counts and goes to the backlog. Never offer parts here. Ask once, and retry only when something changed.
+- **It doesn't fit.** A role that stops starts its last message with `CANNOT:` and the reason, and the layer says where it goes. If `gdd-checks` stops on returned test findings, the builder takes them all. Only `gdd-checks` or the person correct a check: the fix is in the brief or in the check, never in a looser check.
 - **It asks what's next.** A role that does, or offers something else, doesn't choose: the backlog and the person do.
 - **The environment failed.** An expired session, a used-up quota, a full disk or a timeout isn't the change failing: report nothing for it, retry once or tell the person.
 - **It fails on the base too.** If a check also fails without the change, it isn't the change's: it's known debt in `gdd/debt.md`, or an unstable check. Rerun it once and warn. If it isn't in `gdd/debt.md`, launch no build under it and propose the one way out you'd take, for a yes: recording debt and quarantining a check are the team's decisions, never an agent's.

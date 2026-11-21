@@ -395,7 +395,8 @@ def layer_cases(binary):
     text = (SKILLS / "gdd/SKILL.md").read_text(encoding="utf-8")
     table = text[text.index("| When | Run |"):].split("\n\n")[0]
     spans = re.findall(r"`gdd ([^`]+)`", table)
-    expect("the orchestrator's table gives the layer's commands", len(spans) >= 10, str(len(spans)))
+    # The table holds only what `gdd next` doesn't hand the orchestrator at each step.
+    expect("the orchestrator's table gives the layer's commands", len(spans) >= 6, str(len(spans)))
     for span in spans:
         filled = re.sub(r'"?<n>"?', "1", span)
         filled = re.sub(r'"?<[^>]*>"?(\.\.\.)?', "x", filled).replace("'x'", "x")
