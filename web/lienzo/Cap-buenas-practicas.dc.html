@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Buenas prácticas: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">El recorrido entero</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">El núcleo</a></li>
+      <li class="is-here"><a href="Cap-buenas-practicas.dc.html" aria-current="page">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li><a href="Cap-novedades.dc.html">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">Buenas prácticas</h1>
+      <p class="g-lead">Cuarenta y dos prácticas, ordenadas por momento. Son una propuesta, no una norma: elige las que te sirvan.</p>
+      <p class="d-meta"><span>Blindar, parada 3 de 3</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">Preparar</h2>
+      <ol class="d-ol"><li value="1">Marca como delicado lo que cuesta caro si falla.</li><li value="2">Empieza con pocas puertas, pero estrictas.</li><li value="3">Escribe cada puerta como un escenario.</li><li value="4">Pide más comprobaciones cuanto más riesgo.</li><li value="5">Acota al agente antes de abrirle la primera puerta.</li><li value="6">Frena también la hinchazón.</li><li value="7">Adopta GDD por zonas.</li><li value="8">Mantén la constitución y el contexto transversal simples y claros.</li><li value="9">Di para quién es y qué probaría que no sirve.</li><li value="10">Separa lo que has visto de lo que supones.</li><li value="11">Pregunta por lo delicado antes de la primera línea.</li><li value="12">Que el primer cambio cruce el producto de punta a punta.</li></ol>
+      <h2 class="d-h2">Encargar</h2>
+      <ol class="d-ol"><li value="13">Dale al agente instrucciones cortas, con sus puertas.</li><li value="14">Mejor pequeño, y las partes las decides tú.</li><li value="15">Prueba las comprobaciones antes de fiarte.</li><li value="16">En lo delicado, guarda ejemplos que el agente no vea.</li><li value="17">Pregunta siempre qué no debe poder pasar.</li><li value="18">Escribe cada regla en una línea, con su cifra.</li><li value="19">Di lo que supones, y pregunta en abierto lo que no sabes suponer.</li></ol>
+      <h2 class="d-h2">Ejecutar</h2>
+      <ol class="d-ol"><li value="20">Pasa lo barato mientras se trabaja.</li><li value="21">El vigilante prueba con contexto limpio.</li><li value="22">Dale al vigilante los fallos que se repiten.</li><li value="23">Pon un límite de rondas, y después solo lo nuevo.</li><li value="24">Una puerta inestable no gasta intentos.</li><li value="25">Que quien construye diga lo que decidió.</li></ol>
+      <h2 class="d-h2">Cuando aprueba una persona</h2>
+      <ol class="d-ol"><li value="26">Lo que llega para aprobar responde a cuatro preguntas.</li><li value="27">Un agente nunca aprueba por una persona.</li><li value="28">Entiende la parte que vas a tocar, no cada línea.</li><li value="29">Define la puerta de urgencias antes de necesitarla.</li></ol>
+      <h2 class="d-h2">Cerrar</h2>
+      <ol class="d-ol"><li value="30">Di antes con qué señal sabrás si ha servido.</li><li value="31">Que lo que mires no lo pueda fabricar quien construyó.</li><li value="32">Ten a la vista lo que espera un veredicto.</li><li value="33">Decide en el plano qué se cierra solo.</li></ol>
+      <h2 class="d-h2">Blindar</h2>
+      <ol class="d-ol"><li value="34">Sal con marcha atrás y mira qué pasa después.</li><li value="35">Apunta cada cosa que se cuele y qué capa tenía que pillarla.</li><li value="36">Lo que se cuela es el examen del vigilante.</li><li value="37">Mide el ruido del vigilante.</li><li value="38">Repasa de vez en cuando lo que ya aceptaste.</li><li value="39">Revisa también las puertas, y retira las que sobren.</li><li value="40">Deja que el motor endurezca solo, con umbrales aprobados. Es una idea por probar: el núcleo hoy no lo permite.</li><li value="41">Mira el informe de tu plano cada cierto tiempo.</li><li value="42">Compara con una línea base, no con tu impresión.</li></ol>
+    </div>
+
+    <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+      <a class="g-btn" href="Cap-glosario.dc.html">Siguiente: Glosario <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+      <a class="g-link" href="Docs.dc.html">Índice</a>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":2640}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,3 +1,0 @@
-.gdd/gdd next
-.gdd/gdd waiting
-.gdd/gdd metrics --all --summary

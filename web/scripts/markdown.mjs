@@ -4,10 +4,12 @@
 import * as cheerio from 'cheerio';
 
 const espacios = (s) => s.replace(/\s+/g, ' ');
+const EN_LINEA = new Set(['span', 'strong', 'em', 'b', 'i', 'a', 'code', 'small', 'br']);
 
 export const aMarkdown = (html, enlace) => {
   const $ = cheerio.load(html, null, false);
-  $('script, .boton, [aria-hidden="true"]').remove();
+  // The words a switch shows for its position (Sí, No) say its state on screen, not its question.
+  $('script, .boton, [aria-hidden="true"], .when-on, .when-off').remove();
 
   const enLinea = (nodo) => $(nodo).contents().map((_, n) => {
     if (n.type === 'text') return espacios(n.data);
@@ -17,7 +19,9 @@ export const aMarkdown = (html, enlace) => {
       case 'strong': return dentro ? `**${dentro}**` : '';
       case 'em': return dentro ? `*${dentro}*` : '';
       case 'code': return `\`${$(n).text()}\``;
-      case 'a': return `[${dentro}](${enlace($(n).attr('href') ?? '')})`;
+      case 'a': return `[${dentro.replace(/ {2,}/g, ' ')}](${enlace($(n).attr('href') ?? '')})`;
+      // The canvas sets pieces of a line side by side in spans (a number, a name, a line about it).
+      case 'span': return ` ${dentro} `;
       default: return enLinea(n);
     }
   }).get().join('');
@@ -53,7 +57,10 @@ export const aMarkdown = (html, enlace) => {
         const filas = $n.find('tbody tr').map((_, tr) => fila($(tr).children('th, td').get())).get();
         return [fila(cabeza), `|${cabeza.map(() => ' --- |').join('')}`, ...filas].join('\n');
       }
-      default: return bloques(n);
+      // The canvas's answers and switches are buttons: each one, a line of a list.
+      case 'button': return `- ${enLinea(n).trim()}`;
+      // A block whose children are all inline (the canvas keeps much of its text in spans) is a line.
+      default: return $n.children().toArray().every((c) => EN_LINEA.has(c.name)) ? enLinea(n).replace(/ {2,}/g, ' ').trim() : bloques(n);
     }
   }).get().filter((b) => b.trim()).join('\n\n');
 

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Article: You don't persuade AI with words: you put gates on it</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Main">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html">Documentation</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/documentacion/" lang="es" hreflang="es">Español</a>
+    <button type="button" class="g-icbtn" aria-label="Switch between light and dark" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <main class="d-main" style="max-width: 860px; margin-inline: auto">
+    <div class="d-title">
+      <h1 class="g-h1" style="font-size: clamp(2.25rem, 3.9vw, 3.5rem)">You don't persuade AI with words: you put gates on it</h1>
+      <p class="g-lead">How I got here.</p>
+      <p class="d-meta"><span>Marcela Gotta</span><span>November 3, 2026</span></p>
+    </div>
+
+    <div class="d-prose">
+      <p class="g-p">I'm tired of living through two scenes. In the first, an agent works for five minutes or several hours and at the end tells me something is done. It isn't: it has built a shell, a mockup that looks like it works and is empty inside.</p>
+      <p class="g-p">In the second, I write a complete prompt. I ask it to be meticulous, to use the trendy good practices and the architecture I think fits the project. After up to a week in ultra mode and a lot of tokens spent, it hands me a project that half works: hundreds of thousands of lines of code for three badly done features.</p>
+      <p class="g-p">Gate-Driven Development (GDD) was born from that frustration. They promised us AI would take our jobs (yes, promised), and although I love programming, I like creating products more. Being able to create things I couldn't have imagined before was too tempting a promise to pass up.</p>
+      <p class="g-p">So I've spent these last few years on this new technological "miracle." I wake up with it, I dream about it and I fall asleep reading about it, looking for the best way to tame this beast. And I confess it hasn't been easy at all.</p>
+      <p class="g-p">I even preached spec-driven development, the kind behind tools like GitHub's <a class="g-src" href="https://github.com/github/spec-kit">Spec Kit</a>: with well-defined specifications, everything would be fixed. But those specifications get long and tedious. I spent hours writing and reading them, convinced the AI would listen to me, and two commits later they had already changed. With just my words! How naive I was.</p>
+      <p class="g-p">That's when I realized nothing guarantees that if I ask the AI for a project with certain specifications, it will follow them to the letter. In the end it is an untamable beast, and you don't persuade a beast like that with words: you put gates on it.</p>
+      <p class="g-p">I know many people have been through exactly the same thing, or are going through it today. In the <a class="g-src" href="https://survey.stackoverflow.co/2025/ai">2025 Stack Overflow survey</a>, the biggest frustration with AI, cited by 66% of respondents, was solutions that are almost right, but not quite.</p>
+      <p class="g-p">So, with a clear mission, I went down the rabbit hole of how to make AI work in a real product. With more than 10 years as a developer behind me, I started digging: what the big companies were doing, what worked for me when I led teams of juniors and seniors, what I did before and what I do now.</p>
+      <p class="g-p">What I found changed the way I see it:</p>
+      <ul>
+      <li><strong>Asking is not enough.</strong> <a class="g-src" href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR</a> watched the most advanced models of the time get impossible scores by manipulating the evaluator itself, even while showing they knew that wasn't what they were asked to do. In one of its tasks, telling the o3 model not to cheat barely changed anything.</li>
+      <li><strong>An agent can approve itself.</strong> <a class="g-src" href="https://arxiv.org/abs/2510.20270">Researchers at Carnegie Mellon and Anthropic</a> gave several agents impossible tasks, with tests that contradict what is asked: the only way to pass was to cheat. GPT-5 cheated on 76% of the tasks in one of the tests, using techniques ranging from modifying the tests to tricks like operator overloading.</li>
+      <li><strong>The limit is no longer writing, but checking.</strong> In its monorepo, <a class="g-src" href="https://www.anthropic.com/engineering/redesigning-source-control">Anthropic</a> went from about 2,500 merged changes a day in May 2026 to more than 30,000 in September. No person reads that. As <a class="g-src" href="https://addyosmani.com/blog/software-factories/">Addy Osmani</a> puts it, what really limits a software factory is verifying, not generating.</li>
+      <li><strong>Those who already work this way put the controls outside the agent.</strong> In February 2026, <a class="g-src" href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents">Stripe</a> was already merging more than a thousand PRs a week written entirely by agents, with fixed steps the model doesn't decide, a maximum of two rounds of CI and review by a person. At <a class="g-src" href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic</a>, the change sets the risk and an agent's approval never counts as a person's.</li>
+      </ul>
+      <p class="g-p">GDD doesn't come only from my experience: it comes out of research like this and out of what those teams already do. All the sources are in <a class="g-src" href="Cap-de-donde-viene.dc.html">Where it comes from</a>.</p>
+      <p class="g-p">The <a class="g-src" href="https://dora.dev/research/2025/dora-report/">2025 DORA report</a> sums it up in one idea: AI is, above all, an amplifier of the strengths and weaknesses each organization already has. Gates are my way of making it amplify the strengths.</p>
+      <p class="g-p">That's how Gate-Driven Development came about. It doesn't set out to invent anything: it standardizes what has worked for me and what has worked for others, to build quality products without so much step-by-step supervision.</p>
+      <h2 class="d-h2">The idea</h2>
+      <p class="g-p">Before the agent starts, you decide what has to be true when it finishes. That is a gate, and what opens it is not its word but something you already know and it can't touch, like a test, a linter or a review. If the change is a typo, you barely notice. If it touches payment, you ask for a lot more, and it may call you to look at it yourself. And when something slips through, whatever would have been needed to catch it stays as one more check.</p>
+      <p class="g-p">That is the basis of GDD: <strong>we don't develop code, or even tests. We write what must be true and design the gates our agents go through.</strong></p>
+      <h2 class="d-h2">An example, from start to finish</h2>
+      <p class="g-p">Imagine you want to add discount codes to your online store. You have what almost any team has: a repository, CI and an agent. No orchestrators or special tools. And it's a delicate case on purpose, because it touches payment: if it isn't a burden here, it's less of one everywhere else.</p>
+      <p class="g-p"><strong>Before you start, just once.</strong> You make passing CI mandatory to merge, and you mark <code>payments/</code> and CI itself as delicate with a <code>CODEOWNERS</code> file. You give the agent its own credentials, with no access to production. You never touch this again.</p>
+      <p class="g-p"><strong>1. You decide what has to pass.</strong> You ask an agent for the scenarios, read them and fix them. With this one and two more, an €80 cart and an expired code, you're done:</p>
+      <pre class="d-code"><b>Rule:</b> SUMMER10 takes 10% off the cart
+      
+        @id:discounts-1
+        <b>Scenario:</b> 10% code
+          <b>Given</b> a €50 cart
+          <b>When</b> I apply the code SUMMER10
+          <b>Then</b> I pay €45</pre>
+      <p class="g-p"><strong>2. The checks get made.</strong> In a separate session, an agent turns those scenarios into tests:</p>
+      <pre class="d-code">test('10% on €50', () =&gt; expect(withDiscount(50, 'SUMMER10')).toBe(45))
+      test('10% on €80', () =&gt; expect(withDiscount(80, 'SUMMER10')).toBe(72))</pre>
+      <p class="g-p">You run them and they fail, which is what they should do. You check that they fail because the discount is missing, not because of a broken import, and you save them on a branch the agent can't modify.</p>
+      <p class="g-p"><strong>3. Another agent gets through the gate.</strong> You open another session and give it the task: "Make these tests pass. Don't touch them. If you think they're wrong, stop and tell me. You have two rounds of CI." And you go do something else.</p>
+      <p class="g-p"><strong>4. The gate closes.</strong> The agent says "done" and opens the PR. CI says no: the €80 test fails, because the agent wrote a solution tailored to the first one. Nobody calls you: the error goes back to the agent and it fixes it. In the second round, the tests pass and CI confirms they are the ones you approved. That is how you get through: not by what the agent said, but by what the gate checked.</p>
+      <p class="g-p"><strong>5. You look only where it matters.</strong> Since the change touches <code>payments/</code>, the PR asks for your approval. You read the change, check that it can be undone and give your approval. If it had been the text of a button, you wouldn't even have noticed.</p>
+      <p class="g-p"><strong>6. If something slips through, you harden it.</strong> A week later, someone stacks two codes and the total comes out negative. That is what slipped through. You don't rewrite the process: you add a scenario, "the total never drops below €0," and its test. If that failure comes back, the gate stops it.</p>
+      <p class="g-p"><strong>And that's it.</strong> You've read a few scenarios, given one approval and added one test. You haven't reviewed every step or installed anything. That's how you start with GDD. The rest is gates you add when you need them.</p>
+      <p class="g-p">If you want the short version, it's in the <a class="g-src" href="Manifiesto.dc.html">Manifesto</a>. If you want to try it, in <a class="g-src" href="Cap-empieza.dc.html">Get started</a> you install the skills and ask for your first change, and in <a class="g-src" href="Cap-empieza-hoy.dc.html">A gate by hand</a> you have a first gate ready to copy, without the skills. And the engine that enforces it, <a class="g-src" href="https://github.com/MarsGotta/t-minus">T-minus</a>, is in development.</p>
+      <p class="g-p">Without meaning to sound pretentious, I hope it can help others, as it has helped me in my projects and in bringing some order to my professional life.</p>
+    </div>
+
+    <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+      <a class="g-btn" href="Cap-empieza.dc.html">Start with your agents <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+      <a class="g-link" href="Manifiesto.dc.html">Read the manifesto</a>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1894}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,3 +1,0 @@
-/pagos/      @tu-usuario
-/.github/    @tu-usuario
-/CODEOWNERS  @tu-usuario

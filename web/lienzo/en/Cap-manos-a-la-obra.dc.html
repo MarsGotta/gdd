@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hands on: GDD documentation</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Main">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentation</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/documentacion/" lang="es" hreflang="es">Español</a>
+    <button type="button" class="g-icbtn" aria-label="Switch between light and dark" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Chapters">
+    <h2>Before you start</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">The idea</a></li>
+      <li class="is-here"><a href="Cap-manos-a-la-obra.dc.html" aria-current="page">Hands on</a></li>
+      <li><a href="Cap-las-piezas.dc.html">The pieces and the roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">The seven principles</a></li>
+      <li><a href="Cap-los-momentos.dc.html">The five moments</a></li>
+    </ol>
+    <h2>Prepare</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Get started</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">A gate by hand</a></li>
+      <li><a href="Cap-los-colores.dc.html">What each color asks for</a></li>
+      <li><a href="Cap-los-archivos.dc.html">What it leaves in your repository</a></li>
+    </ol>
+    <h2>Brief</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">The skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">A delicate case</a></li>
+    </ol>
+    <h2>Execute</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">The whole path</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">When it stops</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">The layer's commands</a></li>
+    </ol>
+    <h2>Close</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">How it is measured</a></li>
+    </ol>
+    <h2>Harden</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">How a gate gets fooled</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">The core</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Good practices</a></li>
+    </ol>
+    <h2>Look up</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glossary</a></li>
+      <li><a href="Cap-y-tdd.dc.html">What about TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">Where it comes from</a></li>
+      <li><a href="Cap-novedades.dc.html">What's new</a></li>
+    </ol>
+    <h2>T-minus, in development</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">The engine</a></li>
+      <li><a href="Cap-los-kits.dc.html">The kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">Hands on</h1>
+      <p class="g-lead">An online shop, four gates and four changes, from less to more risk.</p>
+      <p class="d-meta"><span>Before you start, stop 2 of 5</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">The shop</h2>
+      <p class="g-p">A catalog, a cart, a payment and customer accounts, all made up. A text that goes wrong doesn't matter; a payment gateway can charge twice.</p>
+      <ul><li>The constitution says two things: prices in cents and no card details stored.</li><li>The traffic light goes by paths: <code>payments/</code>, <code>admin/</code> and the migrations in red, <code>text/</code> in green and everything else in yellow.</li><li>A person approves the blueprint, and the agent can't modify it.</li><li>It's set up with what's already there: a repository, CI and an agent.</li></ul>
+      <h2 class="d-h2">The four gates</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Gate</th><th scope="col" class="g-lbl">What it proves</th><th scope="col" class="g-lbl">What opens it</th></tr></thead><tbody><tr><th scope="row">Scenario</th><td>That we know what has to pass</td><td>Well-written scenarios, and a person who reads them if needed</td></tr><tr><th scope="row">Testing</th><td>That the code does what the scenarios say</td><td>Tests created by another model</td></tr><tr><th scope="row">Refactoring</th><td>That the code can be maintained</td><td>Linters, Sonar, typing and a reviewer from another model</td></tr><tr><th scope="row">Reviewing</th><td>That it's ready to go in</td><td>CI and a code reviewer: another model, a person or both</td></tr></tbody></table></div>
+      <h2 class="d-h2">The four changes</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Change</th><th scope="col" class="g-lbl">Color</th><th scope="col" class="g-lbl">What happens at the gates</th><th scope="col" class="g-lbl">It calls you</th></tr></thead><tbody><tr><th scope="row">The text of a button</th><td>Green</td><td>All four pass. It says "done," and it's true.</td><td>Never</td></tr><tr><th scope="row">A size filter</th><td>Yellow</td><td>It says "done" twice without being done. A test catches a size with no results, and a reviewer sees that the filter gets lost on the second page.</td><td>Once</td></tr><tr><th scope="row">The payment gateway</th><td>Red</td><td>A double click charges twice. The agent touches the test so it passes, and the gate rejects it. A reviewer catches an order marked as paid with the gateway down.</td><td>Twice</td></tr><tr><th scope="row">My orders</th><td>Yellow</td><td>They all pass, and even so one person can see another's order.</td><td>Twice</td></tr></tbody></table></div>
+      <h2 class="d-h2">What "My orders" teaches</h2>
+      <p class="g-p">The blueprint didn't mark <code>orders/</code> as delicate. The blueprint failed, not the agent or the gates.</p>
+      <p class="g-p">This is how it gets hardened: <code>orders/</code> and access control move to red, a scenario with its test stays for "each person sees only their own orders," and the reviewer takes that check on board.</p>
+      <blockquote class="g-quote">Before you classify, ask what would be serious if it goes wrong.</blockquote>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Before you cross: In "My orders" all four gates passed. Does that mean the change was right?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">Yes</button>
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">No</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">That's not it. Getting through the last gate only says it got past what we know how to check. What slipped through gets hardened.</p>
+        <p class="g-p when-open" aria-live="polite">That's it. Getting through the last gate only says it got past what we know how to check. What slipped through gets hardened.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-las-piezas.dc.html">Next: The pieces and the roles <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-las-piezas.dc.html">Go on without answering <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Docs.dc.html">Index</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":2248}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

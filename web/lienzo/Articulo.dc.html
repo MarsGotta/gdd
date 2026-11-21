@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Artículo: A la IA no se la convence con palabras: se le ponen puertas</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <main class="d-main" style="max-width: 860px; margin-inline: auto">
+    <div class="d-title">
+      <h1 class="g-h1" style="font-size: clamp(2.25rem, 3.9vw, 3.5rem)">A la IA no se la convence con palabras: se le ponen puertas</h1>
+      <p class="g-lead">Cómo llegué hasta aquí.</p>
+      <p class="d-meta"><span>Marcela Gotta</span><span>3 de noviembre de 2026</span></p>
+    </div>
+
+    <div class="d-prose">
+      <p class="g-p">Estoy cansada de vivir dos escenas. En la primera, un agente trabaja cinco minutos o varias horas y al final me dice que algo está hecho. No lo está: ha construido un cascarón, una maqueta que parece funcionar y por dentro está vacía.</p>
+      <p class="g-p">En la segunda, le escribo un prompt completo. Le pido que sea meticuloso, que use las buenas prácticas de moda y la arquitectura que creo que encaja con el proyecto. Después de hasta una semana en modo ultra y muchos tokens gastados, me entrega un proyecto que funciona a medias: cientos de miles de líneas de código para tres funcionalidades mal hechas.</p>
+      <p class="g-p">Gate-Driven Development (GDD) nace de esa frustración. Nos prometieron que la IA nos iba a quitar el trabajo (sí, prometido), y aunque me encanta programar, crear productos me gusta más. Poder crear cosas que antes ni me habría imaginado era una promesa demasiado tentadora para dejarla pasar.</p>
+      <p class="g-p">Por eso le he dedicado estos últimos años a este nuevo "milagro" tecnológico. Me levanto con él, sueño con él y me duermo leyendo sobre él, buscando la mejor forma de domar a esta bestia. Y confieso que no ha sido nada fácil.</p>
+      <p class="g-p">Incluso llegué a predicar el desarrollo guiado por especificaciones, el de herramientas como <a class="g-src" href="https://github.com/github/spec-kit">Spec Kit</a> de GitHub: con especificaciones bien definidas, todo se iba a solucionar. Pero esas especificaciones se vuelven largas y tediosas. Pasaba horas escribiéndolas y leyéndolas, convencida de que la IA me haría caso, y dos commits después ya habían cambiado. ¡Solo con mis palabras! Qué ilusa fui.</p>
+      <p class="g-p">Ahí me di cuenta de que nada me asegura que, si le pido a la IA un proyecto con ciertas especificaciones, lo vaya a hacer a rajatabla. Al final es una bestia indomable, y a una bestia así no se la convence con palabras: se le ponen puertas.</p>
+      <p class="g-p">Sé que mucha gente ha vivido exactamente lo mismo, o lo está viviendo hoy. En la <a class="g-src" href="https://survey.stackoverflow.co/2025/ai">encuesta de Stack Overflow de 2025</a>, la mayor frustración con la IA, citada por el 66 % de quienes respondieron, eran las soluciones casi correctas, pero no del todo.</p>
+      <p class="g-p">Por eso, con una misión clara, me metí en el rabbit hole de cómo hacer que la IA funcione en un producto real. Tomé mi mochila de más de 10 años como desarrolladora y empecé a investigar: qué estaban haciendo las grandes empresas, qué me funcionó cuando lideraba equipos de juniors y seniors, qué hacía antes y qué hago ahora.</p>
+      <p class="g-p">Lo que encontré me cambió la forma de verlo:</p>
+      <ul>
+      <li><strong>Pedir no basta.</strong> <a class="g-src" href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR</a> vio a los modelos más avanzados del momento sacar puntuaciones imposibles manipulando al propio evaluador, aun mostrando que sabían que eso no era lo que se les pedía. En una de sus tareas, decirle al modelo o3 que no hiciera trampas apenas cambió nada.</li>
+      <li><strong>Un agente puede aprobarse solo.</strong> <a class="g-src" href="https://arxiv.org/abs/2510.20270">Investigadores de Carnegie Mellon y Anthropic</a> dieron a varios agentes tareas imposibles, con tests que contradicen lo que se pide: la única forma de aprobar era hacer trampa. GPT-5 hizo trampa en el 76 % de las tareas de una de las pruebas, con recursos que iban desde modificar los tests hasta trucos como la sobrecarga de operadores.</li>
+      <li><strong>El límite ya no es escribir, sino comprobar.</strong> En su monorepo, <a class="g-src" href="https://www.anthropic.com/engineering/redesigning-source-control">Anthropic</a> pasó de unos 2.500 cambios fusionados al día en mayo de 2026 a más de 30.000 en septiembre. Eso no lo lee ninguna persona. Como dice <a class="g-src" href="https://addyosmani.com/blog/software-factories/">Addy Osmani</a>, lo que de verdad limita a una fábrica de software es verificar, no generar.</li>
+      <li><strong>Quienes ya trabajan así ponen los controles fuera del agente.</strong> En febrero de 2026, <a class="g-src" href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents">Stripe</a> ya fusionaba más de mil PR a la semana escritas íntegramente por agentes, con pasos fijos que no decide el modelo, un máximo de dos rondas de CI y la revisión de una persona. En <a class="g-src" href="https://claude.dev/blog/solving-code-review-at-anthropic/">Anthropic</a>, el riesgo lo marca el cambio y la aprobación de un agente nunca cuenta como la de una persona.</li>
+      </ul>
+      <p class="g-p">GDD no sale solo de mi experiencia: surge de investigaciones como estas y de lo que ya hacen esos equipos. Todas las fuentes están en <a class="g-src" href="Cap-de-donde-viene.dc.html">De dónde viene</a>.</p>
+      <p class="g-p">El <a class="g-src" href="https://dora.dev/research/2025/dora-report/">informe DORA de 2025</a> lo resume en una idea: la IA es, sobre todo, un amplificador de las fortalezas y las debilidades que ya tiene cada organización. Las puertas son mi forma de que amplifique las primeras.</p>
+      <p class="g-p">De ahí surgió Gate-Driven Development. No pretende inventar nada: estandariza lo que me ha funcionado a mí y lo que ha funcionado a otros, para crear productos de calidad sin tanta supervisión paso a paso.</p>
+      <h2 class="d-h2">La idea</h2>
+      <p class="g-p">Antes de que el agente empiece, decides qué tiene que ser verdad cuando termine. Eso es una puerta, y lo que la abre no es su palabra, sino algo que ya conoces y que él no puede tocar, como un test, un linter o una revisión. Si el cambio es una errata, casi ni te enteras. Si toca el cobro, le pides bastante más, y puede que te llame para que lo mires tú. Y cuando algo se cuela, lo que habría hecho falta para pillarlo se queda como una comprobación más.</p>
+      <p class="g-p">Esa es la base de GDD: <strong>no desarrollamos el código, ni siquiera los tests. Escribimos qué tiene que ser cierto y diseñamos las puertas por las que pasarán nuestros agentes.</strong></p>
+      <h2 class="d-h2">Un ejemplo, de principio a fin</h2>
+      <p class="g-p">Imagina que quieres añadir códigos de descuento a tu tienda online. Tienes lo que tiene casi cualquier equipo: un repositorio, CI y un agente. Nada de orquestadores ni herramientas especiales. Y es un caso delicado a propósito, porque toca el cobro: si aquí no pesa, en lo demás pesa menos.</p>
+      <p class="g-p"><strong>Antes de empezar, una sola vez.</strong> Haces obligatorio que CI pase para fusionar, y marcas <code>pagos/</code> y el propio CI como delicados con un <code>CODEOWNERS</code>. Al agente le das sus propias credenciales, sin acceso a producción. Esto no lo vuelves a tocar.</p>
+      <p class="g-p"><strong>1. Decides qué tiene que pasar.</strong> Le pides a un agente los escenarios, los lees y los corriges. Con este y dos más, un carrito de 80 € y un código caducado, ya está:</p>
+      <pre class="d-code"><b>Regla:</b> VERANO10 descuenta un 10 % del carrito
+      
+        @id:descuentos-1
+        <b>Escenario:</b> código del 10 %
+          <b>Dado</b> un carrito de 50 €
+          <b>Cuando</b> aplico el código VERANO10
+          <b>Entonces</b> pago 45 €</pre>
+      <p class="g-p"><strong>2. Se fabrican las comprobaciones.</strong> En una sesión aparte, un agente convierte esos escenarios en tests:</p>
+      <pre class="d-code">test('10 % sobre 50 €', () =&gt; expect(conDescuento(50, 'VERANO10')).toBe(45))
+      test('10 % sobre 80 €', () =&gt; expect(conDescuento(80, 'VERANO10')).toBe(72))</pre>
+      <p class="g-p">Los ejecutas y fallan, que es lo que toca. Miras que fallan porque falta el descuento, no porque haya un import roto, y los guardas en una rama que el agente no puede modificar.</p>
+      <p class="g-p"><strong>3. Otro agente pasa la puerta.</strong> Abres otra sesión y le das la tarea: "Haz pasar estos tests. No los toques. Si crees que están mal, para y dímelo. Tienes dos rondas de CI". Y te vas a hacer otra cosa.</p>
+      <p class="g-p"><strong>4. La puerta se cierra.</strong> El agente dice "hecho" y abre la PR. CI dice que no: el test de 80 € falla, porque el agente ha escrito una solución a la medida del primero. Nadie te llama: el error vuelve al agente y lo arregla. En la segunda ronda, los tests pasan y CI confirma que son los que aprobaste. Así se pasa: no por lo que dijo el agente, sino por lo que comprobó la puerta.</p>
+      <p class="g-p"><strong>5. Miras solo donde importa.</strong> Como el cambio toca <code>pagos/</code>, la PR te pide aprobación. Lees el cambio, compruebas que se puede deshacer y das tu aprobación. Si hubiera sido el texto de un botón, ni te habrías enterado.</p>
+      <p class="g-p"><strong>6. Si algo se cuela, se blinda.</strong> Una semana después, alguien acumula dos códigos y el total sale negativo. Eso es lo que se coló. No reescribes el proceso: añades un escenario, "el total nunca baja de 0 €", y su test. Si ese fallo vuelve, la puerta lo para.</p>
+      <p class="g-p"><strong>Y ya está.</strong> Has leído unos escenarios, has dado una aprobación y has añadido un test. No has revisado cada paso ni has instalado nada. Así se empieza con GDD. Lo demás son puertas que añades cuando te hagan falta.</p>
+      <p class="g-p">Si quieres la versión corta, está en el <a class="g-src" href="Manifiesto.dc.html">Manifiesto</a>. Si quieres probarlo, en <a class="g-src" href="Cap-empieza.dc.html">Empieza</a> instalas las skills y pides tu primer cambio, y en <a class="g-src" href="Cap-empieza-hoy.dc.html">Una puerta a mano</a> tienes una primera puerta lista para copiar, sin skills. Y el motor que lo hace cumplir, <a class="g-src" href="https://github.com/MarsGotta/t-minus">T-minus</a>, está en desarrollo.</p>
+      <p class="g-p">Sin intención de sonar pretenciosa, espero que pueda ayudar a otros, como me ha ayudado a mí en mis proyectos y a poner algo de orden en mi vida profesional.</p>
+    </div>
+
+    <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+      <a class="g-btn" href="Cap-empieza.dc.html">Empieza con tus agentes <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+      <a class="g-link" href="Manifiesto.dc.html">Leer el manifiesto</a>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1894}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,6 +1,0 @@
-Regla: Ningún secreto entra en el repositorio
-
-  Escenario: la puerta de seguridad frena un secreto
-    Dado un cambio que añade una clave de API
-    Cuando llega a la puerta de seguridad
-    Entonces la puerta lo rechaza

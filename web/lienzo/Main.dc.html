@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Gate-Driven Development: landing</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap">
+<style>
+body{margin:0;background:#063879}
+a{color:inherit}a:hover{color:inherit}
+
+/* ── Base ─────────────────────────────────────────── */
+.g{font-family:var(--ki-typography-family-body);font-size:17px;line-height:1.55;color:var(--ki-text-high-em);background:var(--ki-surface-base);font-stretch:100%;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:clip}
+.g *,.g *::before,.g *::after{box-sizing:border-box}
+:where(.g) :is(h1,h2,h3,p,ol,ul,figure,blockquote){margin:0;padding:0}
+:where(.g) :is(ol,ul){list-style:none}
+.g ::selection{background:var(--ki-surface-primary-low-em);color:var(--ki-text-primary-on-primary-light)}
+.g :focus-visible{outline:var(--ki-focus-ring-width) solid var(--ki-focus-ring-color);outline-offset:var(--ki-focus-ring-offset);box-shadow:0 0 0 5px var(--ki-focus-primary)}
+:where(.g) a{text-decoration-thickness:1px;text-underline-offset:.2em}
+:where(.g) button{font:inherit;color:inherit}
+.g-wrap{max-width:1336px;margin-inline:auto;padding-inline:clamp(20px,4vw,48px)}
+.g-blue{background:var(--ki-surface-s0);color:var(--ki-text-high-em)}
+
+/* ── Type ─────────────────────────────────────────── */
+.g-h1{font-family:var(--ki-typography-family-display);font-weight:600;font-stretch:86%;font-size:clamp(2.5rem,4.7vw,4.25rem);line-height:1.02;letter-spacing:var(--ki-typography-letter-spacing-lg);text-wrap:balance}
+.g-h2{font-family:var(--ki-typography-family-display);font-weight:600;font-stretch:90%;font-size:clamp(1.85rem,3.1vw,2.75rem);line-height:1.08;letter-spacing:-0.018em;text-wrap:balance}
+.g-h3{font-weight:600;font-stretch:96%;font-size:1.25rem;line-height:1.34;letter-spacing:var(--ki-typography-letter-spacing-sm)}
+.g-lead{font-size:clamp(1.125rem,1.45vw,1.3125rem);line-height:1.5;color:var(--ki-text-med-em);max-width:36em;text-wrap:pretty}
+.g-p{max-width:66ch;color:var(--ki-text-med-em);text-wrap:pretty}
+.g-p strong,.g-lead strong{color:var(--ki-text-high-em);font-weight:600}
+.g-cap{font-size:.8125rem;line-height:1.5;color:var(--ki-text-low-em);max-width:74ch}
+.g-lbl{font-stretch:118%;font-weight:600;font-size:.6875rem;letter-spacing:var(--ki-typography-letter-spacing-spaced-out);text-transform:uppercase;line-height:1.25}
+
+.g-src{color:var(--ki-text-primary-high-em)}
+.g-src:hover{color:var(--ki-text-primary-med-em)}
+
+/* ── Controls (Kimen recipes) ─────────────────────── */
+.g-ic{width:1.15em;height:1.15em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.g-btn{display:inline-flex;align-items:center;gap:10px;min-height:52px;padding:0 22px;border-radius:var(--ki-radius-component-md);background:var(--ki-surface-primary-med-em);color:var(--ki-text-primary-on-primary);font-weight:600;text-decoration:none;border:0;cursor:pointer}
+.g-btn:hover{background:var(--ki-surface-primary-high-em);color:var(--ki-text-primary-on-primary)}
+.g-btn--sm{min-height:40px;padding:0 16px;font-size:.9375rem}
+.g-link{display:inline-flex;align-items:center;gap:8px;font-weight:500;text-decoration:underline}
+.g-link:hover{color:var(--ki-text-primary-high-em)}
+.g-ghost{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;background:none;border:1px solid var(--ki-outline-med-em);border-radius:var(--ki-radius-component-md);font-size:.8125rem;font-weight:500;cursor:pointer}
+.g-ghost:hover{background:var(--ki-surface-hover-overlay)}
+.g-ghost[aria-pressed="false"] .when-on,.g-ghost[aria-pressed="true"] .when-off{display:none}
+.g-st{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.g-st::before{content:"";width:10px;height:10px;border-radius:var(--ki-radius-round);background:var(--c);box-shadow:0 0 0 1px var(--ki-outline-med-em)}
+.g-st--v{--c:var(--ki-surface-success-med-em)}.g-st--a{--c:var(--ki-surface-warning-med-em)}.g-st--r{--c:var(--ki-surface-danger-med-em)}
+
+/* ── Nav ──────────────────────────────────────────── */
+.g-nav{display:flex;align-items:center;gap:8px 26px;padding-block:20px;flex-wrap:wrap}
+.g-brand{display:inline-flex;align-items:center;gap:12px;margin-right:auto;font-weight:600;font-stretch:96%;font-size:1.125rem;letter-spacing:var(--ki-typography-letter-spacing-sm);text-decoration:none}
+.g-brand svg{width:28px;height:28px;flex:none}
+.g-navl{font-size:.9375rem;text-decoration:none;color:var(--ki-text-med-em);padding:8px 2px}
+.g-navl:hover{color:var(--ki-text-high-em);text-decoration:underline}
+.g-icbtn{width:40px;height:40px;display:inline-grid;place-items:center;background:none;border:1px solid var(--ki-outline-low-em);border-radius:var(--ki-radius-component-md);color:var(--ki-text-med-em);cursor:pointer}
+.g-icbtn:hover{background:var(--ki-surface-hover-overlay);color:var(--ki-text-high-em)}
+
+/* ── The drawing: walls, doors, agents ────────────── */
+.pl{fill:none;stroke:currentColor}
+.pl-w{stroke-width:6}.pl-l{stroke-width:2.5}.pl-t{stroke-width:1}.pl-dash{stroke-width:1.25;stroke-dasharray:3 4}
+.pl-d{fill:currentColor;stroke:none}
+.pl-you{fill:var(--ki-surface-s1);stroke:var(--ki-text-primary-high-em);stroke-width:3}
+.pl-bad{fill:none;stroke:currentColor;stroke-width:2.5}
+.pl-badx{fill:none;stroke:currentColor;stroke-width:2}
+.g-leaf{fill:none;stroke:currentColor;stroke-width:var(--gdd-leaf);stroke-linecap:square}
+.g-arc{fill:none;stroke:currentColor;stroke-width:var(--gdd-line)}
+.g-dot{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;background:currentColor}
+
+/* Hero */
+.g-hero{padding-bottom:clamp(36px,4vw,52px)}
+.g-plan{--d:clamp(84px,16.7vw,240px);--pw:70%;position:relative;border:var(--gdd-wall) solid currentColor;margin-top:6px}
+.g-room{position:relative;z-index:1;width:var(--pw);display:flex;flex-direction:column;gap:clamp(18px,1.7vw,24px);padding:clamp(26px,2.8vw,40px) clamp(16px,1.8vw,26px) calc(var(--d)/2 + 96px) clamp(22px,3.8vw,52px)}
+.g-room__h span{display:block}
+.g-room .g-h1{font-size:clamp(2.25rem,3.9vw,3.5rem)}
+.g-room .g-lead{max-width:35em}
+
+.g-cta{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px}
+.g-corr{position:absolute;inset:0}
+.g-ent{position:absolute;left:calc(-1*var(--gdd-wall));bottom:calc(36px + var(--d)/2 - 44px);width:var(--gdd-wall);height:88px;background:var(--ki-surface-s0)}
+.g-track{position:absolute;left:0;width:97%;bottom:calc(36px + var(--d)/2 - 1px);border-top:2px dotted currentColor;opacity:.4}
+.g-part{position:absolute;left:var(--pw);top:0;bottom:0;width:var(--gdd-part);margin-left:calc(var(--gdd-part)/-2);display:flex;flex-direction:column}
+.g-part i{display:block;background:currentColor}.g-part i:first-child{flex:1}
+.g-part i:last-child{flex:none;height:36px}
+.g-part b{display:block;flex:none;position:relative;height:var(--d)}
+.g-part svg{position:absolute;left:calc(var(--gdd-part)/2);top:0;width:var(--d);height:var(--d);overflow:visible}
+.g-part .g-leaf{transform-origin:0px 0px;transform:rotate(-90deg)}
+.g-leaf,.g-arc{vector-effect:non-scaling-stroke}
+.g-hero .g-leaf{stroke-width:4px}
+.g-rl{position:absolute;color:var(--ki-text-med-em)}.g-rl--a{left:20px;bottom:14px}.g-rl--p{right:18px;bottom:calc(36px + var(--d)/2 + 22px)}
+.g-agent{position:absolute;bottom:calc(36px + var(--d)/2);left:94.5%;width:0;height:0}
+.g-say{position:absolute;left:0;bottom:20px;transform:translateX(-50%);padding:4px 10px;border:1px solid currentColor;border-radius:var(--ki-radius-component-md);background:var(--ki-surface-s0);font-weight:600;font-size:.9375rem;white-space:nowrap;opacity:0}
+.g-chk{position:absolute;right:calc(100% - var(--pw) + 28px);bottom:clamp(14px,2.4vw,34px);display:flex;align-items:center;gap:10px}
+.g-chk .g-lbl{display:block;color:var(--ki-text-med-em)}
+.g-chk__ring{position:relative;flex:none;width:38px;height:38px;border:1.5px solid currentColor;border-radius:50%}
+.g-chk__ring::after{content:"";position:absolute;inset:-1.5px;border:1.5px solid currentColor;border-radius:50%;opacity:0}
+.g-chk__ring svg{position:absolute;inset:0;margin:auto;width:18px;height:18px}
+.g-chk__st{position:relative;display:block;height:1.35em;min-width:5.5em;font-size:.9375rem;font-weight:500}
+.g-chk__st span{position:absolute;left:0;top:0;white-space:nowrap}
+
+.lk-idle,.lk-fail{opacity:0}
+.g-pause{position:absolute;z-index:2;right:14px;top:12px}
+.g-caj{position:absolute;right:0;bottom:0;display:flex;border-top:1px solid currentColor;border-left:1px solid currentColor;font-size:.8125rem;line-height:1.2;color:var(--ki-text-med-em)}
+.g-caj span{padding:7px 12px}.g-caj span+span{border-left:1px solid currentColor}
+.g-dim{display:grid;grid-template-columns:70% 30%;margin-top:14px;color:var(--ki-text-med-em)}
+.g-dim>span{position:relative;padding-top:9px;border-top:1px solid currentColor;text-align:center}.g-dim .sm{display:none}
+.g-dim>span::before,.g-dim>span::after{content:"";position:absolute;top:-5px;width:1px;height:9px;background:currentColor}
+.g-dim>span::before{left:0}.g-dim>span::after{right:0}
+.g-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:18px 36px;margin-top:clamp(26px,3vw,38px)}
+.g-steps li{display:flex;gap:14px;align-items:flex-start;color:var(--ki-text-med-em);font-size:.9375rem;line-height:1.4}
+.g-steps strong{display:block;color:var(--ki-text-high-em);font-weight:600;font-size:1.0625rem}
+.g-num{flex:none;width:30px;height:30px;display:grid;place-items:center;border:1.5px solid currentColor;border-radius:50%;font-weight:600;font-size:.9375rem;color:var(--ki-text-high-em);font-variant-numeric:tabular-nums}
+
+/* Rooms */
+.g{--lane:calc(clamp(16px,5vw,72px) + var(--gdd-door) + 40px)}
+.g main,.g-sec,.g-last{position:relative}
+.g-sec{padding-block:clamp(28px,3.2vw,44px) clamp(52px,5.4vw,76px)}
+.g-in{padding-top:calc(var(--gdd-door) + 26px)}
+.g-axis,.g-you{display:none}
+.g-wall{display:flex;align-items:flex-start;height:var(--gdd-wall)}
+.g-wall i{display:block;height:var(--gdd-wall);background:currentColor}
+.g-wall i:first-child{width:clamp(16px,5vw,72px);flex:none}
+.g-wall i:last-child{flex:1}
+.g-wall svg{flex:none;width:var(--gdd-door);height:var(--gdd-door);overflow:visible}
+.g-wall .g-leaf{transform-origin:0px 5px;transform:rotate(90deg)}
+.g-wall--r svg{transform:scaleX(-1)}
+.g-body{display:flex;flex-wrap:wrap;gap:32px clamp(28px,5vw,80px)}
+.g-side{flex:1 1 300px;max-width:440px;display:flex;flex-direction:column;gap:clamp(20px,2.2vw,28px)}
+.g-main{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:clamp(28px,3vw,40px)}
+.g-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:20px 56px;margin-bottom:clamp(26px,3vw,38px)}
+.g-top .g-h2{flex:1 1 420px;max-width:18em}
+.g-top .g-lead{flex:1 1 360px;max-width:30em}
+
+/* El problema */
+.g-vig{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));gap:32px 28px}
+.g-vig figure{display:flex;flex-direction:column;gap:16px}
+.g-vig svg{width:100%;height:auto;display:block}
+.g-vig figcaption{font-weight:600;font-size:1.125rem;line-height:1.36;font-stretch:96%;text-wrap:balance}
+.g-punch{font-family:var(--ki-typography-family-display);font-weight:600;font-stretch:90%;font-size:clamp(1.5rem,2.3vw,2rem);line-height:1.15;letter-spacing:-0.015em;max-width:22em;text-wrap:balance}
+
+/* La idea */
+.g-how li{display:flex;gap:20px;padding:18px 0;border-top:1px solid var(--ki-outline-med-em)}
+.g-how li:last-child{border-bottom:1px solid var(--ki-outline-med-em)}
+.g-how .g-p{margin-top:6px}
+.g-quote{padding:20px 22px;border:1px solid var(--ki-outline-high-em);font-size:1.0625rem;line-height:1.45;font-weight:500;text-wrap:pretty}
+
+/* El recorrido */
+.g-pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:12px}
+.g-pk{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px 18px;min-height:72px;text-align:left;background:none;border:1px solid var(--ki-outline-med-em);border-radius:var(--ki-radius-component-md);cursor:pointer;font-size:1.0625rem}
+.g-pk:hover{background:var(--ki-surface-hover-overlay)}
+.g-pk .g-st{font-size:.8125rem;color:var(--ki-text-med-em)}
+.g-pk[aria-pressed="true"]{background:var(--ki-surface-primary-med-em);color:var(--ki-text-primary-on-primary);border-color:var(--ki-surface-primary-med-em)}
+.g-pk[aria-pressed="true"] :is(.g-cap,.g-st){color:var(--ki-text-secondary-on-primary)}
+.g-scroll{margin-top:22px}
+.g-rp{--d:clamp(52px,11.5vw,96px);position:relative;height:calc(var(--d) + 74px);border:var(--gdd-wall) solid currentColor}
+.g-rp .g-track{bottom:calc(27px + var(--d)/2 - 1px);width:90%}.g-rp .g-ent{bottom:calc(27px + var(--d)/2 - 40px);height:80px}
+.g-rp .g-part i:last-child{height:27px}
+
+.g-rp .g-rl{left:calc(var(--i)*25% + 16px);bottom:10px}
+.g-ragent{position:absolute;bottom:calc(27px + var(--d)/2);left:89%;width:0;height:0}
+.g-tags{position:absolute;bottom:calc(var(--d)/2 - 19px);left:calc(var(--i)*25% - 14px);display:flex;gap:6px;transform:translateX(-100%)}
+.g-chip{display:none;width:28px;height:28px;place-items:center;border:1.5px solid currentColor;border-radius:50%;background:var(--ki-surface-s0)}
+.g-chip svg{width:14px;height:14px}
+.g-rec .on-v,.g-rec .on-a,.g-rec .on-r{display:none}
+.g-rec.r-v .on-v,.g-rec.r-a .on-a,.g-rec.r-r .on-r{display:block}
+.g-rec.r-v .on-v.g-chip,.g-rec.r-a .on-a.g-chip,.g-rec.r-r .on-r.g-chip{display:grid}
+.r-v .d1 .g-leaf,.r-v .d3 .g-leaf{transform:rotate(-90deg)}
+.g-rcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:28px 0;margin-top:22px}
+.g-rcols>div{padding-right:28px;display:flex;flex-direction:column;gap:8px}
+.g-rcols .g-p{font-size:.9375rem;line-height:1.5}
+.g-rwhat{font-weight:500;color:var(--ki-text-med-em);font-size:.9375rem}
+.g-count{font-family:var(--ki-typography-family-display);font-weight:600;font-stretch:86%;font-size:4.5rem;line-height:.9;font-variant-numeric:tabular-nums}
+.g-legend{display:flex;flex-wrap:wrap;gap:10px 28px;margin-top:30px;padding-top:18px;border-top:1px solid var(--ki-outline-low-em);font-size:.9375rem;color:var(--ki-text-med-em)}
+.g-legend span{display:inline-flex;align-items:center;gap:8px}
+.g-legend .g-chip{display:grid;width:24px;height:24px;color:var(--ki-text-high-em)}
+.g-legend .g-chip svg{width:12px;height:12px}
+
+/* Tables */
+.g-tbl{width:100%;border-collapse:collapse;font-size:.9375rem;line-height:1.45}
+.g-tbl th,.g-tbl td{padding:16px 18px 16px 0;text-align:left;vertical-align:top;border-top:1px solid var(--ki-outline-med-em)}
+.g-tbl thead :is(th,td){border-top:0;padding-bottom:12px;color:var(--ki-text-med-em)}
+.g-tbl tbody tr:last-child>*{border-bottom:1px solid var(--ki-outline-med-em)}
+.g-ba td:first-child{width:44%;color:var(--ki-text-low-em)}
+.g-ba td:last-child{font-weight:600;font-size:1.0625rem;color:var(--ki-text-high-em)}
+.g-cmp{min-width:820px}
+.g-cmp th[scope="row"]{width:19%;font-weight:600}
+.g-cmp td{color:var(--ki-text-med-em);width:18%}
+.g-cmp .is-gdd{width:27%;padding-left:18px;background:var(--ki-surface-primary-base-em);color:var(--ki-text-high-em);font-weight:600;border-top-color:var(--ki-outline-primary-low-em)}
+.g-cmp thead .is-gdd{color:var(--ki-text-primary-on-primary-light);border-top:var(--gdd-wall) solid var(--ki-text-high-em);padding-top:12px}
+.g-notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:14px 40px;margin-top:22px}
+
+/* Evidencia */
+.g-chart{display:flex;flex-direction:column;gap:18px;padding:clamp(20px,2.6vw,30px);border:1px solid var(--ki-outline-high-em);background:var(--ki-surface-s0)}
+.g-bars{display:flex;flex-direction:column;gap:12px}
+.g-bars li{display:grid;grid-template-columns:minmax(0,15em) minmax(0,1fr) 3.2em;align-items:center;gap:6px 16px;font-size:.9375rem;line-height:1.36}
+.g-bars i{display:block;height:14px;background:var(--ki-outline-control)}
+.g-bars .is-key i{background:var(--ki-text-high-em)}
+.g-bars .is-key span{font-weight:600}
+.g-bars b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+.g-rows li{display:flex;flex-wrap:wrap;gap:4px 28px;padding:14px 0;border-top:1px solid var(--ki-outline-med-em)}
+.g-rows li:last-child{border-bottom:1px solid var(--ki-outline-med-em)}
+.g-rows .g-h3{flex:0 0 11.5em;font-size:1.0625rem}
+.g-rows .g-p{flex:1 1 20em;font-size:.9375rem}
+.g-sub{display:flex;flex-direction:column;gap:16px}
+
+/* El método */
+.g-mom{--d:56px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));border:var(--gdd-wall) solid currentColor}
+.g-mom li{position:relative;padding:20px 26px 84px 20px;display:flex;flex-direction:column;gap:8px}
+.g-mom .g-p{font-size:.9375rem;line-height:1.45}
+.g-mom .g-part{left:auto;right:calc(var(--gdd-part)/-2);margin:0}
+.g-mom .g-part i:last-child{height:18px}
+
+.g-mom .g-part .g-leaf{stroke-width:2.5}
+.g-two{display:flex;flex-wrap:wrap;gap:40px clamp(28px,5vw,80px);margin-top:clamp(36px,4.4vw,56px)}
+.g-two>div{flex:1 1 380px;min-width:0;display:flex;flex-direction:column;gap:18px}
+.g-prin li{display:flex;gap:16px;align-items:baseline;padding:11px 0;border-top:1px solid var(--ki-outline-low-em);font-weight:500;line-height:1.35}
+.g-prin li>b{flex:none;width:1.4em;font-weight:600;color:var(--ki-text-med-em);font-variant-numeric:tabular-nums}
+.g-test li{display:flex;gap:12px;align-items:flex-start;padding:9px 0;line-height:1.4}
+.g-test .g-ic{margin-top:3px}
+
+/* Cierre */
+.g-end{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:40px 64px}
+.g-end__t{flex:1 1 480px;max-width:720px;display:flex;flex-direction:column;gap:22px}
+.g-end__d{flex:0 1 300px;width:300px;height:auto;overflow:visible}
+.g-more{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:0 40px;margin-top:clamp(36px,4.4vw,56px)}
+.g-more a{display:flex;flex-direction:column;gap:4px;padding:18px 0;border-top:1px solid var(--ki-outline-med-em);text-decoration:none}
+.g-more a:hover strong{text-decoration:underline}
+.g-more strong{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:1.0625rem}
+.g-more span{font-size:.9375rem;color:var(--ki-text-med-em);line-height:1.45}
+.g-foot{display:flex;flex-wrap:wrap;gap:16px 40px;align-items:flex-start;justify-content:space-between;margin-top:clamp(40px,5vw,64px);padding:24px 0 36px;border-top:1px solid var(--ki-outline-med-em);font-size:.8125rem;color:var(--ki-text-med-em)}
+.g-last{padding-top:clamp(28px,3.2vw,44px)}
+.g-last .g-axis{bottom:auto;height:calc(clamp(28px,3.2vw,44px) + var(--gdd-wall) + var(--gdd-door) + 14px)}
+.g-foot ul{display:flex;flex-wrap:wrap;gap:6px 24px}
+.g-foot p{max-width:44em;line-height:1.5}
+
+/* ── Motion: one hinge, ease out, never past the stop ─ */
+@media (prefers-reduced-motion:no-preference){
+.g-hero .g-agent{animation:heroDot 14s linear infinite}
+.g-hero .g-say{animation:heroSay 14s linear infinite}
+.g-hero .g-part .g-leaf{animation:heroLeaf 14s var(--ki-motion-easing-out) infinite}
+.g-hero .lk-idle{animation:lkIdle 14s linear infinite}
+.g-hero .lk-fail{animation:lkFail 14s linear infinite}
+.g-hero .lk-pass{animation:lkPass 14s linear infinite}
+.g-hero .g-chk__ring::after{animation:lkPulse 14s ease-out infinite}
+.g-steps li:nth-child(1){animation:st1 14s linear infinite}
+.g-steps li:nth-child(2){animation:st2 14s linear infinite}
+.g-steps li:nth-child(3){animation:st3 14s linear infinite}
+.g-steps li:nth-child(4){animation:st4 14s linear infinite}
+:where(.g-steps li:nth-child(1)) .g-num{animation:nm1 14s linear infinite}
+:where(.g-steps li:nth-child(2)) .g-num{animation:nm2 14s linear infinite}
+:where(.g-steps li:nth-child(3)) .g-num{animation:nm3 14s linear infinite}
+:where(.g-steps li:nth-child(4)) .g-num{animation:nm4 14s linear infinite}
+.g-rec .g-ragent{animation:recFull 12s linear infinite}
+.g-rec .d1 .g-leaf{animation:rd1 12s var(--ki-motion-easing-out) infinite}
+.g-rec .d2 .g-leaf{animation:rd2 12s var(--ki-motion-easing-out) infinite}
+.g-rec .d3 .g-leaf{animation:rd3 12s var(--ki-motion-easing-out) infinite}
+.g-rec.r-v .g-ragent{animation-name:recVerde}
+.g-rec.r-v .d2 .g-leaf{animation-name:rd2v}
+.g-rec.r-v .d1 .g-leaf,.g-rec.r-v .d3 .g-leaf{animation:none}
+.g-wall .g-leaf{transition:transform var(--gdd-door-swing) var(--ki-motion-easing-out)}
+.g.is-armed .g-wall:not(.is-open) .g-leaf{transform:rotate(0deg)}
+.g-btn,.g-ghost,.g-pk,.g-icbtn{transition:background-color var(--ki-motion-duration-fast) var(--ki-motion-easing-standard),color var(--ki-motion-duration-fast) var(--ki-motion-easing-standard)}
+.g.is-paused .g-hero *,.g.is-paused .g-hero *::after,.g.is-paused .g-rec *{animation-play-state:paused}
+.g.is-still .g-hero *,.g.is-still .g-hero *::after,.g.is-still .g-rec *{animation:none}
+}
+@keyframes heroDot{0%{left:3%;opacity:0}2%{left:3%;opacity:1;animation-timing-function:ease-in-out}14%{left:66%}24%{left:66%;animation-timing-function:ease-in-out}31%{left:52%}43%{left:52%;animation-timing-function:ease-in-out}51%{left:66%}66%{left:66%;animation-timing-function:ease-in-out}82%{left:94.5%}95%{left:94.5%;opacity:1}98%{left:94.5%;opacity:0}100%{left:3%;opacity:0}}
+@keyframes heroSay{0%,11%{opacity:0}13%,22%{opacity:1}25%,49%{opacity:0}51%,58%{opacity:1}61%,100%{opacity:0}}
+@keyframes heroLeaf{0%,14%{transform:rotate(0deg)}17%{transform:rotate(-5deg)}20%,60%{transform:rotate(0deg)}67%,96%{transform:rotate(-90deg)}100%{transform:rotate(0deg)}}
+@keyframes lkIdle{0%,21.9%{opacity:1}22%,42.9%{opacity:0}43%,58.9%{opacity:1}59%,97.9%{opacity:0}98%,100%{opacity:1}}
+@keyframes lkFail{0%,21.9%{opacity:0}22%,42.9%{opacity:1}43%,100%{opacity:0}}
+@keyframes lkPass{0%,58.9%{opacity:0}59%,97.9%{opacity:1}98%,100%{opacity:0}}
+@keyframes lkPulse{0%,14%{opacity:0;transform:scale(1)}15%{opacity:.9;transform:scale(1)}22%{opacity:0;transform:scale(1.75)}22.1%,51%{opacity:0;transform:scale(1)}52%{opacity:.9;transform:scale(1)}59%{opacity:0;transform:scale(1.75)}100%{opacity:0;transform:scale(1)}}
+@keyframes st1{0%,17%{opacity:1}19%,98%{opacity:.72}100%{opacity:1}}
+@keyframes st2{0%,17%{opacity:.72}19%,42%{opacity:1}44%,100%{opacity:.72}}
+@keyframes st3{0%,42%{opacity:.72}44%,59%{opacity:1}61%,100%{opacity:.72}}
+@keyframes st4{0%,59%{opacity:.72}61%,97%{opacity:1}100%{opacity:.72}}
+@keyframes nm1{0%,17%{background:var(--ki-text-high-em);color:var(--ki-surface-s0)}19%,98%{background:transparent;color:var(--ki-text-high-em)}100%{background:var(--ki-text-high-em);color:var(--ki-surface-s0)}}
+@keyframes nm2{0%,17%{background:transparent;color:var(--ki-text-high-em)}19%,42%{background:var(--ki-text-high-em);color:var(--ki-surface-s0)}44%,100%{background:transparent;color:var(--ki-text-high-em)}}
+@keyframes nm3{0%,42%{background:transparent;color:var(--ki-text-high-em)}44%,59%{background:var(--ki-text-high-em);color:var(--ki-surface-s0)}61%,100%{background:transparent;color:var(--ki-text-high-em)}}
+@keyframes nm4{0%,59%{background:transparent;color:var(--ki-text-high-em)}61%,97%{background:var(--ki-text-high-em);color:var(--ki-surface-s0)}100%{background:transparent;color:var(--ki-text-high-em)}}
+@keyframes recFull{0%{left:4%;opacity:0}3%{left:4%;opacity:1;animation-timing-function:ease-in-out}14%{left:20.5%}26%{left:20.5%;animation-timing-function:ease-in-out}38%{left:45.5%}50%{left:45.5%;animation-timing-function:ease-in-out}62%{left:70.5%}74%{left:70.5%;animation-timing-function:ease-in-out}88%{left:89%}95%{left:89%;opacity:1}98%{left:89%;opacity:0}100%{left:4%;opacity:0}}
+@keyframes recVerde{0%{left:4%;opacity:0}3%{left:4%;opacity:1;animation-timing-function:ease-in-out}34%{left:45.5%}46%{left:45.5%;animation-timing-function:ease-in-out}80%{left:89%}95%{left:89%;opacity:1}98%{left:89%;opacity:0}100%{left:4%;opacity:0}}
+@keyframes rd1{0%,21%{transform:rotate(0deg)}27%,96%{transform:rotate(-90deg)}100%{transform:rotate(0deg)}}
+@keyframes rd2{0%,45%{transform:rotate(0deg)}51%,96%{transform:rotate(-90deg)}100%{transform:rotate(0deg)}}
+@keyframes rd3{0%,69%{transform:rotate(0deg)}75%,96%{transform:rotate(-90deg)}100%{transform:rotate(0deg)}}
+@keyframes rd2v{0%,41%{transform:rotate(0deg)}47%,96%{transform:rotate(-90deg)}100%{transform:rotate(0deg)}}
+
+@media (min-width:1000px){
+.g-in{padding-left:var(--lane);padding-top:clamp(34px,3.4vw,48px)}
+.g-axis{display:block;position:absolute;top:0;bottom:0;left:calc(max((100% - 1336px)/2,0px) + clamp(20px,4vw,48px) + clamp(16px,5vw,72px) + var(--gdd-door)/2 - 1px);border-left:2px dotted currentColor;opacity:.4;pointer-events:none}
+.g-you{display:block;position:absolute;z-index:2;top:20px;bottom:20px;left:calc(max((100% - 1336px)/2,0px) + clamp(20px,4vw,48px) + clamp(16px,5vw,72px) + var(--gdd-door)/2);width:0;pointer-events:none}
+.g-you span{position:sticky;top:46vh;display:block;width:16px;height:16px;margin-left:-8px;border-radius:var(--ki-radius-round);background:var(--ki-surface-white);border:3px solid var(--ki-color-brand-500);outline:1.5px solid var(--ki-surface-white)}
+}
+@media (max-width:760px){
+.g-plan{--d:72px}.g-room{width:100%;padding-bottom:calc(var(--d) + 118px)}
+.g-corr{top:auto;height:calc(var(--d) + 92px);border-top:var(--gdd-wall) solid currentColor}
+.g-hero .g-cta .g-link{display:none}
+.g-hero .g-rl,.g-dim{font-stretch:100%;letter-spacing:.01em;text-transform:none}.g-rl--a{left:12px;bottom:10px}.g-rl--p{left:calc(var(--pw) + 10px);right:auto;bottom:auto;top:8px}.g-agent{left:95.5%}
+.g-chk{right:calc(100% - var(--pw) + 14px);bottom:8px}.g-chk .g-lbl{display:none}.g-chk__ring{width:30px;height:30px}
+.g-caj{display:none}
+.g-pause{top:auto;right:auto;left:10px;bottom:calc(var(--d) + 38px);padding:0 10px}.g-pause span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.g-nav{gap:4px 18px}.g-brand{font-size:.9375rem;gap:10px}.g-nav .g-btn{order:1}.g-navl,.g-icbtn{order:2}
+.g-dim .lg{display:none}.g-dim .sm{display:inline}
+.g-rp .g-rl{font-stretch:100%;letter-spacing:0;text-transform:none;left:calc(var(--i)*25% + 6px);bottom:auto;top:5px}
+.g-rp .g-chip{width:22px;height:22px}.g-rp .g-chip svg{width:11px;height:11px}
+.g-tags{left:calc(var(--i)*25% - 8px);gap:4px;bottom:calc(var(--d)/2 - 9px)}
+.g-mom .g-part{display:none}
+.g-mom li{padding-bottom:22px;border-top:1px solid var(--ki-outline-med-em)}.g-mom li:first-child{border-top:0}
+.g-rows .g-h3{flex-basis:100%}
+.g-bars li{grid-template-columns:minmax(0,1fr) 3.2em}.g-bars li span{grid-column:1/-1}
+.g-end__d{display:none}
+.g-cmp{min-width:0;display:block}.g-cmp thead{display:none}.g-cmp tbody{display:block}
+.g-cmp tr{display:flex;flex-direction:column;gap:10px;padding:20px 0;border-top:1px solid var(--ki-outline-med-em)}
+.g-cmp th[scope="row"],.g-cmp td,.g-cmp .is-gdd{width:auto;border:0;padding:0}
+.g-cmp tbody tr:last-child>*{border-bottom:0}
+.g-cmp th[scope="row"]{order:-2;font-size:1.0625rem}
+.g-cmp td{display:grid;grid-template-columns:6.2em minmax(0,1fr);gap:12px}
+.g-cmp td::before{content:attr(data-th);font-weight:600;color:var(--ki-text-high-em)}
+.g-cmp .is-gdd{order:-1;padding:12px 14px}
+}
+</style>
+</helmet>
+
+<div class="g {{rootCls}}" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="g-blue g-hero" data-gdd-sheet>
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="https://gate-driven.dev/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="https://gate-driven.dev/documentacion/">Documentación</a>
+    <a class="g-navl" href="https://gate-driven.dev/manifiesto/">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+    <a class="g-btn g-btn--sm" href="https://gate-driven.dev/documentacion/empieza/">Empieza</a>
+  </nav>
+
+  <div class="g-plan">
+    <div class="g-room">
+      <h1 class="g-h1 g-room__h"><span>Tu agente dice «hecho».</span> <span>La puerta comprueba si es verdad.</span></h1>
+        <p class="g-lead">Gate-Driven Development (GDD) es una forma de crear productos de calidad con agentes de IA sin supervisarlos paso a paso. Antes de que el agente empiece, decides qué tiene que ser verdad. Para pasar, tiene que demostrarlo ante algo que él no puede tocar.</p>
+        <div class="g-cta">
+          <a class="g-btn" href="https://gate-driven.dev/documentacion/empieza/">Empieza con tus agentes <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="#recorrido">Míralo en marcha <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="m19 12-7 7-7-7"></path></svg></a>
+        </div>
+    </div>
+    <div class="g-corr" aria-hidden="true">
+      <span class="g-ent"></span>
+      <span class="g-track"></span>
+      <span class="g-lbl g-rl g-rl--a">Agente</span>
+      <span class="g-lbl g-rl g-rl--p">Producción</span>
+      <span class="g-part"><i></i><b><svg viewBox="0 0 240 240"><path class="g-arc" d="M0 240A240 240 0 0 0 240 0"></path><path class="g-leaf" d="M0 0V240"></path></svg></b><i></i></span>
+      <span class="g-chk">
+        <span class="g-chk__ring">
+          <svg class="g-ic lk-idle" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <svg class="g-ic lk-fail" viewBox="0 0 24 24"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          <svg class="g-ic lk-pass" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"></path></svg>
+        </span>
+        <span><span class="g-lbl">Comprobación</span><span class="g-chk__st"><span class="lk-idle">cerrada</span><span class="lk-fail">no pasa</span><span class="lk-pass">pasa</span></span></span>
+      </span>
+      <span class="g-agent"><span class="g-say">«hecho»</span><span class="g-dot"></span></span>
+      <span class="g-caj"><span>Manifiesto v0.11</span><span>Borrador para revisión</span></span>
+    </div>
+    <button type="button" class="g-ghost g-pause" aria-pressed="{{paused}}" onClick="{{togglePause}}">
+      <svg class="g-ic when-off" viewBox="0 0 24 24" aria-hidden="true"><rect x="14" y="4" width="4" height="16" rx="1"></rect><rect x="6" y="4" width="4" height="16" rx="1"></rect></svg>
+      <svg class="g-ic when-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l14 9-14 9V3z"></path></svg>
+      <span class="when-off">Pausar</span><span class="when-on">Reanudar</span>
+    </button>
+  </div>
+  <div class="g-dim g-lbl" aria-hidden="true"><span><span class="lg">Lo que el agente dice</span><span class="sm">Dicho</span></span><span>Comprobado</span></div>
+
+  <ol class="g-steps">
+    <li><span class="g-num">1</span><span><strong>El agente dice «hecho».</strong>Decirlo no abre nada.</span></li>
+    <li><span class="g-num">2</span><span><strong>La puerta lo comprueba.</strong>No pasa, y vuelve.</span></li>
+    <li><span class="g-num">3</span><span><strong>Lo arregla.</strong>Ahora pasa la comprobación.</span></li>
+    <li><span class="g-num">4</span><span><strong>La puerta se abre.</strong>Sin que hayas estado encima.</span></li>
+  </ol>
+</div>
+</header>
+
+<main>
+<div class="g-you" aria-hidden="true"><span></span></div>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-body">
+    <div class="g-side"><h2 class="g-h2">Los agentes escriben rápido y casi bien.</h2></div>
+    <div class="g-main">
+      <p class="g-lead">No es una impresión tuya. En la encuesta de Stack Overflow de 2025, el <strong>66 %</strong> de los desarrolladores señaló como su mayor frustración las soluciones de IA «casi correctas, pero no del todo». <a class="g-src" href="https://survey.stackoverflow.co/2025/ai">Stack Overflow, 2025</a></p>
+      <div class="g-vig">
+        <figure>
+          <svg viewBox="0 0 320 112" role="img" aria-label="Una sola puerta contigo delante: los cambios hacen cola.">
+            <path class="pl pl-w" d="M8 12H312M8 100H312M210 12V34M210 78V100"></path>
+            <path class="pl pl-t" d="M210 78A44 44 0 0 0 254 34"></path>
+            <path class="pl pl-l" d="M210 34V78"></path>
+            <circle class="pl-d" cx="48" cy="56" r="6"></circle><circle class="pl-d" cx="74" cy="56" r="6"></circle><circle class="pl-d" cx="100" cy="56" r="6"></circle><circle class="pl-d" cx="126" cy="56" r="6"></circle><circle class="pl-d" cx="152" cy="56" r="6"></circle><circle class="pl-d" cx="178" cy="56" r="6"></circle>
+            <circle class="pl-you" cx="210" cy="56" r="10"></circle>
+          </svg>
+          <figcaption>Si lo revisas todo, te conviertes en el paso más lento.</figcaption>
+        </figure>
+        <figure>
+          <svg viewBox="0 0 320 112" role="img" aria-label="Un hueco sin puerta: pasa todo, también un error.">
+            <path class="pl pl-w" d="M8 12H312M8 100H312M210 12V34M210 78V100"></path>
+            <path class="pl pl-dash" d="M210 34V78"></path>
+            <circle class="pl-d" cx="70" cy="56" r="6"></circle><circle class="pl-d" cx="118" cy="56" r="6"></circle><circle class="pl-d" cx="166" cy="56" r="6"></circle><circle class="pl-d" cx="240" cy="56" r="6"></circle>
+            <circle class="pl-bad" cx="284" cy="56" r="6"></circle>
+            <path class="pl-badx" d="M278 30l12 12M290 30l-12 12"></path>
+          </svg>
+          <figcaption>Si no revisas nada, los errores llegan a producción.</figcaption>
+        </figure>
+        <figure>
+          <svg viewBox="0 0 320 112" role="img" aria-label="La comprobación está del lado del agente: se abre la puerta él mismo.">
+            <path class="pl pl-w" d="M8 12H312M8 100H312M210 12V34M210 78V100"></path>
+            <path class="pl pl-t" d="M210 78A44 44 0 0 0 254 34"></path>
+            <path class="pl pl-l" d="M210 34H254"></path>
+            <circle class="pl-d" cx="70" cy="56" r="6"></circle><circle class="pl-d" cx="118" cy="56" r="6"></circle><circle class="pl-d" cx="166" cy="56" r="6"></circle><circle class="pl-d" cx="248" cy="56" r="6"></circle><circle class="pl-d" cx="288" cy="56" r="6"></circle>
+            <svg x="150" y="64" width="32" height="32" viewBox="0 0 24 24"><rect class="pl" style="stroke-width: 2.2" width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path class="pl" style="stroke-width: 2.2" d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </svg>
+          <figcaption>Si el agente puede tocar lo que lo juzga, aprende a aprobarse solo.</figcaption>
+        </figure>
+      </div>
+      <p class="g-punch">A un agente no se le convence con palabras. Se le ponen puertas.</p>
+    </div>
+  </div>
+  </div>
+</div>
+</section>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall g-wall--r"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-body">
+    <div class="g-side"><h2 class="g-h2">Una puerta es lo que hay que demostrar antes de seguir.</h2><blockquote class="g-quote">No desarrollamos el código, ni siquiera los tests. Escribimos qué tiene que ser cierto y diseñamos las puertas por las que pasarán nuestros agentes.</blockquote></div>
+    <div class="g-main">
+      <ol class="g-how">
+        <li><span class="g-num">1</span><div><h3 class="g-h3">Antes de empezar, decides qué tiene que ser verdad.</h3><p class="g-p">Que un cobro se haga una sola vez. Que un total nunca sea negativo. Lo escribes tú, antes de que el agente toque nada.</p></div></li>
+        <li><span class="g-num">2</span><div><h3 class="g-h3">Lo demuestra algo que el agente no puede tocar.</h3><p class="g-p">Un test, un linter o la revisión de otra persona: cosas que ya usas y que no dependen de lo que diga el agente.</p></div></li>
+        <li><span class="g-num">3</span><div><h3 class="g-h3">A más riesgo, más comprobaciones.</h3><p class="g-p">Si el cambio es una errata, casi ni te enteras. Si toca el cobro, le pides más, y puede que te llame.</p></div></li>
+        <li><span class="g-num">4</span><div><h3 class="g-h3">Lo que se cuela, se blinda.</h3><p class="g-p">Añades la comprobación que lo habría parado. Por ahí ya no vuelve a entrar. La que ya no aporta, la rebajas o la retiras.</p></div></li>
+      </ol>
+    </div>
+  </div>
+  </div>
+</div>
+</section>
+
+<section class="g-sec g-blue g-rec {{recCls}}" id="recorrido" data-gdd-sheet>
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-top">
+    <h2 class="g-h2">Manda el riesgo, no el tamaño del cambio.</h2>
+    <p class="g-lead">Elige qué le pides al agente y mira qué puertas se ponen delante, y cuántas veces te llama.</p>
+  </div>
+
+  <div class="g-pick" role="group" aria-label="Qué le pides al agente">
+    <button type="button" class="g-pk" aria-pressed="{{isV}}" onClick="{{pickV}}"><span class="g-st g-st--v">Verde</span><span>Cambiar un texto</span></button>
+    <button type="button" class="g-pk" aria-pressed="{{isA}}" onClick="{{pickA}}"><span class="g-st g-st--a">Amarillo</span><span>Un filtro nuevo en un listado</span></button>
+    <button type="button" class="g-pk" aria-pressed="{{isR}}" onClick="{{pickR}}"><span class="g-st g-st--r">Rojo</span><span>Algo que toca el cobro</span></button>
+  </div>
+
+  <div class="g-scroll">
+    <div class="g-rp" aria-hidden="true">
+      <span class="g-ent"></span>
+      <span class="g-track"></span>
+      <span class="g-lbl g-rl" style="--i: 0">Escenarios</span>
+      <span class="g-lbl g-rl" style="--i: 1">Tests y linters</span>
+      <span class="g-lbl g-rl" style="--i: 2">Salida</span>
+      <span class="g-lbl g-rl" style="--i: 3">Producción</span>
+      <span class="g-part d1" style="left: 25%"><i></i><b><svg viewBox="0 0 96 96"><path class="g-arc" d="M0 96A96 96 0 0 0 96 0"></path><path class="g-leaf" d="M0 0V96"></path></svg></b><i></i></span>
+      <span class="g-part d2" style="left: 50%"><i></i><b><svg viewBox="0 0 96 96"><path class="g-arc" d="M0 96A96 96 0 0 0 96 0"></path><path class="g-leaf" d="M0 0V96"></path></svg></b><i></i></span>
+      <span class="g-part d3" style="left: 75%"><i></i><b><svg viewBox="0 0 96 96"><path class="g-arc" d="M0 96A96 96 0 0 0 96 0"></path><path class="g-leaf" d="M0 0V96"></path></svg></b><i></i></span>
+      <span class="g-tags" style="--i: 1">
+        <span class="g-chip on-a on-r"><svg class="g-ic" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+        <span class="g-chip on-a on-r"><svg class="g-ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+      </span>
+      <span class="g-tags" style="--i: 2">
+        <span class="g-chip on-v on-a on-r"><svg class="g-ic" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+        <span class="g-chip on-a on-r"><svg class="g-ic" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg></span>
+      </span>
+      <span class="g-tags" style="--i: 3">
+        <span class="g-chip on-a on-r"><svg class="g-ic" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+        <span class="g-chip on-r"><svg class="g-ic" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>
+      </span>
+      <span class="g-ragent"><span class="g-dot"></span></span>
+    </div>
+  </div>
+
+  <div class="g-rcols" aria-live="polite">
+    <div>
+      <h3 class="g-h3">Escenarios</h3>
+      <p class="g-rwhat on-v">Abierta</p><p class="g-rwhat on-a">Comprobación · Tú lees</p><p class="g-rwhat on-r">Comprobación · Tu aprobación</p>
+      <p class="g-p on-v">Un cambio de texto no necesita reglas nuevas. Pasa sin parar.</p>
+      <p class="g-p on-a">Te llama antes de empezar: apruebas sus reglas antes de que nadie construya.</p>
+      <p class="g-p on-r">Te llama antes de empezar: lees los escenarios y los corriges.</p>
+    </div>
+    <div>
+      <h3 class="g-h3">Tests y linters</h3>
+      <p class="g-rwhat on-v">Comprobación</p><p class="g-rwhat on-a">Comprobación · Vigilante</p><p class="g-rwhat on-r">Comprobación · Vigilante</p>
+      <p class="g-p on-v">Lo comprueba la máquina. Si falla, vuelve al agente.</p>
+      <p class="g-p on-a">Otro agente lee el cambio. Si encuentra un fallo, el agente lo arregla. Nadie te llama.</p>
+      <p class="g-p on-r">Falla un test. El error vuelve al agente y lo arregla. Nadie te llama.</p>
+    </div>
+    <div>
+      <h3 class="g-h3">Salida</h3>
+      <p class="g-rwhat on-v">Abierta</p><p class="g-rwhat on-a">Comprobación</p><p class="g-rwhat on-r">Comprobación · Tu aprobación</p>
+      <p class="g-p on-v">Si pasó las puertas, sale.</p>
+      <p class="g-p on-a">Sale. Solo te ha llamado cuando hacía falta tu criterio.</p>
+      <p class="g-p on-r">Como toca el cobro, te llama otra vez. Compruebas que se puede deshacer, das tu aprobación y sale.</p>
+    </div>
+    <div>
+      <h3 class="g-h3">Veces que te llama</h3>
+      <p class="g-count on-v">0</p><p class="g-count on-a">1</p><p class="g-count on-r">2</p>
+      <p class="g-p on-v">Solo te toca pedir el cambio.</p>
+      <p class="g-p on-a">Te toca aprobar sus reglas antes de que nadie construya.</p>
+      <p class="g-p on-r">Te toca aprobar sus reglas y revisar el cambio al final.</p>
+    </div>
+  </div>
+
+  <div class="g-legend">
+    <span><span class="g-chip"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>Comprobación de máquina: tests, linter</span>
+    <span><span class="g-chip"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg></span>Vigilante: otro agente, con contexto limpio</span>
+    <span><span class="g-chip"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></span>Tú: solo donde importa</span>
+    <button type="button" class="g-ghost" style="margin-left: auto" aria-pressed="{{paused}}" onClick="{{togglePause}}"><span class="when-off">Pausar animaciones</span><span class="when-on">Reanudar animaciones</span></button>
+  </div>
+  <p class="g-cap" style="margin-top: 16px">Tres puertas de ejemplo: en tu proyecto habrá las que hagan falta. Lo que no se puede deshacer nunca es verde. Y en rojo, nada sale sin una forma comprobada de deshacerlo, y si no la hay, lo decide una persona sabiéndolo.</p>
+  </div>
+</div>
+</section>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall g-wall--r"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-body">
+    <div class="g-side"><h2 class="g-h2">Lo que cambia en tu día.</h2><p class="g-p">Y no cambias de herramientas. Las puertas se hacen con lo que ya tienes en el repositorio: tests, linters, CI, ramas protegidas y revisión.</p></div>
+    <div class="g-main">
+      <table class="g-tbl g-ba">
+        <thead><tr><th scope="col" class="g-lbl">Sin puertas</th><th scope="col" class="g-lbl">Con puertas</th></tr></thead>
+        <tbody>
+          <tr><td>Revisas cada diff, o ninguno.</td><td>Revisas lo que tu plano marca como delicado. Con la plantilla, en un cambio verde, nada.</td></tr>
+          <tr><td>«Hecho» es lo que dice el agente.</td><td>«Hecho» es lo que ha pasado la comprobación.</td></tr>
+          <tr><td>Las reglas viven en el prompt, y el agente puede ignorarlas.</td><td>Una regla solo cuenta si algo la comprueba.</td></tr>
+          <tr><td>El mismo fallo vuelve en otro cambio.</td><td>Lo que se cuela se convierte en comprobación y no vuelve a entrar.</td></tr>
+          <tr><td>Nadie sabe bien quién aprobó qué.</td><td>De cada cambio responde su autor. La IA nunca responde por ti.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  </div>
+</div>
+</section>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-body">
+    <div class="g-side"><h2 class="g-h2">GDD ordena lo que ya funciona.</h2><p class="g-p">Controles fuera del agente, exigencia según el riesgo y una persona donde importa. GDD le pone a eso un lenguaje común, una prueba para saber si una puerta vale y un recorrido.</p><p><a class="g-link" href="https://gate-driven.dev/documentacion/de-donde-viene/">Todas las fuentes, con sus enlaces <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a></p></div>
+    <div class="g-main">
+      <figure class="g-chart">
+        <h3 class="g-h3">Pedirle que no hiciera trampas no cambió nada.</h3>
+        <ul class="g-bars">
+          <li><span>Sin instrucción añadida</span><i style="width: 80%"></i><b>80 %</b></li>
+          <li class="is-key"><span>«Por favor, no hagas trampas.»</span><i style="width: 80%"></i><b>80 %</b></li>
+          <li><span>«Por favor, no manipules la recompensa.»</span><i style="width: 70%"></i><b>70 %</b></li>
+          <li><span>«Por favor, resuelve esta tarea solo con los métodos que su diseñador habría previsto.»</span><i style="width: 95%"></i><b>95 %</b></li>
+        </ul>
+        <figcaption class="g-cap">Ejecuciones en las que el modelo o3 propuso hacer trampa con su evaluación, según la instrucción añadida a la tarea. Veinte ejecuciones por instrucción, en una tarea de RE-Bench. Cuando le preguntaron si su plan respetaba la intención del usuario, respondió que no diez veces de diez. <a class="g-src" href="https://metr.org/blog/2025-06-05-recent-reward-hacking/">METR, junio de 2025</a></figcaption>
+      </figure>
+
+      <ul class="g-rows">
+        <li><h3 class="g-h3">Aprobar haciendo trampa</h3><p class="g-p">En tareas imposibles, donde los tests contradicen la especificación y solo se aprueba con trampa, GPT-5 aprobó el 76 % en una de las variantes. <a class="g-src" href="https://arxiv.org/abs/2510.20270">ImpossibleBench, 2025</a></p></li>
+        <li><h3 class="g-h3">La impresión engaña</h3><p class="g-p">Dieciséis desarrolladores con experiencia tardaron un 19 % más con IA. Creían haber tardado un 20 % menos. METR <a class="g-src" href="https://metr.org/blog/2026-02-24-uplift-update/">cree que la aceleración ha aumentado desde entonces</a>, con datos que considera una señal débil. <a class="g-src" href="https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/">METR, julio de 2025</a></p></li>
+        <li><h3 class="g-h3">El documento no basta</h3><p class="g-p">En 88.052 PR, las que enlazaban una especificación no introdujeron menos defectos que las demás. Mide issues y tickets, no herramientas de SDD. <a class="g-src" href="https://drops.dagstuhl.de/storage/00lipics/lipics-vol394-esem2026/LIPIcs.ESEM.2026.84/LIPIcs.ESEM.2026.84.pdf">Hill, ESEM 2026</a></p></li>
+        <li><h3 class="g-h3">La IA amplifica</h3><p class="g-p">Magnifica las fortalezas y las debilidades que la organización ya tenía. <a class="g-src" href="https://dora.dev/research/2025/dora-report/">DORA, 2025</a></p></li>
+      </ul>
+
+      <div class="g-sub">
+        <h3 class="g-punch">Así lo hacen equipos que ya trabajan con agentes a escala.</h3>
+        <ul class="g-rows">
+          <li><h3 class="g-h3">Stripe</h3><p class="g-p">Más de mil PR a la semana escritas enteras por agentes. Los pasos fijos, como git, linters y tests, no los decide el modelo. Hay dos rondas de CI como mucho, y una persona revisa. <a class="g-src" href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents">Stripe, febrero de 2026</a></p></li>
+          <li><h3 class="g-h3">Anthropic</h3><p class="g-p">De unos 2.500 cambios fusionados al día en mayo de 2026 a más de 30.000 en septiembre. Su revisión exige aprobaciones distintas según lo delicado del cambio, y los permisos por directorio protegen el código sensible. <a class="g-src" href="https://www.anthropic.com/engineering/redesigning-source-control">Anthropic, octubre de 2026</a></p></li>
+          <li><h3 class="g-h3">OpenAI</h3><p class="g-p"><span lang="en">«Humans steer. Agents execute.»</span> El trabajo de ingeniería pasa de escribir código a diseñar el entorno del agente y sus bucles de comprobación. <a class="g-src" href="https://openai.com/index/harness-engineering/">OpenAI, 2026</a></p></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  </div>
+</div>
+</section>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall g-wall--r"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-top">
+    <h2 class="g-h2">En qué se diferencia de vibe coding, SDD y TDD.</h2>
+    <p class="g-lead">Vibe coding, especificaciones y TDD responden a cómo se construye. GDD responde a otra pregunta: qué tiene que estar demostrado para dar un cambio por hecho.</p>
+  </div>
+  <div class="g-scroll" style="margin-top: 0">
+    <table class="g-tbl g-cmp">
+      <thead><tr><td></td><th scope="col" class="g-lbl">Vibe coding</th><th scope="col" class="g-lbl">SDD</th><th scope="col" class="g-lbl">TDD</th><th scope="col" class="g-lbl is-gdd">GDD</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Qué decide que está hecho</th><td data-th="Vibe coding">Que parece funcionar.</td><td data-th="SDD">Que coincide con la especificación.</td><td data-th="TDD">Que el test pasa.</td><td class="is-gdd" data-th="GDD">Que pasan todas las comprobaciones de la puerta.</td></tr>
+        <tr><th scope="row">Quién escribe lo que lo juzga</th><td data-th="Vibe coding">Nadie.</td><td data-th="SDD">Quien lee el documento: tú o el propio agente.</td><td data-th="TDD">Normalmente, quien escribe el código.</td><td class="is-gdd" data-th="GDD">Quien no construye. El agente no puede tocarlo.</td></tr>
+        <tr><th scope="row">Cómo reparte la exigencia</th><td data-th="Vibe coding">No la hay.</td><td data-th="SDD">Por documento, no por riesgo.</td><td data-th="TDD">Igual en todo el código.</td><td class="is-gdd" data-th="GDD">Según el riesgo: verde, amarillo o rojo.</td></tr>
+        <tr><th scope="row">Cuando algo se cuela</th><td data-th="Vibe coding">Lo arreglas y sigues.</td><td data-th="SDD">Amplías la especificación.</td><td data-th="TDD">Añades un test.</td><td class="is-gdd" data-th="GDD">Se convierte en comprobación de la puerta.</td></tr>
+        <tr><th scope="row">Tu papel</th><td data-th="Vibe coding">Probarlo a mano.</td><td data-th="SDD">Escribir y mantener el documento.</td><td data-th="TDD">Escribir tests y código.</td><td class="is-gdd" data-th="GDD">Diseñar el plano y aprobar donde importa.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="g-notes">
+    <p class="g-p"><strong>TDD cabe dentro de GDD,</strong> que añade quién escribe qué, cuánta exigencia pide cada riesgo y qué hacer con lo que se cuela. <a class="g-src" href="https://gate-driven.dev/documentacion/y-tdd/">¿Y TDD?</a></p>
+    <p class="g-p"><strong>Con SDD comparte la especificación,</strong> pero aquí es corta y ejecutable (reglas y unos pocos escenarios en Dado, Cuando, Entonces) y lo que decide es la puerta.</p>
+  </div>
+  </div>
+</div>
+</section>
+
+<section class="g-sec">
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-top">
+    <h2 class="g-h2">Una regla, siete principios, cinco momentos.</h2>
+    <p class="g-lead">Todo GDD cabe en una página. Estos son los cinco momentos por los que pasa el trabajo, desde el primer día hasta que algo se cuela.</p>
+  </div>
+  <ol class="g-mom">
+    <li><h3 class="g-h3">Preparar</h3><p class="g-p">Escribes el plano y construyes las puertas. Intentas burlarlas a propósito.</p><span class="g-part" aria-hidden="true"><i></i><b><svg viewBox="0 0 56 56"><path class="g-arc" d="M0 56A56 56 0 0 0 56 0"></path><path class="g-leaf" d="M0 0V56"></path></svg></b><i></i></span></li>
+    <li><h3 class="g-h3">Encargar</h3><p class="g-p">Reglas, unos pocos escenarios y una primera estimación del riesgo.</p><span class="g-part" aria-hidden="true"><i></i><b><svg viewBox="0 0 56 56"><path class="g-arc" d="M0 56A56 56 0 0 0 56 0"></path><path class="g-leaf" d="M0 0V56"></path></svg></b><i></i></span></li>
+    <li><h3 class="g-h3">Ejecutar</h3><p class="g-p">El agente cruza las puertas una a una. Si se atasca, se para y pregunta.</p><span class="g-part" aria-hidden="true"><i></i><b><svg viewBox="0 0 56 56"><path class="g-arc" d="M0 56A56 56 0 0 0 56 0"></path><path class="g-leaf" d="M0 0V56"></path></svg></b><i></i></span></li>
+    <li><h3 class="g-h3">Cerrar</h3><p class="g-p">Con el cambio ya en uso, una persona comprueba si sirvió.</p><span class="g-part" aria-hidden="true"><i></i><b><svg viewBox="0 0 56 56"><path class="g-arc" d="M0 56A56 56 0 0 0 56 0"></path><path class="g-leaf" d="M0 0V56"></path></svg></b><i></i></span></li>
+    <li><h3 class="g-h3">Blindar</h3><p class="g-p">Lo que se coló se convierte en comprobación, y lo que ya no aporta se rebaja o se retira. El plano cambia y se vuelve a Preparar.</p></li>
+  </ol>
+  <div class="g-two">
+    <div>
+      <h3 class="g-h3">Los siete principios</h3>
+      <ol class="g-prin">
+        <li><b>1</b><span>Las puertas van primero, y nadie se las salta, tampoco tú.</span></li>
+        <li><b>2</b><span>Una puerta que nunca cierra no es una puerta.</span></li>
+        <li><b>3</b><span>A cada puerta, su contexto.</span></li>
+        <li><b>4</b><span>Las puertas se pasan con hechos, no con palabras.</span></li>
+        <li><b>5</b><span>Quien cruza la puerta no decide cómo se valida.</span></li>
+        <li><b>6</b><span>Más riesgo, más comprobaciones, y tu aprobación solo donde importa.</span></li>
+        <li><b>7</b><span>Las puertas con grietas se blindan.</span></li>
+      </ol>
+    </div>
+    <div>
+      <h3 class="g-h3">Una puerta vale si respondes que sí cuatro veces</h3>
+      <ul class="g-test">
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>¿Se decidió antes de que el agente empezara?</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>¿Se comprueba sin fiarse de lo que diga el agente?</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>¿Está fuera del alcance del agente, de modo que tocarla no le sirva?</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>¿Se la ha visto rechazar algo mal hecho, real o puesto a propósito?</span></li>
+      </ul>
+      <p><a class="g-link" href="https://gate-driven.dev/manifiesto/">Leer el manifiesto <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a></p>
+    </div>
+  </div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<footer class="g-blue g-last" data-gdd-sheet>
+<span class="g-axis" aria-hidden="true"></span>
+<div class="g-wrap">
+  <div class="g-wall g-wall--r"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+  <div class="g-in">
+  <div class="g-end">
+    <div class="g-end__t">
+      <h2 class="g-h1">Pon la primera puerta hoy.</h2>
+      <p class="g-lead">Instala las skills y haz tu primer cambio en cinco pasos, con tus agentes y con lo que ya hay en tu repositorio.</p>
+      <div class="g-cta">
+        <a class="g-btn" href="https://gate-driven.dev/documentacion/empieza/">Empieza con tus agentes <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+      </div>
+    </div>
+    <svg class="g-end__d" viewBox="0 0 300 250" aria-hidden="true"><path class="pl" style="stroke-width: 10" d="M0 240H60M240 240H300"></path><path class="pl" style="stroke-width: 3" d="M60 240V60"></path><path class="pl" style="stroke-width: 1" d="M60 60A180 180 0 0 1 240 240"></path></svg>
+  </div>
+  <div class="g-more">
+    <a href="https://gate-driven.dev/documentacion/empieza-hoy/"><strong>Una puerta a mano <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></strong><span>GDD sin skills, con lo que ya hay en el repositorio.</span></a>
+    <a href="https://gate-driven.dev/documentacion/manos-a-la-obra/"><strong>Manos a la obra <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></strong><span>Cuatro puertas y cuatro cambios, de menos a más riesgo.</span></a>
+    <a href="https://gate-driven.dev/documentacion/"><strong>Documentación <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></strong><span>Empieza por la idea y sigue hasta donde te haga falta.</span></a>
+  </div>
+  <div class="g-foot">
+    <ul>
+      <li><a href="https://gate-driven.dev/manifiesto/">Manifiesto</a></li>
+      <li><a href="https://gate-driven.dev/articulo/">Artículo</a></li>
+      <li><a href="https://gate-driven.dev/manifiesto-gdd-v0.11.pdf">Manifiesto en PDF</a></li>
+      <li><a href="https://github.com/MarsGotta/t-minus">T-minus, en GitHub</a></li>
+    </ul>
+    <p>Manifiesto v0.11, borrador para revisión. Su motor, T-minus, está en desarrollo. Textos bajo <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, código bajo MIT.</p>
+  </div>
+  </div>
+</div>
+</footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno","cianotipo"],"default":"delineado"},"animar":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":7620}}'>
+class Component extends DCLogic {
+  componentDidMount() {
+    try {
+      if (!('IntersectionObserver' in window)) return;
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var walls = document.querySelectorAll('.g-wall');
+      if (!walls.length) return;
+      this.setState({ armed: true });
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) { e.target.classList.add('is-open'); io.unobserve(e.target); }
+        });
+      }, { threshold: 1, rootMargin: '0px 0px -18% 0px' });
+      walls.forEach(function (w) { io.observe(w); });
+      this._io = io;
+    } catch (err) {}
+  }
+  componentWillUnmount() { if (this._io) this._io.disconnect(); }
+  renderVals() {
+    var s = this.state || {};
+    var self = this;
+    var risk = s.risk || 'a';
+    var mode = s.mode || this.props.esquema || 'delineado';
+    var scheme = (mode === 'delineado') ? 'light' : 'dark';
+    var still = this.props.animar === false;
+    var cls = [];
+    if (s.paused) cls.push('is-paused');
+    if (s.armed) cls.push('is-armed');
+    if (still) cls.push('is-still');
+    if (mode === 'cianotipo') cls.push('gdd-sheet');
+    return {
+      rootCls: cls.join(' '),
+      scheme: scheme,
+      recCls: 'r-' + risk,
+      paused: !!s.paused,
+      isV: risk === 'v', isA: risk === 'a', isR: risk === 'r',
+      pickV: function () { self.setState({ risk: 'v' }); },
+      pickA: function () { self.setState({ risk: 'a' }); },
+      pickR: function () { self.setState({ risk: 'r' }); },
+      togglePause: function () { self.setState({ paused: !(self.state || {}).paused }); },
+      toggleScheme: function () { self.setState({ mode: mode === 'delineado' ? 'nocturno' : 'delineado' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

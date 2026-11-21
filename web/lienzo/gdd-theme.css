@@ -1,0 +1,275 @@
+/*
+ * GDD · "Plano" — a theme for Kimen.
+ *
+ * Opt in with data-ki-theme="gdd" on the root or on any subtree, alongside
+ * @kimen/tokens/css. It reassigns the theme and semantic layers only: no
+ * component CSS, no !important. Every scheme-dependent value is one
+ * light-dark() pair, so data-ki-color-scheme="light|dark" works on any element.
+ *
+ * Two schemes and one sheet:
+ *   light  "Delineado"  ink on drafting film
+ *   dark   "Nocturno"   pale line on night ink
+ *   sheet  "Cianotipo"  white line on Prussian blue. Not a scheme: a surface
+ *                       set you put on a whole region with data-gdd-sheet (or
+ *                       .gdd-sheet). It looks the same in both schemes.
+ */
+
+:root,
+[data-ki-theme='gdd'] {
+  color-scheme: light dark;
+
+  /* ── Theme layer · primitives ─────────────────────────────────────── */
+
+  /* Drafting film: cool neutrals, chroma under 0.02 */
+  --ki-color-gray-50: #f7f9fb;
+  --ki-color-gray-100: #eff3f6;
+  --ki-color-gray-200: #e3e8ec;
+  --ki-color-gray-300: #d4dae0;
+  --ki-color-gray-400: #b9c0c8;
+  --ki-color-gray-500: #99a1aa;
+  --ki-color-gray-600: #747d88;
+  --ki-color-gray-700: #515c6a;
+  --ki-color-gray-800: #333e4e;
+  --ki-color-gray-900: #1c2738;
+  --ki-color-gray-950: #10192a;
+
+  /* Night ink: the dark neutrals. Blue-black, never pitch black. */
+  --ki-color-dark-400: #5b677b;
+  --ki-color-dark-500: #404b5e;
+  --ki-color-dark-600: #2d3748;
+  --ki-color-dark-700: #1f2838;
+  --ki-color-dark-800: #161e2c;
+  --ki-color-dark-900: #0f1622;
+  --ki-color-dark-950: #090e19;
+
+  /* Blue ink: the brand ramp */
+  --ki-color-brand-50: #f0f6ff;
+  --ki-color-brand-100: #dfecfe;
+  --ki-color-brand-200: #c2dbfe;
+  --ki-color-brand-300: #9bc3fc;
+  --ki-color-brand-400: #69a1f3;
+  --ki-color-brand-500: #3b7de4;
+  --ki-color-brand-600: #1c5fcb;
+  --ki-color-brand-700: #0a48a8;
+  --ki-color-brand-800: #01367f;
+  --ki-color-brand-900: #01285e;
+  --ki-color-brand-950: #021a3f;
+
+  /* Cyanotype: the blueprint ground (theme extension, used by the sheet) */
+  --gdd-cyan-400: #4a7cc5;
+  --gdd-cyan-500: #3466b1;
+  --gdd-cyan-600: #22559d;
+  --gdd-cyan-700: #12458b;
+  --gdd-cyan-800: #063879;
+  --gdd-cyan-900: #002c68;
+  --gdd-cyan-950: #002356;
+
+  /* The traffic light. In GDD these three are risk levels and nothing else. */
+  --ki-color-success-100: #dcf9e5;
+  --ki-color-success-300: #7ce0a2;
+  --ki-color-success-400: #4ccd84;
+  --ki-color-success-500: #1ea662;
+  --ki-color-success-600: #13804a;
+  --ki-color-success-700: #046339;
+  --ki-color-success-800: #014a2a;
+
+  --ki-color-warning-100: #fff3ca;
+  --ki-color-warning-300: #fbd35f;
+  --ki-color-warning-400: #f5be2b;
+  --ki-color-warning-500: #e4a40f;
+  --ki-color-warning-600: #ad720d;
+  --ki-color-warning-700: #82510d;
+  --ki-color-warning-800: #613b0b;
+
+  --ki-color-danger-100: #ffe7e3;
+  --ki-color-danger-300: #fda296;
+  --ki-color-danger-400: #f9786a;
+  --ki-color-danger-500: #e4473d;
+  --ki-color-danger-600: #c02c26;
+  --ki-color-danger-700: #9b1f1b;
+  --ki-color-danger-800: #741a15;
+
+  /* Type: one grotesque with a width axis, set like title-block lettering.
+     The theme never loads a webfont: load Archivo yourself (wdth 62–125, wght 100–900). */
+  --ki-typography-family-body: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --ki-typography-family-display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --ki-typography-family-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  --ki-typography-weight-body-normal: 400;
+  --ki-typography-weight-body-medium: 500;
+  --ki-typography-weight-body-semibold: 600;
+  --ki-typography-weight-display-semibold: 600;
+  --ki-typography-letter-spacing-xs: -0.005em;
+  --ki-typography-letter-spacing-sm: -0.01em;
+  --ki-typography-letter-spacing-md: -0.015em;
+  --ki-typography-letter-spacing-lg: -0.022em;
+  --ki-typography-letter-spacing-spaced-out: 0.08em;
+
+  /* Shape: drafted corners. Pills stay round. */
+  --ki-radius-component-xs: 1px;
+  --ki-radius-component-sm: 2px;
+  --ki-radius-component-md: 2px;
+  --ki-radius-component-lg: 3px;
+  --ki-radius-component-xl: 3px;
+  --ki-radius-component-2xl: 4px;
+  --ki-radius-component-3xl: 4px;
+  --ki-radius-component-4xl: 6px;
+  --ki-radius-component-5xl: 6px;
+  --ki-radius-component-6xl: 8px;
+  --ki-radius-round: 9999px;
+  --ki-size-border-hairline: 1px;
+
+  /* Motion: a door on a hinge. Ease out, never past the stop. */
+  --ki-motion-duration-fast: 150ms;
+  --ki-motion-duration-moderate: 260ms;
+  --ki-motion-duration-slow: 380ms;
+  --ki-motion-easing-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ki-motion-easing-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ki-motion-easing-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── Semantic layer ───────────────────────────────────────────────── */
+
+  /* Surfaces. Light paints the page with film (s1) and sets framed figures on
+     white (s0). Dark paints it with night ink (s0) and steps up for cards.
+     Text stays at 4.5:1 or more on s0–s2 in both schemes. */
+  --ki-surface-base: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-900));
+  --ki-surface-s0: light-dark(#ffffff, var(--ki-color-dark-900));
+  --ki-surface-s1: light-dark(var(--ki-color-gray-50), var(--ki-color-dark-800));
+  --ki-surface-s2: light-dark(var(--ki-color-gray-100), var(--ki-color-dark-700));
+  --ki-surface-s3: light-dark(var(--ki-color-gray-200), var(--ki-color-dark-600));
+  --ki-surface-s4: light-dark(var(--ki-color-gray-300), var(--ki-color-dark-500));
+  --ki-surface-s5: light-dark(var(--ki-color-gray-400), var(--ki-color-dark-400));
+  --ki-surface-white: #ffffff;
+  --ki-surface-black: var(--ki-color-gray-950);
+
+  --ki-text-high-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-text-med-em: light-dark(#475262, #b4bfcf);
+  --ki-text-low-em: light-dark(#566172, #9ba7b9);
+  --ki-text-base-em: light-dark(var(--ki-color-gray-500), var(--ki-color-dark-400));
+  --ki-text-white: #ffffff;
+  --ki-text-black: var(--ki-color-gray-950);
+
+  /* Primary: ink fill in light, pale sheet in dark. Blue is spent on links,
+     selection and the focus ring. */
+  --ki-surface-primary-high-em: light-dark(var(--ki-color-gray-900), #ffffff);
+  --ki-surface-primary-med-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-surface-primary-low-em: light-dark(var(--ki-color-brand-100), var(--ki-color-brand-900));
+  --ki-surface-primary-base-em: light-dark(var(--ki-color-brand-50), #132440);
+  --ki-text-primary-on-primary: light-dark(#ffffff, var(--ki-color-dark-950));
+  --ki-text-secondary-on-primary: light-dark(rgb(255 255 255 / 0.84), var(--ki-color-dark-600));
+  --ki-text-primary-on-primary-light: light-dark(var(--ki-color-brand-800), var(--ki-color-brand-100));
+  --ki-text-primary-high-em: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-300));
+  --ki-text-primary-med-em: light-dark(var(--ki-color-brand-700), var(--ki-color-brand-200));
+
+  /* Outlines. Walls are drawn with text-high-em; these are the hairlines. */
+  --ki-outline-high-em: light-dark(var(--ki-color-gray-950), #edf0f6);
+  --ki-outline-med-em: light-dark(rgb(16 25 42 / 0.26), rgb(237 240 246 / 0.3));
+  --ki-outline-low-em: light-dark(rgb(16 25 42 / 0.14), rgb(237 240 246 / 0.16));
+  --ki-outline-control: light-dark(#78818c, #7d8a9d);
+  --ki-outline-primary-med-em: light-dark(var(--ki-color-brand-500), var(--ki-color-brand-400));
+  --ki-outline-primary-low-em: light-dark(var(--ki-color-brand-200), rgb(155 195 252 / 0.28));
+
+  /* Risk tones. Status is never colour alone: a word always sits beside it. */
+  --ki-surface-success-high-em: light-dark(var(--ki-color-success-700), var(--ki-color-success-300));
+  --ki-surface-success-med-em: light-dark(var(--ki-color-success-500), var(--ki-color-success-400));
+  --ki-surface-success-tint: light-dark(var(--ki-color-success-100), color-mix(in oklab, var(--ki-color-success-400) 18%, var(--ki-color-dark-900)));
+  --ki-text-success-high-em: light-dark(var(--ki-color-success-700), var(--ki-color-success-300));
+  --ki-text-primary-on-success: light-dark(#ffffff, var(--ki-color-dark-950));
+
+  --ki-surface-warning-high-em: light-dark(var(--ki-color-warning-700), var(--ki-color-warning-300));
+  --ki-surface-warning-med-em: light-dark(var(--ki-color-warning-500), var(--ki-color-warning-400));
+  --ki-surface-warning-tint: light-dark(var(--ki-color-warning-100), color-mix(in oklab, var(--ki-color-warning-400) 18%, var(--ki-color-dark-900)));
+  --ki-text-warning-high-em: light-dark(var(--ki-color-warning-700), var(--ki-color-warning-300));
+
+  --ki-surface-danger-high-em: light-dark(var(--ki-color-danger-600), var(--ki-color-danger-300));
+  --ki-surface-danger-med-em: light-dark(var(--ki-color-danger-500), var(--ki-color-danger-400));
+  --ki-surface-danger-tint: light-dark(var(--ki-color-danger-100), color-mix(in oklab, var(--ki-color-danger-400) 20%, var(--ki-color-dark-900)));
+  --ki-text-danger-high-em: light-dark(var(--ki-color-danger-600), var(--ki-color-danger-300));
+  --ki-text-primary-on-danger: light-dark(#ffffff, var(--ki-color-dark-950));
+
+  /* States */
+  --ki-surface-hover-overlay: light-dark(rgb(16 25 42 / 0.06), rgb(237 240 246 / 0.08));
+  --ki-surface-disabled-low-em: light-dark(var(--ki-color-gray-200), var(--ki-color-dark-700));
+  --ki-overlay-high-em: light-dark(rgb(16 25 42 / 0.42), rgb(4 8 16 / 0.66));
+
+  /* Focus: a solid ring plus a soft glow, as in onmars */
+  --ki-focus-ring-color: light-dark(var(--ki-color-brand-600), var(--ki-color-brand-300));
+  --ki-focus-ring-width: 2px;
+  --ki-focus-ring-offset: 2px;
+  --ki-focus-primary: light-dark(rgb(28 95 203 / 0.22), rgb(155 195 252 / 0.3));
+
+  /* Depth: borders first. One shadow scale, for things that float. */
+  --ki-elevation-e1: 0 1px 2px light-dark(rgb(16 25 42 / 0.08), rgb(0 0 0 / 0.4));
+  --ki-elevation-e2: 0 2px 6px light-dark(rgb(16 25 42 / 0.1), rgb(0 0 0 / 0.45));
+  --ki-elevation-e3: 0 6px 18px light-dark(rgb(16 25 42 / 0.12), rgb(0 0 0 / 0.5));
+  --ki-elevation-e4: 0 16px 40px light-dark(rgb(16 25 42 / 0.16), rgb(0 0 0 / 0.55));
+  --ki-effect-component-backdrop-blur: 0;
+
+  /* ── GDD drawing conventions (theme extension, not Kimen tokens) ──── */
+  --gdd-wall: 10px;           /* an outer wall, drawn solid */
+  --gdd-part: 6px;            /* a partition */
+  --gdd-leaf: 3px;            /* a door leaf */
+  --gdd-line: 1px;            /* swing arcs, dimension lines */
+  --gdd-door: 84px;           /* a door opening */
+  --gdd-door-swing: 720ms;    /* one leaf, one swing */
+}
+
+[data-ki-color-scheme='light'] { color-scheme: light; }
+[data-ki-color-scheme='dark'] { color-scheme: dark; }
+
+/* ── The cyanotype sheet ──────────────────────────────────────────────
+   A blueprint laid on the page: Prussian blue ground, white line, secondary
+   ink tinted from the blue. Same values in light and in dark, so they are
+   plain values, not light-dark() pairs. */
+[data-gdd-sheet],
+.gdd-sheet {
+  color-scheme: dark;
+  --ki-surface-base: var(--gdd-cyan-700);
+  --ki-surface-s0: var(--gdd-cyan-800);
+  --ki-surface-s1: var(--gdd-cyan-700);
+  --ki-surface-s2: #1a4d94;
+  --ki-surface-s3: var(--gdd-cyan-600);
+  --ki-surface-s4: var(--gdd-cyan-500);
+  --ki-surface-s5: var(--gdd-cyan-400);
+
+  --ki-text-high-em: #f3f7fc;
+  --ki-text-med-em: #c8dbf4;
+  --ki-text-low-em: #b5ccef;
+  --ki-text-base-em: var(--gdd-cyan-400);
+
+  --ki-surface-primary-high-em: #ffffff;
+  --ki-surface-primary-med-em: #f3f7fc;
+  --ki-surface-primary-low-em: var(--gdd-cyan-600);
+  --ki-surface-primary-base-em: #1a4d94;
+  --ki-text-primary-on-primary: var(--gdd-cyan-950);
+  --ki-text-secondary-on-primary: var(--gdd-cyan-700);
+  --ki-text-primary-on-primary-light: var(--ki-color-brand-50);
+  --ki-text-primary-high-em: var(--ki-color-brand-200);
+  --ki-text-primary-med-em: var(--ki-color-brand-300);
+
+  --ki-outline-high-em: #f3f7fc;
+  --ki-outline-med-em: rgb(243 247 252 / 0.4);
+  --ki-outline-low-em: rgb(243 247 252 / 0.22);
+  --ki-outline-control: #80a7dd;
+  --ki-outline-primary-med-em: var(--ki-color-brand-300);
+  --ki-outline-primary-low-em: var(--gdd-cyan-500);
+
+  --ki-surface-success-high-em: var(--ki-color-success-300);
+  --ki-surface-success-med-em: var(--ki-color-success-400);
+  --ki-surface-success-tint: color-mix(in oklab, var(--ki-color-success-400) 22%, var(--gdd-cyan-800));
+  --ki-text-success-high-em: var(--ki-color-success-300);
+  --ki-text-primary-on-success: var(--gdd-cyan-950);
+  --ki-surface-warning-high-em: var(--ki-color-warning-300);
+  --ki-surface-warning-med-em: var(--ki-color-warning-400);
+  --ki-surface-warning-tint: color-mix(in oklab, var(--ki-color-warning-400) 22%, var(--gdd-cyan-800));
+  --ki-text-warning-high-em: var(--ki-color-warning-300);
+  --ki-surface-danger-high-em: var(--ki-color-danger-300);
+  --ki-surface-danger-med-em: var(--ki-color-danger-400);
+  --ki-surface-danger-tint: color-mix(in oklab, var(--ki-color-danger-400) 24%, var(--gdd-cyan-800));
+  --ki-text-danger-high-em: #feb4aa;
+  --ki-text-primary-on-danger: var(--gdd-cyan-950);
+
+  --ki-surface-hover-overlay: rgb(243 247 252 / 0.1);
+  --ki-surface-disabled-low-em: var(--gdd-cyan-700);
+  --ki-focus-ring-color: #ffffff;
+  --ki-focus-primary: rgb(255 255 255 / 0.28);
+}

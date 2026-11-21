@@ -1,7 +1,0 @@
-Rule: SUMMER10 takes 10% off the cart
-
-  @id:discounts-1
-  Scenario: 10% code
-    Given a €50 cart
-    When I apply the code SUMMER10
-    Then I pay €45

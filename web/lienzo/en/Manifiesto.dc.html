@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Gate-Driven Development Manifesto</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+.m-prin{display:flex;flex-direction:column}
+.m-prin li{display:flex;gap:18px;padding:18px 0;border-top:1px solid var(--ki-outline-med-em)}
+.m-prin .g-p{margin-top:6px}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Main">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html">Documentation</a>
+    <a class="g-navl" href="Manifiesto.dc.html" aria-current="page">Manifesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/" lang="es" hreflang="es">Español</a>
+    <button type="button" class="g-icbtn" aria-label="Switch between light and dark" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="On this page">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#regla">The rule</a></li>
+      <li><a href="#principios">The seven principles</a></li>
+      <li><a href="#momentos">The five moments</a></li>
+      <li><a href="#riesgo">Risk</a></li>
+      <li><a href="#validez">When a gate holds</a></li>
+      <li><a href="#responde">Who answers for it</a></li>
+    </ol>
+    <p><a class="g-link" href="/manifesto-gdd-v0.11.pdf">Download as PDF</a></p>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title" id="regla">
+      <h1 class="g-h1">Your agent says "done" and the gate checks if it's true.</h1>
+      <p class="g-lead">All of GDD fits in that rule, seven principles and five moments.</p>
+      <p class="d-meta"><span>Manifesto v0.11, draft for review</span><span>November 18, 2026</span><span>Marcela Gotta</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2" id="principios" style="margin-top: 0">The seven principles</h2>
+      <ol class="m-prin">
+        <li><span class="g-num">1</span><div><h3 class="g-h3">Gates come first, and nobody skips them, not even you.</h3><p class="g-p">They are defined before the work, so you don't check what the agent did instead of what was needed. Emergencies have a gate of their own, decided beforehand: a person opens it, it's written down, and the change goes through the others afterwards.</p></div></li>
+        <li><span class="g-num">2</span><div><h3 class="g-h3">A gate that never closes is not a gate.</h3><p class="g-p">Before you trust it, check that it closes, and that it closes for the right reason.</p></div></li>
+        <li><span class="g-num">3</span><div><h3 class="g-h3">To each gate, its context.</h3><p class="g-p">Without context, the agent guesses and fails. With too much, it gets lost and costs more. Context helps it get through the gate, but it proves nothing.</p></div></li>
+        <li><span class="g-num">4</span><div><h3 class="g-h3">You get through a gate with facts, not words.</h3><p class="g-p">Saying "done" opens nothing. Without facts, the agent stops and asks.</p></div></li>
+        <li><span class="g-num">5</span><div><h3 class="g-h3">Whoever goes through the gate doesn't decide how it's validated.</h3><p class="g-p">The agent never touches the tests that judge it, just as a student doesn't grade their own exam. If a check is wrong, whoever wrote it or a person corrects it.</p></div></li>
+        <li><span class="g-num">6</span><div><h3 class="g-h3">More risk, more checks, and your approval only where it matters.</h3><p class="g-p">Risk decides, not the size of the change. More risk isn't always more tests: sometimes it means a reviewer or a person. Approving everything leads to approving without reading.</p></div></li>
+        <li><span class="g-num">7</span><div><h3 class="g-h3">Gates with cracks get hardened.</h3><p class="g-p">What slips through or keeps repeating becomes a check. A gate that no longer catches anything, or that costs more than it protects, is relaxed or retired, with the same evidence you would ask for to add it.</p></div></li>
+      </ol>
+
+      <h2 class="d-h2" id="momentos">The five moments</h2>
+      <table class="g-tbl">
+        <thead><tr><th scope="col" class="g-lbl">Moment</th><th scope="col" class="g-lbl">When</th><th scope="col" class="g-lbl">What happens</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Prepare</th><td>At the start, and when the blueprint falls short.</td><td>The blueprint is written, the gates are built and someone tries to fool them on purpose. No change starts until they hold.</td></tr>
+          <tr><th scope="row">Brief</th><td>In each change, before it starts.</td><td>Rules, a few scenarios and a first estimate of the risk. The tests are written by whoever won't build.</td></tr>
+          <tr><th scope="row">Execute</th><td>In each change.</td><td>The agent goes through the gates one by one. If it gets stuck, it stops and asks. The risk is worked out again from what was touched, and it can only go up.</td></tr>
+          <tr><th scope="row">Close</th><td>With the change already in use.</td><td>A person checks whether it helped: yes, not yet or no. A "no" also closes it, and opens a new brief.</td></tr>
+          <tr><th scope="row">Harden</th><td>When something slips through or keeps repeating.</td><td>Cracks become checks, and what no longer adds anything is relaxed or retired. The blueprint changes, you go back to Prepare and a person approves it.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 class="d-h2" id="riesgo">Risk</h2>
+      <p class="g-p">Risk measures how much harm a change can do to your product. What each level asks for is decided by you or your team, and it is written in the blueprint.</p>
+      <table class="g-tbl">
+        <tbody>
+          <tr><th scope="row"><span class="g-st g-st--v">Green</span></th><td>Changing a text. Green is only what the blueprint marks as green.</td></tr>
+          <tr><th scope="row"><span class="g-st g-st--a">Yellow</span></th><td>A new filter on a list. What isn't classified is analyzed, and if it isn't clear, someone asks.</td></tr>
+          <tr><th scope="row"><span class="g-st g-st--r">Red</span></th><td>Something that touches payment. Nothing ships without a tested way to undo it, and if there isn't one, a person decides knowing that.</td></tr>
+        </tbody>
+      </table>
+      <p class="g-p"><strong>What can't be undone is never green.</strong></p>
+
+      <h2 class="d-h2" id="validez">When a gate holds</h2>
+      <ul class="g-test" style="list-style: none; padding: 0">
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>It was decided before the agent started.</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>It is checked without trusting what the agent says.</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>It is out of the agent's reach. Checking from the same machine it works on doesn't count.</span></li>
+        <li><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>It has been seen to reject something done wrong, real or planted on purpose.</span></li>
+      </ul>
+      <p><a class="g-link" href="Taller.dc.html">Try it in the workshop <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a></p>
+
+      <h2 class="d-h2" id="responde">Who answers for it</h2>
+      <p class="g-p">Every change has an author who answers for it, the person in charge. The AI never answers for you.</p>
+      <p class="g-p">The manifesto is the reference. If T-minus, another engine or the documentation contradicts it, the manifesto wins.</p>
+      <p class="g-p"><strong>This page is a summary.</strong> If you want to read the full manifesto, <a class="g-src" href="/manifesto-gdd-v0.11.pdf">download it as a PDF</a>.</p>
+
+      <div class="d-next" style="margin-top: 20px">
+        <a class="g-btn" href="Cap-empieza.dc.html">Start with your agents <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+        <a class="g-link" href="Docs.dc.html">Go to the documentation</a>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":3170}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return { scheme: scheme, toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); } };
+  }
+}
+</script>
+</body>
+</html>

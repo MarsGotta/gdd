@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>El núcleo: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">El recorrido entero</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li class="is-here"><a href="Cap-el-nucleo.dc.html" aria-current="page">El núcleo</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li><a href="Cap-novedades.dc.html">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">El núcleo</h1>
+      <p class="g-lead">Lo que puedes exigir a cualquier motor que diga hacer GDD. Casi todo lo demás se adapta. Esto no.</p>
+      <p class="d-meta"><span>Blindar, parada 2 de 3</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">El agente no toca el plano ni las comprobaciones</h2>
+      <ul><li>No decide cómo se valida ni vigila su propio trabajo.</li><li>Ningún agente, tampoco el orquestador, modifica una comprobación sellada, cambia las reglas de riesgo o se salta una puerta.</li><li>El riesgo se calcula con lo que se tocó, no con lo que se declaró. Se recalcula al terminar y solo puede subir.</li></ul>
+      <h2 class="d-h2">El daño posible está acotado</h2>
+      <ul><li>El agente no tiene producción y usa solo las credenciales necesarias.</li><li>Lo que no se puede deshacer lo confirma una persona.</li><li>En rojo, nada sale sin una forma comprobada de deshacerlo. Si no la hay, una persona lo decide sabiéndolo.</li></ul>
+      <h2 class="d-h2">Hay decisiones que solo toma una persona</h2>
+      <ul><li>Cambiar el plano, aflojar una comprobación o retirarla.</li><li>Decir si un cambio en uso ha servido.</li><li>Una aprobación solo cuenta si llega por un camino al que ningún agente tiene acceso.</li></ul>
+      <h2 class="d-h2">Nada se queda dando vueltas ni a oscuras</h2>
+      <ul><li>Los intentos, el tiempo y el coste de cada cambio tienen límite. Al agotarse, el motor se para y pregunta.</li><li>Todo queda registrado: quién hizo qué, qué puerta lo juzgó y cuánto costó.</li></ul>
+      <h2 class="d-h2">Hoy, con las skills</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Garantía</th><th scope="col" class="g-lbl">Como norma</th><th scope="col" class="g-lbl">Con tu plataforma</th><th scope="col" class="g-lbl">Pendiente del motor</th></tr></thead><tbody><tr><th scope="row">El agente no toca lo que lo juzga</th><td>Las skills sellan en <code>gdd-seal/&lt;id&gt;</code>, y la comprobación del sello descubre después si se tocó algo, pero no lo impide</td><td>Ramas protegidas y CI sobre el commit exacto</td><td>Que ni quien administra pueda quitar la protección</td></tr><tr><th scope="row">El daño está acotado</th><td>El entorno propuesto no tiene producción, y las instrucciones que GDD deja al agente dicen que lo que lee de fuera es un dato, nunca una orden</td><td>Se prueban cuatro cosas que deben fallar</td><td>Que no dependa de aplicarlo bien</td></tr><tr><th scope="row">Decide una persona</th><td>El plano se aprueba con un commit</td><td><code>CODEOWNERS</code> exige aprobación humana si tu rama principal pide su revisión</td><td>Que la aprobación llegue por un camino sin agentes</td></tr><tr><th scope="row">Nada a oscuras</th><td>La capa cuenta rondas, minutos y, cuando tu agente los da, tokens</td><td><code>gdd verify --all</code> comprueba el registro</td><td>Llevar la cuenta fuera del alcance del agente</td></tr></tbody></table></div>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Antes de cruzar: ¿Puede la aprobación de un agente sustituir a la de una persona?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">Sí</button>
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">No</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">No es eso. Solo cuenta la aprobación que llega por un camino al que ningún agente tiene acceso.</p>
+        <p class="g-p when-open" aria-live="polite">Eso es. Solo cuenta la aprobación que llega por un camino al que ningún agente tiene acceso.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-buenas-practicas.dc.html">Siguiente: Buenas prácticas <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-buenas-practicas.dc.html">Seguir sin responder <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Docs.dc.html">Índice</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":2089}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

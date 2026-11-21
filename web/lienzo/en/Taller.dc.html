@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workshop: does this gate hold?</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Main">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentation</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/documentacion/" lang="es" hreflang="es">Español</a>
+    <button type="button" class="g-icbtn" aria-label="Switch between light and dark" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<main class="g-wrap" style="padding-block: clamp(36px, 4.4vw, 64px) clamp(56px, 6vw, 88px)">
+  <div class="d-title" style="max-width: 46em">
+    <h1 class="g-h1">Workshop: does this gate hold?</h1>
+    <p class="g-lead">A gate holds if you answer yes to four questions. Take one away and see where the error slips through.</p>
+  </div>
+
+  <section class="{{labCls}}">
+    <h2 class="d-h2" style="margin-top: 0">Build the gate</h2>
+    <div class="l-grid">
+      <div>
+        <p class="g-p">The change is the discount codes. Before starting, it was decided that the total never drops below €0, not even with two codes. The agent brings an error nobody has seen yet: with two codes at once, the total comes out negative. It says "done."</p>
+        <div style="margin-top: 18px; border-bottom: 1px solid var(--ki-outline-med-em)">
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c1}}" onClick="{{t1}}"><i></i><span>It was decided before the agent started</span><b class="when-on">Yes</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c2}}" onClick="{{t2}}"><i></i><span>It's checked without trusting what it says</span><b class="when-on">Yes</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c3}}" onClick="{{t3}}"><i></i><span>It's out of its reach</span><b class="when-on">Yes</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c4}}" onClick="{{t4}}"><i></i><span>It's been seen rejecting something done wrong</span><b class="when-on">Yes</b><b class="when-off">No</b></button>
+        </div>
+      </div>
+      <div>
+        <div class="l-plan" aria-hidden="true">
+          <span class="g-ent"></span>
+          <span class="g-track"></span>
+          <span class="g-lbl g-rl" style="left: 14px; bottom: 10px">Agent</span>
+          <span class="g-lbl g-rl" style="right: 14px; bottom: 10px">Production</span>
+          <span class="g-part"><i></i><b><svg viewBox="0 0 132 132"><path class="g-arc" d="M0 132A132 132 0 0 0 132 0"></path><path class="g-leaf" d="M0 0V132"></path></svg></b><i></i></span>
+          <span class="l-agent"><svg viewBox="0 0 16 16"><path class="pl" style="stroke-width: 2" d="M3 3l10 10M13 3L3 13"></path></svg><span class="g-dot"></span></span>
+        </div>
+        <div class="l-res" aria-live="polite">
+          <h3 class="g-h3 when-ok">The gate says no. The error goes back to the agent and you don't even notice.</h3>
+          <h3 class="g-h3 when-ko">The gate opens and the error reaches production.</h3>
+          <p class="l-why w1"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>The check was written after seeing its work. It checks what it did, not what was needed: the negative total wasn't in any case.</span></p>
+          <p class="l-why w2"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>The agent printed <span style="font-family: var(--ki-typography-family-mono); font-size: .8125rem">3 passed</span> and nobody ran it. Saying it opened the gate.</span></p>
+          <p class="l-why w3"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>The agent changed what surrounds the test: it put <span style="font-family: var(--ki-typography-family-mono); font-size: .8125rem">"test": "exit 0"</span> in package.json. CI ran what was on its branch.</span></p>
+          <p class="l-why w4"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Nobody ever saw this check fail. It passes with the error inside, as it would have passed with anything.</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top: clamp(48px, 6vw, 80px)">
+    <h2 class="d-h2" style="margin-top: 0">Five gates. Do they hold?</h2>
+    <ol class="l-qs">
+      <li class="l-q {{q1}}"><p>The agent runs the tests in its own session and tells you they pass.</p><div><button type="button" class="g-ghost" aria-pressed="{{y1}}" onClick="{{a1y}}">It holds</button><button type="button" class="g-ghost" aria-pressed="{{n1}}" onClick="{{a1n}}">It doesn't hold</button></div><p class="l-fb"><strong class="when-right">That's it.</strong><strong class="when-wrong">No.</strong> It doesn't hold: it's still its word. Have someone else run them, be it CI, an engine or you in a clean copy.</p></li>
+      <li class="l-q {{q2}}"><p>CI required on a protected branch. The payment tests were written by another session before starting, and you saw one fail on purpose. A CI step checks that neither the tests nor what surrounds them changed from what was approved.</p><div><button type="button" class="g-ghost" aria-pressed="{{y2}}" onClick="{{a2y}}">It holds</button><button type="button" class="g-ghost" aria-pressed="{{n2}}" onClick="{{a2n}}">It doesn't hold</button></div><p class="l-fb"><strong class="when-right">That's it.</strong><strong class="when-wrong">No.</strong> It holds: it was decided before, someone else runs it, it's out of its reach and you've already seen it close.</p></li>
+      <li class="l-q {{q3}}"><p>A linter that has been in the repository for months and has never flagged anything.</p><div><button type="button" class="g-ghost" aria-pressed="{{y3}}" onClick="{{a3y}}">It holds</button><button type="button" class="g-ghost" aria-pressed="{{n3}}" onClick="{{a3n}}">It doesn't hold</button></div><p class="l-fb"><strong class="when-right">That's it.</strong><strong class="when-wrong">No.</strong> It doesn't hold yet: a gate that never closes is not a gate. Put something done wrong in front of it and see if it rejects it.</p></li>
+      <li class="l-q {{q4}}"><p>You see the diff and ask the same agent to write tests for what it has done.</p><div><button type="button" class="g-ghost" aria-pressed="{{y4}}" onClick="{{a4y}}">It holds</button><button type="button" class="g-ghost" aria-pressed="{{n4}}" onClick="{{a4n}}">It doesn't hold</button></div><p class="l-fb"><strong class="when-right">That's it.</strong><strong class="when-wrong">No.</strong> It doesn't hold: it comes afterwards and whoever goes through writes it. It will check what it did, not what was needed.</p></li>
+      <li class="l-q {{q5}}"><p>Another agent, with a clean context, runs the change. It has already caught a fault you planted on purpose.</p><div><button type="button" class="g-ghost" aria-pressed="{{y5}}" onClick="{{a5y}}">It holds</button><button type="button" class="g-ghost" aria-pressed="{{n5}}" onClick="{{a5n}}">It doesn't hold</button></div><p class="l-fb"><strong class="when-right">That's it.</strong><strong class="when-wrong">No.</strong> It holds: it's a reviewer. It works as a check, although its approval never counts as a person's.</p></li>
+    </ol>
+  </section>
+
+  <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+    <a class="g-btn" href="Cap-empieza-hoy.dc.html">Build yours: a gate by hand <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+    <a class="g-link" href="Cap-como-se-engana-una-puerta.dc.html">How a gate gets fooled</a>
+  </div>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1490}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    var c = s.c || [true, true, true, true];
+    var ans = s.ans || {};
+    var key = { 1: false, 2: true, 3: false, 4: false, 5: true };
+    var cls = [c.every(function (x) { return x; }) ? 'is-ok' : 'is-ko'];
+    var v = { scheme: scheme, toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); } };
+    c.forEach(function (on, i) {
+      if (!on) cls.push('no' + (i + 1));
+      v['c' + (i + 1)] = on;
+      v['t' + (i + 1)] = function () { var n = c.slice(); n[i] = !n[i]; self.setState({ c: n }); };
+    });
+    v.labCls = cls.join(' ');
+    [1, 2, 3, 4, 5].forEach(function (i) {
+      var a = ans[i];
+      v['q' + i] = a === undefined ? '' : (a === key[i] ? 'is-right' : 'is-wrong');
+      v['y' + i] = a === true; v['n' + i] = a === false;
+      v['a' + i + 'y'] = function () { var n = Object.assign({}, ans); n[i] = true; self.setState({ ans: n }); };
+      v['a' + i + 'n'] = function () { var n = Object.assign({}, ans); n[i] = false; self.setState({ ans: n }); };
+    });
+    return v;
+  }
+}
+</script>
+</body>
+</html>

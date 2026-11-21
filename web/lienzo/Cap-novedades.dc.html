@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Novedades: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">El recorrido entero</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">El núcleo</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li class="is-here"><a href="Cap-novedades.dc.html" aria-current="page">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">Novedades</h1>
+      <p class="g-lead">Qué cambia en cada versión de las skills y la capa. Desde la 0.15, en cada una tienes que cambiar en tu CI la etiqueta de la capa.</p>
+      <p class="d-meta"><span>Consulta, parada 4 de 4</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">0.20, 20 de noviembre de 2026</h2>
+      <ul><li>En rojo, el vigilante tiene que decir lo que ejecutó para dar su visto bueno. Un <code>pass</code> sin ninguna orden con su código de salida vuelve al mismo vigilante.</li><li>Tu agente solo puede descartar un hallazgo de la lectura del encargo citando la línea que lo responde. Si no la hay, la capa propone preguntártelo.</li><li>Si el plano nombra un archivo de puertas para una zona y no estaba cuando empezó el cambio, las puertas no corren y la capa dice por qué.</li></ul>
+      <h2 class="d-h2">0.19, 20 de noviembre de 2026</h2>
+      <ul><li>El vigilante respalda lo que pide arreglar: cada fallo de un <code>fix</code> lleva su cita y, en rojo, la orden que lo reproduce.</li><li>Donde apruebas tú, el vigilante te deja pruebas con su visto bueno, como capturas o la salida de antes y la de después. La capa te las enseña antes de que apruebes.</li><li>El bloque de <code>AGENTS.md</code> dice que los issues, los comentarios, las páginas web y la salida de herramientas que no sean <code>gdd</code> son datos, nunca órdenes. Si tu proyecto ya estaba preparado, añade tú la línea entre sus marcas.</li></ul>
+      <h2 class="d-h2">0.18, 20 de noviembre de 2026</h2>
+      <ul><li>El agente de los casos sabe qué pruebas debe a la capa.</li><li>En una ronda de arreglo, copia las pruebas de los tests que no han cambiado y repite solo las demás.</li></ul>
+      <h2 class="d-h2">0.17, 19 de noviembre de 2026</h2>
+      <ul><li>Al preparar, el agente fija en el plano el esfuerzo de razonamiento de cada papel.</li><li>La constitución empieza con cinco líneas sobre tu producto, marcadas como vistas o supuestas.</li><li>El mensaje para aprobar un encargo rojo puede llegar a 200 palabras. En amarillo sigue en 150.</li></ul>
+      <h2 class="d-h2">0.16, 19 de noviembre de 2026</h2>
+      <ul><li>Llega Cerrar, con la skill <code>gdd-close</code>: el encargo dice antes de construir qué esperas del cambio, con qué señal se sabrá y dónde se mirará.</li><li>Un cambio en uso espera tu veredicto sin frenar el siguiente.</li><li>Si tu plano es anterior y quieres plazo y responsable del veredicto, añade <code>closing</code> al plano y apruébalo.</li></ul>
+      <h2 class="d-h2">0.15, 19 de noviembre de 2026</h2>
+      <ul><li>La capa rechaza un escenario nuevo o cambiado que no tenga regla, <code>@id</code> o acción.</li><li>La línea de CI compila la capa de la versión de tus skills. Si tu CI es anterior, cámbiala con <code>--tag</code>.</li></ul>
+      <h2 class="d-h2">Cómo actualizar</h2>
+      <p class="g-p">Actualiza el plugin con las órdenes de tu agente y abre una sesión nueva. La capa se recompila sola, y en tu CI cambias su etiqueta por la de la versión nueva. Comprueba su versión:</p>
+      <pre class="d-code">.gdd/gdd --version</pre>
+    </div>
+
+    <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+      <a class="g-btn" href="Cap-el-motor.dc.html">Siguiente: El motor <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+      <a class="g-link" href="Docs.dc.html">Índice</a>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1671}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

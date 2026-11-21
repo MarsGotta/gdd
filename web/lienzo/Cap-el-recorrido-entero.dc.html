@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>El recorrido entero: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li class="is-here"><a href="Cap-el-recorrido-entero.dc.html" aria-current="page">El recorrido entero</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">El núcleo</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li><a href="Cap-novedades.dc.html">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">El recorrido entero</h1>
+      <p class="g-lead">El flujo completo que uso en mis proyectos, con cinco puertas contando la de la preparación, y lo que pasa cuando algo falla.</p>
+      <p class="d-meta"><span>Ejecutar, parada 1 de 3</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">Cada cambio</h2>
+      <ol class="d-ol"><li value="1">Defines qué debe pasar con el orquestador. Reglas y escenarios en Gherkin, que apruebas o rechazas. <strong>Puerta de escenarios: persona.</strong></li><li value="2">Otro agente escribe los tests, también los e2e. CI comprueba que fallan por la razón correcta y un vigilante verifica que cubren los escenarios.</li><li value="3">Un agente distinto escribe el código que los hace pasar, con linters, hasta que un vigilante con contexto limpio lo da por bueno. <strong>Puerta del bucle: máquinas.</strong></li><li value="4">Si el agente cree que un test está mal, se para y avisa. No lo modifica.</li><li value="5">El bucle solo se repite dos veces. A la tercera, el orquestador decide si cambia el alcance o el enfoque, y lo habláis.</li><li value="6">El cambio llega a la pull request, donde corren los e2e y otro vigilante. <strong>Puerta de la PR: máquinas.</strong></li><li value="7">Si toca zonas rojas, revisas el código y cómo se deshace.</li><li value="8">Das la aprobación final. <strong>Puerta de salida: persona.</strong> GDD no la exige: es una comprobación de persona que he elegido en mis proyectos.</li><li value="9">Miras si sirvió: sí, todavía no o no.</li><li value="10">Blindas lo que ha fallado. El orquestador propone reglas con su test, o aflojar o retirar lo que ya no aporta.</li></ol>
+      <h2 class="d-h2">Cuando el camino se tuerce</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Si pasa esto</th><th scope="col" class="g-lbl">Qué pasa</th></tr></thead><tbody><tr><th scope="row">El cambio es el texto de un botón</th><td>Pasa las mismas puertas, con comprobaciones de serie y sin revisión tuya.</td></tr><tr><th scope="row">Hay una urgencia en producción</th><td>Primero se intenta deshacer. Si hace falta un arreglo, una persona lo aprueba por la puerta de urgencias.</td></tr><tr><th scope="row">Casi todo sale rojo</th><td>El plano marca demasiado como delicado. <code>.gdd/gdd metrics</code> enseña cuántos cambios salen de cada color.</td></tr><tr><th scope="row">Pides un retoque al aprobar</th><td>Vuelve al agente, y las puertas y tu aprobación se piden otra vez.</td></tr><tr><th scope="row">Nadie mira si sirvió</th><td>Si prometía algo, queda en uso y sin cerrar, a la vista, sin frenar lo siguiente. Lo que no prometía nada se cierra solo a los días que diga tu plano.</td></tr><tr><th scope="row">Una regla no se puede decidir</th><td>Se marca con <code>@question</code> hasta un cambio posterior.</td></tr></tbody></table></div>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Antes de cruzar: ¿Puede el agente que escribe el código modificar un test que cree incorrecto?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">Sí</button>
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">No</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">No es eso. Se para y avisa. La corrección la hace quien lo escribió o una persona.</p>
+        <p class="g-p when-open" aria-live="polite">Eso es. Se para y avisa. La corrección la hace quien lo escribió o una persona.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-cuando-se-para.dc.html">Siguiente: Cuando se para <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-cuando-se-para.dc.html">Seguir sin responder <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Docs.dc.html">Índice</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1909}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

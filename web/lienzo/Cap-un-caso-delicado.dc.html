@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Un caso delicado: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li class="is-here"><a href="Cap-un-caso-delicado.dc.html" aria-current="page">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">El recorrido entero</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">El núcleo</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li><a href="Cap-novedades.dc.html">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">Un caso delicado</h1>
+      <p class="g-lead">Códigos de descuento en una tienda online: qué cambia cuando se toca el cobro.</p>
+      <p class="d-meta"><span>Encargar, parada 2 de 2</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">Antes de empezar</h2>
+      <ul><li>CI obligatorio para fusionar.</li><li><code>pagos/</code> y el propio CI marcados como delicados en <code>CODEOWNERS</code>, y la rama principal exige la revisión de sus propietarios.</li><li>El agente, con sus propias credenciales y sin producción.</li></ul>
+      <h2 class="d-h2">Los siete pasos</h2>
+      <ol class="d-ol"><li value="1"><strong>Decides qué tiene que pasar.</strong> Pides a un agente reglas y escenarios, los lees y los corriges.</li></ol>
+      <pre class="d-code">Regla: VERANO10 descuenta un 10 % del carrito
+
+  @id:descuentos-1
+  Escenario: código del 10 %
+    Dado un carrito de 50 €
+    Cuando aplico el código VERANO10
+    Entonces pago 45 €</pre>
+      <ol class="d-ol"><li value="2"><strong>Un agente escribe los casos.</strong> En otra sesión convierte los escenarios en tests. Compruebas que fallan porque falta el descuento, no por un import roto, y los guardas en una rama que el agente no puede modificar.</li><li value="3"><strong>Otro agente pasa la puerta.</strong> Su encargo: hacer pasar los tests sin tocarlos, parar si cree que están mal y usar dos rondas de CI.</li><li value="4"><strong>La puerta se cierra.</strong> CI falla con el test de 80 €: la solución estaba hecha a medida del primero. El error vuelve al agente. En la segunda ronda pasan.</li><li value="5"><strong>Miras solo donde importa.</strong> Como toca <code>pagos/</code>, la pull request pide tu aprobación. Compruebas que se puede deshacer y apruebas.</li><li value="6"><strong>Miras si sirvió.</strong> Unos días después, el agente te enseña cuántos pedidos pagados llevan un código. Das tu veredicto.</li><li value="7"><strong>Si algo se cuela, se blinda.</strong> Alguien acumula dos códigos y el total sale negativo. Añades la regla «el total nunca baja de 0 €», con su escenario y su test.</li></ol>
+      <h2 class="d-h2">En resumen</h2>
+      <p class="g-p">Lees reglas y escenarios, das una aprobación, miras si sirvió y añades un test. No revisas cada paso ni instalas nada.</p>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Antes de cruzar: ¿Pide tu aprobación un cambio en <code>pagos/</code> si lo marcas como delicado en <code>CODEOWNERS</code>?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">Sí</button>
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">No</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">No es eso. Si tu rama principal exige la revisión de los propietarios del código, la pull request pide tu aprobación además de CI. Es una aprobación que eliges tú.</p>
+        <p class="g-p when-open" aria-live="polite">Eso es. Si tu rama principal exige la revisión de los propietarios del código, la pull request pide tu aprobación además de CI. Es una aprobación que eliges tú.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-el-recorrido-entero.dc.html">Siguiente: El recorrido entero <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-el-recorrido-entero.dc.html">Seguir sin responder <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Docs.dc.html">Índice</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1899}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

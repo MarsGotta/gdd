@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Cuando se para: documentación de GDD</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Capítulos">
+    <h2>Antes de empezar</h2>
+    <ol>
+      <li><a href="Capitulo.dc.html">La idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Manos a la obra</a></li>
+      <li><a href="Cap-las-piezas.dc.html">Las piezas y los roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">Los siete principios</a></li>
+      <li><a href="Cap-los-momentos.dc.html">Los cinco momentos</a></li>
+    </ol>
+    <h2>Preparar</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Empieza</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">Una puerta a mano</a></li>
+      <li><a href="Cap-los-colores.dc.html">Qué pide cada color</a></li>
+      <li><a href="Cap-los-archivos.dc.html">Lo que deja en tu repositorio</a></li>
+    </ol>
+    <h2>Encargar</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">Las skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">Un caso delicado</a></li>
+    </ol>
+    <h2>Ejecutar</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">El recorrido entero</a></li>
+      <li class="is-here"><a href="Cap-cuando-se-para.dc.html" aria-current="page">Cuando se para</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">Las órdenes de la capa</a></li>
+    </ol>
+    <h2>Cerrar</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">Cómo se mide</a></li>
+    </ol>
+    <h2>Blindar</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">El núcleo</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Buenas prácticas</a></li>
+    </ol>
+    <h2>Consulta</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glosario</a></li>
+      <li><a href="Cap-y-tdd.dc.html">¿Y TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">De dónde viene</a></li>
+      <li><a href="Cap-novedades.dc.html">Novedades</a></li>
+    </ol>
+    <h2>T-minus, en desarrollo</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">El motor</a></li>
+      <li><a href="Cap-los-kits.dc.html">Los kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">Cuando se para</h1>
+      <p class="g-lead">Síntoma a síntoma: qué ha pasado y qué te toca hacer.</p>
+      <p class="d-meta"><span>Ejecutar, parada 2 de 3</span></p>
+    </div>
+
+    <div class="d-prose">
+      <h2 class="d-h2">Al instalar</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Síntoma</th><th scope="col" class="g-lbl">Causa</th><th scope="col" class="g-lbl">Qué te toca</th></tr></thead><tbody><tr><th scope="row">La lista de plugins no muestra <code>gdd</code></th><td>No está instalado, o el agente es anterior al mínimo</td><td>Actualiza el agente y reinstala con la orden de Empieza.</td></tr><tr><th scope="row">El plugin aparece, pero el agente no conoce GDD</th><td>La sesión abierta no carga plugins nuevos</td><td>Cierra la sesión y abre otra.</td></tr><tr><th scope="row">El agente dice que falta Rust</th><td>La capa necesita Rust 1.89 o posterior</td><td>Instálalo y díselo. Sigue donde estaba.</td></tr><tr><th scope="row">No hay red para compilar</th><td>La primera vez descarga de crates.io</td><td>Dale red una vez. Nunca bajes una capa ya compilada.</td></tr></tbody></table></div>
+      <h2 class="d-h2">En un cambio</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Síntoma</th><th scope="col" class="g-lbl">Causa</th><th scope="col" class="g-lbl">Qué te toca</th></tr></thead><tbody><tr><th scope="row">Espera tu aprobación</th><td>El plano pide una persona</td><td>Léelo y apruébalo. Ningún agente puede hacerlo por ti.</td></tr><tr><th scope="row"><code>@assumed</code> sobre una regla</th><td>La eligió el agente</td><td>Corrígela si no es la tuya.</td></tr><tr><th scope="row"><code>@question</code> sobre una regla</th><td>La respuesta puede esperar</td><td>Nada por ahora.</td></tr><tr><th scope="row">Falla una comprobación</th><td>Hay ronda de arreglo</td><td>Nada, salvo que se agote un límite.</td></tr><tr><th scope="row"><code>fix</code> del vigilante</th><td>Hay que corregir antes</td><td>Nada. Se corrigen primero los tests sellados que nombra, y el que construye se lleva el resto.</td></tr><tr><th scope="row"><code>stop</code> del vigilante</th><td>El cambio no entra</td><td>Lee el motivo.</td></tr><tr><th scope="row">Sube el color</th><td>Tocó algo más delicado y vuelve al encargo</td><td>Aprueba el encargo nuevo, si su color lo pide.</td></tr><tr><th scope="row">Falla la comprobación del sello</th><td>Alguien tocó lo que juzga el cambio</td><td>El cambio se para y el agente te lo cuenta.</td></tr><tr><th scope="row">Se agota un límite</th><td>Se gastaron intentos, tiempo o coste</td><td>Tu agente te dice qué funciona y qué falta, y te propone una salida. <code>.gdd/gdd limits &lt;id&gt;</code> enseña el gasto.</td></tr><tr><th scope="row">Falla algo sin relación con el cambio</th><td>Deuda sin apuntar en <code>gdd/debt.md</code>, o comprobación inestable</td><td>Decides tú, o tu equipo: apuntar la deuda o poner la comprobación en cuarentena.</td></tr><tr><th scope="row">Urgencia para saltar una comprobación</th><td>Saltarla la afloja</td><td>Que lo apruebe quien dice el plano. Queda registrado.</td></tr></tbody></table></div>
+      <h2 class="d-h2">Con la capa</h2>
+      <div class="d-scroll"><table class="g-tbl"><thead><tr><th scope="col" class="g-lbl">Síntoma</th><th scope="col" class="g-lbl">Causa</th><th scope="col" class="g-lbl">Qué te toca</th></tr></thead><tbody><tr><th scope="row">La capa rechaza un paso</th><td>Paso fuera de orden, o archivo cambiado tras sellar</td><td>Nada. La capa dice qué ejecutar.</td></tr><tr><th scope="row">En CI la capa se niega a todo</th><td>El contenedor saca el repositorio con otro usuario</td><td>Añade antes <code>git config --global --add safe.directory "$PWD"</code>.</td></tr><tr><th scope="row"><code>gdd verify --all</code> falla en CI</th><td>Registro roto u hash que no coincide</td><td>Pasa la línea al agente. No edites el registro a mano.</td></tr></tbody></table></div>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Antes de cruzar: ¿Se arregla un cambio parado aflojando la comprobación que falla?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">Sí</button>
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">No</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">No es eso. Una comprobación solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+        <p class="g-p when-open" aria-live="polite">Eso es. Una comprobación solo la corrige quien la escribió o una persona, nunca el agente que tiene que pasarla.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-las-ordenes.dc.html">Siguiente: Las órdenes de la capa <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-las-ordenes.dc.html">Seguir sin responder <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Docs.dc.html">Índice</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":2417}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

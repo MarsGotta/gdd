@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The idea: a chapter of the GDD documentation</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Main">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentation</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/documentacion/" lang="es" hreflang="es">Español</a>
+    <button type="button" class="g-icbtn" aria-label="Switch between light and dark" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<div class="g-wrap d-shell">
+  <nav class="d-side d-nav" aria-label="Chapters">
+    <h2>Before you start</h2>
+    <ol>
+      <li class="is-here"><a href="Capitulo.dc.html" aria-current="page">The idea</a></li>
+      <li><a href="Cap-manos-a-la-obra.dc.html">Hands on</a></li>
+      <li><a href="Cap-las-piezas.dc.html">The pieces and the roles</a></li>
+      <li><a href="Cap-los-principios.dc.html">The seven principles</a></li>
+      <li><a href="Cap-los-momentos.dc.html">The five moments</a></li>
+    </ol>
+    <h2>Prepare</h2>
+    <ol>
+      <li><a href="Cap-empieza.dc.html">Get started</a></li>
+      <li><a href="Cap-empieza-hoy.dc.html">A gate by hand</a></li>
+      <li><a href="Cap-los-colores.dc.html">What each color asks for</a></li>
+      <li><a href="Cap-los-archivos.dc.html">What it leaves in your repository</a></li>
+    </ol>
+    <h2>Brief</h2>
+    <ol>
+      <li><a href="Cap-las-skills.dc.html">The skills</a></li>
+      <li><a href="Cap-un-caso-delicado.dc.html">A delicate case</a></li>
+    </ol>
+    <h2>Execute</h2>
+    <ol>
+      <li><a href="Cap-el-recorrido-entero.dc.html">The whole path</a></li>
+      <li><a href="Cap-cuando-se-para.dc.html">When it stops</a></li>
+      <li><a href="Cap-las-ordenes.dc.html">The layer's commands</a></li>
+    </ol>
+    <h2>Close</h2>
+    <ol>
+      <li><a href="Cap-como-se-mide.dc.html">How it is measured</a></li>
+    </ol>
+    <h2>Harden</h2>
+    <ol>
+      <li><a href="Cap-como-se-engana-una-puerta.dc.html">How a gate gets fooled</a></li>
+      <li><a href="Cap-el-nucleo.dc.html">The core</a></li>
+      <li><a href="Cap-buenas-practicas.dc.html">Good practices</a></li>
+    </ol>
+    <h2>Look up</h2>
+    <ol>
+      <li><a href="Cap-glosario.dc.html">Glossary</a></li>
+      <li><a href="Cap-y-tdd.dc.html">What about TDD?</a></li>
+      <li><a href="Cap-de-donde-viene.dc.html">Where it comes from</a></li>
+      <li><a href="Cap-novedades.dc.html">What's new</a></li>
+    </ol>
+    <h2>T-minus, in development</h2>
+    <ol>
+      <li><a href="Cap-el-motor.dc.html">The engine</a></li>
+      <li><a href="Cap-los-kits.dc.html">The kits</a></li>
+    </ol>
+  </nav>
+
+  <main class="d-main">
+    <div class="d-title">
+      <h1 class="g-h1">The idea</h1>
+      <p class="g-lead">Why the agent's "done" isn't enough, and what to do about it.</p>
+      <p class="d-meta"><span>Before you start, stop 1 of 5</span><span>About 4 minutes</span></p>
+    </div>
+
+    <div class="d-prose">
+      <p class="g-p">You ask the agent for something, it works for a good while and at the end it tells you "done." You try it, and it isn't. You ask more carefully, you write it longer specifications, and it tells you "done" again with the same confidence. You end up reviewing everything yourself, which was exactly what you wanted to avoid.</p>
+      <p class="g-p">I spent a long time like that, until I stopped trying to convince it and started putting gates on it.</p>
+
+      <h2 class="d-h2">What a gate is</h2>
+      <p class="g-p">A gate is what the agent has to prove before moving on. You decide it before it starts: that a customer gets charged only once, that the total never drops below zero. Its word opens nothing.</p>
+      <dl class="d-def">
+        <div><dt>Check</dt><dd>What opens the gate. Something you already use and the agent can't touch: a test, a linter, another person's review. You get through the gate if they all pass.</dd></div>
+        <div><dt>Context</dt><dd>What the agent needs to know to get through it. It helps it get through, but it proves nothing.</dd></div>
+        <div><dt>Risk</dt><dd>What can go wrong with the change. It decides how many checks are needed and whether you get called.</dd></div>
+        <div><dt>Harden</dt><dd>When something slips through, adding the check that would have stopped it, and relaxing or retiring the one that no longer catches anything.</dd></div>
+      </dl>
+
+      <h2 class="d-h2">Think of it as an escape room</h2>
+      <p class="g-p">Each door has its puzzle, the clues are the context and the key only shows up once the puzzle is solved. The locks change with the difficulty: some are watched by a machine, others by a person.</p>
+      <p class="g-p"><strong>You don't play: you design the game.</strong> The locks are your checks, the clues are the context and the players are your agents. If someone cheats or a room turns out too easy, you reinforce that gate.</p>
+
+      <h2 class="d-h2">Risk is the difficulty</h2>
+      <table class="g-tbl">
+        <thead><tr><th scope="col" class="g-lbl">Level</th><th scope="col" class="g-lbl">Example</th><th scope="col" class="g-lbl">Your part</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><span class="g-st g-st--v">Green</span></th><td>Changing some text</td><td>None, if it gets through the gates.</td></tr>
+          <tr><th scope="row"><span class="g-st g-st--a">Yellow</span></th><td>A new filter in a list</td><td>Approve the rules before building.</td></tr>
+          <tr><th scope="row"><span class="g-st g-st--r">Red</span></th><td>Something that touches payment</td><td>Approve the rules and review at the end.</td></tr>
+        </tbody>
+      </table>
+      <p class="g-p">If the change is a typo, you barely notice. If it touches payment, you ask for a lot more, and it may call you. The table is what I would do, and what the template brings: what you approve in each color is up to you, or your team.</p>
+
+      <h2 class="d-h2">What you design</h2>
+      <p class="g-p">We don't develop code, or even tests. We write what must be true and design the gates our agents go through.</p>
+      <p class="g-p">Specifications don't disappear: they become executable. They're written as rules and scenarios, which a person can read and a machine can check. An agent can draft them; you review them and correct them.</p>
+      <pre class="d-code"><b>Rule:</b> SUMMER10 takes 10% off the cart
+@id:discounts-1
+<b>Scenario:</b> a 10% discount code
+  <b>Given</b> a €50.00 cart
+  <b>When</b> I apply the code SUMMER10
+  <b>Then</b> the total is €45.00</pre>
+      <p class="g-p">It's the shift OpenAI describes when it talks about the agent's environment: <span lang="en">"Humans steer. Agents execute."</span> <a class="g-src" href="https://openai.com/index/harness-engineering/">OpenAI, 2026</a></p>
+    </div>
+
+    <div class="d-gate {{gateCls}}">
+      <div class="g-wall"><i></i><svg viewBox="0 0 84 84" aria-hidden="true"><path class="g-arc" d="M84 5A84 84 0 0 1 0 89"></path><path class="g-leaf" d="M0 5H84"></path></svg><i></i></div>
+      <div class="d-gate__in">
+        <h2 class="g-h3">Before you cross: the agent says "done," and the tests it ran itself pass. Does the gate open?</h2>
+        <div class="d-opts">
+          <button type="button" class="g-pk" aria-pressed="{{isWrong}}" onClick="{{answerWrong}}">Yes: the tests pass.</button>
+          <button type="button" class="g-pk" aria-pressed="{{isOpen}}" onClick="{{answerRight}}">No, not until something it can't touch checks it.</button>
+        </div>
+        <p class="g-p when-wrong" aria-live="polite">It ran them itself, so it's still its word. What opens the gate is a check it can't change, run out of its reach: CI, or you in a clean copy.</p>
+        <p class="g-p when-open" aria-live="polite">That's it. The gate is opened by a check out of its reach, not by what it tells you.</p>
+        <div class="d-next">
+          <a class="g-btn when-open" href="Cap-manos-a-la-obra.dc.html">Next: Hands on <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link when-shut" href="Cap-manos-a-la-obra.dc.html">Go on without answering: Hands on <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+          <a class="g-link" href="Taller.dc.html">Practice it in the Workshop</a>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":2594}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    return {
+      scheme: scheme,
+      gateCls: s.gate === 'open' ? 'is-open' : (s.gate === 'wrong' ? 'is-wrong' : ''),
+      isOpen: s.gate === 'open', isWrong: s.gate === 'wrong',
+      answerRight: function () { self.setState({ gate: 'open' }); },
+      answerWrong: function () { self.setState({ gate: 'wrong' }); },
+      toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

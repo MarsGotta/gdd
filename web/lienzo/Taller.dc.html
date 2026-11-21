@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Taller: ¿esta puerta vale?</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="gdd-theme.css">
+<link rel="stylesheet" href="gdd-site.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#f7f9fb}
+a{color:inherit}a:hover{color:inherit}
+</style>
+</helmet>
+<div class="g d" data-ki-theme="gdd" data-ki-color-scheme="{{scheme}}">
+
+<header class="d-head">
+<div class="g-wrap">
+  <nav class="g-nav" aria-label="Principal">
+    <a class="g-brand" href="Main.dc.html">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pl" style="stroke-width: 3" d="M1 21.5h5M18.5 21.5H23"></path><path class="pl" style="stroke-width: 2" d="M6 21.5V4"></path><path class="pl" style="stroke-width: 1.3" d="M6 4a15 17.5 0 0 1 12.5 17.5"></path></svg>
+      <span>Gate-Driven Development</span>
+    </a>
+    <a class="g-navl" href="Docs.dc.html" aria-current="page">Documentación</a>
+    <a class="g-navl" href="Manifiesto.dc.html">Manifiesto</a>
+    <a class="g-navl" href="https://gate-driven.dev/en/docs/" lang="en" hreflang="en">English</a>
+    <button type="button" class="g-icbtn" aria-label="Cambiar entre claro y oscuro" onClick="{{toggleScheme}}"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 18a6 6 0 0 0 0-12v12z"></path></svg></button>
+  </nav>
+</div>
+</header>
+
+<main class="g-wrap" style="padding-block: clamp(36px, 4.4vw, 64px) clamp(56px, 6vw, 88px)">
+  <div class="d-title" style="max-width: 46em">
+    <h1 class="g-h1">Taller: ¿esta puerta vale?</h1>
+    <p class="g-lead">Una puerta vale si respondes que sí a cuatro preguntas. Quita una y mira por dónde se cuela el error.</p>
+  </div>
+
+  <section class="{{labCls}}">
+    <h2 class="d-h2" style="margin-top: 0">Monta la puerta</h2>
+    <div class="l-grid">
+      <div>
+        <p class="g-p">El cambio son los códigos de descuento. Antes de empezar se decidió que el total nunca baja de 0 €, ni siquiera con dos códigos. El agente trae un error que todavía nadie ha visto: con dos códigos a la vez, el total sale negativo. Dice «hecho».</p>
+        <div style="margin-top: 18px; border-bottom: 1px solid var(--ki-outline-med-em)">
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c1}}" onClick="{{t1}}"><i></i><span>Se decidió antes de que el agente empezara</span><b class="when-on">Sí</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c2}}" onClick="{{t2}}"><i></i><span>Se comprueba sin fiarse de lo que dice</span><b class="when-on">Sí</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c3}}" onClick="{{t3}}"><i></i><span>Está fuera de su alcance</span><b class="when-on">Sí</b><b class="when-off">No</b></button>
+          <button type="button" role="switch" class="l-sw" aria-checked="{{c4}}" onClick="{{t4}}"><i></i><span>Se la ha visto rechazar algo mal hecho</span><b class="when-on">Sí</b><b class="when-off">No</b></button>
+        </div>
+      </div>
+      <div>
+        <div class="l-plan" aria-hidden="true">
+          <span class="g-ent"></span>
+          <span class="g-track"></span>
+          <span class="g-lbl g-rl" style="left: 14px; bottom: 10px">Agente</span>
+          <span class="g-lbl g-rl" style="right: 14px; bottom: 10px">Producción</span>
+          <span class="g-part"><i></i><b><svg viewBox="0 0 132 132"><path class="g-arc" d="M0 132A132 132 0 0 0 132 0"></path><path class="g-leaf" d="M0 0V132"></path></svg></b><i></i></span>
+          <span class="l-agent"><svg viewBox="0 0 16 16"><path class="pl" style="stroke-width: 2" d="M3 3l10 10M13 3L3 13"></path></svg><span class="g-dot"></span></span>
+        </div>
+        <div class="l-res" aria-live="polite">
+          <h3 class="g-h3 when-ok">La puerta dice que no. El error vuelve al agente y tú ni te enteras.</h3>
+          <h3 class="g-h3 when-ko">La puerta se abre y el error llega a producción.</h3>
+          <p class="l-why w1"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>La comprobación se escribió después de ver su trabajo. Comprueba lo que hizo, no lo que hacía falta: el total negativo no estaba en ningún caso.</span></p>
+          <p class="l-why w2"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>El agente imprimió <span style="font-family: var(--ki-typography-family-mono); font-size: .8125rem">3 passed</span> y nadie lo ejecutó. Decirlo abrió la puerta.</span></p>
+          <p class="l-why w3"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>El agente cambió lo que rodea al test: puso <span style="font-family: var(--ki-typography-family-mono); font-size: .8125rem">"test": "exit 0"</span> en package.json. CI ejecutó lo que había en su rama.</span></p>
+          <p class="l-why w4"><svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg><span>Nadie vio fallar nunca esta comprobación. Pasa con el error dentro, como habría pasado con cualquier cosa.</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-top: clamp(48px, 6vw, 80px)">
+    <h2 class="d-h2" style="margin-top: 0">Cinco puertas. ¿Valen?</h2>
+    <ol class="l-qs">
+      <li class="l-q {{q1}}"><p>El agente ejecuta los tests en su propia sesión y te dice que pasan.</p><div><button type="button" class="g-ghost" aria-pressed="{{y1}}" onClick="{{a1y}}">Vale</button><button type="button" class="g-ghost" aria-pressed="{{n1}}" onClick="{{a1n}}">No vale</button></div><p class="l-fb"><strong class="when-right">Eso es.</strong><strong class="when-wrong">No.</strong> No vale: sigue siendo su palabra. Que lo ejecute otro, sea CI, un motor o tú en una copia limpia.</p></li>
+      <li class="l-q {{q2}}"><p>CI obligatorio en una rama protegida. Los tests del cobro los escribió otra sesión antes de empezar, y viste fallar uno a propósito. Un paso de CI comprueba que ni los tests ni lo que los rodea cambiaron respecto a lo aprobado.</p><div><button type="button" class="g-ghost" aria-pressed="{{y2}}" onClick="{{a2y}}">Vale</button><button type="button" class="g-ghost" aria-pressed="{{n2}}" onClick="{{a2n}}">No vale</button></div><p class="l-fb"><strong class="when-right">Eso es.</strong><strong class="when-wrong">No.</strong> Vale: se decidió antes, la ejecuta otro, está fuera de su alcance y ya la has visto cerrar.</p></li>
+      <li class="l-q {{q3}}"><p>Un linter que lleva meses en el repositorio y nunca ha marcado nada.</p><div><button type="button" class="g-ghost" aria-pressed="{{y3}}" onClick="{{a3y}}">Vale</button><button type="button" class="g-ghost" aria-pressed="{{n3}}" onClick="{{a3n}}">No vale</button></div><p class="l-fb"><strong class="when-right">Eso es.</strong><strong class="when-wrong">No.</strong> No vale todavía: una puerta que nunca cierra no es una puerta. Ponle delante algo mal hecho y mira si lo rechaza.</p></li>
+      <li class="l-q {{q4}}"><p>Ves el diff y le pides al mismo agente que escriba tests para lo que ha hecho.</p><div><button type="button" class="g-ghost" aria-pressed="{{y4}}" onClick="{{a4y}}">Vale</button><button type="button" class="g-ghost" aria-pressed="{{n4}}" onClick="{{a4n}}">No vale</button></div><p class="l-fb"><strong class="when-right">Eso es.</strong><strong class="when-wrong">No.</strong> No vale: llega después y la escribe quien cruza. Comprobará lo que hizo, no lo que hacía falta.</p></li>
+      <li class="l-q {{q5}}"><p>Otro agente, con contexto limpio, ejecuta el cambio. Ya cazó un fallo que le pusiste a propósito.</p><div><button type="button" class="g-ghost" aria-pressed="{{y5}}" onClick="{{a5y}}">Vale</button><button type="button" class="g-ghost" aria-pressed="{{n5}}" onClick="{{a5n}}">No vale</button></div><p class="l-fb"><strong class="when-right">Eso es.</strong><strong class="when-wrong">No.</strong> Vale: es un vigilante. Sirve como comprobación, aunque su aprobación nunca cuenta como la de una persona.</p></li>
+    </ol>
+  </section>
+
+  <div class="d-next" style="margin-top: clamp(36px, 4vw, 56px)">
+    <a class="g-btn" href="Cap-empieza-hoy.dc.html">Monta la tuya: una puerta a mano <svg class="g-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></a>
+    <a class="g-link" href="Cap-como-se-engana-una-puerta.dc.html">Cómo se engaña una puerta</a>
+  </div>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"esquema":{"editor":"enum","options":["delineado","nocturno"],"default":"delineado"},"$preview":{"width":1440,"height":1490}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var s = this.state || {}, self = this;
+    var scheme = s.scheme || (this.props.esquema === 'nocturno' ? 'dark' : 'light');
+    var c = s.c || [true, true, true, true];
+    var ans = s.ans || {};
+    var key = { 1: false, 2: true, 3: false, 4: false, 5: true };
+    var cls = [c.every(function (x) { return x; }) ? 'is-ok' : 'is-ko'];
+    var v = { scheme: scheme, toggleScheme: function () { self.setState({ scheme: scheme === 'dark' ? 'light' : 'dark' }); } };
+    c.forEach(function (on, i) {
+      if (!on) cls.push('no' + (i + 1));
+      v['c' + (i + 1)] = on;
+      v['t' + (i + 1)] = function () { var n = c.slice(); n[i] = !n[i]; self.setState({ c: n }); };
+    });
+    v.labCls = cls.join(' ');
+    [1, 2, 3, 4, 5].forEach(function (i) {
+      var a = ans[i];
+      v['q' + i] = a === undefined ? '' : (a === key[i] ? 'is-right' : 'is-wrong');
+      v['y' + i] = a === true; v['n' + i] = a === false;
+      v['a' + i + 'y'] = function () { var n = Object.assign({}, ans); n[i] = true; self.setState({ ans: n }); };
+      v['a' + i + 'n'] = function () { var n = Object.assign({}, ans); n[i] = false; self.setState({ ans: n }); };
+    });
+    return v;
+  }
+}
+</script>
+</body>
+</html>

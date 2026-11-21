@@ -1,0 +1,16 @@
+/* What the site adds to the design canvas's own stylesheets (gdd-theme.css and gdd-site.css),
+   and nothing else: the fonts the canvas takes from Google Fonts, served from the site, and the
+   reader's choice of light or dark, which <head> reads before the page is painted. */
+@font-face { font-family: "Archivo"; src: url("/assets/archivo.woff2") format("woff2-variations"); font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap; }
+@font-face { font-family: "Archivo"; src: url("/assets/archivo-italic.woff2") format("woff2-variations"); font-weight: 100 900; font-stretch: 62% 125%; font-style: italic; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("/assets/jetbrains-mono.woff2") format("woff2-variations"); font-weight: 100 800; font-style: normal; font-display: swap; }
+
+/* Until the page's script sets its scheme, the reader's choice, if they made one. */
+html[data-tema="oscuro"] .g[data-ki-theme] { color-scheme: dark; }
+html[data-tema="claro"] .g[data-ki-theme] { color-scheme: light; }
+
+/* Below a short page, the ground of its scheme: the canvas paints the body film-white. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-tema="claro"]) body:has(> .d) { background: #0f1622; }
+}
+html[data-tema="oscuro"] body:has(> .d) { background: #0f1622; }
