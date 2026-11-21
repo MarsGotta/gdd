@@ -27,11 +27,12 @@ Before you send it, read it as someone who never saw the method, and ask yoursel
 | main, the main branch | "what your customers see", in the words of their product |
 | a test by its function name, a file path | what it protects, in the person's words: "a test of the crossword clues" |
 | red, yellow, green, a zone | "the delicate parts" |
+| a backlog item, a job, a task, a piece | "a change", the method's own word: each thing that gets added or modified, which is made, checked and put in by itself. Say that the first time, and keep to the word |
 | the brief, its scenarios | "what the change has to do" |
 | sealed | "fixed, so nobody building it can change them" |
 | a builder, a reviewer, a role or an assistant at work | nothing while they work; "a second assistant tried to break it", when it matters. Say it is an assistant, so nobody takes it for a person |
 | a check that passed | what it proved, and only when something went in or failed |
-| a limit, its minutes or rounds | "the time we agreed for this job", "one more try" |
+| a limit, its minutes or rounds | "the time we agreed for this change", "one more try" |
 | debt, a quarantine, a waiver | "leave that failure noted for later", "switch that test off for now" |
 | a mutation score | "how many planted bugs the tests catch" |
 
@@ -39,7 +40,7 @@ This table is for someone who doesn't use these words. With a person who uses th
 
 ## While you work
 
-Your environment may ask you now and then to say what you're doing. Answer in one sentence, in their language, about where their product stands and what comes next: "The first job is built, and a second assistant is trying to break it now. I don't need anything from you yet." Never which agent does what, and nothing new when what you last told them still holds. Notes you write while you work can reach them too, so write those in their language as well. When it helps, say where they are in the plan: "the first of seventeen jobs".
+Your environment may ask you now and then to say what you're doing. Answer in one sentence, in their language, about where their product stands and what comes next: "The first change is built, and a second assistant is trying to break it now. I don't need anything from you yet." Never which agent does what, and nothing new when what you last told them still holds. Notes you write while you work can reach them too, so write those in their language as well. When it helps, say where they are in the plan: "the first of seventeen jobs".
 
 ## The first days
 
@@ -95,7 +96,7 @@ After:
 
 **Rules they can't judge on their own.** When most rules are technical, group them by what they protect, name each one in a few words inside its group, and say who chose them. Show the file beside the message, so they can see each rule.
 
-    This first job won't give you anything to use yet. It proves, on this computer, that the pieces we chose really work before anything is built on them.
+    This first change won't give you anything to use yet. It proves, on this computer, that the tools we chose really work before anything is built on them.
 
     I chose all six rules myself, and the tests will check each one. Two keep anyone from typing something into a search box that changes your data: what they type is kept apart from the search itself, and stored exactly as typed. Two make sure that when two people change the same thing at once, nothing is left half done: a group of changes goes in whole or not at all, and a change made on an old copy changes nothing. And two keep borrowed software in check: we depend on a single outside package, and no new version of it gets in until it has been out for a week.
 
@@ -134,7 +135,7 @@ When they delegated and other work can go on, the message asks nothing:
 
 Otherwise it asks once:
 
-    Your songbook shows the lyrics now. The chords still need checking, and I've used both tries we agreed on for this job. One more would be enough to fix them, but I'd leave them for later and move on. Is that all right with you?
+    Your songbook shows the lyrics now. The chords still need checking, and I've used both tries we agreed on for this change. One more would be enough to fix them, but I'd leave them for later and move on. Is that all right with you?
 
 A yes here keeps the limit. Use `gdd answer`, keep or add the item in the backlog, and close a deferred change with `gdd brief <id> --stop "<their words>"`. If they explicitly ask for the extra try, use `gdd waiver` directly with their words, the cap and its new value. No second question, answer event or brief approval is needed. If several caps are spent, name what the attempt needs from each and record only the extensions they chose. General encouragement grants nothing.
 
