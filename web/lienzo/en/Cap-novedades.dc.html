@@ -104,7 +104,7 @@ a{color:inherit}a:hover{color:inherit}
       <h2 class="d-h2">0.16, November 19, 2026</h2>
       <ul><li>Close arrives, with the skill <code>gdd-close</code>: before anyone builds, the brief says what you expect from the change, what signal will tell and where to look.</li><li>A change in use waits for your verdict without holding up the next one.</li><li>If your blueprint is older and you want a deadline and someone responsible for the verdict, add <code>closing</code> to the blueprint and approve it.</li></ul>
       <h2 class="d-h2">0.15, November 19, 2026</h2>
-      <ul><li>The layer rejects a new or changed scenario that has no rule, <code>@id</code> or action.</li><li>The CI line builds the layer of your skills' version. If your CI is older, change it with <code>--tag</code>.</li></ul>
+      <ul><li>The layer rejects a new or changed scenario that lacks a rule, an <code>@id</code> or a single action.</li><li>The CI line builds the layer of your skills' version. If your CI is older, change it with <code>--tag</code>.</li></ul>
       <h2 class="d-h2">How to update</h2>
       <p class="g-p">Update the plugin with your agent's commands and open a new session. The layer rebuilds itself, and in your CI you change its tag to the new version's. Check its version:</p>
       <pre class="d-code">.gdd/gdd --version</pre>

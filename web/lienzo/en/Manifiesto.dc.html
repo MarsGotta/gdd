@@ -76,7 +76,7 @@ a{color:inherit}a:hover{color:inherit}
           <tr><th scope="row">Prepare</th><td>At the start, and when the blueprint falls short.</td><td>The blueprint is written, the gates are built and someone tries to fool them on purpose. No change starts until they hold.</td></tr>
           <tr><th scope="row">Brief</th><td>In each change, before it starts.</td><td>Rules, a few scenarios and a first estimate of the risk. The tests are written by whoever won't build.</td></tr>
           <tr><th scope="row">Execute</th><td>In each change.</td><td>The agent goes through the gates one by one. If it gets stuck, it stops and asks. The risk is worked out again from what was touched, and it can only go up.</td></tr>
-          <tr><th scope="row">Close</th><td>With the change already in use.</td><td>A person checks whether it helped: yes, not yet or no. A "no" also closes it, and opens a new brief.</td></tr>
+          <tr><th scope="row">Close</th><td>With the change already in use.</td><td>The agent gathers what can be seen and a person says whether it helped: yes, not yet or no. What promised nothing closes by itself. A "no" also closes it, and opens a new brief.</td></tr>
           <tr><th scope="row">Harden</th><td>When something slips through or keeps repeating.</td><td>Cracks become checks, and what no longer adds anything is relaxed or retired. The blueprint changes, you go back to Prepare and a person approves it.</td></tr>
         </tbody>
       </table>
